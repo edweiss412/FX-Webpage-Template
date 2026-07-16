@@ -237,7 +237,7 @@ and `pending_ingestions`):
    `logSync` sink. NOTE the boundary shape: the internal `logSync` wrapper
    converts the result's `reason` into `SyncLogEntry.code` before invoking the
    injected sink (`lib/sync/runScheduledCronSync.ts:2183-2202`, mapping at
-   `:2190-2191`; `SyncLogEntry` type at `:431-446`). The assertion is
+   `:2197-2198`; `SyncLogEntry` type at `:431-446`). The assertion is
    therefore on the entry object the sink receives:
    `{ driveFileId: F, outcome: "skipped", code: "wizard_owned" }` (assert on
    the entry payload, not a call count — anti-tautology). Failure mode: an
@@ -261,7 +261,7 @@ and `pending_ingestions`):
    `logSync` sink received the mapped entry
    `{ driveFileId: F, outcome: "skipped", code: "wizard_owned" }` (the
    operator-visibility assertion of item 9 — `reason` becomes `code` at the
-   boundary, `lib/sync/runScheduledCronSync.ts:2190-2191`). Failure mode: gate
+   boundary, `lib/sync/runScheduledCronSync.ts:2197-2198`). Failure mode: gate
    bypassed by the cron pipeline plumbing, or the skip silenced.
    Anti-tautology: asserts on the returned result object and the received
    entry object, not on mock call counts.
