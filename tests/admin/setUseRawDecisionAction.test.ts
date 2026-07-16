@@ -405,13 +405,7 @@ describe("sequential-not-nested + deferred re-sync order", () => {
     expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:schedule"]);
     expect(r).toEqual({ ok: true, state: "apply_pending" });
     await deferredTasks[0]!();
-    expect(callOrder).toEqual([
-      "lock:acquire",
-      "lock:release",
-      "emit",
-      "defer:schedule",
-      "resync",
-    ]);
+    expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:schedule", "resync"]);
     expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
   });
 
