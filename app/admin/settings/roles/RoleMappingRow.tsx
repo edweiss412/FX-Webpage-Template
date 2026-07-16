@@ -135,13 +135,24 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
       className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold text-text-strong">{row.token}</span>
-        <span className="whitespace-nowrap text-[11px] text-text-subtle">{meta}</span>
+        <span
+          data-testid="role-mapping-token"
+          title={row.token}
+          className="text-sm font-semibold text-text-strong"
+        >
+          {row.token}
+        </span>
+        <span
+          data-testid="role-mapping-meta"
+          className="whitespace-nowrap text-[11px] text-text-subtle"
+        >
+          {meta}
+        </span>
       </div>
 
       {mode === "view" ? (
         <>
-          <div className="flex flex-wrap gap-1.5">
+          <div data-testid="role-mapping-chips" className="flex flex-wrap gap-1.5">
             {row.grants.length === 0 ? (
               <span
                 data-testid="role-mapping-chip"
@@ -166,9 +177,27 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               ))
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={startEdit} className={outlineBtn}>
-              {COPY.EDIT_LABEL}
+          <div data-testid="role-mapping-actions" className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={startEdit}
+              aria-label={COPY.EDIT_LABEL}
+              className={outlineBtn}
+            >
+              <span
+                aria-hidden="true"
+                data-testid="role-mapping-edit-label-long"
+                className="min-[760px]:hidden"
+              >
+                {COPY.EDIT_LABEL}
+              </span>
+              <span
+                aria-hidden="true"
+                data-testid="role-mapping-edit-label-short"
+                className="hidden min-[760px]:inline"
+              >
+                {COPY.EDIT_LABEL_SHORT}
+              </span>
             </button>
             <button type="button" onClick={startConfirm} className={ghostBtn}>
               {COPY.REMOVE_LABEL}
