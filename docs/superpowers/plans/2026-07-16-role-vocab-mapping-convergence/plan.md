@@ -120,14 +120,15 @@ Write each case as a real `it()` with the seed calls above; assert via
 
 ```ts
 import postgres from "postgres";
-
-function databaseUrl(): string {
-  const url = process.env.DATABASE_URL ?? process.env.TEST_DATABASE_URL;
-  if (!url) throw new Error("roleVocabDrift requires DATABASE_URL");
-  return url;
-}
-// NOTE: follow the exact env-resolution used by listPostgresLiveShows's databaseUrl()
-// (lib/sync/runScheduledCronSync.ts:652 region) — reuse/import if exported, else mirror it.
+import { databaseUrl } from "@/lib/sync/runScheduledCronSync";
+// (plan R1 F2) SINGLE resolver: export the existing private `databaseUrl()` from
+// runScheduledCronSync (the one listPostgresLiveShows uses, :652 region — precedence
+// TEST_DATABASE_URL ?? DATABASE_URL ?? local fallback, production guard included) and
+// import it here. Do NOT write a second resolver — a precedence divergence points the
+// scanner at a different DB than the cron pipeline. If a circular-import issue arises,
+// extract the function verbatim to `lib/sync/_databaseUrl.ts` and import it from BOTH
+// files in the same commit. Add a unit test asserting roleVocabDrift and the cron
+// pipeline share the same resolver function (referential identity or module source).
 
 /**
  * Drift-eligibility pre-pass (spec 2026-07-16-role-vocab-mapping-convergence §3.1/§3.2).
@@ -265,8 +266,8 @@ if (isAtOrBefore(fileMeta.modifiedTime, effectiveWatermark)) {
 
 - [ ] **Step 1: Failing tests** (spec §6.6 race cases; use the file's existing injected `withShowLock`/tx-stub pattern from `tests/sync/runScheduledCronSync.test.ts`):
   - unpublish race: prepared ready + `driftResync: true`, locked read returns `published=false` → result `{ outcome: "skipped", reason: "drift_recheck_failed" }` AND zero Phase 1 side effects (phase1 spy not called; no pending_syncs/shows writes on the tx recorder).
-  - archive race: same with `archived=true`.
-  - pending race: same with a live pending_syncs row found in-lock.
+  - archive race (plan R1 F1): the EXISTING DEF-4 in-lock archived re-read (`processOneFile_unlocked:3176-3180`, `readShowArchived_unlocked`) fires BEFORE the pipeline/prepared derivation and returns `{ outcome: "skipped", reason: ARCHIVED_SKIP_REASON }` silently — that existing guard IS the archived leg of the spec's in-lock re-verification (spec §3.3 item iii), already satisfying "benign skip, zero Phase 1 side effects." The test therefore expects `ARCHIVED_SKIP_REASON` (NOT `drift_recheck_failed`) for a drift-rescued run racing an archive, and additionally asserts phase1 spy not called. Do NOT reorder the existing guard and do NOT expect the drift-specific reason for this case.
+  - pending race: same setup with a live pending_syncs row found in-lock → `drift_recheck_failed`.
   - non-drift runs: recheck query NEVER issued when `pipeline.driftResync` absent (spy on the helper).
 - [ ] **Step 2: Run — FAIL.**
 - [ ] **Step 3: Implement.** Helper (same file, near `readShowArchived_unlocked`):
@@ -278,6 +279,9 @@ async function readDriftRecheckBlocked_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
 ): Promise<boolean> {
+  // archived=false kept as defense-in-depth; the archived RACE is authoritatively handled
+  // by the earlier DEF-4 re-read (:3176-3180) which returns ARCHIVED_SKIP_REASON first
+  // (plan R1 F1). This helper's load-bearing legs are published + no-live-pending.
   const rows = await tx.unsafe(
     `select (s.published = true and s.archived = false
              and not exists (select 1 from public.pending_syncs p
