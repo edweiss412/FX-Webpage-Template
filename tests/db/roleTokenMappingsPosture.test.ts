@@ -57,7 +57,8 @@ async function runAs<T>(
   query: (tx: Sql) => Promise<T[]>,
 ): Promise<{ rows: T[]; denied: boolean }> {
   let rows: T[] = [];
-  let denied = false;
+  // `denied: true` is only ever produced by the early return in the catch below.
+  const denied = false;
   const ROLLBACK = Symbol("rollback");
   try {
     await priv.begin(async (tx) => {
