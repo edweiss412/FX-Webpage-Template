@@ -242,8 +242,10 @@ describe("DESIGN.md figure parity (touched rows)", () => {
       expect(Math.abs(fig.dark - dark)).toBeLessThanOrEqual(TOL);
     });
   }
-  it("known-unpinned list stays empty unless a parser limitation is documented", () => {
-    for (const [, reason] of KNOWN_UNPINNED) expect(reason.length).toBeGreaterThan(10);
+  it("known-unpinned exceptions are exactly the declared historical set", () => {
+    expect(KNOWN_UNPINNED.map(([label]) => label)).toEqual([
+      "2.33:1 / 4.07:1 / 11.3:1 in L33 prose",
+    ]);
   });
 });
 ```
@@ -334,7 +336,7 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
 });
 ```
 
-- [ ] **Step 5: Run** — `pnpm exec playwright test tests/e2e/toggle-edge-layout.spec.ts --config tests/e2e/standalone.config.ts`. Expected: PASS. (Failure mode caught: alias missing → borderColor is `rgb(0, 0, 0)`/initial → test fails — this is the dead-utility proof.)
+- [ ] **Step 5: Run** — `pnpm exec playwright test tests/e2e/toggle-edge-layout.spec.ts --config tests/e2e/standalone.config.ts`. Expected: PASS. (Failure mode caught: alias missing → borderColor is `rgb(0, 0, 0)`/initial → test fails — this is the dead-utility proof.) Coverage mapping to spec §9.1: this sibling spec IS the §9.1 assertion home — its settings track covers the "one representative of the color-only four" row (spec §9.1's own coverage bar: the four share one recipe, changed color-only) and its AutoRefresh tracks cover the geometry-touching row; `developer-toggle-layout.spec.ts` continues to pin the 44px/AdminRow invariants with the updated verbatim string.
 - [ ] **Step 6: Commit** — `feat(admin): accent-edge ON boundary on all toggle tracks + wizard active pill; real-browser edge proof`
 
 ### Task 4: Eyebrows → text-subtle (+ wizard 10px-faint scan)
@@ -382,6 +384,14 @@ function walk(dir: string): string[] {
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
+// Shared token splitter for BOTH scanners (raw-accent text + bg-accent
+// inventory). Splits on whitespace, quotes/backticks, braces, and JSX/TS
+// punctuation — but NEVER on ":" (variant separator), "-" (utility body),
+// or "/" (opacity suffix: splitting bg-accent/10 would fabricate a bare
+// bg-accent false positive).
+export function tokensOf(line: string): string[] {
+  return line.split(/[\s"'`{}$()[\],;<>=&|]+/);
+}
 // A token is banned iff, after stripping its variant chain, the final utility
 // is EXACTLY `text-accent` (raw accent as text — banned in EVERY chain, hover
 // or not), OR the chain contains `hover` and the final utility is EXACTLY
@@ -418,6 +428,11 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
     expect(bannedToken("text-[color:red]")).toBe(false);
     expect(bannedToken("text-accent-on-bg")).toBe(false);
     expect(bannedToken("bg-accent-hover")).toBe(false);
+    // Splitter self-check: JSX punctuation never welds onto a token, and the
+    // opacity slash is preserved (no fabricated bare tokens).
+    expect(tokensOf('cn(active && "text-accent")').includes("text-accent")).toBe(true);
+    expect(tokensOf("a ? `x text-accent` : y").includes("text-accent")).toBe(true);
+    expect(tokensOf('"bg-accent/10"').includes("bg-accent")).toBe(false);
     expect(bannedToken("hover:text-accent-on-bg")).toBe(false);
     expect(bannedToken("text-accent-text")).toBe(false);
   });
@@ -429,7 +444,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
         if (ALLOWLIST.some((a) => a.file === file)) continue;
         const lines = stripComments(readFileSync(file, "utf8")).split("\n");
         lines.forEach((line, i) => {
-          for (const tok of line.split(/[\s"'`{}$]+/)) {
+          for (const tok of tokensOf(line)) {
             if (bannedToken(tok)) violations.push(`${file}:${i + 1} ${tok}`);
           }
         });
@@ -552,7 +567,7 @@ describe("META bg-accent per-occurrence disposition registry (spec §4.1b)", () 
       for (const file of walk(root)) {
         let n = 0;
         stripComments(readFileSync(file, "utf8")).split("\n").forEach((line, i) => {
-          for (const tok of line.split(/[\s"'`{}$]+/)) {
+          for (const tok of tokensOf(line)) {
             if (bgAccentToken(tok)) hits.push({ file, index: n++, line, lineNo: i + 1 });
           }
         });
@@ -590,13 +605,13 @@ const isHit = (t) => { const p = t.split(":"); return p[p.length - 1].replace(/^
 for (const root of ["components", "app"]) for (const f of walk(root)) {
   let n = 0;
   strip(readFileSync(f, "utf8")).split("\n").forEach((line, i) => {
-    for (const tok of line.split(/[\s"'"'"'`{}$]+/)) if (isHit(tok))
+    for (const tok of line.split(/[\s"'"'"'`{}$()[\],;<>=&|]+/)) if (isHit(tok))
       console.log(`${f}\tindex=${n++}\tline=${i + 1}\t${line.trim().slice(0, 80)}`);
   });
 }'
 ```
 
-(b) build `REGISTRY` by pasting the GENERATED rows and assigning each a disposition from the spec §4.1b table; (c) DIFF the generated registry against the expected block above — investigate any delta (tree moved, missed edit) before proceeding; (d) prove fail-by-default both ways before committing: temporarily append one unregistered `bg-accent` to any component → test fails UNREGISTERED; temporarily add a bogus registry row → test fails STALE REGISTRY ROW; revert both. Never reconcile by loosening the matcher.
+(b) build `REGISTRY` by pasting the GENERATED rows VERBATIM (generated indexes always win — the expected block's indexes, e.g. AutoRefreshControl track=2, are illustrative) and assigning each a disposition from the spec §4.1b table; (c) DIFF the generated registry against the expected block above — investigate any delta (tree moved, missed edit) before proceeding; (d) prove fail-by-default both ways before committing: temporarily append one unregistered `bg-accent` to any component → test fails UNREGISTERED; temporarily add a bogus registry row → test fails STALE REGISTRY ROW; revert both. Never reconcile by loosening the matcher.
 
 - [ ] **Step 4: Run** — PASS with exact reconciliation (post-change: EventFilters/BellPanel/RightNowHero rows must NOT be present; if the scan still finds them the earlier edits are wrong).
 - [ ] **Step 5: Commit** — `feat: bg-accent per-occurrence disposition registry; darken Bell pip + RightNow active segment to accent-on-bg`
