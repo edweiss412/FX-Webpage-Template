@@ -122,6 +122,20 @@ describe("computeRescanDecision", () => {
     expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(true);
   });
 
+  // Role-vocab staging overlay (spec 2026-07-16 §3.3 / §7 item 7): the overlay only
+  // REMOVES warnings + unions non-lead flags — recognizing a role between the prior
+  // stage and a rescan must never demote an approved sheet. Failure mode caught:
+  // consumption being classified as a gap regression (dirty) and forcing re-review.
+  test("UNKNOWN_ROLE_TOKEN consumed by the overlay (1 → 0, flags unioned) → CLEAN", () => {
+    const priorGaps = mkDataGaps({ UNKNOWN_ROLE_TOKEN: 1 });
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }]);
+    refreshed.crewMembers[0]!.role_flags = ["A1"]; // overlay-granted, non-lead
+    refreshed.appliedRoleMappings = [{ token: "NEWROLE", grants: ["A1"] }];
+    const { dirty, decisionItems } = computeRescanDecision(PRIOR, refreshed, priorGaps);
+    expect(dirty).toBe(false);
+    expect(decisionItems).toEqual([]);
+  });
+
   // Negative control: a gap the operator FIXED (count drops) stays CLEAN.
   test("data-gap count DECREASE (2 → 1) → CLEAN", () => {
     const priorGaps = mkDataGaps({ FIELD_UNREADABLE: 2 });
