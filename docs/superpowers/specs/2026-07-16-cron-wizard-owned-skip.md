@@ -216,18 +216,32 @@ and `pending_ingestions`):
    an implementation gating only cron leaves the webhook path able to process
    wizard-owned files whenever the push duplicate-preflight proceeds,
    `lib/sync/runPushSyncForShow.ts:283-303`).
-8. **Infra contract** — extend the behavioral cases in
-   `tests/sync/_metaInfraContract.test.ts:496-511`: returned-error and
-   thrown-error on the `app_settings` read and on an ownership probe each
-   reject with `SyncInfraError` (failure mode: infra fault collapsing into a
-   benign proceed → the race reopens silently).
-9. **Regression (integration, the incident shape)** — via
-   `prepareProcessOneFile` with the real `perFileProcessor` against the fake
-   Supabase: active wizard session + wizard-staged file + no `shows` row →
-   result is `{ kind: "skip", result: { outcome: "skipped", reason:
-   "wizard_owned" } }` (failure mode: gate bypassed by the cron pipeline
-   plumbing). Anti-tautology: asserts on the returned result object, not on a
-   mock's call count.
+9. **`wizard_owned` writes a sync_log row (not archived-style silent)** — the
+   regression case in item 10 runs through `processOneFile` with an injected
+   `logSync` and asserts it was invoked with the
+   `{ outcome: "skipped", reason: "wizard_owned" }` result for the file
+   (assert on the logged payload, not a call count — anti-tautology). Failure
+   mode: an implementation special-casing the new reason into the
+   `ARCHIVED_SKIP_REASON` silent branch (`lib/sync/runScheduledCronSync.ts:
+   2662`) passes the gate-level tests while making the accepted
+   abandoned-session wedge invisible to operators.
+10. **Infra contract** — extend the behavioral cases in
+   `tests/sync/_metaInfraContract.test.ts:496-511`: returned-error AND
+   thrown-error cases for the `app_settings` read and for EACH of the three
+   ownership probes (`pending_syncs`, `pending_ingestions`,
+   `deferred_ingestions`) — 8 cases total — each rejecting with
+   `SyncInfraError` (failure mode: a returned error on any single probe table
+   collapsing into a benign "not owned" → the race reopens silently while the
+   other tables' tests pass; invariant 9 applies per read boundary).
+11. **Regression (integration, the incident shape)** — through
+   `processOneFile` (which runs `prepareProcessOneFile` → the real
+   `perFileProcessor`) against the fake Supabase, with an injected `logSync`:
+   active wizard session + wizard-staged file + no `shows` row → the returned
+   result is `{ outcome: "skipped", reason: "wizard_owned" }` AND `logSync`
+   received that same result payload (the operator-visibility assertion of
+   item 9). Failure mode: gate bypassed by the cron pipeline plumbing, or the
+   skip silenced. Anti-tautology: asserts on the returned result object and
+   the logged payload, not on mock call counts.
 
 Expected values derive from the seeded fixture rows (session UUIDs, timestamps
 relative to a fixed `nowMs`), never hardcoded date literals.
