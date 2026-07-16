@@ -264,8 +264,17 @@ and `pending_ingestions`):
    `_partitionScopeContract.test.ts` extension (§5) that
    `lib/sync/perFileProcessor.ts` never references
    `pending_wizard_session_at`.
-5. **Live-deferral priority** — file both live-deferred (`permanent_ignore`)
-   and wizard-owned → reason stays `deferred_permanent` (ordering pin).
+5. **Live-deferral priority** — three cases pinning the §2.3 ordering:
+   (a) file both live-deferred (`permanent_ignore`) and wizard-owned → reason
+   stays `deferred_permanent`; (b) file live-deferred
+   (`defer_until_modified`, file NOT modified since) and wizard-owned →
+   reason stays `deferred_modtime` (failure mode: wizard check wedged BETWEEN
+   the two deferral branches changes the operator-visible reason); (c) case
+   (a) repeated with an EMPTY `app_settings` table → STILL skips
+   `deferred_permanent`, no `SyncInfraError` (failure mode: an implementation
+   probing the singleton before the live-deferral short-circuit throws on a
+   corrupted install instead of honoring deferral priority — the R10
+   consistency contract).
 6. **Ownership beats watermark (ordering pin)** — file wizard-owned AND
    watermark-skippable (a `shows` row whose `last_seen_modified_time` is at or
    after `fileMeta.modifiedTime`) → reason is `wizard_owned`, NOT `watermark`
