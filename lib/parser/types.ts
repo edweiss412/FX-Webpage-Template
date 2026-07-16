@@ -25,7 +25,17 @@ export type UseRawResolution =
       resolvable: true;
       contentHash: string;
       parsed:
-        | { kind: "rooms"; name: string; dimensions: string | null; floor: string | null }
+        | {
+            kind: "rooms";
+            name: string;
+            dimensions: string | null;
+            floor: string | null;
+            // The RoomKind the split's consumed label produced ("GENERAL SESSION" → "gs").
+            // Carried so the UI can show the label became the room's type rather than
+            // appearing dropped. Optional: absent on warnings persisted before 2026-07-16
+            // (jsonb, backward-compatible — same posture as `resolution` itself).
+            roomKind?: RoomKind;
+          }
         | { kind: "hotels"; names: string[]; confirmationNo: string | null }
         | { kind: "dates"; dates: DateOrderFields };
       replacement:
