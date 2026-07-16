@@ -45,33 +45,101 @@ function tableFigures(labelRe: string): { light: number; dark: number } {
 // Every documented figure touched by the pass: [label, documentedFigureRegex, computed].
 // The regex must match DESIGN.md exactly once; the captured number is compared.
 const ROWS: Array<[string, RegExp, number]> = [
-  ["accent-text on accent (light §1.1 L33)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/i, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
-  ["accent-on-bg on bg (light, §1.1 L34)", /contrast against `#FAFAF9` reaches ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime"))],
-  ["accent raw on light bg (L34 corrected side-claim)", /The brand `#FF8C1A` itself only hits ([\d.]+):1 on light bg/, contrast(L("--color-accent-runtime"), L("--color-bg-runtime"))],
-  ["accent-on-bg dark (L34)", /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
-  ["accent-tint icon (L47)", /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime"))],
+  [
+    "accent-text on accent (light §1.1 L33)",
+    /near-black on orange in BOTH modes; ([\d.]+):1 in each/i,
+    contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime")),
+  ],
+  [
+    "accent-on-bg on bg (light, §1.1 L34)",
+    /contrast against `#FAFAF9` reaches ([\d.]+):1/,
+    contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime")),
+  ],
+  [
+    "accent raw on light bg (L34 corrected side-claim)",
+    /The brand `#FF8C1A` itself only hits ([\d.]+):1 on light bg/,
+    contrast(L("--color-accent-runtime"), L("--color-bg-runtime")),
+  ],
+  [
+    "accent-on-bg dark (L34)",
+    /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/,
+    contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime")),
+  ],
+  [
+    "accent-tint icon (L47)",
+    /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/,
+    contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime")),
+  ],
   // Anchored to the exact accent-edge §1.1 row phrase — one regex per capture,
   // cannot match neighboring prose.
-  ["accent-edge vs track (§1.1 new row)", /Light: accent-edge is ([\d.]+):1 vs the orange track and [\d.]+:1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
-  ["accent-edge vs bg (§1.1 new row)", /Light: accent-edge is [\d.]+:1 vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
-  ["dark track boundary note (accent-edge §1.1 row)", /the track itself clears ([\d.]+):1 vs bg/, contrast(D("--color-accent-runtime"), D("--color-bg-runtime"))],
+  [
+    "accent-edge vs track (§1.1 new row)",
+    /Light: accent-edge is ([\d.]+):1 vs the orange track and [\d.]+:1 vs bg/,
+    contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime")),
+  ],
+  [
+    "accent-edge vs bg (§1.1 new row)",
+    /Light: accent-edge is [\d.]+:1 vs the orange track and ([\d.]+):1 vs bg/,
+    contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime")),
+  ],
+  [
+    "dark track boundary note (accent-edge §1.1 row)",
+    /the track itself clears ([\d.]+):1 vs bg/,
+    contrast(D("--color-accent-runtime"), D("--color-bg-runtime")),
+  ],
 ];
 
 // §1.2 TABLE cells — pinned directly (spec §6.1 row 8: EVERY touched figure in
 // BOTH sections; "duplicate rendering" is not an exemption).
 const TABLE_ROWS: Array<[string, string, number, number]> = [
-  ["L57 accent on bg", "`--color-accent` on `--color-bg`", contrast(L("--color-accent-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-runtime"), D("--color-bg-runtime"))],
-  ["L58 accent-on-bg on bg", "`--color-accent-on-bg` on `--color-bg`", contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
-  ["L59 accent-text on accent", "`--color-accent-text` on `--color-accent`", contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime")), contrast(D("--color-accent-text-runtime"), D("--color-accent-runtime"))],
-  ["L70 accent-on-bg icon on tint", "`--color-accent-on-bg` icon on `--color-accent-tint`", contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime")), contrast(D("--color-accent-on-bg-runtime"), D("--color-accent-tint-runtime"))],
-  ["accent-edge vs accent (new §1.2 row)", "`--color-accent-edge` vs `--color-accent`", contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime")), contrast(D("--color-accent-edge-runtime"), D("--color-accent-runtime"))],
-  ["accent-edge vs bg (new §1.2 row)", "`--color-accent-edge` vs `--color-bg`", contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-edge-runtime"), D("--color-bg-runtime"))],
+  [
+    "L57 accent on bg",
+    "`--color-accent` on `--color-bg`",
+    contrast(L("--color-accent-runtime"), L("--color-bg-runtime")),
+    contrast(D("--color-accent-runtime"), D("--color-bg-runtime")),
+  ],
+  [
+    "L58 accent-on-bg on bg",
+    "`--color-accent-on-bg` on `--color-bg`",
+    contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime")),
+    contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime")),
+  ],
+  [
+    "L59 accent-text on accent",
+    "`--color-accent-text` on `--color-accent`",
+    contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime")),
+    contrast(D("--color-accent-text-runtime"), D("--color-accent-runtime")),
+  ],
+  [
+    "L70 accent-on-bg icon on tint",
+    "`--color-accent-on-bg` icon on `--color-accent-tint`",
+    contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime")),
+    contrast(D("--color-accent-on-bg-runtime"), D("--color-accent-tint-runtime")),
+  ],
+  [
+    "accent-edge vs accent (new §1.2 row)",
+    "`--color-accent-edge` vs `--color-accent`",
+    contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime")),
+    contrast(D("--color-accent-edge-runtime"), D("--color-accent-runtime")),
+  ],
+  [
+    "accent-edge vs bg (new §1.2 row)",
+    "`--color-accent-edge` vs `--color-bg`",
+    contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime")),
+    contrast(D("--color-accent-edge-runtime"), D("--color-bg-runtime")),
+  ],
 ];
 
 // Touched figures the row-parser deliberately does not pin, with reason.
 const KNOWN_UNPINNED: Array<[string, string]> = [
-  ["2.33:1 / 4.07:1 / 11.3:1 in L33 prose", "historical values quoted as documentation of the corrected miscalculation — not claims about live tokens"],
-  ["status-live-text ratio (L41)", "the row deliberately carries NO ratio figure — its documented contract is 'contrast governed by the accent rows above' (which ARE ratio-pinned); the touched value is the hex, pinned by the hex-parity assertion, and a no-numeric-claim assertion prevents an unpinned figure from ever appearing"],
+  [
+    "2.33:1 / 4.07:1 / 11.3:1 in L33 prose",
+    "historical values quoted as documentation of the corrected miscalculation — not claims about live tokens",
+  ],
+  [
+    "status-live-text ratio (L41)",
+    "the row deliberately carries NO ratio figure — its documented contract is 'contrast governed by the accent rows above' (which ARE ratio-pinned); the touched value is the hex, pinned by the hex-parity assertion, and a no-numeric-claim assertion prevents an unpinned figure from ever appearing",
+  ],
 ];
 
 describe("DESIGN.md figure parity (touched rows)", () => {

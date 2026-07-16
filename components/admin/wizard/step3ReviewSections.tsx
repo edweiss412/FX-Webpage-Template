@@ -389,8 +389,7 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
 }
 
 /** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS =
-  "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle";
+const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle";
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each

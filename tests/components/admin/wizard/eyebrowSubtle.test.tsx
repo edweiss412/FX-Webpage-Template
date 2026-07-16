@@ -77,10 +77,7 @@ describe("Stage-3 eyebrows render text-subtle, never 10px faint (spec §4.2)", (
     // that bypass CELL_EYEBROW_CLASS — the exact VCR-1 sites.
     const { container } = render(<VenueBreakdown dfid="dfid-x" venue={harnessVenue()} />);
     const faint = container.querySelectorAll('[class*="text-text-faint"]');
-    expect(
-      faint.length,
-      [...faint].map((el) => el.getAttribute("class")).join("\n"),
-    ).toBe(0);
+    expect(faint.length, [...faint].map((el) => el.getAttribute("class")).join("\n")).toBe(0);
     expect(container.textContent).toContain("Loading dock");
   });
 
@@ -88,9 +85,7 @@ describe("Stage-3 eyebrows render text-subtle, never 10px faint (spec §4.2)", (
     const { container } = render(
       <VenueMapTile query="The Masonic, SF" mapHref="https://maps.google.com/?q=x" />,
     );
-    const badge = [...container.querySelectorAll("span")].find(
-      (el) => el.textContent === "map",
-    );
+    const badge = [...container.querySelectorAll("span")].find((el) => el.textContent === "map");
     expect(badge, "map badge not rendered").toBeTruthy();
     const tokens = new Set((badge!.getAttribute("class") ?? "").split(/\s+/));
     expect(tokens.has("text-text-subtle")).toBe(true);

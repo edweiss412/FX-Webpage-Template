@@ -84,7 +84,12 @@ describe("stateful accent fills carry the accent-edge boundary (WCAG 1.4.11)", (
 
   it("PublishedToggle ON", () => {
     const { getByTestId } = render(
-      <PublishedToggle slug="s1" published={true} finalizeOwned={false} setPublished={okAction()} />,
+      <PublishedToggle
+        slug="s1"
+        published={true}
+        finalizeOwned={false}
+        setPublished={okAction()}
+      />,
     );
     expectEdgeTreated(accentFill(getByTestId("published-toggle")));
   });

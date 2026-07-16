@@ -164,7 +164,11 @@ describe("status-token contrast floors (DESIGN.md §1.3)", () => {
 // Accent-contrast token pass (spec 2026-07-16-accent-contrast-token-pass §6.1).
 // Alpha-blend helper: composite fg over bg at alpha, return hex.
 function blend(fg: string, alpha: number, bg: string): string {
-  const c = (h: string) => h.replace("#", "").match(/../g)!.map((x) => parseInt(x, 16));
+  const c = (h: string) =>
+    h
+      .replace("#", "")
+      .match(/../g)!
+      .map((x) => parseInt(x, 16));
   const f = c(fg);
   const b = c(bg);
   const m = f.map((v, i) => Math.round(alpha * v + (1 - alpha) * b[i]!));
