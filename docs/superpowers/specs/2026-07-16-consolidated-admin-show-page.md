@@ -3,7 +3,7 @@
 **Date:** 2026-07-16
 **Status:** Draft (brainstorm converged in-session; all design sections user-approved)
 **Autonomy:** approved — autonomous ship through merged PR (AGENTS.md brainstorming gate, 2026-07-16)
-**Design mock:** `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page-mock/` — committed reference mock from the Claude Design pass (§13). UI tasks MUST NOT begin until this directory exists and is committed.
+**Design mock:** `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page-mock/` — **PENDING, not yet committed.** The Claude Design pass (§13) runs in parallel with spec/plan review; its fetches are committed verbatim to that directory. This is a **blocking pre-UI gate**: the plan's first UI-rendering task (Phase 2) carries an explicit precondition step that fails the task if the directory does not exist in the tree at execution time. Phase 1 (extraction, zero visible change) does NOT require the mock.
 
 ---
 
@@ -39,7 +39,7 @@ Meanwhile the wizard's Step-3 review modal (`components/admin/wizard/Step3Review
 | Warning→section mapping | `lib/admin/step3SectionStatus.ts:70` `sectionForWarning`, `:84` `warningsBySection`, `:110` `sectionStatus`, `:116` `deriveSectionStatuses` | ✓ |
 | SectionData builder (staged) | `Step3SheetCard.tsx` — "The card builds the modal's `SectionData` from its own derived values" (`Step3SheetCard.tsx:16`) | ✓ |
 | Admin show page | `app/admin/show/[slug]/page.tsx` (1067 lines) — imports enumerated §5 | ✓ |
-| Published parsed data | `shows` columns incl. `dates`, `venue`, `event_details`, `pull_sheet`, `agenda_links`, `diagrams`, `client_contact` (schema manifest); `shows_internal` columns `financials`, `parse_warnings`, `raw_unrecognized`, `run_of_show`, `use_raw_decisions` (manifest); `crew_members` rows | ✓ |
+| Published parsed data | `shows` columns incl. `title`, `client_label`, `dates`, `venue`, `event_details`, `coi_status`, `pull_sheet`, `pull_sheet_override`, `agenda_links`, `diagrams`, `client_contact`, `source_anchors`, `drive_file_id` (schema manifest); `shows_internal` columns `financials`, `parse_warnings`, `raw_unrecognized`, `run_of_show`, `use_raw_decisions` (manifest; upserted at `lib/sync/runScheduledCronSync.ts:1766`); per-domain tables `crew_members`, `rooms`, `hotel_reservations`, `transportation` (insert at `runScheduledCronSync.ts:1719`), `contacts` (insert at `:1752`) | ✓ |
 | Flat warnings list on page | `components/admin/PerShowActionableWarnings.tsx:22` — `{ items: ParseWarning[]; driveFileId; renderItemControls; tone }` | ✓ |
 | Live-now rule | `lib/time/showSpan.ts:30` `isShowLiveOnDate` (dates-derived; memory contract: today ∈ [dates.travelIn..travelOut]) | ✓ |
 | Sync status strip pieces | `components/admin/StatusIndicator.tsx:26`; `lib/admin/syncStatus.ts:20` `syncStatusBucket`; `lib/admin/showDisplay.ts:92` `formatRelative` | ✓ |
@@ -65,21 +65,75 @@ components/admin/review/
 
 Current `SectionData` (`step3ReviewSections.tsx:2952`) mixes render content with staged-only context. Split into:
 
+The panel-by-panel `pr.`/`row.` usage audit is COMPLETE (this section is its output — every consumer enumerated below with citations). `SectionCore` is the closed contract:
+
 ```ts
 // sectionData.ts
 export type SectionCore = {
-  crewMembers: CrewMemberRow[];
-  rooms: RoomRow[];
+  // header
+  title: string;                     // modal header title composition
+  clientLabel: string | null;
+  dates: ShowDates | null;           // header date segments + schedule + live-now
+  // section content
+  venue: VenueShape | null;
+  eventDetails: EventDetailsShape | null;
+  clientContact: ClientContactShape | null;
+  contacts: ContactRow[];
+  ros: RunOfShow;
+  agendaBaseline: AdminAgendaItem[];
   hotels: HotelReservationRow[];
+  transportation: TransportationShape | null;
+  rooms: RoomRow[];
+  diagrams: DiagramsShape | null;    // renders INSIDE the rooms section (§5.2)
+  crewMembers: CrewMemberRow[];
   pullSheet: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
-  ros: RunOfShow;
+  billing: {                         // OpsBreakdown rows (step3ReviewSections.tsx:1203-1207)
+    coiStatus: string | null;
+    proposal: string | null;
+    po: string | null;
+    invoice: string | null;
+    invoiceNotes: string | null;
+  };
+  // cross-section
   warnings: ParseWarning[];
-  agendaBaseline: AdminAgendaItem[];
   useRawDecisions: UseRawDecision[];
-  // every field a section panel reads for CONTENT — exact list finalized by the
-  // plan's panel-by-panel `pr.`/`row.` usage audit (§14.4)
+  rawUnrecognized: RawUnrecognized | null;
+  sourceAnchors: SourceAnchors;      // sheet deep links (modal :1294)
+  driveFileId: string | null;        // deep links + control fingerprints; staged always has it
 };
+```
+
+(Type names above refer to the existing shapes at their staged sources — the plan pins exact imports; no new shapes are invented.)
+
+**Field-by-field mapping (staged source → published source):**
+
+| `SectionCore` field | Staged source (verified) | Published source (verified) |
+| --- | --- | --- |
+| `title` | `pr.show.title \|\| row.driveFileName` (`Step3ReviewModal.tsx:831`) | `shows.title` |
+| `clientLabel` | `pr.show.client_label` (`:832`) | `shows.client_label` |
+| `dates` | `pr.show.dates` (`:833`, sections `:3500`) | `shows.dates` |
+| `venue` | `pr.show.venue` (`step3ReviewSections.tsx:3458`) | `shows.venue` |
+| `eventDetails` | `pr.show.event_details` (`:3466`) | `shows.event_details` |
+| `clientContact` | `pr.show.client_contact` (`:3483,:3487`) | `shows.client_contact` |
+| `contacts` | `pr.contacts` (`:3488`) | `contacts` table rows (insert `runScheduledCronSync.ts:1752`) |
+| `ros` | already core (`SectionData.ros`) | `shows_internal.run_of_show` |
+| `agendaBaseline` | `row.adminAgendaPreview` (`Step3SheetCard.tsx:602`) | `buildAdminAgendaPreview(shows.agenda_links)` (`lib/agenda/agendaAdminPreview.ts:149`) |
+| `hotels` | already core | `hotel_reservations` table rows |
+| `transportation` | `pr.transportation` (`:3536`) | `transportation` table rows (insert `:1719`) |
+| `rooms` | already core | `rooms` table rows |
+| `diagrams` | `pr.diagrams` (`:3557,:3566`) | `shows.diagrams` |
+| `crewMembers` | already core | `crew_members` table rows |
+| `pullSheet` | already core | `shows.pull_sheet` (+ `pull_sheet_override` semantics unchanged) |
+| `archivedPullSheetTabs` | already core | **`[]` always** — archived-tab accept/skip is a staged-time decision; published rows carry the final pull sheet only. The archived-tabs disclosure renders staged-mode only. |
+| `billing.*` | `pr.show.{coi_status,proposal,po,invoice,invoice_notes}` (`OpsBreakdown`, `:3598` + `:1203-1207`) | `shows.coi_status` + `shows_internal.financials.{proposal,po,invoice,invoice_notes}` (written `lib/sync/applyParseResult.ts:48,:249`) |
+| `warnings` | already core | `shows_internal.parse_warnings` |
+| `useRawDecisions` | already core | `shows_internal.use_raw_decisions` |
+| `rawUnrecognized` | `pr.raw_unrecognized` (modal `:1313`) | `shows_internal.raw_unrecognized` |
+| `sourceAnchors` | `row.sourceAnchors ?? {}` (modal `:1294`) | `shows.source_anchors` |
+| `driveFileId` | `dfid` | `shows.drive_file_id` |
+
+**Staged-only fields (NOT in `SectionCore`):** `pr` itself, `row`, `wizardSessionId`, `dfid` (superseded by `driveFileId`), `row.agendaStateKey` (AgendaBreakdown state key `:3515` — published mode passes `showId` as `stateKey`), `row.lastFinalizeFailureCode` (finalize-demotion `:838`), `row.driveFileName` (title fallback).
 
 export type StagedSectionData = SectionCore & {
   mode: "staged";
@@ -93,7 +147,6 @@ export type PublishedSectionData = SectionCore & {
   mode: "published";
   showId: string;
   slug: string;
-  driveFileId: string | null;
   archived: boolean;
   published: boolean;
 };
@@ -103,19 +156,14 @@ export type SectionData = StagedSectionData | PublishedSectionData;
 
 Rules:
 
-- Section panels render **content** from `SectionCore` fields only. Any panel currently reading `d.pr.*` or `d.row.*` for content gets that value lifted into `SectionCore` (plan enumerates each — the `pr` usage audit is a mandatory plan task, §14.4).
+- Section panels render **content** from `SectionCore` fields only. Every current `d.pr.*`/`d.row.*` content read is enumerated in the mapping table above; the plan's extraction tasks rewire each cited site.
 - **Staged-only affordances** (anything coupled to finalize/approve, wizard session ids, dirty-rescan states, `deriveStep3DisplayState`) render only when `mode === "staged"`. **Published-only affordances** (per-section warning controls §5.3, Preview As links) render only when `mode === "published"`. Mode gates are explicit discriminated-union narrowing — never optional-field sniffing.
-- `dfid` is staged-only as a field; published mode carries `driveFileId: string | null` (nullable — guard §11).
+- `driveFileId` lives in `SectionCore` (nullable — guard §11); staged mode additionally keeps `dfid: string` for wizard-session plumbing that requires non-null.
 
 ### 3.3 Data adapters
 
 - **Staged:** unchanged — `Step3SheetCard` keeps building the staged variant from its derived values (`Step3SheetCard.tsx:16`); mechanical rename to the new type.
-- **Published:** `publishedAdapter.ts` pure function `buildPublishedSectionData(input)` where input = the `shows` row, the `shows_internal` row (nullable), and `crew_members` rows. The server page fetches (Supabase call-boundary discipline, invariant 9: destructure `{ data, error }`, typed infra errors, meta-test registry row) and passes plain rows; the adapter is pure and unit-testable without a DB.
-  - `shows` → dates/venue/event/contacts/diagrams/packlist/agenda-link content (`dates`, `venue`, `event_details`, `pull_sheet`, `pull_sheet_override`, `agenda_links`, `diagrams`, `client_contact` columns).
-  - `shows_internal` → `ros` (`run_of_show`), `warnings` (`parse_warnings`), `useRawDecisions` (`use_raw_decisions`), billing content (`financials`), raw-unrecognized callout (`raw_unrecognized`).
-  - `crew_members` → `crewMembers`.
-  - Missing `shows_internal` row ⇒ empty arrays / empty RunOfShow, never a throw (§11).
-  - The exact column→`SectionCore`-field mapping (including rooms/hotels, which live inside persisted JSON payloads, not top-level columns) is finalized by the plan's read-path audit of the crew page + `Step3SheetCard` derivations. The adapter reads ONLY already-persisted data — re-parsing is out of scope.
+- **Published:** `publishedAdapter.ts` pure function `buildPublishedSectionData(input)` where input = the `shows` row, the `shows_internal` row (nullable), and the per-show rows of the four per-domain tables: `crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts`. The server page fetches (Supabase call-boundary discipline, invariant 9: destructure `{ data, error }`, typed infra errors, meta-test registry row) and passes plain rows; the adapter is pure and unit-testable without a DB. Column→field mapping is the §3.2 table — closed, not deferred. Missing `shows_internal` row ⇒ empty collections, never a throw (§11). The adapter reads ONLY already-persisted data — re-parsing is out of scope.
 
 ### 3.4 What published mode shows (post-overlay truth)
 
@@ -151,7 +199,7 @@ Relocated from the current page (import list `app/admin/show/[slug]/page.tsx:19-
 
 ### 5.2 Parsed sections
 
-The 12 content sections from `step3Sections` (venue, event, crew, contacts, schedule, agenda, hotels, transport, rooms, diagrams, packlist, billing) plus the `warnings` fallback section for warnings with no home (`sectionForWarning` returns null ⇒ `warningsBySection` fallback bucket) — same treatment as the modal. The `report` section is wizard/crew-report-scoped; in published mode it is **omitted** unless the plan's audit finds it renders admin-relevant content (default: omit — the admin has richer per-section warnings already).
+The content sections exactly as the live `step3Sections` registry emits them (`step3ReviewSections.tsx:3453-3598`): venue, event, crew, contacts, schedule, agenda (conditional — the registry pushes it only when its condition holds, `:3505`; same condition applies on the page), hotels, transport, rooms, packlist, billing — 11 when agenda present, 10 otherwise. **Diagrams is NOT a separate section:** it renders as a sub-block inside Rooms (`:3557-3566`); the `SectionId` union contains `"diagrams"` (`step3SectionStatus.ts:6`) but the registry does not emit it, and this spec does not change that. Plus the `warnings` fallback section for warnings with no home (`sectionForWarning` returns null ⇒ `warningsBySection` fallback bucket) — same treatment as the modal. The `report` section (`:3610`) is wizard/crew-report-scoped; in published mode it is **omitted** (default ratified — the admin has richer per-section warnings already).
 
 ### 5.3 Per-section warning controls (published mode only)
 
@@ -265,9 +313,9 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 
 ### 14.4 Plan-mandated audits (pre-implementation)
 
-- Panel-by-panel `d.pr.*` / `d.row.*` usage audit of `step3ReviewSections.tsx` → finalized `SectionCore` field list.
-- Read-path audit: where rooms/hotels live in persisted rows (crew page + `Step3SheetCard` derivations) → adapter mapping.
-- Scroll-spy container-scope feasibility check (§10).
+- ~~Panel-by-panel `d.pr.*`/`d.row.*` usage audit~~ — DONE at spec level; §3.2 mapping table is the closed output. The plan re-verifies each cited line still matches before extraction (cheap grep pass).
+- ~~Read-path audit (rooms/hotels persistence)~~ — DONE: per-domain tables `rooms`, `hotel_reservations`, `transportation`, `contacts` (schema manifest + `runScheduledCronSync.ts:1719,:1752`).
+- Scroll-spy container-scope feasibility check (§10) — remains a plan task.
 
 ### 14.5 Meta-test inventory
 
