@@ -53,7 +53,7 @@ const COLUMN_WIDTH = 480;
 const TAP_TARGET =
   "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
 const TRACK_ON =
-  "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors duration-fast border-accent bg-accent";
+  "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors duration-fast border-accent-edge bg-accent";
 const TRACK_OFF =
   "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors duration-fast border-border-strong bg-surface-sunken";
 const THUMB_ON =

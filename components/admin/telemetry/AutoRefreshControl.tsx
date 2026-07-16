@@ -103,7 +103,7 @@ export function AutoRefreshControl() {
         className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center"
       >
         <span
-          className={`relative inline-flex h-5 w-[34px] items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}`}
+          className={`relative inline-flex h-5 w-[34px] items-center rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`}
         >
           <span
             className={`absolute size-4 rounded-full bg-surface shadow-tile transition-transform ${on ? "translate-x-[16px]" : "translate-x-[2px]"}`}

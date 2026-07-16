@@ -90,7 +90,7 @@ function SwitchTrack({ on }: { on: boolean }) {
       aria-hidden="true"
       className={[
         TRACK_BASE,
-        on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
+        on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >
       <span className={[THUMB_BASE, on ? "translate-x-6" : "translate-x-1"].join(" ")} />
