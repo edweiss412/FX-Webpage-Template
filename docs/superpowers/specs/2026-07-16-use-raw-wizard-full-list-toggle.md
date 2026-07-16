@@ -10,7 +10,7 @@ The per-show live page has no such cap: it renders `UseRawControlBoundary` and `
 
 ## 2. Resolved decisions (user-approved 2026-07-16)
 
-1. **Keep both render sites.** `SectionFlagCallout` keeps its capped, in-context toggles unchanged. `WarningsBreakdown` becomes the complete list — every in-scope warning gets its controls there. Both sites bind the same staged decision keyed by `(code, resolution.contentHash)`, and both boundaries `router.refresh()` / server-revalidate on success, so the two sites cannot disagree after a save round-trip.
+1. **Keep both render sites.** `SectionFlagCallout` keeps its capped, in-context toggles unchanged. `WarningsBreakdown` becomes the complete list — every in-scope warning gets its controls there. The cross-site consistency contract is **per control** and is normative in §4.6: use-raw converges via `router.refresh()` on every save; recognize-role performs no client refresh (§8.1 timing contract), so a saved token's sibling instance may remain mounted in create mode — an accepted, pre-existing class whose stale-sibling save resolves to idempotent success or the benign conflict notice (pinned by the §7.5 test).
 2. **Both controls, not just use-raw.** `RoleRecognizeControlBoundary` has the identical capped-callout gap for `UNKNOWN_ROLE_TOKEN`; it ships in the same rows.
 3. **Approach: optional prop threading** (mirrors the `SectionFlagCallout` pattern at `:504-508`). No context provider, no reuse of the live-page list component.
 
