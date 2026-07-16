@@ -14,7 +14,7 @@ Batch same-group realtime candidates into ONE email per recipient per notify tic
 | `sync_problems` | `show`, `global` | `realtime_problem` | `renderRealtimeProblem` (`lib/notify/templates/realtimeProblem.ts:43`) |
 | `stuck_files` | `ingestion` | `realtime_problem` | `renderRealtimeProblem` |
 
-**Out of scope (explicit):** `deliverDigest` (`lib/notify/deliver.ts:461`) — already one email per recipient per day; `lib/drive/watchEscalation.ts` — singleton escalation email; `email_deliveries` schema (`supabase/migrations/20260602000004_b3_email_deliveries.sql`, kind CHECK widened in `20260612000002_m12_13_undo_schema.sql:13-15`) — unchanged; reconciliation (`lib/notify/detect/emailDeliveryFailed.ts`) — unchanged; candidate detection (`lib/notify/detect/candidates.ts:119`) — unchanged; `runNotify.ts` toggle gating and `kept` filtering (`lib/notify/runNotify.ts:321-324`) — unchanged; no UI, no DB migration, no advisory-lock surface.
+**Out of scope (explicit):** `deliverDigest` (`lib/notify/deliver.ts:461`) — already one email per recipient per day; `lib/drive/watchEscalation.ts` — singleton escalation email; `email_deliveries` schema (`supabase/migrations/20260602000004_b3_email_deliveries.sql`, kind CHECK widened in `20260612000002_m12_13_undo_schema.sql:13-15`) — unchanged; reconciliation (`lib/notify/detect/emailDeliveryFailed.ts`) — unchanged; candidate detection (`lib/notify/detect/candidates.ts:119`) — unchanged; `runNotify.ts` toggle gating and `kept` filtering (`lib/notify/runNotify.ts:321-324`) — unchanged; no UI, no DB migration. One NEW advisory-lock surface exists (the single-flight guard, §2.1b) — it introduces a new hashkey with a single JS-side holder and touches none of invariant 2's guarded tables.
 
 ## 2. Behavior contract
 
@@ -44,6 +44,16 @@ for recipient (canonicalized via lib/email/canonicalize.ts — invariant 3, unch
 Guard conditions: `input.candidates` empty → zero sends, `{kind:"ok", sent:0, failed:0, skipped:0, retryLater:0}`. `input.recipients` empty → same (caller already short-circuits at `runNotify.ts:325`, but the function must not throw). A group with zero candidates simply produces no email.
 
 `SEND_RETRY_CAP = 3` (`lib/notify/constants.ts:18`). `existingLedger` / `isRecipientActive` / `upsertSent` / `upsertFailed` keep their current signatures and SQL (`lib/notify/deliver.ts:180-282`).
+
+### 2.1b Single-flight guard (adversarial R1)
+
+Batch idempotency keys derive from membership (§2.2), so two concurrent delivery passes could compute DIFFERENT provider keys for the SAME member (run 1 sends `{A}`, run 2 sends `{A,B}`) — a regression against today's stable per-candidate key. Batched delivery is therefore **single-flight**: `deliverRealtimeCandidates` acquires a session-level advisory lock `pg_try_advisory_lock(hashtext('notify:realtime-delivery'))` on its own `postgres` connection before any send, and releases it via `pg_advisory_unlock` in the same `finally` that closes the connection (`lib/notify/deliver.ts:454-458`); a dropped connection auto-releases. If the try-lock returns false, the pass returns `{kind:"ok", sent:0, failed:0, skipped:0, retryLater:0, lockSkipped:true}` — no sends, no ledger writes; the next tick delivers. `lockSkipped` is a new OPTIONAL field on the ok arm of `DeliveryResult` (`lib/notify/deliver.ts:22-24`); `runNotify` already forwards the whole result as `detail` (`lib/notify/runNotify.ts:371`), so no caller change.
+
+Lock-holder topology (AGENTS.md invariant-2 discipline, applied to a new key): hashkey `notify:realtime-delivery` has **zero existing holders** (`rg "pg_advisory|pg_try_advisory" lib/ supabase/` shows only `show:<drive_file_id>`-keyed holders and their RPC layer); the single holder is the JS-side guard in `deliverRealtimeCandidates`. No RPC or SECURITY DEFINER function touches this key. `email_deliveries` is not one of invariant 2's five guarded tables — this lock is a new, independent surface and must stay single-layer.
+
+`deliverDigest` does NOT take this lock: its provider key is already membership-independent (`digest:<dateET>`, `lib/notify/deliver.ts:478`), so concurrent digest passes stay provider-deduped exactly as today.
+
+**Residual (documented, accepted):** if the process crashes between provider accept and the per-member `upsertSent` writes, a member can be re-sent next tick under a different batch key when membership also changed. Today's path shares the same crash window but keeps a stable key, so the provider (Resend, 24h idempotency TTL) absorbs it. Post-batching, the consequence is one duplicate informational email (undo links remain valid — same token; problem emails are stateless), only when an infra crash lands in the milliseconds between provider accept and the first INSERT **and** a new candidate arrived before the retry. Closing it fully would need a durable pre-send claim (a `sending` ledger status = CHECK widening + migration + reconciliation changes in `emailDeliveryFailed.ts`) — deliberately out of scope; revisit only if observed.
 
 ### 2.2 Idempotency key
 
@@ -109,6 +119,8 @@ All dynamic values HTML-escaped via `escapeHtml` (`lib/notify/templates/escapeHt
 | Send throws / SQL throws | caught by existing try/catch → `{kind:"infra_error"}` (`deliver.ts:452-453`) |
 | Batch > 20 members | one email, 20 rendered + overflow line, ledger rows for all |
 | Same show re-minted token | new mintId → new dedupKey → new member; old member fails currentness (token equality guard, `deliver.ts:147-167`) and is skipped |
+| Concurrent delivery pass (overlapping ticks) | second pass fails `pg_try_advisory_lock` → `{kind:"ok", …all 0, lockSkipped:true}`; no member is ever in two in-flight batch keys (§2.1b) |
+| Crash between provider accept and ledger write | member retries next tick; duplicate possible only if membership also changed — documented residual (§2.1b) |
 
 ## 4. Testing
 
@@ -118,6 +130,7 @@ TDD per task (invariant 1). All existing tests in `tests/notify/` must pass; exp
 - New batch-template tests: N=2 and N=21 (cap boundary: 20 rendered + overflow line naming the correct remainder), pluralized subjects, per-show `r` binding distinct per member (assert two members' hrefs carry different `r` and each verifies via `recipientBindingFor`), HTML escaping of titles containing `<x>`, text/html parity.
 - Failure path: batch send failure writes N failed rows + N `EMAIL_DELIVERY_FAILED` alerts with per-member context (assert the undo context recipe keys exactly).
 - Real-DB suites (`deliver-real-db.test.ts`, `deliver-auto-publish-undo-real-db.test.ts`, `email-delivery-failed-undo-real-db.test.ts`) — verify per-member rows still reconcile.
+- Single-flight (§2.1b): concurrency test where a second `deliverRealtimeCandidates` pass runs while the lock is held (real-DB: two connections, first holds `pg_advisory_lock`; unit: fake sql returning locked=false) → second returns all-zeros + `lockSkipped`, zero sendEmail calls, zero ledger writes. Plus lock-release test: after a pass completes (success AND thrown-error paths), a fresh try-lock on a second connection succeeds. Failure mode caught: the R1 duplicate-delivery scenario (run 1 `{A}` + run 2 `{A,B}` both sending A under different provider keys).
 - Concrete failure modes caught: double-send of already-sent member (ledger regression); shared `r` across members (capability leak across shows); raw code in batch body (invariant 5); overflow line lying about the remainder count.
 
 Meta-test inventory: no new registries. `tests/notify/_metaInfraContract.test.ts` continues to cover this module's Supabase-boundary posture (deliver.ts uses raw `postgres` — already `not-subject-to-meta` shaped, unchanged); no new mutation surface (no new route/action — `tests/log/_metaMutationSurfaceObservability.test.ts` discovery unaffected).
