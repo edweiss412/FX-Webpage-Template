@@ -493,6 +493,13 @@ export type ParseResult = {
   // unlocatable (D-1/D-2). Sibling of warnings; NOT on ShowRow (admin-only, R18).
   runOfShow?: RunOfShow;
   hardErrors: ParseError[];
+  // Consumed-token stamp (spec 2026-07-16-role-vocab-staging-overlay §3.2): OVERLAY
+  // output, never set by the parser. Written by the wizard staging chokepoint in the
+  // same block that applies the role-mapping overlay ([] when nothing consumed), so a
+  // staged parse can never carry overlay-granted flags without the evidence the publish
+  // freshness gate (role_mappings_stamp_satisfied) verifies. Absent = legacy staged row
+  // (pre-feature — no overlay output by construction).
+  appliedRoleMappings?: Array<{ token: string; grants: string[] }>;
 };
 
 // Triggered-review item types (§6.8.2). Used by Task 1.12's runInvariants result
