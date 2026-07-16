@@ -26,6 +26,7 @@ import {
 } from "@/lib/parser/dataGaps";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
+import { databaseUrl } from "@/lib/sync/_databaseUrl";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
   DRIVE_FILES_GET_TIMEOUT_MS,
@@ -109,6 +110,7 @@ import {
 } from "@/lib/sync/perFileProcessor";
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
+import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
@@ -486,6 +488,13 @@ export type ProcessOneFileDeps = {
     options?: Parameters<typeof withShowLock<SyncPipelineTx, ProcessOneFileResult>>[2],
   ) => Promise<ProcessOneFileResult | ConcurrentSyncSkipped>;
   perFileProcessor?: typeof perFileProcessor;
+  /**
+   * Role-vocab drift pre-pass (spec 2026-07-16-role-vocab-mapping-convergence §3.3): the tick's
+   * derived set of published drive_file_ids whose stored role vocabulary drifted from the live
+   * `role_token_mappings`. Membership makes the cron gate rescue the plain watermark skip and mark
+   * the run `driftResync`. Cron-only — manual/push/onboarding callers never set it.
+   */
+  roleVocabDriftEligibleIds?: ReadonlySet<string>;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
   /**
@@ -570,9 +579,16 @@ export type RunScheduledCronSyncDeps = {
     driveFileId: string,
     mode: "cron",
     fileMeta: DriveListedFile,
-    deps?: Pick<ProcessOneFileDeps, "logSync">,
+    deps?: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds">,
   ) => Promise<ProcessOneFileResult>;
   writeSyncCronHeartbeat?: () => Promise<HeartbeatWriteResult>;
+  /**
+   * Role-vocab drift pre-pass (Task 6, spec §3.2). Test injection point for the per-tick
+   * drift-eligibility scan; production leaves it undefined and the tick calls
+   * `listRoleVocabDriftEligibleFileIds` (unless a test-injected `listFolder` suppresses ambient
+   * DB reads). An empty result is inert — the file-loop gate treats it as "no rescue".
+   */
+  listRoleVocabDriftEligible?: () => Promise<ReadonlySet<string>>;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -645,14 +661,10 @@ export async function insertFirstSeenShowWithSlugRetry<T>(args: {
   throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts);
 }
 
-function databaseUrl(): string {
-  const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (configured) return configured;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("runScheduledCronSync requires DATABASE_URL in production");
-  }
-  return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-}
+// The DATABASE_URL resolver lives in a shared module (imported at the top of this file) so the
+// drift pre-pass (`roleVocabDrift.ts`) resolves the same url with the same precedence as this
+// pipeline (spec §3.2). Re-exported here for the resolver-identity test and any external caller.
+export { databaseUrl };
 
 /**
  * §5.3 cron default: read the durable `shows.pull_sheet_override` on a short-lived connection
@@ -2745,6 +2757,12 @@ export type PreparedProcessOneFile =
       binding: Phase1Binding;
       parseResult: ParseResult;
       /**
+       * Role-vocab drift rescue (spec 2026-07-16-role-vocab-mapping-convergence §3.3): set when the
+       * cron gate proceeded ONLY because this file was drift-eligible at/below the watermark. Drives
+       * the in-lock recheck (Task 4) and the `less_than_or_equal` Phase 2 stale guard (Task 5).
+       */
+      driftResync?: true;
+      /**
        * Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call).
        * audit idx12+idx63: `undefined` ONLY when the sheets-list fetch failed transiently — the
        * omit-on-undefined chain + persist coalesce then PRESERVE the stored source_anchors rather
@@ -2785,7 +2803,10 @@ export async function prepareProcessOneFile(
     | ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>)
     | undefined = defaultCooldownReader(deps),
 ): Promise<PreparedProcessOneFile> {
-  const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
+  const roleVocabDriftEligible = deps.roleVocabDriftEligibleIds?.has(driveFileId) ?? false;
+  const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta, {
+    roleVocabDriftEligible,
+  });
   if (gate.outcome === "skip") {
     return { kind: "skip", result: { outcome: "skipped", reason: gate.reason } };
   }
@@ -3117,6 +3138,10 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: readyParseResult,
+    // Role-vocab drift rescue (spec §3.3): the gate marks a cron proceed that only happened
+    // because this file was drift-eligible at/below the watermark. Carry it onto the ready
+    // variant so the locked pipeline runs the in-lock recheck + equal-watermark stale guard.
+    ...(gate.driftResync ? { driftResync: true as const } : {}),
     // audit idx12+idx63: OMIT on a genuine sheets-list fetch failure (exactOptionalPropertyTypes
     // forbids an explicit `undefined` on an optional field). The guarded cron spread
     // (`pipeline.sourceAnchors !== undefined`) reads an absent property identically → coalesce
@@ -3164,6 +3189,37 @@ async function clearShowPullSheetOverride_unlocked(
   ]);
 }
 
+/**
+ * Drift-rescued cron runs ONLY (spec §3.3 "Recheck placement is load-bearing", R4/R5): re-verify
+ * published + no-live-pending under the held lock as the FIRST drift step, BEFORE
+ * `runPhase1_unlocked` — Phase 1 mutates durable state on non-happy paths (hard-fail marks `shows`,
+ * shrink holds write hold state, review branches upsert `pending_syncs` (live-partition:n/a — doc
+ * reference, no statement)). Returns `true` (BLOCKED)
+ * when the show is no longer published, or a live (`wizard_session_id is null`) `pending_syncs` gate
+ * row now exists, or the show row vanished. `archived = false` is kept as defense-in-depth only; the
+ * archived RACE is authoritatively owned by the earlier DEF-4 re-read (`readShowArchived_unlocked`),
+ * which returns ARCHIVED_SKIP_REASON first (plan R1 F1). The live-partition predicate mirrors the
+ * live `pending_syncs` read at :954. (live-partition:n/a — doc reference above; the statement's own
+ * classification is the live-partition:live-only annotation inside the SQL below.)
+ */
+async function readDriftRecheckBlocked_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<boolean> {
+  const row = await tx.queryOne<{ ok: boolean } | null>(
+    `select (s.published = true and s.archived = false
+             and not exists (select 1 from public.pending_syncs p
+                              -- live-partition:live-only — live pending_syncs existence probe
+                              -- (wizard_session_id is null): a drift-rescued run must never
+                              -- apply over a live pending review (spec §3.3 R1 F1/R5 F1).
+                              where p.drive_file_id = s.drive_file_id
+                                and p.wizard_session_id is null)) as ok
+       from public.shows s where s.drive_file_id = $1`,
+    [driveFileId],
+  );
+  return row?.ok !== true;
+}
+
 export async function processOneFile_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -3187,6 +3243,19 @@ export async function processOneFile_unlocked(
     );
   }
   const pipeline = prepared;
+
+  // Role-vocab drift recheck (spec §3.3 R4/R5): for a drift-rescued run ONLY, re-verify
+  // published + no-live-pending under the held lock as the FIRST drift step — before
+  // recheckLiveDeferralAfterLock and runPhase1_unlocked, both of which can mutate durable state.
+  // The archived race is already owned by the DEF-4 re-read above (ARCHIVED_SKIP_REASON). A blocked
+  // recheck is a benign skip with ZERO Phase 1 side effects.
+  if (pipeline.kind === "ready" && pipeline.driftResync) {
+    if (await readDriftRecheckBlocked_unlocked(tx, driveFileId)) {
+      const result = { outcome: "skipped" as const, reason: "drift_recheck_failed" };
+      await logSync(txDeps, driveFileId, result);
+      return result;
+    }
+  }
 
   const lockedDeferralSkip = await recheckLiveDeferralAfterLock(tx, driveFileId, mode, fileMeta);
   if (lockedDeferralSkip) {
@@ -3457,6 +3526,9 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      // Task 5 (spec §3.3): a drift-rescued cron run relaxes the stale CAS to less_than_or_equal
+      // so the equal-watermark re-apply over an unchanged sheet lands.
+      ...(pipeline.driftResync ? { driftResync: true } : {}),
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
       // Cron just captured the reel tuple during this same Drive-read pass; manual Apply
@@ -3656,7 +3728,6 @@ export async function runScheduledCronSync(
       deps.listFolder ??
       ((id: string) => listDriveFolder(id, { onWarning: emitUnexpectedParentWarning }));
     const runOne = deps.processOneFile ?? processOneFile;
-    const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
     setPhase("list-folder");
     const files = await listFolder(folderId);
     const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
@@ -3670,6 +3741,43 @@ export async function runScheduledCronSync(
       (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
+
+    // Role-vocab drift pre-pass (Task 6, spec §3.2/§3.3): derive the set of published
+    // drive_file_ids whose stored role vocabulary drifted from the live role_token_mappings, so the
+    // file-loop gate can rescue an at-watermark skip into a `driftResync` apply. Fail-open — a scan
+    // fault degrades to an empty (inert) set and NEVER fails the tick. A test-injected `listFolder`
+    // means this run must not touch the ambient DB: mirror the `listLiveShows` guard so the real DB
+    // scanner fires only on the un-injected production path.
+    let driftEligible: ReadonlySet<string> = new Set();
+    try {
+      driftEligible = deps.listRoleVocabDriftEligible
+        ? await deps.listRoleVocabDriftEligible()
+        : deps.listFolder
+          ? new Set()
+          : await listRoleVocabDriftEligibleFileIds();
+      if (driftEligible.size > 0) {
+        await log.info("role-vocab drift resync eligibility computed", {
+          source: "cron/sync",
+          code: "ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE",
+          persist: true,
+          count: driftEligible.size,
+          driveFileIds: [...driftEligible],
+        });
+      }
+    } catch (error) {
+      await log.warn("role-vocab drift scan failed; treating set as empty", {
+        source: "cron/sync",
+        code: "ROLE_VOCAB_DRIFT_SCAN_FAILED",
+        persist: true,
+        ...errorPayload(error),
+      });
+    }
+    // exactOptional: carry `roleVocabDriftEligibleIds` unconditionally (empty set is inert); keep
+    // `logSync` present-only so an absent injector stays absent rather than `undefined`.
+    const processDeps: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds"> = {
+      roleVocabDriftEligibleIds: driftEligible,
+      ...(deps.logSync ? { logSync: deps.logSync } : {}),
+    };
 
     setPhase("missing-shows");
     for (const show of missingShows) {
