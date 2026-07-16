@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Spec is canonical: `docs/superpowers/specs/2026-07-16-role-vocab-settings-desktop-grid.md`. Compare rendered output against the mock's Desktop width section (`docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/Roles You've Added.dc.html:179-226`) throughout.
-- NO base (non-`min-[760px]:`-prefixed) class edits in `RoleMappingRow.tsx` beyond the Edit-button content restructure and `data-testid`/`title` attribute additions — AC-2 (mobile layout unchanged) is guaranteed by construction.
+- NO base (non-`min-[760px]:`-prefixed) CLASS edits in `RoleMappingRow.tsx`. Non-visual ATTRIBUTE additions (`data-testid`, `title`, `aria-label`, `aria-hidden`) and the Edit-button content restructure are allowed — they change no computed layout. AC-2 (mobile layout unchanged) is guaranteed by construction.
 - NO global `md:` breakpoint (`app/globals.css:222-231`). Only `min-[760px]:` arbitrary variants.
 - Every user-visible string flows through `components/admin/roleRecognizeCopy.ts` (copy-hygiene meta-test scans these files; `data-testid`/`aria-label`-from-COPY/`title`-from-data are fine — string literals are stripped before the raw-JSX-text scan).
 - jsdom computes no layout and applies no Tailwind — every dimensional assertion lives in the Playwright spec, never in Vitest.
@@ -267,7 +267,12 @@ test.beforeAll(async () => {
   const { error: delErr } = await admin.from("role_token_mappings").delete().neq("token", "");
   if (delErr) throw new Error(`pre-seed delete failed: ${delErr.message}`);
   const { error: insErr } = await admin.from("role_token_mappings").insert(FIXTURES);
-  if (insErr) throw new Error(`fixture insert failed: ${insErr.message}`);
+  if (insErr) {
+    // Failure-atomic hygiene: if seeding fails after the delete, restore the
+    // snapshot NOW — afterAll is not guaranteed when beforeAll throws.
+    if (snapshot.length > 0) await admin.from("role_token_mappings").insert(snapshot);
+    throw new Error(`fixture insert failed: ${insErr.message}`);
+  }
 });
 
 test.afterAll(async () => {
@@ -334,6 +339,10 @@ test.describe("roles settings — desktop one-line grid (≥760px)", () => {
 
       // One-line row height: li height == actions cell height + vertical padding +
       // borders (derived, not hardcoded) — fails if any cell wrapped to row 2.
+      // FIXTURE-SCOPED: every fixture row is deliberately nominal one-line (<=2
+      // chips, spec §6.2), so this is AC-1's compact-case proof. The spec's
+      // many-chip guard (chips wrap, row grows) is allowed behavior but is NOT
+      // seeded here — do not add a many-chip fixture to this test.
       const { paddingTop, paddingBottom, borderTopWidth, borderBottomWidth } = await li.evaluate(
         (el) => {
           const cs = getComputedStyle(el);
@@ -381,6 +390,9 @@ test.describe("roles settings — desktop one-line grid (≥760px)", () => {
     );
     const contentWidth =
       liRect.width - paddingLeft - paddingRight - borderLeftWidth - borderRightWidth;
+    // Grid mechanics: a col-span-4 item's grid area = all 4 tracks + the 3
+    // column gaps = the grid container's content box; default justify-self
+    // stretch makes the item's border-box fill that area exactly.
     const panel = await rect(firstRow.getByTestId("role-mapping-edit-panel"));
     expect(Math.abs(panel.width - contentWidth)).toBeLessThanOrEqual(1);
 
@@ -389,6 +401,42 @@ test.describe("roles settings — desktop one-line grid (≥760px)", () => {
     await page.setViewportSize({ width: 390, height: 900 });
     await expect(firstRow.getByTestId("role-mapping-edit-panel")).toBeVisible();
     await expect(checkbox).toBeChecked();
+  });
+
+  test("confirm panel and saved-confirm status also span the full row content width", async ({ page }) => {
+    await gotoRolesSettings(page, 1280, 900);
+    const firstRow = page.getByTestId("role-mapping-row").first();
+    const contentWidth = async () => {
+      const liRect = await rect(firstRow);
+      const pads = await firstRow.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return (
+          Number.parseFloat(cs.paddingLeft) +
+          Number.parseFloat(cs.paddingRight) +
+          Number.parseFloat(cs.borderLeftWidth) +
+          Number.parseFloat(cs.borderRightWidth)
+        );
+      });
+      return liRect.width - pads;
+    };
+
+    // Confirm panel (col-span-4).
+    await firstRow.getByRole("button", { name: COPY.REMOVE_LABEL }).click();
+    const confirm = await rect(firstRow.getByText(COPY.REMOVE_CONFIRM));
+    // The copy <p> sits inside the panel; measure the panel via the testid.
+    const confirmPanel = await rect(firstRow.getByTestId("role-mapping-confirm-panel"));
+    expect(confirm.width).toBeLessThanOrEqual(confirmPanel.width);
+    expect(Math.abs(confirmPanel.width - (await contentWidth()))).toBeLessThanOrEqual(1);
+    await firstRow.getByRole("button", { name: COPY.REMOVE_KEEP }).click();
+
+    // Saved-confirm status (col-span-4): set-equal save is idempotent ok — the
+    // real server action runs against the seeded row and returns to view with
+    // the transient confirmation (existing testid role-mapping-saved-confirm).
+    await firstRow.getByRole("button", { name: COPY.EDIT_LABEL }).click();
+    await firstRow.getByTestId("role-mapping-save").click();
+    const saved = firstRow.getByTestId("role-mapping-saved-confirm");
+    await expect(saved).toBeVisible();
+    expect(Math.abs((await rect(saved)).width - (await contentWidth()))).toBeLessThanOrEqual(1);
   });
 });
 
@@ -399,9 +447,13 @@ test.describe("roles settings — stacked mobile card (<760px)", () => {
     const token = await rect(firstRow.getByTestId("role-mapping-token"));
     const chips = await rect(firstRow.getByTestId("role-mapping-chips"));
     const actions = await rect(firstRow.getByTestId("role-mapping-actions"));
-    // Stacked order proof (spec AC-2): token block above chips above actions.
-    expect(chips.y).toBeGreaterThanOrEqual(token.bottom - TOLERANCE);
-    expect(actions.y).toBeGreaterThanOrEqual(chips.bottom - TOLERANCE);
+    // Stacked order proof (spec AC-2): the chips block starts below the ENTIRE
+    // header row. token.bottom <= header.bottom always (token is the header's
+    // tallest child at text-sm vs text-[11px] meta), so chips.y >= token.bottom
+    // is implied by the current stacked layout and fails if the grid leaked
+    // below 760px. 1px tolerance for baseline rounding.
+    expect(chips.y).toBeGreaterThanOrEqual(token.bottom - 1);
+    expect(actions.y).toBeGreaterThanOrEqual(chips.bottom - 1);
     await expect(firstRow.getByTestId("role-mapping-edit-label-long")).toBeVisible();
     await expect(firstRow.getByTestId("role-mapping-edit-label-short")).toBeHidden();
     await expect(firstRow.getByRole("button", { name: COPY.EDIT_LABEL })).toBeVisible();
@@ -414,7 +466,7 @@ test.describe("roles settings — stacked mobile card (<760px)", () => {
 In `playwright.config.ts:71`, add `roles-settings-layout` to the desktop-chromium alternation — change `…|admin-settings-admins-refresh|…` to `…|admin-settings-admins-refresh|roles-settings-layout|…` (one filename added; the project matches an explicit list, an unregistered spec silently never runs — spec §6.2 Registration).
 
 Run: `cd /Users/ericweiss/fxav-worktrees/feat-role-vocab-desktop-grid && pnpm exec playwright test --project=desktop-chromium roles-settings-layout`
-Expected: the desktop describe FAILS (rows still stack at 1280: vertical-center assertion breaks; `role-mapping-edit-panel` testid missing; main width 672 ≠ 768). The mobile describe may already pass (stacked is current behavior) EXCEPT the edit-panel testid does not exist yet — the desktop tests must be red for layout reasons, not only for missing testids: confirm the failure list includes the center/width assertions.
+Expected RED, with the failures attributable to LAYOUT (not harness gaps): the cell testids (`role-mapping-token`/`-meta`/`-chips`/`-actions`/`-edit-label-*`) already exist from Task 1, so the first desktop test runs its geometry and FAILS on the vertical-center + main-width (672 ≠ 768) + token-width assertions; the label-swap test FAILS on span visibility (no responsive CSS active... both spans follow their classes — long visible, short hidden via base `hidden`, so specifically `toBeHidden()` on the long span fails); the panel tests FAIL earlier on the not-yet-added `role-mapping-edit-panel`/`role-mapping-confirm-panel` testids (harness-gap failures — acceptable ONLY for these two tests). The mobile describe should PASS already (stacked is current behavior). Confirm the geometry failures are present before proceeding.
 
 - [ ] **Step 3: Implement the grid**
 
@@ -439,7 +491,7 @@ Expected: the desktop describe FAILS (rows still stack at 1280: vertical-center 
 
 6. Actions container className gains ` min-[760px]:col-start-4 min-[760px]:row-start-1`.
 
-7. Full-width sub-rows gain ` min-[760px]:col-span-4` on their outer element: the `savedConfirm` `<p>` (line ~177), the edit-panel `<div>` (line ~190 — also gains `data-testid="role-mapping-edit-panel"`), the confirm-panel `<div>` (line ~277).
+7. Full-width sub-rows gain ` min-[760px]:col-span-4` on their outer element: the `savedConfirm` `<p>` (line ~177), the edit-panel `<div>` (line ~190 — also gains `data-testid="role-mapping-edit-panel"`), the confirm-panel `<div>` (line ~277 — also gains `data-testid="role-mapping-confirm-panel"`).
 
 `app/admin/settings/roles/page.tsx:30`: `max-w-2xl` → `max-w-3xl`.
 
