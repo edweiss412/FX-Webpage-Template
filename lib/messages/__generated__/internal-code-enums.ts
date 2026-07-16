@@ -224,6 +224,9 @@ export const INTERNAL_CODE_ENUMS = {
   RESYNC_SHRINK_HELD: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
+    source: "pending_ingestions.last_error_code"
+  },
   ROLE_TOKEN_AUTOCORRECTED: {
     source: "parse_warnings.code"
   },

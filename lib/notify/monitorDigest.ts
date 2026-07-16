@@ -1,12 +1,10 @@
 import postgres from "postgres";
 import { STRIP_KINDS } from "@/lib/admin/loadRecentAutoApplied";
 import {
-  summarizeAutoFixes,
+  listAutoFixItems,
   summarizeDataGaps,
   isQualityRegression,
-  AUTO_FIX_CLASSES,
   GAP_CLASSES,
-  type AutoFixSummary,
   type DataGapsSummary,
 } from "@/lib/parser/dataGaps";
 import { getMonitorDigestWatermark } from "@/lib/notify/monitorWatermark";
@@ -33,7 +31,7 @@ export type MonitorDriftEntry = {
 export type MonitorDigestModel = {
   windowStart: string;
   autoApplied: MonitorShowGroup[];
-  autofix: AutoFixSummary;
+  autofix: MonitorAutofix;
   drift: MonitorDriftEntry[];
   newShowGaps: MonitorShowGroup[];
 };
@@ -69,18 +67,63 @@ export function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
   return [...groups.values()];
 }
 
-type WarningsRow = { parse_warnings: unknown[] };
+export type AutofixRow = {
+  drive_file_id: string;
+  slug: string | null;
+  title: string | null;
+  parse_warnings: unknown[];
+  occurred_at: string;
+};
 
-/** Sum summarizeAutoFixes over every applied row's parse_warnings (§3 signal 2). */
-export function accumulateAutoFixes(rows: WarningsRow[]): AutoFixSummary {
-  const classes = summarizeAutoFixes([]).classes;
-  let total = 0;
-  for (const row of rows) {
-    const s = summarizeAutoFixes(row.parse_warnings as never);
-    total += s.total;
-    for (const c of AUTO_FIX_CLASSES) classes[c.code] += s.classes[c.code];
+export type MonitorAutofix = { total: number; shows: MonitorShowGroup[] };
+
+const AUTOFIX_ITEM_DISPLAY_CAP = 200;
+
+/**
+ * Spec 2026-07-16 §3 — source-aware notice dedupe per show. Fingerprint
+ * `${code}|${anchor ?? ""}|${item}` keys on the UNCAPPED item; the 200-char
+ * display cap applies to kept items only (identity vs display separation).
+ * NO count capping here — DIGEST_MAX_* caps are render-only (template).
+ * Rows arrive query-ordered (occurred_at desc, drive_file_id, id); shows keep
+ * the stream order of their FIRST KEPT notice (a clean zero-autofix row never
+ * seeds a show's position — the render-time 12-show cap must rank by latest
+ * NOTICE, not latest sync); items keep stream order.
+ */
+export function computeAutofixShows(rows: AutofixRow[]): MonitorAutofix {
+  type Group = {
+    showTitle: string | null;
+    slug: string | null;
+    seen: Set<string>;
+    items: string[];
+  };
+  const groups = new Map<string, Group>();
+  for (const r of rows) {
+    for (const it of listAutoFixItems(r.parse_warnings as never)) {
+      const fingerprint = `${it.code}|${it.anchor ?? ""}|${it.item}`;
+      const existing = groups.get(r.drive_file_id);
+      if (existing?.seen.has(fingerprint)) continue;
+      const g: Group = existing ?? {
+        showTitle: r.title,
+        slug: r.slug,
+        seen: new Set(),
+        items: [],
+      };
+      g.seen.add(fingerprint);
+      g.items.push(
+        it.item.length > AUTOFIX_ITEM_DISPLAY_CAP
+          ? `${it.item.slice(0, AUTOFIX_ITEM_DISPLAY_CAP)}…`
+          : it.item,
+      );
+      if (!existing) groups.set(r.drive_file_id, g);
+    }
   }
-  return { total, classes };
+  let total = 0;
+  const shows: MonitorShowGroup[] = [];
+  for (const g of groups.values()) {
+    total += g.items.length;
+    shows.push({ showTitle: g.showTitle, slug: g.slug, items: g.items });
+  }
+  return { total, shows };
 }
 
 type DriftRow = {
@@ -196,16 +239,19 @@ export async function buildMonitorDigestModel(
     `;
     const autoApplied = groupAutoApplied(autoRows);
 
-    // Signal 2 — autocorrects over applied sync_log rows of published shows (§3).
-    const autofixRows = await sql<WarningsRow>`
-      select sl.parse_warnings
+    // Signal 2 — autocorrect notices over ALL in-window applied rows of published
+    // shows (spec 2026-07-16 §3: event semantics + source-aware dedupe; ORDER BY
+    // is load-bearing for deterministic caps at render time).
+    const autofixRows = await sql<AutofixRow>`
+      select sl.drive_file_id, s.slug, s.title, sl.parse_warnings, sl.occurred_at
         from public.sync_log sl
         join public.shows s on s.drive_file_id = sl.drive_file_id
        where s.published = true
          and sl.status = 'applied'
          and sl.occurred_at > ${windowIso}
+       order by sl.occurred_at desc, sl.drive_file_id asc, sl.id asc
     `;
-    const autofix = accumulateAutoFixes(autofixRows);
+    const autofix = computeAutofixShows(autofixRows);
 
     // Signal 3 — sub-threshold drift across applied sync_log rows of published shows (§3.1).
     // Per show + phase, the latest row (row_number window) is the baseline/current.

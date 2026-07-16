@@ -143,7 +143,7 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
         // before:* extends the hit area to the 44px tap-min floor (DESIGN.md --spacing-tap-min)
         // without growing the 28px visual track: 28 + 2×8 = 44.
         "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
-        on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
+        on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >
       <span

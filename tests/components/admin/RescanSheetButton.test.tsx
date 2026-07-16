@@ -105,7 +105,7 @@ describe("RescanSheetButton — states + posted body", () => {
     expect(result).not.toContain("—");
   });
 
-  test("updated + clean + NOT changed → 'No changes found.'", async () => {
+  test("updated + clean + NOT changed → 'No changes found. Still ready to publish.' (closes the loop: a role-mapping heal finds no sheet edits, yet publish now succeeds)", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({
         ok: true,
@@ -121,7 +121,7 @@ describe("RescanSheetButton — states + posted body", () => {
     });
     await waitFor(() =>
       expect(getByTestId(`rescan-sheet-result-${DFID}`).textContent ?? "").toContain(
-        "No changes found.",
+        "No changes found. Still ready to publish.",
       ),
     );
   });

@@ -57,6 +57,7 @@
   --color-accent-hover: var(--color-accent-hover-runtime);
   --color-accent-text: var(--color-accent-text-runtime);
   --color-accent-on-bg: var(--color-accent-on-bg-runtime);
+  --color-accent-edge: var(--color-accent-edge-runtime);
   --color-stale-tint: var(--color-stale-tint-runtime);
   --color-warning-bg: var(--color-warning-bg-runtime);
   --color-warning-text: var(--color-warning-text-runtime);
@@ -275,8 +276,11 @@
   --color-border-strong-runtime: #cfcdc7;
   --color-accent-runtime: #ff8c1a;
   --color-accent-hover-runtime: #e67a0e;
-  --color-accent-text-runtime: #ffffff;
-  --color-accent-on-bg-runtime: #c25e00;
+  --color-accent-text-runtime: #0e0f12;
+  --color-accent-on-bg-runtime: #a65000;
+  /* ON-state control boundary; 3.61:1 vs the orange track, 8.06:1 vs bg
+     (WCAG 1.4.11 both-sides) */
+  --color-accent-edge-runtime: #7a3d00;
   --color-stale-tint-runtime: #f4ece0;
   --color-warning-bg-runtime: #fff3d6;
   --color-warning-text-runtime: #5c3f00;
@@ -324,6 +328,8 @@
     --color-accent-hover-runtime: #ffa047;
     --color-accent-text-runtime: #0e0f12;
     --color-accent-on-bg-runtime: #ffa047;
+    /* decorative in dark — the track itself is 8.16:1 vs bg */
+    --color-accent-edge-runtime: #ffa047;
     --color-stale-tint-runtime: #26221b;
     --color-warning-bg-runtime: #3a2e14;
     --color-warning-text-runtime: #ffd68a;
@@ -365,6 +371,8 @@
   --color-accent-hover-runtime: #ffa047;
   --color-accent-text-runtime: #0e0f12;
   --color-accent-on-bg-runtime: #ffa047;
+  /* decorative in dark — the track itself is 8.16:1 vs bg */
+  --color-accent-edge-runtime: #ffa047;
   --color-stale-tint-runtime: #26221b;
   --color-warning-bg-runtime: #3a2e14;
   --color-warning-text-runtime: #ffd68a;

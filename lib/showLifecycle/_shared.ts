@@ -15,6 +15,10 @@ const KNOWN = [
   "SHOW_ARCHIVED_IMMUTABLE",
   "PUBLISH_BLOCKED_PENDING_REVIEW",
   "ADMIN_LINK_SHOW_NOT_FOUND",
+  // Publish freshness gate (staging-overlay spec 2026-07-16 §3.5 call site 3): publish_show
+  // RAISEs this when a consumed role mapping was deleted/narrowed after staging; the setPublished
+  // action renders it via lib/messages/lookup.ts (invariant 5). Heal = manual sync, then publish.
+  "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
 ];
 
 /**

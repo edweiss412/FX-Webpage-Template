@@ -255,7 +255,7 @@ Source: bug report #248, spec/plan `docs/superpowers/{specs,plans}/2026-07-03-st
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/step3-review-modal-redesign` (critique 32/40 PASS + fixes `c4d642bd`; audit 18/20 PASS + the audit-R1 fix commit this entry lands in). Audit P1-1 (informational `text-text-faint` contrast), P2 in-dialog publish-failure announcement, and P2 standalone-link tap height were fixed in the audit-R1 commit; the entry below is the sole explicit DEFER.
 
-### STEP3MODAL-1 — [P1] Accent-CTA contrast: `bg-accent` + `text-accent-text` computes 2.33:1 in light mode (audit P1-2)
+### STEP3MODAL-1 — [P1] Accent-CTA contrast — ✅ RESOLVED 2026-07-16 (accent-contrast token pass, feat/accent-contrast-token-pass: light accent-text flipped to #0E0F12, 8.23:1)
 
 - **What:** the modal's publish CTA (unchecked/pending states) uses the shared `bg-accent text-accent-text` pairing, which measures **2.33:1** in light mode — below WCAG AA 4.5:1 for normal-size text.
 - **Why deferred (not a blocker; pre-existing + system-wide):** this is the project-wide accent token pairing, NOT introduced by this diff — the modal reuses the exact button recipe every other accent CTA ships (wizard, StagedReviewCard, dashboard). The token-layer deficiency is already filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in BACKLOG.md (`docs/superpowers/plans/BACKLOG.md:595`), whose promotion prerequisite is a dedicated token/accessibility pass (new light-mode accent value + DESIGN.md §1.1/§1.2 figure corrections + contrast meta-test row + screenshot-baseline regen). Fixing it only inside this modal would fork the brand CTA color on one surface.
@@ -273,7 +273,7 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/developer-tier`. **C
 - **Why deferred (proportionality + technical audience):** the control is server-side ABSENT for normal admins — safe-default `viewerIsDeveloper=false` gating is verified across nav (`AdminNav:36`), settings sections, `DevToolsRow:30`, and the per-row toggle, so the only users who ever see it are already developers, who understand the grant. Missing help is an enhancement, not a correctness/safety gap: self-demotion is structurally locked + server-refused, and every error result renders cataloged copy (invariant 5). Adding a HoverHelp is a net-new UI element that would itself re-enter the impeccable gate.
 - **Trigger:** if the developer tier is exposed to a non-developer management surface, or a HoverHelp cluster is added to the Administrators row, wire a one-line "Grants full developer access, incl. promoting others" description at that point.
 
-### DEVTIER-2 — [P2] ON-track accent fill contrast ≈2.2:1 (audit; system-wide → `BL-ACCENT-ON-BG-AA-CONTRAST`)
+### DEVTIER-2 — [P2] ON-track accent fill contrast — ✅ RESOLVED 2026-07-16 (accent-contrast token pass: border-accent-edge boundary on every toggle track, 3.61:1 vs track / 8.06:1 vs bg)
 
 - **What:** the toggle's ON state uses `border-accent bg-accent` (`DeveloperToggleButton.tsx:93`); the accent fill on the page background computes ≈2.2:1, under WCAG 1.4.11 (3:1 for a UI-component fill vs its adjacent color).
 - **Why deferred (pre-existing + system-wide, not diff-introduced):** identical construction ships in `NotifyToggle.tsx:134` and `PublishedToggle.tsx:146` — this is the shared project toggle recipe, not introduced by this diff. It is the same token deficiency already filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in `docs/superpowers/plans/BACKLOG.md` and deferred by the Step-3-modal gate as STEP3MODAL-1. Mitigated: the toggle state is NEVER color-only (thumb `translate-x` + `aria-checked` + the visible "Developer" label), so the color-blind floor holds. Fixing it only inside this toggle would fork the brand accent on one surface.
@@ -370,7 +370,7 @@ Source: cross-model whole-diff review (Codex) on branch `feat/pull-sheet-archive
 
 Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/venue-card-redesign`. Critique 36/40 PASS (AI-slop NO, zero P0/P1). Audit 17/20, no P0, one P1 (below) + P2s. Deterministic detector: 3 warnings, all false-positive vs rendered output (dynamic `<img src={src}>` is valid; the em-dashes are in code comments, not rendered copy). Fixed in-branch: [P2] clipped focus ring on the map anchor (→ `ring-inset`), [P3] `onLoad` visibility reset, [P3] "map" badge `aria-hidden`, [P3] new-tab aria cue, [P3] double-spaces in class strings. The two entries below are deferred.
 
-### VCR-1 — [P1] Eyebrow labels fail WCAG AA contrast (systemic shared token)
+### VCR-1 — [P1] Eyebrow labels fail WCAG AA contrast — ✅ RESOLVED 2026-07-16 (accent-contrast token pass: CELL_EYEBROW_CLASS + hard-coded venue/dock eyebrows + map badge re-pointed to text-subtle; wizard 10px-faint scan pins the class)
 
 - **What:** the "Venue" / "Loading dock" eyebrows (`components/admin/wizard/step3ReviewSections.tsx:824,864`, `text-[10px] text-text-faint uppercase`) and the "map" badge (`components/admin/wizard/VenueMapTile.tsx:52`) use `--color-text-faint` (#8b8c92 light / #74736d dark) → ~3.0–3.75:1 on their surfaces, below the 4.5:1 AA threshold for text this small.
 - **Why deferred:** NOT introduced by this card. `text-text-faint` is the shared eyebrow token — the same `CELL_EYEBROW_CLASS` (`step3ReviewSections.tsx:385`) ships on every restyled Stage-3 card (#348/#349), and the design mock itself specifies #8B8C92 for the eyebrow. The auditor's explicit recommendation: disposition at the TOKEN (bump `--color-text-faint` toward `--color-text-subtle`, which passes at 6.76:1, or reserve `text-faint` for genuinely decorative text) rather than hand-patch one card. A per-card override would diverge this card from its siblings and the mock. This is an Opus-only + impeccable-gated design-system decision with cross-card visual-regression impact.
@@ -392,13 +392,13 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/v
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/telemetry-console-redesign`. Verdict: critique 33/40 PASS, audit 17/20 PASS, deterministic detector `[]` (0 findings), zero CRITICAL/P0. FIXED in-branch: switch ARIA (`role="switch"` + `aria-pressed` → plain toggle button with `aria-pressed`, the valid pairing); standalone icon-button tap-target WIDTH (`min-w-tap-min` on the auto-refresh switch + manual-refresh button, WCAG 2.5.5); tabular figures on EventRow relative time + OpenAlerts inline count segments + Activity match-count; `—` no-data placeholder now carries `aria-label="Unavailable"` (glyph `aria-hidden`); "notice" overview dot corrected from idle→review to match SystemHealthCard; header pill given `flex-wrap` for narrow viewports; Activity block wrapped in `<section aria-labelledby>`. The entries below are deferred.
 
-### TEL-1 — [P1→deferred] Accent used on selected level filter + requestId chip (accent dilution)
+### TEL-1 — [P1→deferred] Accent dilution — ✅ RESOLVED 2026-07-16 (accent-contrast token pass: selected filter re-toned to inverted neutral bg-text/text-bg, requestId chip to text-subtle; DESIGN.md §1.1 accent-reservation sentence added)
 
 - **What:** `components/admin/telemetry/EventFilters.tsx` selected level segment uses `bg-accent text-accent-text`; `EventRow.tsx` requestId chip uses `text-accent-on-bg`. The critique flags that spending the FXAV orange on a selected-filter toggle and an id-link dilutes "accent = this matters now" (live-refresh pulse + sparkline current-hour bar).
 - **Why deferred:** BOTH are PRE-EXISTING project affordances, unchanged in intent by this redesign — accent-as-selected is the established admin filter pattern (level toggle carried `bg-accent` before the restyle; the requestId chip predates this work). Re-toning telemetry-only would fragment consistency with every other admin filter surface. The design mock does not override the pattern, and the critique is not authoritative vs the mock/spec (project rule). A deliberate re-tone is a cross-admin design decision, not a telemetry defect.
 - **Trigger:** a project-wide "accent reservation" pass across all admin filters, or a DESIGN.md amendment on selected-state color.
 
-### TEL-2 — [P2→deferred] Error vs Warn level badge distinguished by weight, not fill
+### TEL-2 — [P2→deferred] Error vs Warn badge — ✅ RESOLVED 2026-07-16 (accent-contrast token pass: error badge on solid bg-status-degraded fill, 6.54:1 light / 4.70:1 dark)
 
 - **What:** `components/admin/telemetry/EventLevelBadge.tsx` renders error + warn with the same `bg-warning-bg`, differing only by `font-semibold`. Under color-blind + glance, an error badge does not escalate above a warn on its own.
 - **Why deferred:** `EventLevelBadge` is a SHARED component NOT restyled by this redesign (out of scope — the redesign touches the timeline/row layout, not the badge). Mitigated on the new surface: an error ROW now tints `bg-danger-bg` (EventRow), so the row-level escalation cue is present even though the badge is not distinct. A badge-fill change touches every telemetry consumer of the badge.
@@ -560,8 +560,42 @@ Dual-gate on the Task 13 UI diff (`RoleRecognizeControl` + boundary + `/admin/se
 
 ## Extend role-scope vocabulary — whole-diff R1 deferral (2026-07-16)
 
-### ROLE-VOCAB-2 — [P1→ratified+deferred] Wizard rescan does not run the role-mapping overlay; staged saves always resolve apply_pending
+### ROLE-VOCAB-2 — ✅ RESOLVED (2026-07-16, `feat/role-vocab-staging-overlay`) — [P1→ratified+deferred] Wizard rescan does not run the role-mapping overlay; staged saves always resolve apply_pending
+
+**Resolution (2026-07-16):** the staging pipeline now runs the overlay at the `prepareOnboardingFiles` chokepoint (spec `docs/superpowers/specs/2026-07-16-role-vocab-staging-overlay.md`): step 3 previews post-overlay state, the staged `"applied"` branch is reachable, and every `published=false→true` transition is gated on the consumed-token stamp (`role_mappings_stamp_satisfied`, refusal code `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`). The parent spec §8.3 amendment is superseded in place.
 
 - **What:** `mapRoleTokenStaged` saves the mapping and re-scans the wizard sheet, but the staging pipeline parses without the role-mapping overlay (only `runPhase2` at apply/publish runs it), so the refreshed staged parse still carries the `UNKNOWN_ROLE_TOKEN` warning and the action's `"applied"` branch is unreachable in v1 — every wizard save resolves `"apply_pending"` (whole-diff R1 F1). The saved-card copy is truthful ("saved and applies to every show… catch up on its next sheet check") and the control can reappear idle after a wizard refresh; a re-save resolves through the idempotent set-equal path.
 - **Why deferred:** No capability or data loss: the staged-apply/finalize path threads `roleTokenMappings` into `phase2`, so the mapping applies at publish (integration-tested). Wiring the overlay into the staging/rescan core is a staging-pipeline change (parse-write parity with use-raw's decision-display mechanism, step-3 preview semantics, re-stage tests) — net-new scope mid-close-out. Ratified as a spec amendment (spec §8.3, 2026-07-16) so the contract and the code agree.
 - **Trigger:** Doug reporting wizard confusion ("I recognized the role but the warning is still there"), or the next onboarding-wizard milestone touching the staging core. Backlog: `BL-ROLE-VOCAB-STAGING-OVERLAY`.
+
+## Wizard use-raw full-list controls — impeccable dual-gate (2026-07-16)
+
+Dual-gate on the `feat/use-raw-wizard-full-list` diff (`components/admin/wizard/step3ReviewSections.tsx`; spec `docs/superpowers/specs/2026-07-16-use-raw-wizard-full-list-toggle.md`). Critique 27/40 (dual-agent), audit 19/20; deterministic detector clean — the single `broken-image` hit is a false positive on JSDoc comment text, pre-existing. One P1 and two P2s deferred below; no P0.
+
+### USE-RAW-FULL-LIST-1 — [P1→ratified+deferred] Callout + list both render live controls; role-control siblings can diverge until navigation
+
+- **What:** A warning in the first 3 of its section's callout now has two live control instances (callout preview + complete list). Use-raw converges via `router.refresh()` on every save; the recognize-role control deliberately performs no client refresh (2026-07-15 §8.1 timing contract), so recognizing a role via one instance leaves the sibling in create mode until navigation — Doug could re-submit from the sibling (impeccable critique P1).
+- **Why deferred:** This is the **ratified spec contract**, not an oversight: keep-both was the user-approved resolved decision (spec §2.1, 2026-07-16) and §4.6 ratifies the stale-sibling class as accepted — it is pre-existing (per-occurrence `UNKNOWN_ROLE_TOKEN` emission already mounts duplicate live create controls for one token today), and the stale-sibling save resolves deterministically via the action's EXISTING-ROW-first branch: set-equal grants → idempotent success, different grants → benign conflict notice, never a raw code (pinned by the new sibling test in `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`). No data corruption is possible; the cost is momentary confusion, bounded by the §8.1 contract this diff deliberately does not alter.
+- **Trigger:** a Doug report of double-recognizing roles from the two sites, or a future decision to demote the callout to a pure preview (title + jump only) — which would revisit the ratified keep-both decision. Backlog: `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION`.
+
+### USE-RAW-FULL-LIST-2 — [P2→deferred] Duplicate testids/aria labels across the two render sites
+
+- **What:** Both instances of a flagged warning's controls emit the same `data-testid` values (`use-raw-control`, `role-recognize-control`, toggle ids) and identical radiogroup `aria-label`s, so screen-reader users hear the same group twice per warning with no disambiguation, and unscoped `getByTestId` queries would multi-match (impeccable critique P2).
+- **Why deferred:** The fix lives inside the shared `UseRawControl` / `RoleRecognizeControl` components (site-scoped testids, warning-title-qualified aria-labels) — blast radius across the live page and every existing control test, well beyond this diff. All in-repo queries are container-scoped, so no test breakage exists today.
+- **Trigger:** the next accessibility pass over the wizard modal, or any diff already touching the shared controls. Backlog: `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y`.
+
+### USE-RAW-FULL-LIST-3 — [P2→noted] "These are informational and don't block publishing" now headlines consequential controls
+
+- **What:** The §3.10-pinned non-blocking line sits above rows that can now grant financial access (recognize-role) or rewrite crew-visible values (use-raw) (impeccable critique P2).
+- **Why deferred:** The line remains factually true — warnings never block publishing, and the controls are optional refinements, not required actions. Copy is §3.10-pinned; qualifying it is a copy-pass decision, not a this-diff fix.
+- **Trigger:** the next wizard copy pass. Backlog: `BL-WIZARD-WARNINGS-COPY-QUALIFIER`.
+
+## Accent-contrast token pass — impeccable dual-gate (2026-07-16)
+
+Dual-gate on the `feat/accent-contrast-token-pass` diff. Critique 37/40 (dual-agent), AI-slop NO, deterministic detector CLEAN after false-positive triage (3 JSDoc `<img>` comment mentions), zero P0/P1. One P2 fixed in-diff (DESIGN.md §1.3 sentence bringing the telemetry error badge into the degraded-red scope); one P2 deferred below; P3s accepted (link hover deletion matches the ratified /help precedent; eyebrow hierarchy still distinct at 6.09:1 vs 16:1+).
+
+### ACCENT-PASS-1 — [P2→deferred] RightNowHero active show-day segment muted to accent-on-bg in light mode
+
+- **What:** the hero's active progress segment changed `bg-accent` → `bg-accent-on-bg` (`#a65000`) so the `role="img"` show-day indicator clears WCAG 1.4.11 (3:1 vs bg AND vs the inactive `bg-border` segments; raw `#ff8c1a` measured 1.46:1 vs inactive / 2.23:1 vs bg). Critique P2: this is the one surface PRODUCT.md reserves for expressive orange, and the sunlit crew glance loses brand vibrancy.
+- **Why deferred:** the darkened fill is the spec-ratified treatment (spec §4.1b class B4, adversarially mandated — the segment is load-bearing visual information, not decorative), pinned by class assertion + the bg-accent inventory registry. The critique's alternative (keep `#ff8c1a` active + get the 3:1 delta from lighter inactive segments or a hairline outline) is a real design option but needs its own contrast math for the inactive-vs-bg pair on a 6px-tall pill, a registry/treatment change, and a crew-page brand judgment — a deliberate crew-hero design pass, not a token-pass fix.
+- **Trigger:** a crew-page brand/vibrancy pass, or Doug/crew feedback that the show-day bar reads dull. Backlog: `BL-HERO-SEGMENT-VIBRANCY`.

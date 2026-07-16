@@ -362,6 +362,7 @@
     "wizard_created_session_id"
   ],
   "shows_internal": [
+    "applied_role_mappings",
     "financials",
     "parse_warnings",
     "raw_unrecognized",

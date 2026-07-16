@@ -503,7 +503,7 @@ export function ShowReviewSurface({
             <Fragment key={group}>
               <div
                 data-rail-group={group}
-                className="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-eyebrow text-text-faint"
+                className="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
               >
                 {group}
               </div>

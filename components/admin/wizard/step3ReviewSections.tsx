@@ -82,6 +82,7 @@ import { useRouter } from "next/navigation";
 import { isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -389,7 +390,7 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
 }
 
 /** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-faint";
+const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle";
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -481,6 +482,24 @@ export const Step3SectionChromeContext = createContext<Step3SectionChrome | null
 export const CALLOUT_MAX_ENTRIES = 3;
 
 /**
+ * Spec 2026-07-16 §4.4: the ONE decision matcher both actionable render sites
+ * (§E3 callout + WarningsBreakdown) share. Matches the persisted decision by
+ * (code, resolution.contentHash) — never by target; a warning without a
+ * resolvable resolution never matches.
+ */
+export function findUseRawDecision(
+  w: ParseWarning,
+  decisions: UseRawDecision[] | undefined,
+): UseRawDecision | undefined {
+  return decisions?.find(
+    (d) =>
+      d.code === w.code &&
+      w.resolution?.resolvable === true &&
+      d.contentHash === w.resolution.contentHash,
+  );
+}
+
+/**
  * §E3 inline flag callout: a compact warning-tone block at the top of a
  * flagged section's panel card linking each mapped warning to its row in the
  * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
@@ -512,13 +531,12 @@ function SectionFlagCallout({
   // by target. The `<UseRawControl>` inside the boundary self-hides out-of-scope /
   // unresolvable warnings, so it is rendered for every entry when a session exists.
   const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
-    useRawDecisions?.find(
-      (d) =>
-        d.code === w.code &&
-        w.resolution?.resolvable === true &&
-        d.contentHash === w.resolution.contentHash,
-    );
+    findUseRawDecision(w, useRawDecisions);
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  // spec 2026-07-16 §4.3.1 (class-sweep): identity keys, not full-array indices —
+  // an upstream insertion shifts every index and would migrate expanded role-panel
+  // state across warnings. Positional within `shown`; onJump keeps the full index.
+  const entryKeys = stableWarningKeys(shown.map((e) => e.warning));
   const extra = entries.length - shown.length;
   const isJudgment = variant === "judgment";
   const EntryIcon = isJudgment ? Info : AlertTriangle;
@@ -540,14 +558,14 @@ function SectionFlagCallout({
           We made a judgment call reading this. Worth a glance.
         </p>
       ) : null}
-      {shown.map(({ warning, index }) => {
+      {shown.map(({ warning, index }, k) => {
         const title = reviewWarningTitle(warning); // §8 hardening applies transitively
         // Entry text names the specific field when the warning carries one
         // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
         const fieldLabel = fieldLabelFor(warning.blockRef?.field);
         return (
-          <div key={index} className="flex flex-col gap-0.5">
+          <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
               <span className="min-w-0 wrap-break-word font-medium">
@@ -929,12 +947,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
               data-testid="venue-text-col"
               className="flex min-w-0 flex-1 flex-col gap-1 p-tile-pad"
             >
-              <span
-                className="text-[10px] font-semibold text-text-faint uppercase"
-                style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-              >
-                Venue
-              </span>
+              <span className={CELL_EYEBROW_CLASS}>Venue</span>
               {name ? (
                 <span className="text-lg leading-tight font-bold wrap-break-word text-text-strong">
                   {name}
@@ -969,12 +982,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
                 <Truck className="size-3.5" />
               </span>
               <div className="min-w-0">
-                <span
-                  className="text-[10px] font-semibold text-text-faint uppercase"
-                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-                >
-                  Loading dock
-                </span>
+                <span className={CELL_EYEBROW_CLASS}>Loading dock</span>
                 <p className="mt-0.5 text-sm/snug wrap-break-word text-text">{dock}</p>
               </div>
             </div>
@@ -2412,10 +2420,23 @@ export function reviewWarningTitle(w: ParseWarning): string {
 export function WarningsBreakdown({
   dfid,
   warnings,
+  useRawDecisions,
+  wizardSessionId,
 }: {
+  // dfid stays nullable (this branch's SectionCore refactor: published/missing-show
+  // sources carry a null driveFileId). Per-warning controls below additionally gate
+  // on a non-null dfid, so the null case renders the list without controls.
   dfid: string | null;
   warnings: ParseWarning[];
+  /** spec 2026-07-16 §4.1: staged decisions + session so every in-scope row can
+   *  render the use-raw / recognize-role controls (live-page parity). Optional/
+   *  ABSENT in standalone mounts (exactOptionalPropertyTypes) → no controls. */
+  useRawDecisions?: UseRawDecision[];
+  wizardSessionId?: string;
 }) {
+  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
+  // control state across warnings after a rescan/refresh reorders the array.
+  const keys = stableWarningKeys(warnings);
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
@@ -2449,7 +2470,7 @@ export function WarningsBreakdown({
               const isWarn = w.severity === "warn";
               return (
                 <li
-                  key={`${w.code}-${i}`}
+                  key={keys[i]}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
                   // §E4 jump-target key: same FULL-array index as the testid —
                   // the modal's container-scoped query hook (no `id`s, §9.4).
@@ -2465,7 +2486,9 @@ export function WarningsBreakdown({
                   >
                     {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
                   </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {/* div, not span: the per-row controls (and helpfulContext) render
+                      block roots — block-valid container (spec §4.3). */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
                       <span
                         aria-hidden="true"
@@ -2516,7 +2539,28 @@ export function WarningsBreakdown({
                         </a>
                       ) : null;
                     })()}
-                  </span>
+                    {/* spec 2026-07-16 §4.3: the complete-list render site for the
+                        use-raw + recognize-role controls (live-page parity; the §E3
+                        callout stays a capped, actionable preview). Both boundaries
+                        self-hide out-of-scope warnings. */}
+                    {wizardSessionId && dfid ? (
+                      <UseRawControlBoundary
+                        surface="wizard"
+                        wizardSessionId={wizardSessionId}
+                        driveFileId={dfid}
+                        warning={w}
+                        decision={findUseRawDecision(w, useRawDecisions)}
+                      />
+                    ) : null}
+                    {wizardSessionId && dfid ? (
+                      <RoleRecognizeControlBoundary
+                        surface="wizard"
+                        wizardSessionId={wizardSessionId}
+                        driveFileId={dfid}
+                        warning={w}
+                      />
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
@@ -3635,7 +3679,19 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
-      render: (s) => <WarningsBreakdown dfid={s.driveFileId} warnings={s.warnings} />,
+      // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
+      // list renders the per-warning controls (complete render site, §4.6).
+      // driveFileId is the mode-agnostic SectionCore locator (nullable); the
+      // wizard session is staged-only, so it threads through only for staged
+      // sources (published sources render the list without the mutate controls).
+      render: (s) => (
+        <WarningsBreakdown
+          dfid={s.driveFileId}
+          warnings={s.warnings}
+          useRawDecisions={s.useRawDecisions}
+          {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
+        />
+      ),
     },
     {
       id: "report",

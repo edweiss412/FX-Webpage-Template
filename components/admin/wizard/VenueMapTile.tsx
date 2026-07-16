@@ -51,7 +51,7 @@ export function VenueMapTile({
       />
       <span
         aria-hidden="true"
-        className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-faint"
+        className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-subtle"
       >
         map
       </span>

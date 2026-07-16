@@ -143,6 +143,68 @@ export function summarizeAutoFixes(
   return { total, classes };
 }
 
+// --- listAutoFixItems (spec docs/superpowers/specs/2026-07-16-digest-autofix-per-show-detail.md §4) ---
+// Code-point ranges replicate the sanitizeIdentityString step-1 contract
+// (lib/adminAlerts/sanitizeIdentityString.ts:15-24) — built from numeric code
+// points so no invisible character is embedded in this file.
+const cpRange = (a: number, b: number) => `${String.fromCodePoint(a)}-${String.fromCodePoint(b)}`;
+const AUTOFIX_FORMAT_RE = new RegExp(
+  `[${cpRange(0x200b, 0x200d)}${String.fromCodePoint(0xfeff)}${cpRange(0x202a, 0x202e)}${cpRange(0x2066, 0x2069)}]`,
+  "g",
+);
+const AUTOFIX_CONTROL_RE = new RegExp(
+  `[${cpRange(0x0000, 0x001f)}${cpRange(0x007f, 0x009f)}]`,
+  "g",
+);
+const AUTOFIX_TOKEN_RE = /[A-Za-z0-9+/_-]{24,}/g;
+const AUTOFIX_EMAIL_RE = /\S+@\S+/g;
+const AUTOFIX_CODE_SHAPED_RE = /^[A-Z][A-Z0-9_]*$/;
+const AUTO_FIX_LABELS: ReadonlyMap<string, string> = new Map(
+  AUTO_FIX_CLASSES.map((c) => [c.code, c.label]),
+);
+
+export type AutoFixItem = { code: AutoFixCode; item: string; anchor: string | null };
+
+/**
+ * One entry per counted autofix warning (same gating as summarizeAutoFixes, so
+ * listAutoFixItems(w).length === summarizeAutoFixes(w).total for any input).
+ * Item pipeline order is load-bearing (spec §4): normalize → shape check on the
+ * UNREDACTED string (label fallback — a raw catalog code is itself a 24-char
+ * token and must become the label, not "[redacted-token]") → token/email
+ * redaction on accepted prose → UNCAPPED return (display cap is the caller's).
+ */
+export function listAutoFixItems(
+  warnings: readonly ParseWarning[] | null | undefined,
+): AutoFixItem[] {
+  if (!warnings) return [];
+  const out: AutoFixItem[] = [];
+  for (const w of warnings) {
+    if (w.severity === "info") continue;
+    if (!AUTO_FIX_CODES.has(w.code)) continue;
+    const code = w.code as AutoFixCode;
+    const label = AUTO_FIX_LABELS.get(code)!;
+    const rawMessage = (w as { message?: unknown }).message;
+    const normalized = (typeof rawMessage === "string" ? rawMessage : "")
+      .replace(AUTOFIX_FORMAT_RE, "")
+      .replace(AUTOFIX_CONTROL_RE, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const item =
+      normalized === "" || normalized === w.code || AUTOFIX_CODE_SHAPED_RE.test(normalized)
+        ? label
+        : normalized
+            .replace(AUTOFIX_TOKEN_RE, "[redacted-token]")
+            .replace(AUTOFIX_EMAIL_RE, "[redacted-email]");
+    const sc = (w as { sourceCell?: { gid?: unknown; a1?: unknown } | null }).sourceCell;
+    const anchor =
+      sc && typeof sc.gid === "number" && typeof sc.a1 === "string" && sc.a1 !== ""
+        ? `${sc.gid}!${sc.a1}`
+        : null;
+    out.push({ code, item, anchor });
+  }
+  return out;
+}
+
 /**
  * Bounded, human "N label" breakdown for an AutoFixSummary. Ordering: count
  * desc, then AUTO_FIX_CLASSES registry order (stable tiebreak). Caps at `cap`

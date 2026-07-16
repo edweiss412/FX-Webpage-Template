@@ -108,6 +108,11 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   // rows with NULL created_show_id whose published=false show carries NO provenance
   // discriminator and has NO shadow (the pre-provenance Phase B shape).
   legacyAmbiguousDriveIds: string[] = [];
+  // Role-mapping freshness fakes (staging-overlay spec §3.5): tokens whose mapping row is
+  // "deleted/narrowed" (apply gate), and created-show drive ids whose persisted stamp is stale
+  // (flip gate). Empty = everything fresh.
+  staleRoleTokens = new Set<string>();
+  staleFlipDriveIds = new Set<string>();
   published = false;
   deletedWizardDeferrals = false;
   operations: string[] = [];
@@ -191,6 +196,18 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       return {
         rows: this.sessionCreatedDriveIds.map((drive_file_id) => ({ drive_file_id }) as T),
         rowCount: this.sessionCreatedDriveIds.length,
+      };
+    }
+
+    if (normalized.startsWith("select m.drive_file_id, public.role_mappings_stamp_satisfied")) {
+      // Flip freshness gate (staging-overlay spec §3.5 call site 2).
+      const ids = (params[1] ?? this.sessionCreatedDriveIds) as string[];
+      return {
+        rows: ids.map(
+          (drive_file_id) =>
+            ({ drive_file_id, fresh: !this.staleFlipDriveIds.has(drive_file_id) }) as T,
+        ),
+        rowCount: ids.length,
       };
     }
 
@@ -286,6 +303,14 @@ export function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
         // §5.5/I6 Flow B propagation write (writeShowPullSheetOverride_unlocked) at Phase-D apply.
         db.pullSheetOverrideWrites.push({ driveFileId: params[1] as string, override: params[0] });
         return {} as T;
+      }
+      if (normalized.startsWith("select public.role_mappings_stamp_satisfied")) {
+        // Apply freshness gate (staging-overlay spec §3.5 call site 1): mirrors the SQL
+        // predicate — null stamp passes; an entry whose token is "deleted" fails.
+        const raw = params[0] as string | null;
+        const entries = raw == null ? null : (JSON.parse(raw) as Array<{ token: string }>);
+        const ok = entries === null || entries.every((e) => !db.staleRoleTokens.has(e.token));
+        return { ok } as T;
       }
       if (normalized.startsWith("select use_raw_decisions from public.pending_syncs")) {
         // Task 6 (use-raw): CAS finalize reads the STAGED "use raw" decisions under the lock.

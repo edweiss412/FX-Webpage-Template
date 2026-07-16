@@ -175,7 +175,7 @@ export function ResetPickerEpochButton({
       aria-hidden="true"
       className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
     >
-      <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+      <span aria-hidden="true" className="mr-1 font-semibold text-accent-on-bg">
         ✓
       </span>
       {okMessage}

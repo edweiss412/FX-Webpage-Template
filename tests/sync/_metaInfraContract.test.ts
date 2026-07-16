@@ -411,12 +411,19 @@ function read(path: string): string {
 const infraMock = vi.hoisted(() => ({
   throwOnConstruct: false,
   throwOnFrom: false,
+  // When set, the factory returns THIS client (flags win first). Used by the
+  // wizard-ownership probe-failure cases; reset in beforeEach so it never
+  // leaks into later cases.
+  client: null as unknown,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
     if (infraMock.throwOnConstruct) {
       throw new Error("META: simulated service-role construction fault");
+    }
+    if (infraMock.client) {
+      return infraMock.client;
     }
     return {
       from: () => {
@@ -480,6 +487,7 @@ async function importPushSync() {
 beforeEach(() => {
   infraMock.throwOnConstruct = false;
   infraMock.throwOnFrom = false;
+  infraMock.client = null;
 });
 
 describe("sync Supabase infra-failure contract", () => {
@@ -511,6 +519,67 @@ describe("sync Supabase infra-failure contract", () => {
         SyncInfraError,
       );
     });
+
+    // Wizard-ownership gate (spec 2026-07-16 §4 item 10): returned AND thrown
+    // faults on the app_settings read and on EACH ownership probe map to
+    // SyncInfraError — a fault collapsing into a benign "not owned" would
+    // silently reopen the wizard-hijack race.
+    type GateFailure = { table: string; failure: "returned_error" | "thrown_error" };
+
+    // Fails ONLY the wizard-scoped ownership probe (.eq("wizard_session_id", …))
+    // for the given table (app_settings keyed on the table itself — it has no
+    // wizard-scoped filter). All other reads succeed with benign rows, so the
+    // gate proceeds through the deferral branches and each targeted case fails
+    // exactly at the NEW probe.
+    function gateClientWithProbeFailure(target: GateFailure) {
+      function builderFor(table: string) {
+        let wizardScoped = false;
+        const builder = {
+          select: () => builder,
+          limit: () => builder,
+          is: () => builder,
+          eq: (column: string) => {
+            if (column === "wizard_session_id") wizardScoped = true;
+            return builder;
+          },
+          async maybeSingle() {
+            const isTarget = table === target.table && (table === "app_settings" || wizardScoped);
+            if (isTarget) {
+              if (target.failure === "thrown_error") throw new Error(`${table} boom`);
+              return { data: null, error: { message: `${table} returned error` } };
+            }
+            if (table === "app_settings")
+              return {
+                data: { pending_wizard_session_id: "11111111-1111-4111-8111-111111111111" },
+                error: null,
+              };
+            return { data: null, error: null };
+          },
+        };
+        return builder;
+      }
+      return { from: (table: string) => builderFor(table) };
+    }
+
+    const PROBE_TABLES = [
+      "app_settings",
+      "pending_syncs",
+      "pending_ingestions",
+      "deferred_ingestions",
+    ] as const;
+
+    for (const table of PROBE_TABLES) {
+      for (const failure of ["returned_error", "thrown_error"] as const) {
+        test(`wizard-ownership ${table} probe ${failure} → SyncInfraError`, async () => {
+          infraMock.client = gateClientWithProbeFailure({ table, failure });
+          const { perFileProcessor, SyncInfraError } = await importProcessor();
+
+          await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
+            SyncInfraError,
+          );
+        });
+      }
+    }
   });
 
   describe("readShowArchivedForPush (push DEF-4 archived preflight)", () => {

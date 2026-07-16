@@ -141,3 +141,19 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     expect(screen.getByTestId("chip-remove-requestId")).toBeInTheDocument();
   });
 });
+
+// Accent-contrast token pass (spec 2026-07-16 §4.3, TEL-1): the SELECTED level
+// segment uses the inverted-neutral recipe (bg-text text-bg, ~16:1), never the
+// brand accent — accent is reserved for live/matters-now signals and CTAs
+// (DESIGN.md §1.1 accent-reservation sentence).
+describe("EventFilters selected segment is inverted neutral (TEL-1)", () => {
+  test("selected level carries bg-text text-bg and no accent classes", () => {
+    render(<EventFilters filters={{ sinceHours: 24, levels: ["error"] }} />);
+    const selected = screen.getByTestId("filter-level-error");
+    const tokens = new Set((selected.getAttribute("class") ?? "").split(/\s+/));
+    expect(tokens.has("bg-text")).toBe(true);
+    expect(tokens.has("text-bg")).toBe(true);
+    expect(tokens.has("bg-accent")).toBe(false);
+    expect(tokens.has("text-accent-text")).toBe(false);
+  });
+});

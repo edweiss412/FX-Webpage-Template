@@ -630,13 +630,13 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
     autoApplied: [{ showTitle: "East", slug: "east", items: ["Added Jane", "Renamed Bob"] }],
     autofix: {
       total: 2,
-      classes: {
-        STAGE_WORD_AUTOCORRECTED: 2,
-        ROLE_TOKEN_AUTOCORRECTED: 0,
-        COLUMN_HEADER_AUTOCORRECTED: 0,
-        SECTION_HEADER_AUTOCORRECTED: 0,
-        FIELD_LABEL_AUTOCORRECTED: 0,
-      },
+      shows: [
+        {
+          showTitle: "East",
+          slug: "east",
+          items: ["corrected 'a' as 'b'", "corrected 'c' as 'd'"],
+        },
+      ],
     },
     drift: [
       {

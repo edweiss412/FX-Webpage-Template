@@ -21,6 +21,11 @@ import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive
 import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ArchivedPullSheetTab, ParsedSheet, ParseResult } from "@/lib/parser/types";
+import {
+  applyRoleTokenMappings,
+  normalizeRoleTokenMappings,
+  type RoleTokenMapping,
+} from "@/lib/sync/roleMappingOverlay";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -205,6 +210,16 @@ export type RunOnboardingScanDeps = {
    * inject a stub to bypass the DB.
    */
   readPullSheetOverride?: (driveFileId: string) => Promise<PullSheetOverride | null>;
+  /**
+   * Reads the GLOBAL role_token_mappings vocabulary for the staging overlay
+   * (spec 2026-07-16-role-vocab-staging-overlay §3.1). Loaded ONCE per
+   * prepareOnboardingFiles call (global, not per-file), before the per-file
+   * concurrency loop. Defaults to `defaultReadRoleTokenMappings` (short-lived
+   * connection, best-effort: a fault degrades to [] = overlay no-op — the
+   * fail-safe direction; the always-written [] stamp keeps the publish gate
+   * silent). Tests inject a stub to bypass the DB.
+   */
+  readRoleTokenMappings?: () => Promise<RoleTokenMapping[]>;
   // Tab title→gid lookup for exact-cell deep-link anchors. Called only when a
   // cell-anchored warning is present (rare), so it adds no per-sheet round-trip
   // to the common case. Optional/injectable; defaults to the real Sheets API.
@@ -295,6 +310,32 @@ async function defaultReadPullSheetOverride(
     return rows[0]?.o ?? null;
   } catch {
     return null;
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+/**
+ * Default role_token_mappings loader (spec 2026-07-16 §3.1): the global vocabulary
+ * for the staging overlay, read on its own short-lived connection because the
+ * prepare phase is pre-lock and DB-tx-free (defaultReadPullSheetOverride mechanics).
+ *
+ * Best-effort: a fault here must NEVER wedge the pre-lock prepare — it degrades to
+ * [] (no overlay; warnings stay, flags unchanged, [] stamp), the fail-safe
+ * direction. NOT the publish-gate posture: the §3.5 gate fail-closes on faults;
+ * this loader fail-opens to "no recognition yet" — converges on the next rescan.
+ */
+async function defaultReadRoleTokenMappings(): Promise<RoleTokenMapping[]> {
+  const sql = postgres(databaseUrl(), { max: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select coalesce(jsonb_agg(jsonb_build_object(
+          'token', token, 'grants', grants, 'decided_by', decided_by, 'decided_at', decided_at)), '[]'::jsonb) as rows
+         from role_token_mappings`,
+    )) as Array<{ rows: unknown }>;
+    return normalizeRoleTokenMappings(rows[0]?.rows ?? []);
+  } catch {
+    return [];
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});
   }
@@ -1104,6 +1145,12 @@ export async function prepareOnboardingFiles(
   // therefore threads any accepted archived-tab override without per-caller wiring.
   // Best-effort (a read fault degrades to "no override"); tests inject a stub.
   const readOverride = deps.readPullSheetOverride ?? defaultReadPullSheetOverride;
+  // §3.1: the GLOBAL vocabulary, loaded ONCE per scan (not per file). Belt-and-
+  // suspenders catch: the default loader already degrades to [] on fault, but an
+  // injected dep may throw — the overlay must stay best-effort either way.
+  const roleTokenMappings = await (deps.readRoleTokenMappings ?? defaultReadRoleTokenMappings)()
+    .then((m) => m)
+    .catch(() => [] as RoleTokenMapping[]);
 
   // Per-file preparation is a pre-lock, side-effect-free Drive read (export +
   // parse + enrich). Each file is independent, so we prepare them with bounded
@@ -1172,6 +1219,20 @@ export async function prepareOnboardingFiles(
       pullSheetOverrideApplied = discard.appliedSnapshot;
       pullSheetOverrideCleared = true;
     }
+    // Role-mapping overlay + consumed-token stamp (spec 2026-07-16 §3.2) — ONE
+    // inseparable block at this single chokepoint, AFTER both parse-producing
+    // branches (normal + I5b discard-rerun) and BEFORE anchor work (a consumed
+    // warning never exists to receive anchors). The stamp is ALWAYS written
+    // ([] when nothing consumed): no code path may produce overlay output
+    // without the evidence the publish freshness gate verifies; an ABSENT key
+    // downstream therefore means a legacy pre-feature staged row.
+    const overlaid = applyRoleTokenMappings(parseResult, roleTokenMappings);
+    parseResult = overlaid.result;
+    const stampByToken = new Map<string, { token: string; grants: string[] }>();
+    for (const a of overlaid.applied) {
+      stampByToken.set(a.token, { token: a.token, grants: [...a.grants] });
+    }
+    parseResult.appliedRoleMappings = [...stampByToken.values()];
     // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
     // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
     // now runs for EVERY sheet (not just cell-anchored-warning sheets) so finalize can read
