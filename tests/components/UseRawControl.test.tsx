@@ -20,7 +20,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
-import { UseRawControl, deriveUseRawControlState } from "@/components/admin/UseRawControl";
+import {
+  UseRawControl,
+  deriveUseRawControlState,
+  segmentRawReading,
+} from "@/components/admin/UseRawControl";
 
 afterEach(() => cleanup());
 
@@ -303,6 +307,182 @@ describe("UseRawControl — render contract", () => {
     expect(rooms.getByTestId("use-raw-toggle-on").textContent).toContain(
       "Exactly as the sheet says",
     );
+  });
+
+  // ── raw-string split markers (deferred P2, 2026-07-16) ───────────────────
+  it("segmentRawReading (rooms): labels the name run, the Room→Floor gap as Dimensions, leaves the kind label plain", () => {
+    const raw =
+      "GENERAL SESSION GRAND BALLROOM A/B TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14' 8th Floor";
+    const segs = segmentRawReading(raw, {
+      resolvable: true,
+      contentHash: HASH,
+      parsed: {
+        kind: "rooms",
+        roomKind: "gs",
+        name: "GRAND BALLROOM A/B",
+        dimensions: "TOTAL: 82' x 94' x 14' · A/B: 82' x 63' x 14'",
+        floor: "8th Floor",
+      },
+      replacement: { kind: "rooms", name: raw, dimensions: null, floor: null },
+    });
+    // Reassembly is lossless — marking must never mutate the sheet text.
+    expect(segs.map((s) => s.text).join("")).toBe(raw);
+    expect(segs.map((s) => [s.field, s.text])).toEqual([
+      [null, "GENERAL SESSION "],
+      ["Room", "GRAND BALLROOM A/B"],
+      ["Dimensions", " TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14' "],
+      ["Floor", "8th Floor"],
+    ]);
+  });
+
+  it("segmentRawReading fails soft: unmatched anchors → single plain segment; dates never segment", () => {
+    // Name not present in the raw string → no partial/false claims.
+    const noMatch = segmentRawReading("SOMETHING ELSE ENTIRELY", roomsResolution);
+    expect(noMatch).toEqual([{ text: "SOMETHING ELSE ENTIRELY", field: null }]);
+    // Dates are a reinterpretation, not sheet substrings — always one plain segment.
+    const dates = segmentRawReading("in 2026-04-03 · set 2026-05-03", {
+      resolvable: true,
+      contentHash: HASH,
+      parsed: {
+        kind: "dates",
+        dates: { travelIn: "2026-03-04", set: null, showDays: [], travelOut: null },
+      },
+      replacement: {
+        kind: "dates",
+        dmyDates: { travelIn: "2026-04-03", set: null, showDays: [], travelOut: null },
+      },
+    });
+    expect(dates).toEqual([{ text: "in 2026-04-03 · set 2026-05-03", field: null }]);
+  });
+
+  it("segmentRawReading (hotels): each guest name is its own labeled run, case-insensitive, in order", () => {
+    const segs = segmentRawReading("jane doe JOHN SMITH", {
+      resolvable: true,
+      contentHash: HASH,
+      parsed: { kind: "hotels", names: ["Jane Doe", "John Smith"], confirmationNo: "84421" },
+      replacement: { kind: "hotels", names: ["jane doe JOHN SMITH"], confirmationNo: null },
+    });
+    expect(segs.map((s) => [s.field, s.text])).toEqual([
+      ["Guest 1", "jane doe"],
+      [null, " "],
+      ["Guest 2", "JOHN SMITH"],
+    ]);
+  });
+
+  it("segmentRawReading boundary soundness (Codex R1): unicode case-fold drift, junk gaps, repeated floors", () => {
+    const res = (parsed: {
+      name: string;
+      dimensions: string | null;
+      floor: string | null;
+    }): Extract<UseRawResolution, { resolvable: true }> => ({
+      resolvable: true,
+      contentHash: HASH,
+      parsed: { kind: "rooms", ...parsed },
+      replacement: { kind: "rooms", name: "x", dimensions: null, floor: null },
+    });
+
+    // (1) A length-changing case-fold character BEFORE the anchors ("İ".toLowerCase()
+    // is two code units) must not shift the underlined runs — indexes must come from
+    // the raw string itself, never a lowercased copy.
+    const uni = "SESSİON LABEL Ballroom 82x94 8th Floor";
+    const uniSegs = segmentRawReading(
+      uni,
+      res({ name: "Ballroom", dimensions: "82x94", floor: "8th Floor" }),
+    );
+    expect(uniSegs.map((s) => s.text).join("")).toBe(uni);
+    expect(uniSegs.find((s) => s.field === "Room")?.text).toBe("Ballroom");
+    expect(uniSegs.find((s) => s.field === "Floor")?.text).toBe("8th Floor");
+    expect(uniSegs.find((s) => s.field === "Dimensions")?.text).toBe(" 82x94 ");
+
+    // (2) A junk middle gap is NOT labeled Dimensions just because parsed dims exist —
+    // the gap must normalize to the parsed dimensions.
+    const junk = segmentRawReading(
+      "GENERAL SESSION Ballroom unexpected junk 8th Floor",
+      res({ name: "Ballroom", dimensions: "82' x 94'", floor: "8th Floor" }),
+    );
+    expect(junk.find((s) => s.field === "Dimensions")).toBeUndefined();
+    expect(junk.find((s) => s.field === "Room")?.text).toBe("Ballroom");
+    expect(junk.find((s) => s.field === "Floor")?.text).toBe("8th Floor");
+
+    // (3) A floor-looking substring INSIDE the middle region must not steal the
+    // Floor run — the parser takes the TRAILING floor, so the LAST occurrence wins.
+    const repeated = "GENERAL SESSION Ballroom 8th Floor Annex 82x94 8th Floor";
+    const repSegs = segmentRawReading(
+      repeated,
+      res({ name: "Ballroom", dimensions: "82x94", floor: "8th Floor" }),
+    );
+    expect(repSegs.map((s) => s.text).join("")).toBe(repeated);
+    const floorRuns = repSegs.filter((s) => s.field === "Floor");
+    expect(floorRuns).toHaveLength(1);
+    // The labeled floor is the FINAL occurrence (string ends right after it).
+    expect(repeated.slice(repeated.length - "8th Floor".length)).toBe("8th Floor");
+    expect(repSegs[repSegs.length - 1]).toEqual({ text: "8th Floor", field: "Floor" });
+    // Middle (containing the decoy floor + dims) stays unlabeled — mixed junk.
+    expect(repSegs.find((s) => s.field === "Dimensions")).toBeUndefined();
+  });
+
+  it("raw row renders matched runs as data-seg spans without mutating the text", () => {
+    const { getByTestId } = render(
+      <UseRawControl warning={warning()} decision={undefined} onToggle={vi.fn()} />,
+    );
+    const rawEl = getByTestId("use-raw-raw");
+    // roomsResolution: raw = "Salon A Merged", parsed name "Grand Ballroom" → no
+    // anchor match → NO segment spans (fail-soft, plain string).
+    expect(rawEl.querySelectorAll("[data-seg]").length).toBe(0);
+    expect(rawEl.textContent).toBe("Salon A Merged");
+  });
+
+  it("raw row marks the parsed-field runs when anchors match", () => {
+    const raw = "GENERAL SESSION Ballroom 82' x 94' 8th Floor";
+    const { getByTestId } = render(
+      <UseRawControl
+        warning={warning({
+          resolution: {
+            resolvable: true,
+            contentHash: HASH,
+            parsed: {
+              kind: "rooms",
+              roomKind: "gs",
+              name: "Ballroom",
+              dimensions: "82' x 94'",
+              floor: "8th Floor",
+            },
+            replacement: { kind: "rooms", name: raw, dimensions: null, floor: null },
+          },
+        })}
+        decision={undefined}
+        onToggle={vi.fn()}
+      />,
+    );
+    const rawEl = getByTestId("use-raw-raw");
+    const segFields = Array.from(rawEl.querySelectorAll("[data-seg]")).map((el) =>
+      el.getAttribute("data-seg"),
+    );
+    expect(segFields).toEqual(["Room", "Dimensions", "Floor"]);
+    expect(rawEl.textContent).toBe(raw); // text itself never altered
+  });
+
+  // ── inline retry (deferred P3, 2026-07-16) ────────────────────────────────
+  it("a failed toggle offers Try again, which re-fires the SAME choice and clears the error on success", async () => {
+    let calls = 0;
+    const onToggle = vi.fn(async (useRaw: boolean) => {
+      calls += 1;
+      if (calls === 1) throw new Error("boom");
+      return useRaw ? undefined : undefined;
+    });
+    const view = render(
+      <UseRawControl warning={warning()} decision={undefined} onToggle={onToggle} />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("use-raw-toggle-on"));
+    });
+    await waitFor(() => expect(view.getByTestId("use-raw-error")).not.toBeNull());
+    await act(async () => {
+      fireEvent.click(view.getByTestId("use-raw-retry"));
+    });
+    expect(onToggle).toHaveBeenCalledTimes(2);
+    expect(onToggle).toHaveBeenLastCalledWith(true); // same direction as the failed attempt
+    await waitFor(() => expect(view.queryByTestId("use-raw-error")).toBeNull());
   });
 
   it("screen-reader punctuation pairs each field label with its value (sr-only, no visual change)", () => {
