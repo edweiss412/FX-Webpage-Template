@@ -23,6 +23,7 @@ import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
+import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -1991,6 +1992,9 @@ export async function applyStaged(
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
+      // §3.4: co-emit the durable, non-coalescing LEAD audit event for this site's LEAD-bit subset.
+      // Rides the SAME site as the feed nudge so the staged-apply path is never left silent.
+      await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
     }
     // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the held lock tx (invariant 10;
     // the withPipelineLock resolved before this point). A non-applied outcome carries no entries.

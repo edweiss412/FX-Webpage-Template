@@ -113,6 +113,7 @@ import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/ro
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
+import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -2318,6 +2319,9 @@ async function emitDeferredRoleFlagsNotice(
   if ("skipped" in result || result.outcome !== "applied" || !result.roleFlagsNotice) return;
   const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
   await upsertAdminAlert(result.roleFlagsNotice);
+  // §3.4: co-emit the durable, non-coalescing LEAD audit event for this site's LEAD-bit subset.
+  // Rides the SAME site as the feed nudge so no apply path is missed (cross-caller topology).
+  await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
 }
 
 function addHours(date: Date, hours: number): Date {

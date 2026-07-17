@@ -34,6 +34,11 @@ vi.mock("@/lib/adminAlerts/resolveOnboardingSheetUnreadable", () => ({
   resolveOpenUnreadableAlertUnconditionally: vi.fn(async () => ({ kind: "ok", resolved: false })),
 }));
 import { resolveUnreadableAlertIfHealed as defaultResolveIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
+// §3.4 per-caller topology: spy on the durable-event emitter so the cron/manual processOneFile tail
+// can be asserted to co-emit LEAD_ROLE_APPLIED (the emitter's own behavior is unit-tested in
+// tests/log/emitLeadRoleApplied.test.ts). Mocked as a no-op for every other cron test.
+vi.mock("@/lib/log/emitLeadRoleApplied", () => ({ emitLeadRoleApplied: vi.fn() }));
+import { emitLeadRoleApplied as mockEmitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
 
 type PipelineTx = Phase1Tx &
   Phase2Tx & {
@@ -830,6 +835,44 @@ describe("processOneFile", () => {
     });
     expect(events).toEqual(["lock:start", "lock:commit", "alert:upsert"]);
     expect(vi.mocked(syncDeps.runPhase1)).toHaveBeenCalledBefore(vi.mocked(syncDeps.runPhase2));
+  });
+
+  // §3.4 / §6 per-caller MANDATORY: the cron/manual processOneFile tail must co-emit the durable
+  // LEAD_ROLE_APPLIED event alongside the ROLE_FLAGS_NOTICE feed nudge. Failure mode caught: wiring
+  // the durable event on only the staged path, leaving cron/manual LEAD grants silent.
+  test("a LEAD-bit change through processOneFile co-emits the durable LEAD_ROLE_APPLIED event", async () => {
+    vi.mocked(mockEmitLeadRoleApplied).mockClear();
+    const fakeTx = tx();
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      expect(driveFileId).toBe("file-1");
+      return fn(fakeTx as LockedShowTx<PipelineTx>);
+    });
+    const leadNotice = {
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE" as const,
+      context: {
+        drive_file_id: "file-1",
+        changes: [{ crew_name: "Alice", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      },
+    };
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          roleFlagsNotice: leadNotice,
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(mockEmitLeadRoleApplied).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(mockEmitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
   });
 
   test("first-seen auto-publish stamps 24h unpublish token, alerts, and invalidates under the show lock", async () => {
