@@ -390,9 +390,13 @@ test("buildStagedSectionData accepts null override", () => {
   const data = buildStagedSectionData({ ...baseInput(), pullSheetOverride: null });
   expect(data.pullSheetOverride).toBeNull();
 });
+test("buildPublishedSectionData sets pullSheetOverride null (published never shows S5, spec §3.6)", () => {
+  const data = buildPublishedSectionData(publishedInput());
+  expect(data.pullSheetOverride).toBeNull();
+});
 ```
 
-(`baseInput()` = the file's existing minimal `buildStagedSectionData` input builder; if none, construct it from the `pr`/`row`/`dfid`/`wizardSessionId` + list fields the function requires — see `sectionData.ts:91-106`.)
+(`baseInput()` = the file's existing minimal `buildStagedSectionData` input builder; if none, construct it from the `pr`/`row`/`dfid`/`wizardSessionId` + list fields the function requires — see `sectionData.ts:91-106`. `buildPublishedSectionData` + a `publishedInput()`/snapshot builder already exist in the published-adapter test — reuse it; e.g. `tests/components/admin/review/showReviewSurfaceExtras.test.tsx` builds a `ShowReviewSnapshot` via its `snapshot()` helper and calls `buildPublishedSectionData`. Import `buildPublishedSectionData` from `@/components/admin/review/publishedAdapter`.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -537,7 +541,7 @@ test("published mode (no wizardSessionId): no affordance, no S5 even if a durabl
 });
 ```
 
-Failure modes: each S5 case pins loop-suppression (competing affordance absent); the S4 case pins the non-collision; published pins staged-only gating. Note the S5 tests render `PackListBreakdown` directly — `isPublishRunActive` comes from context (Task 5) and defaults to `false`, so the `RescanSheetButton` here is enabled (freeze covered separately in Task 5).
+Failure modes: each S5 case pins loop-suppression (competing affordance absent); the S4 case pins the non-collision; published pins staged-only gating. In THIS task the S5 `RescanSheetButton` is unconditionally enabled (no freeze wiring yet) — the publish-run freeze is added test-first in Task 5, so do NOT assert anything about `disabled` here.
 
 - [ ] **Step 2: Run to verify failures**
 
@@ -546,21 +550,13 @@ Expected: FAIL — `pullSheetOverride` prop unknown; no `pack-list-rescan-needed
 
 - [ ] **Step 3: Add the `ArchivedTabRescanNeeded` component**
 
-In `step3ReviewSections.tsx`, after `ArchivedTabIncludedNote` (ends near `:2280`), add. Import `RescanSheetButton` at the top (`import { RescanSheetButton } from "@/components/admin/RescanSheetButton";`). Both `createContext` AND `useContext` are ALREADY imported at `:26-29` (verified) — the snippet below needs no new React import. `Step3RunStateContext` is defined here (exported) and consumed here; Task 5 adds the provider that supplies the modal's real flag (until then the default `false` applies):
+In `step3ReviewSections.tsx`, after `ArchivedTabIncludedNote` (ends near `:2280`), add. Import `RescanSheetButton` at the top (`import { RescanSheetButton } from "@/components/admin/RescanSheetButton";`). **This task renders the S5 block with the Re-scan button UNGATED** — the publish-run freeze (the context, its consumption, and the `disabled` prop) is Task 5's deliverable and is added there test-first, so it must NOT appear here yet (else the freeze behavior would be implemented before its fail-first test). Task 4 covers only divergence detection + S5 render + loop-suppression:
 
 ```tsx
-/** PSAT-1 run-state context: threads the publish-run freeze flag to body-surface
- *  mutators (the S5 Re-scan) that render via `s.render(data)` with only `data`.
- *  Provided by ShowReviewSurface (Task 5); default false so direct-render tests
- *  and the published page get an enabled/no-op default. */
-export const Step3RunStateContext = createContext<{ isPublishRunActive: boolean }>({
-  isPublishRunActive: false,
-});
-
 /** S5 (spec §3.4): durable override and preview disagree (committed-but-preview-
  *  stale). A reload can't heal it (same stale envelope) — only a re-scan refreshes
- *  the preview. Renders the note + the existing RescanSheetButton, frozen during a
- *  publish/resume run (Step-3 freeze contract, §4.4 R8). */
+ *  the preview. Renders the note + the existing RescanSheetButton. (Task 5 adds the
+ *  publish-run freeze via Step3RunStateContext — test-first.) */
 function ArchivedTabRescanNeeded({
   dfid,
   wizardSessionId,
@@ -568,7 +564,6 @@ function ArchivedTabRescanNeeded({
   dfid: string;
   wizardSessionId: string;
 }) {
-  const { isPublishRunActive } = useContext(Step3RunStateContext);
   return (
     <div
       data-testid={`pack-list-rescan-needed-${dfid}`}
@@ -576,11 +571,7 @@ function ArchivedTabRescanNeeded({
     >
       <p className="font-medium">Gear saved. The preview is out of date.</p>
       <p>Re-scan to refresh it.</p>
-      <RescanSheetButton
-        driveFileId={dfid}
-        wizardSessionId={wizardSessionId}
-        disabled={isPublishRunActive}
-      />
+      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
     </div>
   );
 }
@@ -695,10 +686,24 @@ git commit --no-verify -m "feat(crew-page): derive override state from durable s
 - Produces: `ShowReviewSurface` optional prop `isPublishRunActive?: boolean`.
 
 Two distinct coverage targets, kept in separate tests so each has its own fail-first:
-1. **Context consumption** — `PackListBreakdown` reads the context and freezes (already possible after Task 4; verified via a direct-`Provider` render).
+1. **Context consumption** — `PackListBreakdown`'s S5 `RescanSheetButton` reads the context and freezes. NOT yet wired in Task 4 (which renders it ungated), so this is fail-first HERE.
 2. **Provider wiring (THIS task's real deliverable)** — `ShowReviewSurface` actually PROVIDES the modal's real flag down to the S5 button. This MUST fail before the provider is added, so it renders through `ShowReviewSurface` (NOT a direct `Provider`).
 
-- [ ] **Step 1: Write the context-consumption behavioral tests + the SURFACES extension**
+All freeze behavior — the context definition, `ArchivedTabRescanNeeded`'s consumption of it, and the `ShowReviewSurface` provider — is introduced test-first in THIS task (Task 4 left the S5 button ungated on purpose).
+
+- [ ] **Step 1: Define the context (unconsumed) + write the fail-first freeze tests + SURFACES extension**
+
+First define the context so the tests can import it, but do NOT consume it yet — add to `step3ReviewSections.tsx` (near the existing `Step3SectionChromeContext` at `:488`; `createContext` is already imported at `:26-29`):
+
+```tsx
+/** PSAT-1 run-state context: threads the publish-run freeze flag to body-surface
+ *  mutators (the S5 Re-scan) that render via `s.render(data)` with only `data`.
+ *  Provided by ShowReviewSurface (Step 4 below); default false so direct-render
+ *  tests and the published page get an enabled/no-op default. */
+export const Step3RunStateContext = createContext<{ isPublishRunActive: boolean }>({
+  isPublishRunActive: false,
+});
+```
 
 Edit `_metaStep3FreezeContract.test.ts:24` — add the third surface:
 
@@ -710,7 +715,7 @@ const SURFACES = [
 ];
 ```
 
-Add the direct-`Provider` behavioral cases to `packListBreakdownStates.test.tsx` (import `Step3RunStateContext`). Confirm the button's accessible name first: `rg "aria-label|Re-scan|Rescan" components/admin/RescanSheetButton.tsx` and use the real text in the `name:` matcher.
+Add the direct-`Provider` behavioral cases to `packListBreakdownStates.test.tsx` (import `Step3RunStateContext`). Confirm the button's accessible name first: `rg "aria-label|Re-scan|Rescan" components/admin/RescanSheetButton.tsx` (it is "Re-scan this sheet", so `/re-scan/i` matches).
 
 ```ts
 import { PackListBreakdown, Step3RunStateContext } from "@/components/admin/wizard/step3ReviewSections";
@@ -792,20 +797,42 @@ describe("ShowReviewSurface threads the publish-run freeze to the S5 Re-scan (PS
       .querySelector("button");
     expect(btn).not.toBeDisabled();
   });
+});
+```
+
+(Match `buildParseResult`/`stagedRow`'s real shapes from `_step3ReviewFixture` — adjust the `buildStagedSectionData` list fields to whatever that fixture already provides; the only load-bearing inputs here are `pr.archivedPullSheetTabs` (not-included) + `pullSheetOverride` (set) + a `wizardSessionId`. If `buildParseResult` already returns non-empty lists, pass them through instead of `[]`.) NOTE the `describe(...)` block closes with `});`.
+
+- [ ] **Step 3: Run to verify ALL freeze tests fail (fail-first)**
+
+Run: `pnpm vitest run tests/components/admin/wizard/_metaStep3FreezeContract.test.ts tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/review/showReviewSurfaceFreeze.test.tsx`
+Expected — every freeze behavior is red because nothing consumes/provides the context yet (Task 4 left the S5 button ungated):
+- **`_metaStep3FreezeContract` FAILS** — `step3ReviewSections.tsx` is now in `SURFACES` but its S5 `RescanSheetButton` has NO `disabled={isPublishRunActive}` yet.
+- **the direct-`Provider` "freezes when true" case FAILS** — `ArchivedTabRescanNeeded` does not read the context, so the button is never disabled. (The "enabled with default" case passes.)
+- **`showReviewSurfaceFreeze` "true => disabled" FAILS** — the provider is unwired. (If `ShowReviewSurface` doesn't accept `isPublishRunActive` yet, this file won't compile — an acceptable red; the prop is added in Step 5.)
+
+- [ ] **Step 4: Wire `ArchivedTabRescanNeeded` to consume the context**
+
+In `step3ReviewSections.tsx`, update `ArchivedTabRescanNeeded` (from Task 4) to read the context and freeze the button (`useContext` is already imported at `:26-29`):
+
+```tsx
+function ArchivedTabRescanNeeded({ dfid, wizardSessionId }: { dfid: string; wizardSessionId: string }) {
+  const { isPublishRunActive } = useContext(Step3RunStateContext);
+  return (
+    <div
+      data-testid={`pack-list-rescan-needed-${dfid}`}
+      className="flex flex-col gap-2 rounded-sm border border-border bg-info-bg p-3 text-sm text-text-strong"
+    >
+      <p className="font-medium">Gear saved. The preview is out of date.</p>
+      <p>Re-scan to refresh it.</p>
+      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} disabled={isPublishRunActive} />
+    </div>
+  );
 }
 ```
 
-(Match `buildParseResult`/`stagedRow`'s real shapes from `_step3ReviewFixture` — adjust the `buildStagedSectionData` list fields to whatever that fixture already provides; the only load-bearing inputs here are `pr.archivedPullSheetTabs` (not-included) + `pullSheetOverride` (set) + a `wizardSessionId`. If `buildParseResult` already returns non-empty lists, pass them through instead of `[]`.)
+Re-run the command from Step 3: `_metaStep3FreezeContract` now PASSES (the literal `disabled={isPublishRunActive}` exists) and the direct-`Provider` "freezes when true" case PASSES. `showReviewSurfaceFreeze` still FAILS (provider not yet wired) — proceed to Step 5.
 
-- [ ] **Step 3: Run to verify the RIGHT things fail**
-
-Run: `pnpm vitest run tests/components/admin/wizard/_metaStep3FreezeContract.test.ts tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/review/showReviewSurfaceFreeze.test.tsx`
-Expected:
-- `_metaStep3FreezeContract` PASSES (Task 4 already added `disabled={isPublishRunActive}`; adding the surface only widens the scan — sanity-check it still greens).
-- the direct-`Provider` context-consumption cases PASS (Task 4 wired consumption).
-- **`showReviewSurfaceFreeze` `isPublishRunActive=true` case FAILS** — `ShowReviewSurface` does not yet accept/provide the prop, so the S5 button stays enabled (context default `false`). THIS is the fail-first proving the provider is unwired. (If the prop doesn't exist yet, this file won't compile — that is also an acceptable red; add the prop as a no-op accept in Step 4 first, re-run to get a runtime red, then add the provider.)
-
-- [ ] **Step 4: Add the `isPublishRunActive` prop + provider to `ShowReviewSurface`**
+- [ ] **Step 5: Add the `isPublishRunActive` prop + provider to `ShowReviewSurface`**
 
 `ShowReviewSurface.tsx` — add to the props type (`:142`, alongside `data`):
 
@@ -835,7 +862,7 @@ Wrap the returned surface JSX (the root element that contains the sections `.map
 </Step3RunStateContext.Provider>
 ```
 
-- [ ] **Step 5: Modal passes the flag**
+- [ ] **Step 6: Modal passes the flag**
 
 `Step3ReviewModal.tsx:715` — add the prop to the `<ShowReviewSurface …>` element:
 
@@ -847,12 +874,12 @@ Wrap the returned surface JSX (the root element that contains the sections `.map
 
 (`isPublishRunActive` is already resolved at `:167`.) `PublishedReviewPage.tsx:188` is left unchanged — omits the prop, gets `false`.
 
-- [ ] **Step 6: Run tests + typecheck**
+- [ ] **Step 7: Run tests + typecheck**
 
 Run: `pnpm vitest run tests/components/admin/wizard/_metaStep3FreezeContract.test.ts tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/review/showReviewSurfaceFreeze.test.tsx && pnpm typecheck`
 Expected: PASS (the provider test's `true` case now disables the button).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add components/admin/review/ShowReviewSurface.tsx components/admin/wizard/Step3ReviewModal.tsx tests/components/admin/wizard/ tests/components/admin/review/showReviewSurfaceFreeze.test.tsx
