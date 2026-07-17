@@ -12,6 +12,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// DEF-1 lifecycle-refusal sentinels raised (P0001) by reset_crew_member_selection for an ineligible show.
+// A returned error matching (code === 'P0001' AND one of these) is a deliberate refusal, not an infra fault.
+const LIFECYCLE_REFUSALS = new Set([
+  "SHOW_ARCHIVED_IMMUTABLE",
+  "FINALIZE_OWNED_SHOW",
+  "SHOW_NOT_PUBLISHED",
+]);
+
 // Forensic source tag for both the durable success outcome and the infra-fault trace.
 const OUTCOME_SOURCE = "admin.picker.resetCrewMemberSelection";
 
@@ -61,9 +69,20 @@ export async function resetCrewMemberSelection(input: {
     });
     // Distinguish returned-error (infra) from a NULL not-found signal (per call-boundary discipline).
     if (error) {
-      // Forensic: a DB/infra fault on the reset otherwise vanishes silently. NOT §12.4
-      // (inside a log.warn span → stripped from the producer scan).
-      await logInfraFault(input.showId);
+      // A deliberate lifecycle refusal (the DEF-1 guard raises P0001 with a known sentinel message for
+      // an archived / unpublished / finalize-owned show) is NOT an infra fault — do not emit the
+      // PICKER_SELECTION_RESET_INFRA_FAILED forensic (it would pollute app_events on every ineligible-show
+      // poke via a stale tab / direct RPC call). The affordance is server-gated (PR #415), so the caller
+      // shows the same generic banner either way. Match on code === 'P0001' AND the sentinel so a
+      // coincidental infra message can't be misclassified.
+      const isLifecycleRefusal =
+        (error as { code?: string }).code === "P0001" &&
+        LIFECYCLE_REFUSALS.has(((error as { message?: string }).message ?? "").trim());
+      if (!isLifecycleRefusal) {
+        // Forensic: a DB/infra fault on the reset otherwise vanishes silently. NOT §12.4
+        // (inside a log.warn span → stripped from the producer scan).
+        await logInfraFault(input.showId);
+      }
       return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
     }
     // NULL is a benign no-op (member already off the roster) — expected, not a fault; unlogged.

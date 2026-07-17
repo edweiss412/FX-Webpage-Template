@@ -135,4 +135,38 @@ describe("resetCrewMemberSelection", () => {
     expect(mockOutcome).not.toHaveBeenCalled();
     expect(mockWarn).not.toHaveBeenCalled();
   });
+
+  // --- Lifecycle-refusal discrimination (BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD) ---
+  // The DEF-1 guard raises P0001 with a known sentinel message for an ineligible show. That is a
+  // deliberate refusal, NOT an infra fault — it must NOT emit the PICKER_SELECTION_RESET_INFRA_FAILED
+  // forensic (would pollute app_events on every ineligible-show poke). The user-facing result stays the
+  // generic PICKER_RESOLVER_LOOKUP_FAILED (affordance server-gated, PR #415). The differentiator under
+  // test is the log spy, not the returned code.
+
+  test.each(["SHOW_ARCHIVED_IMMUTABLE", "FINALIZE_OWNED_SHOW", "SHOW_NOT_PUBLISHED"])(
+    "lifecycle refusal (P0001 + %s) → generic code, NO infra warn",
+    async (message) => {
+      rpc.mockResolvedValueOnce({ data: null, error: { code: "P0001", message } });
+      await expect(
+        resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+      ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      expect(mockWarn).not.toHaveBeenCalled();
+      expect(mockOutcome).not.toHaveBeenCalled();
+    },
+  );
+
+  test("P0001 with a NON-sentinel message → treated as infra (warns once)", async () => {
+    // Proves the match is (code === 'P0001' AND sentinel), not code alone or message-substring alone.
+    rpc.mockResolvedValueOnce({ data: null, error: { code: "P0001", message: "some other raise" } });
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+  });
+
+  test("a non-P0001 error carrying a sentinel-looking message still warns (match requires P0001)", async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { code: "57014", message: "SHOW_ARCHIVED_IMMUTABLE" } });
+    await resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID });
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+  });
 });
