@@ -127,12 +127,23 @@ export function BlockedRowResolver({
   if (!driveFileId || !wizardSessionId || action === null) return null;
   if (action === "rebuild" && (rebuildExhausted || escalated)) {
     const name = displayName || driveFileId;
+    // The one unrecoverable state (worst case of the sad path). role="alert" so a
+    // screen-reader user who reaches it post-click (a conditionally-mounted branch —
+    // role="status" would not reliably announce on mount) hears the failure, and the
+    // bg-warning-bg/border warning-card matches every other error state in this file +
+    // the finalize panels' terminal-alert idiom (impeccable critique P0/P1).
     return (
-      <p className="text-sm text-warning-text" data-testid={`blocked-row-escalated-${driveFileId}`}>
-        {renderEmphasis(
-          `We could not automatically rebuild ${name} after one attempt. Contact the developer to clear it.`,
-        )}
-      </p>
+      <div
+        role="alert"
+        data-testid={`blocked-row-escalated-${driveFileId}`}
+        className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
+      >
+        <p>
+          {renderEmphasis(
+            `We could not automatically rebuild ${name} after one attempt. Contact the developer to clear it.`,
+          )}
+        </p>
+      </div>
     );
   }
 

@@ -142,7 +142,12 @@ describe("BlockedRowResolver — per-code render", () => {
         onResolved={vi.fn()}
       />,
     );
-    expect(getByTestId(`blocked-row-escalated-${DFID}`)).not.toBeNull();
+    const escalated = getByTestId(`blocked-row-escalated-${DFID}`);
+    expect(escalated).not.toBeNull();
+    // Impeccable P0: the unrecoverable state announces to screen readers (role="alert"
+    // reliably fires on this conditionally-mounted branch) and wears the warning-card idiom.
+    expect(escalated.getAttribute("role")).toBe("alert");
+    expect(escalated.className).toContain("bg-warning-bg");
     expect(container.querySelector('[role="button"]')).toBeNull();
     expect(container.querySelector("button")).toBeNull();
   });

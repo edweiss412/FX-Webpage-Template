@@ -621,3 +621,15 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-
 - **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
 - **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
 - **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.
+
+## BLOCKRES — BlockedRowResolver (impeccable critique, 2026-07-17, spec 2026-07-16-wizard-blocker-inline-resolution)
+
+Critique score 32/40, AI-slop pass, contrast AA/AAA both themes, detector clean. P0 (escalated no live-region announce) + P1 (escalated not a warning-card) were FIXED in-diff (role="alert" + bg-warning-bg card). Deferred P2/Minor:
+
+- **BLOCKRES-1 (P2):** the escalated state offers no `<HelpAffordance>` disclosure for Doug to relay detail to the developer.
+  - **Why deferred:** adding a HelpAffordance toggle conflicts with the ratified "escalated state has NO clickable trigger" test contract (Task 11), and the escalation copy already says "Contact the developer to clear it." The forensic detail lives in `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` telemetry (`pnpm observe events --code ...`), which is the dev's actual channel, not the operator's UI.
+  - **Trigger:** if operators need to self-relay a correlation id; backlog `BL-BLOCKRES-ESCALATED-HELP`.
+- **BLOCKRES-2 (P2):** `<HelpAffordance code={code}>` renders on ALL `errorCopy` branches (including code-less statuses like `wrong_action`), vs `RescanSheetButton` which gates it to `coded` results only — minor vocabulary drift.
+  - **Why deferred:** cosmetic; the code-less branches are rare stale-client cases and the disclosure is harmless (shows the row's own code help). Gating requires threading a coded/code-less flag through `errorCopy`.
+  - **Trigger:** next touch of the resolver's error-render path; backlog `BL-BLOCKRES-HELP-GATING`.
+- **BLOCKRES-3 (Minor, verified non-issue):** the `action===null` → `return null` branch (unknown `row.code`) is defensive-only. The panels render `BlockedRowResolver` exclusively for non-freshness `cas_per_row` codes (archived + the two corrupt), all of which map to a real action — so `null` is unreachable in production. No fix needed.
