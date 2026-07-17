@@ -144,7 +144,9 @@ type ResolveBlockerResponse =
 
 **Single-source-of-transition rule (no duplication):** the archived→held transition SQL has ONE source. Introduce a lock-free, gate-free internal `public._unarchive_show_apply(p_show_id uuid) returns boolean` (SECURITY DEFINER; the exact transition body of the current `unarchive_show` minus the advisory lock and the `is_admin()` gate: `archived=false, published=false, archived_at=null, requires_resync=true, picker_epoch+1, picker_epoch_bumped_at=clock_timestamp()`; rotate `show_share_tokens`; purge non-wizard `pending_syncs`/`pending_ingestions`/`deferred_ingestions`; returns `true` on a real transition, `false` on the already-non-archived no-op). Refactor `unarchive_show` to `is_admin()` gate + self-lock + `return _unarchive_show_apply(p_show_id)` (behavior-preserving; keeps its grant + boolean contract).
 
-**EXECUTE lockdown (Codex R1 F1 + R4 F1 — mandatory):** Postgres grants EXECUTE on a NEW function to **`PUBLIC`** by default; the gate-free helper must be callable by **no web-facing role at all**. The migration MUST `revoke all on function public._unarchive_show_apply(uuid) from public, anon, authenticated, service_role;` **and grant EXECUTE to NO role** — NOT even `service_role` (a `service_role` grant would re-expose the gate-free transition through any service-role PostgREST/RPC path, bypassing the HTTP `requireAdminIdentity` + session-membership + archived-state + per-show-lock checks; the helper does irreversible work — token rotation, pending-row purge, `requires_resync`). It runs ONLY via (a) the wizard route's **owner** connection, and (b) the parent `unarchive_show`, itself SECURITY DEFINER owned by the same role — both execute it by ownership, needing no grant. The meta-test asserts **no `public`/`anon`/`authenticated`/`service_role` EXECUTE** on `_unarchive_show_apply(uuid)`.
+**EXECUTE lockdown (Codex R1 F1 + R4 F1 — mandatory):** Postgres grants EXECUTE on a NEW function to **`PUBLIC`** by default; the gate-free helper must be callable by **no web-facing role at all**. The migration MUST `revoke all on function public._unarchive_show_apply(uuid) from public, anon, authenticated, service_role;` **and grant EXECUTE to NO role** — NOT even `service_role` (a `service_role` grant would re-expose the gate-free transition through any service-role PostgREST/RPC path, bypassing the HTTP `requireAdminIdentity` + session-membership + archived-state + per-show-lock checks; the helper does irreversible work — token rotation, pending-row purge, `requires_resync`). It runs ONLY via (a) the wizard route's **owner** connection, and (b) the parent `unarchive_show`, itself SECURITY DEFINER owned by the same role — both execute it by ownership, needing no grant.
+
+**search_path hardening (Codex R5 F3 — mandatory).** As a gate-free SECURITY DEFINER helper that rotates tokens and purges rows, `_unarchive_show_apply` MUST pin `set search_path = public, pg_temp` (matching the existing RPC pattern — e.g. `unarchive_show` at `20260602000002_...:22`), and the refactored `unarchive_show` keeps its own. Object-resolution hijacking is a trust-boundary issue here, not style. The meta-test asserts `_unarchive_show_apply` is `SECURITY DEFINER` with the expected `proconfig` (`search_path=public, pg_temp`) AND **no `public`/`anon`/`authenticated`/`service_role` EXECUTE**.
 
 1. `pg_advisory_xact_lock(hashtext('show:' || driveFileId))` (route IS the single lock holder here — no RPC self-lock involved).
 2. Resolve `show.id` from `drive_file_id` → `not_found` when absent.
@@ -153,20 +155,30 @@ type ResolveBlockerResponse =
 5. Either boolean → `{ ok: true, status: "resolved" }`. (The wizard's subsequent finalize re-run is the catch-up sync; the route does NOT run `runManualSyncForShow` — see §3.6.)
 6. **After the lock txn commits** (post-commit, invariant 10): forensic breadcrumb `logAdminOutcome({ code: "ONBOARDING_BLOCKER_UNARCHIVED", ... , result: transition ? "unarchived" : "noop" })`. Captured from the committed boolean, emitted outside the advisory-lock txn.
 
-**`action: "rebuild"` — atomic, non-destructive recovery (Codex R1 F2/F3 + R2 F1/F4).**
+**`action: "rebuild"` — supersede the corrupt shadow; consume the cap iff it is destroyed (R2 F1 + R3 F2 + R5 F1).**
 
-How the existing rescan core already behaves (verified): `rescanWizardSheet` (`lib/onboarding/rescanWizardSheet.ts:106`) runs its Drive read PRE-lock, then all mutations in ONE locked txn (`:161`). On a **successful** restage, `applyRescanDecisionUnderLock` (`:257-262`) **deletes** the corrupt `shows_pending_changes` row AND writes the fresh `pending_syncs` staged parse — **atomically, in that one txn**. So a rescan **failure rolls the whole txn back** (corrupt shadow + old state retained — non-destructive); a **success** replaces the corrupt shadow's durable source with a fresh staged parse, and the auto-retry finalize's Phase-B (`stageExistingShowShadow` UPSERT, `finalize/route.ts:672`) rebuilds the shadow from it. The durable no-loss guarantee is the **freshly-restaged `pending_syncs`**, written atomically with the shadow delete.
+How the existing rescan core behaves (verified): `rescanWizardSheet` (`lib/onboarding/rescanWizardSheet.ts:106`) runs its Drive read PRE-lock, then all mutations in ONE locked txn (`:161`). It does NOT "rebuild a shadow that might still be corrupt" — it re-derives the sheet from Drive and **supersedes** the corrupt `shows_pending_changes` row into a fresh scan outcome (one of the seven `RescanDecisionOutcome`s). `postgres.js` commits on normal return (rolls back only on throw), so every typed outcome — success AND `hard_failed`/`needs_attention` — **commits**; the differentiator is whether that outcome deleted the corrupt shadow.
 
-**Atomic cap — check at the gate, consume only after a committed success (R2 F1 + R3 F2).** Two facts drive the design: (a) `postgres.js` txns **commit on normal return** and roll back only on throw — and `rescanWizardSheet`'s typed failures (`needs_attention`/`superseded`/`not_staged`/`stale_override_refused`/…) are normal RETURNS, so a "increment-before-restage" would persist an attempt even when the route reports failure (R3 F2). (b) A pre-lock read-then-check races (R2 F1). Resolution: **both the cap check and the increment live inside `rescanWizardSheet`'s ONE locked txn**, but split — check (may abort) BEFORE the restage, increment ONLY when the restage outcome is success. The advisory lock (held for the whole txn) serializes concurrent POSTs, so a check-then-later-increment inside the same held lock is race-free. `RescanDeps` today has no in-txn hooks; the plan adds two injection points (pre-restage gate + post-restage-success step):
+**Atomic cap — consume iff the corrupt shadow was destroyed (comprehensive re-analysis, R2 F1 + R3 F2 + R5 F1).** A rescan does NOT "rebuild the corrupt shadow, possibly still corrupt" — it **supersedes** the shadow into a fresh scan outcome. `applyRescanDecisionUnderLock`'s seven outcomes split by whether they delete the `shows_pending_changes` corrupt row (all commit on normal return — `postgres.js` commits unless it throws):
 
-1. **Pre-restage gate (check only, no write):** read `attempts` for `(wizardSessionId, driveFileId)` (COALESCE missing → 0). If `attempts >= CAP` → **abort**: `rescanWizardSheet` performs NO restage/delete, route returns `{ ok:false, status:"escalated", code }`. (A stale client that still shows the button lands here; the escalation event was emitted earlier by finalize-cas — §3.4.)
-2. **Restage** runs (fresh `pending_syncs` + corrupt-shadow delete, atomic — the rescan core's existing behavior).
-3. **Post-restage-success step (consume):** ONLY when the restage outcome is a success (`updated`/staged) does the txn run the conditional increment `update onboarding_rebuild_attempts set attempts = attempts + 1, updated_at = now() where wizard_session_id=$s and drive_file_id=$d and attempts < $CAP` (upsert the row first if absent). A typed-failure restage returns normally (commits the txn) but **skips this step → no attempt consumed**; a throw rolls the whole txn back → no attempt consumed. **An attempt is consumed iff a successful restage committed.**
-4. Map the committed `RescanResult` → response: success → `{ ok:true, status:"resolved" }`; any typed failure → the corresponding status (attempts unchanged).
+| Outcome | corrupt shadow | route sees |
+| --- | --- | --- |
+| `schema_missing` (`:195`), `superseded` (`:198`), `not_staged` (`:232`/`:247`) | **RETAINED** | `needs_attention`/`superseded` |
+| `hard_failed` (`:202-231`, deletes at `:205`) | **DELETED** | `needs_attention` |
+| `dirty_demoted` (`:291`), `clean_restamped` (`:306`), `clean_unchecked` (`:342`) — all delete at `:258` | **DELETED** | `updated` |
 
-Race-safety: the advisory lock is held for the entire txn; a concurrent POST **blocks on the lock** until this txn commits (with `attempts=1` after a success), then its own gate reads `attempts=1 >= CAP` → `escalated`. Exactly one success consumes the single attempt.
+The destructive boundary is **shadow deletion**, and `hard_failed` (DELETED) returns the same `needs_attention` status as `schema_missing` (RETAINED) — so the consume decision **cannot** be made from the route-visible `RescanResult`; it MUST be made inside the txn, co-located with the delete. Contract:
 
-> **§3.7 topology (load-bearing):** rebuild is exactly ONE locked txn — `rescanWizardSheet`'s self-lock on `hashtext('show:'||driveFileId)`. Gate-check + shadow delete + fresh restage + success-only increment all inside it; the route holds no separate lock; nothing nests. Pinned in `tests/auth/advisoryLockRpcDeadlock.test.ts`; a concurrent-double-submit test proves single consumption; a per-typed-failure test proves `attempts` is unchanged on every non-success restage outcome (R3 F2).
+- **Cap consumption ⇔ the corrupt shadow row was deleted during THIS rebuild-initiated rescan.** The conditional increment `update onboarding_rebuild_attempts set attempts = attempts + 1 where … and attempts < $CAP` (upsert-if-absent) fires **in the same txn, immediately after each `shows_pending_changes` delete** (`:205` and `:258`), gated on a "this is a cap-counted rebuild" flag the route passes via a new `RescanDeps` hook (`RescanDeps` has no such hook today — the plan adds it). Shadow-RETAINED outcomes (`schema_missing`/`superseded`/`not_staged`) reach no delete → **no consume**, corrupt shadow intact, retry allowed. A throw rolls the whole txn back → no consume.
+- This closes R5 F1: **no committed outcome can destroy the corrupt shadow without consuming the one attempt** (so no unbounded destructive retries), and no shadow-preserving failure burns the cap.
+- **Pre-restage gate (cap check, no write):** at the top of the txn, if `attempts >= CAP` → abort (no restage, no delete) → `{ ok:false, status:"escalated", code }`.
+- **Forensic detail is captured PRE-rescan** (the authz re-derivation already ran `parseShadowPayloadForApply` on the corrupt payload — §3.2 scoping), so even a shadow-deleting `hard_failed` loses no `corruptionReason`.
+
+Response mapping: `updated` → `{ ok:true, status:"resolved" }`; `hard_failed`/`schema_missing`/`not_staged` → `needs_attention` (cataloged); `superseded` → `superseded`; `stale_override_refused` → its status. In every case the sheet's NEW durable state (manifest / `pending_syncs`) is what the badge + panel then read.
+
+Race-safety: the advisory lock is held for the whole txn; a concurrent rebuild POST blocks until this txn commits, then its gate reads the updated `attempts` → `escalated` if `>= CAP`. Exactly one shadow-deleting rescan consumes the one attempt.
+
+> **§3.7 topology (load-bearing):** rebuild is exactly ONE locked txn — `rescanWizardSheet`'s self-lock on `hashtext('show:'||driveFileId)`. Gate-check + shadow delete + restage + delete-co-located increment all inside it; the route holds no separate lock; nothing nests. Pinned in `tests/auth/advisoryLockRpcDeadlock.test.ts`; a concurrent-double-submit test proves single consumption; an **outcome-enumeration test drives ALL seven `RescanDecisionOutcome`s and asserts `attempts` incremented ⇔ shadow deleted** (structural defense — the vector's comprehensive audit; §7).
 
 ### 3.3 Cap persistence — `onboarding_rebuild_attempts`
 
@@ -174,7 +186,7 @@ Race-safety: the advisory lock is held for the entire txn; a concurrent POST **b
 
 | Field | Storage | Write path | Read path | Effect |
 | --- | --- | --- | --- | --- |
-| `attempts` | new table `public.onboarding_rebuild_attempts (wizard_session_id uuid, drive_file_id text, attempts int not null default 0 check (attempts >= 0), escalation_logged boolean not null default false, updated_at timestamptz not null default now(), primary key (wizard_session_id, drive_file_id))` | `resolve-blocker` rebuild: **post-restage-success step only** — conditional `update ... where attempts < CAP` inside `rescanWizardSheet`'s locked txn; the pre-restage gate READS (no write); typed-failure restages skip the increment (R3 F2) | (a) `resolve-blocker` pre-restage gate (`attempts >= CAP` → escalated); (b) `finalize-cas` sets `rebuildExhausted` per corrupt row | `attempts >= 1` (= CAP) ⇒ rebuild button suppressed, escalation shown |
+| `attempts` | new table `public.onboarding_rebuild_attempts (wizard_session_id uuid, drive_file_id text, attempts int not null default 0 check (attempts >= 0), escalation_logged boolean not null default false, updated_at timestamptz not null default now(), primary key (wizard_session_id, drive_file_id))` | `resolve-blocker` rebuild: conditional `update ... where attempts < CAP` **co-located with each `shows_pending_changes` delete** in `rescanWizardSheet`'s locked txn (consume ⇔ shadow deleted, R5 F1); the pre-restage gate READS only | (a) `resolve-blocker` pre-restage gate (`attempts >= CAP` → escalated); (b) `finalize-cas` sets `rebuildExhausted` per corrupt row | `attempts >= 1` (= CAP) ⇒ rebuild button suppressed, escalation shown |
 | `escalation_logged` | same table | `finalize-cas`, set `true` when it emits the forensic event (once) | `finalize-cas` (emit-once idempotency) | prevents duplicate `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` emits across finalize re-runs |
 
 - Modeled on `recovery_drift_cooldowns.retry_count` (`20260501001000_internal_and_admin.sql:447-453`) — composite PK + counter.
@@ -236,47 +248,61 @@ New code:
 
 ## 4. WS2 — Badge fidelity
 
-### 4.1 Fix
+### 4.1 Fix — drop the `sessionLinked` guard on Rule 6 (root fix, R5 F2)
 
-Insert an ordered branch in `deriveStep3DisplayState` **before** Rule 7 (`lib/admin/step3DisplayState.ts:71`):
+The reported bug (archived existing show → "ready") is one instance of a broader hole: Rule 5 (`ready_to_publish`) and Rule 6 (`held`) **both require `sessionLinked===true`** (`lib/admin/step3DisplayState.ts:59,70`), so **any** existing (`sessionLinked===false`) linked show that is not crew-visible-live falls through to Rule 7 `"ready"` — archived shows AND held (unpublished) existing shows carrying a corrupt-shadow blocker. Rule 7 is documented as "no linked show, clean row" (`:71`), so a *present* `linkedShow` reaching it is always wrong.
+
+Fix — **broaden Rule 6 to any linked show** (drop the `sessionLinked` guard):
 
 ```
-// Rule 6b — an ARCHIVED linked show is publish-blocked regardless of provenance.
-// (Existing-show branch yields sessionLinked=false, so Rule 6's guard misses it;
-// without this, an archived existing show falls to Rule 7 "ready" — a green badge
-// on a blocked show.)
-if (input.linkedShow?.archived === true) return "held";
+// Rule 6 — any linked show that is neither crew-visible-live (Rule 4) nor a
+// session-created ready-to-publish (Rule 5) is HELD, regardless of provenance.
+// (Was `input.sessionLinked && input.linkedShow`; the guard let existing archived
+// / held-with-blocker shows fall to Rule 7 "ready" — a green badge on a blocked show.)
+if (input.linkedShow) return "held";
 ```
 
-- Reuses the existing `"held"` state (spec §4.2 rule 6 semantics: "session-linked show that is not Live and not Ready-to-publish, deliberately-unchecked draft, **or archived**"). No new `Step3DisplayState` union member — the archived case is exactly what "held" was documented to cover; the bug was only the missing provenance-agnostic branch. `held` renders a non-"ready" badge; the row is not offered as publishable.
-- Placement: after Rule 6 (`:70`), before Rule 7 (`:71`). Ordering rationale: rules 4/5 (live / ready-to-publish) already exclude archived, so an archived show never reaches 4/5; 6b catches archived before the `ready` fallthrough. First-match-wins totality preserved.
+- Rules 4 (`live`: `published && !archived`) and 5 (`ready_to_publish`: `sessionLinked && !published && !archived && publishIntent`) are unchanged and still run first, so a live show is still `live` and a session-checked first-seen show is still `ready_to_publish`. Everything else with a `linkedShow` (archived, held-existing, session-linked-unchecked draft) → `held`. Only `linkedShow===null` (a genuine first-seen unlinked sheet) reaches Rule 7 `"ready"` — matching its documented contract exactly.
+- No new `Step3DisplayState` member; `held` renders a non-"ready", non-publishable badge.
+- Subsumes the archived case AND resolves the corrupt-shadow badge divergence for existing HELD shows via the same machinery — no manifest marker or new badge input needed (§4.4).
 
 ### 4.2 Governing-spec amendment
 
 Amend `docs/superpowers/specs/step3-onboarding/2026-07-05-step3-review-consolidation.md`:
-- §4.2 (`:102`) rule list: make the "held" rule provenance-agnostic for the archived case — state explicitly that `linkedShow.archived===true` yields `held` regardless of `sessionLinked`, and that rules 5/6's `sessionLinked` guard applies only to the non-archived draft cases.
-- §4.2.2 (`:106`, matrix `:134`): add the `archived:true, sessionLinked:false` row → expected `held`.
+- §4.2 (`:102`) rule list: state that Rule 6 (`held`) catches **any** `linkedShow` not already resolved by Rule 4 (live) or Rule 5 (session-created ready-to-publish) — provenance-agnostic. The `sessionLinked` guard belongs to Rule 5 ONLY; Rule 7 (`ready`) fires only for `linkedShow===null`.
+- §4.2.2 (`:106`, matrix `:134`): add rows for `sessionLinked:false` linked shows (archived and held) → expected `held`.
 
 ### 4.3 §4.2.2 totality-matrix test
 
-Extend `tests/admin/step3DisplayState.test.ts` (archived case currently `:77-86`, pins `sessionLinked:true`). Add cases:
-- `linkedShow:{published:false, archived:true}, sessionLinked:false, publishIntent:false` → `held` (the fixed hole).
-- `linkedShow:{published:false, archived:true}, sessionLinked:false, publishIntent:true` → `held` (publishIntent must not resurrect "ready").
-- `linkedShow:{published:true, archived:true}` (defensive impossible combo) → `held` (archived wins over published; Rule 4 already excludes it, 6b catches it).
-- Keep the existing `sessionLinked:true` archived case green (regression pin).
-- **Anti-tautology:** assert the derived state against `deriveStep3DisplayState(input)` directly (the pure function), not a rendered container. Cover the `linkedShow===null` and `linkedShow.archived===false` neighbors to prove 6b does not over-trigger.
+Extend `tests/admin/step3DisplayState.test.ts` (archived case currently `:77-86`, pins `sessionLinked:true`). Add cases (all assert against the pure `deriveStep3DisplayState(input)`):
+- `linkedShow:{published:false, archived:true}, sessionLinked:false, publishIntent:false` → `held` (archived existing — the reported hole).
+- `linkedShow:{published:false, archived:false}, sessionLinked:false, publishIntent:false` → `held` (**held existing with a corrupt-shadow blocker** — the broader hole; was "ready").
+- `linkedShow:{published:false, archived:false}, sessionLinked:false, publishIntent:true` → `held` (publishIntent must NOT resurrect "ready" for an existing show).
+- `linkedShow:{published:true, archived:false}, sessionLinked:false` → `live` (Rule 4 unchanged — an existing published show stays live).
+- `linkedShow:null, …` → `ready` (Rule 7 still fires for a genuine first-seen unlinked sheet — proves Rule 6 does not over-trigger).
+- Keep the existing `sessionLinked:true` archived case green; keep `ready_to_publish` (session-linked, publishIntent) green (regression pins).
+- **Anti-tautology:** derive expected states from the rule definitions, not hardcoded; the `linkedShow===null` neighbor is the guard proving the broadened Rule 6 didn't swallow Rule 7.
 
-### 4.4 Class-sweep — badge vs blocker divergence
+### 4.4 Class-sweep — badge vs blocker divergence (resolved in-spec, R5 F2)
 
-The badge (`deriveStep3DisplayState`) and the finalize blocker panel (`cas_per_row`) are two truth sources. Audit each `cas_per_row` code against whether the badge encodes the block:
-- `SHOW_ARCHIVED_IMMUTABLE` → now encoded by 6b (via `linkedShow.archived`). ✅
-- `STAGED_*_CORRUPT`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH` → these are **staged** failures; the badge encodes them via Rule 2 (`status==="staged" && lastFinalizeFailureCode!==null` → `needs_review_*`). Confirm the finalize path writes `pending_syncs.last_finalize_failure_code` for these rows (it does — that column exists for exactly this). The plan MUST verify each corrupt/freshness failure sets `last_finalize_failure_code` so Rule 2 fires; any that does not = the same divergence shape and gets its own fix or an explicit "N/A — reason" in the plan's sweep table.
+Enumerate every `cas_per_row` blocker code × the badge it yields, proving no blocker renders a false `ready`/`live`:
+
+| `cas_per_row` code | Existing-show state at block | Badge (post-fix) | False "ready"? |
+| --- | --- | --- | --- |
+| `SHOW_ARCHIVED_IMMUTABLE` | archived (unpublished) | Rule 6 `held` | No |
+| `STAGED_*_CORRUPT` | HELD existing (unpublished, `sessionLinked=false`) | Rule 6 `held` | No (was `ready`) |
+| `STAGED_*_CORRUPT` | LIVE existing (published, not archived) | Rule 4 `live` | **No — honest**: the show IS live; the panel separately flags the blocked *staged change*. Badge = show state; panel = staged-change publishability. Two different axes, not a contradiction. |
+| `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH` | staged `pending_syncs` row exists | Rule 2 `needs_review_*` (via `pending_syncs.last_finalize_failure_code`) | No |
+
+- The durable badge signal for **corrupt-shadow blockers on existing shows** is the `linkedShow` itself (Rule 6 `held` for held shows; Rule 4 `live` for published — honestly live). No `pending_syncs` row exists for a post-Phase-B shadow blocker (deleted at Phase B), and none is needed — the badge reads the linked show, not a failure code.
+- The freshness codes DO have a `pending_syncs` row (they are staged-parse freshness faults, `last_finalize_failure_code` set) → Rule 2. The plan verifies each freshness code sets that column (regression, not a new fix).
+- **Decision (R5 F2):** the only false-`ready` blocker was the existing-non-live case, fixed by the broadened Rule 6. The published-show `live` badge is intentional and documented (not a divergence). Test: each blocker row renders `held`/`live`/`needs_review` (never `ready`) until cleared.
 
 ### 4.5 Stale-checkpoint divergence assessment
 
-Observed: the "This show is archived" blocker card persisted after the show was unarchived (the finalize checkpoint cached the pre-resolution `per_row` failure; `readFinalizeCheckpoint`, `app/admin/_finalizeCheckpoint.ts:49`). Assessment (plan resolves with a test):
-- WS1's auto-retry re-runs `finalize-cas`, which recomputes `per_row` fresh and rewrites the checkpoint → the stale card clears on the next render. `router.refresh()` after resolve forces the re-read.
-- **Decision:** rely on the auto-retry + refresh to clear the checkpoint; do NOT add a separate checkpoint-invalidation path UNLESS the plan's test shows the auto-retry does not overwrite the cached `per_row` (in which case: clear the checkpoint's `per_row` for the resolved sheet inside the resolve path). The plan includes a test that asserts the checkpoint no longer reports the resolved sheet after a successful resolve+re-run.
+Observed: the "This show is archived" blocker card persisted after the show was unarchived. `per_row` is NOT persisted (the checkpoint stores only `status`/`batches_completed`/…, §3.2) — the stale card is the **client-held `per_row` from the last finalize *response*** (the `FinalizeRun` state in `useFinalizeRun`). Assessment:
+- WS1's auto-retry re-runs `finalize-cas`, producing a **fresh `per_row` response** that replaces the client state → the resolved sheet drops out of the panel. `router.refresh()` after resolve re-reads server state (badges).
+- **Decision:** the auto-retry's fresh finalize response is the single source that clears the stale card — no separate invalidation path needed (there is no durable `per_row` to invalidate). Test: after a successful resolve + auto-retry, the new `per_row` no longer lists the resolved sheet.
 
 ---
 
@@ -288,7 +314,7 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 | CHECK / constraint | `attempts >= 0` CHECK | N/A | N/A | N/A |
 | PostgREST DML/EXEC | REVOKE ins/upd/del from public+anon+authenticated | existing lockdown (verify) | `_unarchive_show_apply`: revoke from public+anon+authenticated+service_role, **grant to NO role** (owner-only); `unarchive_show` grant unchanged (authenticated) | existing |
 | RPC read | route cap check + finalize-cas panel join + finalize-cas escalation gate | (read only) | — | badge Rule 2 |
-| RPC write | conditional compare-and-increment `where attempts < CAP`, in-txn gate inside rescan's lock (consume iff restage commits); finalize-cas claims `escalation_logged` in-txn (emit post-commit) | **rescan core deletes on successful restage (atomic w/ fresh pending_syncs write, `applyRescanDecisionUnderLock:257-262`); rebuilt by Phase-B UPSERT; rescan failure rolls back → shadow retained** | route (owner) calls `_unarchive_show_apply` under route-held lock; Dashboard calls `unarchive_show` (self-lock+gate→delegate) | finalize writes on failure |
+| RPC write | conditional `update ... where attempts < CAP`, **co-located with the shadow delete** inside rescan's lock (consume ⇔ shadow deleted, all 7 outcomes enumerated); finalize-cas claims `escalation_logged` in-txn (emit post-commit) | **rescan core deletes the corrupt row on shadow-superseding outcomes (`hard_failed` `:205`; `dirty_demoted`/`clean_*` `:258`), retains it on `schema_missing`/`superseded`/`not_staged`; a throw rolls back** | route (owner) calls `_unarchive_show_apply` under route-held lock; Dashboard calls `unarchive_show` (self-lock+gate→delegate) | finalize writes on failure |
 | Cleanup | session purge/finalize teardown | existing teardown | N/A | existing |
 | Frontend | `rebuildExhausted` prop | (indirect) | Unarchive action | badge |
 | Tests | meta REVOKE + route cap boundary | rebuild integration | unarchive branch + `unarchive_show` behavior-preserved regression + `_unarchive_show_apply` lockdown meta | Rule 2 sweep |
@@ -310,42 +336,41 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 
 ## 7. Testing strategy (TDD per task)
 
-1. **Route** (`resolve-blocker`): each `action`×`status` branch; guards (superseded / no_active_session / not_found / bad_request / wrong_action); unarchive transition vs idempotent no-op; **cap boundary** (`attempts<CAP` → rescan+consume; `attempts>=CAP` → escalated, no consume); **non-destructive-failure** (rescan returns busy/needs_attention/superseded → corrupt shadow intact, attempts unincremented via txn rollback); `rebuildExhausted` join in finalize-cas.
+1. **Route** (`resolve-blocker`): each `action`×`status` branch; guards (superseded / no_active_session / not_found / bad_request / wrong_action); unarchive transition vs idempotent no-op; pre-restage cap gate (`attempts>=CAP` → escalated, no restage).
    - **Authorization scoping (R2 F2 + R3 F1, re-derived under lock):** unrelated archived show, not-in-session sheet (`onboarding_scan_manifest` miss), already-unarchived show (`readShowArchived_unlocked`=false), and clean-shadow sheet (`parseShadowPayloadForApply` ok) all return `not_currently_blocked` and mutate nothing.
-   - **Concurrent cap race (R2 F1):** two simultaneous rebuild POSTs for the same `(session, sheet)` → exactly one successful restage consumes one attempt; the other blocks on the lock, then returns `escalated`.
-   - **Consume only on committed success (R3 F2):** for EACH post-gate typed failure (`needs_attention`/`superseded`/`not_staged`/`stale_override_refused`/`schema_missing`/…) the restage returns normally (txn commits) but `attempts` is unchanged; only an `updated`/staged success increments.
-   - **Non-destructive rebuild (R1 F2 / R2 F4):** after a rescan **failure**, `shows_pending_changes` still holds the original corrupt row and `attempts` is unchanged; after **success**, `pending_syncs` is freshly staged and the auto-retry finalize regenerates the shadow.
-   - **Forensic escalation (R2 F3):** corrupt row re-observed with `attempts>=CAP` → the in-txn `escalation_logged` claim flips once; `logAdminOutcome` emits **post-commit** only when the flip happened this run; a rolled-back finalize txn emits nothing; finalize re-runs do NOT re-emit (idempotency).
+   - **Consume ⇔ shadow deleted (R5 F1, outcome-enumeration — structural defense):** drive ALL seven `RescanDecisionOutcome`s; assert `attempts` incremented ⇔ the corrupt shadow row was deleted (`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked` consume; `schema_missing`/`superseded`/`not_staged` do NOT — shadow retained, retry allowed). Explicitly drives a **`hard_failed`** restage (not just pre-lock `busy`/`superseded`) — the case that deletes the shadow yet returns `needs_attention`.
+   - **Concurrent cap race (R2 F1):** two simultaneous rebuild POSTs for the same `(session, sheet)` → exactly one shadow-deleting rescan consumes one attempt; the other blocks on the lock, then returns `escalated`.
+   - **Forensic escalation (R2 F3):** corrupt row re-observed with `attempts>=CAP` → the in-txn `escalation_logged` claim flips once; `logAdminOutcome` emits **post-commit** only when the flip happened this run; a rolled-back finalize txn emits nothing; finalize re-runs do NOT re-emit (idempotency). `corruptionReason` captured pre-rescan survives a shadow-deleting `hard_failed`.
 2. **Behavioral instrumentation:** sink-spy proving the success-branch emit fires only after the committed branch (invariant 10), for both codes.
 3. **Component** (`BlockedRowResolver`): per-code render (archived / corrupt / exhausted / freshness→null); two-tap arm→confirm; auto-revert; `onResolved` fires on resolved only (not escalated/error); `disabled` disarms; sr-only announce; no raw code rendered.
-4. **Badge** (WS2): the §4.2.2 matrix additions (§4.3) — pure-function assertions, anti-tautology neighbors.
-5. **Lock topology:** extend `advisoryLockRpcDeadlock.test.ts` for the rebuild two-txn shape.
-6. **Checkpoint staleness:** resolve+re-run clears the resolved sheet from the checkpoint `per_row` (§4.5).
+4. **Badge** (WS2): the §4.2.2 matrix additions (§4.3) — pure-function assertions incl. the held-existing (`sessionLinked:false`, not archived) case and the `linkedShow===null`→`ready` neighbor; plus the §4.4 sweep test (each `cas_per_row` blocker → `held`/`live`/`needs_review`, never `ready`).
+5. **Lock topology:** extend `advisoryLockRpcDeadlock.test.ts` for the rebuild single-locked-txn shape.
+6. **Stale-card clearing:** after resolve + auto-retry, the fresh finalize-response `per_row` no longer lists the resolved sheet (§4.5) — no durable `per_row` to invalidate.
 7. **Byte-parity:** `RescanSheetButton` Step3 call sites unchanged (existing default-placement tests stay green).
 8. **Impeccable dual-gate** on the UI diff.
 
 ## 8. Meta-test inventory
 
 - **Extends:** `tests/auth/advisoryLockRpcDeadlock.test.ts` (rebuild topology); `tests/log/_auditableMutations.ts` + `adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` (new admin route); `tests/admin/step3DisplayState.test.ts` (§4.2.2 matrix).
-- **Creates:** a PostgREST-DML-lockdown meta-test row/assertion for `onboarding_rebuild_attempts` (DML revoked from public+anon+authenticated) and `_unarchive_show_apply` (EXEC revoked from **all** web-facing roles — public, anon, authenticated, service_role — granted to none) — extends the class-wide lockdown pattern.
+- **Creates:** a PostgREST-DML-lockdown meta-test row/assertion for `onboarding_rebuild_attempts` (DML revoked from public+anon+authenticated) and `_unarchive_show_apply` (EXEC revoked from **all** web-facing roles — public, anon, authenticated, service_role — granted to none; AND `SECURITY DEFINER` with `proconfig = search_path=public, pg_temp`) — extends the class-wide lockdown pattern.
+- **Creates:** an **outcome-enumeration test** for the rebuild cap (structural defense, vector re-analysis): drives all seven `RescanDecisionOutcome`s and asserts `onboarding_rebuild_attempts.attempts` incremented ⇔ the corrupt shadow was deleted (`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked` consume; `schema_missing`/`superseded`/`not_staged` do not).
 - **Regression:** `unarchive_show` behavior-preserved after the delegate refactor (same archived→held effect + boolean return) — a DB test comparing pre/post row state.
 - **N/A:** no new §12.4 code (forensic is telemetry-only) → no `_metaAdminAlertCatalog` / catalog-parity touch; no email boundary → no `no-inline-email-normalization`.
 
 ## 9. Watchpoints / do-not-relitigate (disagreement-loop preempt)
 
 - **Wizard unarchive skips `runManualSyncForShow`** — deliberate (§3.6); the finalize re-run is the catch-up. Cite: `lib/showLifecycle/unarchiveShow.ts` runs the sync for the *Dashboard* path; the wizard path converges via finalize.
-- **`held` reused for archived (WS2)** — intentional, matches the documented rule-6 semantics ("…or archived"); NOT a new state. Cite `step3DisplayState.ts:68-70` comment.
+- **WS2 = broadened Rule 6, not an archived-only branch (R5 F2)** — the root hole is the `sessionLinked` guard on Rules 5/6; any `linkedShow` not caught by Rule 4/5 → `held` (archived AND held-existing). `held` is an existing state; Rule 7 `ready` now fires only for `linkedShow===null`. Do NOT re-narrow to `archived`-only.
 - **Forensic code is not §12.4** — deliberate; `logAdminOutcome.ts:5-6`. No catalog/gen gates.
-- **Rebuild cap = 1** — product decision (single-source: this spec §2/§3.3). Second corrupt = a real bug, escalate; do not raise the cap to "absorb transients".
-- **Corrupt is excluded from `RESCANNABLE_CAS_CODES`** and stays so — the resolver handles corrupt via a distinct capped path, NOT by adding corrupt to the freshness rescannable set (`FinalizeButton.tsx:64-67` comment stands).
-- **Lock nesting** — the rebuild's two-txn shape is the resolution to `rescanWizardSheet`'s self-lock; do not "optimize" into a single wrapping lock (would nest → deadlock, M5 R20 class).
-- **Wizard unarchive does NOT call `unarchive_show`** — deliberate. `is_admin()` derives from the GoTrue JWT, absent on the route's owner `postgres.js` connection, so the RPC would `raise 'forbidden'`. The route is HTTP-gated by `requireAdminIdentity` and applies the transition via the lock-free, gate-free internal `_unarchive_show_apply` (single source of the transition SQL; `unarchive_show` refactored to delegate). Do NOT relitigate as "just call the RPC" or "inline-duplicate the SQL" — both were considered and rejected (forbidden / drift). Cite `20260514000000_...:135` (is_admin body) + §3.2.
-- **Rebuild recovery is non-destructive (Codex R1 F2)** — the corrupt shadow is NEVER deleted before a replacement exists; the durable source (rescanned `pending_syncs`) is rebuilt first, then the corrupt shadow is overwritten by the Phase-B UPSERT (`finalize/route.ts:672`). Any non-success rescan retains the corrupt shadow and consumes no attempt. Do NOT re-introduce a pre-delete.
-- **Rebuild cap semantics (Codex R1 F3)** — `exhausted = attempts >= CAP` (CAP=1); the single allowed rebuild sets `attempts=1` ⇒ exhausted on first paint (no wasted click). Attempt increments only on a successful re-stage. Do NOT relitigate as `> CAP`.
-- **Forensic emit is in `finalize-cas`, not `resolve-blocker`** — the rebuild's success is only knowable when the rebuilt shadow is re-parsed at finalize; emit fires there, once, idempotent via `escalation_logged`. Emit is **post-commit** (the in-txn step only flips the durable `escalation_logged` marker; `logAdminOutcome` runs after commit — R2 F3).
-- **Authorization scoping is re-derived under the lock (R2 F2 + R3 F1)** — `readFinalizeCheckpoint` has NO persisted `per_row`; both actions re-derive the current blocking condition from durable state under the held lock (`onboarding_scan_manifest` membership + `readShowArchived_unlocked` for unarchive; `shows_pending_changes` + `parseShadowPayloadForApply` for rebuild). `requireAdminIdentity` alone is insufficient. Do NOT relitigate as a cached `per_row` read (it doesn't exist) or "admin already gated."
-- **Cap: check at gate, consume only post-committed-success (R2 F1 + R3 F2)** — `postgres.js` commits on normal return, so `rescanWizardSheet`'s typed-failure RETURNS would persist an increment done before the restage. The gate only READS (may abort); the conditional increment runs in a post-restage-**success** step, same locked txn; advisory-lock serialization makes it race-free. Do NOT relitigate as increment-before-restage or a separate pre-lock read.
-- **Rebuild reuses the rescan core's existing shadow delete (R2 F4)** — `applyRescanDecisionUnderLock:257-262` deletes `shows_pending_changes` on successful restage, atomically with the fresh `pending_syncs` write; this IS the non-destructive path (failure rolls back). Do NOT add a separate delete or claim "shadow untouched."
+- **Rebuild cap = 1** — product decision (single-source: this spec §2/§3.3). A re-observed corrupt after a shadow-superseding rebuild = a real bug, escalate; do not raise the cap.
+- **Corrupt is excluded from `RESCANNABLE_CAS_CODES`** and stays so — the resolver handles corrupt via a distinct capped path (`FinalizeButton.tsx:64-67` comment stands).
+- **Lock nesting** — rebuild is exactly ONE locked txn (`rescanWizardSheet`'s self-lock); do NOT split into two or add a wrapping lock (M5 R20 deadlock class).
+- **Wizard unarchive does NOT call `unarchive_show`** — deliberate. `is_admin()` derives from the GoTrue JWT, absent on the route's owner `postgres.js` connection, so the RPC would `raise 'forbidden'`. The route is HTTP-gated by `requireAdminIdentity` and applies the transition via the lock-free, gate-free internal `_unarchive_show_apply` (single source of the transition SQL; `unarchive_show` refactored to delegate). Do NOT relitigate as "just call the RPC" or "inline-duplicate the SQL." Cite `20260514000000_...:135` + §3.2.
+- **[VECTOR RE-ANALYSIS COMPLETE — rebuild/shadow semantics] (R2 F4 → R3 F2 → R5 F1, 3 rounds).** The rescan core does NOT "rebuild a possibly-still-corrupt shadow"; it **supersedes** the corrupt shadow into one of seven `RescanDecisionOutcome`s (§3.2 table). Four DELETE the shadow (`hard_failed`, `dirty_demoted`, `clean_restamped`, `clean_unchecked`); three RETAIN it (`schema_missing`, `superseded`, `not_staged`). **The cap consumes ⇔ the shadow was deleted** (co-located with the delete, in-txn) — the true destructive boundary. This closes the R5 F1 hole (`hard_failed` deletes-and-commits-and-returns-`needs_attention`, indistinguishable at the route from a shadow-retaining `needs_attention`). Structural defense: the seven-outcome enumeration test (§7/§8). Do NOT relitigate as "consume only on `updated` success" (lets `hard_failed` destroy without consuming), "non-destructive / shadow untouched" (the core deletes on success), or "Phase-B UPSERT overwrites" (the delete supersedes; there is no leftover corrupt shadow to overwrite).
+- **`exhausted = attempts >= CAP`** (CAP=1) — first-paint suppression, no wasted click. Do NOT relitigate as `> CAP`.
+- **Forensic emit is in `finalize-cas`, post-commit** — the rebuild's success is only knowable when the (now superseded) sheet is re-observed corrupt at a later finalize (the deterministic-bug case); emit once, idempotent via `escalation_logged`; `logAdminOutcome` runs after the txn commits (R2 F3). `corruptionReason` is captured pre-rescan so a shadow-deleting `hard_failed` loses no detail.
+- **Authorization scoping is re-derived under the lock (R2 F2 + R3 F1)** — `readFinalizeCheckpoint` has NO persisted `per_row`; both actions re-derive the current blocking condition from durable state under the held lock (`onboarding_scan_manifest` membership + `readShowArchived_unlocked` for unarchive; `shows_pending_changes` + `parseShadowPayloadForApply` for rebuild). `requireAdminIdentity` alone is insufficient. Do NOT relitigate as a cached `per_row` read (it doesn't exist).
+- **`_unarchive_show_apply` is granted to NO role + pins `search_path` (R4 F1, R5 F3)** — owner-only execution; `security definer set search_path = public, pg_temp`; meta asserts both. Do NOT grant `service_role`.
 
 ## 10. Out of scope
 
@@ -356,6 +381,6 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 
 ## 11. Numeric sweep
 
-- CAP = **1** (rebuild attempts) — referenced in §2 (goal 3), §3.2, §3.3, §9. Single source: this constant. `attempts >= CAP` ⇒ exhausted (i.e. `attempts >= 1`). Increment only on a successful re-stage.
+- CAP = **1** (rebuild attempts) — referenced in §2 (goal 3), §3.2, §3.3, §9. Single source: this constant. `attempts >= CAP` ⇒ exhausted (i.e. `attempts >= 1`). Increment ⇔ the corrupt shadow was deleted (four of seven `RescanDecisionOutcome`s).
 - Auto-revert = **4 s** (arm timer) — inherited from `RescanSheetButton` `ARM_REVERT_MS`.
 - No other literals.
