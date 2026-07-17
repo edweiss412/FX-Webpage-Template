@@ -54,9 +54,14 @@ function connect(): ResolveSql {
 export async function resolveOpenUnreadableAlertUnconditionally(
   sql?: ResolveSql,
 ): Promise<ResolveResult> {
-  const db = sql ?? connect();
-  const owns = !sql;
+  // Client creation is INSIDE the try (whole-diff R2b): `connect()`/`databaseUrl()`
+  // can throw (e.g. prod without DATABASE_URL), and that must surface as a typed
+  // infra_error, never a thrown rejection — the helper is never-throwing by contract.
+  let db: ResolveSql | null = null;
+  let owns = false;
   try {
+    db = sql ?? connect();
+    owns = !sql;
     const open = await db<{ id: string; last_seen_at: string }>`
       select id, last_seen_at::text as last_seen_at
         from public.admin_alerts
@@ -77,7 +82,14 @@ export async function resolveOpenUnreadableAlertUnconditionally(
   } catch {
     return { kind: "infra_error" };
   } finally {
-    if (owns) await db.end?.({ timeout: 5 });
+    // Swallow cleanup rejection: a failing db.end() must never override the return.
+    if (owns && db) {
+      try {
+        await db.end?.({ timeout: 5 });
+      } catch {
+        /* ignore cleanup failure */
+      }
+    }
   }
 }
 
@@ -93,9 +105,13 @@ export async function resolveUnreadableAlertIfHealed(
   input: HealInput,
   sql?: ResolveSql,
 ): Promise<ResolveResult> {
-  const db = sql ?? connect();
-  const owns = !sql;
+  // Client creation INSIDE the try (whole-diff R2b) so a connect()/databaseUrl()
+  // throw becomes a typed infra_error, honoring the never-throwing contract.
+  let db: ResolveSql | null = null;
+  let owns = false;
   try {
+    db = sql ?? connect();
+    owns = !sql;
     // (a) Fetch the open row FIRST — no open row => no further queries (§3.4a).
     // `last_seen_at::text` preserves Postgres microsecond precision for the CAS
     // below (a Date round-trip truncates to millisecond and would never match).
@@ -130,7 +146,10 @@ export async function resolveUnreadableAlertIfHealed(
       // element => keep the row open (fail-visible), never auto-resolve on bad data.
       const ids = rawIds.filter((x): x is string => typeof x === "string" && x.length > 0);
       if (ids.length !== rawIds.length) return { kind: "ok", resolved: false }; // keep open
-      const healed = await Promise.all(ids.map((id) => isIdHealed(db, id, input.listedFiles)));
+      // db is non-null here (assigned at the top of the try); the arrow closure
+      // loses the `let` narrowing, so assert it.
+      const conn = db;
+      const healed = await Promise.all(ids.map((id) => isIdHealed(conn, id, input.listedFiles)));
       shouldResolve = healed.every(Boolean);
     }
     if (!shouldResolve) return { kind: "ok", resolved: false };
@@ -152,7 +171,13 @@ export async function resolveUnreadableAlertIfHealed(
   } catch {
     return { kind: "infra_error" };
   } finally {
-    if (owns) await db.end?.({ timeout: 5 });
+    if (owns && db) {
+      try {
+        await db.end?.({ timeout: 5 });
+      } catch {
+        /* ignore cleanup failure */
+      }
+    }
   }
 }
 
