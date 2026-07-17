@@ -30,6 +30,7 @@ import {
 } from "@/components/admin/RoleRecognizeControl";
 import type { GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 import type { ParseWarning } from "@/lib/parser/types";
+import type { WarningControlSite } from "@/components/admin/warningControlSite";
 import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
 import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
 import { updateRoleTokenMapping } from "@/app/admin/settings/_actions/roleTokenMappings";
@@ -42,6 +43,8 @@ export function RoleRecognizeControlBoundary(
   props: {
     /** The live warning; its `roleToken` is the create/edit key. */
     warning: ParseWarning;
+    /** spec 2026-07-17 §8: render site, forwarded to the control (conditional spread below). */
+    site?: WarningControlSite;
   } & SurfaceProps,
 ) {
   const { warning } = props;
@@ -72,5 +75,11 @@ export function RoleRecognizeControlBoundary(
     return { kind: "error" };
   };
 
-  return <RoleRecognizeControl roleToken={token} onSave={onSave} />;
+  return (
+    <RoleRecognizeControl
+      roleToken={token}
+      onSave={onSave}
+      {...(props.site ? { site: props.site } : {})}
+    />
+  );
 }

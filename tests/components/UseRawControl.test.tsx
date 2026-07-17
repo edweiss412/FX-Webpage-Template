@@ -720,3 +720,161 @@ describe("UseRawControl — render contract", () => {
     expect(dom).not.toMatch(/[A-Z][A-Z0-9]+_[A-Z0-9_]+/);
   });
 });
+
+// ── 3. site scoping + kind-qualified accessible name (spec 2026-07-17) ──────
+const hotelsResolution: Extract<UseRawResolution, { resolvable: true }> = {
+  resolvable: true,
+  contentHash: "content-hash-hotels-1",
+  parsed: { kind: "hotels", names: ["Ada Lovelace", "Alan Turing"], confirmationNo: "CN-9" },
+  replacement: { kind: "hotels", names: ["Ada Lovelace Alan Turing CN-9"], confirmationNo: null },
+};
+const datesResolution: Extract<UseRawResolution, { resolvable: true }> = {
+  resolvable: true,
+  contentHash: "content-hash-dates-1",
+  parsed: {
+    kind: "dates",
+    dates: { travelIn: "2026-05-01", set: null, showDays: ["2026-05-02"], travelOut: null },
+  },
+  replacement: {
+    kind: "dates",
+    dmyDates: { travelIn: "2026-01-05", set: null, showDays: ["2026-02-05"], travelOut: null },
+  },
+};
+
+// Expected radiogroup label per kind — defined HERE (not imported from source) so a
+// source regression is caught rather than moving in lockstep with the assertion.
+const EXPECTED_RADIOGROUP_LABEL: Record<"rooms" | "hotels" | "dates", string> = {
+  rooms: "Which reading crew pages use for the room split",
+  hotels: "Which reading crew pages use for the hotel guest split",
+  dates: "Which reading crew pages use for the show dates",
+};
+
+function assertAllTestidsSuffixed(root: ParentNode, suffix: string) {
+  const nodes = Array.from(root.querySelectorAll("[data-testid]"));
+  expect(nodes.length).toBeGreaterThan(0);
+  for (const n of nodes) expect(n.getAttribute("data-testid")!.endsWith(`-${suffix}`)).toBe(true);
+}
+function assertNoTestidSuffixed(root: ParentNode, suffix: string) {
+  for (const n of Array.from(root.querySelectorAll("[data-testid]")))
+    expect(n.getAttribute("data-testid")!.endsWith(`-${suffix}`)).toBe(false);
+}
+
+describe("UseRawControl — site scoping (spec 2026-07-17 §6.1)", () => {
+  const noop = () => {};
+
+  it("site present: EVERY leaf testid is suffixed across the leaf-bearing states", async () => {
+    // (a) transform-active → control + both toggles + parsed + raw
+    const a = render(
+      <UseRawControl warning={warning()} decision={undefined} site="list" onToggle={noop} />,
+    );
+    assertAllTestidsSuffixed(a.container, "list");
+    expect(a.queryByTestId("use-raw-control")).toBeNull();
+    expect(a.queryByTestId("use-raw-toggle-off")).toBeNull();
+    cleanup();
+
+    // (b) apply-pending → use-raw-pending-note branch 1 (UseRawControl.tsx:514)
+    const b = render(
+      <UseRawControl
+        warning={warning()}
+        decision={decision({ preference: "raw", applied: false })}
+        site="list"
+        onToggle={noop}
+      />,
+    );
+    assertAllTestidsSuffixed(b.container, "list");
+    expect(b.getByTestId("use-raw-pending-note-list")).toBeTruthy();
+    cleanup();
+
+    // (b2) clear-pending → use-raw-pending-note branch 2 (UseRawControl.tsx:520).
+    // preference "transform" + applied:false derives "clear-pending".
+    const b2 = render(
+      <UseRawControl
+        warning={warning()}
+        decision={decision({ preference: "transform", applied: false })}
+        site="list"
+        onToggle={noop}
+      />,
+    );
+    assertAllTestidsSuffixed(b2.container, "list");
+    expect(b2.getByTestId("use-raw-pending-note-list")).toBeTruthy();
+    cleanup();
+
+    // (c) post-failed-toggle → adds use-raw-error + use-raw-retry
+    const c = render(
+      <UseRawControl
+        warning={warning()}
+        decision={undefined}
+        site="list"
+        onToggle={() => {
+          throw new Error("x");
+        }}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(c.getByTestId("use-raw-toggle-on-list"));
+    });
+    await waitFor(() => {
+      expect(c.getByTestId("use-raw-error-list")).toBeTruthy();
+      expect(c.getByTestId("use-raw-retry-list")).toBeTruthy();
+    });
+    assertAllTestidsSuffixed(c.container, "list");
+  });
+
+  it("site absent: NO testid is suffixed (bare, byte-identical)", () => {
+    const q = render(<UseRawControl warning={warning()} decision={undefined} onToggle={noop} />);
+    assertNoTestidSuffixed(q.container, "list");
+    expect(q.getByTestId("use-raw-control")).toBeTruthy();
+    expect(q.getByTestId("use-raw-toggle-off")).toBeTruthy();
+  });
+
+  it("guard-state <p> also carries the suffix — legacy-unavailable AND disabled", () => {
+    const legacy = render(
+      <UseRawControl
+        warning={legacyWarning()}
+        decision={undefined}
+        site="callout"
+        onToggle={noop}
+      />,
+    );
+    expect(legacy.getByTestId("use-raw-control-callout")).toBeTruthy();
+    assertAllTestidsSuffixed(legacy.container, "callout");
+    cleanup();
+
+    // disabled state: in-scope code with a NON-resolvable resolution (§4 guard).
+    const disabledWarning: Pick<ParseWarning, "code" | "resolution"> = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      resolution: { resolvable: false, reason: "empty-raw" },
+    };
+    const dis = render(
+      <UseRawControl
+        warning={disabledWarning}
+        decision={undefined}
+        site="callout"
+        onToggle={noop}
+      />,
+    );
+    expect(dis.getByTestId("use-raw-control-callout")).toBeTruthy();
+    assertAllTestidsSuffixed(dis.container, "callout");
+  });
+});
+
+describe("UseRawControl — radiogroup accessible name is kind-qualified (spec §6.2)", () => {
+  const noop = () => {};
+  it.each([
+    ["rooms", roomsResolution],
+    ["hotels", hotelsResolution],
+    ["dates", datesResolution],
+  ] as const)("%s → kind-specific aria-label", (kind, resolution) => {
+    const code =
+      kind === "rooms"
+        ? "ROOM_HEADER_SPLIT_AMBIGUOUS"
+        : kind === "hotels"
+          ? "HOTEL_GUEST_SPLIT_AMBIGUOUS"
+          : "DATE_ORDER_SUGGESTS_DMY";
+    const q = render(
+      <UseRawControl warning={{ code, resolution }} decision={undefined} onToggle={noop} />,
+    );
+    const group = q.container.querySelector('[role="radiogroup"]')!;
+    expect(group.getAttribute("aria-label")).toBe(EXPECTED_RADIOGROUP_LABEL[kind]);
+  });
+});

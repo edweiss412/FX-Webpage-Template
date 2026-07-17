@@ -76,11 +76,15 @@ With PR #399 the wizard's `WarningsBreakdown` is a complete actionable list, so 
 
 ## BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y — site-scoped testids + qualified aria-labels for duplicated warning controls
 
+**Status:** ✅ RESOLVED — `fix/use-raw-control-site-a11y-copy` (2026-07-17; spec `docs/superpowers/specs/2026-07-17-use-raw-control-site-a11y-copy.md`).
+
 **Filed:** 2026-07-16 (use-raw full-list dual-gate, `DEFERRED.md` USE-RAW-FULL-LIST-2) · **Class:** accessibility (P2) · **Effort:** S–M (touches shared controls + every existing control test)
 
-Both render sites emit identical `data-testid` values (`use-raw-control`, `role-recognize-control`, toggle ids) and identical radiogroup `aria-label`s — screen-reader users hear the same group twice per warning with no disambiguation, and unscoped `getByTestId` queries multi-match. Fix lives inside the shared `UseRawControl`/`RoleRecognizeControl` components (site-scoped testids, warning-title-qualified aria-labels); blast radius spans the live page and all existing control tests. All in-repo queries are container-scoped today, so nothing is broken. **Follow-up:** land with the next accessibility pass over the wizard modal or any diff already touching the shared controls.
+Both render sites emit identical `data-testid` values (`use-raw-control`, `role-recognize-control`, toggle ids) and identical radiogroup `aria-label`s — screen-reader users hear the same group twice per warning with no disambiguation, and unscoped `getByTestId` queries multi-match. All in-repo queries are container-scoped today, so nothing was broken. **Resolution:** an optional `WarningControlSite` (`"callout"|"list"|"showpage"`) threads mount→boundary→control and site-scopes **every** leaf testid (not just the container) — `use-raw-control`/`role-recognize-control` plus the toggle/panel/check/etc. leaves. Accessible names are **kind/token-qualified**, NOT warning-title-qualified as originally scoped: the use-raw radiogroup is qualified by `resolution.parsed.kind` (room split / hotel guest split / show dates) and the recognize-role trigger by its `roleToken` (label-in-name preserved). This avoided threading `reviewWarningTitle` through the shared controls (the user-ratified approach for this diff). Absent `site` = bare testids, so the standalone unit suites stayed unchanged.
 
 ## BL-WIZARD-WARNINGS-COPY-QUALIFIER — qualify the "informational / don't block publishing" line above consequential controls
+
+**Status:** ✅ RESOLVED — `fix/use-raw-control-site-a11y-copy` (2026-07-17). Line now reads "These warnings don't block publishing. Some include an optional fix you can apply below." — drops "informational," keeps the non-blocking clause, names the fixes.
 
 **Filed:** 2026-07-16 (use-raw full-list dual-gate, `DEFERRED.md` USE-RAW-FULL-LIST-3) · **Class:** copy (P2) · **Effort:** XS
 
