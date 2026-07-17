@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 export function AdminPageHeader({
   title,
+  titleId,
   sub,
   subSlot,
   titleAppendSlot,
@@ -12,6 +13,10 @@ export function AdminPageHeader({
   rightSlot,
 }: {
   title: string;
+  /* Optional id stamped on the <h1>, so a sibling landmark can name itself by
+     this heading via aria-labelledby instead of duplicating the title string
+     (MOBILEPARITY-2: the needs-attention inbox <section> is labelled by this h1). */
+  titleId?: string;
   sub?: string;
   subSlot?: ReactNode;
   /* Inline content appended directly AFTER the title, vertically centered with
@@ -68,6 +73,7 @@ export function AdminPageHeader({
                 inline status pill (titleAppendSlot) wraps to the next line under
                 flex-wrap when the truncated title still fills the row. */}
             <h1
+              id={titleId}
               className="min-w-0 truncate text-2xl font-semibold leading-[1.1] tracking-page-title text-text-strong"
               data-testid="admin-page-header-title"
               title={title}

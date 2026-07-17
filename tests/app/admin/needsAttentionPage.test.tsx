@@ -235,6 +235,19 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     expect(inbox.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("MOBILEPARITY-2: inbox section is labelled BY the page h1 (aria-labelledby), not a duplicate aria-label", async () => {
+    raState.result = okAutoApplied;
+    await renderPage();
+    const inbox = screen.getByRole("region", { name: "Needs attention" });
+    // No standalone aria-label string that duplicates the h1 text.
+    expect(inbox).not.toHaveAttribute("aria-label");
+    // Region is named by the real page heading via idref.
+    const labelledby = inbox.getAttribute("aria-labelledby");
+    expect(labelledby).toBeTruthy();
+    const h1 = screen.getByRole("heading", { level: 1, name: "Needs attention" });
+    expect(h1.id).toBe(labelledby);
+  });
+
   it("strip infra_error renders degraded copy while the inbox is healthy", async () => {
     raState.result = { kind: "infra_error", message: "boom" };
     await renderPage();
