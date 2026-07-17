@@ -543,8 +543,10 @@ it("shows no box offer when the archived override is already accepted", () => {
 });
 
 // 5. Accept POSTs the FULL CAS body — incl. driveFileId (must be data.driveFileId,
-//    NOT dfid) and wizardSessionId (F3). DFID/DFID/WSID are the
-//    renderModal fixture constants; assert against them, not hardcoded literals.
+//    NOT dfid) and wizardSessionId. DFID/WSID are the fixture constants; assert
+//    against them, not hardcoded literals. The `vi.spyOn(globalThis,"fetch")` is
+//    restored by the file's existing afterEach (`cleanup(); vi.restoreAllMocks()`,
+//    lines ~35-38), so it does not leak into later tests (F2).
 it("box accept POSTs the full override body with the correct driveFileId + session", async () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     new Response(JSON.stringify({ ok: true, status: "override_set" }), { status: 200 }),
@@ -637,16 +639,19 @@ After `const { dfid, wizardSessionId } = data;` (line 152), add:
 
 ```tsx
 // Archived-tab pending offers (spec §4.2/§4.3) — the box appears for these even
-// when there is no blocked re-apply resolution. Same derivation as Pack-list.
-// StagedSectionData.wizardSessionId is `string` (non-null, sectionData.ts:63) and
-// the review modal only ever renders staged data, so `staged` is definitionally
-// true here — passing `true` (not `wizardSessionId != null`, which would trip
-// @typescript-eslint/no-unnecessary-condition on a non-nullable string).
-const archivedOffers = deriveArchivedOffers(data.archivedPullSheetTabs, true).offers;
+// when there is no blocked re-apply resolution. Same `staged` predicate as
+// Pack-list, verbatim from the spec, so the derivation call is byte-identical
+// across both callsites (parity invariant).
+const archivedOffers = deriveArchivedOffers(
+  data.archivedPullSheetTabs,
+  wizardSessionId != null,
+).offers;
 const hasPendingArchivedOffer = archivedOffers.length > 0;
 ```
 
-Type note (F2): `data.wizardSessionId` is `string` and `data.driveFileId` is `string | null` (`sectionData.ts:55,63`). `ArchivedTabOffer` requires `wizardSessionId: string` and accepts `dfid: string | null` — both pass directly, no narrowing/guard needed.
+Predicate note (F1): the plan uses the spec's exact `wizardSessionId != null` staged gate (spec §4.3, §6 null-preview guard row), NOT a hardcoded `true`. `StagedSectionData.wizardSessionId` is typed `string` (`sectionData.ts:63`), so the expression is always true at runtime in this modal, but keeping the spec's predicate preserves parity with Pack-list and the documented guard. `@typescript-eslint/no-unnecessary-condition` is **not** enabled in `eslint.config.mjs`, so this does not lint-error.
+
+Type note: `data.wizardSessionId` is `string` and `data.driveFileId` is `string | null` (`sectionData.ts:55,63`). `ArchivedTabOffer` requires `wizardSessionId: string` and accepts `dfid: string | null` — both pass directly, no narrowing/guard needed.
 
 Change the box section gate. Locate the resolution `<section>` (currently `{resolution ? ( <section ...> ... </section> ) : null}` around line 725) and change the guard to `resolution || hasPendingArchivedOffer`. Inside the section, gate the re-apply body on `resolution` and append the archived offers. The section becomes:
 
@@ -720,6 +725,8 @@ git commit --no-verify -m "feat(admin): surface archived-tab accept offer in the
 
 **Files:** none by default (fixes only if a gate fails).
 
+> **Commit hygiene (F4):** if any step here requires a code fix, amend the specific earlier task commit it belongs to (`git commit --amend` / fixup into Task 2 or Task 3), do NOT create an unscoped close-out commit that batches gate fallout. The only new commits Task 4 may introduce are (a) a `DEFERRED.md` entry, or (b) a `pnpm format` whitespace fix amended into the relevant task commit.
+
 - [ ] **Step 1: Confirm the coexistence test (written in Task 3 Step 1) passes**
 
 The REQUIRED coexistence assertion (spec §9.6 — offer present in BOTH box and Pack-list) is test 9 in Task 3 Step 1, written fail-first with the other box tests. Here, just confirm it is green in the full run:
@@ -730,7 +737,7 @@ Expected: PASS (all box tests incl. coexistence). If the Pack-list offer does no
 - [ ] **Step 2: Run the full unit suite**
 
 Run: `set -o pipefail; pnpm test 2>&1 | tail -30`
-Expected: green. NOTE: pre-existing stale-shared-local-DB failures (lifecycle-guard / admin-alert / dashboard DB tests) may appear and are environmental, not from this diff — confirm any failure is DB-env by checking it fails identically on `origin/main`, and rely on CI's fresh DB as arbiter. This diff touches no DB.
+Expected: green. Before classifying ANY failure as environmental (F3): **rerun that specific target unpiped** (`pnpm vitest run <file>`) to see full context, then confirm it fails identically on `origin/main` (stale-shared-local-DB failures — lifecycle-guard / admin-alert / dashboard DB tests — are the known class). This diff touches no DB; CI's fresh DB is the arbiter. Never wave off a failure from the piped summary alone.
 
 - [ ] **Step 3: impeccable dual-gate (invariant 8)**
 
