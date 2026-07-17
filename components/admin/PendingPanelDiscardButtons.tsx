@@ -10,7 +10,7 @@
  * LivePendingIngestionDiscardResponse). On success refreshes; on 409
  * errors renders Doug-facing copy via messageFor.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
@@ -33,12 +33,47 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try again.";
 
+// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
+  // G1 two-tap guard (spec 2026-07-16-destructive-confirm-pass §4): the
+  // "Permanently ignore" button arms on first tap (recipe fill + confirm label,
+  // 4s auto-revert) and fires the EXISTING handleClick("permanent_ignore") on
+  // the second. The sibling "Defer until modified" stays one-tap (§7).
+  const [armed, setArmed] = useState(false);
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearArmTimer() {
+    if (armTimerRef.current !== null) {
+      clearTimeout(armTimerRef.current);
+      armTimerRef.current = null;
+    }
+  }
+  useEffect(() => clearArmTimer, []);
+  function onGuardedIgnoreClick() {
+    if (!armed) {
+      setArmed(true);
+      clearArmTimer();
+      armTimerRef.current = setTimeout(() => {
+        armTimerRef.current = null; // callback clears its own ref — no stale identity survives
+        setArmed(false);
+      }, ARM_REVERT_MS);
+      return;
+    }
+    clearArmTimer();
+    setArmed(false);
+    void handleClick("permanent_ignore");
+  }
 
   async function handleClick(kind: DiscardKind) {
     if (state.kind === "running") return;
+    // Any discard starting (including the one-tap "Defer until modified" sibling)
+    // disarms a pending permanent-ignore confirm — an armed state must never
+    // survive into or past another mutation (whole-diff review R2).
+    clearArmTimer();
+    setArmed(false);
     setState({ kind: "running", pendingKind: kind });
     try {
       const response = await fetch(
@@ -84,14 +119,26 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
         <button
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
-          onClick={() => handleClick("permanent_ignore")}
+          onClick={onGuardedIgnoreClick}
           disabled={isRunning}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className={
+            armed
+              ? "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              : "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          }
         >
-          {state.kind === "running" && state.pendingKind === "permanent_ignore"
-            ? "Ignoring…"
-            : "Permanently ignore"}
+          {armed
+            ? "Confirm: stop tracking this sheet permanently"
+            : state.kind === "running" && state.pendingKind === "permanent_ignore"
+              ? "Ignoring…"
+              : "Permanently ignore"}
         </button>
+        {/* Persistent sr-only live region: announces the silent label morph to
+            screen readers (impeccable P2). Always mounted — conditional
+            mounting drops the announcement (project a11y rule). */}
+        <span role="status" className="sr-only">
+          {armed ? "Tap again to confirm." : ""}
+        </span>
       </div>
       {state.kind === "error" ? (
         <div

@@ -13,6 +13,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 
@@ -31,6 +32,22 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+// Shared rendered assertion (destructive-confirm plan): the C1 recipe signature.
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
 
 describe("ReSyncButton", () => {
   test("clicking POSTs to /api/admin/sync/<slug>", async () => {
@@ -212,6 +229,45 @@ describe("ReSyncButton", () => {
     // shipped to Doug. The toast must say what to do in plain words.
     expect(text).toContain("couldn't be applied");
     expect(text).not.toMatch(/\bstaged\b|\bparse\b|\binvariant\b/i);
+  });
+
+  // ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R8) ----
+
+  test("shrink-accept carries the destructive recipe with NO AccentButton signature; keep-current rejects both recipe tokens (C1/C2)", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const accept = await findByTestId("admin-resync-accept");
+    expectDestructiveRecipe(accept);
+    const tokens = accept.className.split(/\s+/);
+    // The observable AccentButton signature — the swap is proven by class
+    // absence, not element type.
+    for (const t of ["bg-accent", "hover:bg-accent-hover", "disabled:hover:bg-accent"]) {
+      expect(tokens).not.toContain(t);
+    }
+    const keepTokens = getByTestId("admin-resync-keep-current").className.split(/\s+/);
+    expect(keepTokens).not.toContain("bg-warning-text");
+    expect(keepTokens).not.toContain("text-warning-bg");
+  });
+
+  test("close focus (C5, single-phase): 'Keep current version' moves focus to the re-sync trigger", async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const keep = await findByTestId("admin-resync-keep-current");
+    fireEvent.click(keep);
+    await waitFor(() => expect(queryByTestId("admin-resync-shrink-confirm")).toBeNull());
+    await waitFor(() => expect(getByTestId("admin-resync-button")).toHaveFocus());
   });
 
   test("INVARIANT 5: no raw error codes leak into the DOM after an error response", async () => {

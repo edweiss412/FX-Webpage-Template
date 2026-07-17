@@ -239,6 +239,8 @@ test.describe("needs-attention page: navigation flows + badge freshness", () => 
     await plantSoftNavMarker(page);
 
     // Discard (permanent_ignore — deterministic: no Drive/parser round-trip).
+    // G1 two-tap guard (destructive-confirm pass §4): first click arms, second fires.
+    await page.getByTestId(`admin-pending-ignore-${INGESTION_ID}`).click();
     const [discardResponse] = await Promise.all([
       page.waitForResponse(
         (res) =>

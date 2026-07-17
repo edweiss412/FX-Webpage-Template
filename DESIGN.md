@@ -392,3 +392,24 @@ A crew member written `(10/7 ONLY)` / `(10/7 and 10/9 ONLY)` / `***` in the shee
 - **Crew roster** (`CrewSection` → `PersonRow`): a new chip in the `PersonRow` chip family, rendered beside You / Lead / Primary using the shared `CHIP_CLASS` with the neutral `bg-surface-sunken text-text-subtle` tone and a `data-partial` hook. Label from `partialAttendanceLabel(member.dateRestriction, { humanize: true })`: explicit days (ISO, projection-normalized) → `humanizeDayList` → e.g. **"Oct 7 & 9 only"**; `***`/unknown → **"Partial (dates TBD)"**; unrestricted → no chip.
 - **Step-3 review modal** (`CrewBreakdown`): the same label rendered as a plain inline `· …` segment (matching the row's name·role·phone idiom), but **as-parsed** — `partialAttendanceLabel(m.date_restriction, { humanize: false })` shows the raw `M/D` tokens verbatim (e.g. "10/7, 10/9 only"), consistent with the modal's as-parsed review contract.
 - **Source of truth:** `partialAttendanceLabel` (`lib/crew/partialAttendance.ts`) + `humanizeDayList` (`lib/dates/humanize.ts`). Pure data-driven render (RSC); no animation.
+
+---
+
+## 15. Destructive actions — confirm recipe + guard-tier ladder
+
+Contract established by spec `docs/superpowers/specs/2026-07-16-destructive-confirm-pass.md` (§3 C1–C6). Enforced structurally by `tests/styles/_metaDestructiveConfirm.test.ts` (per-occurrence registry over `components/**` + `app/**`; fails by default for new inverted-amber recipe literals without a registry row). The scanner pins recipe-token growth only: a destructive control that never adopts the recipe is caught in review, not by the meta-test.
+
+**Confirm-go recipe (the ONLY destructive-button treatment).** The button that actually performs a destructive mutation after a confirm step renders inverted amber: `bg-warning-text text-warning-bg font-semibold hover:opacity-90`. Never `bg-accent` (accent = affirmative/primary everywhere else), never `bg-surface`/`bg-bg` (twin-confusion with the safe control), never any other `hover:bg-*`. One complete class literal per confirm-go button; register every new literal in the meta-test with a WCAG disposition note. Contrast is carried by the existing warning tokens (light `#5c3f00`/`#fff3d6`, dark `#ffd68a`/`#3a2e14`, both ≥ 7:1 — see §1.2). Focus-ring offset matches the surrounding container and is not part of the recipe. Sizing/type-scale tokens are per-surface.
+
+**Safe control.** The cancel/keep control keeps a neutral treatment (`bg-bg`, bordered `bg-surface`, or text-only recessive) and never carries a recipe token.
+
+**Focus rules.**
+- Open: a confirm panel with a separate safe control focuses the SAFE control on mount (the `keepCurrentRef` pattern). Morphing single buttons are exempt (focus never moves).
+- Close: cancel and auto-revert restore focus to the re-mounted trigger, two-phase and guarded (capture `container.contains(document.activeElement)` before the state flip; focus after remount only when it was inside) so a timer firing while the user works elsewhere never steals focus. Submit outcomes (pending/success/failure) never move focus; result banners with `role="status"`/`role="alert"` carry the announcement.
+
+**Guard-tier ladder** (which destructive ops get which guard):
+1. **Typed-confirm modal** — environment wipes only (validation-data reset: type `RESET`).
+2. **Two-tap confirm (morph or panel) + 3–4s auto-revert** — irreversible or work-destroying ops: permanent ignore, stop-showing-sheet, re-scan over staged work, bulk ignore/undo, archive, token rotate, picker resets, admin revoke, alert dismiss, shrink acceptance.
+3. **Unguarded one-tap** — reversible ops with a real recovery path (single undo, ignore with un-ignore, defer-discards that re-stage on the next edit). Do not add friction here.
+
+New destructive surfaces pick a tier by recoverability, adopt the recipe on the confirm-go, and add their registry row in the same commit.

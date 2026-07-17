@@ -193,6 +193,11 @@ function GroupSection({
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
+  // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2).
+  // Lifecycle: open clears; completion writes ({failed,total} when failed>0, else null).
+  const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(
+    null,
+  );
   const [pending, startTransition] = useTransition();
   const undoableCount = group.undoableIds.length;
   const panelId = `auto-applied-panel-${group.showId}`;
@@ -205,22 +210,59 @@ function GroupSection({
     if (confirming) keepChangesRef.current?.focus();
   }, [confirming]);
 
+  // FLOW4-6: closing the confirm unmounts whichever of its buttons holds focus,
+  // so both close paths move focus to the always-mounted disclosure toggle first —
+  // guarded so a completion landing while the user works elsewhere never steals
+  // focus. The cancel path checks containment synchronously (still correct); the
+  // completion path can't — clicking confirm-go sets pending → disabled={pending}
+  // → Chrome/Firefox eject focus from the disabled button to <body>, so at
+  // completion time containment is false even though the user never left. It
+  // instead captures "focus was inside at click" up front and treats
+  // ejected-to-body as still ours, while a real element focused OUTSIDE the
+  // group (user actively moved) is never robbed (WCAG 2.4.3).
+  const groupContainerRef = useRef<HTMLLIElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  function restoreFocusToToggle() {
+    const shouldRestore = groupContainerRef.current?.contains(document.activeElement) ?? false;
+    if (shouldRestore) toggleRef.current?.focus();
+  }
+
   function confirmUndoAll() {
+    // Captured synchronously at click time, BEFORE startTransition flips pending
+    // and the browser's disabled-focus ejection moves focus to <body>.
+    const wasInsideAtClick = groupContainerRef.current?.contains(document.activeElement) ?? false;
     // Dispatch undoFromDashboardAction once per undoableId. Each undo self-resolves
     // its show server-side (reads ONLY changeLogId from FormData), so we carry just
     // that field — mirrors UndoChangeButton's single hidden input.
     startTransition(async () => {
+      const results: Array<{ ok: boolean } | null> = [];
       for (const id of group.undoableIds) {
         const fd = new FormData();
         fd.set("changeLogId", id);
-        await actions.undoFromDashboardAction(null, fd);
+        try {
+          results.push(await actions.undoFromDashboardAction(null, fd));
+        } catch {
+          // A thrown action counts as a failed undo — completion must still
+          // write the outcome and restore focus (spec §6 F2 "completion writes").
+          results.push({ ok: false });
+        }
       }
+      const total = results.length;
+      const failed = results.filter((r) => r && !r.ok).length;
+      // Ejected-to-body counts as "still ours"; a real element focused outside
+      // the group means the user actively moved — never rob them.
+      const stillOurs =
+        document.activeElement === document.body ||
+        (groupContainerRef.current?.contains(document.activeElement) ?? false);
+      if (wasInsideAtClick && stillOurs) toggleRef.current?.focus();
       setConfirming(false);
+      setBulkUndoOutcome(failed > 0 ? { failed, total } : null);
     });
   }
 
   return (
     <li
+      ref={groupContainerRef}
       data-testid={`auto-applied-group-${group.showId}`}
       className="flex flex-col rounded-md border border-border bg-surface shadow-tile"
     >
@@ -235,6 +277,7 @@ function GroupSection({
           top-level section, not nested under a heading; the level is not portable.) */}
       <h5 className="min-w-0">
         <button
+          ref={toggleRef}
           type="button"
           data-testid={`auto-applied-toggle-${group.showId}`}
           aria-expanded={open}
@@ -290,7 +333,10 @@ function GroupSection({
               <button
                 type="button"
                 data-testid={`auto-applied-undo-all-${group.showId}`}
-                onClick={() => setConfirming(true)}
+                onClick={() => {
+                  setBulkUndoOutcome(null); // open clears (spec §6 F2 lifecycle)
+                  setConfirming(true);
+                }}
                 className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Undo all
@@ -312,7 +358,10 @@ function GroupSection({
                 <button
                   ref={keepChangesRef}
                   type="button"
-                  onClick={() => setConfirming(false)}
+                  onClick={() => {
+                    restoreFocusToToggle();
+                    setConfirming(false);
+                  }}
                   disabled={pending}
                   data-testid={`auto-applied-undo-all-cancel-${group.showId}`}
                   className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
@@ -325,7 +374,7 @@ function GroupSection({
                   disabled={pending}
                   aria-busy={pending}
                   data-testid={`auto-applied-undo-all-confirm-go-${group.showId}`}
-                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {pending
                     ? "Undoing…"
@@ -333,6 +382,17 @@ function GroupSection({
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {bulkUndoOutcome && bulkUndoOutcome.failed > 0 ? (
+            <p
+              role="alert"
+              data-testid={`auto-applied-bulk-undo-alert-${group.showId}`}
+              className="border-b border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+            >
+              Couldn&apos;t undo {bulkUndoOutcome.failed} of {bulkUndoOutcome.total} changes. The
+              ones that failed stay in this list.
+            </p>
           ) : null}
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">

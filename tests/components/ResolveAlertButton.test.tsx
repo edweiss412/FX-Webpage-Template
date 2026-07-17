@@ -17,7 +17,8 @@
  * level, not in a P0 misfire.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 
 import { ResolveAlertButton } from "@/components/admin/ResolveAlertButton";
 
@@ -29,6 +30,22 @@ afterEach(() => {
   vi.useRealTimers();
   cleanup();
 });
+
+// Shared rendered assertion (destructive-confirm plan): the C1 recipe signature.
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
 
 describe("ResolveAlertButton state machine", () => {
   it("idle: renders 'Dismiss' button only (no confirm row)", () => {
@@ -187,6 +204,68 @@ describe("ResolveAlertButton state machine", () => {
     const cls = cancel.className;
     expect(cls).toMatch(/\bmin-h-tap-min\b/);
     expect(cls).toMatch(/\bmin-w-tap-min\b/);
+  });
+
+  // ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R6/F4) ----
+
+  it("confirm-go carries the destructive recipe with NO AccentButton signature; cancel rejects both recipe tokens (C1/C2)", () => {
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    const confirm = getByTestId("admin-alert-confirm-resolve-button");
+    expectDestructiveRecipe(confirm);
+    const tokens = confirm.className.split(/\s+/);
+    // The observable AccentButton signature — "not AccentButton" is proven by
+    // class absence, not element type.
+    for (const t of ["bg-accent", "hover:bg-accent-hover", "disabled:hover:bg-accent"]) {
+      expect(tokens).not.toContain(t);
+    }
+    const cancelTokens = getByTestId("admin-alert-cancel-button").className.split(/\s+/);
+    expect(cancelTokens).not.toContain("bg-warning-text");
+    expect(cancelTokens).not.toContain("text-warning-bg");
+  });
+
+  it("open focus (C3): entering confirm moves focus to the cancel button", async () => {
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    await vi.waitFor(() => expect(getByTestId("admin-alert-cancel-button")).toHaveFocus());
+  });
+
+  it("close focus (C5): cancel activation returns focus to the re-mounted Dismiss trigger", async () => {
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    await vi.waitFor(() => expect(getByTestId("admin-alert-cancel-button")).toHaveFocus());
+    fireEvent.click(getByTestId("admin-alert-cancel-button"));
+    await vi.waitFor(() => expect(getByTestId("admin-alert-resolve-button")).toHaveFocus());
+  });
+
+  it("close focus (C5): 3s auto-revert with focus inside the confirm row restores the trigger", async () => {
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    await vi.waitFor(() => expect(getByTestId("admin-alert-cancel-button")).toHaveFocus());
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    await vi.waitFor(() => expect(getByTestId("admin-alert-resolve-button")).toHaveFocus());
+  });
+
+  it("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {
+    render(
+      <>
+        <ResolveAlertButton />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(screen.getByTestId("admin-alert-resolve-button"));
+    await vi.waitFor(() => expect(screen.getByTestId("admin-alert-cancel-button")).toHaveFocus());
+    const external = screen.getByTestId("external-btn");
+    act(() => external.focus());
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(external).toHaveFocus();
+    expect(screen.getByTestId("admin-alert-resolve-button")).not.toHaveFocus();
   });
 
   it("quiet variant renders a neutral idle button (no accent fill), same testid/label, confirm flow intact", () => {

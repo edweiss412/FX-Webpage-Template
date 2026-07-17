@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 
 vi.mock("@/lib/auth/picker/resetCrewMemberSelection", () => ({
   resetCrewMemberSelection: vi.fn(),
@@ -246,5 +247,89 @@ describe("PickerResetControl", () => {
     // freshly mounted region), and the visible banner renders separately.
     expect(region!.textContent).toMatch(/pick again/i);
     expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+  });
+});
+
+// ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R4/F4) ----
+
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
+
+describe("PickerResetControl — destructive recipe + focus-safe open/close (R4, F4)", () => {
+  const memberBtn = () => screen.getByTestId("picker-reset-member-button") as HTMLButtonElement;
+  const confirmGo = () => screen.getByTestId("picker-reset-confirm-button") as HTMLButtonElement;
+  const cancel = () => screen.getByTestId("picker-reset-cancel-button") as HTMLButtonElement;
+
+  test("confirm-go carries the destructive recipe; cancel rejects both recipe tokens (C1/C2)", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(memberBtn());
+    expectDestructiveRecipe(confirmGo());
+    const cancelTokens = cancel().className.split(/\s+/);
+    expect(cancelTokens).not.toContain("bg-warning-text");
+    expect(cancelTokens).not.toContain("text-warning-bg");
+  });
+
+  test("open focus (C3): entering confirm moves focus to the cancel button", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(memberBtn());
+    await vi.waitFor(() => expect(cancel()).toHaveFocus());
+  });
+
+  test("close focus (C5): cancel activation returns focus to the re-mounted member trigger", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(memberBtn());
+    await vi.waitFor(() => expect(cancel()).toHaveFocus());
+    fireEvent.click(cancel());
+    await vi.waitFor(() => expect(memberBtn()).toHaveFocus());
+  });
+
+  test("close focus (C5): cancelling a reset-everyone confirm restores the everyone trigger", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
+    await vi.waitFor(() => expect(cancel()).toHaveFocus());
+    fireEvent.click(cancel());
+    await vi.waitFor(() => expect(screen.getByTestId("picker-reset-all-button")).toHaveFocus());
+  });
+
+  test("close focus (C5): auto-revert with focus inside the confirm row restores the trigger", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(memberBtn());
+    await vi.waitFor(() => expect(cancel()).toHaveFocus());
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    await vi.waitFor(() => expect(memberBtn()).toHaveFocus());
+  });
+
+  test("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {
+    render(
+      <>
+        <PickerResetControl showId={SHOW_ID} crew={roster} />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(memberBtn());
+    await vi.waitFor(() => expect(cancel()).toHaveFocus());
+    const external = screen.getByTestId("external-btn");
+    act(() => external.focus());
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    expect(external).toHaveFocus();
+    expect(memberBtn()).not.toHaveFocus();
   });
 });

@@ -50,9 +50,8 @@ const D = (file: string, index: number, context = "bg-accent"): Row => ({
 // one-liner); indexes are the nth exact-token occurrence per file after
 // comment-stripping, in line order.
 const REGISTRY: Row[] = [
-  // labeled (38)
+  // labeled (33)
   L("components/admin/Mi11GateActions.tsx", 0),
-  L("components/admin/ResolveAlertButton.tsx", 0, "disabled:hover:bg-accent"),
   L("components/admin/RoleRecognizeControl.tsx", 0),
   L("components/admin/nav/AdminNav.tsx", 0),
   L("components/admin/nav/NotifBell.tsx", 0),
@@ -74,13 +73,9 @@ const REGISTRY: Row[] = [
   L("app/admin/settings/admins/AddAdminForm.tsx", 1),
   L("app/admin/settings/admins/RevokeRowButton.tsx", 0),
   L("app/admin/settings/admins/RevokeRowButton.tsx", 1),
-  L("app/admin/settings/admins/RevokeRowButton.tsx", 2),
   L("app/admin/settings/admins/error.tsx", 0),
   L("app/admin/settings/error.tsx", 0),
   L("app/admin/settings/roles/RoleMappingRow.tsx", 0),
-  L("app/admin/show/[slug]/PickerResetControl.tsx", 0),
-  L("app/admin/show/[slug]/ResetPickerEpochButton.tsx", 0),
-  L("app/admin/show/[slug]/RotateShareTokenButton.tsx", 0),
   L("app/admin/show/[slug]/ShareLinkCopyButton.tsx", 0),
   L("app/global-error.tsx", 0),
   L("app/me/page.tsx", 0, "bg-accent text-accent-text"), // tone-pill helper (labeled pill)

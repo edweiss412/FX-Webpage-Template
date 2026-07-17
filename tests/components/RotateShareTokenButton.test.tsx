@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 
 vi.mock("@/lib/auth/picker/rotateShareToken", () => ({
   rotateShareToken: vi.fn(),
@@ -221,5 +222,77 @@ describe("RotateShareTokenButton — confirmation-only success banner + onRotate
     await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok-inactive"));
     expect(onRotated).not.toHaveBeenCalled();
     expect(screen.queryByTestId("admin-rotate-share-token-ok")).toBeNull();
+  });
+});
+
+// ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R2/F4) ----
+
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
+
+describe("RotateShareTokenButton — destructive recipe + focus-safe open/close (R2, F4)", () => {
+  test("confirm-go carries the destructive recipe; cancel rejects both recipe tokens (C1/C2)", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    expectDestructiveRecipe(confirmBtn());
+    const cancelTokens = cancelBtn().className.split(/\s+/);
+    expect(cancelTokens).not.toContain("bg-warning-text");
+    expect(cancelTokens).not.toContain("text-warning-bg");
+  });
+
+  test("open focus (C3): entering confirm moves focus to the cancel button", async () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+  });
+
+  test("close focus (C5): cancel activation returns focus to the re-mounted idle trigger", async () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    fireEvent.click(cancelBtn());
+    await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
+  });
+
+  test("close focus (C5): auto-revert with focus inside the confirm row restores the trigger", async () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
+  });
+
+  test("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {
+    render(
+      <>
+        <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    const external = screen.getByTestId("external-btn");
+    act(() => external.focus());
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    expect(external).toHaveFocus();
+    expect(idleBtn()).not.toHaveFocus();
   });
 });

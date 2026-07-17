@@ -11,7 +11,7 @@
  * ships. This test locks the corrected promise.
  */
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -47,5 +47,29 @@ describe("CleanupAbandonedFinalizeButton discard-confirm copy", () => {
     openConfirm();
     expect(screen.getByTestId("cleanup-abandoned-finalize-confirm-yes")).toBeInTheDocument();
     expect(screen.getByTestId("cleanup-abandoned-finalize-confirm-cancel")).toBeInTheDocument();
+  });
+
+  // ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass F1) ----
+
+  it("popover open focuses the SAFE Cancel control, not the destructive confirm (F1, WCAG 2.4.3)", async () => {
+    openConfirm();
+    await waitFor(() =>
+      expect(screen.getByTestId("cleanup-abandoned-finalize-confirm-cancel")).toHaveFocus(),
+    );
+    expect(screen.getByTestId("cleanup-abandoned-finalize-confirm-yes")).not.toHaveFocus();
+  });
+
+  it("focus trap still cycles between confirm and cancel (Tab / Shift+Tab)", async () => {
+    openConfirm();
+    const dialog = screen.getByTestId("cleanup-abandoned-finalize-confirm");
+    const confirm = screen.getByTestId("cleanup-abandoned-finalize-confirm-yes");
+    const cancel = screen.getByTestId("cleanup-abandoned-finalize-confirm-cancel");
+    await waitFor(() => expect(cancel).toHaveFocus());
+    // Tab off the LAST stop (cancel) wraps to confirm.
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(confirm).toHaveFocus();
+    // Shift+Tab off the FIRST stop (confirm) wraps back to cancel.
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(cancel).toHaveFocus();
   });
 });
