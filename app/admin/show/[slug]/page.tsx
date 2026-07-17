@@ -70,9 +70,11 @@ import { DataQualityWarningControls } from "@/components/admin/DataQualityWarnin
 import {
   BulkIgnoreControls,
   type BulkIgnoreGroupWithLabel,
+  type ActiveWarningGroup,
 } from "@/components/admin/BulkIgnoreControls";
 import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
+import { groupActiveByCode } from "@/lib/dataQuality/groupActiveByCode";
 import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 
@@ -467,6 +469,45 @@ export default async function AdminShowPage({
   const bulkIgnoreGroups: BulkIgnoreGroupWithLabel[] = groupIgnorableByCode(activeActionable).map(
     (group) => ({ ...group, label: bulkGroupLabel(group.code) }),
   );
+  // DQIGNORE-6 — group the ACTIVE warnings by code (first-appearance order) and pre-render
+  // each group's cards, so the bulk "Ignore all N" chip sits on its own group's eyebrow
+  // header, bound to the cards it ignores. A group is bulk-eligible iff its code matches a
+  // groupIgnorableByCode entry; the card node is a server-rendered <PerShowActionableWarnings>
+  // passed through as a slot prop (RSC: server nodes as props of the client component).
+  const bulkByCode = new Map(bulkIgnoreGroups.map((g) => [g.code, g] as const));
+  const renderActiveItemControls = (w: ParseWarning) => (
+    <>
+      <DataQualityWarningControls
+        slug={show.slug}
+        showId={show.id}
+        warning={w}
+        driveFileId={show.drive_file_id}
+        mode="active"
+        reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+      />
+      {/* spec §8: use-raw toggle for the recoverable structural-transform warnings; self-hides. */}
+      <UseRawControlBoundary
+        surface="show"
+        showId={show.id}
+        warning={w}
+        decision={decisionFor(w)}
+      />
+      {/* spec 2026-07-15 §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN; self-hides. */}
+      <RoleRecognizeControlBoundary surface="show" showId={show.id} warning={w} />
+    </>
+  );
+  const activeGroups: ActiveWarningGroup[] = groupActiveByCode(activeActionable).map((g) => ({
+    code: g.code,
+    label: bulkGroupLabel(g.code),
+    bulk: bulkByCode.get(g.code) ?? null,
+    cards: (
+      <PerShowActionableWarnings
+        items={g.items}
+        driveFileId={show.drive_file_id}
+        renderItemControls={renderActiveItemControls}
+      />
+    ),
+  }));
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
@@ -924,43 +965,13 @@ export default async function AdminShowPage({
                 <ReSyncButton slug={show.slug} />
               </CorrectionLoopCallout>
             ) : null}
-            {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
-              acts on. Renders nothing unless a code has >=2 distinct-content active
-              ignorable warnings. */}
-            <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
-            {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
-              digest (unknown section / removed block) leads, followed by the
-              operator-actionable warnings (role/day/schedule/field) with a source-
-              sheet deep link when the scan resolved the cell. Each card carries a
-              Report control and (when the warning is content-fingerprintable) an
-              Ignore control. Renders nothing when there are none. */}
-            <PerShowActionableWarnings
-              items={activeActionable}
-              driveFileId={show.drive_file_id}
-              renderItemControls={(w) => (
-                <>
-                  <DataQualityWarningControls
-                    slug={show.slug}
-                    showId={show.id}
-                    warning={w}
-                    driveFileId={show.drive_file_id}
-                    mode="active"
-                    reportSurfaceId={buildReportSurfaceId(show.slug, w)}
-                  />
-                  {/* spec §8: use-raw toggle for the 3 recoverable structural-transform
-                      warnings; self-hides (null) for every other code. */}
-                  <UseRawControlBoundary
-                    surface="show"
-                    showId={show.id}
-                    warning={w}
-                    decision={decisionFor(w)}
-                  />
-                  {/* spec 2026-07-15 §8.1: recognize-role control for
-                      UNKNOWN_ROLE_TOKEN warnings; self-hides (null) otherwise. */}
-                  <RoleRecognizeControlBoundary surface="show" showId={show.id} warning={w} />
-                </>
-              )}
-            />
+            {/* DQIGNORE-6 — ACTIVE warnings grouped by code; each bulk "Ignore all N" chip
+              is its group's eyebrow header, bound to the cards it ignores. The widened
+              control renders BOTH the eyebrow/chip headers AND the grouped per-warning
+              cards (data-gap digest codes first, then operator-actionable — first-appearance
+              order). Each card carries Report + (when fingerprintable) Ignore + use-raw +
+              recognize-role controls. Renders null when there are no active warnings. */}
+            <BulkIgnoreControls slug={show.slug} groups={activeGroups} />
             {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
               re-sync. Native <details>: chevron transform only, body instant (D9). */}
             {ignoredActionable.length > 0 ? (
