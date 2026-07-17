@@ -27,6 +27,7 @@
  * leave a half-seeded show that satisfies some assertions and hides the bug.
  */
 import { randomBytes, randomUUID } from "node:crypto";
+import type { DateRestriction, ShowRow, StageRestriction } from "@/lib/parser/types";
 import { admin } from "./supabaseAdmin";
 
 export type SeedCrewMemberInput = {
@@ -39,6 +40,14 @@ export type SeedCrewMemberInput = {
   roleFlags?: string[];
   /** ISO timestamp; when set the picker renders this row as claimed (data-claimed="true"). */
   claimedViaOauthAt?: string | null;
+  /**
+   * crew_members.stage_restriction jsonb. Omit → column left NULL (getShowForViewer
+   * decodes NULL as {kind:'none'}). Set {kind:'explicit',stages:[...]} to seed a
+   * stage-restricted crew member (the stage-filtered-schedule #248 surface).
+   */
+  stageRestriction?: StageRestriction | null;
+  /** crew_members.date_restriction jsonb. Omit → column left NULL ({kind:'none'} on read). */
+  dateRestriction?: DateRestriction | null;
 };
 
 export type SeededCrewMember = {
@@ -62,6 +71,12 @@ export type SeedShowWithCrewOptions = {
   published?: boolean;
   archived?: boolean;
   pickerEpoch?: number;
+  /**
+   * shows.dates jsonb ({travelIn,set,showDays[],travelOut}). Omit → column left
+   * NULL (getShowForViewer falls back to an all-null dates → zero day cards). Set
+   * it to render a real Schedule timeline (e.g. the stage-filtered-schedule e2e).
+   */
+  dates?: ShowRow["dates"];
   crew?: SeedCrewMemberInput[];
 };
 
@@ -108,6 +123,9 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     published: options.published ?? true,
     archived: options.archived ?? false,
     picker_epoch: pickerEpoch,
+    // JSONB dates column — postgres-js/supabase-js encodes the object directly.
+    // Omitted → NULL (getShowForViewer.ts:398-405 falls back to all-null dates).
+    dates: options.dates ?? null,
   });
   if (showErr) throw new Error(`seedShowWithCrew shows insert failed: ${showErr.message}`);
 
@@ -145,6 +163,9 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     email: c.email ?? null,
     role_flags: c.roleFlags ?? [],
     claimed_via_oauth_at: c.claimedViaOauthAt ?? null,
+    // JSONB restriction columns — omit → NULL ({kind:'none'} on the read path).
+    stage_restriction: c.stageRestriction ?? null,
+    date_restriction: c.dateRestriction ?? null,
   }));
 
   let crew: SeededCrewMember[] = [];
