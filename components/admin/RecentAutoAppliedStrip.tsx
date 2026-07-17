@@ -466,8 +466,8 @@ function GroupSection({
               data-testid={`auto-applied-bulk-undo-success-${group.showId}`}
               className="sr-only"
             >
-              Undid all {bulkUndoOutcome.total}{" "}
-              {bulkUndoOutcome.total === 1 ? "change" : "changes"}.
+              Undid all {bulkUndoOutcome.total} {bulkUndoOutcome.total === 1 ? "change" : "changes"}
+              .
             </p>
           ) : null}
 

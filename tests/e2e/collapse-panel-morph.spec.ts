@@ -132,7 +132,9 @@ test.describe("CollapsePanel height morph (real browser, reduced-motion)", () =>
     const trackDisplay = await page
       .locator(PROBE)
       .evaluate((el) => getComputedStyle(el.parentElement as HTMLElement).display);
-    expect(trackDisplay, "outer track must be display:grid (compiled Tailwind loaded)").toBe("grid");
+    expect(trackDisplay, "outer track must be display:grid (compiled Tailwind loaded)").toBe(
+      "grid",
+    );
 
     // Closed: the 0fr track + overflow-hidden clamp the region to exactly 0.
     expect(await probeHeight(page)).toBe(0);

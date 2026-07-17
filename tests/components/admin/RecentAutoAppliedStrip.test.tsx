@@ -269,7 +269,10 @@ it("collapsed header shows a kind-dot cluster: one dot per distinct kind, labele
 
 it("kind-dot cluster: destructive crew_removed renders and is ordered first (safety hint)", () => {
   render(
-    <RecentAutoAppliedStrip data={groupData(["crew_added", "crew_removed"])} actions={noopActions()} />,
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_added", "crew_removed"])}
+      actions={noopActions()}
+    />,
   );
   const cluster = screen.getByTestId("auto-applied-kind-dots");
   const label = cluster.getAttribute("aria-label") ?? "";
@@ -655,7 +658,10 @@ it("all-success bulk undo with a single undoable row → singular 'change' copy"
   render(
     <RecentAutoAppliedStrip
       data={data}
-      actions={{ ...noopActions(), undoFromDashboardAction: vi.fn().mockResolvedValue({ ok: true }) }}
+      actions={{
+        ...noopActions(),
+        undoFromDashboardAction: vi.fn().mockResolvedValue({ ok: true }),
+      }}
       defaultExpanded
     />,
   );
