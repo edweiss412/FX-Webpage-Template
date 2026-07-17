@@ -159,23 +159,28 @@
       **The plan ratifies a narrowed MI-9; owner option B (2026-07-17) further ratifies that a
       LEAD-bit change AUTO-APPLIES** (it no longer stages). A LEAD-bit change is a deliberate sheet
       edit (Doug typing/removing `LEAD`), not a parser guess, and severs no access (no auth-floor
-      bump), so Phase 1 routes it to `pass` (auto-apply) just like a non-LEAD delta. All `role_flags`
-      deltas auto-apply via Phase 2 UPSERT and emit a `ROLE_FLAGS_NOTICE` entry to `admin_alerts` at
-      **`info` severity** (visible in the alert feed but does not contribute to the dashboard's
-      action-required count or banner) so the change is auditable without blocking propagation. A
-      LEAD-bit gain/loss ADDITIONALLY writes a durable, failure-visible `LEAD_ROLE_APPLIED` audit
-      `app_event` (forensic code, not §12.4) so a mistaken grant is always recoverable via `observe
-      events` even if the coalescing feed alert is overwritten. **MI-10** (the LEAD-toggle
+      bump), so Phase 1 routes it to `pass` (auto-apply) just like a scope-tile delta. All `role_flags`
+      deltas auto-apply via Phase 2 UPSERT. Per **capability-narrow (2026-07-17,
+      `2026-07-17-role-flags-notice-lead-only-doug.md`)**, only a CAPABILITY change — `LEAD` OR
+      `FINANCIALS` gain/loss (both gate `shows_internal.financials`) — emits a `ROLE_FLAGS_NOTICE`
+      `admin_alerts` entry at **`info` severity, `audience: doug`** (a dismissible operator audit
+      nudge; excluded from the dashboard's action-required count/banner) AND a durable,
+      failure-visible `LEAD_ROLE_APPLIED` audit `app_event` (forensic code, not §12.4) so a mistaken
+      grant is always recoverable via `observe events` even if the coalescing feed alert is
+      overwritten. Scope-tile-only deltas (A1/V1/L1/BO/…) get an identifiable `field_changed`
+      `show_change_log` row instead of the bell alert. **MI-10** (the capability-toggle
       documentation safety net) is the canonical predicate and MI-9 is its alias — both auto-apply.
-      The §12.4 catalog keeps `ROLE_FLAGS_NOTICE` (info severity, now covering LEAD too); the dead
-      `MI-9_ROLE_FLAGS_DELTA` code is RETIRED (moved to `RETIRED_CODES`, no producer).
+      The §12.4 catalog keeps `ROLE_FLAGS_NOTICE` (info severity, now covering LEAD + FINANCIALS);
+      the dead `MI-9_ROLE_FLAGS_DELTA` code is RETIRED (moved to `RETIRED_CODES`, no producer).
 
-      Tests: (a) `['A1']` → `['LEAD','A1']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE`
-      + a durable `LEAD_ROLE_APPLIED` app_event (LEAD gained); (b) `['LEAD','A1']` → `['LEAD','V1']`
-      auto-applies and emits info-severity `ROLE_FLAGS_NOTICE` only (LEAD-bit unchanged, department
-      changed); (c) `['A1']` → `['A1','BO']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE`
-      (additive non-LEAD); (d) `['LEAD','A1']` → `['A1']` auto-applies and emits `ROLE_FLAGS_NOTICE`
-      + `LEAD_ROLE_APPLIED` (LEAD lost). The §6.8 derivation table and §12.4 catalog are patched in
+      Tests (capability-narrow 2026-07-17): (a) `['A1']` → `['LEAD','A1']` auto-applies and emits
+      info-severity `ROLE_FLAGS_NOTICE` + a durable `LEAD_ROLE_APPLIED` app_event (LEAD gained);
+      (b) `['LEAD','A1']` → `['LEAD','V1']` auto-applies with NO alert — a scope-tile-only (department)
+      change gets an identifiable `field_changed` change-log row; (c) `['A1']` → `['A1','BO']`
+      auto-applies with NO alert (additive scope-tile → change-log row); (d) `['LEAD','A1']` → `['A1']`
+      auto-applies and emits `ROLE_FLAGS_NOTICE` + `LEAD_ROLE_APPLIED` (LEAD lost); (e)
+      `[]` → `['FINANCIALS']` auto-applies and emits `ROLE_FLAGS_NOTICE` + `LEAD_ROLE_APPLIED`
+      (FINANCIALS gained — a capability change like LEAD). The §6.8 derivation table and §12.4 catalog are patched in
       the spec to reflect option B (auto-apply). The `tests/messages/_metaAdminAlertCatalog.test.ts`
       registry (per AGENTS.md §13 meta-test inventory) keeps the `ROLE_FLAGS_NOTICE` row.
 
