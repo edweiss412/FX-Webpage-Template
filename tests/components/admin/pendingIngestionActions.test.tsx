@@ -294,3 +294,29 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(region.textContent).toBe("");
   });
 });
+
+// DESTRUCT-1 (spec 2026-07-17-destruct1-armed-reflow §3): the two discard
+// buttons stack full-width < sm so the armed morph does not relocate the
+// confirm hit-target. Guard the shipped classes at the source; the real-browser
+// geometric proof lives in tests/e2e/pendingDiscardReflow.layout.spec.ts.
+describe("DESTRUCT-1 responsive-stack classes (PendingPanelDiscardButtons)", () => {
+  const ID = "pi-d1";
+  function tokens(el: HTMLElement) {
+    return el.className.split(/\s+/);
+  }
+  test("both discard buttons carry basis-full sm:basis-auto in idle AND armed", () => {
+    const { getByTestId } = render(<PendingPanelDiscardButtons pendingIngestionId={ID} />);
+    const defer = getByTestId(`admin-pending-defer-${ID}`);
+    const ignore = getByTestId(`admin-pending-ignore-${ID}`);
+    // idle
+    for (const el of [defer, ignore]) {
+      expect(tokens(el)).toContain("basis-full");
+      expect(tokens(el)).toContain("sm:basis-auto");
+    }
+    // armed (first tap) — the morphed class branch must keep the stack tokens
+    fireEvent.click(ignore);
+    expect(ignore.textContent).toBe("Confirm stop tracking this sheet permanently");
+    expect(tokens(ignore)).toContain("basis-full");
+    expect(tokens(ignore)).toContain("sm:basis-auto");
+  });
+});
