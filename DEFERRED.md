@@ -524,11 +524,12 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **Why deferred:** Harmless (aria-label wins for the section's accessible name; the heading still contributes to the outline). Trivial nicety, not a defect.
 - **Trigger:** bundled with any future strip edit. Backlog: none (nicety).
 
-### AUTOAPPLIED-REDESIGN-1 — [P3→deferred] Real-browser width-distribution assertion for the card button grid
+### AUTOAPPLIED-REDESIGN-1 — [✅ RESOLVED 2026-07-17] Real-browser width-distribution assertion for the card button grid
 
-- **What:** The redesigned auto-applied change card lays Accept/Undo out in a CSS grid (`grid-cols-2` = two `1fr` cells, or `grid-cols-1`) with `w-full` buttons. Spec §6 called for a real-browser Playwright assertion that each button ≈ half (undoable) / full (single) card width.
-- **Why deferred:** The half/full split here comes from CSS-grid `1fr` column semantics + `w-full`, NOT the fragile flex-`items-stretch` gotcha the real-browser rule targets — `1fr 1fr` splits equally by spec regardless of content. The MECHANISM is pinned in jsdom (`RecentAutoAppliedStrip.test.tsx`: grid template `grid-cols-2`/`grid-cols-1` + `w-full` on the stretched buttons, plus the button-level `stretch` w-full tests). A standalone esbuild+Playwright harness for pixel-width distribution is disproportionate for a grid whose distribution is a CSS invariant. Pill background emission (the genuine dynamic-class risk) is verified at build + in the impeccable real-browser pass, not deferred.
-- **Trigger:** the next auto-applied-strip e2e pass, or any change that moves the button layout off CSS-grid `1fr`. Backlog: `BL-AUTOAPPLIED-CARD-LAYOUT-E2E`.
+**Resolution (2026-07-17):** landed the real-browser gate `tests/e2e/autoAppliedCardGrid.layout.spec.ts` (+ harness `tests/e2e/_autoAppliedCardGridHarness.tsx`, registered in `tests/e2e/standalone.config.ts`). It renders the REAL `RecentAutoAppliedStrip` (`defaultExpanded`) with one multi-row group carrying both card layouts (two undoable `grid-cols-2` rows + one non-undoable `grid-cols-1` row) and asserts, from measured button boxes only: Accept ≈ Undo (equal 1fr halves) and Undo right-of Accept on undoable rows; the single-action row has no Undo and its Accept == undoable(Accept + measured gap + Undo) — the full-width invariant reconstructed from geometry, no hardcoded pixel, no grid-class selector. Negative-regression verified (forcing `grid-cols-1` for undoable rows fails both tests). `BL-AUTOAPPLIED-CARD-LAYOUT-E2E` → SHIPPED.
+
+- **What (original):** The redesigned auto-applied change card lays Accept/Undo out in a CSS grid (`grid-cols-2` = two `1fr` cells, or `grid-cols-1`) with `w-full` buttons. Spec §6 called for a real-browser Playwright assertion that each button ≈ half (undoable) / full (single) card width.
+- **Why it was deferred:** the half/full split comes from CSS-grid `1fr` semantics + `w-full`, not the flex-`items-stretch` gotcha the real-browser rule targets, so the jsdom mechanism pin was judged sufficient and a standalone harness disproportionate. Promoted here on the explicit "next auto-applied-strip e2e pass" trigger.
 
 ### AUTOAPPLIED-REDESIGN-2 — [P2→deferred] Singleton group renders card-in-card
 
