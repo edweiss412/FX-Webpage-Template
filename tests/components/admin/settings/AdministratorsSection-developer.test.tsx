@@ -297,3 +297,56 @@ describe("AdministratorsSection — management controls gated on developer (Part
     expect(screen.getAllByTestId("mock-readd-button")).toHaveLength(revokedCount);
   });
 });
+
+// DEVTIER-1 — the Administrators-heading HoverHelp names what the Developer
+// toggle grants, and ONLY for developers (spec 2026-07-17-devtier-toggle-help).
+// GRANT_COPY must equal the developer-arm string in AdministratorsSection.tsx
+// verbatim (single source of truth); the clauses pin the blast radius so a
+// shortened sentence can't silently drop a privilege (anti-tautology).
+const GRANT_COPY =
+  "The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
+const GRANT_CLAUSES = [
+  "managing admins",
+  "add, revoke, re-add, promote",
+  "Telemetry",
+  "Maintenance",
+  "Diagnostics",
+  "Developer tools",
+];
+
+describe("AdministratorsSection — DEVTIER-1 developer-toggle help copy", () => {
+  it("developer viewer → heading help names the full toggle grant (every clause)", () => {
+    render(
+      <AdministratorsSection
+        result={ok([row({ email: "alice@example.com" })])}
+        actorCanonicalEmail="me@example.com"
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
+    );
+    const body = screen.getByTestId("admins-help-body");
+    const text = body.textContent ?? "";
+    expect(text).toContain(GRANT_COPY);
+    for (const clause of GRANT_CLAUSES) {
+      expect(text).toContain(clause);
+    }
+  });
+
+  it("non-developer viewer → grant copy (and every clause) ABSENT; non-developer copy present", () => {
+    render(
+      <AdministratorsSection
+        result={ok([row({ email: "alice@example.com" })])}
+        actorCanonicalEmail="me@example.com"
+        now={NOW}
+        viewerIsDeveloper={false}
+      />,
+    );
+    const body = screen.getByTestId("admins-help-body");
+    const text = body.textContent ?? "";
+    expect(text).not.toContain(GRANT_COPY);
+    for (const clause of GRANT_CLAUSES) {
+      expect(text).not.toContain(clause);
+    }
+    expect(text).toContain("Roster changes are managed by a developer");
+  });
+});
