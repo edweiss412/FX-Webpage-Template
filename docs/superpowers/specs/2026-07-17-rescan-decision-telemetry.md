@@ -23,7 +23,7 @@ pnpm observe events --code SHEET_RESCANNED --json
 ```
 
 - `demoted:true` isolates demote events.
-- `reviewCodes` names **why**: the causing crew-change invariant(s), sentinel(s), regressed data-gap class(es) (e.g. `PULL_SHEET_ON_ARCHIVED_TAB`), and/or the corrupt-prior reason.
+- `reviewCodes` names **why** — the causal driver(s) only: the crew-change invariant(s) (MI-11..14), regressed data-gap class(es) (e.g. `PULL_SHEET_ON_ARCHIVED_TAB`), and/or the corrupt-prior reason. Sentinels (`ONBOARDING_SCAN_REVIEW`/`FIRST_SEEN_REVIEW`) are NOT causes and are excluded (§4.2); the full review-item set stays in `pending_syncs.triggered_review_items`.
 
 **Non-goals:** No UI change (the button's JSON contract `mapResult` is untouched). No new §12.4 catalog code (reuse `SHEET_RESCANNED`; no catalog fan-out). No behavior change to the clean/dirty **decision** — this is pure observability enrichment. No schema/migration (`app_events.context` is schemaless `jsonb`).
 
