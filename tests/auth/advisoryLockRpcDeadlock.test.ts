@@ -635,6 +635,10 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       { file: "app/api/admin/onboarding/finalize/route.ts", acquisitions: 1 },
       // defaultWithRowTx (Phase D per-row holder) + publishAppliedWizardShows sorted flip loop.
       { file: "app/api/admin/onboarding/finalize-cas/route.ts", acquisitions: 2 },
+      // Task 9 — resolve-blocker's LOCKED PHASE (sql.begin callback) takes the single
+      // per-show advisory lock itself (JS-side route holder, mirrors finalize/finalize-cas);
+      // both action: "unarchive" and action: "rebuild" dispatch under this ONE acquisition.
+      { file: "app/api/admin/onboarding/resolve-blocker/route.ts", acquisitions: 1 },
     ];
     for (const { file, acquisitions } of expected) {
       const src = stripComments(readFileSync(join(ROOT, file), "utf8"));
@@ -645,6 +649,101 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
           `acquisition needs a topology review (single-holder rule, invariant 2)`,
       ).toHaveLength(acquisitions);
     }
+  });
+
+  test("resolve-blocker route is a single JS-side lock holder that reaches only the lock-free unarchive/rescan cores after acquiring it (Task 9)", () => {
+    // Task 9 pin — resolve-blocker mirrors finalize/finalize-cas as a JS-side single-holder
+    // route (registered in the topology table above), but ALSO dispatches into two distinct
+    // lock-free mutation cores depending on `action`. This test proves (b) the route never
+    // references the self-locking rescanWizardSheet wrapper or calls the is_admin()-gated
+    // unarchive_show RPC (both would be a SECOND holder → deadlock, M5 R20 class), and
+    // (c) the two functions actually invoked after the lock — resolveUnarchive and
+    // resolveRebuild — reach ONLY _unarchive_show_apply and applyRescanDecisionUnderLock
+    // respectively as their mutation entry point (no other DB-mutating call site).
+    const ROUTE = "app/api/admin/onboarding/resolve-blocker/route.ts";
+    const source = stripComments(readFileSync(join(ROOT, ROUTE), "utf8"));
+
+    // (a) restated at the whole-file level (belt-and-suspenders to the registry-table pin
+    // above): exactly one pg_advisory_xact_lock call textually in the entire route.
+    const allLockCalls = source.match(/pg_advisory_xact_lock\s*\(/g) ?? [];
+    expect(
+      allLockCalls,
+      `${ROUTE}: expected exactly 1 pg_advisory_xact_lock call textually in the whole file`,
+    ).toHaveLength(1);
+
+    // (b) Must not reference the self-locking rescanWizardSheet wrapper (finalize:→
+    // app_settings FOR UPDATE→show: order) — nesting it under this route's own show: lock
+    // acquisition would be a second holder for the same hashkey (M5 R20 deadlock class).
+    expect(
+      source,
+      `${ROUTE}: must not reference rescanWizardSheet — it is a self-locking wrapper; nesting ` +
+        `under this route's show: lock would deadlock (M5 R20 class)`,
+    ).not.toMatch(/rescanWizardSheet/);
+
+    // Must not CALL the is_admin()-gated unarchive_show RPC — the route's owner postgres.js
+    // connection carries no JWT for is_admin() to read (spec §3.2); only the lock-free owner-SQL
+    // _unarchive_show_apply is reachable. Word-boundary regex: there is no boundary between the
+    // leading "_" and "u" in "_unarchive_show_apply" (both are \w), so this pattern cannot
+    // false-positive on the legitimate call below.
+    expect(
+      source,
+      `${ROUTE}: must not call unarchive_show (the RLS/is_admin()-gated RPC) — only ` +
+        `_unarchive_show_apply is reachable from this route's connection (spec §3.2)`,
+    ).not.toMatch(/\bunarchive_show\s*\(/);
+
+    // (c) Extract top-level function bodies (closing brace at column 0 — same idiom as the
+    // finalize-vs-app_settings-FOR-UPDATE ordering test above) to prove reachability, not just
+    // textual presence anywhere in the file.
+    const fnBodies = new Map<string, string>();
+    for (const m of source.matchAll(
+      /(?:^|\n)(?:export\s+)?async function ([A-Za-z0-9_]+)\s*(?:<[^>]*>)?\(([\s\S]*?)\n\}/g,
+    )) {
+      const [, name, body] = m;
+      if (name && body) fnBodies.set(name, body);
+    }
+
+    const unarchiveBody = fnBodies.get("resolveUnarchive");
+    const rebuildBody = fnBodies.get("resolveRebuild");
+    const dispatchBody = fnBodies.get("handleResolveBlocker");
+    expect(unarchiveBody, `${ROUTE}: could not extract resolveUnarchive body`).toBeTruthy();
+    expect(rebuildBody, `${ROUTE}: could not extract resolveRebuild body`).toBeTruthy();
+    expect(dispatchBody, `${ROUTE}: could not extract handleResolveBlocker body`).toBeTruthy();
+
+    // resolveUnarchive's ONLY mutation entry point is _unarchive_show_apply — it must not
+    // also reach applyRescanDecisionUnderLock (that would be a second, undocumented path).
+    expect(unarchiveBody).toMatch(/_unarchive_show_apply\s*\(/);
+    expect(unarchiveBody).not.toMatch(/applyRescanDecisionUnderLock/);
+
+    // resolveRebuild's ONLY mutation entry point is the direct applyRescanDecisionUnderLock
+    // call — it must not also reach _unarchive_show_apply.
+    expect(rebuildBody).toMatch(/applyRescanDecisionUnderLock\s*\(/);
+    expect(rebuildBody).not.toMatch(/_unarchive_show_apply/);
+
+    // handleResolveBlocker's LOCKED PHASE calls the lock, THEN dispatches to resolveUnarchive
+    // or resolveRebuild depending on `action` — both call sites must be textually AFTER the
+    // lock acquisition (the lock is taken once, before either dispatch branch).
+    const lockAt = dispatchBody!.search(/pg_advisory_xact_lock\s*\(/);
+    expect(lockAt, `${ROUTE}: handleResolveBlocker never calls pg_advisory_xact_lock`).toBeGreaterThan(
+      -1,
+    );
+    const unarchiveDispatchAt = dispatchBody!.search(/resolveUnarchive\s*\(/);
+    const rebuildDispatchAt = dispatchBody!.search(/resolveRebuild\s*\(/);
+    expect(
+      unarchiveDispatchAt,
+      `${ROUTE}: handleResolveBlocker never dispatches to resolveUnarchive`,
+    ).toBeGreaterThan(-1);
+    expect(
+      rebuildDispatchAt,
+      `${ROUTE}: handleResolveBlocker never dispatches to resolveRebuild`,
+    ).toBeGreaterThan(-1);
+    expect(
+      unarchiveDispatchAt > lockAt,
+      `${ROUTE}: resolveUnarchive is dispatched before the lock is acquired`,
+    ).toBe(true);
+    expect(
+      rebuildDispatchAt > lockAt,
+      `${ROUTE}: resolveRebuild is dispatched before the lock is acquired`,
+    ).toBe(true);
   });
 
   test(
