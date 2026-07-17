@@ -1,7 +1,7 @@
 # Spec — DataQualityBadge glance-distinction polish (FLOW4-2/3-POLISH)
 
 **Date:** 2026-07-17
-**Status:** amendment to the ratified `docs/superpowers/specs/2026-07-17-badge-affordance-a11y.md` (shipped #413). This spec supersedes ONLY the glyph-size and inter-chip-gap values in that spec's §5.1/§5.2/§5.4; everything else in the parent spec stands.
+**Status:** design artifact for an amendment to the ratified `docs/superpowers/specs/2026-07-17-badge-affordance-a11y.md` (shipped #413). **This document does not itself resolve the finding or supersede the parent spec** — resolution is effected only when the lockstep implementation commits enumerated in §6 (component + parent-spec prose + Playwright doc-comment + `DEFERRED.md`) land on this same branch. Once they do, this amendment supersedes ONLY the glyph-size and inter-chip-gap values in the parent's §5.1/§5.2/§5.4; everything else in the parent spec stands. Until then this is a proposal, not a claim of done.
 **Finding resolved:** `FLOW4-2/3-POLISH` (`DEFERRED.md:482`). Backlog context: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH` (closed by parent), this is the deferred glance-legibility follow-up.
 
 ## 1. Problem
@@ -48,7 +48,7 @@ Unchanged from the parent spec. 4 states `{none, gap-only, roster-only, both}`, 
 1. `components/admin/DataQualityBadge.tsx` — `:58` `gap-1.5` → `gap-2`; `:69` + `:79` `size-3.5` → `size-4`.
 2. `docs/superpowers/specs/2026-07-17-badge-affordance-a11y.md` — §5.1 (`:55` "keeps `size-3.5`" → `size-4`), §5.2 (`:61` `gap-1.5` → `gap-2`), §5.4 table + baseline prose (`:98`/`:100`/`:103` — `size-3.5`/14px → `size-4`/16px; the parent's `:56` count-line-box math stays 12px vs the now-16px glyph, still glyph-dominant). Add a one-line pointer to this amendment spec at the top of §5.
 3. `tests/e2e/dataQualityBadge.layout.spec.ts` — update the `:9` doc-comment `14px`/`size-3.5` → `16px`/`size-4` (the assertions are relative and untouched).
-4. `DEFERRED.md:482` — mark `FLOW4-2/3-POLISH` RESOLVED with the branch/spec reference.
+4. `DEFERRED.md:482` — mark `FLOW4-2/3-POLISH` RESOLVED with the branch/spec reference. **This edit lands in the implementation commit(s), never in the spec-only commit** — the deferred item is not marked resolved until the size-4/gap-2 change itself is in the diff.
 
 **DESIGN.md:** the FLOW4-3 two-glyph convention note (`DESIGN.md:88`) records glyph _identity_ (`Users`/`TriangleAlert`) and the by-shape-not-hue rule — it does NOT pin a glyph size. Size is a presentational detail, not part of the recorded design convention, so **no `DESIGN.md` edit is required.** (Invariant-8 impeccable dual-gate still applies because `components/**` is a UI surface regardless of whether `DESIGN.md` changes.)
 
