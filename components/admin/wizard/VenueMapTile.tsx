@@ -14,8 +14,11 @@ function readTheme(): "light" | "dark" {
  *  (1) an always-painted token-driven stripe base (revealed if the map fails);
  *  (2) the <img> proxy overlay (hides itself on error — no swap state);
  *  (3) the Directions affordance (only when mapHref is a real URL).
- * The parent (VenueBreakdown) owns region collapse and never mounts this with
- * an empty query; the empty-query guard here is defensive. */
+ * The parent (VenueBreakdown) mounts this whenever there is a map query OR a
+ * valid mapHref (VCR-3). With an empty query + valid mapHref we render a degraded
+ * tile: stripe base + Directions, no <img> (nothing to geocode). The guard below
+ * returns null only when there is neither (defensive; the parent already
+ * collapses that case). */
 export function VenueMapTile({
   query,
   mapHref,
@@ -33,7 +36,7 @@ export function VenueMapTile({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(readTheme());
   }, []);
-  if (!query) return null;
+  if (!query && !mapHref) return null;
 
   const inner = (
     <>
@@ -63,7 +66,7 @@ export function VenueMapTile({
           not next/image: the src is our same-origin proxy (key-safe) and we need
           the native onError to reveal the stripe fallback. The src is built
           inline here so `theme` is guaranteed non-null (no `theme=null` URL). */}
-      {theme !== null ? (
+      {query !== "" && theme !== null ? (
         // eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback
         <img
           data-testid="venue-map-img"

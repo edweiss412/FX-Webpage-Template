@@ -252,6 +252,19 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
       crewWarningCount: HARNESS_CREW_WARNING_COUNT,
       normal: renderModalHtml({ showOverrides: { venue: harnessVenue() } }),
+      // VCR-3 link-only venue: only a valid googleLink, no name/address/city/dock.
+      // Exercises the degraded stripe + Directions tile (no <img>) for §DI-1.
+      linkOnly: renderModalHtml({
+        showOverrides: {
+          venue: {
+            name: "",
+            address: "",
+            city: "",
+            loadingDock: null,
+            googleLink: "https://maps.google.com/?q=masonic",
+          },
+        },
+      }),
       long: renderModalHtml({
         showOverrides: { title: LONG_TITLE, client_label: LONG_CLIENT, dates: LONG_DATES },
       }),

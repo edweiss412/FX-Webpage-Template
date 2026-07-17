@@ -10,8 +10,18 @@ afterEach(() => {
 });
 
 describe("VenueMapTile", () => {
-  test("empty query → renders nothing (parent owns collapse)", () => {
+  test("VCR-3: empty query + valid mapHref → stripe + Directions anchor, NO <img>", () => {
     const { container } = render(<VenueMapTile query="" mapHref="https://m.co" />);
+    const tile = container.querySelector('[data-testid="venue-map-tile"]') as HTMLAnchorElement;
+    expect(tile.tagName).toBe("A");
+    expect(tile.getAttribute("href")).toBe("https://m.co");
+    expect(container.querySelector('[data-testid="venue-map-fallback"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="venue-directions"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="venue-map-img"]')).toBeNull(); // nothing to geocode
+  });
+
+  test("guard: empty query + null mapHref → renders nothing", () => {
+    const { container } = render(<VenueMapTile query="" mapHref={null} />);
     expect(container.querySelector('[data-testid="venue-map-tile"]')).toBeNull();
   });
 
