@@ -73,41 +73,50 @@ Placement note (verified at implementation): `undo_change` already reads `drive_
 
 Universe = every `public` `SECURITY DEFINER` function whose live body mutates `crew_members`, `crew_member_auth`, `show_share_tokens`, or `shows.picker_epoch` (enumerated from `pg_catalog`, not source grep — `create or replace` means later migrations win). Guard tokens: **A** = archived refusal, **P** = published refusal, **F** = finalize-owned refusal.
 
-| RPC | mutates | guard | disposition |
-|---|---|---|---|
-| `rotate_show_share_token` | share, epoch | A P F | GUARDED (DEF-1) — behavioral coverage in `def1-rotate-reset-guard.test.ts` |
-| `reset_picker_epoch_atomic` | epoch | A P F | GUARDED (DEF-1) — same |
-| `reset_crew_member_selection` | crew | none → **A P F** | **ADD guard** (§3.1) |
-| `undo_change` | crew | none → **A · F** | **ADD guard** (§3.2, no P) |
-| `_archive_show_core` | share, epoch | — | EXEMPT: private lockless core; **is** the archive transition; revoked from all roles; guarded by its `archive_show` wrapper |
-| `_unarchive_show_apply` | share, epoch | — | EXEMPT: private lockless apply; **is** the unarchive (archived→held) transition; revoked from all roles |
-| `claim_oauth_identity` | crew, epoch | — | EXEMPT: live crew redemption; keyed on the caller's own email; not admin-gated; must run whenever the link is live |
-| `create_share_token_for_show` | share | — | EXEMPT: **trigger** (RETURNS trigger) firing at show-insert (pre-publish); not directly callable |
-| `mi11_approve_hold` | crew | — | EXEMPT: pre-publish onboarding hold-approval; operates in the held/pre-publish window by design |
-| `mint_validation_fixture_atomic` | crew, share | — | EXEMPT: validation/test fixture seeding; not a production admin surface |
-| `validation_finalize_all_atomic` | crew | — | EXEMPT: validation/test fixture seeding; not a production admin surface |
+Grant surface (live `has_function_privilege`, `authed|anon|svc`) drives which §5 bucket each lands in.
 
-Each EXEMPT row carries the one-line rationale above; these become the meta-test's exemption registry (§5). The table above is enumerated from the **live** `pg_catalog` on the all-migrations-applied local DB — this is load-bearing, because `create or replace` + later `drop function` means source-grep is actively misleading (see below).
+| RPC | mutates | grant | §5 bucket | disposition |
+|---|---|---|---|---|
+| `rotate_show_share_token` | share, epoch | `t\|f\|f` | GUARDED | A P F (DEF-1) — behavioral coverage in `def1-rotate-reset-guard.test.ts` |
+| `reset_picker_epoch_atomic` | epoch | `t\|f\|f` | GUARDED | A P F (DEF-1) — same |
+| `reset_crew_member_selection` | crew | `t\|f\|f` | GUARDED | none → **A P F**, **ADD guard** (§3.1) |
+| `undo_change` | crew | `t\|f\|f` | GUARDED | none → **A · F**, **ADD guard** (§3.2, no P) |
+| `mi11_approve_hold` | crew | `t\|f\|f` | EXEMPT (entry) | authenticated; pre-publish onboarding hold-approval; operates in the held/pre-publish window by design |
+| `claim_oauth_identity` | crew, epoch | `f\|f\|t` | EXEMPT (entry) | **service-role**; live crew redemption; keyed on the caller's own email; must run whenever the link is live |
+| `mint_validation_fixture_atomic` | crew, share | `f\|f\|t` | EXEMPT (entry) | **service-role**; validation/test fixture seeding; not a production admin surface |
+| `validation_finalize_all_atomic` | crew | `f\|f\|t` | EXEMPT (entry) | **service-role**; validation/test fixture seeding; not a production admin surface |
+| `create_share_token_for_show` | share | `t\|t\|t` | TRIGGER | **trigger** (`prorettype=trigger`) firing at `shows` insert; not RPC-callable despite the PUBLIC grant |
+| `_archive_show_core` | share, epoch | `f\|f\|f` | PRIVATE_HELPER | private lockless core; **is** the archive transition; guarded by its `archive_show` wrapper |
+| `_unarchive_show_apply` | share, epoch | `f\|f\|f` | PRIVATE_HELPER | private lockless apply; **is** the unarchive (archived→held) transition |
+| `_undo_tombstone` | crew | `f\|f\|f` | PRIVATE_HELPER | invoker; Direction-B undo body; reached only via `undo_change` (guarded before delegation, §3.2) |
+
+Each row's disposition feeds the matching §5 registry (GUARDED / EXEMPT-entry / TRIGGER_MUTATORS / PRIVATE_HELPERS). The table is enumerated from the **live** `pg_catalog` on the all-migrations-applied local DB — this is load-bearing, because `create or replace` + later `drop function` means source-grep is actively misleading (see below).
 
 **`crew_member_auth` is in the enumeration scope but has no live production mutator.** Every crew-auth-link RPC that historically mutated `crew_member_auth` (`revoke_all_links_rpc`, `issue_new_link_rpc`, `revoke_leaked_link_atomic`, the bootstrap-nonce set) was **dropped in the M9.5 cutover** (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql:5-11`). The only live function referencing `crew_member_auth` is `dev_truncate_all` (a dev-seed `TRUNCATE` helper — not `insert`/`update`/`delete` DML, and dev-only), so it is outside the DML-scoped universe. The meta-test still lists `crew_member_auth` in its table set, so a *future* production `crew_member_auth` mutator is caught fails-by-default.
 
-**`_undo_tombstone` is deliberately absent from the GUARDED/EXEMPT table but IS covered by the private-helper registry (§5).** It mutates `crew_members` but is `SECURITY INVOKER` (not `prosecdef`) and revoked from `authenticated`/`anon`/`service_role` — reachable *only* through `undo_change`'s definer call chain, which the §3.2 guard covers **before** the Direction-B delegation. It is not an independent entry point. The §5 private-helper arm registers it (with reason) so it can't drift silently. The behavioral `undo_change` archived/finalize cases (§6) exercise Direction B, proving the guard fires before `_undo_tombstone` runs.
+**`_undo_tombstone` is a PRIVATE_HELPER (§5 Step A), not an entry point.** It mutates `crew_members` but is `SECURITY INVOKER` and revoked from `authenticated`/`anon`/`service_role` (`f|f|f`) — reachable *only* through `undo_change`'s definer call chain, which the §3.2 guard covers **before** the Direction-B delegation. The §5 private-helper registry pins it so it can't drift silently. The behavioral `undo_change` archived/finalize cases (§6) exercise Direction B, proving the guard fires before `_undo_tombstone` runs.
 
 ## 5. Meta-test — drift-proof, fails-by-default
 
-New `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (psql against `TEST_DATABASE_URL ?? DATABASE_URL ?? local`, mirroring `tests/db/b2-lifecycle-rpc-meta.test.ts:5-15`). Table set for all SQL below = `{crew_members, crew_member_auth, show_share_tokens}` plus the `shows.picker_epoch` column.
+New `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (psql against `TEST_DATABASE_URL ?? DATABASE_URL ?? local`, mirroring `tests/db/b2-lifecycle-rpc-meta.test.ts:5-15`). Table set for all SQL below = `{crew_members, crew_member_auth, show_share_tokens}` plus the `shows.picker_epoch` column. Two predicates used throughout, both computed from the **live catalog** (Codex R2 F1 — grant surface, not "authenticated-only", is the discriminator):
 
-**Step A — private mutating-helper registry (closes the delegation blind spot, Codex R1 F4).** A wrapper can mutate crew/share tables *without inline DML* by delegating to a helper (e.g. `unarchive_show` → `_unarchive_show_apply` at `...20260718000001...:40-50`; `undo_change` → `_undo_tombstone`). A body-only "has DML + references table" detector misses the wrapper. So first enumerate **helpers**: every `public` function (`prosecdef` OR invoker) that (a) has crew/share DML in its body AND (b) is NOT executable by `authenticated` (i.e. private — not an independent entry point). Assert each enumerated helper is in the in-test `PRIVATE_HELPERS` registry `{name → reason}` (`_archive_show_core`, `_publish_show_core`, `_unpublish_show_core`, `_unarchive_show_apply`, `_undo_tombstone`, …). **Fails-by-default:** a NEW private mutating helper forces a registry row — which is the prompt to check its callers. `HELPER_NAMES` = the registry's key set, used by Step B.
+- `DIRECT_MUTATOR(f)` — `pg_get_functiondef(f)` references a table in the set (or `picker_epoch`) AND contains an `insert`/`update`/`delete` keyword.
+- `CLIENT_REACHABLE(f)` — `has_function_privilege(role, f, 'EXECUTE')` is true for **any** of `{authenticated, anon, service_role}`. (PUBLIC-only grants also count as reachable.) This is the fix for R2 F1: `claim_oauth_identity`, `mint_validation_fixture_atomic`, `validation_finalize_all_atomic` are `service_role`-granted (not `authenticated`) — verified live `f|t|f` — so an "authenticated-only" test would wrongly bucket them as private helpers.
+- `IS_TRIGGER(f)` — `f.prorettype = 'pg_catalog.trigger'::regtype`. Trigger functions can't be invoked as RPCs even when EXECUTE is granted to PUBLIC (`create_share_token_for_show` is `t|t|t` but is a trigger).
 
-**Step B — entry-point universe (direct + delegating).** Enumerate every `public` `prosecdef` function that is executable by `authenticated` (a real entry point) AND whose body EITHER (a) contains crew/share DML directly, OR (b) calls any function in `HELPER_NAMES` (regex `\b<helper>\s*\(`). Arm (b) is the fix for the delegation blind spot — `unarchive_show` now enters the universe via its `_unarchive_show_apply` call even though its own body has no share/crew DML.
+**Step A — private mutating-helper registry (closes the delegation blind spot, R1 F4).** A wrapper can mutate crew/share tables *without inline DML* by delegating to a helper (e.g. `unarchive_show` → `_unarchive_show_apply` at `...20260718000001...:40-50`; `undo_change` → `_undo_tombstone`). Enumerate **helpers**: every function (definer OR invoker) where `DIRECT_MUTATOR(f)` AND NOT `CLIENT_REACHABLE(f)` AND NOT `IS_TRIGGER(f)` — i.e. reachable by no client role, so only via a definer call chain. Assert each enumerated helper is in the in-test `PRIVATE_HELPERS` registry `{name → reason}` (`_archive_show_core`, `_publish_show_core`, `_unpublish_show_core`, `_unarchive_show_apply`, `_undo_tombstone`; all verified `f|f|f`). **Fails-by-default:** a NEW private mutating helper forces a registry row — the prompt to check its callers. `HELPER_NAMES` = the registry's key set, used by Step B.
 
-**Step C — classify.** Each entry-point function must be in exactly one registry:
-- `GUARDED` — `{rotate_show_share_token, reset_picker_epoch_atomic, reset_crew_member_selection}` (assert body carries `SHOW_ARCHIVED_IMMUTABLE` AND `readfinalizeowned_b2` AND `SHOW_NOT_PUBLISHED`) and `{undo_change}` (assert body carries `UNDO_SHOW_ARCHIVED` AND `UNDO_FINALIZE_OWNED`). Guard tokens are asserted against `pg_get_functiondef`, so an accidental guard removal fails.
-- `EXEMPT` — the §4 rows, each `{name → reason}`. (`_archive_show_core`/`_unarchive_show_apply` are private → they are *helpers* (Step A), not entry points, so they leave the Step-B universe unless separately authed-callable; they stay documented in §4 for the reader but the executable classification is Step A. `create_share_token_for_show` is a trigger — `prokind='f'` but never granted EXECUTE to a client role and invoked only by the trigger — EXEMPT with that reason.)
+**Step T — trigger registry.** Enumerate every function where `IS_TRIGGER(f)` AND `DIRECT_MUTATOR(f)`; assert each is in the `TRIGGER_MUTATORS` registry `{name → reason}` (`create_share_token_for_show` — fires on `shows` insert to seed the share-token row; pre-publish; not RPC-callable). Kept separate from entry points because a trigger is not a client-callable lifecycle surface.
 
-**Step D — parity.** `GUARDED ∪ EXEMPT` (entry points) exactly equals the Step-B set, and `PRIVATE_HELPERS` exactly equals the Step-A set — no stale registry rows, no unclassified function. Any mismatch fails with a message telling the author to classify (GUARD / EXEMPT) or register the helper.
+**Step B — entry-point universe (direct + delegating).** Enumerate every `public` `prosecdef` function where NOT `IS_TRIGGER(f)` AND `CLIENT_REACHABLE(f)` AND (`DIRECT_MUTATOR(f)` OR body calls any `HELPER_NAMES` member via regex `\b<helper>\s*\(`). Arm (b) is the delegation fix — `unarchive_show` enters via its `_unarchive_show_apply` call though its own body has no share/crew DML. (Scope note: `ENTRY_POINT` is limited to `prosecdef` — a reachable **invoker** function mutating crew/share tables directly would be a PostgREST-DML-lockdown bypass, which is covered by `rpc-service-role-revokes.test.ts` + the RLS/table-grant lockdown tests, not this meta-test; noted so the boundary isn't a silent gap.)
 
-This is the milestone's new structural meta-test (writing-plans meta-test-inventory requirement). It **extends the invariant** that `def1-rotate-reset-guard.test.ts` proves behaviorally for two RPCs into a whole-class static pin, and — via Steps A/B — is robust to the delegating-wrapper pattern that a naive body-DML scan would miss.
+**Step C — classify entry points.** Each Step-B function must be in exactly one registry:
+- `GUARDED` — `{rotate_show_share_token, reset_picker_epoch_atomic, reset_crew_member_selection}` (assert body carries `SHOW_ARCHIVED_IMMUTABLE` AND `readfinalizeowned_b2` AND `SHOW_NOT_PUBLISHED`) and `{undo_change}` (assert body carries `UNDO_SHOW_ARCHIVED` AND `UNDO_FINALIZE_OWNED`). Guard tokens asserted against `pg_get_functiondef`, so an accidental guard removal fails. (All four are `authenticated`-granted, `t|f|f`.)
+- `EXEMPT` — the client-reachable, non-guarded entry points, each `{name → reason}`: `claim_oauth_identity` (service-role; live crew redemption), `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (service-role; validation/test fixture infra), `mi11_approve_hold` (authenticated; pre-publish onboarding hold-approval).
+
+**Step D — parity, per registry against its own live set.** `GUARDED ∪ EXEMPT` == Step-B set; `PRIVATE_HELPERS` == Step-A set; `TRIGGER_MUTATORS` == Step-T set. No stale rows, no unclassified function in any bucket. Any mismatch fails with a message telling the author which bucket the offending function belongs in and how to classify (GUARD / EXEMPT / register-helper / register-trigger).
+
+This is the milestone's new structural meta-test (writing-plans meta-test-inventory requirement). It **extends the invariant** that `def1-rotate-reset-guard.test.ts` proves behaviorally for two RPCs into a whole-class static pin, and — via the grant-surface predicate + Steps A/B/T — is robust to service-role entry points, trigger functions, and the delegating-wrapper pattern that a naive authenticated-only body-DML scan would misclassify or miss.
 
 ## 6. Behavioral tests
 
@@ -115,7 +124,9 @@ This is the milestone's new structural meta-test (writing-plans meta-test-invent
 - **JS boundary `resetCrewMemberSelection.ts`** — unit test (mocked Supabase). The differentiator under test is the **`logInfraFault` spy call-count**, not the returned code (both refusal and infra return the generic `PICKER_RESOLVER_LOOKUP_FAILED`): a returned `error` with `code:'P0001'` + a lifecycle sentinel message → `{ok:false, code:'PICKER_RESOLVER_LOOKUP_FAILED'}` **and `logInfraFault` NOT called** (spy asserts zero); a returned `error` that is a genuine infra fault (non-P0001, or P0001 with a non-sentinel message) → `{ok:false, code:'PICKER_RESOLVER_LOOKUP_FAILED'}` **and `logInfraFault` called once**; NULL data → `PICKER_CREW_MEMBER_NOT_FOUND` (unchanged); string data → `{ok:true}` + `logAdminOutcome` (unchanged). Anti-tautology: assert each of the three sentinel messages individually skips the log, AND that a look-alike non-P0001 message still logs (proves the match is on `code==='P0001'` AND sentinel, not message-substring alone).
 - **`undo_change`** — new DB cases: archived show → `{ok:false, code:'UNDO_SHOW_ARCHIVED'}`; finalize-owned → `{ok:false, code:'UNDO_FINALIZE_OWNED'}`; Held show → undo **succeeds** (proves NOT published-gated — the key negative-regression); Live show → succeeds. Anti-tautology: (a) the Held-succeeds case is what distinguishes A·F from A·P·F; without it the guard could over-refuse and pass a weaker test. (b) At least one refusal case must seed a **Direction-B (tombstone) change_log entry** so it proves the guard fires *before* the `_undo_tombstone` delegation (§3.2/§4) — a rename-direction-only refusal test would leave the tombstone path unproven. Assert refusal leaves crew rows unmutated (row-count before == after) so an over-late guard (fires after a partial mutation) is caught.
 
-## 7. JS boundary — `resetCrewMemberSelection.ts` (§3.1 companion)
+## 7. JS boundaries
+
+### 7.1 `resetCrewMemberSelection.ts` (§3.1 companion)
 
 Current behavior (`lib/auth/picker/resetCrewMemberSelection.ts:63-68`): any RPC `error` → `logInfraFault` + `{ok:false, code:'PICKER_RESOLVER_LOOKUP_FAILED'}`. After §3.1, an archived/unpublished/finalize show raises P0001 — surfacing as `error` — so the current code would emit a **false** `PICKER_SELECTION_RESET_INFRA_FAILED` app_events row on every ineligible-show poke (telemetry pollution).
 
@@ -138,6 +149,23 @@ Detection: on the returned Postgres `error`, treat it as a **deliberate lifecycl
 
 Invariant-9 (Supabase call-boundary): the `{ data, error }` destructure is unchanged; returned-error vs thrown-error paths stay distinguished; the new branch adds discrimination **within** the returned-error path — no new silent-continue. The catch-block thrown path stays infra (`logInfraFault` + `PICKER_RESOLVER_LOOKUP_FAILED`).
 
+### 7.2 `undoChange.ts` — fix the post-success read's `{data}`-only swallow (Codex R2 F2)
+
+Separate from the guard's structured-code passthrough (which flows through `mapRpcOutcome` via `data.code` and needs no change), `undoChange.ts` has a **second** Supabase call — the post-success `show_change_log` read that resolves the authoritative show-id for cache revalidation (`lib/sync/holds/undoChange.ts:72-82`). It currently destructures **only `{ data }`** and ignores a returned `{ error }`; a returned-error → `resolvedShowId = null` → `mapRpcOutcome` still returns `{ ok:true }`. That is a silent returned-error swallow (invariant 9), pre-existing but on the exact surface this change modifies, so §10's invariant-9 claim would be false without addressing it.
+
+The read is **deliberately best-effort** (undo already committed; this only drives the immediate cache bust, and the show's 300s `unstable_cache` TTL is the backstop — the existing comment at `...undoChange.ts:56-64` documents this). The fix keeps that posture but makes it explicit:
+
+```ts
+const { data, error } = await service
+  .from("show_change_log").select("show_id").eq("id", changeLogId).maybeSingle();
+// best-effort cache-bust read: a returned {error} OR a thrown fault both resolve to null
+// (undo already committed; TTL backstop refreshes) — explicit, not a silent {data}-only
+// swallow (invariant 9). NOT mapped to SYNC_INFRA_ERROR: the undo succeeded.
+resolvedShowId = error ? null : ((data as { show_id?: string | null } | null)?.show_id ?? null);
+```
+
+Meta-contract update (`tests/sync/_metaInfraContract.test.ts:352-355`): extend `undoChange`'s contract line to state it has **two** reads with **different** postures — the RPC boundary (thrown / returned-`{error}` / null-shape → `SYNC_INFRA_ERROR`) AND the post-success cache-bust read (thrown OR returned-`{error}` → `resolvedShowId=null`, undo success preserved; NOT an infra error). New test case in `tests/sync/holds/undoChange.infra.test.ts`: the post-success read returns `{ error }` → result is still `{ ok:true }` (no showId), asserting the returned-error path is handled (not swallowed) and does not flip the outcome to failure. This closes the returned-`{error}` gap the existing tests (null/throw only, `...undoChange.infra.test.ts:123-131,:150-163`) miss.
+
 ## 8. DB completeness matrix
 
 | Layer | `reset_crew_member_selection` | `undo_change` |
@@ -146,10 +174,10 @@ Invariant-9 (Supabase call-boundary): the `{ data, error }` destructure is uncha
 | Advisory lock (inv. 2) | single in-RPC holder unchanged | single in-RPC holder unchanged |
 | RPC read path | N/A | N/A |
 | RPC write path | guarded post-lock | guarded post-lock |
-| JS boundary | `resetCrewMemberSelection.ts` refusal discrimination (§7) | `undoChange.ts` — codes pass through `data.code` already; no change needed (verify) |
+| JS boundary | `resetCrewMemberSelection.ts` refusal discrimination (§7.1) | guard codes pass through `data.code` (no change) **+ fix the post-success read's `{data}`-only swallow** (§7.2) |
 | §12.4 catalog | none (reuses generic `PICKER_RESOLVER_LOOKUP_FAILED`; no new code) | 2 new rows + regen + master-spec prose |
-| Meta-test | `crew-rpc-lifecycle-guard-meta.test.ts` (GUARDED A·P·F) | same test (GUARDED A·F) |
-| Behavioral test | §6 DB + JS cases | §6 DB cases |
+| Meta-test | `crew-rpc-lifecycle-guard-meta.test.ts` (GUARDED A·P·F) + `_metaInfraContract` (undoChange contract, §7.2) | same test (GUARDED A·F) |
+| Behavioral test | §6 DB + JS cases | §6 DB cases + `undoChange.infra.test.ts` returned-`{error}` case (§7.2) |
 | Validation parity | apply migration surgically + `gen:schema-manifest` | apply migration surgically + `gen:schema-manifest` |
 
 ## 9. Migration / apply lifecycle
@@ -161,7 +189,7 @@ Both are `create or replace function` follow-ons (no schema/table DDL, no CHECK/
 - **#2 advisory lock** — both guards run in-RPC under the existing single holder, post-lock. No new holder; `advisoryLockRpcDeadlock.test.ts` topology unchanged.
 - **#5 no raw error codes** — 2 new §12.4 catalog rows for `undo_change`; `reset`'s refusal reuses the existing generic `PICKER_RESOLVER_LOOKUP_FAILED` (no new producer code, affordance server-gated).
 - **#7 spec canonical** — this spec + the master-spec §12.4 prose edit are the record.
-- **#9 Supabase call-boundary** — §7 preserves the `{data,error}` discipline.
+- **#9 Supabase call-boundary** — §7.1 preserves the `{data,error}` discipline on the reset path; §7.2 **fixes** a pre-existing `{data}`-only swallow on `undoChange.ts`'s post-success read and extends the `_metaInfraContract` registry entry to cover it.
 - **§12.4 lockstep** + **validation-schema-parity** — §3.2 / §9.
 
 ## 11. Watchpoints (disagreement-loop preempts)
