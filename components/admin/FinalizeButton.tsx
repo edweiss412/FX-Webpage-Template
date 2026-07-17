@@ -486,6 +486,10 @@ export function useFinalizeRun({
     setConfirmOpen,
     onPrimaryClick,
     runLoop,
+    // Reset a terminal (race_row / cas_per_row / error) back to idle. Called by
+    // the blocker modal's Close/Back controls (spec 2026-07-17 §4.3). Never fires
+    // while running (the modal is not mounted then).
+    dismiss: () => setState({ kind: "idle" }),
     liveMessage,
     idleLabel,
     runningLabel,
