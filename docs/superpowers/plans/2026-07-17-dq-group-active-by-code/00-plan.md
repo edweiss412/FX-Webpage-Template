@@ -15,7 +15,7 @@
 - **Invariant 1 (TDD):** every task is failing test → minimal implementation → green → commit. Never implementation before its test.
 - **Invariant 5 (no raw §12.4 codes in UI):** eyebrow label is the plain-language type (catalog title via `messageFor`, else `DATA_GAP_CLASS_LABELS[code]`, else `null`) — NEVER the raw code.
 - **Invariant 6 (commit per task):** conventional-commits (`<type>(<scope>): <summary>`); scope `admin` or `crew-page`; one task per commit; `--no-verify` (shared hooks live in the main checkout).
-- **Invariant 8 (impeccable dual-gate):** UI surface touched → `/impeccable critique` + `/impeccable audit` on the diff; P0/P1 fixed or deferred via `DEFERRED.md` BEFORE the whole-diff cross-model review (Task 7).
+- **Invariant 8 (impeccable dual-gate):** UI surface touched → `/impeccable critique` + `/impeccable audit` on the diff; P0/P1 fixed or deferred via `DEFERRED.md` BEFORE the whole-diff cross-model review (Task 6).
 - **Invariant 10 (mutation telemetry):** no new mutation surface — the client `fetch`es the EXISTING `/api/admin/show/{slug}/data-quality/ignore` route (already `AUDITABLE_MUTATIONS`, DQIGNORE-4). No registry change.
 - **Destructive-confirm recipe (spec `2026-07-16-destructive-confirm-pass` §4 G4):** the armed chip keeps the `ARMED_BTN` class literal verbatim (`bg-warning-text` / `text-warning-bg` / `font-semibold` / `hover:opacity-90` / `border` / `border-transparent`); one shared `armedCode` + one shared 4s timer; exactly one chip armed panel-wide.
 - **Meta-test inventory:** none created/extended (spec §6). Advisory-lock topology: N/A (no `pg_advisory*`). No fixed-dimension parent → no real-browser layout-dimensions task (spec §5.3).
@@ -142,6 +142,18 @@ cd /Users/ericweiss/FX-dq-group-active && git add lib/dataQuality/groupActiveByC
 **Files:**
 - Modify (rewrite): `components/admin/BulkIgnoreControls.tsx`
 - Modify (rewrite): `tests/components/admin/bulkIgnoreControls.test.tsx`
+- Create: `tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` (the spec §5.4 transition-audit — authored HERE, red before the rewrite, so it earns a genuine TDD cycle rather than passing green-on-arrival).
+
+**Transition inventory (spec §5.4 — no NEW transitions; the chip is merely relocated):**
+
+| From \ To | idle | armed | running | error |
+|---|---|---|---|---|
+| **idle** | — | instant class morph BTN→ARMED_BTN (tap) | (via armed) | (via running) |
+| **armed** | instant; 4s auto-revert OR re-arm-elsewhere | re-arm self = no-op | instant (confirm tap) | — |
+| **running** | instant on full success (+`router.refresh`) | — | — | instant on partial/total failure |
+| **error** | instant on fresh arm | instant (fresh tap arms) | (via armed) | — |
+
+Static (no state/transition): eyebrow label, hairline rule, slotted cards. Compound: arming Y while X armed → X reverts + Y arms in one commit (single shared timer). All morphs are instant class swaps (no `AnimatePresence`, no layout transition); the chip carries the recipe's own `transition-opacity`/`transition-colors` inherited unchanged from §4 G4, and never remounts across a morph.
 
 **Interfaces:**
 - Consumes: `ActiveCodeGroup` (Task 1, indirectly — the page maps it), `BulkIgnoreGroupWithLabel` (existing export, kept).
@@ -418,10 +430,62 @@ describe("BulkIgnoreControls (grouped active list)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 1b: Write the failing transition-audit test** — create `tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` (pins the inventory table above; red now because the widened component + `ActiveWarningGroup` prop don't exist yet):
 
-Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx`
-Expected: FAIL — the old component's `groups` prop shape (`BulkIgnoreGroupWithLabel[]`) does not match `ActiveWarningGroup[]`; `dq-active-group-*` testids and slotted `cards` are absent.
+```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+beforeEach(() => { global.fetch = vi.fn() as unknown as typeof fetch; });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+const g = (): ActiveWarningGroup => ({
+  code: "UNKNOWN_FIELD",
+  label: "Unrecognized row in sheet",
+  bulk: { code: "UNKNOWN_FIELD", label: "Unrecognized row in sheet", items: [
+    { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" }, { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
+  ] },
+  cards: <ul data-testid="cards" />,
+});
+
+describe("BulkIgnoreControls transition audit (spec §5.4)", () => {
+  test("idle→armed is an instant class morph (chip is NOT remounted)", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
+    const before = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    fireEvent.click(before);
+    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBe(before); // same identity
+    expect(before.className).toContain("transition-opacity");
+  });
+
+  test("armed→idle auto-revert is instant and restores the exact idle class (no leftover recipe token)", () => {
+    vi.useFakeTimers();
+    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    const idle = chip.className;
+    fireEvent.click(chip);
+    expect(chip.className).not.toBe(idle);
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(chip.className).toBe(idle);
+    expect(chip.className).not.toContain("bg-warning-text");
+  });
+
+  test("eyebrow label + hairline rule are static across the chip morph", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
+    const before = screen.getByText("Unrecognized row in sheet").className;
+    fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
+    expect(screen.getByText("Unrecognized row in sheet").className).toBe(before);
+  });
+});
+```
+
+- [ ] **Step 2: Run both tests to verify they fail**
+
+Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx`
+Expected: FAIL — the old component's `groups` prop shape (`BulkIgnoreGroupWithLabel[]`) does not match `ActiveWarningGroup[]`; `dq-active-group-*` testids and slotted `cards` are absent; the audit test's `ActiveWarningGroup` import + `dq-bulk-ignore-*` chip identity don't exist yet.
 
 - [ ] **Step 3: Write minimal implementation** (full rewrite of `components/admin/BulkIgnoreControls.tsx`)
 
@@ -603,15 +667,15 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run both tests to verify they pass**
 
-Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx`
-Expected: PASS (all tests).
+Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx`
+Expected: PASS (all tests, both files).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreControls.tsx tests/components/admin/bulkIgnoreControls.test.tsx && git commit --no-verify -m "feat(admin): grouped active DQ list with inline bulk-ignore chip (DQIGNORE-6)"
+cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreControls.tsx tests/components/admin/bulkIgnoreControls.test.tsx tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx && git commit --no-verify -m "feat(admin): grouped active DQ list with inline bulk-ignore chip (DQIGNORE-6)"
 ```
 
 ---
@@ -738,91 +802,7 @@ cd /Users/ericweiss/FX-dq-group-active && git add app/admin/show/\[slug\]/page.t
 
 ---
 
-## Task 4: Transition-audit (spec §5.4 — mandated for the chip morph)
-
-**Files:**
-- Create: `tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx`
-
-**Transition inventory (from spec §5.4 — no NEW transitions; relocated chip only):**
-
-| From \ To | idle | armed | running | error |
-|---|---|---|---|---|
-| **idle** | — | instant class morph BTN→ARMED_BTN (tap) | (via armed) | (via running) |
-| **armed** | instant, 4s auto-revert OR re-arm-elsewhere | re-arm self = no-op | instant (confirm tap) | — |
-| **running** | instant on full success (+`router.refresh`) | — | — | instant on partial/total failure |
-| **error** | instant on fresh arm | instant (fresh tap arms) | (via armed) | — |
-
-Static (no state, no transition): eyebrow label, hairline rule, slotted cards. Compound: arming Y while X armed → X reverts + Y arms in one commit (single shared timer). All morphs are instant class swaps (no `AnimatePresence`, no `transition` on layout) except the recipe's own `transition-opacity`/`transition-colors` on the button, which are inherited unchanged from §4 G4.
-
-- [ ] **Step 1: Write the failing test**
-
-```tsx
-// @vitest-environment jsdom
-import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
-
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
-beforeEach(() => { global.fetch = vi.fn() as unknown as typeof fetch; });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
-
-const g = (): ActiveWarningGroup => ({
-  code: "UNKNOWN_FIELD",
-  label: "Unrecognized row in sheet",
-  bulk: { code: "UNKNOWN_FIELD", label: "Unrecognized row in sheet", items: [
-    { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" }, { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
-  ] },
-  cards: <ul data-testid="cards" />,
-});
-
-describe("BulkIgnoreControls transition audit (spec §5.4)", () => {
-  test("idle→armed is an instant class morph (no AnimatePresence / conditional remount of the chip)", () => {
-    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
-    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    const before = chip; // same element identity across the morph (no remount)
-    fireEvent.click(chip);
-    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBe(before);
-    // recipe uses transition-opacity (inherited from §4 G4), not a layout transition
-    expect(before.className).toContain("transition-opacity");
-  });
-
-  test("armed→idle auto-revert is instant and restores the exact idle class (no leftover recipe token)", () => {
-    vi.useFakeTimers();
-    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
-    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    const idle = chip.className;
-    fireEvent.click(chip);
-    expect(chip.className).not.toBe(idle);
-    act(() => vi.advanceTimersByTime(4_000));
-    expect(chip.className).toBe(idle);
-    expect(chip.className).not.toContain("bg-warning-text");
-  });
-
-  test("eyebrow label + hairline rule are static (present and unchanged across the chip morph)", () => {
-    render(<BulkIgnoreControls slug="rpas" groups={[g()]} />);
-    const label = screen.getByText("Unrecognized row in sheet");
-    const beforeClass = label.className;
-    fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
-    expect(screen.getByText("Unrecognized row in sheet").className).toBe(beforeClass);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails then passes**
-
-Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx`
-Expected: after Task 2's component is in place, this PASSES; if written before Task 2 it FAILS on the missing testid. (Task 4 runs after Task 2, so expect PASS; the test still earns its keep by pinning the no-remount + instant-revert contract.)
-
-- [ ] **Step 3: Commit**
-
-```bash
-cd /Users/ericweiss/FX-dq-group-active && git add tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx && git commit --no-verify -m "test(admin): transition audit for relocated bulk-ignore chip (spec §5.4)"
-```
-
----
-
-## Task 5: Regression sweep + meta-test + DEFERRED close-out
+## Task 4: Regression sweep + meta-test + DEFERRED close-out
 
 **Files:**
 - Modify: `DEFERRED.md` (DQIGNORE-6 → RESOLVED)
@@ -855,7 +835,7 @@ cd /Users/ericweiss/FX-dq-group-active && git add DEFERRED.md && git commit --no
 
 ---
 
-## Task 6: Invariant-8 impeccable dual-gate (UI surface)
+## Task 5: Invariant-8 impeccable dual-gate (UI surface)
 
 **Files:** none by default (evaluation gate); any P0/P1 fix lands in its own follow-up commit; deferrals go to `DEFERRED.md`.
 
@@ -872,7 +852,7 @@ cd /Users/ericweiss/FX-dq-group-active && git add -A && git commit --no-verify -
 
 ---
 
-## Task 7: Whole-diff cross-model review + CI + merge (Stage 4 — orchestrator-driven)
+## Task 6: Whole-diff cross-model review + CI + merge (Stage 4 — orchestrator-driven)
 
 This task is executed by the ship-feature pipeline, not a sub-implementer:
 
@@ -884,6 +864,6 @@ This task is executed by the ship-feature pipeline, not a sub-implementer:
 
 ## Self-Review (author, against the spec)
 
-- **Spec coverage:** §2 layout → Tasks 2+3; §3 behavior-preserved → Task 2 (all G4 tests); §4 guards → Task 2 (empty/null-label/singleton/non-ignorable/partial) + Task 3 (page-level); §5.1 data boundary → Task 3; §5.2 client component → Task 2; §5.3 no layout-dims task → honored (none); §5.4 transition inventory → Task 4; §6 tests + meta-inventory → Tasks 1-5; §7 invariants → Global Constraints + Tasks 5/6; §8 do-not-relitigate → carried into commit messages + DEFERRED note. No gaps.
+- **Spec coverage:** §2 layout → Tasks 2+3; §3 behavior-preserved → Task 2 (all G4 tests); §4 guards → Task 2 (empty/null-label/singleton/non-ignorable/partial) + Task 3 (page-level); §5.1 data boundary → Task 3; §5.2 client component → Task 2; §5.3 no layout-dims task → honored (none); §5.4 transition inventory → Task 2 (Step 1b transition-audit test, red-first); §6 tests + meta-inventory → Tasks 1-4; §7 invariants → Global Constraints + Tasks 4/5; §8 do-not-relitigate → carried into commit messages + DEFERRED note. No gaps.
 - **Placeholder scan:** the only non-literal is Task 3's `renderActiveWarnings` fixture seam, explicitly flagged as "match the sibling tests' setup" (the block's fixture builder is pre-existing; inventing one would be wrong). All code steps carry real code.
 - **Type consistency:** `ActiveWarningGroup` / `BulkIgnoreGroupWithLabel` / `groupActiveByCode` signatures match across Tasks 1-3; `State.error` gains `code` consistently used by the notice render.
