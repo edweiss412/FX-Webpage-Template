@@ -15,7 +15,7 @@ PR #408 shipped four two-tap destructive-confirm guards on previously-unguarded 
 
 The #408 guard-tier ladder (DESIGN.md §15, tier 2) is for **irreversible or work-destroying** ops. Re-scan is neither, because the apply path is already content-aware:
 
-- `computeRescanDecision` (`lib/onboarding/rescanDecision.ts:30-51`) diffs the prior parse against the refreshed parse. It marks the re-scan **DIRTY only** when the refresh surfaces a decision-requiring crew change (`DECISION_REQUIRING_INVARIANTS` = `MI-11`..`MI-14`, line 16-18) **or** a non-ambiguity data-gap count increase (line 46-48). Ambiguity-class gap increases never mark it dirty (line 43-45).
+- `computeRescanDecision` (`lib/onboarding/rescanDecision.ts:30-64`) diffs the prior parse against the refreshed parse. It marks the re-scan **DIRTY only** when the refresh surfaces a decision-requiring crew change (`DECISION_REQUIRING_INVARIANTS` = `MI-11`..`MI-14`, line 17) **or** a non-ambiguity data-gap count increase against a **present** baseline (`gapRegressed`, lines 58-62). A NULL gap baseline (first-seen / consumed-parse row) is explicitly not comparable and never marks dirty (PR #410, lines 43-51) — so even fewer clean re-scans demote than before. Ambiguity-class gap increases never mark it dirty (lines 53-55).
 - `applyRescanDecisionUnderLock` (`lib/onboarding/applyRescanDecisionUnderLock.ts`) has three non-failure outcomes (union at lines 46-53), selected by the `isDirty` gate at lines 286-289:
   - `clean_restamped` — previously-ready + clean → **approval re-stamped** (lines 306-336). Nothing lost. (Reviewer choices are regenerated one-apply-per-item because the re-parse mints fresh item ids, lines 310-312 — a mechanical refresh, not a decision loss.)
   - `clean_unchecked` — was not ready → stays unapproved (lines 339-350).
@@ -141,7 +141,7 @@ Removed transitions (were in #408, now gone): idle→armed (tap 1), armed→idle
 
 ## 6. Watchpoints (disagreement-loop preempt)
 
-- **Reviewer may relitigate "should re-scan be guarded at all?"** — Do NOT. The withdrawal is the ratified decision of this amendment, justified by §1.1's content-awareness citations (`rescanDecision.ts:30-51`, `applyRescanDecisionUnderLock.ts:46-53`). The un-guarded, larger-blast-radius Re-sync is the precedent.
+- **Reviewer may relitigate "should re-scan be guarded at all?"** — Do NOT. The withdrawal is the ratified decision of this amendment, justified by §1.1's content-awareness citations (`rescanDecision.ts:30-64`, `applyRescanDecisionUnderLock.ts:46-53`). The un-guarded, larger-blast-radius Re-sync is the precedent.
 - **Reviewer may flag "removing a guard reduces safety."** — The safety mechanism is `computeRescanDecision`, not the confirm morph; it is untouched. The guard protected against a loss (`dirty_demoted`) that only occurs when re-review is desired.
 - **Reviewer may flag the deleted sr-only region as an a11y regression.** — It announced the armed morph only. No armed morph → nothing to announce. The button keeps its accessible name; `pending` sets `aria-busy`. No live-region contract is broken.
 - **Reviewer may expect a tier-3 ladder entry in DESIGN.md.** — Tier 3 is unenumerated by design (#408 DESIGN.md §15); the breadcrumb is the correct treatment.
