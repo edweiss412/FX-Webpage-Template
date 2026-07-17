@@ -105,13 +105,32 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   "Step3Review.tsx": 6,
   "Step3SheetCard.tsx": 4,
   "step3ReviewSections.tsx": 5,
-  "Step3ReviewModal.tsx": 9,
+  // 11 = modal 6 + surface 5. Task 13 (consolidated-admin-show-page §5/§9) added
+  // the Overview/Changes extra rail items, whose side-rail + chip buttons carry
+  // the same `transition-colors duration-fast` hover affordance every registry
+  // rail/chip item carries (+2). These two hover transitions are enumerated in
+  // spec §9, so this bump is an acknowledged, spec-sanctioned rail affordance —
+  // NOT a new state-swap animation (all pairs stay instant; the sole animated
+  // element remains the sliding rail indicator).
+  "Step3ReviewModal.tsx": 11,
 };
 
 describe("§7.4 transition audit — 2a static guard (all pairs instant)", () => {
   for (const [file, expected] of Object.entries(PREEXISTING_TRANSITION_COUNTS)) {
     test(`${file}: no AnimatePresence, transition-class count pinned at ${expected}`, () => {
-      const src = readFileSync(join(WIZARD_DIR, file), "utf8");
+      // Phase-1 extraction (spec 2026-07-16 §5): the Step-3 review rail/content
+      // moved to components/admin/review/ShowReviewSurface.tsx. The guard FOLLOWS
+      // the moved code — for the modal entry it scans modal + surface as one body,
+      // so the pinned count is modal 6 + surface 5 = 11 (the surface's 3 original
+      // rail transitions plus Task 13's 2 extra-rail hover affordances, spec §9).
+      // Other files are unaffected.
+      let src = readFileSync(join(WIZARD_DIR, file), "utf8");
+      if (file === "Step3ReviewModal.tsx") {
+        src += `\n${readFileSync(
+          join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),
+          "utf8",
+        )}`;
+      }
       expect(src.includes("AnimatePresence")).toBe(false);
       expect((src.match(/transition-(?:all|colors|opacity)/g) ?? []).length).toBe(expected);
     });

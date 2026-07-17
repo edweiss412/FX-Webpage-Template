@@ -60,6 +60,11 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowPendingReview(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowSheetUnavailable(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowDriveError(" },
+  // Non-error skip advances last_checked_at inside the skip-branch lock callback
+  // (spec 2026-07-16-last-checked-at §4). The write lives in an anonymous
+  // lock(driveFileId, async (lockedTx) => …) callback, so its enclosing named
+  // symbol is processOneFile itself.
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "export async function processOneFile(" },
   // §5.2/I5b durable archived-tab override auto-clear (single-column null write, under show: lock).
   {
     file: "lib/sync/runScheduledCronSync.ts",

@@ -271,14 +271,17 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
  * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
  * + 2 BRANCH_PROTECTION (bell-notification-center §9.3)
- * = 26 "auto"; 18 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
- * registry splits into its own "state-manual-justified" class, plus Flow-1 ONBOARDING_SHEET_UNREADABLE);
+ * = 26 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
+ * registry splits into its own "state-manual-justified" class — Flow-1 ONBOARDING_SHEET_UNREADABLE
+ * is now the "hybrid" class per spec 2026-07-16, no longer event-manual);
+ * 1 "hybrid" (ONBOARDING_SHEET_UNREADABLE — self-clears yet keeps the manual button);
  * 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_* promoted by bell-notification-center §9.3).
- * 26 + 18 + 1 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
+ * 26 + 17 + 1 + 1 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
   | { class: "auto"; resolveSites: [ResolveSite, ...ResolveSite[]] }
+  | { class: "hybrid"; resolveSites: [ResolveSite, ...ResolveSite[]] }
   | { class: "event-manual" }
   | { class: "state-manual-justified" }
   | { class: "deferred" };
@@ -453,7 +456,22 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   // --- event-manual (18): one-shot EVENT notices, manual by design ---
   AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
   LIVE_ROW_CONFLICT: { class: "event-manual" },
-  ONBOARDING_SHEET_UNREADABLE: { class: "event-manual" },
+  // Hybrid lifecycle (spec 2026-07-16): self-clears via the clean-scan + cron
+  // heal observers, while the manual Resolve button legitimately stays (maps to
+  // catalog resolution:"manual"). Two resolve sites — one per observer.
+  ONBOARDING_SHEET_UNREADABLE: {
+    class: "hybrid",
+    resolveSites: [
+      {
+        file: "app/api/admin/onboarding/scan/route.ts",
+        pattern: /resolveOpenUnreadableAlertUnconditionally/,
+      },
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveUnreadableAlertIfHealed/,
+      },
+    ],
+  },
   ROLE_FLAGS_NOTICE: { class: "event-manual" },
   SHOW_FIRST_PUBLISHED: { class: "event-manual" },
   OAUTH_IDENTITY_CLAIMED: { class: "event-manual" },
@@ -673,33 +691,42 @@ describe("META admin_alerts catalog contract", () => {
     ).toEqual(registryCodes);
   });
 
-  test("every auto code's resolve site exists on disk and matches", () => {
-    const autoCodes = (
-      Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<(typeof ADMIN_ALERTS_CODES)[number]>
-    ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
+  test("every auto/hybrid code's resolve site exists on disk and matches", () => {
+    const allCodes = Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<
+      (typeof ADMIN_ALERTS_CODES)[number]
+    >;
+    const autoCodes = allCodes.filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
+    const hybridCodes = allCodes.filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "hybrid");
 
     // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING +
     // RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION
-    // (bell-notification-center §9.3) = 26 auto codes.
+    // (bell-notification-center §9.3) = 26 auto codes. Hybrid is NOT auto.
     expect(
       autoCodes.length,
       "spec §3 + bell-notification-center §9.3 pins 26 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION)",
     ).toBe(26);
+    // Hybrid lifecycle (spec 2026-07-16): exactly ONBOARDING_SHEET_UNREADABLE.
+    expect(
+      hybridCodes.length,
+      "hybrid-lifecycle spec 2026-07-16 pins exactly 1 hybrid code (ONBOARDING_SHEET_UNREADABLE)",
+    ).toBe(1);
 
-    for (const code of autoCodes) {
+    // Both auto AND hybrid carry a non-empty resolveSites tuple that must exist on disk.
+    const resolveSiteCodes = [...autoCodes, ...hybridCodes];
+    for (const code of resolveSiteCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];
-      if (lifecycle.class !== "auto") continue; // narrowing for TS
-      // Runtime belt for the type-level non-empty tuple: an auto code with
+      if (lifecycle.class !== "auto" && lifecycle.class !== "hybrid") continue; // narrowing for TS
+      // Runtime belt for the type-level non-empty tuple: an auto/hybrid code with
       // zero resolve sites cannot pass even if the type is circumvented.
       expect(
         lifecycle.resolveSites.length,
-        `${code} is classified auto but declares no resolve site`,
+        `${code} is classified ${lifecycle.class} but declares no resolve site`,
       ).toBeGreaterThan(0);
       for (const site of lifecycle.resolveSites) {
         const source = readFileSync(join(ROOT, site.file), "utf8");
         expect(
           source,
-          `${code} is classified auto, but ${site.file} does not match its declared resolve-site pattern ${site.pattern} — an auto code cannot lose its resolve site silently`,
+          `${code} is classified ${lifecycle.class}, but ${site.file} does not match its declared resolve-site pattern ${site.pattern} — the resolve site cannot be lost silently`,
         ).toMatch(site.pattern);
       }
     }
@@ -726,7 +753,10 @@ describe("META admin_alerts catalog contract", () => {
   // free to say "clears automatically"; manual codes must not.
   test("no resolution:manual code promises auto-clear in its copy", () => {
     const BANNED = /clears? automatically|clear on the next sync|auto-?clear/i;
-    const EXEMPT = new Set<string>([]); // none
+    // ONBOARDING_SHEET_UNREADABLE is the hybrid-lifecycle class (spec 2026-07-16):
+    // its copy truthfully promises self-clear (two pinned resolve sites in the
+    // lifecycle registry) while the manual Resolve button legitimately stays.
+    const EXEMPT = new Set<string>(["ONBOARDING_SHEET_UNREADABLE"]);
     for (const code of ADMIN_ALERTS_CODES) {
       const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
         | { resolution?: "auto" | "manual"; [k: string]: unknown }

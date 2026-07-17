@@ -164,7 +164,7 @@ describe("POST /api/admin/onboarding/scan", () => {
     const routeDeps = deps(db, {
       runOnboardingScan: vi.fn(async () => ({
         outcome: "completed" as const,
-        processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+        processed: [{ driveFileId: "sheet-1", name: "sheet-1.xlsx", outcome: "staged" as const }],
       })),
     });
 
@@ -200,9 +200,9 @@ describe("POST /api/admin/onboarding/scan", () => {
     // Expected totals are DERIVED from the fixture's processed[] (anti-
     // tautology), not hardcoded.
     const processed = [
-      { driveFileId: "sheet-1", outcome: "staged" as const },
-      { driveFileId: "sheet-2", outcome: "staged" as const },
-      { driveFileId: "sheet-3", outcome: "hard_failed" as const },
+      { driveFileId: "sheet-1", name: "sheet-1.xlsx", outcome: "staged" as const },
+      { driveFileId: "sheet-2", name: "sheet-2.xlsx", outcome: "staged" as const },
+      { driveFileId: "sheet-3", name: "sheet-3.xlsx", outcome: "hard_failed" as const },
     ];
     const expectedTotals = {
       staged: 0,
@@ -396,7 +396,13 @@ describe("POST /api/admin/onboarding/scan", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "clean-first-seen", outcome: "staged" as const }],
+          processed: [
+            {
+              driveFileId: "clean-first-seen",
+              name: "clean-first-seen.xlsx",
+              outcome: "staged" as const,
+            },
+          ],
         };
       }),
     });
@@ -441,7 +447,13 @@ describe("POST /api/admin/onboarding/scan", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "mi-trip-first-seen", outcome: "staged" as const }],
+          processed: [
+            {
+              driveFileId: "mi-trip-first-seen",
+              name: "mi-trip-first-seen.xlsx",
+              outcome: "staged" as const,
+            },
+          ],
         };
       }),
     });
@@ -503,8 +515,8 @@ describe("POST /api/admin/onboarding/scan", () => {
 
   test("completed with a live_row_conflict counts it into totals (not a verbatim passthrough)", async () => {
     const processed = [
-      { driveFileId: "sheet-1", outcome: "staged" as const },
-      { driveFileId: "sheet-2", outcome: "live_row_conflict" as const },
+      { driveFileId: "sheet-1", name: "sheet-1.xlsx", outcome: "staged" as const },
+      { driveFileId: "sheet-2", name: "sheet-2.xlsx", outcome: "live_row_conflict" as const },
     ];
     const expectedTotals = {
       staged: 0,
@@ -537,7 +549,7 @@ describe("POST /api/admin/onboarding/scan", () => {
   test("AC-10.2 success terminal body equals toScanResponseBody(result, ctx) (derived, anti-tautology)", async () => {
     const result = {
       outcome: "completed" as const,
-      processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+      processed: [{ driveFileId: "sheet-1", name: "sheet-1.xlsx", outcome: "staged" as const }],
     };
     const db = new FakeScanDb();
     const routeDeps = deps(db, { runOnboardingScan: vi.fn(async () => result) });
@@ -569,8 +581,8 @@ describe("POST /api/admin/onboarding/scan", () => {
           return {
             outcome: "completed" as const,
             processed: [
-              { driveFileId: "a", outcome: "staged" as const },
-              { driveFileId: "b", outcome: "staged" as const },
+              { driveFileId: "a", name: "a.xlsx", outcome: "staged" as const },
+              { driveFileId: "b", name: "b.xlsx", outcome: "staged" as const },
             ],
           };
         },
@@ -611,7 +623,7 @@ describe("POST /api/admin/onboarding/scan", () => {
       const routeDeps = deps(db, {
         runOnboardingScan: vi.fn(async () => ({
           outcome: "completed" as const,
-          processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+          processed: [{ driveFileId: "sheet-1", name: "sheet-1.xlsx", outcome: "staged" as const }],
         })),
       });
       const response = await handleOnboardingScan(

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
+import { AFFORDANCE_MATRIX, DEFERRED_TESTIDS } from "@/app/help/_affordanceMatrix";
 import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "../e2e/helpers/walkerRoutes";
 
 describe("walker route derivation (spec §3.1/§6)", () => {
@@ -37,7 +37,9 @@ describe("walker route derivation (spec §3.1/§6)", () => {
     expect(walksAt(desktopOnly!, "desktop")).toBe(true);
     expect(walksAt(desktopOnly!, "mobile")).toBe(false);
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
-    expect(allWalkableRows).toHaveLength(concrete.length - 1); // minus the one DEFERRED_TESTID (preview-banner; per-show-restage-card removed — DEFERRED.md D9)
+    // Walkable = every concrete row MINUS the deferred ones (preview-banner +
+    // the Task-13 per-show crew/sync/data-quality tooltips pending re-homing).
+    expect(allWalkableRows).toHaveLength(concrete.length - DEFERRED_TESTIDS.size);
     for (const r of allWalkableRows)
       expect(walksAt(r, "mobile") || walksAt(r, "desktop")).toBe(true);
   });

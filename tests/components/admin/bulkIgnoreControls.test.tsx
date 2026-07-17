@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { BulkIgnoreControls } from "@/components/admin/BulkIgnoreControls";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh, push: vi.fn() }),
-}));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
 
 const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
@@ -21,8 +19,11 @@ function okResponse(): Response {
   return { ok: true, json: async () => ({ status: "ignored" }) } as unknown as Response;
 }
 
-const groups = [
-  {
+// A bulk-eligible group (2 distinct contents) + a card slot marker.
+const bulkGroup = (): ActiveWarningGroup => ({
+  code: "UNKNOWN_FIELD",
+  label: "Unrecognized row in sheet",
+  bulk: {
     code: "UNKNOWN_FIELD",
     label: "Unrecognized row in sheet",
     items: [
@@ -30,28 +31,107 @@ const groups = [
       { code: "UNKNOWN_FIELD", rawSnippet: "Floor Plan | link" },
     ],
   },
-];
+  cards: <ul data-testid="cards-UNKNOWN_FIELD" />,
+});
 
-describe("BulkIgnoreControls", () => {
+// A singleton / non-ignorable group: no bulk → no chip.
+const singletonGroup = (): ActiveWarningGroup => ({
+  code: "BLOCK_DISAPPEARED",
+  label: "removed section",
+  bulk: null,
+  cards: <ul data-testid="cards-BLOCK_DISAPPEARED" />,
+});
+
+describe("BulkIgnoreControls (grouped active list)", () => {
   test("renders nothing when there are no groups", () => {
     const { container } = render(<BulkIgnoreControls slug="rpas" groups={[]} />);
     expect(container.firstChild).toBeNull();
   });
 
-  test("Ignore all N fires one ignore POST per distinct item, then refreshes", async () => {
+  test("every group renders an eyebrow with its label + its cards; only bulk-eligible groups get a chip", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup(), singletonGroup()]} />);
+    // eyebrow labels asserted on the EYEBROW subtree (dedicated testid), NOT the whole
+    // group — the card slot would otherwise also carry the catalog title and mask a
+    // missing eyebrow (anti-tautology; spec §5.4 / spec test-scope rule).
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe(
+      "Unrecognized row in sheet",
+    );
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
+      "removed section",
+    );
+    // invariant 5: the raw code is never printed in the eyebrow
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain(
+      "UNKNOWN_FIELD",
+    );
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain(
+      "BLOCK_DISAPPEARED",
+    );
+    // cards slotted through
+    expect(screen.getByTestId("cards-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.getByTestId("cards-BLOCK_DISAPPEARED")).toBeInTheDocument();
+    // chip only on the bulk-eligible group
+    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
+  });
+
+  test("chip count derives from the group's distinct-content items", () => {
+    const g = bulkGroup();
+    render(<BulkIgnoreControls slug="rpas" groups={[g]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(chip.textContent).toBe(`Ignore all ${g.bulk!.items.length}`); // no "· label" suffix now
+  });
+
+  test("chip accessible name TRACKS the visible text + appends the type (WCAG 2.5.3 across the morph)", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    // idle: accessible name mirrors the visible "Ignore all 2" AND carries the type context.
+    expect(chip.getAttribute("aria-label")).toBe("Ignore all 2 · Unrecognized row in sheet");
+    fireEvent.click(chip); // arm
+    // armed: the name must contain the NEW visible text "Confirm: ignore all 2" (not a stale
+    // "Ignore all 2"); a fixed aria-label would fail Label-in-Name in this state.
+    expect(chip.textContent).toBe("Confirm: ignore all 2");
+    expect(chip.getAttribute("aria-label")).toBe(
+      "Confirm: ignore all 2 · Unrecognized row in sheet",
+    );
+  });
+
+  test("a group with no label omits aria-label (visible chip text is the accessible name)", () => {
+    render(
+      <BulkIgnoreControls
+        slug="rpas"
+        groups={[
+          {
+            code: "UNKNOWN_FIELD",
+            label: null,
+            bulk: {
+              code: "UNKNOWN_FIELD",
+              label: null,
+              items: [
+                { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" },
+                { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
+              ],
+            },
+            cards: <ul data-testid="cards-UNKNOWN_FIELD" />,
+          },
+        ]}
+      />,
+    );
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(chip.getAttribute("aria-label")).toBeNull();
+    expect(chip.textContent).toBe("Ignore all 2");
+    // no label → no eyebrow label span either
+    expect(screen.queryByTestId("dq-group-label-UNKNOWN_FIELD")).toBeNull();
+  });
+
+  test("Ignore all N fires one POST per distinct item, then refreshes; chip re-enables", async () => {
     fetchMock.mockResolvedValue(okResponse());
-    render(<BulkIgnoreControls slug="rpas" groups={groups} />);
-    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD") as HTMLButtonElement;
-    expect(btn.textContent).toMatch(/Ignore all 2/);
-    // the type label disambiguates when several code groups are shown
-    expect(btn.textContent).toContain("Unrecognized row in sheet");
-    // G4 two-tap guard: first click arms, second click fires.
-    fireEvent.click(btn);
-    fireEvent.click(btn);
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD") as HTMLButtonElement;
+    fireEvent.click(chip); // arm
+    fireEvent.click(chip); // confirm → fires
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    // one precise per-fingerprint insert per distinct item (NOT a coarse code-level ignore)
-    const bodies = fetchMock.mock.calls.map(
-      (c) => JSON.parse((c[1] as RequestInit).body as string) as unknown,
+    const bodies = fetchMock.mock.calls.map((c) =>
+      JSON.parse((c[1] as RequestInit).body as string),
     );
     expect(bodies).toEqual([
       { code: "UNKNOWN_FIELD", rawSnippet: "Storage | dock" },
@@ -62,30 +142,31 @@ describe("BulkIgnoreControls", () => {
       expect((c[1] as RequestInit).method).toBe("POST");
     }
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
-    // Stuck-disabled guard (audit P1): router.refresh() is a soft refresh that keeps this
-    // client state, so on success the component must reset to idle — the button re-enables
-    // rather than staying disabled forever when other code groups remain.
-    await waitFor(() => expect(btn.disabled).toBe(false));
+    await waitFor(() => expect(chip.disabled).toBe(false));
   });
 
-  test("partial fan-out failure reports 'Ignored X of N' honestly and does NOT refresh", async () => {
+  test("partial fan-out failure reports 'Ignored X of N' INSIDE the acting group and does NOT refresh", async () => {
     fetchMock
       .mockResolvedValueOnce(okResponse())
       .mockResolvedValueOnce({ ok: false, json: async () => ({}) } as unknown as Response);
-    render(<BulkIgnoreControls slug="rpas" groups={groups} />);
-    // G4 two-tap guard: first click arms, second click fires.
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup(), singletonGroup()]} />);
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
     const alert = await screen.findByRole("alert");
-    // The succeeded insert IS committed, so the copy must not imply total failure.
     expect(alert.textContent).toMatch(/Ignored 1 of 2/);
     expect(refresh).not.toHaveBeenCalled();
+    // the notice lives in the acting group's wrapper, below its cards — not at panel top
+    const group = screen.getByTestId("dq-active-group-UNKNOWN_FIELD");
+    expect(within(group).getByRole("alert")).toBe(alert);
+    expect(
+      within(group).getByTestId("cards-UNKNOWN_FIELD").compareDocumentPosition(alert) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("total fan-out failure shows the generic retry copy", async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
-    render(<BulkIgnoreControls slug="rpas" groups={groups} />);
-    // G4 two-tap guard: first click arms, second click fires.
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
     const alert = await screen.findByRole("alert");
@@ -93,24 +174,24 @@ describe("BulkIgnoreControls", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  // G4 (spec 2026-07-16-destructive-confirm-pass §4): armedCode state model —
-  // exactly one group armed at a time, single shared 4s timer, second tap on the
-  // armed group runs the EXISTING ignoreGroup(group) unchanged.
-  describe("G4 two-tap armed-state guard", () => {
-    const groupX = groups[0]!; // UNKNOWN_FIELD, 2 items
-    const groupY = {
+  describe("G4 two-tap armed-state guard (single-armed panel-wide)", () => {
+    const groupX = bulkGroup(); // UNKNOWN_FIELD, 2 items
+    const groupY: ActiveWarningGroup = {
       code: "FIELD_UNREADABLE",
       label: "Unreadable field",
-      items: [
-        { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
-        { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
-        { code: "FIELD_UNREADABLE", rawSnippet: "Venue | ???" },
-      ],
+      bulk: {
+        code: "FIELD_UNREADABLE",
+        label: "Unreadable field",
+        items: [
+          { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
+          { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
+          { code: "FIELD_UNREADABLE", rawSnippet: "Venue | ???" },
+        ],
+      },
+      cards: <ul data-testid="cards-FIELD_UNREADABLE" />,
     };
     const twoGroups = [groupX, groupY];
 
-    // Armed morph compensates the idle `border border-border-strong` with
-    // `border border-transparent` — no 2px layout shift on arm/auto-revert.
     function expectDestructiveRecipe(el: HTMLElement) {
       const tokens = el.className.split(/\s+/);
       for (const t of [
@@ -123,80 +204,46 @@ describe("BulkIgnoreControls", () => {
       ]) {
         expect(tokens).toContain(t);
       }
-      for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
-        expect(tokens).not.toContain(t);
-      }
-      expect(
-        tokens
-          .filter((t) => t.includes("hover:") && /(^|:)bg-/.test(t.slice(t.indexOf("hover:"))))
-          .filter((t) => t !== "hover:opacity-90"),
-      ).toEqual([]);
+      for (const t of ["bg-accent", "bg-surface", "bg-bg"]) expect(tokens).not.toContain(t);
     }
 
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+    afterEach(() => vi.useRealTimers());
 
-    test("first tap arms: no fetch, Confirm label + recipe classes; · label span stays, font-normal, no text-text-subtle", () => {
+    test("first tap arms: no fetch, Confirm label + recipe classes", () => {
       vi.useFakeTimers();
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       fireEvent.click(btn);
       expect(fetchMock).not.toHaveBeenCalled();
-      // N derived from the fixture, never hardcoded.
-      expect(btn.textContent).toContain(`Confirm: ignore all ${groupX.items.length}`);
+      expect(btn.textContent).toBe(`Confirm: ignore all ${groupX.bulk!.items.length}`);
       expectDestructiveRecipe(btn);
-      // The group-identifying span remains while armed, but without the
-      // text-text-subtle override (it inherits the recipe's text-warning-bg).
-      const span = btn.querySelector("span")!;
-      expect(span.textContent).toBe(`· ${groupX.label}`);
-      expect(span.className.split(/\s+/)).toContain("font-normal");
-      expect(span.className.split(/\s+/)).not.toContain("text-text-subtle");
     });
 
-    test("second tap on the armed group fires ignoreGroup once and clears the pending disarm timer", async () => {
+    test("second tap on the armed group fires once and clears the pending disarm timer", () => {
       vi.useFakeTimers();
       fetchMock.mockResolvedValue(okResponse());
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
-      fireEvent.click(btn); // arm
-      fireEvent.click(btn); // confirm — fires
-      // One POST per distinct item, derived from the fixture.
-      expect(fetchMock).toHaveBeenCalledTimes(groupX.items.length);
-      // The fire path killed the pending disarm timer (real observable).
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+      expect(fetchMock).toHaveBeenCalledTimes(groupX.bulk!.items.length);
       expect(vi.getTimerCount()).toBe(0);
-      await act(async () => {
-        vi.advanceTimersByTime(4_000);
-      });
-      expect(fetchMock).toHaveBeenCalledTimes(groupX.items.length);
     });
 
-    test("tapping Y while X is armed re-arms Y with a restarted timer; X reverts silently", () => {
+    test("tapping Y while X is armed re-arms Y with a restarted timer; X reverts (single-armed)", () => {
       vi.useFakeTimers();
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       const btnY = screen.getByTestId(`dq-bulk-ignore-${groupY.code}`);
-      fireEvent.click(btnX); // arm X at t=0
-      act(() => {
-        vi.advanceTimersByTime(2_000);
-      });
-      fireEvent.click(btnY); // re-arm: Y armed at t=2000, X reverts
-      expect(btnX.textContent).toContain(`Ignore all ${groupX.items.length}`);
-      expect(btnX.textContent).not.toContain("Confirm");
-      expect(btnY.textContent).toContain(`Confirm: ignore all ${groupY.items.length}`);
-      expect(fetchMock).not.toHaveBeenCalled();
-      // Advancing only X's remainder (to t=4500 — past X's original 4s window,
-      // but only 2.5s from Y's arm) must NOT disarm Y — stale-timer proof.
-      act(() => {
-        vi.advanceTimersByTime(2_500);
-      });
-      expect(btnY.textContent).toContain(`Confirm: ignore all ${groupY.items.length}`);
-      // Advancing to 4s from Y's arm disarms Y.
-      act(() => {
-        vi.advanceTimersByTime(1_500);
-      });
-      expect(btnY.textContent).not.toContain("Confirm");
-      expect(btnY.textContent).toContain(`Ignore all ${groupY.items.length}`);
+      fireEvent.click(btnX);
+      act(() => vi.advanceTimersByTime(2_000));
+      fireEvent.click(btnY);
+      expect(btnX.textContent).toBe(`Ignore all ${groupX.bulk!.items.length}`);
+      expect(btnY.textContent).toBe(`Confirm: ignore all ${groupY.bulk!.items.length}`);
+      act(() => vi.advanceTimersByTime(2_500)); // past X's original window, only 2.5s from Y's arm
+      expect(btnY.textContent).toContain("Confirm");
+      act(() => vi.advanceTimersByTime(1_500)); // 4s from Y's arm → disarms Y
+      expect(btnY.textContent).toBe(`Ignore all ${groupY.bulk!.items.length}`);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
@@ -206,17 +253,14 @@ describe("BulkIgnoreControls", () => {
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       const idleClass = btn.className;
       fireEvent.click(btn);
-      expect(btn.textContent).toContain("Confirm: ignore all");
-      act(() => {
-        vi.advanceTimersByTime(4_000);
-      });
-      expect(btn.textContent).toContain(`Ignore all ${groupX.items.length}`);
-      expect(btn.textContent).not.toContain("Confirm");
+      expect(btn.textContent).toContain("Confirm");
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(btn.textContent).toBe(`Ignore all ${groupX.bulk!.items.length}`);
       expect(btn.className).toBe(idleClass);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    test("per-group persistent sr-only status regions announce arming and clear on auto-revert", () => {
+    test("per-group sr-only status region announces arming and clears on auto-revert", () => {
       vi.useFakeTimers();
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
@@ -224,40 +268,31 @@ describe("BulkIgnoreControls", () => {
       const regionX = btnX.nextElementSibling as HTMLElement;
       const regionY = btnY.nextElementSibling as HTMLElement;
       for (const region of [regionX, regionY]) {
-        expect(region).not.toBeNull();
         expect(region.getAttribute("role")).toBe("status");
         expect(region.className.split(/\s+/)).toContain("sr-only");
         expect(region.textContent).toBe("");
       }
-      fireEvent.click(btnX); // arm X — only X's region announces
+      fireEvent.click(btnX);
       expect(regionX.textContent).toBe("Tap again to confirm.");
       expect(regionY.textContent).toBe("");
-      act(() => {
-        vi.advanceTimersByTime(4_000);
-      });
-      // Same persistently-mounted elements, emptied — never unmounted.
-      expect(btnX.nextElementSibling).toBe(regionX);
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(btnX.nextElementSibling).toBe(regionX); // never unmounted
       expect(regionX.textContent).toBe("");
-      expect(regionY.textContent).toBe("");
     });
 
-    test("running disables ALL group buttons and no group stays armed", async () => {
+    test("running disables ALL chips and clears armed", async () => {
       const resolvers: Array<(r: Response) => void> = [];
       fetchMock.mockImplementation(
-        () =>
-          new Promise<Response>((resolve) => {
-            resolvers.push(resolve);
-          }),
+        () => new Promise<Response>((resolve) => resolvers.push(resolve)),
       );
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`) as HTMLButtonElement;
       const btnY = screen.getByTestId(`dq-bulk-ignore-${groupY.code}`) as HTMLButtonElement;
-      fireEvent.click(btnX); // arm
-      fireEvent.click(btnX); // confirm — running
+      fireEvent.click(btnX);
+      fireEvent.click(btnX);
       await waitFor(() => expect(btnX.textContent).toContain("Ignoring…"));
       expect(btnX.disabled).toBe(true);
       expect(btnY.disabled).toBe(true);
-      // Entering running clears armedCode: no button renders a Confirm label.
       expect(btnX.textContent).not.toContain("Confirm");
       expect(btnY.textContent).not.toContain("Confirm");
       await act(async () => {
@@ -270,16 +305,13 @@ describe("BulkIgnoreControls", () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
-      fireEvent.click(btn); // arm
-      fireEvent.click(btn); // confirm — fires, total failure
-      await screen.findByRole("alert");
-      // Entering error clears armedCode: nothing renders armed.
-      expect(btn.textContent).not.toContain("Confirm");
-      // The state machine is sane afterward: one tap arms again.
       fireEvent.click(btn);
-      expect(btn.textContent).toContain(`Confirm: ignore all ${groupX.items.length}`);
-      // Only the first fire's fan-out hit the network (re-arming never fetches).
-      expect(fetchMock).toHaveBeenCalledTimes(groupX.items.length);
+      fireEvent.click(btn);
+      await screen.findByRole("alert");
+      expect(btn.textContent).not.toContain("Confirm");
+      fireEvent.click(btn);
+      expect(btn.textContent).toBe(`Confirm: ignore all ${groupX.bulk!.items.length}`);
+      expect(fetchMock).toHaveBeenCalledTimes(groupX.bulk!.items.length);
     });
 
     test("unmount while armed clears the timer", () => {

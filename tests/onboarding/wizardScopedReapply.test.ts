@@ -504,7 +504,7 @@ describe("wizard-scoped staged apply/discard routes", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+          processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome: "staged" as const }],
         };
       }),
     });
@@ -538,7 +538,9 @@ describe("wizard-scoped staged apply/discard routes", () => {
         currentPending = null;
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "file-1", outcome: "hard_failed" as const }],
+          processed: [
+            { driveFileId: "file-1", name: "file-1.xlsx", outcome: "hard_failed" as const },
+          ],
         };
       }),
     });
@@ -560,7 +562,7 @@ describe("wizard-scoped staged apply/discard routes", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+          processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome: "staged" as const }],
         };
       }),
     });
@@ -609,7 +611,7 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
     const prepareOnboardingFiles = vi.fn(async () => []);
     const scanOnboardingPreparedFiles = vi.fn(async () => ({
       outcome: "completed" as const,
-      processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+      processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome: "staged" as const }],
     }));
     const base = applyDeps({
       // postgres.js returns a Date for staged_modified_time — reproduce that.
@@ -686,7 +688,7 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
       });
       return {
         outcome: "completed" as const,
-        processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+        processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome: "staged" as const }],
       };
     });
     const deps = applyDeps({

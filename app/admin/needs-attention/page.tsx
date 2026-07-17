@@ -15,10 +15,17 @@
  * requireAdminIdentity() runs here as defense-in-depth (the admin layout also
  * gates) — registered in lib/audit/trustDomains.ts PROTECTED_ROUTES.
  */
+import {
+  acceptAllAction,
+  acceptChangeAction,
+  undoFromDashboardAction,
+} from "@/app/admin/_actions/autoApplied";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
+import { RecentAutoAppliedStrip } from "@/components/admin/RecentAutoAppliedStrip";
 import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
+import { loadRecentAutoApplied, type RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
 import { PAGE_RENDER_CAP } from "@/lib/admin/needsAttention";
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { nowDate } from "@/lib/time/now";
@@ -27,7 +34,19 @@ export const dynamic = "force-dynamic";
 
 export default async function NeedsAttentionPage() {
   await requireAdminIdentity(); // defensive page-level gate (layout also gates)
-  const result = await loadNeedsAttention({ cap: PAGE_RENDER_CAP }); // no injected client (spec §4.3)
+  const [result, recentAutoApplied]: [
+    Awaited<ReturnType<typeof loadNeedsAttention>>,
+    RecentAutoApplied,
+  ] = await Promise.all([
+    loadNeedsAttention({ cap: PAGE_RENDER_CAP }), // no injected client (spec §4.3)
+    // publishedShowIds:[] is CORRECT here, not a stub: it feeds only the
+    // roster_shift_counts RPC → rosterShiftByShow, which the dashboard's
+    // shows-table badges consume — and this page has no shows table. The strip's
+    // group list is a GLOBAL show_change_log read, unaffected by this arg, so the
+    // page strip is group-parity with the dashboard. [] → the RPC (`where show_id
+    // = any(p_show_ids)`) matches nothing, never errors.
+    loadRecentAutoApplied({ publishedShowIds: [] }),
+  ]);
   const now = await nowDate();
   return (
     <div data-testid="admin-needs-attention-page" className="flex w-full flex-col gap-section-gap">
@@ -67,6 +86,20 @@ export default async function NeedsAttentionPage() {
           />
         )}
       </section>
+      {/* Mobile parity (spec 2026-07-16-mobile-autoapplied-parity §D1): the strip
+          is a SIBLING after the inbox section (separate concept — mirrors the
+          desktop dashboard where it follows the inbox), so mobile admins get a
+          count + Accept/Undo path. headingLevel={2} keeps the outline monotonic
+          under the page <h1> (no h1→h4 skip). Renders null on empty groups. The
+          max-w-3xl wrapper matches the inbox section's width cap so the strip
+          cards align with the inbox cards on desktop (impeccable audit P2). */}
+      <div className="w-full max-w-3xl">
+        <RecentAutoAppliedStrip
+          data={recentAutoApplied}
+          actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
+          headingLevel={2}
+        />
+      </div>
     </div>
   );
 }

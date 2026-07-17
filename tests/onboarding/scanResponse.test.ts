@@ -10,10 +10,10 @@ import type { OnboardingScanResult } from "@/lib/sync/runOnboardingScan";
 describe("aggregateProcessedTotals", () => {
   test("counts every outcome bucket, initializing absent buckets to 0", () => {
     const totals = aggregateProcessedTotals([
-      { driveFileId: "a", outcome: "staged" },
-      { driveFileId: "b", outcome: "staged" },
-      { driveFileId: "c", outcome: "hard_failed" },
-      { driveFileId: "d", outcome: "live_row_conflict" },
+      { driveFileId: "a", name: "a.xlsx", outcome: "staged" },
+      { driveFileId: "b", name: "b.xlsx", outcome: "staged" },
+      { driveFileId: "c", name: "c.xlsx", outcome: "hard_failed" },
+      { driveFileId: "d", name: "d.xlsx", outcome: "live_row_conflict" },
     ]);
     expect(totals).toEqual({
       staged: 2,
@@ -38,8 +38,8 @@ describe("toScanResponseBody", () => {
     const result: OnboardingScanResult = {
       outcome: "completed",
       processed: [
-        { driveFileId: "a", outcome: "staged" },
-        { driveFileId: "b", outcome: "skipped_non_sheet" },
+        { driveFileId: "a", name: "a.xlsx", outcome: "staged" },
+        { driveFileId: "b", name: "b.xlsx", outcome: "skipped_non_sheet" },
       ],
     };
     expect(

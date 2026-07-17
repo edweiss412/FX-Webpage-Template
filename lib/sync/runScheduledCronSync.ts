@@ -111,6 +111,7 @@ import {
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
+import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
@@ -589,6 +590,16 @@ export type RunScheduledCronSyncDeps = {
    * DB reads). An empty result is inert — the file-loop gate treats it as "no rescue".
    */
   listRoleVocabDriftEligible?: () => Promise<ReadonlySet<string>>;
+  /**
+   * Hybrid-lifecycle observer (spec 2026-07-16 §3.4). Test injection point for
+   * the per-tick "resolve the open ONBOARDING_SHEET_UNREADABLE alert if healed"
+   * epilogue. Production leaves it undefined and the tick calls the real
+   * `resolveUnreadableAlertIfHealed` — UNLESS a test-injected `listFolder`
+   * suppresses ambient DB reads (mirrors the listLiveShows / driftEligible
+   * guard). An explicitly-injected spy ALWAYS runs (that is how DB/integration
+   * tests drive it).
+   */
+  resolveUnreadableAlertIfHealed?: typeof import("@/lib/adminAlerts/resolveOnboardingSheetUnreadable").resolveUnreadableAlertIfHealed;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -1112,7 +1123,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `
         update public.shows
            set last_sync_status = 'shrink_held',
-               last_sync_error = $2
+               last_sync_error = $2,
+               last_checked_at = now()
          where drive_file_id = $1
         returning id
       `,
@@ -1127,7 +1139,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         update public.shows
            set last_sync_status = 'pending_review',
                last_sync_error = null,
-               last_synced_at = now()
+               last_synced_at = now(),
+               last_checked_at = now()
          where drive_file_id = $1
       `,
       [driveFileId],
@@ -1482,6 +1495,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $16::jsonb,
                    source_anchors = coalesce($17::jsonb, source_anchors),
                    last_synced_at = now(),
+                   last_checked_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
                    requires_resync = false
@@ -1509,6 +1523,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $17::jsonb,
                    source_anchors = coalesce($18::jsonb, source_anchors),
                    last_synced_at = now(),
+                   last_checked_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
                    requires_resync = false
@@ -1545,12 +1560,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at, source_anchors,
-                  last_synced_at, last_sync_status, last_sync_error${extraColumns}
+                  last_synced_at, last_checked_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, $21::jsonb, now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb, now(), now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
@@ -2689,6 +2704,15 @@ export async function processOneFile(
       if (await readShowArchived_unlocked(lockedTx, driveFileId)) {
         return { outcome: "skipped" as const, reason: ARCHIVED_SKIP_REASON };
       }
+      // A non-error skip (watermark / deferred_modtime / deferred_permanent) is a SUCCESSFUL
+      // Drive check that applied nothing. Advance last_checked_at so idle-but-healthy shows stay
+      // fresh for the driveConnectionHealth + StaleFooter age tiers (spec 2026-07-16-last-checked-at
+      // §4). Rides THIS single held show-lock tx (invariant 2 single-holder); last_synced_at
+      // untouched. A missing show row (deferred_permanent non-show file) matches zero rows → undefined.
+      await lockedTx.queryOne<{ updated: true } | undefined>(
+        "update public.shows set last_checked_at = now() where drive_file_id = $1 returning true as updated",
+        [driveFileId],
+      );
       await logSync(deps, driveFileId, prepared.result, prepared.payload);
       return prepared.result;
     });
@@ -3675,6 +3699,9 @@ export async function runScheduledCronSync(
     | "finish" = "resolve-folder";
   let inFlightDriveFileId: string | null = null;
   let resolvedFolderId: string | null = null;
+  // HOISTED for the hybrid-lifecycle epilogue (spec 2026-07-16 §3.4): the listed
+  // drive_file_id -> Drive modifiedTime map, assigned once the folder is listed.
+  let listedFiles: ReadonlyMap<string, string> = new Map();
   const processed: RunScheduledCronSyncResult["processed"] = []; // HOISTED for throw attribution
 
   // Keep the local lets (read by the S1 syncRunContext attach below) AND the
@@ -3731,6 +3758,7 @@ export async function runScheduledCronSync(
     setPhase("list-folder");
     const files = await listFolder(folderId);
     const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
+    listedFiles = new Map(files.map((file) => [file.driveFileId, file.modifiedTime]));
     setPhase("list-live-shows");
     const liveShows = deps.listLiveShows
       ? await deps.listLiveShows()
@@ -3874,6 +3902,32 @@ export async function runScheduledCronSync(
         });
       }
       setInFlightId(null); // reached only if neither try nor catch re-threw
+    }
+
+    // Hybrid-lifecycle epilogue (spec 2026-07-16 §3.4): resolve the open
+    // ONBOARDING_SHEET_UNREADABLE alert if every previously-failed sheet has
+    // healed. POST-COMMIT, no advisory lock, fail-open (never fail the tick).
+    // The default helper is suppressed when a test-injected `listFolder` is
+    // present (mirrors the listLiveShows / driftEligible ambient-DB guard); an
+    // explicitly-injected observer spy ALWAYS runs. The only durable emit is the
+    // info-level forensic code on a successful resolve (never warn/error).
+    try {
+      const resolveHealed = deps.resolveUnreadableAlertIfHealed
+        ? deps.resolveUnreadableAlertIfHealed
+        : deps.listFolder
+          ? null
+          : resolveUnreadableAlertIfHealed;
+      if (resolveHealed) {
+        const r = await resolveHealed({ activeFolderId: folderId, listedFiles });
+        if (r.kind === "ok" && r.resolved) {
+          await log.info("onboarding unreadable-sheet alert auto-resolved (cron heal)", {
+            source: "cron/sync",
+            code: "ONBOARDING_ALERT_AUTO_RESOLVED",
+          });
+        }
+      }
+    } catch {
+      /* fail-open: never fail the tick */
     }
 
     setPhase("finish");

@@ -92,11 +92,27 @@ import {
   Step3ReviewModal,
   WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
-import { step3Sections, type SectionData } from "@/components/admin/wizard/step3ReviewSections";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
+// Phase-1 extraction (spec 2026-07-16 §5): the rail/content conditional-render
+// sites — including the sole animated railIndicator ternary — moved to
+// ShowReviewSurface.tsx. The §11 source-marker audit below scans modal + surface
+// as one body so the guard follows the moved code; its contract (14 sites,
+// exactly 1 animated) is UNCHANGED. Other MODAL_SRC assertions
+// (WARNING_HIGHLIGHT_MS, the isFinalizeDemoted chained arm) stay modal-only —
+// those elements did not move.
+const SURFACE_SRC = readFileSync(
+  join(ROOT, "components/admin/review/ShowReviewSurface.tsx"),
+  "utf8",
+);
+const MARKER_AUDIT_SRC = `${MODAL_SRC}\n${SURFACE_SRC}`;
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 
 const DFID = "drive-abc-123";
@@ -114,24 +130,29 @@ function warning(kind: string): ParseWarning {
 
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
-  const row = stagedRow(pr);
+  // Row/dfid may be overridden via dataOverrides; derive the row/dfid-dependent
+  // SectionCore fields from the FINAL values so an overridden row propagates.
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? DFID;
   return {
-    pr,
-    row,
-    dfid: DFID,
-    wizardSessionId: WSID,
-    crewMembers: pr.crewMembers,
-    rooms: pr.rooms,
-    hotels: pr.hotelReservations,
-    pullSheet: pr.pullSheet ?? [],
-    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-    ros: pr.runOfShow ?? {},
-    warnings: pr.warnings,
-    agendaBaseline: [],
-    useRawDecisions: [],
+    ...buildStagedSectionData({
+      pr,
+      row,
+      dfid,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [],
+    }),
     ...dataOverrides,
   };
 }
@@ -142,7 +163,7 @@ function tid(name: string): string {
 
 function renderModal(
   opts: {
-    d?: SectionData;
+    d?: StagedSectionData;
     checked?: boolean;
     isDirtyRescan?: boolean;
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
@@ -418,10 +439,7 @@ describe("§11 T8: rescanPending false ↔ true — existing RescanSheetButton l
     const btn = q.getByTestId(`rescan-sheet-button-${DFID}`) as HTMLButtonElement;
     expect(btn.getAttribute("aria-busy")).toBe("false");
     expect(btn.textContent).toBe("Re-scan this sheet");
-    // G3 two-tap guard: first click arms (still not busy), second click fires.
-    fireEvent.click(btn);
-    expect(btn.getAttribute("aria-busy")).toBe("false");
-    expect(btn.textContent).toBe("Confirm re-scan: replaces this staged review");
+    // One-tap (G3 guard withdrawn): a single click fires and flips to pending.
     fireEvent.click(btn);
     await waitFor(() => expect(btn.getAttribute("aria-busy")).toBe("true"));
     expect(btn.textContent).toBe("Re-scanning…");
@@ -532,7 +550,7 @@ describe("§11 C7: checked flips via the card checkbox while the modal is open �
  *  real scrolled pane reports, so `sectionTopFor` recovers the absolute
  *  container-relative top at ANY scroll position. Warning rows are mapped
  *  too (the §E4 jump target). Callers MUST call `restore()` in a finally. */
-function suppressionSetup(opts: { d?: SectionData; checked?: boolean } = {}) {
+function suppressionSetup(opts: { d?: StagedSectionData; checked?: boolean } = {}) {
   vi.useFakeTimers();
   const realRaf = window.requestAnimationFrame;
   const realCaf = window.cancelAnimationFrame;
@@ -712,8 +730,7 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
       ),
     );
     const { q } = renderModal();
-    // G3 two-tap guard: first click arms, second click fires.
-    fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
+    // One tap fires (G3 guard withdrawn).
     fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     const result = q.getByTestId(`rescan-sheet-result-${DFID}`);
@@ -755,7 +772,7 @@ describe("§H N5: Publish ↔ Unpublish ↔ Removing… ↔ NotPublishable slot 
     const { q } = renderModal({ d, checked: false });
     expect(q.getByTestId(tid("publish"))).toBeTruthy();
     expect(q.queryByTestId(tid("not-publishable"))).toBeNull();
-    const demoted: SectionData = {
+    const demoted: StagedSectionData = {
       ...d,
       row: { ...d.row, lastFinalizeFailureCode: "DRIVE_FETCH_FAILED" },
     };
@@ -1002,8 +1019,7 @@ describe("§H compound (d): unpublish resolves while the rescan overlay result i
         }),
     );
     const { q } = renderModal({ d, checked: true, onRequestSetChecked });
-    // Open the overlay result first (G3 two-tap guard: arm, then fire).
-    fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
+    // Open the overlay result first (one tap fires — G3 guard withdrawn).
     fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     // Start the unpublish while the overlay is open.
@@ -1068,13 +1084,13 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     // 10 pre-consolidation + 4 added by the Step-3 re-apply resolution fold
     // (spec §4.4): resolution body head, corrupt-vs-items branch, resolution
     // footer head, error note, approve-vs-corrupt. All deliberate-instant.
-    const hits = findConditionalLines(MODAL_SRC);
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     expect(hits.length).toBe(14);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
-    const lines = MODAL_SRC.split("\n");
-    const hits = findConditionalLines(MODAL_SRC);
+    const lines = MARKER_AUDIT_SRC.split("\n");
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     const unclassified: string[] = [];
     for (const idx of hits) {
       const { classified } = isClassified(lines, idx);
@@ -1084,8 +1100,8 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
   });
 
   test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 13 are INSTANT (§11 'deliberate instant' rows)", () => {
-    const lines = MODAL_SRC.split("\n");
-    const hits = findConditionalLines(MODAL_SRC);
+    const lines = MARKER_AUDIT_SRC.split("\n");
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     const animated = hits.filter((idx) => {
       const { classified, instant } = isClassified(lines, idx);
       return classified && !instant;

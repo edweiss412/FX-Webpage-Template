@@ -1,70 +1,137 @@
 // @vitest-environment jsdom
-// M12.2 Phase A Task 9 — per-show page rework (spec §6). Archived-first status
-// pill; crew-link surfaces gated on published && !archived && token; preview-as
-// + rotate/reset gated on published && !archived; archived ParsePanel read-only;
-// quiet sync footer. Full async-page render with mocked data layer.
-import "@testing-library/jest-dom/vitest";
+/**
+ * tests/app/admin/perShowPage.test.tsx
+ * (consolidated-admin-show-page spec §4–§6, §10–§11 — Task 13 page rebuild)
+ *
+ * The consolidated per-show admin page: the snapshot-RPC read path
+ * (`readShowReviewSnapshot`) feeds the mode-agnostic PublishedSectionData; the
+ * page renders the pinned StatusStrip over the shared ShowReviewSurface with
+ * Overview first / Changes last. This replaces the pre-consolidation page tests
+ * (AdminPageHeader + per-show-crew-col + flat data-quality panel), preserving the
+ * load-bearing behaviors the old suite pinned:
+ *   - auth/lookup gates: missing show → notFound; snapshot not_admin_or_missing →
+ *     notFound; snapshot infra_error → throw (error boundary, no raw code in UI).
+ *   - archived read-only posture (strip archived badge, no toggle, Overview
+ *     Unarchive + inactive share notice).
+ *   - share-panel gating on published && !archived (shareSlot vs inactive notice).
+ *   - Preview-As gating on published && !archived.
+ *   - the ADMIN_SHOW_* slug-correlation structural guard.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { isValidElement, type ReactElement } from "react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
-import type { LogRecord } from "@/lib/log/types";
+import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 
 const state = vi.hoisted(() => ({
-  show: {} as Record<string, unknown>,
-  crew: [] as Array<Record<string, unknown>>,
-  pending: [] as Array<Record<string, unknown>>,
-  token: null as string | null,
-  // Phase 6 — the per-show changes feed (replaces the retired ParsePanel mount).
-  feed: {
-    entries: [] as Array<Record<string, unknown>>,
-    truncated: false,
-    totalShown: 0,
-  } as { entries: Array<Record<string, unknown>>; truncated: boolean; totalShown: number },
-  feedThrows: false as boolean,
-  // Task 6 (A4 part 2) — per-read invocation counters so a guard test can assert
-  // feed + crew + token are ALL issued (preserved under Promise.all) and exactly
-  // once each (no accidental duplicate read introduced by the fan-out).
-  feedReadCalls: 0 as number,
-  tokenReadCalls: 0 as number,
-  crewReadCalls: 0 as number,
-  selectColsByTable: {} as Record<string, string>,
-  // Flow 5 plan R1 — per-table recorded .limit(n) so reads are PostgREST-faithful
-  // (rows truncated to the requested bound) and the exact bound is assertable.
-  limitByTable: {} as Record<string, number>,
-  // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
-  // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
+  // slug→id lookup on shows.
+  showIdRow: { id: "s1" } as { id: string } | null,
+  showIdError: null as { message: string } | null,
+  // snapshot RPC result.
+  snapshotKind: "ok" as "ok" | "not_admin_or_missing" | "infra_error",
+  snapshot: null as ShowReviewSnapshot | null,
   finalizeOwned: false as boolean,
-  // parse-data-quality-warnings Task 12 — the per-show Data-Quality panel reads
-  // shows_internal.parse_warnings (maybeSingle). Seed the row + per-table
-  // throw/error toggles for the invariant-9 read-failure paths.
-  showsInternal: null as Record<string, unknown> | null,
-  throwOnFromTable: null as string | null,
-  errorOnFromTable: null as string | null,
-  // ignored_warnings.fingerprint rows returned by loadIgnoredWarnings (data-quality ignore).
-  ignoredFingerprints: [] as string[],
-  // Correlation-tail: the two silent catch blocks (readToken + readfinalizeowned_b2 rpc).
+  // finalize-owned RPC fault injection (invariant 9): a returned {error} or a
+  // thrown await must BOTH be logged and BOTH fail toward NOT-finalize-owned.
+  finalizeError: null as { message: string } | null,
+  finalizeThrows: false as boolean,
+  token: "tok-123" as string | null,
   tokenThrows: false as boolean,
-  finalizeRpcThrows: false as boolean,
+  feed: { entries: [], truncated: false, totalShown: 0 } as {
+    entries: Array<Record<string, unknown>>;
+    truncated: boolean;
+    totalShown: number;
+  },
+  feedThrows: false as boolean,
+  ignoredFingerprints: [] as string[],
+  ignoredInfraError: false as boolean,
+  alerts: [] as Array<Record<string, unknown>>,
 }));
 
-// Async Server Component children can't be client-rendered by RTL — stub them.
+const logSpy = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logSpy }));
+
+vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
+vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-14T18:00:00.000Z") }));
+vi.mock("next/navigation", () => ({
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/admin/show/rpas",
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({
+    from(_table: string) {
+      const builder: Record<string, unknown> = {};
+      const pass = () => builder;
+      builder.select = pass;
+      builder.eq = pass;
+      builder.limit = pass;
+      builder.maybeSingle = async () => ({ data: state.showIdRow, error: state.showIdError });
+      return builder;
+    },
+    rpc: async (fn: string) => {
+      if (fn === "readfinalizeowned_b2") {
+        if (state.finalizeThrows) throw new Error("META: finalize rpc await fault");
+        return { data: state.finalizeOwned, error: state.finalizeError };
+      }
+      return { data: null, error: null };
+    },
+  }),
+}));
+
+vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
+  readShowReviewSnapshot: async () => {
+    if (state.snapshotKind === "not_admin_or_missing") return { kind: "not_admin_or_missing" };
+    if (state.snapshotKind === "infra_error") return { kind: "infra_error", message: "boom" };
+    return { kind: "ok", snapshot: state.snapshot };
+  },
+}));
+
+vi.mock("@/lib/data/loadShowShareToken", () => ({
+  loadShowShareToken: async () => {
+    if (state.tokenThrows) throw new Error("META: token read fault");
+    return { token: state.token, epoch: 7 };
+  },
+}));
+
+vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
+  const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+  return {
+    readShowChangeFeed: async () => {
+      if (state.feedThrows)
+        throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
+      return state.feed;
+    },
+  };
+});
+
+vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
+  loadIgnoredWarnings: async () =>
+    state.ignoredInfraError
+      ? { kind: "infra_error", message: "boom" }
+      : { kind: "ok", fingerprints: new Set(state.ignoredFingerprints) },
+}));
+
+// Server child components: PerShowAlertSection is an async Server Component (stub
+// to null); fetchPerShowAlerts is the count source (returns the seeded rows).
 vi.mock("@/components/admin/PerShowAlertSection", () => ({
   PerShowAlertSection: () => null,
+  fetchPerShowAlerts: async () => state.alerts,
 }));
+
+// CurrentShareLinkPanel is an async Server shell — stub it, exposing the wired
+// props so the page's threading (crewEmails/showTitle/isCrewLinkActive) is
+// assertable and the resetSlot passthrough is observable.
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
   const React = await import("react");
   return {
-    // Instant-rotate rework: the panel is now a thin server shell delegating the
-    // token-dependent body + rotate row + reset slot to the client <ShareLinkBody>
-    // (which reads the token from <ShareTokenProvider>). The `token`/`actions`
-    // props are gone; the page passes `resetSlot` + `isCrewLinkActive` +
-    // crewEmails/showTitle. The rotate button + reset control now live INSIDE this
-    // (mocked-away) real panel, so the stub renders a placeholder rotate button
-    // and the page-passed resetSlot so the page-level presence/absence assertions
-    // (gated on panel presence = show eligibility) still exercise the gating, and
-    // exposes crewEmails/showTitle/isCrewLinkActive as data attributes (the page
-    // forgetting to thread them cannot be caught at the component level).
     CurrentShareLinkPanel: (props: {
       resetSlot?: React.ReactNode;
       isCrewLinkActive?: boolean;
@@ -79,979 +146,345 @@ vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
           "data-show-title": props.showTitle ?? "",
           "data-is-crew-link-active": String(props.isCrewLinkActive ?? ""),
         },
-        React.createElement("button", { "data-testid": "admin-rotate-share-token-button" }),
         props.resetSlot,
       ),
   };
 });
 
-// Phase 6 — the changes feed is the server-only (service-role) data layer; the
-// page calls it after requireAdmin. Mock it so the per-show page render exercises
-// the ChangesFeed mount (a thrown SyncInfraError degrades to a calm notice).
-vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
-  // Import the REAL perFileProcessor through the normal module graph (it is not
-  // mocked) so the thrown SyncInfraError is the SAME class the page's
-  // `instanceof SyncInfraError` check uses — vi.importActual would yield a
-  // distinct evaluation and the instanceof would miss.
-  const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+function baseSnapshot(overrides: Partial<Record<string, unknown>> = {}): ShowReviewSnapshot {
   return {
-    readShowChangeFeed: async () => {
-      state.feedReadCalls += 1;
-      if (state.feedThrows) {
-        throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
-      }
-      return state.feed;
+    show: {
+      id: "s1",
+      slug: "rpas",
+      title: "RPAS Central",
+      client_label: "Northwind Bank",
+      client_contact: null,
+      dates: {
+        travelIn: "2026-06-14",
+        set: null,
+        showDays: ["2026-06-14", "2026-06-15"],
+        travelOut: "2026-06-15",
+      },
+      venue: { name: "Hall A", address: "1 Main St" },
+      event_details: null,
+      agenda_links: [],
+      coi_status: "received",
+      diagrams: null,
+      pull_sheet: [],
+      source_anchors: {},
+      drive_file_id: "d1",
+      published: true,
+      archived: false,
+      picker_epoch: 7,
+      last_synced_at: "2026-06-14T10:00:00.000Z",
+      last_sync_status: "ok",
+      ...overrides,
     },
+    internal: {
+      financials: null,
+      parse_warnings: [],
+      raw_unrecognized: null,
+      run_of_show: {},
+      use_raw_decisions: [],
+      show_id: "s1",
+    },
+    crew_members: [{ id: "c1", name: "Alex Lee", role: "A1", email: "alex@example.com" }],
+    rooms: [],
+    hotel_reservations: [],
+    transportation: [],
+    contacts: [],
   };
-});
+}
 
-vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
-vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
-vi.mock("@/lib/data/loadShowShareToken", () => ({
-  loadShowShareToken: async () => {
-    state.tokenReadCalls += 1;
-    if (state.tokenThrows) throw new Error("META: token read fault");
-    // Atomic token+epoch read (instant-rotate rework): the loader now returns
-    // both from ONE snapshot. epoch is a constant here — no per-show test varies it.
-    return { token: state.token, epoch: 7 };
-  },
-}));
-vi.mock("next/navigation", () => ({
-  notFound: () => {
-    throw new Error("NEXT_NOT_FOUND");
-  },
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/admin/show/x",
-}));
-
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({
-    from(table: string) {
-      if (state.throwOnFromTable === table) {
-        throw new Error(`META: from('${table}') infra fault`);
-      }
-      if (table === "crew_members") state.crewReadCalls += 1;
-      const tableError =
-        state.errorOnFromTable === table ? { message: `META: ${table} returned error` } : null;
-      const builder: Record<string, unknown> = {};
-      const pass = () => builder;
-      builder.select = (cols?: string) => {
-        if (typeof cols === "string") state.selectColsByTable[table] = cols;
-        return builder;
-      };
-      builder.eq = pass;
-      builder.is = pass;
-      builder.in = pass;
-      builder.not = pass;
-      builder.order = pass;
-      builder.limit = (n: number) => {
-        state.limitByTable[table] = n;
-        return builder;
-      };
-      builder.returns = pass;
-      builder.maybeSingle = async () => ({
-        data: tableError
-          ? null
-          : table === "shows"
-            ? state.show
-            : table === "shows_internal"
-              ? state.showsInternal
-              : null,
-        error: tableError,
-      });
-      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
-        const data =
-          table === "crew_members"
-            ? state.crew.slice(
-                0,
-                state.limitByTable[table] === undefined
-                  ? state.crew.length
-                  : state.limitByTable[table],
-              )
-            : table === "pending_syncs"
-              ? state.pending
-              : table === "ignored_warnings"
-                ? state.ignoredFingerprints.map((f) => ({ fingerprint: f }))
-                : [];
-        return onf({ data: tableError ? null : data, error: tableError });
-      };
-      return builder;
-    },
-    rpc: async (fn: string) => {
-      if (fn === "readfinalizeowned_b2") {
-        if (state.finalizeRpcThrows) throw new Error("META: readfinalizeowned_b2 fault");
-        return { data: state.finalizeOwned, error: null };
-      }
-      return { data: null, error: null };
-    },
-  }),
-}));
-
-const baseShow = {
-  id: "s1",
-  slug: "rpas",
-  title: "RPAS Central",
-  client_label: "Northwind Bank",
-  dates: {
-    travelIn: "2026-06-14",
-    set: null,
-    showDays: ["2026-06-14", "2026-06-15"],
-    travelOut: "2026-06-15",
-  },
-  drive_file_id: "d1",
-  published: true,
-  archived: false,
-  last_synced_at: "2026-06-03T10:00:00.000Z",
-  last_sync_status: "ok",
-};
-
-const pendingRow = {
-  staged_id: "stg-1",
-  drive_file_id: "d1",
-  source_kind: "manual",
-  staged_modified_time: "2026-06-02T00:00:00.000Z",
-  base_modified_time: null,
-  warning_summary: "needs review",
-  triggered_review_items: [],
-  parse_result: { show: { title: "RPAS Central" } },
-};
-
-async function renderPage() {
+async function buildPageElement(): Promise<ReactElement> {
   const mod = await import("@/app/admin/show/[slug]/page");
-  const ui = await mod.default({
+  return (await mod.default({
     params: Promise.resolve({ slug: "rpas" }),
     searchParams: Promise.resolve({}),
-  });
-  render(ui);
+  })) as ReactElement;
+}
+
+async function renderPage() {
+  render(await buildPageElement());
+}
+
+// The page returns <ShareTokenProvider><PublishedReviewPage shareSlot=… /></…>.
+// Read the shareSlot prop the server page hands the client shell — the RSC
+// serialization boundary — WITHOUT rendering (rendered-tree assertions can't
+// distinguish "withheld from the payload" from "hidden client-side", since
+// OverviewSection hides the slot for ineligible shows either way).
+function shareSlotProp(ui: ReactElement): unknown {
+  const shell = (ui.props as { children: ReactElement }).children;
+  return (shell.props as { shareSlot: unknown }).shareSlot;
 }
 
 beforeEach(() => {
-  state.show = { ...baseShow };
-  state.crew = [{ id: "c1", name: "Alex Lee", role: "A1" }];
-  state.pending = [];
+  state.showIdRow = { id: "s1" };
+  state.showIdError = null;
+  state.snapshotKind = "ok";
+  state.snapshot = baseSnapshot();
+  state.finalizeOwned = false;
+  state.finalizeError = null;
+  state.finalizeThrows = false;
+  logSpy.error.mockClear();
+  logSpy.warn.mockClear();
+  logSpy.info.mockClear();
   state.token = "tok-123";
+  state.tokenThrows = false;
   state.feed = { entries: [], truncated: false, totalShown: 0 };
   state.feedThrows = false;
-  state.feedReadCalls = 0;
-  state.tokenReadCalls = 0;
-  state.crewReadCalls = 0;
-  state.selectColsByTable = {};
-  state.limitByTable = {};
-  state.finalizeOwned = false;
-  state.showsInternal = null;
-  state.throwOnFromTable = null;
-  state.errorOnFromTable = null;
   state.ignoredFingerprints = [];
-  state.tokenThrows = false;
-  state.finalizeRpcThrows = false;
+  state.ignoredInfraError = false;
+  state.alerts = [];
 });
 afterEach(() => {
   cleanup();
   vi.resetModules();
 });
 
-describe("per-show page (§6)", () => {
-  it("select adds last_synced_at, last_sync_status, archived (V2) + client_label, dates (M12.3 #16 subtitle)", async () => {
-    await renderPage();
-    const cols = state.selectColsByTable.shows ?? "";
-    expect(cols).toMatch(/archived/);
-    expect(cols).toMatch(/last_synced_at/);
-    expect(cols).toMatch(/last_sync_status/);
-    expect(cols).toMatch(/client_label/);
-    expect(cols).toMatch(/dates/);
+describe("consolidated per-show page — lookup + snapshot gates (§6/§11)", () => {
+  it("missing show (slug lookup returns no row) → notFound()", async () => {
+    state.showIdRow = null;
+    await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("wraps the ReSyncButton in a stable #resync anchor for the RESYNC_SHRINK_HELD action link", async () => {
-    // Failure mode: without the fragment target, the alert action link
-    // (/admin/show/<slug>#resync, lib/adminAlerts/alertActions.ts) has nowhere to scroll and the
-    // admin must hunt for the Re-sync control. The anchor must CONTAIN the ReSyncButton.
-    await renderPage();
-    const anchor = document.querySelector("#resync");
-    expect(anchor).not.toBeNull();
-    expect(anchor?.querySelector('[data-testid="admin-resync-button"]')).not.toBeNull();
+  it("slug lookup returned error → throws (error boundary), not a silent render", async () => {
+    state.showIdError = { message: "db down" };
+    await expect(renderPage()).rejects.toThrow("show_lookup_failed");
   });
 
-  // Task 4.3 (B1): the back affordance moved into AdminPageHeader. There is
-  // exactly ONE back link (admin-page-header-back → "Back to dashboard") and NO
-  // standalone in-body "← Admin home" link. Supersedes the Phase-A
-  // "keeps ← Admin home" assertion (the in-body link was removed).
-  it("renders AdminPageHeader back link, NOT a duplicate in-body '← Admin home'", async () => {
-    await renderPage();
-    expect(screen.getByTestId("admin-page-header-back")).toBeInTheDocument();
-    expect(screen.queryByText(/Admin home/)).toBeNull();
-    // exactly one back affordance overall
-    expect(screen.getAllByRole("link", { name: /Back to dashboard/ })).toHaveLength(1);
+  it("snapshot not_admin_or_missing → notFound()", async () => {
+    state.snapshotKind = "not_admin_or_missing";
+    await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("renders the AdminPageHeader breadcrumb 'Admin › Active shows'", async () => {
+  it("snapshot infra_error → throws to the error boundary (no raw code rendered)", async () => {
+    state.snapshotKind = "infra_error";
+    await expect(renderPage()).rejects.toThrow("show_review_snapshot_failed");
+  });
+});
+
+describe("consolidated per-show page — shell + rail sections (§4/§5)", () => {
+  it("renders the status strip with the show title and the page container", async () => {
     await renderPage();
-    expect(screen.getByTestId("admin-page-header-crumb").textContent).toBe("Admin › Active shows");
+    expect(screen.getByTestId("admin-show-page")).toBeTruthy();
+    expect(screen.getByTestId("strip-title").textContent).toBe("RPAS Central");
   });
 
-  it("title + pill + chip live in the AdminPageHeader (single source, rendered once)", async () => {
+  it("mounts Overview first and Changes last as rail sections", async () => {
     await renderPage();
-    // title is the header's title node
-    expect(screen.getByTestId("admin-page-header-title").textContent).toBe("RPAS Central");
-    // M12.9: the status pill is APPENDED inline after the title
-    // (admin-page-header-title-append); the share chip is the right slot.
-    const titleAppend = screen.getByTestId("admin-page-header-title-append");
-    const right = screen.getByTestId("admin-page-header-right");
-    const pill = screen.getByTestId("admin-show-status-pill");
-    const chip = screen.getByTestId("admin-show-share-chip");
-    expect(titleAppend).toContainElement(pill);
-    expect(right).toContainElement(chip);
-    // the pill is NOT in the right slot anymore (it moved next to the title)
-    expect(right).not.toContainElement(pill);
-    expect(screen.getAllByTestId("admin-show-status-pill")).toHaveLength(1);
-    expect(screen.getAllByTestId("admin-show-share-chip")).toHaveLength(1);
+    const overview = screen.getByTestId("overview-section");
+    const changes = screen.getByTestId("changes-section");
+    expect(overview).toBeTruthy();
+    expect(changes).toBeTruthy();
+    // Every registry section sits between Overview and Changes.
+    const registry = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid*="review-section-"]'),
+    );
+    expect(registry.length).toBeGreaterThan(0);
+    const after = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    for (const s of registry) {
+      expect(after(overview, s)).toBe(true);
+      expect(after(s, changes)).toBe(true);
+    }
   });
 
-  it("status pill: published+!archived -> Published", async () => {
+  it("published+active: strip publish toggle present, no archived badge", async () => {
     await renderPage();
-    expect(screen.getByTestId("admin-show-status-pill").textContent).toMatch(/Published/);
+    expect(screen.getByTestId("strip-publish-toggle")).toBeTruthy();
+    expect(screen.queryByTestId("strip-archived-badge")).toBeNull();
+  });
+});
+
+describe("consolidated per-show page — share panel gating (§5.1/§6)", () => {
+  it("published+active: Overview shows the share panel, NOT the inactive notice", async () => {
+    await renderPage();
+    expect(screen.getByTestId("admin-current-share-link-panel")).toBeTruthy();
+    expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
   });
 
-  it("status pill archived-first: archived+published drift -> Archived (not Published)", async () => {
-    state.show = { ...baseShow, archived: true, published: true };
+  it("unpublished (held): Overview shows the inactive notice, no share panel", async () => {
+    state.snapshot = baseSnapshot({ published: false, archived: false });
     await renderPage();
-    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
-    expect(pill).toMatch(/Archived/);
-    expect(pill).not.toMatch(/Published/);
-  });
-
-  // §3.2 precedence: finalize-owned !published → "Publishing…" (the warn pill).
-  it("status pill: !published + finalize-owned -> Publishing…", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
-    state.finalizeOwned = true;
-    await renderPage();
-    expect(screen.getByTestId("admin-show-status-pill").textContent).toMatch(/Publishing/);
-  });
-
-  // §3.2 precedence: !published + NOT finalize-owned → "Held — not published"
-  // (the neutral idle pill, distinct from the warn "Publishing…").
-  it("status pill: !published + NOT finalize-owned -> Held — not published", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
-    state.finalizeOwned = false;
-    await renderPage();
-    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
-    expect(pill).toMatch(/Held/);
-    expect(pill).not.toMatch(/Publishing/);
-  });
-
-  it("crew-link surfaces present when published && !archived && token", async () => {
-    await renderPage();
-    expect(screen.getByTestId("admin-show-share-chip")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-show-open-crew")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
-  });
-
-  // M12.12 follow-up — the "Open crew page →" arrow is decorative; aria-hiding
-  // it keeps it out of the accessible name. Failure mode caught: someone
-  // inlines the arrow back into the accessible name.
-  it("Open-crew-page accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
-    await renderPage();
-    const link = screen.getByRole("link", { name: "Open crew page" });
-    expect(link).toHaveAttribute("data-testid", "admin-show-open-crew");
-    expect(link).toHaveAttribute("aria-label", "Open crew page");
-    // Visible text run stays UNSPLIT — splitting it drops the inline-flex
-    // inter-item space / shifts text-decoration paint (byte-level screenshot
-    // drift).
-    expect(link.textContent).toBe("Open crew page →");
-    expect(link.firstElementChild).toBeNull();
-  });
-
-  it("crew-link surfaces hidden for archived show (incl archived+published drift)", async () => {
-    state.show = { ...baseShow, archived: true, published: true };
-    await renderPage();
-    expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
-    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
-    // ineligible show → the inactive notice REPLACES CurrentShareLinkPanel
     expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
+    expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
   });
 
-  it("ineligible show (unpublished) never serializes the real token to the client — §6.6 non-exposure", async () => {
-    // The atomic read returns a REAL token, but the show is unpublished, so the
-    // ShareTokenProvider seed is `null` (initialToken = eligible ? token : null).
-    // The token string must therefore appear NOWHERE in the rendered DOM — no
-    // chip title/code, no crew href, no card URL — closing the client-exposure
-    // hole where an ineligible show still shipped its token to the browser.
-    state.show = { ...baseShow, published: false, archived: false };
+  it("threads fixture-derived non-null emails + title into the share panel", async () => {
+    state.snapshot = baseSnapshot();
+    state.snapshot.crew_members = [
+      { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
+      { id: "c2", name: "Bob", role: "A2", email: null },
+      { id: "c3", name: "Cal", role: "V1", email: "cal@example.com" },
+    ];
+    await renderPage();
+    const panel = screen.getByTestId("admin-current-share-link-panel");
+    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([
+      "ann@example.com",
+      "cal@example.com",
+    ]);
+    expect(panel.getAttribute("data-show-title")).toBe("RPAS Central");
+  });
+
+  it("ineligible (unpublished) show never serializes the real token to the client", async () => {
+    state.snapshot = baseSnapshot({ published: false, archived: false });
     state.token = "s3cr3ttokenvalue9f8e7d6c5b4a";
     await renderPage();
     expect(document.body.innerHTML).not.toContain(state.token);
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
-    expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
-    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
+  });
+});
+
+describe("consolidated per-show page — share-cluster serialization gate (§6, server-side)", () => {
+  // The share cluster (CurrentShareLinkPanel + PickerResetControl) carries live
+  // server-action refs (rotate share-token + per-member picker reset). For an
+  // ineligible show OverviewSection HIDES it client-side, but the server page
+  // must ALSO withhold the slot from the RSC payload — hiding is not enough
+  // because reset_crew_member_selection has no archived/published/finalize
+  // lifecycle guard (admin-only but lifecycle-agnostic). Assert the shareSlot
+  // PROP is null for archived AND unpublished (withheld, not merely hidden), and
+  // a real element for published+active. Old-page parity (merge-base page.tsx:792
+  // gated the cluster with isShowEligibleForCrewLink server-side).
+
+  it("published+active: the share cluster IS serialized (a real element slot)", async () => {
+    const ui = await buildPageElement();
+    expect(isValidElement(shareSlotProp(ui))).toBe(true);
   });
 
-  it("token-read failure on a PUBLISHED ACTIVE show: token surfaces hidden but Share panel recovers (NOT the unpublished/archived notice) — Codex R1", async () => {
-    // A transient loadShowShareToken null/throw must NOT make a published+active
-    // show read as unpublished/archived. The token-dependent chip/open-crew are
-    // hidden (no real URL), but CurrentShareLinkPanel renders (its own
-    // unavailable/recovery state), and the inactive notice is NOT shown.
-    state.token = null;
+  it("unpublished (held): shareSlot withheld from the payload (null, not merely hidden)", async () => {
+    state.snapshot = baseSnapshot({ published: false, archived: false });
+    const ui = await buildPageElement();
+    expect(shareSlotProp(ui)).toBeNull();
+  });
+
+  it("archived: shareSlot withheld from the payload (null, not merely hidden)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
+    const ui = await buildPageElement();
+    expect(shareSlotProp(ui)).toBeNull();
+  });
+});
+
+describe("consolidated per-show page — archived read-only posture (§6)", () => {
+  it("archived: strip archived badge, no publish toggle, Overview Unarchive + inactive notice", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
     await renderPage();
-    expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
-    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
-    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
-    // rotate still rendered for the eligible show (its success URL must show)
-    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeInTheDocument();
+    expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
+    expect(screen.queryByTestId("strip-publish-toggle")).toBeNull();
+    expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
+    // Re-sync paused on the read-only surface (no re-sync button in Overview).
+    expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
   });
 
-  it("preview-as links rendered only when published && !archived", async () => {
-    await renderPage();
-    expect(screen.getByTestId("admin-show-preview-as-link-c1")).toBeInTheDocument();
-  });
-
-  it("preview-as links absent + unavailable notice for archived show", async () => {
-    state.show = { ...baseShow, archived: true, published: true };
+  it("archived: no Preview-As links (gate published && !archived)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
     await renderPage();
     expect(screen.queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
-    expect(screen.getByTestId("admin-show-preview-as-unavailable")).toBeInTheDocument();
   });
+});
 
-  it("rotate + reset rendered only when published && !archived", async () => {
+describe("consolidated per-show page — Preview-As gating (§5.5)", () => {
+  it("published+!archived: crew row shows a Preview-As link", async () => {
     await renderPage();
-    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeInTheDocument();
-    expect(screen.getByTestId("picker-reset-control")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-show-preview-as-link-c1")).toBeTruthy();
   });
 
-  it("rotate + reset hidden for a publishing (unpublished) show", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
+  it("roster over CREW_ROSTER_READ_CAP → Preview-As links blanked + empty crewEmails", async () => {
+    state.snapshot = baseSnapshot();
+    state.snapshot.crew_members = Array.from({ length: CREW_ROSTER_READ_CAP + 5 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Crew ${i}`,
+      role: "A1",
+      email: `crew${i}@example.com`,
+    }));
     await renderPage();
-    expect(screen.queryByTestId("admin-rotate-share-token-button")).toBeNull();
-    expect(screen.queryByTestId("picker-reset-control")).toBeNull();
+    expect(screen.queryByTestId("admin-show-preview-as-link-c0")).toBeNull();
+    const panel = screen.getByTestId("admin-current-share-link-panel");
+    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
   });
+});
 
-  // Phase 6 — the legacy live whole-parse review mount (ParsePanel) is RETIRED on
-  // the per-show page (§8 / resolution #21 cutover): no invariant stages a whole
-  // parse anymore. The page mounts the ChangesFeed instead, and never the
-  // staged-review apply/read-only affordances.
-  it("does NOT mount the retired live whole-parse ParsePanel review (archived)", async () => {
-    state.show = { ...baseShow, archived: true, published: true };
+describe("consolidated per-show page — Changes + alerts (§5.4/§5.1)", () => {
+  it("Changes section renders the calm empty state when there are no changes", async () => {
     await renderPage();
-    expect(screen.queryByTestId("staged-review-read-only")).toBeNull();
-    expect(screen.queryByTestId("staged-review-apply")).toBeNull();
-    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
+    expect(screen.getByTestId("changes-section")).toBeTruthy();
+    expect(screen.getByTestId("change-feed-empty")).toBeTruthy();
   });
 
-  it("does NOT mount the retired live whole-parse ParsePanel review (non-archived)", async () => {
-    await renderPage();
-    expect(screen.queryByTestId("staged-review-apply")).toBeNull();
-    expect(screen.queryByTestId("staged-review-read-only")).toBeNull();
-    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
-  });
-
-  it("mounts the changes feed (calm empty state when no changes)", async () => {
-    await renderPage();
-    expect(screen.getByTestId("change-feed-empty")).toBeInTheDocument();
-  });
-
-  it("renders the changes-feed entries when present", async () => {
-    state.feed = {
-      entries: [
-        {
-          id: "e1",
-          occurredAt: "2026-06-03T09:00:00.000Z",
-          status: "applied",
-          action: "none",
-          summary: "Section shrank",
-          entityRef: null,
-          // Required FeedEntry disposition fields — state.feed is untyped
-          // (Record<string, unknown>), so typecheck can't enforce these; an
-          // omitted acknowledgedAt renders a phantom Accepted tag
-          // (undefined !== null). Keep fixtures shape-complete.
-          acceptable: false,
-          acknowledgedAt: null,
-        },
-      ],
-      truncated: false,
-      totalShown: 1,
-    };
-    await renderPage();
-    expect(screen.getByTestId("change-feed-entry-e1")).toBeInTheDocument();
-  });
-
-  // Spec 2026-07-15 — page wiring for the feed disposition axis: an acceptable
-  // entry renders the Accept control (server action + showId threaded through
-  // ChangesFeed), and the section heading carries the renamed label.
-  it("renders Accept + Accept all for an acceptable feed entry, under the 'Sheet changes' heading", async () => {
-    state.feed = {
-      entries: [
-        {
-          id: "e-acc",
-          occurredAt: "2026-06-03T09:00:00.000Z",
-          status: "applied",
-          action: "none",
-          summary: "Field changed: dates",
-          entityRef: null,
-          acceptable: true,
-          acknowledgedAt: null,
-        },
-      ],
-      truncated: false,
-      totalShown: 1,
-    };
-    await renderPage();
-    const row = screen.getByTestId("change-feed-entry-e-acc");
-    expect(within(row).getByTestId("change-feed-accept")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Accept all (1)" })).toBeInTheDocument();
-    expect(document.getElementById("admin-changes-feed-heading")?.textContent).toBe(
-      "Sheet changes",
-    );
-  });
-
-  it("degrades to a calm notice when the feed read throws a SyncInfraError", async () => {
+  it("feed SyncInfraError degrades to a calm notice inside Changes", async () => {
     state.feedThrows = true;
     await renderPage();
-    expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
+    expect(screen.getByTestId("change-feed-infra-error")).toBeTruthy();
     expect(screen.queryByTestId("change-feed-empty")).toBeNull();
   });
 
-  // Task 6 (A4 part 2) — parallelization guard. After the show.id lookup, the
-  // feed + crew + token reads are issued in one Promise.all wave. This guard
-  // pins (a) all three reads still occur exactly once (the fan-out did not drop
-  // or duplicate a read) and (b) the show normal-render data is intact (crew
-  // rows + share surfaces present). Anti-tautology: counts derive from the
-  // mocked read invocations, not the rendered DOM.
-  it("issues feed + crew + token reads exactly once each (preserved under Promise.all)", async () => {
+  it("open alerts → strip alert badge shows the count; zero → no badge", async () => {
+    state.alerts = [{ id: "a1" }, { id: "a2" }];
     await renderPage();
-    expect(state.feedReadCalls).toBe(1);
-    expect(state.tokenReadCalls).toBe(1);
-    expect(state.crewReadCalls).toBe(1);
-    // normal render intact: crew row + share panel present
-    expect(screen.getByTestId("admin-show-crew-row-c1")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
+    const badge = screen.getByTestId("strip-alert-badge");
+    expect(badge.textContent).toMatch(/2/);
   });
 
-  // Task 6 — a feed SyncInfraError must NOT prevent the sibling crew + token
-  // reads in the same wave from completing, AND must still degrade to the calm
-  // notice (the fan-out did not turn the typed degrade into a crash). Crew rows
-  // + share surfaces from the sibling reads must still render.
-  it("feed SyncInfraError still degrades AND sibling crew/token reads still complete", async () => {
-    state.feedThrows = true;
+  it("no open alerts → no strip alert badge", async () => {
+    state.alerts = [];
     await renderPage();
-    // feed degraded to the calm notice (not a crash)
-    expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
-    // sibling reads in the same Promise.all wave still completed + rendered
-    expect(state.crewReadCalls).toBe(1);
-    expect(state.tokenReadCalls).toBe(1);
-    expect(screen.getByTestId("admin-show-crew-row-c1")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
-  });
-
-  it("sync footer shows 'Last synced {rel}' + StatusIndicator", async () => {
-    await renderPage();
-    const footer = screen.getByTestId("admin-show-sync-footer");
-    expect(footer.textContent).toMatch(/Last synced/);
-    expect(footer.querySelector("[data-testid^='status-dot-']")).not.toBeNull();
-  });
-
-  it("sync footer 'Not synced yet' when last_synced_at is null", async () => {
-    state.show = { ...baseShow, last_synced_at: null, last_sync_status: null };
-    await renderPage();
-    expect(screen.getByTestId("admin-show-sync-footer").textContent).toMatch(/Not synced yet/);
-  });
-
-  // Codex impl-diff finding (M12.2-A close-out): a non-ok sync status with a
-  // non-null last_synced_at must surface its TEXTUAL health label, not just a
-  // color dot (the dot is aria-hidden — color-only would be an a11y/observability
-  // regression and contradicts ShowsTable's SyncCell + syncStatus.ts intent).
-  it.each([
-    ["drive_error", /Couldn't reach Drive/],
-    ["parse_error", /Couldn't read the sheet/],
-    ["pending_review", /Changes to review/],
-    ["pending", /Sync in progress/],
-  ])("sync footer surfaces the textual label for non-ok status %s", async (status, labelRe) => {
-    state.show = {
-      ...baseShow,
-      last_sync_status: status,
-      last_synced_at: "2026-06-03T08:00:00.000Z",
-    };
-    await renderPage();
-    const footer = screen.getByTestId("admin-show-sync-footer");
-    // The descriptive health label appears (not color-only)…
-    expect(footer.textContent).toMatch(labelRe);
-    // …and the relative timestamp stays as secondary context.
-    expect(footer.textContent).toMatch(/Last synced/);
-  });
-
-  // Codex impl-diff finding [high] (M12.2-A close-out): the per-show page is the
-  // archived-safe READ-ONLY surface (ParsePanel readOnly, share/rotate/preview
-  // gated on !archived), but the sync footer's Re-sync CTA mutates shows/
-  // pending_syncs via /api/admin/sync — and the server's only gate is
-  // finalize-ownership, NOT archived. So Re-sync must be suppressed for archived
-  // shows (UI mitigation; the server-side archived guard is DEFERRED — DEF-3).
-  it("archived show: Re-sync CTA suppressed + read-only note shown", async () => {
-    state.show = { ...baseShow, archived: true, published: true };
-    await renderPage();
-    expect(screen.queryByTestId("admin-resync-button")).toBeNull();
-    expect(screen.getByTestId("admin-show-resync-archived")).toBeInTheDocument();
-  });
-
-  it("non-archived show: Re-sync CTA present", async () => {
-    await renderPage();
-    expect(screen.getByTestId("admin-resync-button")).toBeInTheDocument();
-    expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
-  });
-
-  // M12.12 matrix row 7 — failure mode caught: a footer redesign drops the
-  // HoverHelp (or its learnMore deep link) → the matrix root testid or the
-  // hidden help-link href vanishes; the drift surfaces at unit speed instead
-  // of via the e2e affordance walker.
-  it("sync footer help carries matrix root testid + sync-health deep link (row 7)", async () => {
-    await renderPage();
-    const footer = screen.getByTestId("admin-show-sync-footer");
-    const root = within(footer).getByTestId("help-affordance--per-show-sync-footer--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
-      "href",
-      "/help/admin/per-show-panel#sync-health",
-    );
-  });
-
-  // M12.12 matrix row 9 — same drift class, Crew section header.
-  it("Crew header help carries matrix root testid + preview-as-crew link (row 9)", async () => {
-    await renderPage();
-    const crewCol = screen.getByTestId("per-show-crew-col");
-    const root = within(crewCol).getByTestId("help-affordance--per-show-crew--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
-      "href",
-      "/help/admin/preview-as-crew",
-    );
-  });
-
-  // M12.12 follow-up — per-row "Preview as" links render only when
-  // published && !archived, so the Crew help body must not promise them
-  // unconditionally. Failure modes caught: (a) the copy reverts to the
-  // present-tense "Use a row's Preview as link" while an unpublished render
-  // contains no such link; (b) the publish-gated phrasing drifts out.
-  it("Crew help copy stays truthful for an unpublished show — publish-gated phrasing, no dangling promise", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
-    await renderPage();
-    const crewCol = screen.getByTestId("per-show-crew-col");
-    // No per-row Preview as link in this state (live gate at page.tsx)…
-    expect(within(crewCol).queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
-    // …so the help copy must scope the promise to the published state —
-    // including published-then-archived (published stays true after archive;
-    // the render gate is published && !archived).
-    const body = within(crewCol).getByTestId("per-show-crew-help-body");
-    expect(body.textContent).toMatch(/once the show is published \(and not archived\)/i);
-    expect(body.textContent).not.toMatch(/use a row/i);
-  });
-
-  it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {
-    state.show = {
-      ...baseShow,
-      last_sync_status: "ok",
-      last_synced_at: "2026-06-03T08:00:00.000Z",
-    };
-    await renderPage();
-    const footer = screen.getByTestId("admin-show-sync-footer");
-    expect(footer.textContent).toMatch(/Last synced/);
-    expect(footer.textContent).not.toMatch(/Synced\b.*Last synced/); // no "Synced · Last synced" doubling
+    expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
   });
 });
 
-describe("per-show header — M12.3 #16/#18/#15a", () => {
-  // #18 — the standalone "Slug: <slug>" line is removed from the header chrome.
-  it("does NOT render a 'Slug:' line in the header (#18)", async () => {
-    await renderPage();
-    expect(screen.queryByText(/Slug:/)).toBeNull();
-    // and the slug value is not rendered as header chrome text
-    expect(screen.queryByText("rpas")).toBeNull();
-  });
+// Finalize-owned read fault (invariant 9): the readfinalizeowned_b2 RPC read
+// must NOT be silently dark. A RETURNED {error} and a THROWN await are BOTH
+// logged (log.error, source admin.show, ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED +
+// slug) and BOTH fail toward NOT-finalize-owned (fail-open). The observable
+// fail-open proof: a published+!archived show whose finalize read faults still
+// renders the Archive control (finalizeOwned true would suppress it, §6), rather
+// than freezing the affordance on a transient blip. The prior page silently
+// yielded finalize=false on the returned-error branch with ZERO telemetry — the
+// P0 this pins.
+describe("consolidated per-show page — finalize-owned read fault (invariant 9)", () => {
+  const finalizeErrorCall = () =>
+    logSpy.error.mock.calls.find(
+      (c) =>
+        (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+    );
 
-  // #16 — subtitle = client · dates (Northwind Bank · <range>). Non-tautological:
-  // assert the LITERAL calendar range from the fixture showDays
-  // (["2026-06-14","2026-06-15"]), NOT a value re-derived from formatDateRange.
-  // The buggy local-getter formatter rendered "6/13/26 → 6/14/26" in US zones
-  // (M12.3 adversarial R3); the UTC-getter fix renders the true calendar dates.
-  it("renders the client · dates subtitle with timezone-correct calendar dates (#16)", async () => {
+  it("readfinalizeowned_b2 returned error → fail-open (Archive control renders) + logged, not silent", async () => {
+    state.finalizeError = { message: "rpc boom" };
     await renderPage();
-    const sub = screen.getByTestId("admin-show-subtitle");
-    expect(sub.textContent).toBe(`${baseShow.client_label} · 6/14/26 → 6/15/26`);
-    expect(sub.textContent).toMatch(/·/);
-    expect(sub.textContent).toMatch(/→/);
-  });
-
-  it("subtitle shows client alone when dates are absent (#16 guard)", async () => {
-    state.show = { ...baseShow, dates: null };
-    await renderPage();
-    const sub = screen.getByTestId("admin-show-subtitle");
-    expect(sub.textContent).toContain("Northwind Bank");
-    expect(sub.textContent).not.toMatch(/→/);
-  });
-
-  it("no subtitle node when neither client nor dates present (#16 guard)", async () => {
-    state.show = { ...baseShow, client_label: "", dates: null };
-    await renderPage();
-    expect(screen.queryByTestId("admin-show-subtitle")).toBeNull();
-  });
-
-  // #16 — compact crew chip: a short/host-stripped display + Copy, NOT the full
-  // URL splayed inline. The full URL stays available via copy + title attr.
-  it("crew chip is compact: short path + copy, NOT the full URL inline (#16)", async () => {
-    await renderPage();
-    const chip = screen.getByTestId("admin-show-share-chip");
-    // copy affordance present (load-bearing — full URL goes to clipboard)
+    // fail-open: finalizeOwned=false, so the Archive affordance is NOT frozen.
+    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
+    // NOT silent: the returned-error path emits the forensic code with source+slug.
+    const call = finalizeErrorCall();
     expect(
-      chip.querySelector("[data-testid='admin-current-share-link-copy-button']"),
-    ).not.toBeNull();
-    // the host-stripped compact path IS shown as the chip text…
-    expect(chip.textContent).toMatch(/\/show\/rpas\/tok-123/);
-    // …but the chip text is NOT the full absolute URL (no scheme://host inline)
-    expect(chip.textContent).not.toMatch(/https?:\/\//);
-    // the full URL is preserved verbatim in a title attribute (origin + path) for
-    // hover/recovery — and it ends with the real crew path
-    const title = chip.getAttribute("title") ?? "";
-    expect(title).toMatch(/^https?:\/\//);
-    expect(title).toMatch(/\/show\/rpas\/tok-123$/);
-    // no <input> rendering the whole URL across the header
-    expect(chip.querySelector("input")).toBeNull();
+      call,
+      "returned-error path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+    ).toBeTruthy();
+    expect(String(call![0])).toMatch(/returned error/);
+    const ctx = call![1] as { source?: string; slug?: string };
+    expect(ctx.source).toBe("admin.show");
+    expect(ctx.slug).toBe("rpas");
   });
 
-  // Phase 6 — the legacy "Parse warnings" / live whole-parse review section is
-  // retired (§8). The per-show page never renders it regardless of legacy
-  // pending_syncs state; the changes feed is the replacement surface.
-  it("never renders the retired Parse warnings section (#15a superseded by Phase 6)", async () => {
-    state.pending = [pendingRow];
+  it("readfinalizeowned_b2 threw → fail-open (Archive control renders) + logged (distinct 'threw' path)", async () => {
+    state.finalizeThrows = true;
     await renderPage();
-    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
-    expect(screen.queryByText(/Parse warnings/)).toBeNull();
+    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
+    const call = finalizeErrorCall();
+    expect(call, "thrown path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED").toBeTruthy();
+    expect(String(call![0])).toMatch(/threw/);
+    expect((call![1] as { slug?: string }).slug).toBe("rpas");
+  });
+
+  it("healthy finalize=true (no fault) suppresses the Archive control — proves the affordance is finalize-gated", async () => {
+    state.finalizeOwned = true;
+    await renderPage();
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    expect(finalizeErrorCall()).toBeUndefined();
   });
 });
 
-// parse-data-quality-warnings Task 12 (§6.5/§6.6) — the durable per-show "Data
-// quality" panel listing each warn-severity .message from
-// shows_internal.parse_warnings, plus invariant-9 read-boundary discipline.
-describe("per-show Data quality panel (Task 12, §6.5)", () => {
-  it("lists each warn-severity .message from shows_internal.parse_warnings", async () => {
-    state.showsInternal = {
-      show_id: "s1",
-      parse_warnings: [
-        { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone could not be read" },
-        { severity: "warn", code: "BLOCK_DISAPPEARED", message: "Hotel block vanished" },
-        // info-severity is admin-log-only — NOT surfaced on the panel.
-        { severity: "info", code: "TYPO_NORMALIZED", message: "info noise" },
-      ],
-    };
-    await renderPage();
-    const panel = screen.getByTestId("per-show-data-quality");
-    expect(panel.textContent).toContain("Crew phone could not be read");
-    expect(panel.textContent).toContain("Hotel block vanished");
-    expect(panel.textContent).not.toContain("info noise");
-    // invariant 5: it renders the human .message, never the raw §12.4 code.
-    expect(panel.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
-  });
-
-  // Whole-diff review R1 [high]: shows_internal.parse_warnings is NOT limited to the
-  // three DQ codes. A non-DQ producer (asset reelWarning()) persists a warn-severity
-  // warning whose .message IS the raw code. The panel must gate on the DQ codes first,
-  // or it would print a raw §12.4 code (invariant 5) + misclassify it under "Data quality".
-  it("does NOT render a non-DQ warn warning whose message equals its raw code (R1 high)", async () => {
-    state.showsInternal = {
-      show_id: "s1",
-      parse_warnings: [
-        { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone could not be read" },
-        // reelWarning() shape: a non-data-quality warn warning, message === code.
-        { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
-      ],
-    };
-    await renderPage();
-    const panel = screen.getByTestId("per-show-data-quality");
-    expect(panel.textContent).toContain("Crew phone could not be read");
-    // The raw non-DQ code must never reach the UI, and the non-DQ warning is not
-    // listed under "Data quality".
-    expect(panel.textContent).not.toContain("OPENING_REEL_UNREADABLE");
-  });
-
-  it("panel ABSENT when only non-DQ warn warnings exist (none are data-quality)", async () => {
-    state.showsInternal = {
-      show_id: "s1",
-      parse_warnings: [
-        { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
-      ],
-    };
-    await renderPage();
-    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
-  });
-
-  it("panel ABSENT when there are no warn-severity warnings", async () => {
-    state.showsInternal = {
-      show_id: "s1",
-      parse_warnings: [{ severity: "info", code: "TYPO_NORMALIZED", message: "info only" }],
-    };
-    await renderPage();
-    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
-  });
-
-  it("panel ABSENT when shows_internal is absent (null) — genuinely no warnings", async () => {
-    state.showsInternal = null;
-    await renderPage();
-    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
-    // null/absent must NOT degrade — it is the no-warnings case, distinct from a failure.
-    expect(screen.queryByTestId("per-show-data-quality-error")).toBeNull();
-  });
-
-  // INVARIANT 9 (R10 F1): a shows_internal read failure degrades VISIBLY (calm
-  // notice), never a silent absent-panel that masquerades as "no data gaps".
-  it("read RETURNS an error → visible degraded notice, NOT a silent absent panel", async () => {
-    state.errorOnFromTable = "shows_internal";
-    await renderPage();
-    expect(screen.getByTestId("per-show-data-quality-error")).toBeInTheDocument();
-    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
-  });
-
-  it("read THROWS → visible degraded notice, NOT a silent absent panel", async () => {
-    state.throwOnFromTable = "shows_internal";
-    await renderPage();
-    expect(screen.getByTestId("per-show-data-quality-error")).toBeInTheDocument();
-    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
-  });
-});
-
-describe("per-show Data quality: Report + Ignore (Task 13)", () => {
-  const actionableW = {
-    severity: "warn" as const,
-    code: "UNKNOWN_FIELD",
-    message: "Unrecognized venue row label: 'Storage'",
-    rawSnippet: "Storage | back dock",
-    sourceCell: { title: "STAGE", gid: 5, a1: "B12" },
-  };
-
-  it("actionable warning renders active by default; no Ignored subsection", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    await renderPage();
-    expect(screen.getByTestId("per-show-data-quality")).toBeInTheDocument();
-    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
-    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
-  });
-
-  it("AC-3/AC-9: an ignored-fingerprint warning moves into the Ignored (N) subsection; panel still renders", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    // fingerprint derived from the fixture (anti-tautology — not hardcoded)
-    state.ignoredFingerprints = [
-      warningFingerprint({ code: actionableW.code, rawSnippet: actionableW.rawSnippet })!,
-    ];
-    await renderPage();
-    // panel present even though the only warning is ignored (AC-9)
-    const panel = screen.getByTestId("per-show-data-quality");
-    expect(panel).toBeInTheDocument();
-    const details = screen.getByTestId("per-show-ignored-warnings");
-    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
-    // the warning renders INSIDE the ignored subsection (scoped — anti-tautology)
-    expect(within(details).getByTestId("per-show-actionable-item")).toBeInTheDocument();
-    // ...and there is NO separate active list outside the details
-    const lists = screen.getAllByTestId("per-show-actionable-warnings");
-    expect(lists).toHaveLength(1);
-    expect(details).toContainElement(lists[0]!);
-  });
-
-  it("AC-7: loadIgnoredWarnings infra_error → warning stays VISIBLE as active (fail toward visible)", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    state.errorOnFromTable = "ignored_warnings"; // the ignore read returns an error
-    await renderPage();
-    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
-    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
-  });
-});
-
-describe("AdminShowPage — Data quality: legacy UNKNOWN_FIELD anchors (Part D)", () => {
-  it("legacy A55-range UNKNOWN_FIELD pair renders 2 items with NO Open-in-Sheet link", async () => {
-    state.showsInternal = {
-      parse_warnings: [
-        {
-          code: "UNKNOWN_FIELD",
-          severity: "warn",
-          message: "Unrecognized event_details row label: 'Floor Plan'",
-          rawSnippet: "Floor Plan | LINK",
-          sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
-        },
-        {
-          code: "UNKNOWN_FIELD",
-          severity: "warn",
-          message: "Unrecognized event_details row label: 'GS Podium Type'",
-          rawSnippet: "GS Podium Type | (2) Acrylic",
-          sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
-        },
-      ],
-    };
-    await renderPage();
-    const panel = screen.getByTestId("per-show-actionable-warnings");
-    // Without the shim, operatorActionableWarnings collapses these to ONE item and
-    // PerShowActionableWarnings renders the stale A55 link → this fails.
-    expect(within(panel).getAllByTestId("per-show-actionable-item")).toHaveLength(2);
-    expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
-  });
-});
-
-// DQIGNORE-1 — the plain-text data-gap digest (UNKNOWN_SECTION_HEADER,
-// BLOCK_DISAPPEARED) now renders through the SAME per-warning card +
-// DataQualityWarningControls slot as the operator-actionable warnings, so an
-// operator can Report every data-quality warning and Ignore the ones that carry
-// a content fingerprint. UNKNOWN_SECTION_HEADER carries a rawSnippet (the header
-// text) → ignorable; BLOCK_DISAPPEARED carries no rawSnippet → Report-only.
-describe("per-show Data quality: digest-group Report/Ignore (DQIGNORE-1)", () => {
-  const unknownSection = {
-    severity: "warn" as const,
-    code: "UNKNOWN_SECTION_HEADER",
-    message: 'Unrecognized section "Craft Services" — its rows were not parsed.',
-    rawSnippet: "Craft Services",
-    blockRef: { kind: "unknown_section" },
-  };
-  const blockDisappeared = {
-    severity: "warn" as const,
-    code: "BLOCK_DISAPPEARED",
-    message: "The Hotel section was present last time but is now empty — 3 entries dropped.",
-    blockRef: { kind: "hotel" },
-  };
-
-  it("UNKNOWN_SECTION_HEADER renders as a card with BOTH Report and Ignore controls (ignorable)", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
-    await renderPage();
-    const panel = screen.getByTestId("per-show-data-quality");
-    // Rendered as a per-warning card (not the old plain-text digest <li>).
-    const card = within(panel).getByTestId("per-show-actionable-item");
-    expect(card.textContent).toContain("Craft Services");
-    // Report control present…
-    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
-    // …and an Ignore control, because it carries a content rawSnippet.
-    expect(within(card).getByRole("button", { name: "Ignore" })).toBeInTheDocument();
-    // The old plain-text digest item is gone.
-    expect(within(panel).queryByTestId("per-show-data-quality-item")).toBeNull();
-  });
-
-  it("BLOCK_DISAPPEARED renders as a card with Report but NO Ignore (no content fingerprint)", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [blockDisappeared] };
-    await renderPage();
-    const panel = screen.getByTestId("per-show-data-quality");
-    const card = within(panel).getByTestId("per-show-actionable-item");
-    expect(card.textContent).toContain("Hotel section was present last time");
-    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
-    // Not fingerprintable → no Ignore affordance (Report-only).
-    expect(within(card).queryByRole("button", { name: "Ignore" })).toBeNull();
-  });
-
-  it("an ignored UNKNOWN_SECTION_HEADER digest warning moves into the Ignored (N) subsection", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
-    // fingerprint derived from the fixture (anti-tautology — not hardcoded).
-    state.ignoredFingerprints = [
-      warningFingerprint({ code: unknownSection.code, rawSnippet: unknownSection.rawSnippet })!,
-    ];
-    await renderPage();
-    const details = screen.getByTestId("per-show-ignored-warnings");
-    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
-    // The digest warning renders INSIDE the ignored subsection (scoped — anti-tautology).
-    expect(within(details).getByTestId("per-show-actionable-item").textContent).toContain(
-      "Craft Services",
-    );
-  });
-});
-
-// DQIGNORE-2 — bulk "Ignore all N of this type": a per-code control appears above the
-// active cards when a code has >=2 distinct-content ignorable active warnings.
-describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => {
-  // No sourceCell → operatorActionableWarnings never dedups these, so two distinct
-  // rawSnippets stay two active cards (the bulk threshold).
-  const uf = (raw: string) => ({
-    severity: "warn" as const,
-    code: "UNKNOWN_FIELD",
-    message: `Unrecognized event_details row label: '${raw}'`,
-    rawSnippet: raw,
-  });
-
-  it("shows an 'Ignore all N' control when a code has >=2 distinct-content active warnings", async () => {
-    state.showsInternal = {
-      show_id: "s1",
-      parse_warnings: [uf("Storage | dock"), uf("Floor Plan | link")],
-    };
-    await renderPage();
-    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    expect(btn.textContent).toMatch(/Ignore all 2/);
-    // Plain-language type label (catalog title), never the raw §12.4 code (invariant 5).
-    expect(btn.textContent).toContain("Unrecognized row in sheet");
-    expect(btn.textContent).not.toContain("UNKNOWN_FIELD");
-  });
-
-  it("does NOT show a bulk control for a lone warning of a type", async () => {
-    state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
-    await renderPage();
-    expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
-  });
-});
-
-// Correlation/coverage tail (2026-07-03): the per-show read-fault emits gain
-// slug/showId correlation, and the two previously-silent catch blocks (share-token
-// read + readfinalizeowned_b2 rpc) now emit a fail-open forensic warn WITHOUT
-// changing the fallback (token=null / NOT-finalize-owned). setLogSink capture.
-describe("per-show page read-fault correlation + silent-catch coverage", () => {
-  let sink: LogRecord[] = [];
-  beforeEach(async () => {
-    sink = [];
-    const log = await import("@/lib/log");
-    log.setLogSink((r) => {
-      sink.push(r);
-    });
-  });
-  afterEach(async () => {
-    const log = await import("@/lib/log");
-    log.resetLogSink();
-  });
-
-  it("crew_members lookup returned error → ADMIN_SHOW_CREW_LOOKUP_FAILED carries slug + showId", async () => {
-    state.errorOnFromTable = "crew_members";
-    await renderPage();
-    // fallback UNCHANGED: the calm crew-lookup-failed notice still renders.
-    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
-    const rec = sink.find((r) => r.code === "ADMIN_SHOW_CREW_LOOKUP_FAILED");
-    if (!rec) throw new Error("expected ADMIN_SHOW_CREW_LOOKUP_FAILED emit");
-    expect(rec.level).toBe("error");
-    expect(rec.showId).toBe("s1"); // showId is a reserved field → promoted to the record column
-    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
-  });
-
-  it("readToken failure → ADMIN_SHOW_TOKEN_READ_FAILED warn (slug+showId), crew-link hidden (token=null)", async () => {
-    // Silent-before proof: pre-change the readToken catch returned null with NO log.
-    state.tokenThrows = true;
-    await renderPage();
-    // Fallback UNCHANGED: token=null → the token-dependent crew-link surfaces hide.
-    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
-    const rec = sink.find((r) => r.code === "ADMIN_SHOW_TOKEN_READ_FAILED");
-    if (!rec) throw new Error("expected ADMIN_SHOW_TOKEN_READ_FAILED emit");
-    expect(rec.level).toBe("warn");
-    expect(rec.showId).toBe("s1");
-    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
-  });
-
-  it("readfinalizeowned_b2 rpc throw → ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED warn (slug+showId), fails toward Held", async () => {
-    // Silent-before proof: the rpc catch swallowed the throw with no log.
-    state.show = { ...baseShow, published: false, archived: false };
-    state.finalizeRpcThrows = true;
-    await renderPage();
-    // Fallback UNCHANGED: finalizeOwned stays false → the neutral "Held" pill (NOT "Publishing…").
-    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
-    expect(pill).toMatch(/Held/);
-    expect(pill).not.toMatch(/Publishing/);
-    const rec = sink.find((r) => r.code === "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED");
-    if (!rec) throw new Error("expected ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED emit");
-    expect(rec.level).toBe("warn");
-    expect(rec.showId).toBe("s1");
-    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
-  });
-});
-
-// Structural anti-regression guard (Codex PR7 R2): the behavioral tests above drive
-// three representative branches, but the page has ~10 ADMIN_SHOW_* read-fault emits and
-// the others are hard to drive individually (some fire before `show` resolves). This
-// parses the page source and asserts EVERY log.error/log.warn call whose 2nd-arg
-// top-level `code` starts with "ADMIN_SHOW_" carries a top-level `slug` field — so a
-// future edit that drops slug correlation from any of them fails here, not silently.
-// (Mirrors the AST approach in tests/log/_metaAdminOutcomeContract.test.ts; `typescript`
-// is a dep. showId is NOT asserted structurally — the pre-`show`-resolution emits
-// legitimately can't carry it; slug is the invariant correlator on all of them.)
-describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () => {
+// Structural guard (carried over): every ADMIN_SHOW_* read-fault emit carries a
+// top-level slug correlator, so a future edit that drops it fails here.
+describe("consolidated per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () => {
   it("every ADMIN_SHOW_* read-fault log call has a top-level slug field", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
@@ -1061,6 +494,7 @@ describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () 
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
     const offenders: string[] = [];
+    const allCodes: string[] = [];
     const visit = (node: import("typescript").Node): void => {
       if (
         ts.isCallExpression(node) &&
@@ -1074,154 +508,28 @@ describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () 
           let code: string | null = null;
           let hasSlug = false;
           for (const p of arg2.properties) {
-            // `code: "..."` is a PropertyAssignment; `slug` (shorthand for `slug: slug`)
-            // is a ShorthandPropertyAssignment — accept BOTH forms for the slug field.
             if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
-              if (p.name.text === "code" && ts.isStringLiteralLike(p.initializer)) {
+              if (p.name.text === "code" && ts.isStringLiteralLike(p.initializer))
                 code = p.initializer.text;
-              }
               if (p.name.text === "slug") hasSlug = true;
             } else if (ts.isShorthandPropertyAssignment(p) && p.name.text === "slug") {
               hasSlug = true;
             }
           }
-          if (code && code.startsWith("ADMIN_SHOW_") && !hasSlug) offenders.push(code);
+          if (code && code.startsWith("ADMIN_SHOW_")) {
+            allCodes.push(code);
+            if (!hasSlug) offenders.push(code);
+          }
         }
       }
       ts.forEachChild(node, visit);
     };
     visit(sf);
 
-    // Sanity: the scan actually found the ADMIN_SHOW_* family (guards against a
-    // vacuous pass if the file is renamed or the codes change shape).
-    const allCodes: string[] = [];
-    const collect = (node: import("typescript").Node): void => {
-      if (
-        ts.isPropertyAssignment(node) &&
-        ts.isIdentifier(node.name) &&
-        node.name.text === "code"
-      ) {
-        if (
-          ts.isStringLiteralLike(node.initializer) &&
-          node.initializer.text.startsWith("ADMIN_SHOW_")
-        )
-          allCodes.push(node.initializer.text);
-      }
-      ts.forEachChild(node, collect);
-    };
-    collect(sf);
-    expect(allCodes.length).toBeGreaterThanOrEqual(7);
+    expect(allCodes.length).toBeGreaterThanOrEqual(5);
     expect(
       offenders,
       `these ADMIN_SHOW_* emits are missing a slug field: ${offenders.join(", ")}`,
     ).toEqual([]);
-  });
-});
-
-describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => {
-  const RESYNC =
-    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
-  const actionableW = {
-    severity: "warn" as const,
-    code: "UNKNOWN_FIELD",
-    message: "Unrecognized venue row label: 'Storage'",
-    rawSnippet: "Storage | back dock",
-    sourceCell: { title: "STAGE", gid: 5, a1: "B12" },
-  };
-
-  it("renders the callout with exact copy + the re-sync affordance when there is an active warning on a non-archived show", async () => {
-    state.show = { ...baseShow, published: true, archived: false };
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    await renderPage();
-    const callout = screen.getByTestId("correction-loop-callout");
-    expect(callout).toHaveTextContent(RESYNC);
-    // the affordance is the actual re-sync control, not merely "a button"
-    expect(within(callout).getByTestId("admin-resync-button")).toBeInTheDocument();
-  });
-
-  it("does NOT render the callout when only IGNORED warnings remain (re-sync would not clear them)", async () => {
-    state.show = { ...baseShow, published: true, archived: false };
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    state.ignoredFingerprints = [
-      warningFingerprint({ code: actionableW.code, rawSnippet: actionableW.rawSnippet })!,
-    ];
-    await renderPage();
-    // the Data-quality section still renders (ignored subsection), but no callout
-    expect(screen.getByTestId("per-show-data-quality")).toBeInTheDocument();
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-  });
-
-  it("does NOT render the callout on an archived show even with an active warning (no second re-sync entry point on a retired show)", async () => {
-    state.show = { ...baseShow, published: true, archived: true };
-    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
-    await renderPage();
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-  });
-
-  it("does NOT render the callout when there are no warnings at all", async () => {
-    state.show = { ...baseShow, published: true, archived: false };
-    state.showsInternal = { show_id: "s1", parse_warnings: [] };
-    await renderPage();
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-  });
-});
-
-// Flow 5 (audit 5.2) — crew-email threading into the share-link surfaces.
-// Spec docs/superpowers/specs/2026-07-07-flow5-rotate-disclosure-mailto.md §2.5/§6.4.
-describe("per-show page — crew email threading (Flow 5)", () => {
-  it("crew_members select is widened to include email", async () => {
-    await renderPage();
-    // Flow-5 needs `email` alongside the id/name/role the roster renders.
-    expect(state.selectColsByTable.crew_members).toBe("id, name, role, email");
-  });
-
-  // Plan adversarial R1 — pin the EXACT bound: .limit(CREW_ROSTER_READ_CAP) or
-  // .limit(1) would truncate in production and silently skip the overflow branch.
-  it("crew_members read requests exactly CREW_ROSTER_READ_CAP + 1 rows", async () => {
-    await renderPage();
-    expect(state.limitByTable.crew_members).toBe(CREW_ROSTER_READ_CAP + 1);
-  });
-
-  it("threads fixture-derived non-null emails + show.title into the share-link panel (null emails dropped)", async () => {
-    // Instant-rotate rework: the "Email crew" affordances live in ShareLinkBody
-    // (inside CurrentShareLinkPanel); the rotate banner is confirmation-only and
-    // no longer receives crewEmails/showTitle. So the page threads them into the
-    // PANEL only (which owns the email buttons).
-    state.crew = [
-      { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
-      { id: "c2", name: "Bob", role: "A2", email: null },
-      { id: "c3", name: "Cal", role: "V1", email: "cal@example.com" },
-    ];
-    await renderPage();
-    const expectedEmails = state.crew
-      .map((c) => c.email)
-      .filter((e): e is string => typeof e === "string");
-    const panel = screen.getByTestId("admin-current-share-link-panel");
-    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual(expectedEmails);
-    expect(panel.getAttribute("data-show-title")).toBe(String(baseShow.title));
-  });
-
-  // Adversarial R6/R7 — row-cap overflow fails closed EVERYWHERE, visibly.
-  it("roster over CREW_ROSTER_READ_CAP → visible crew-unavailable alert, empty crewEmails on both surfaces", async () => {
-    // Seed MORE than the requested bound so the PostgREST-faithful mock returns
-    // exactly CREW_ROSTER_READ_CAP + 1 rows (the truncated page) and the
-    // overflow branch must fire on rows.length > CREW_ROSTER_READ_CAP.
-    state.crew = Array.from({ length: CREW_ROSTER_READ_CAP + 50 }, (_, i) => ({
-      id: `c${i}`,
-      name: `Crew ${i}`,
-      role: "A1",
-      email: `crew${i}@example.com`,
-    }));
-    await renderPage();
-    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
-    const panel = screen.getByTestId("admin-current-share-link-panel");
-    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
-  });
-
-  it("crew lookup returned-error still yields empty crewEmails (existing fail path unchanged)", async () => {
-    state.errorOnFromTable = "crew_members";
-    await renderPage();
-    const panel = screen.getByTestId("admin-current-share-link-panel");
-    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
   });
 });

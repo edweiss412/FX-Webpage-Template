@@ -175,20 +175,17 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     );
   });
 
-  // ── (B4) Pills are server-rendered status, not animated. The Held show's
-  // per-show status pill reads "Held — not published" with no animation; the
-  // ShowsTable held pill on the dashboard is a static span. Assert the per-show
-  // pill is present and statically rendered (no transition driving its text). ──
-  test("Held pill is a server-rendered status (no animation)", async ({ page }) => {
-    await page.goto(`/admin/show/${held.slug}`);
-    const pill = page.getByTestId("admin-show-status-pill");
-    await expect(pill).toBeVisible();
-    await expect(pill).toContainText("Held");
-    // No state-transition utility on the pill (color hover is fine but the pill
-    // is not interactive); assert it carries no transition-{opacity,transform}.
-    const cls = (await pill.getAttribute("class")) ?? "";
-    expect(cls).not.toMatch(/transition-(opacity|transform|all)/);
-  });
+  // ── (B4) — DELETED (consolidated-admin-show-page rebuild). This asserted the
+  // per-show `admin-show-status-pill` (an AdminPageHeader element) was a
+  // server-rendered, non-animated "Held" status. The rebuild dropped
+  // AdminPageHeader from /admin/show/[slug]; held-ness is now shown by the
+  // StatusStrip's <PublishedToggle> in its OFF (aria-checked="false") state.
+  // The successor coverage lives in
+  // tests/components/admin/showpage/pageTransitions.test.tsx:
+  //   - "no animation" (every §9 pair instant) → §9 StatusStrip source guard
+  //     (imports no motion library, passes no exit/initial/animate props), and
+  //   - held state is represented instantly → §9-E (renderStrip({published:false})
+  //     asserts the toggle's aria-checked="false" swaps with no animation class).
 
   // ── (B5) COMPOUND: Archive-confirm armed WHILE a router.refresh() from
   // another action (Publish) is in flight → no torn state. We arm Archive, then
@@ -253,8 +250,13 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "false");
-      // The read-only title pill reflects the paused state.
-      await expect(page.getByText("Held — not published").first()).toBeVisible();
+      // The toggle's subline reflects the paused state. (Rebuild note: the old
+      // "Held — not published" AdminPageHeader status pill was removed; the
+      // consolidated StatusStrip surfaces the paused state as the PublishedToggle
+      // OFF-state subline — PublishedToggle.tsx:61-70.)
+      await expect(page.getByTestId("published-toggle-subline")).toHaveText(
+        "Crew link is off — nobody can open this show.",
+      );
 
       // Crew view in a FRESH context (no admin session — admins bypass the gate).
       const crewContext = await browser.newContext();

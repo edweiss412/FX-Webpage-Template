@@ -46,11 +46,21 @@ export function CardReportTrigger({
   region,
   showId,
   cardReport = DEFAULT_CARD_REPORT,
+  hitDirection = "up",
 }: {
   cardId: CardId;
   region: RegionId;
   showId: string;
   cardReport?: CardReportContext;
+  /**
+   * CARDREPORT-1: which direction the invisible ≥44×44 tap overlay grows. The
+   * 14px glyph is unchanged; a transparent centered `::before` (invisible to
+   * `getBoundingClientRect()`) enlarges only the hit area. `"up"` (default)
+   * anchors the overlay bottom to the box bottom — zero downward overhang, so it
+   * never intersects the interactive rows below a SectionCard header. `"down"`
+   * anchors the top (bare `schedule-days` header, to clear the agenda above).
+   */
+  hitDirection?: "up" | "down";
 }): ReactNode {
   const [open, setOpen] = useState(false);
   // Defense-in-depth: a crew card always has a show, but never mount the modal
@@ -63,6 +73,12 @@ export function CardReportTrigger({
     fieldRef: { cardId, region },
   };
 
+  // Full-literal per branch so the Tailwind v4 JIT sees complete class names.
+  const overlay =
+    hitDirection === "down"
+      ? "relative before:absolute before:content-[''] before:left-1/2 before:-translate-x-1/2 before:w-tap-min before:h-tap-min before:top-0"
+      : "relative before:absolute before:content-[''] before:left-1/2 before:-translate-x-1/2 before:w-tap-min before:h-tap-min before:bottom-0";
+
   return (
     <>
       <button
@@ -71,7 +87,7 @@ export function CardReportTrigger({
         data-testid="card-report-trigger"
         aria-label="Report a problem with this card"
         onClick={() => setOpen(true)}
-        className="inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70"
+        className={`inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
       >
         <FlagIcon />
       </button>

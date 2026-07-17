@@ -135,7 +135,7 @@ const stagedScan: (typeof import("@/lib/sync/runOnboardingScan"))["scanOnboardin
   (async () =>
     ({
       outcome: "completed",
-      processed: [{ driveFileId: DRIVE, outcome: "staged" }],
+      processed: [{ driveFileId: DRIVE, name: "rescan-file.xlsx", outcome: "staged" }],
     }) satisfies OnboardingScanResult) as never;
 
 describe("applyRescanDecisionUnderLock", () => {

@@ -135,7 +135,10 @@ describe("alert-action registry ↔ raise-site fidelity", () => {
 
 describe("alert-action internal link targets exist", () => {
   test("the #share-access anchor exists on the show page (spec §4 #1-#3)", () => {
-    expect(read("app/admin/show/[slug]/page.tsx")).toMatch(/id="share-access"/);
+    // Consolidated-admin-show-page (Task 13): the share/access region moved into
+    // the OverviewSection rail section (always rendered — share panel OR inactive
+    // notice), so the `#share-access` deep-link anchor lives there now.
+    expect(read("components/admin/showpage/OverviewSection.tsx")).toMatch(/id="share-access"/);
   });
   test("the onboarding wizard route exists (spec §4 #6)", () => {
     expect(existsSync(join(ROOT, "app/admin/onboarding/page.tsx"))).toBe(true);

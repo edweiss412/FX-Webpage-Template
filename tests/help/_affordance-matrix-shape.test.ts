@@ -50,9 +50,12 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--ignored-sheets-page--tooltip",
         "help-affordance--needs-attention-page--tooltip",
         "help-affordance--per-show-alerts--tooltip",
-        "help-affordance--per-show-crew--tooltip",
-        "help-affordance--per-show-data-quality--tooltip",
-        "help-affordance--per-show-sync-footer--tooltip",
+        // per-show-crew / per-show-data-quality / per-show-sync-footer RETIRED by Task 16
+        // (impeccable) — the consolidated-admin-show-page rebuild dissolved their host
+        // sections; their "?" tooltips are not re-homed (crew: preview-as help is served by
+        // the preview-banner affordance; sync: hover-only in a slim strip; data-quality: the
+        // sibling per-show-alerts tooltip already covers /help/admin/parse-warnings). The help
+        // TARGET pages stay live. See DEFERRED.md CASP-1 (resolved-retired).
         "help-affordance--preview-banner--tooltip",
         "help-affordance--settings-administrators--tooltip",
         "help-affordance--settings-drive-connection--tooltip",
@@ -71,12 +74,15 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     ).toBe(false);
   });
 
-  it("exports DEFERRED_TESTIDS containing exactly the one still-deferred row", () => {
-    // per-show-restage-card (M11-G-D-2) was REMOVED, not just un-deferred: the
-    // Phase 6 ChangesFeed retired the per-show staged-review card it pointed at,
-    // so the affordance will never be built. Only the preview-banner tooltip
-    // (M11-G-D-3) remains genuinely deferred-pending-build. (DEFERRED.md D9.)
-    expect([...DEFERRED_TESTIDS].sort()).toEqual(["help-affordance--preview-banner--tooltip"]);
+  it("exports DEFERRED_TESTIDS containing the still-deferred rows", () => {
+    // preview-banner (M11-G-D-3) remains deferred-pending-build. Task 16 (impeccable)
+    // RETIRED the three per-show Crew / Sync-footer / Data-quality tooltips deferred by
+    // Task 13 — their host sections were dissolved by the consolidated-show-page rebuild
+    // and the critique gate ruled none should be re-homed (DEFERRED.md CASP-1 resolved).
+    // So only preview-banner stays deferred.
+    expect([...DEFERRED_TESTIDS].sort()).toEqual(
+      ["help-affordance--preview-banner--tooltip"].sort(),
+    );
     for (const id of DEFERRED_TESTIDS) {
       expect(
         AFFORDANCE_MATRIX.some((r) => r.kind === "concrete" && r.testid === id),
@@ -85,15 +91,19 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 21 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
+  it("pins the 18 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
     // 20 base + 2 step-3 redesign views (Unpublished / Ignored sheets) − 1 removed
     // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed)
     // + 1 per-show Data-quality panel tooltip (parse-data-quality-warnings)
-    // − 1 removed Unpublished (Held shows) page (folded into the dashboard list).
-    expect(concrete).toHaveLength(21);
+    // − 1 removed Unpublished (Held shows) page (folded into the dashboard list)
+    // − 3 per-show Crew / Sync-footer / Data-quality tooltips RETIRED by Task 16
+    //   (impeccable) when the consolidated-show-page rebuild dissolved their sections.
+    expect(concrete).toHaveLength(18);
     const ids = concrete.map((r) => r.testid);
-    expect(ids).toContain("help-affordance--per-show-data-quality--tooltip");
+    expect(ids).not.toContain("help-affordance--per-show-data-quality--tooltip");
+    expect(ids).not.toContain("help-affordance--per-show-crew--tooltip");
+    expect(ids).not.toContain("help-affordance--per-show-sync-footer--tooltip");
     expect(ids).toContain("help-affordance--settings-maintenance--tooltip");
     expect(ids).toContain("help-affordance--dashboard-restage--legend");
     expect(ids).toContain("help-affordance--dashboard-needs-attention--tooltip");

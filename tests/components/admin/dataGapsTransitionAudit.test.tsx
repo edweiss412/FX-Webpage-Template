@@ -52,6 +52,9 @@ const DATA_GAP_SOURCE_FILES = [
   "components/admin/wizard/Step3SheetCard.tsx",
   "components/admin/PerShowAlertSection.tsx",
   "app/admin/show/[slug]/page.tsx",
+  // Task 13: the per-show Data-quality panel moved into the per-section warning
+  // render factory — the data-gap warning surface now lives here.
+  "components/admin/showpage/sectionWarningExtras.tsx",
   "components/admin/Dashboard.tsx",
   "components/admin/DataQualityBadge.tsx",
   "components/admin/ArchivedShowRow.tsx",
@@ -121,14 +124,16 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // The demoted variant's non-numeric "Needs another look" chip stays a plain
     // reviewChip render (instant, no wrapper) — pin it too.
     expect(step3).toMatch(/\{reviewChip\("Needs another look"\)\}/);
-    // Per-show panel: failed → calm notice; else (ACTIVE displayable warnings OR
-    // IGNORED warnings) → section; else null. Still a plain ternary-to-null (instant
-    // present/absent, no AnimatePresence) — the condition is compound because the panel
-    // hosts every data-quality warning as a per-warning card (the data-gap digest folded
-    // into the same list, DQIGNORE-1) AND the collapsible "Ignored (N)" subsection.
-    const page = src("app/admin/show/[slug]/page.tsx");
-    expect(page).toMatch(/\{dataQuality\.failed \? \(/);
-    expect(page).toMatch(/: activeActionable\.length > 0 \|\| ignoredActionable\.length > 0 \? \(/);
+    // Task 13 (consolidated page): the flat per-show Data-quality panel dissolved
+    // into per-section warning controls. Each section's warnings render via a plain
+    // early-return-null factory (instant present/absent — a section with no active
+    // AND no ignored warnings mounts nothing), with the "Ignored (N)" subsection as
+    // a plain ternary-to-null. No AnimatePresence/motion anywhere.
+    const extras = src("components/admin/showpage/sectionWarningExtras.tsx");
+    expect(extras).toMatch(
+      /if \(!model \|\| \(model\.active\.length === 0 && model\.ignored\.length === 0\)\) return null;/,
+    );
+    expect(extras).toMatch(/ignoredWarnings\.length > 0 \? \(/);
     expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
   });
 
@@ -143,7 +148,7 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
 
   it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
     const s = src("components/admin/DataQualityBadge.tsx");
-    expect(s).toMatch(/if \(gapTotal === 0 && rosterTotal === 0\) return null;/); // instant unmount
+    expect(s).toMatch(/if \(!hasGap && !hasRoster\) return null;/); // instant unmount (hardened gate, FLOW4-2/3)
     expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 

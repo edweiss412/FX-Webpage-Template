@@ -219,16 +219,21 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
     anchor: '"supabase client construction threw:"',
   },
   {
+    // Task 13 (consolidated page): the full show lookup collapsed to a slim
+    // slug→id lookup ("show id lookup …"); crew + shows_internal reads moved into
+    // the snapshot RPC (readShowReviewSnapshot logs its own faults under source
+    // "admin.showReview.snapshot"), so the CREW_LOOKUP_*/INTERNAL_PARSE_WARNINGS_*
+    // forensic codes were retired with those direct reads.
     file: "app/admin/show/[slug]/page.tsx",
     code: "ADMIN_SHOW_LOOKUP_FAILED",
     level: "error",
-    anchor: '"show lookup failed:"',
+    anchor: '"show id lookup failed:"',
   },
   {
     file: "app/admin/show/[slug]/page.tsx",
     code: "ADMIN_SHOW_LOOKUP_THREW",
     level: "error",
-    anchor: '"show lookup threw:"',
+    anchor: '"show id lookup threw:"',
   },
   {
     file: "app/admin/show/[slug]/page.tsx",
@@ -238,33 +243,9 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
   },
   {
     file: "app/admin/show/[slug]/page.tsx",
-    code: "ADMIN_SHOW_CREW_LOOKUP_FAILED",
-    level: "error",
-    anchor: '"crew_members lookup failed:"',
-  },
-  {
-    file: "app/admin/show/[slug]/page.tsx",
     code: "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
-    level: "error",
-    anchor: '"crew_members roster exceeded read cap:"',
-  },
-  {
-    file: "app/admin/show/[slug]/page.tsx",
-    code: "ADMIN_SHOW_CREW_LOOKUP_THREW",
-    level: "error",
-    anchor: '"crew_members lookup threw:"',
-  },
-  {
-    file: "app/admin/show/[slug]/page.tsx",
-    code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
-    level: "error",
-    anchor: '"shows_internal read failed:"',
-  },
-  {
-    file: "app/admin/show/[slug]/page.tsx",
-    code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",
-    level: "error",
-    anchor: '"shows_internal read threw:"',
+    level: "warn",
+    anchor: '"crew roster exceeded read cap:"',
   },
   {
     file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
@@ -361,9 +342,12 @@ function findLogErrorWarnCalls(
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   const codes = NULLCODE_BATCH2_STAMPS.map((r) => r.code);
 
-  test("37 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
-    expect(NULLCODE_BATCH2_STAMPS.length).toBe(37);
-    expect(new Set(codes).size).toBe(37);
+  test("33 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
+    // Task 13 retired 4 per-show-page forensic codes (CREW_LOOKUP_FAILED/THREW,
+    // INTERNAL_PARSE_WARNINGS_READ_FAILED/THREW) — those direct reads moved into
+    // the snapshot RPC. 37 − 4 = 33.
+    expect(NULLCODE_BATCH2_STAMPS.length).toBe(33);
+    expect(new Set(codes).size).toBe(33);
     for (const c of codes) expect(NEW_FORENSIC_CODES.has(c), `${c} must be registered`).toBe(true);
   });
 

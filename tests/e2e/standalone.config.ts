@@ -22,7 +22,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|blocked-row-resolver-transitions)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|showPageLayout|blocked-row-resolver-transitions)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

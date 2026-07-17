@@ -33,7 +33,11 @@ import type { OnboardingManifestStatus } from "@/lib/sync/runOnboardingScan";
 // this test mocked a `totals` body the route never produced, so it passed
 // while production crashed with "Cannot read properties of undefined".
 function completedScanBody(outcomes: OnboardingManifestStatus[], folderName?: string) {
-  const processed = outcomes.map((outcome, i) => ({ driveFileId: `file-${i}`, outcome }));
+  const processed = outcomes.map((outcome, i) => ({
+    driveFileId: `file-${i}`,
+    name: `file-${i}.xlsx`,
+    outcome,
+  }));
   return toScanResponseBody(
     { outcome: "completed", processed },
     { wizardSessionId: "wsid", folderId: "fid", folderName },

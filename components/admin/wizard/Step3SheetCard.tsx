@@ -57,6 +57,7 @@ import {
   Step3ReviewModal,
   type Step3ReviewResolution,
 } from "@/components/admin/wizard/Step3ReviewModal";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
@@ -587,7 +588,12 @@ export function Step3SheetCard({
       </span>
       {detailsOpen ? (
         <Step3ReviewModal
-          data={{
+          // The staged→SectionData mapping lives in ONE place
+          // (buildStagedSectionData, spec §3.2). The card owns only the
+          // site-specific list derivation: arr()-coerced arrays, legacy-anchor-
+          // stripped warnings, and (spec §8) the staged use-raw decisions that
+          // drive the judgment callout's per-warning toggle.
+          data={buildStagedSectionData({
             pr,
             row,
             dfid,
@@ -600,10 +606,8 @@ export function Step3SheetCard({
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),
-            // spec §8: the staged use-raw decisions drive the judgment callout's
-            // per-warning toggle (matched by code + resolution.contentHash).
             useRawDecisions: row.useRawDecisions ?? [],
-          }}
+          })}
           checked={checked}
           isDirtyRescan={isDirtyRescan}
           onRequestSetChecked={requestSetChecked}

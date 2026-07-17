@@ -63,7 +63,7 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
   test("returns null when lastSyncedAt is null", () => {
     const { container } = render(
       <StaleFooter
-        lastSyncedAt={null}
+        lastCheckedAt={null}
         lastSyncStatus="ok"
         now={new Date("2026-05-12T12:00:00Z")}
       />,
@@ -75,7 +75,7 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={fiveMinAgo} lastSyncStatus="ok" now={now} />,
+      <StaleFooter lastCheckedAt={fiveMinAgo} lastSyncStatus="ok" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node).not.toBeNull();
@@ -88,7 +88,7 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const fifteenMinAgo = new Date(now.getTime() - 15 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={fifteenMinAgo} lastSyncStatus="ok" now={now} />,
+      <StaleFooter lastCheckedAt={fifteenMinAgo} lastSyncStatus="ok" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("subtle-dot");
@@ -99,7 +99,7 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const twoHrAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={twoHrAgo} lastSyncStatus="ok" now={now} />,
+      <StaleFooter lastCheckedAt={twoHrAgo} lastSyncStatus="ok" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("yellow");
@@ -118,7 +118,7 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const sevenHrAgo = new Date(now.getTime() - 7 * 60 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={sevenHrAgo} lastSyncStatus="ok" now={now} />,
+      <StaleFooter lastCheckedAt={sevenHrAgo} lastSyncStatus="ok" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -133,7 +133,7 @@ describe("StaleFooter — status precedence over age tiers", () => {
 
   test("status='drive_error' renders DRIVE_FETCH_FAILED with red tier regardless of age", () => {
     const { container } = render(
-      <StaleFooter lastSyncedAt={oneMinAgo} lastSyncStatus="drive_error" now={now} />,
+      <StaleFooter lastCheckedAt={oneMinAgo} lastSyncStatus="drive_error" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -148,7 +148,7 @@ describe("StaleFooter — status precedence over age tiers", () => {
 
   test("status='sheet_unavailable' renders SHEET_UNAVAILABLE with red tier regardless of age", () => {
     const { container } = render(
-      <StaleFooter lastSyncedAt={oneMinAgo} lastSyncStatus="sheet_unavailable" now={now} />,
+      <StaleFooter lastCheckedAt={oneMinAgo} lastSyncStatus="sheet_unavailable" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -161,7 +161,7 @@ describe("StaleFooter — status precedence over age tiers", () => {
 
   test("status='parse_error' renders PARSE_ERROR_LAST_GOOD with red tier regardless of age", () => {
     const { container } = render(
-      <StaleFooter lastSyncedAt={oneMinAgo} lastSyncStatus="parse_error" now={now} />,
+      <StaleFooter lastCheckedAt={oneMinAgo} lastSyncStatus="parse_error" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -178,7 +178,7 @@ describe("StaleFooter — pending_review × age branching", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const twoHrAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={twoHrAgo} lastSyncStatus="pending_review" now={now} />,
+      <StaleFooter lastCheckedAt={twoHrAgo} lastSyncStatus="pending_review" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("yellow");
@@ -193,7 +193,7 @@ describe("StaleFooter — pending_review × age branching", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const sevenHrAgo = new Date(now.getTime() - 7 * 60 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={sevenHrAgo} lastSyncStatus="pending_review" now={now} />,
+      <StaleFooter lastCheckedAt={sevenHrAgo} lastSyncStatus="pending_review" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -207,7 +207,7 @@ describe("StaleFooter — pending_review × age branching", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={fiveMinAgo} lastSyncStatus="shrink_held" now={now} />,
+      <StaleFooter lastCheckedAt={fiveMinAgo} lastSyncStatus="shrink_held" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("subtle");
@@ -220,7 +220,7 @@ describe("StaleFooter — pending_review × age branching", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const sevenHrAgo = new Date(now.getTime() - 7 * 60 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={sevenHrAgo} lastSyncStatus="shrink_held" now={now} />,
+      <StaleFooter lastCheckedAt={sevenHrAgo} lastSyncStatus="shrink_held" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("red");
@@ -232,7 +232,7 @@ describe("StaleFooter — pending_review × age branching", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const { container } = render(
-      <StaleFooter lastSyncedAt={fiveMinAgo} lastSyncStatus="pending" now={now} />,
+      <StaleFooter lastCheckedAt={fiveMinAgo} lastSyncStatus="pending" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("subtle");
@@ -245,7 +245,7 @@ describe("StaleFooter — input shape tolerance", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const isoTwoHrAgo = "2026-05-12T10:00:00.000Z";
     const { container } = render(
-      <StaleFooter lastSyncedAt={isoTwoHrAgo} lastSyncStatus="ok" now={now} />,
+      <StaleFooter lastCheckedAt={isoTwoHrAgo} lastSyncStatus="ok" now={now} />,
     );
     const node = container.querySelector('[data-testid="stale-footer"]');
     expect(node?.getAttribute("data-tier")).toBe("yellow");

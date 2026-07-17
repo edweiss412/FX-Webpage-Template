@@ -73,6 +73,7 @@ describe("Flow-4 dashboard: acceptChangeAction", () => {
     expect(requireAdminIdentity).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(SHOW_ID, ["cl-1"]);
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/needs-attention", "page");
     const rec = sink.filter((r) => r.code === "CHANGES_ACKNOWLEDGED");
     expect(rec).toHaveLength(1);
     expect(rec[0]!.level).toBe("info");
@@ -120,6 +121,7 @@ describe("Flow-4 dashboard: acceptAllAction", () => {
     expect(requireAdminIdentity).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(SHOW_ID, ["a", "b", "c"]);
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/needs-attention", "page");
     const rec = sink.filter((r) => r.code === "CHANGES_ACKNOWLEDGED");
     expect(rec).toHaveLength(1);
     expect(rec[0]!.source).toBe("admin.dashboard.autoApplied.acceptAll");
@@ -162,6 +164,7 @@ describe("Flow-4 dashboard: undoFromDashboardAction", () => {
     expect(spy).toHaveBeenCalledWith("cl-9"); // single arg — never a client showId
     expect(revalidateShow).toHaveBeenCalledWith("show-9");
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/needs-attention", "page");
     const rec = sink.filter((r) => r.code === "CHANGE_UNDONE");
     expect(rec).toHaveLength(1);
     expect(rec[0]!.source).toBe("admin.dashboard.autoApplied.undo");
@@ -178,6 +181,7 @@ describe("Flow-4 dashboard: undoFromDashboardAction", () => {
     await undoFromDashboardAction(null, fd);
     expect(revalidateShow).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/needs-attention", "page");
     expect(sink.filter((r) => r.code === "CHANGE_UNDONE")).toHaveLength(1);
   });
 

@@ -24,7 +24,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Couldn't read sync status right now. Refresh in a moment.",
     "followUp": "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
-    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_checked_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
   },
   "ADMIN_EMAIL_ALREADY_ACTIVE": {
     "crewFacing": null,
@@ -712,9 +712,9 @@ export const SPEC_CODES = {
   },
   "ONBOARDING_SHEET_UNREADABLE": {
     "crewFacing": null,
-    "dougFacing": "Some sheets in your show folder couldn't be read during setup and were skipped. To see which ones and fix them, re-run setup from Settings.",
-    "followUp": "Doug → Settings → Re-run setup; fix the flagged sheets in Drive; re-scan",
-    "helpfulContext": "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name while setup is open; after setup you can see them again by re-running setup from Settings. Fix the sheet's layout in Drive (most often a missing or renamed section header), then re-scan.",
+    "dougFacing": "Some sheets in your show folder couldn't be read, so they were skipped — the affected sheets are named on this alert. Fix or remove them in Drive and this alert clears on its own; you can also dismiss it now.",
+    "followUp": "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
+    "helpfulContext": "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The first few affected sheets are named on this alert. Fix the sheet's layout in Drive (most often a missing or renamed section header) or remove the file from the folder — the live sync notices on its own and this alert clears automatically. Re-running setup from Settings also works and gives a guided list. You can dismiss this alert at any time.",
   },
   "OPENING_REEL_NOT_VIDEO": {
     "crewFacing": "Opening reel link is not a video file",
@@ -1347,7 +1347,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "SYNC_DELAYED_MODERATE": {
-    "crewFacing": "Last synced *<time>* ago. Text Doug if anything looks off.",
+    "crewFacing": "Last checked *<time>* ago. Text Doug if anything looks off.",
     "dougFacing": null,
     "followUp": "Crew → mention to Doug",
     "helpfulContext": null,

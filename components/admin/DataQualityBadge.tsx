@@ -3,7 +3,7 @@
 // data-quality gap. Shared by ShowsTable (active) + ArchivedShowRow (archived).
 // Pure presentational (no hooks/state) → safe in a client island OR an RSC.
 // PLAIN-LANGUAGE accessible name only — never the raw §12.4 code (invariant 5).
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert, Users } from "lucide-react";
 import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import type { RosterShiftSummary } from "@/lib/admin/showDisplay";
 
@@ -21,7 +21,12 @@ export function DataQualityBadge({
 }) {
   const rosterTotal = rosterShift?.total ?? 0;
   const gapTotal = dataGaps?.total ?? 0;
-  if (gapTotal === 0 && rosterTotal === 0) return null; // instant, no animation (§4.2)
+  // Finite-positive predicates drive BOTH the render gate and each chip. Hardened
+  // vs the old strict `=== 0` gate: a NaN / ±Infinity / negative total (all `!== 0`)
+  // would otherwise slip past and render an empty-aria-label badge with no chip.
+  const hasRoster = Number.isFinite(rosterTotal) && rosterTotal > 0;
+  const hasGap = Number.isFinite(gapTotal) && gapTotal > 0;
+  if (!hasGap && !hasRoster) return null; // instant, no animation (§4.2)
   // Bounded accessible name — the gap `total` is the true count; the breakdown
   // caps at 4 classes + "+N more". The roster segment lists at most three counts
   // (added/removed/renamed, zero-count segments omitted) so both parts stay
@@ -50,9 +55,31 @@ export function DataQualityBadge({
       role="img"
       aria-label={label}
       title={label}
-      className="inline-flex shrink-0 items-center text-status-warn-text"
+      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-status-warn-text"
     >
-      <TriangleAlert aria-hidden="true" className="size-3.5" />
+      {/* Roster chip THEN gap chip (§6.5 order). Glyphs aria-hidden; visible counts
+          are subsumed by the outer role="img" name. Distinct glyph + count per
+          signal — distinction by shape+count, never hue (DESIGN §1 color-blind floor). */}
+      {hasRoster ? (
+        <span
+          data-testid="dq-chip-roster"
+          aria-hidden="true"
+          className="inline-flex items-center gap-0.5 leading-none"
+        >
+          <Users className="size-3.5" />
+          <span className="text-xs font-medium tabular-nums leading-none">{rosterTotal}</span>
+        </span>
+      ) : null}
+      {hasGap ? (
+        <span
+          data-testid="dq-chip-gap"
+          aria-hidden="true"
+          className="inline-flex items-center gap-0.5 leading-none"
+        >
+          <TriangleAlert className="size-3.5" />
+          <span className="text-xs font-medium tabular-nums leading-none">{gapTotal}</span>
+        </span>
+      ) : null}
     </span>
   );
 }
