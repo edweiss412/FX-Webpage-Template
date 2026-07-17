@@ -1,5 +1,0 @@
-- [LOW] Spec §9 says only two test-breakage classes, but `tests/components/admin/FinalizeButton.test.tsx:1221-1243` still retries by clicking the publish trigger while the error state is present. Under spec §5/§6 (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:105-128`), the user path is Close/Escape/backdrop → idle → retry. The test inventory should call out this update so RTL does not keep passing via a programmatic click against an inert background.
-
-- [LOW] Spec §7a claims `inert` has repo precedent in `components/admin/nav/AdminNav.tsx` and `components/admin/wizard/VenueMapTile.tsx` (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:159`), but those files only use “inert” in prose comments (`components/admin/nav/AdminNav.tsx:145`, `components/admin/wizard/VenueMapTile.tsx:60`), not as an implemented DOM inert pattern. The proposed behavior is still valid, but the precedent claim is inaccurate.
-
-VERDICT: APPROVE
