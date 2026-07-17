@@ -320,27 +320,24 @@ afterAll(async () => {
 });
 
 describe("shows.last_checked_at — bumped on non-error cron outcomes, not on errors (real DB)", () => {
-  test.skipIf(!shouldRun)(
-    "applied: both last_synced_at AND last_checked_at bumped",
-    async () => {
-      const drive = newDrive();
-      const showId = await seedShow({
-        driveFileId: drive,
-        crew: SEED_CREW,
-        lastSeen: T0,
-        lastSyncedAt: hoursAgo(3),
-        lastCheckedAt: hoursAgo(3),
-      });
+  test.skipIf(!shouldRun)("applied: both last_synced_at AND last_checked_at bumped", async () => {
+    const drive = newDrive();
+    const showId = await seedShow({
+      driveFileId: drive,
+      crew: SEED_CREW,
+      lastSeen: T0,
+      lastSyncedAt: hoursAgo(3),
+      lastCheckedAt: hoursAgo(3),
+    });
 
-      const result = await runCron(drive, { modifiedTime: T1, parse: FULL_PARSE });
-      expect("skipped" in result ? null : result.outcome).toBe("applied");
+    const result = await runCron(drive, { modifiedTime: T1, parse: FULL_PARSE });
+    expect("skipped" in result ? null : result.outcome).toBe("applied");
 
-      const after = await showStatus(showId);
-      expect(after.last_sync_status).toBe("ok");
-      expect(msAgo(after.last_synced_at)).toBeLessThan(60_000);
-      expect(msAgo(after.last_checked_at)).toBeLessThan(60_000);
-    },
-  );
+    const after = await showStatus(showId);
+    expect(after.last_sync_status).toBe("ok");
+    expect(msAgo(after.last_synced_at)).toBeLessThan(60_000);
+    expect(msAgo(after.last_checked_at)).toBeLessThan(60_000);
+  });
 
   test.skipIf(!shouldRun)(
     "watermark-skip: last_synced_at frozen, last_checked_at bumped",
