@@ -88,3 +88,7 @@ The armed morph must not change the ignore button's flex-line position at the mo
 - `pnpm lint && pnpm format:check && pnpm typecheck` green.
 - Invariant-8 impeccable v3 dual-gate (critique + audit) on the diff — UI surface (`components/**`).
 - Full `pnpm test` before push.
+
+## 10. Impeccable v3 dual-gate result (invariant 8)
+
+**PASS.** Critique **35/40** (dual-agent), AI-slop NO, absolute-bans none, detector clean (exit 0, `[]`), armed-recipe contrast ≈8.8:1 (AAA), tap targets 44px — **0 P0 / 0 P1**. Audit **20/20** (a11y 4 / perf 4 / responsive 4 / theming 4 / anti-patterns 4) — **0 P0 / 0 P1**. Dispositions: the stacked destructive-vs-safe thumb-order P2 → `BACKLOG.md` BL-DESTRUCT-STACK-THUMB-ORDER (deferred; a CSS reorder would regress focus order on a destructive control, WCAG 2.4.3, and the two-tap guard already covers the mis-tap). Idle-twin symmetry + full-width-armed loudness + implicit-disarm findings are pre-existing / per DESIGN.md §15 acceptable — no change.
