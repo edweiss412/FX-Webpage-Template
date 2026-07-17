@@ -162,6 +162,7 @@ async function cleanup(): Promise<void> {
     `delete from public.pending_syncs where drive_file_id like 'drive-cas-%'`,
     `delete from public.pending_ingestions where drive_file_id like 'drive-cas-%'`,
     `delete from public.onboarding_scan_manifest where drive_file_id like 'drive-cas-%'`,
+    `delete from public.onboarding_rebuild_attempts where drive_file_id like 'drive-cas-%'`,
     `delete from public.deferred_ingestions where wizard_session_id in ('${SESSION}'::uuid, '${OTHER_SESSION}'::uuid)`,
     `delete from public.wizard_finalize_checkpoints where wizard_session_id in ('${SESSION}'::uuid, '${OTHER_SESSION}'::uuid)`,
     `update public.app_settings
@@ -283,10 +284,29 @@ type PerRow = {
   code: string;
   disposition?: string;
   display_name?: string;
+  rebuild_exhausted?: boolean;
 };
 
 async function perRows(res: Response): Promise<PerRow[]> {
   return ((await res.json()) as { per_row: PerRow[] }).per_row;
+}
+
+// Task 10: seed a onboarding_rebuild_attempts row so a corrupt row's rebuild_exhausted
+// (CAP=1) join has something to read. escalationLogged models an ALREADY-escalated row
+// (no re-emit expected on a fresh finalize-cas run).
+async function seedRebuildAttempts(
+  drive: string,
+  attempts: number,
+  escalationLogged = false,
+): Promise<void> {
+  await sql!.unsafe(
+    `insert into public.onboarding_rebuild_attempts
+       (wizard_session_id, drive_file_id, attempts, escalation_logged)
+     values ($1::uuid, $2, $3, $4)
+     on conflict (wizard_session_id, drive_file_id)
+       do update set attempts = excluded.attempts, escalation_logged = excluded.escalation_logged`,
+    [SESSION, drive, attempts, escalationLogged],
+  );
 }
 
 beforeAll(() => {
@@ -576,6 +596,57 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
           )
         ).length,
       ).toBe(1);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "(c3) corrupt row's rebuild_exhausted reflects the onboarding_rebuild_attempts CAP (LEFT JOIN, COALESCE 0)",
+    async () => {
+      // drive-cas-c3-a: a PRIOR rebuild already consumed the CAP=1 attempt for this exact
+      // (session, drive_file_id) — the corrupt row is re-observed at finalize-cas and must
+      // report itself exhausted.
+      const showA = await seedLiveShow({
+        drive: "drive-cas-c3-a",
+        title: "Cas C3 A Live",
+        crew: [{ name: "Ada", email: "ada@old.example" }],
+        lastSeen: BASE,
+      });
+      const parseA = makeParse("Cas C3 A", [{ name: "Ada", email: "ada@new.example" }]);
+      await seedShadow(
+        "drive-cas-c3-a",
+        showA,
+        shadowPayload(parseA, { omit: ["triggered_review_items"] }),
+      );
+      await seedRebuildAttempts("drive-cas-c3-a", 1);
+
+      // drive-cas-c3-b: a FRESH corrupt row with no onboarding_rebuild_attempts row at all
+      // (COALESCE 0 path) — must NOT report itself exhausted.
+      const showB = await seedLiveShow({
+        drive: "drive-cas-c3-b",
+        title: "Cas C3 B Live",
+        crew: [{ name: "Bea", email: "bea@old.example" }],
+        lastSeen: BASE,
+      });
+      const parseB = makeParse("Cas C3 B", [{ name: "Bea", email: "bea@new.example" }]);
+      await seedShadow(
+        "drive-cas-c3-b",
+        showB,
+        shadowPayload(parseB, { omit: ["triggered_review_items"] }),
+      );
+
+      const res = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res.status).toBe(409);
+      const rows = await perRows(res);
+      const rowA = rows.find((r) => r.drive_file_id === "drive-cas-c3-a")!;
+      const rowB = rows.find((r) => r.drive_file_id === "drive-cas-c3-b")!;
+      expect(rowA.code).toBe("STAGED_REVIEW_ITEMS_CORRUPT");
+      expect(rowA.rebuild_exhausted).toBe(true);
+      expect(rowB.code).toBe("STAGED_REVIEW_ITEMS_CORRUPT");
+      expect(rowB.rebuild_exhausted).toBe(false);
+      // Caller-only escalation-emit signals never leak into the per-row response contract.
+      expect(rowA).not.toHaveProperty("escalationFlipped");
+      expect(rowA).not.toHaveProperty("rebuildAttempts");
+      expect(rowA).not.toHaveProperty("corruptionReason");
     },
   );
 

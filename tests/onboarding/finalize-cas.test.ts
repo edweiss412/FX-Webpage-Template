@@ -243,7 +243,11 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       ok: false,
       code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
       per_row: [
-        { drive_file_id: "existing-corrupt", code: "STAGED_PARSE_RESULT_CORRUPT" },
+        {
+          drive_file_id: "existing-corrupt",
+          code: "STAGED_PARSE_RESULT_CORRUPT",
+          rebuild_exhausted: false,
+        },
         { drive_file_id: "existing-2", code: "OK" },
       ],
     });
@@ -289,7 +293,11 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       ok: false,
       code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
       per_row: [
-        { drive_file_id: "existing-corrupt-choices", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+        {
+          drive_file_id: "existing-corrupt-choices",
+          code: "STAGED_REVIEW_ITEMS_CORRUPT",
+          rebuild_exhausted: false,
+        },
         { drive_file_id: "existing-2", code: "OK" },
       ],
     });

@@ -406,6 +406,16 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "ONBOARDING_BLOCKER_REBUILT",
   },
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 10): the finalize-cas route's
+  // once-only rebuild-exhaustion escalation. Emit is POST-COMMIT (this row's own withRowTx
+  // has already resolved — the SAME placement as the existing SHOW_FINALIZED emit), outside
+  // the advisory-lock txn (invariant 2/10); fires exactly once per (session, drive_file_id)
+  // exhaustion via an in-txn idempotent `escalation_logged` claim.
+  {
+    file: "app/api/admin/onboarding/finalize-cas/route.ts",
+    fn: "POST",
+    code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -505,6 +515,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // (logAdminOutcome-stamped -> stripped from the producer scan); flows into
   // NEW_FORENSIC_CODES via spread.
   "ONBOARDING_BLOCKER_REBUILT",
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 10): forensic outcome
+  // code for the finalize-cas route's once-only rebuild-exhaustion escalation.
+  // §12.4-exempt (logAdminOutcome-stamped -> stripped from the producer scan); flows into
+  // NEW_FORENSIC_CODES via spread.
+  "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

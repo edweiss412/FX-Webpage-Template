@@ -374,7 +374,11 @@ import {
   deps as finalizeFakeDeps,
   request as finalizeRequest,
 } from "../onboarding/_finalizeFake";
-import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import {
+  handleOnboardingFinalizeCas,
+  type FinalizeCasRouteDeps,
+  type FinalizeCasRouteTx,
+} from "@/app/api/admin/onboarding/finalize-cas/route";
 import {
   W1 as CAS_W1,
   FakeFinalizeCasDb,
@@ -382,6 +386,7 @@ import {
   deps as finalizeCasFakeDeps,
   request as finalizeCasRequest,
 } from "../onboarding/_finalizeCasFake";
+import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
   handleExtractAgenda,
   type ExtractAgendaDeps,
@@ -4050,6 +4055,227 @@ describe("Task 8 — resolve-blocker rebuild route observes every committed outc
       });
       expect(notBlockedCodes).not.toContain("ONBOARDING_BLOCKER_REBUILT");
       expect(resolveBlockerDeferredTasks.length).toBe(0);
+    },
+  );
+});
+
+// ── Wizard blocker in-wizard resolution (spec 2026-07-16, Task 10): finalize-cas
+// rebuildExhausted join + once-only ONBOARDING_SHADOW_REBUILD_EXHAUSTED escalation.
+// A DEDICATED connection (never `resolveBlockerSql` — the resolve-blocker Task 8 block's
+// own `afterAll` calls `resolveBlockerSql.end()`, which would already have closed that pool
+// by the time this later describe block runs). Same local DB; isolated by its own
+// FC10_-prefixed session/drive-file id, own cleanup.
+const FINALIZE_CAS_LOCAL_URL =
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+let fc10Sql: ReturnType<typeof postgres> | null = null;
+let fc10DbUp = false;
+try {
+  const probe = postgres(FINALIZE_CAS_LOCAL_URL, {
+    max: 2,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
+  await probe.unsafe("select 1", []);
+  fc10Sql = probe;
+  fc10DbUp = true;
+} catch {
+  if (fc10Sql) await (fc10Sql as ReturnType<typeof postgres>).end().catch(() => {});
+  fc10Sql = null;
+  fc10DbUp = false;
+}
+
+const FINALIZE_CAS_ROUTE_FILE = "app/api/admin/onboarding/finalize-cas/route.ts";
+const FC10_SESSION = "9f9f9f9f-4444-4444-8444-9f9f9f9f9f9f";
+const FC10_DRIVE_FILE_ID = "admin-outcome-finalize-cas-exhaust";
+const FC10_FOLDER_ID = "admin-outcome-finalize-cas-folder";
+const FC10_ADMIN_EMAIL = "finalize-cas-exhaust-admin@example.com";
+const FC10_BASE_TS = "2026-06-01T00:00:00.000Z";
+
+async function fc10Cleanup(): Promise<void> {
+  if (!fc10Sql) return;
+  for (const stmt of [
+    `delete from public.shows_pending_changes where drive_file_id = '${FC10_DRIVE_FILE_ID}'`,
+    `delete from public.shows where drive_file_id = '${FC10_DRIVE_FILE_ID}'`,
+    `delete from public.onboarding_rebuild_attempts where drive_file_id = '${FC10_DRIVE_FILE_ID}'`,
+    `delete from public.wizard_finalize_checkpoints where wizard_session_id = '${FC10_SESSION}'::uuid`,
+    `update public.app_settings
+        set pending_wizard_session_id = null, pending_wizard_session_at = null,
+            pending_folder_id = null
+      where id = 'default'`,
+  ]) {
+    await fc10Sql.unsafe(stmt, []).catch(() => {});
+  }
+}
+
+async function fc10SeedSession(): Promise<void> {
+  await fc10Sql!.unsafe(
+    `update public.app_settings
+        set pending_wizard_session_id = $1::uuid, pending_wizard_session_at = now(),
+            pending_folder_id = $2
+      where id = 'default'`,
+    [FC10_SESSION, FC10_FOLDER_ID],
+  );
+  await fc10Sql!.unsafe(
+    `insert into public.wizard_finalize_checkpoints (wizard_session_id, status, batches_completed)
+     values ($1::uuid, 'all_batches_complete', 1)
+     on conflict (wizard_session_id) do update set status = 'all_batches_complete'`,
+    [FC10_SESSION],
+  );
+}
+
+async function fc10SeedLiveShow(): Promise<string> {
+  const row = rbOne<{ id: string }>(
+    await fc10Sql!.unsafe(
+      `insert into public.shows
+         (drive_file_id, slug, title, client_label, template_version,
+          last_seen_modified_time, published, last_sync_status)
+       values ($1, $2, 'FC10 Exhaust Live', 'Client', 'v4', $3::timestamptz, true, 'ok')
+       returning id`,
+      [FC10_DRIVE_FILE_ID, `slug-${FC10_DRIVE_FILE_ID}`, FC10_BASE_TS],
+    ),
+  );
+  return row.id;
+}
+
+// A minimal STAGED_PARSE_RESULT_CORRUPT payload: the `parse_result` key ABSENT check runs
+// FIRST in parseShadowPayloadForApply (lib/onboarding/shadowPayload.ts:151-153, reason
+// "parse_result_absent") — no full valid parse fixture is needed to reach the corrupt branch.
+function fc10CorruptPayload(): Record<string, unknown> {
+  return {
+    staged_id: "fc10-staged-1",
+    staged_modified_time: FC10_BASE_TS,
+    base_modified_time: FC10_BASE_TS,
+  };
+}
+
+async function fc10SeedShadow(showId: string): Promise<void> {
+  await fc10Sql!.unsafe(
+    `insert into public.shows_pending_changes
+       (wizard_session_id, drive_file_id, show_id, payload, applied_by_email, applied_at_intent)
+     values ($1::uuid, $2, $3::uuid, $4, $5, now())`,
+    // postgres.js serializes a raw object for a jsonb column itself — never JSON.stringify.
+    [FC10_SESSION, FC10_DRIVE_FILE_ID, showId, fc10CorruptPayload(), FC10_ADMIN_EMAIL] as never[],
+  );
+}
+
+async function fc10SeedRebuildAttempts(attempts: number, escalationLogged = false): Promise<void> {
+  await fc10Sql!.unsafe(
+    `insert into public.onboarding_rebuild_attempts
+       (wizard_session_id, drive_file_id, attempts, escalation_logged)
+     values ($1::uuid, $2, $3, $4)
+     on conflict (wizard_session_id, drive_file_id)
+       do update set attempts = excluded.attempts, escalation_logged = excluded.escalation_logged`,
+    [FC10_SESSION, FC10_DRIVE_FILE_ID, attempts, escalationLogged],
+  );
+}
+
+async function fc10EscalationLogged(): Promise<boolean> {
+  const rows = (await fc10Sql!.unsafe(
+    `select escalation_logged from public.onboarding_rebuild_attempts
+      where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [FC10_SESSION, FC10_DRIVE_FILE_ID],
+  )) as Array<{ escalation_logged: boolean }>;
+  return rows[0]?.escalation_logged ?? false;
+}
+
+function fc10Request(): Request {
+  return new Request("https://crew.fxav.test/api/admin/onboarding/finalize-cas", {
+    method: "POST",
+  });
+}
+
+function fc10Deps(overrides: Partial<FinalizeCasRouteDeps> = {}): FinalizeCasRouteDeps {
+  return {
+    requireAdminIdentity: async () => ({ email: FC10_ADMIN_EMAIL }),
+    subscribeToWatchedFolder: async () => undefined,
+    ...overrides,
+  };
+}
+
+// A withRowTx that mirrors the route's OWN defaultWithRowTx (a real postgres.js sql.begin +
+// the SAME per-show advisory lock) but injects a forced throw immediately AFTER the in-txn
+// escalation-claim UPDATE executes and BEFORE this row's transaction commits — proving the
+// claim is genuinely transactional: a rolled-back finalize-cas row must never durably flip
+// escalation_logged, and therefore must never emit the escalation telemetry.
+function fc10WithRowTxThrowingAfterClaim(): NonNullable<FinalizeCasRouteDeps["withRowTx"]> {
+  return async <R>(
+    driveFileId: string,
+    fn: (tx: FinalizeCasRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
+  ): Promise<R> => {
+    return (await fc10Sql!.begin(async (rawTx) => {
+      const raw = rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> };
+      await raw.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+      let claimed = false;
+      const tx: FinalizeCasRouteTx = {
+        async query<T>(sqlText: string, params: readonly unknown[] = []) {
+          const rows = (await raw.unsafe(sqlText, [...params])) as T[];
+          if (/update\s+public\.onboarding_rebuild_attempts/i.test(sqlText)) claimed = true;
+          return { rows, rowCount: rows.length };
+        },
+      };
+      // The corrupt-row branch returns EARLY (before any pipelineTx use), so a bare stub
+      // satisfies the type — this row never reaches applyStagedCore.
+      const result = await fn(tx, {} as unknown as SyncPipelineTx);
+      if (claimed) {
+        throw new Error("FC10-INJECTED-ROLLBACK: forced throw after in-txn claim, before commit");
+      }
+      return result;
+    })) as R;
+  };
+}
+
+describe("Task 10 — finalize-cas rebuildExhausted + once-only escalation telemetry", () => {
+  beforeEach(async () => {
+    if (!fc10DbUp) return;
+    await fc10Cleanup();
+  });
+  afterAll(async () => {
+    if (fc10DbUp) await fc10Cleanup();
+    if (fc10Sql) await fc10Sql.end().catch(() => {});
+  });
+
+  test.skipIf(!fc10DbUp)(
+    "ONBOARDING_SHADOW_REBUILD_EXHAUSTED emits exactly once on first exhausted re-observation; a second run does NOT re-emit; a rolled-back row never flips or emits",
+    async () => {
+      await fc10SeedSession();
+      const showId = await fc10SeedLiveShow();
+      await fc10SeedShadow(showId);
+      await fc10SeedRebuildAttempts(1, false); // CAP already reached, not yet escalated
+
+      // 1) A row whose per-row transaction ROLLS BACK (forced throw after the claim UPDATE)
+      // must never durably flip escalation_logged, and must never emit.
+      const rolledBackCodes = await observeCodes(() =>
+        handleOnboardingFinalizeCas(
+          fc10Request(),
+          fc10Deps({ withRowTx: fc10WithRowTxThrowingAfterClaim() }),
+        ),
+      );
+      expect(rolledBackCodes).not.toContain("ONBOARDING_SHADOW_REBUILD_EXHAUSTED");
+      expect(await fc10EscalationLogged()).toBe(false);
+
+      // 2) The first REAL (committed) re-observation flips the claim and emits exactly once.
+      const firstRunCodes = await observeSuccessCodes(() =>
+        handleOnboardingFinalizeCas(fc10Request(), fc10Deps()),
+      );
+      expect(firstRunCodes.filter((c) => c === "ONBOARDING_SHADOW_REBUILD_EXHAUSTED")).toHaveLength(
+        1,
+      );
+      expect(await fc10EscalationLogged()).toBe(true);
+
+      // 3) A second finalize-cas run against the SAME still-corrupt row finds
+      // escalation_logged already true → the claim UPDATE matches zero rows → no re-emit.
+      const secondRunCodes = await observeSuccessCodes(() =>
+        handleOnboardingFinalizeCas(fc10Request(), fc10Deps()),
+      );
+      expect(secondRunCodes).not.toContain("ONBOARDING_SHADOW_REBUILD_EXHAUSTED");
+      expect(await fc10EscalationLogged()).toBe(true);
+
+      recordAdminOutcomeBehavior({
+        file: FINALIZE_CAS_ROUTE_FILE,
+        fn: "POST",
+        code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+      });
     },
   );
 });

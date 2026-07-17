@@ -8,6 +8,7 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import {
   parseShadowPayloadForApply,
   type ParsedShadowPayloadForApply,
+  type CorruptionReason,
 } from "@/lib/onboarding/shadowPayload";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
@@ -27,6 +28,13 @@ import {
 } from "@/lib/onboarding/finalizeProgress";
 
 const OK_CODE = "OK" as const;
+
+// Task 10 (spec 2026-07-16 wizard blocker in-wizard resolution): a corrupt shadow's
+// rebuild-attempt cap, mirroring resolve-blocker's REBUILD_CAP
+// (app/api/admin/onboarding/resolve-blocker/route.ts:159) — the SAME
+// onboarding_rebuild_attempts row, read here (never written; the write lives ONLY at
+// resolve-blocker's rebuild action, co-located with the shadow delete).
+const REBUILD_ATTEMPT_CAP = 1;
 
 export type FinalizeCasRouteTx = {
   query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
@@ -94,6 +102,16 @@ type ShadowApplyResult =
         | "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH"
         | typeof SHOW_ARCHIVED_IMMUTABLE;
       display_name?: string;
+      // Task 10: set ONLY for the two corrupt codes above (STAGED_REVIEW_ITEMS_CORRUPT /
+      // STAGED_PARSE_RESULT_CORRUPT) — the client-facing rebuild-exhausted state, joined
+      // from onboarding_rebuild_attempts (COALESCE 0) under the SAME locked per-row txn.
+      rebuild_exhausted?: boolean;
+      // Caller-only (Task 10): consumed by the per-row loop's post-commit escalation emit,
+      // then STRIPPED before the result reaches the client response — mirrors the
+      // caller-only `showId` field on the OK branch above.
+      escalationFlipped?: boolean;
+      rebuildAttempts?: number;
+      corruptionReason?: CorruptionReason;
     };
 
 type FinalizeCasResult =
@@ -399,7 +417,64 @@ async function applyShadow(
   affectedShowIds: Set<string>,
 ): Promise<ShadowApplyResult> {
   const parsed = parseShadowPayloadForApply(row.payload);
-  if (!parsed.ok) return { drive_file_id: row.drive_file_id, code: parsed.code }; // shadow retained
+  if (!parsed.ok) {
+    // shadow retained
+    const isCorrupt =
+      parsed.code === "STAGED_REVIEW_ITEMS_CORRUPT" ||
+      parsed.code === "STAGED_PARSE_RESULT_CORRUPT";
+    if (!isCorrupt) {
+      // STAGED_PARSE_OUTDATED_AT_PHASE_D — a staleness posture, not corruption (shadowPayload.ts
+      // comment at CorruptionReason's declaration); no rebuild-exhausted join applies.
+      return { drive_file_id: row.drive_file_id, code: parsed.code };
+    }
+    // Task 10: LEFT JOIN onboarding_rebuild_attempts (COALESCE attempts → 0), on the SAME
+    // locked per-row txn that took the `show:` advisory lock (defaultWithRowTx) — invariant 10.
+    const { rows: capRows } = await tx.query<{ attempts: number }>(
+      `
+        select coalesce(ora.attempts, 0) as attempts
+          from (select 1 as one) as _one
+          left join public.onboarding_rebuild_attempts ora
+            on ora.wizard_session_id = $1::uuid and ora.drive_file_id = $2
+      `,
+      [row.wizard_session_id, row.drive_file_id],
+    );
+    const attempts = capRows[0]?.attempts ?? 0;
+    const rebuildExhausted = attempts >= REBUILD_ATTEMPT_CAP;
+    let escalationFlipped = false;
+    if (rebuildExhausted) {
+      // In-txn idempotent claim: flips escalation_logged exactly once per exhaustion. A
+      // re-observation after this run's row txn commits finds escalation_logged already
+      // true and matches zero rows — no re-emit (the caller's post-commit emit is gated on
+      // escalationFlipped, never on rebuildExhausted alone).
+      const { rows: claimRows } = await tx.query<{ attempts: number }>(
+        `
+          update public.onboarding_rebuild_attempts
+             set escalation_logged = true
+           where wizard_session_id = $1::uuid and drive_file_id = $2
+             and attempts >= $3 and not escalation_logged
+          returning attempts
+        `,
+        [row.wizard_session_id, row.drive_file_id, REBUILD_ATTEMPT_CAP],
+      );
+      escalationFlipped = claimRows.length > 0;
+    }
+    return {
+      drive_file_id: row.drive_file_id,
+      code: parsed.code,
+      rebuild_exhausted: rebuildExhausted,
+      // exactOptionalPropertyTypes: never assign an explicit `undefined` — `corruptionReason`
+      // is added only when parsed.reason is actually present (always true here in practice;
+      // every STAGED_REVIEW_ITEMS_CORRUPT/STAGED_PARSE_RESULT_CORRUPT refuse() call site
+      // passes a reason — shadowPayload.ts:157-258 — this guard is belt-and-suspenders).
+      ...(escalationFlipped
+        ? {
+            escalationFlipped: true,
+            rebuildAttempts: attempts,
+            ...(parsed.reason ? { corruptionReason: parsed.reason } : {}),
+          }
+        : {}),
+    };
+  }
 
   const live = (
     await tx.query<{
@@ -891,12 +966,41 @@ async function runFinalizeCas(
         /* best-effort */
       }
     }
+    // Task 10 (invariant 10): the corrupt-row rebuild-exhaustion escalation. This row's
+    // withRowTx has ALREADY resolved (comment above) — the in-txn idempotent claim inside
+    // applyShadow already committed durably as part of THIS row's own locked transaction, so
+    // this emit is POST-COMMIT, outside the lock txn, exactly like SHOW_FINALIZED above.
+    // logAdminOutcome never throws (fail-open internally) — no try/catch needed at the
+    // callsite, matching the SHOW_FINALIZED precedent.
+    if (result.escalationFlipped) {
+      await logAdminOutcome({
+        code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+        source: "api.admin.onboarding.finalizeCas",
+        actorEmail,
+        driveFileId: row.drive_file_id,
+        wizardSessionId,
+        showId: row.show_id,
+        result: result.code,
+        extra: {
+          corruptionReason: result.corruptionReason ?? null,
+          attemptCount: result.rebuildAttempts ?? 0,
+        },
+      });
+    }
     const parsed = parseShadowPayloadForApply(row.payload);
     const title = parsed.ok ? parsedShowTitle(parsed.parseResult) : null;
     // exactOptionalPropertyTypes (tsconfig.json): `display_name?: string` rejects a
     // present `undefined`, so ADD the property only when a real title exists; a blocked
     // row without a title is pushed WITHOUT it (the client falls back to the id).
-    shadowResults.push(title ? { ...result, display_name: title } : result);
+    // escalationFlipped/rebuildAttempts/corruptionReason are caller-only (Task 10, mirroring
+    // showId above) — STRIP them so they never leak into the per_row response body.
+    const {
+      escalationFlipped: _escalationFlipped,
+      rebuildAttempts: _rebuildAttempts,
+      corruptionReason: _corruptionReason,
+      ...responseRow
+    } = result;
+    shadowResults.push(title ? { ...responseRow, display_name: title } : responseRow);
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
   if (blocked.length > 0) {
