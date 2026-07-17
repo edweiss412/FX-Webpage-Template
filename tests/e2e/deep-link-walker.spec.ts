@@ -249,3 +249,78 @@ for (const row of allWalkableRows) {
     await assertTarget(page, root, row);
   });
 }
+
+// Gap fix (2026-07-17): the "Recently auto-applied" strip must sit directly
+// beneath the Needs-attention inbox — NeedsAttentionInbox previously carried an
+// `h-full` that ballooned it in the stretched sidebar column and pushed the strip
+// far below (detached band). Real-browser only (jsdom can't compute layout).
+// Reuses the help-docs locked seeds: walker-first-seen pending_syncs populates
+// the inbox, the sentinel auto_apply show_change_log renders the strip — NO new
+// DB write here. Desktop-only (the inbox column is hidden below 720px; this spec
+// also runs the mobile help-docs project).
+test("recently-auto-applied strip sits directly beneath the needs-attention inbox (no gap)", async ({
+  page,
+}) => {
+  test.skip(
+    test.info().project.name !== "help-docs-desktop",
+    "desktop-only dashboard two-column layout",
+  );
+  await setDashboardAdminState();
+  await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
+  const response = await page.goto(`${BASE_URL}/admin`, { waitUntil: "domcontentloaded" });
+  expect(response?.ok(), "/admin should load").toBe(true);
+
+  const inbox = page.getByTestId("needs-attention-inbox");
+  const strip = page.getByTestId("recent-auto-applied-strip");
+  await expect(inbox, "populated inbox present").toBeVisible();
+  await expect(strip, "strip present").toBeVisible();
+  // OK-path proof (not the infra_error fallback, whose header also carries the ?):
+  await expect(page.getByTestId("recent-auto-applied-count-chip")).toBeVisible();
+  await expect(page.getByTestId("auto-applied-error")).toHaveCount(0);
+
+  // Force the shows column tall so the two-col `items-stretch` contract stretches
+  // the sidebar column well beyond its content — the exact real-world condition
+  // (a long Active-shows list) under which the OLD `h-full` inbox balloons and
+  // detaches the strip. The seed's short shows list can't reach it on its own, so
+  // we induce it deterministically (Codex-safe: DOM-only, no DB write). With the
+  // fix the strip stays adjacent; with `h-full` back it drops ~1500px below.
+  const forced = await page.evaluate(() => {
+    const col = document.querySelector('[data-testid="dashboard-shows-col"]');
+    if (!(col instanceof HTMLElement)) return false;
+    col.style.minHeight = "2000px";
+    return true;
+  });
+  // Fail loud if the force-tall target is missing (e.g. a future testid rename):
+  // a silent no-op would let the ratio assertion below false-pass without ever
+  // creating the stretched-column condition it depends on.
+  expect(forced, "dashboard-shows-col must exist to induce the stretched-column condition").toBe(
+    true,
+  );
+  await expect(strip).toBeVisible();
+
+  const inboxBox = await inbox.boundingBox();
+  const colBox = await page.getByTestId("dashboard-inbox-col").boundingBox();
+  expect(inboxBox, "inbox has a box").not.toBeNull();
+  expect(colBox, "inbox column has a box").not.toBeNull();
+  // Precondition guard: the ratio test is only meaningful when the sidebar column
+  // is genuinely stretched well beyond the inbox's content. If this ever fails,
+  // the two-col items-stretch contract changed and the regression test below would
+  // be vacuous — surface that instead of silently passing.
+  expect(
+    colBox!.height,
+    "sidebar column must be stretched tall for the content-sized-inbox assertion to bite",
+  ).toBeGreaterThan(1500);
+  // THE FIX: the inbox is sized to its content, NOT stretched to fill the (now
+  // force-tall) sidebar column. The detached-band bug was the OLD `h-full` on the
+  // populated inbox root ballooning it to the full column height — its short
+  // content ("+N more") stranded at the top and everything below it empty, which
+  // is the visible gap above the strip. Fixed → the inbox stays compact and the
+  // strip follows its CONTENT. This assertion fails if `h-full`/`flex-1` returns:
+  // the inbox height jumps from ~content (a few hundred px) to ≈ the column height.
+  expect(
+    inboxBox!.height,
+    `inbox height ${Math.round(inboxBox!.height)} vs column ${Math.round(colBox!.height)} — ` +
+      `a content-sized inbox is a small fraction of the stretched column; an h-full ` +
+      `inbox balloons to ≈ the column height (the detached-band regression)`,
+  ).toBeLessThan(colBox!.height * 0.5);
+});

@@ -33,6 +33,7 @@ import type {
 import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import { CollapsePanel } from "@/components/admin/CollapsePanel";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -497,6 +498,60 @@ function GroupSection({
   );
 }
 
+// The strip's section header. On the DASHBOARD (headingLevel 4 → showAffordances)
+// it mirrors the "Needs attention" header: a flex row carrying a section count
+// chip (total un-dispositioned backlog = renderedCount + overflowCount) plus a "?"
+// HoverHelp. On the shared /admin/needs-attention page (headingLevel 2 →
+// !showAffordances) it early-returns the BARE heading — no wrapper div, DOM
+// byte-for-byte identical to before this change (that page has its own header
+// help). The <HoverHelp> literal stays in source unconditionally so the
+// affordance-matrix parity scanner resolves its testid.
+function StripHeader({
+  SectionHeading,
+  headingId,
+  count,
+  showAffordances,
+}: {
+  SectionHeading: "h2" | "h4";
+  headingId: string;
+  // Total backlog to show in the chip; null when there is no data to count
+  // (infra_error) — the chip is then omitted but the help stays.
+  count: number | null;
+  showAffordances: boolean;
+}) {
+  const heading = (
+    <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
+      Recently auto-applied
+    </SectionHeading>
+  );
+  if (!showAffordances) return heading;
+  return (
+    <div className="flex items-center gap-2">
+      {heading}
+      {count !== null ? (
+        <span
+          data-testid="recent-auto-applied-count-chip"
+          className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+        >
+          {count}
+        </span>
+      ) : null}
+      <HoverHelp
+        label="Help: Recently auto-applied"
+        testId="recent-auto-applied-help"
+        rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"
+        learnMore={{ href: "/help/admin/review-queues#re-stage" }}
+      >
+        <p>
+          Changes that already went live on their own — crew added, removed, or renamed, plus
+          schedule and field edits. Accept to clear them from this list, or undo the ones you
+          didn&apos;t want.
+        </p>
+      </HoverHelp>
+    </div>
+  );
+}
+
 export function RecentAutoAppliedStrip({
   data,
   actions,
@@ -520,6 +575,9 @@ export function RecentAutoAppliedStrip({
   const headingId = useId();
   const SectionHeading = headingLevel === 2 ? "h2" : "h4";
   const groupHeadingTag = headingLevel === 2 ? "h3" : "h5";
+  // Count chip + "?" help are DASHBOARD-only (headingLevel 4). The shared
+  // /admin/needs-attention page (headingLevel 2) keeps its bare heading.
+  const showAffordances = headingLevel === 4;
 
   if (data.kind === "infra_error") {
     // Bounded, plain-language fallback — never the raw kind token or internal
@@ -531,9 +589,12 @@ export function RecentAutoAppliedStrip({
         className="flex flex-col gap-2"
         aria-labelledby={headingId}
       >
-        <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
-          Recently auto-applied
-        </SectionHeading>
+        <StripHeader
+          SectionHeading={SectionHeading}
+          headingId={headingId}
+          count={null}
+          showAffordances={showAffordances}
+        />
         <p
           role="status"
           data-testid="auto-applied-error"
@@ -554,9 +615,12 @@ export function RecentAutoAppliedStrip({
       className="flex flex-col gap-2"
       aria-labelledby={headingId}
     >
-      <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
-        Recently auto-applied
-      </SectionHeading>
+      <StripHeader
+        SectionHeading={SectionHeading}
+        headingId={headingId}
+        count={data.renderedCount + data.overflowCount}
+        showAffordances={showAffordances}
+      />
       <ul className="flex flex-col gap-2">
         {data.groups.map((group) => (
           <GroupSection

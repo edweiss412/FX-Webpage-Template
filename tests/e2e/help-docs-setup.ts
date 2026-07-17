@@ -112,6 +112,31 @@ test("seed help-docs DB with wizard-active /admin state", async () => {
   ).toBe(1);
   expect(alertRows?.[0]?.show_id).toBe(rpasId);
 
+  // Seed postcondition for the "Recently auto-applied" strip fixture: exactly ONE
+  // eligible auto-applied change_log row (source=auto_apply, status=applied,
+  // acknowledged_at IS NULL — the loadRecentAutoApplied eligibility filter) must
+  // exist so the strip renders its OK branch on /admin. Asserting it here — BEFORE
+  // the walker runs — means an ineffective/missing seed fails LOUD, so the walker's
+  // tooltip check cannot false-pass via the strip's infra_error fallback header
+  // (which also carries the "?" help). Sentinel string kept in sync with
+  // supabase/seedWalkerFixtures.ts AUTO_APPLIED_SENTINEL.
+  const { data: autoAppliedRows, error: autoAppliedError } = await admin
+    .from("show_change_log")
+    .select("id, show_id, source, status, acknowledged_at, created_by")
+    .eq("created_by", "seed-fixture:walker-auto-applied")
+    .eq("source", "auto_apply")
+    .eq("status", "applied")
+    .is("acknowledged_at", null);
+  expect(
+    autoAppliedError,
+    `walker auto-applied change lookup failed: ${autoAppliedError?.message ?? ""}`,
+  ).toBeNull();
+  expect(
+    autoAppliedRows?.length,
+    "expected exactly 1 eligible auto-applied show_change_log fixture row for the strip",
+  ).toBe(1);
+  expect(autoAppliedRows?.[0]?.show_id).toBe(rpasId);
+
   const { data, error } = await admin
     .from("app_settings")
     .update({
