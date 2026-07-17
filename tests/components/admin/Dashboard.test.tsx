@@ -28,6 +28,22 @@ vi.mock("@/lib/admin/loadNeedsAttention", async (importOriginal) => {
   };
 });
 
+// Mobile auto-applied parity (Task 5) — when set, loadRecentAutoApplied returns
+// this instead of running against the empty mocked client, so the mobile summary
+// card's auto-applied chip can be fed a known renderedCount/overflowCount.
+// (verified: no prior loadRecentAutoApplied mock in this file.)
+const raState = vi.hoisted(() => ({
+  override: null as null | import("@/lib/admin/loadRecentAutoApplied").RecentAutoApplied,
+}));
+vi.mock("@/lib/admin/loadRecentAutoApplied", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/admin/loadRecentAutoApplied")>();
+  return {
+    ...actual,
+    loadRecentAutoApplied: async (deps: Parameters<typeof actual.loadRecentAutoApplied>[0]) =>
+      raState.override ?? actual.loadRecentAutoApplied(deps),
+  };
+});
+
 function emptyClient() {
   return {
     async rpc() {
@@ -94,6 +110,7 @@ vi.mock("next/navigation", () => ({
 beforeEach(() => {
   state.throwOnConstruct = false;
   naState.override = null;
+  raState.override = null;
   dgState.errorShowsInternal = false;
 });
 afterEach(() => {
@@ -291,5 +308,50 @@ describe("Dashboard composition", () => {
     dgState.errorShowsInternal = false;
     await renderDashboard();
     expect(screen.queryByTestId("dashboard-data-quality-degraded")).toBeNull();
+  });
+
+  // ── Mobile auto-applied parity (Task 5): summary-card chip threading ─────────
+
+  it("summary card auto-applied chip = renderedCount + overflowCount (not the capped rendered rows)", async () => {
+    raState.override = {
+      kind: "ok",
+      renderedCount: 3,
+      overflowCount: 2,
+      rosterShiftByShow: {},
+      groups: [
+        {
+          showId: "s1",
+          slug: "s1",
+          showName: "S1",
+          rows: [
+            {
+              id: "r1",
+              changeKind: "crew_added",
+              summary: "x",
+              occurredAt: "2026-06-09T18:00:00.000Z",
+              undoable: true,
+              diff: { kind: "none" },
+            },
+          ],
+          acceptableIds: ["r1"],
+          undoableIds: ["r1"],
+        },
+      ],
+    };
+    await renderDashboard();
+    const card = document.querySelector(
+      '[data-testid="needs-attention-summary-card"]',
+    ) as HTMLElement;
+    // 3 rendered + 2 overflow = 5 total backlog (chip must NOT report the capped 3).
+    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent("5 auto-applied");
+  });
+
+  it("summary card: infra_error auto-applied read → no auto-applied chip", async () => {
+    raState.override = { kind: "infra_error", message: "boom" };
+    await renderDashboard();
+    const card = document.querySelector(
+      '[data-testid="needs-attention-summary-card"]',
+    ) as HTMLElement;
+    expect(within(card).queryByTestId("summary-chip-auto-applied")).toBeNull();
   });
 });
