@@ -57,6 +57,12 @@ const REGISTRY: Row[] = [
     "rescan-sheet-button-* armed branch (G3 two-tap guard)",
   ),
   R(
+    "components/admin/BulkIgnoreControls.tsx",
+    0,
+    "morph",
+    "dq-bulk-ignore-* armed branch (G4 two-tap armed-state guard)",
+  ),
+  R(
     "components/admin/RecentAutoAppliedStrip.tsx",
     0,
     "panel",
