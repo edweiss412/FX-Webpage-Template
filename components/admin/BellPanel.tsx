@@ -150,7 +150,7 @@ function OccurrenceChip({ occurrences }: { occurrences: number }) {
   return (
     <span className="inline-flex items-center gap-1 text-xs tabular-nums text-text-faint">
       <RotateCcw aria-hidden="true" className="size-3 shrink-0" />
-      Seen {occurrences}×
+      Detected {occurrences}×
     </span>
   );
 }
@@ -161,7 +161,7 @@ function IdentityLine({ entry }: { entry: BellEntry }) {
   return <span className="mt-0.5 block wrap-break-word text-sm text-text-subtle">{text}</span>;
 }
 
-// Shared chrome for the non-form action buttons/links (Resolve, telemetry link,
+// Shared chrome for the non-form action buttons/links (Dismiss, telemetry link,
 // action chip) — mirrors the banner's action-link affordance.
 const ACTION_CHROME =
   "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
@@ -183,7 +183,7 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
     // Refetch after the POST settles regardless of status: a 200 shows the row
     // resolved, a 409 (raced to auto) surfaces the auto note, a 404 drops it.
     // Reset the button too — on a transient 5xx the row survives the refetch
-    // and must not stay stuck at "Resolving…".
+    // and must not stay stuck at "Dismissing…".
     setResolving(false);
     onRefetch();
   }, [entry, onRefetch, resolving]);
@@ -214,7 +214,7 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           aria-busy={resolving}
           className={ACTION_CHROME}
         >
-          {resolving ? "Resolving…" : "Resolve"}
+          {resolving ? "Dismissing…" : "Dismiss"}
         </button>
       )}
       {/* Carry-over from the retired AlertBanner: the watch alert's single-tap

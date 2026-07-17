@@ -66,8 +66,8 @@ export function resolveCurrentDiagrams(diagrams: unknown): PersistedDiagrams | n
  * (app/api/asset/diagram/[show]/[rev]/[key]/route.ts). For a null path (an
  * incomplete entry the route 410s regardless) the parser-side id is a stable
  * fallback so React's reconciler still has a key. Single source of truth shared
- * by the admin published-review diagrams sub-block; mirrors the crew
- * `keyFromPath` (components/crew/DiagramsBlock.tsx).
+ * by the admin published-review diagrams sub-block AND the crew
+ * `DiagramsBlock` (components/crew/DiagramsBlock.tsx).
  */
 export function diagramAssetKeyFromPath(snapshotPath: string | null, fallback: string): string {
   if (!snapshotPath) return fallback;

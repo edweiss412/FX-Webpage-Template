@@ -557,6 +557,53 @@ it("zero failures → no alert", async () => {
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
+it("all-success bulk undo announces completion via a persistent live region (DESTRUCT-3)", async () => {
+  // The strip self-heals VISUALLY on revalidate (rows drop). SR parity comes from a
+  // PERSISTENT sr-only role="status" whose TEXT SWAPS on completion — conditional
+  // mounting drops the announcement (project a11y rule, mirrors StagedReviewCard).
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // open confirm
+  // The region is mounted and EMPTY before completion, so the later text change — not a
+  // node insertion — is what a screen reader announces.
+  const region = within(fin).getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(region).toHaveAttribute("role", "status");
+  expect(region.textContent).toBe("");
+  await act(async () => {
+    fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+  // SAME node, text swapped in — count derives from the group's 2-id set, not a literal.
+  expect(region.textContent).toContain("Undid all 2 changes.");
+  // The failure alert never renders on an all-success run.
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("the persistent status region stays empty on a partial failure (failure alert owns that branch)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  // Region is present (persistent) but blank — no false "Undid all" on a partial failure.
+  expect(screen.getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`).textContent).toBe("");
+});
+
+it("reopening the confirm blanks the success announcement (open-clears lifecycle)", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  const region = within(fin).getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(region.textContent).toContain("Undid all"); // populated after the run
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // reopen
+  expect(region.textContent).toBe(""); // open-clears blanks it — no stale re-announcement
+});
+
 it("reopening the confirm clears a visible alert (open-clears lifecycle)", async () => {
   const actions = noopActions();
   actions.undoFromDashboardAction = vi
@@ -582,9 +629,9 @@ it("failure alert then a later all-success run: failure alert gone, sr-only succ
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
-  // DESTRUCT-3: the all-success second run writes the sentence into the persistent
-  // sr-only status region (text present, not merely the always-mounted empty node)
-  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toHaveTextContent(
+  // DESTRUCT-3 (#422): the all-success second run writes the sentence into the
+  // persistent sr-only status region (text present, not the always-mounted empty node)
+  expect(screen.getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toHaveTextContent(
     "Undid all 2 changes",
   );
 });
@@ -608,31 +655,8 @@ it("collapsing a group while its confirm panel is open keeps the confirm mounted
   expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
 });
 
-// ── DESTRUCT-3: sr-only status on all-success bulk undo ────────────────────
-it("all-success bulk undo announces an sr-only status; no failure alert", async () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
-  await openConfirmAndRunUndoAll();
-  const status = await screen.findByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`);
-  expect(status).toHaveAttribute("role", "status");
-  expect(status.className).toContain("sr-only");
-  expect(status).toHaveTextContent("Undid all 2 changes");
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
-});
-
-it("partial-failure bulk undo shows the failure alert, no success status (precedence)", async () => {
-  const actions = noopActions();
-  actions.undoFromDashboardAction = vi
-    .fn()
-    .mockResolvedValueOnce({ ok: false })
-    .mockResolvedValue({ ok: true });
-  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
-  await openConfirmAndRunUndoAll();
-  expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
-  // The sr-only status region is always mounted (robust-announce pattern) but
-  // carries NO text on a partial failure — the failure alert is the announcement.
-  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`).textContent).toBe("");
-});
-
+// DESTRUCT-3 singular-copy coverage (complements #422's persistent-region tests,
+// which only exercise the plural 2-change case).
 it("all-success bulk undo with a single undoable row → singular 'change' copy", async () => {
   const SID = "solo";
   const data: RecentAutoApplied = {
@@ -674,7 +698,7 @@ it("all-success bulk undo with a single undoable row → singular 'change' copy"
   await act(async () => {
     fireEvent.click(screen.getByTestId(`auto-applied-undo-all-confirm-go-${SID}`));
   });
-  const status = await screen.findByTestId(`auto-applied-bulk-undo-success-${SID}`);
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-status-${SID}`);
   expect(status.textContent).toContain("Undid all 1 change");
   expect(status.textContent).not.toContain("1 changes"); // singular, not plural
 });
@@ -867,6 +891,37 @@ it("headingLevel=2 infra_error branch renders an h2 (not a hardcoded h4)", () =>
     screen.getByRole("heading", { level: 2, name: "Recently auto-applied" }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("heading", { level: 4 })).toBeNull();
+});
+
+// ── MOBILEPARITY-1: strip heading reads as a section head ─────────────────────
+// The heading sized text-sm (14px) matched the group-card show-names beneath it,
+// so it didn't read as a section head. Bump to text-base (16px) — identical class
+// at BOTH mount levels (spec §D3: same visual classes across dashboard h4 + page
+// h2). 16px stays below both parents (page h1 24px, dashboard section h3 18px), so
+// no hierarchy inversion. Weight stays font-semibold (app heading-weight convention).
+it("MOBILEPARITY-1: strip heading is text-base (not text-sm), identical class at both mounts (§D3)", () => {
+  const { unmount } = render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const h4 = screen.getByRole("heading", { level: 4, name: "Recently auto-applied" });
+  expect(h4).toHaveClass("text-base");
+  expect(h4).not.toHaveClass("text-sm");
+  const h4Class = h4.className;
+  unmount();
+
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} headingLevel={2} />);
+  const h2 = screen.getByRole("heading", { level: 2, name: "Recently auto-applied" });
+  expect(h2).toHaveClass("text-base");
+  expect(h2).not.toHaveClass("text-sm");
+  // §D3: identical visual classes across the two mount contexts.
+  expect(h2.className).toBe(h4Class);
+});
+
+it("MOBILEPARITY-1: infra_error heading is also text-base (both branches consistent, §D3)", () => {
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
+  const h4 = screen.getByRole("heading", { level: 4, name: "Recently auto-applied" });
+  expect(h4).toHaveClass("text-base");
+  expect(h4).not.toHaveClass("text-sm");
 });
 
 it("FLOW4-7: populated section is a named region via aria-labelledby, with NO aria-label", () => {

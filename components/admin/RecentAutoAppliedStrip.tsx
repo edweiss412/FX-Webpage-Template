@@ -256,9 +256,9 @@ function GroupSection({
   const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
   // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2;
-  // DESTRUCT-3 adds the all-success sr-only status). Lifecycle: open clears (null);
-  // completion ALWAYS writes {failed,total}. Render branches: failed>0 → visible
-  // role=alert; else total>0 → sr-only role=status; else null.
+  // all-success announcement added for DESTRUCT-3). Lifecycle: open clears (null); completion
+  // always writes {failed,total}. failed>0 → visible failure alert; failed===0 → sr-only
+  // success status so SR users hear the undo landed (sighted users see rows self-heal).
   const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(
     null,
   );
@@ -322,9 +322,8 @@ function GroupSection({
         (groupContainerRef.current?.contains(document.activeElement) ?? false);
       if (wasInsideAtClick && stillOurs) toggleRef.current?.focus();
       setConfirming(false);
-      // Always write the outcome (DESTRUCT-3): failed>0 → visible alert; all-success
-      // → sr-only status. (Previously wrote null on all-success → SR users got no
-      // completion signal.)
+      // Always record the outcome (DESTRUCT-3): failure → visible alert, all-success
+      // → sr-only status. Only the open-clears path writes null.
       setBulkUndoOutcome({ failed, total });
     });
   }
@@ -461,16 +460,14 @@ function GroupSection({
             </p>
           ) : null}
 
-          {/* DESTRUCT-3: all-success → sr-only completion status for SR parity
-              (sighted users get the visual row-removal on revalidate). The
-              role=status region is ALWAYS mounted (empty until completion) so
-              assistive tech registers it up front; the sentence is written INTO
-              the existing region on completion. A role=status node that first
-              appears already-populated is skipped by some SR/browser combos
-              (impeccable dual-gate P2). */}
+          {/* Persistent sr-only live region for the all-success announcement (DESTRUCT-3).
+              Always mounted while the panel is open so the TEXT SWAP — not a node
+              insertion — is what a screen reader announces; conditional mounting drops
+              the announcement (project a11y rule, mirrors StagedReviewCard). Sighted
+              users see the rows self-heal on revalidate; this is the SR equivalent. */}
           <p
             role="status"
-            data-testid={`auto-applied-bulk-undo-success-${group.showId}`}
+            data-testid={`auto-applied-bulk-undo-status-${group.showId}`}
             className="sr-only"
           >
             {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0
@@ -529,7 +526,7 @@ export function RecentAutoAppliedStrip({
         className="flex flex-col gap-2"
         aria-labelledby={headingId}
       >
-        <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+        <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
           Recently auto-applied
         </SectionHeading>
         <p
@@ -552,7 +549,7 @@ export function RecentAutoAppliedStrip({
       className="flex flex-col gap-2"
       aria-labelledby={headingId}
     >
-      <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+      <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
         Recently auto-applied
       </SectionHeading>
       <ul className="flex flex-col gap-2">

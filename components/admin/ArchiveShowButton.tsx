@@ -39,7 +39,9 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
-const AUTO_REVERT_MS = 4_000;
+// Armed-state auto-revert window — harmonized to 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
 
 // §12.4 codes this button may surface inline. ADMIN_LINK_SHOW_NOT_FOUND is
 // RETIRED — a show_not_found result renders the generic refresh prompt, NOT a
@@ -84,7 +86,7 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
     setArmed(true);
     autoRevertRef.current = setTimeout(() => {
       setArmed((prev) => (prev ? false : prev));
-    }, AUTO_REVERT_MS);
+    }, ARM_REVERT_MS);
   };
 
   // Result handler passed to the form action. NOT a synchronous disable — it

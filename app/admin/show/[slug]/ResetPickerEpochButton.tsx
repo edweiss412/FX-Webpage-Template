@@ -22,7 +22,9 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 
-const AUTO_REVERT_MS = 3_000;
+// Armed-state auto-revert window — harmonized to 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
 /** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
 const SUCCESS_DISMISS_MS = 5_000;
 
@@ -126,7 +128,7 @@ export function ResetPickerEpochButton({
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
       closeConfirm();
-    }, AUTO_REVERT_MS);
+    }, ARM_REVERT_MS);
   };
 
   const onCancelClick = () => {

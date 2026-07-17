@@ -230,12 +230,12 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(resetPickerEpoch).not.toHaveBeenCalled();
   });
 
-  test("confirm → 3s auto-revert: returns to idle without invoking the action", () => {
+  test("confirm → 4s auto-revert: returns to idle without invoking the action", () => {
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());
     expect(confirmBtn()).toBeTruthy();
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(idleBtn()).toBeTruthy();
     expect(resetPickerEpoch).not.toHaveBeenCalled();
@@ -368,7 +368,7 @@ describe("ResetPickerEpochButton — destructive recipe + focus-safe open/close 
     fireEvent.click(idleBtn());
     await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
   });
@@ -387,7 +387,7 @@ describe("ResetPickerEpochButton — destructive recipe + focus-safe open/close 
     const external = screen.getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(external).toHaveFocus();
     expect(idleBtn()).not.toHaveFocus();

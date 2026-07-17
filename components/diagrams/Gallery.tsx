@@ -33,6 +33,15 @@ import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
 
 export type GalleryItem = {
+  /**
+   * Stable, list-unique identity for React reconciliation AND runtime
+   * failed-load tracking (`failedKeys`). Distinct from `key`: two entries
+   * can legitimately share an asset `key` (same `snapshotPath` last
+   * segment), but each MUST carry a unique `id` so React keys don't
+   * collide and one thumbnail's 4xx/5xx doesn't blank its twin. The parent
+   * DiagramsBlock derives it source-prefixed from the parser-side id.
+   */
+  id: string;
   /** Asset key — the last path segment of the storage `snapshotPath`. */
   key: string;
   /** Accessible label. Falls back to a generic "Diagram N" when empty. */
@@ -89,11 +98,11 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const runtimeFailed = failedKeys.has(item.key);
+          const runtimeFailed = failedKeys.has(item.id);
           const isAvailable = item.available && !runtimeFailed;
           return (
             <li
-              key={item.key}
+              key={item.id}
               data-testid={`diagram-slot-${i}`}
               {...(isAvailable ? {} : { "data-unavailable": "true" })}
               className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
@@ -134,9 +143,9 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                     decoding="async"
                     onError={() =>
                       setFailedKeys((prev) => {
-                        if (prev.has(item.key)) return prev;
+                        if (prev.has(item.id)) return prev;
                         const next = new Set(prev);
-                        next.add(item.key);
+                        next.add(item.id);
                         return next;
                       })
                     }

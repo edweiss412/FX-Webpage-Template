@@ -81,7 +81,8 @@ type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
 // Plain-language label for each `pending_syncs.source_kind` enum value.
 // PRODUCT.md design principle 5 ("plain language, never technical chrome")
 // requires admin copy to read as English, not schema vocabulary.
-// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+// Armed-state auto-revert window (spec §4: 4s) — harmonized naming across every
+// destructive surface (DESTRUCT-2): ARM_REVERT_MS.
 const ARM_REVERT_MS = 4_000;
 
 const SOURCE_LABELS: Record<"cron" | "push" | "manual" | "onboarding_scan", string> = {
@@ -667,7 +668,7 @@ export function StagedReviewCard({
                 : "min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
             }
           >
-            {ignoreArmed ? "Confirm: stop showing this sheet" : "Stop showing this sheet"}
+            {ignoreArmed ? "Confirm stop showing this sheet" : "Stop showing this sheet"}
           </button>
           {/* Persistent sr-only live region: announces the silent label morph to
               screen readers (impeccable P2). Always mounted — conditional

@@ -140,7 +140,7 @@ describe("BellPanel — sections (spec §7.3)", () => {
     expect(history.className).toContain("text-text-subtle");
   });
 
-  it('occurrences>1 renders a "Seen N×" chip; occurrences===1 renders none', async () => {
+  it('occurrences>1 renders a "Detected N×" chip; occurrences===1 renders none', async () => {
     const entries = [
       makeEntry({ alertId: "many", state: "active", occurrences: 3 }),
       makeEntry({ alertId: "one", state: "active", occurrences: 1 }),
@@ -149,8 +149,10 @@ describe("BellPanel — sections (spec §7.3)", () => {
     const { getByTestId } = renderPanel();
 
     await within(getByTestId("bell-panel")).findByTestId("bell-section-active");
-    expect(within(getByTestId("bell-entry-many")).getByText(/Seen 3×/)).toBeTruthy();
-    expect(within(getByTestId("bell-entry-one")).queryByText(/Seen/)).toBeNull();
+    expect(within(getByTestId("bell-entry-many")).getByText(/Detected 3×/)).toBeTruthy();
+    expect(within(getByTestId("bell-entry-one")).queryByText(/Detected/)).toBeNull();
+    // "Seen" was ambiguous (read as "seen by N people"); the copy is gone.
+    expect(within(getByTestId("bell-entry-many")).queryByText(/Seen/)).toBeNull();
   });
 
   it("interpolates entry.context into catalog copy — the value renders, the raw <placeholder> never (Finding 1)", async () => {

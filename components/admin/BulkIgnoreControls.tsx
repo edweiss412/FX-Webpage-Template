@@ -132,14 +132,14 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         const bulk = group.bulk;
         // Single source for the chip's VISIBLE text; the accessible name (below) mirrors it
         // and appends the type context. Because it tracks state, the accessible name stays in
-        // sync with the visible label in every state — armed reads "Confirm: ignore all N ·
+        // sync with the visible label in every state — armed reads "Confirm ignore all N ·
         // <type>" (WCAG 2.5.3 Label-in-Name holds across the morph, not just idle). The type
         // moved off the chip into the eyebrow for sighted users; the aria-label restores it
         // for screen-reader / voice-control.
         const chipText = running
           ? "Ignoring…"
           : armed
-            ? `Confirm: ignore all ${bulk?.items.length ?? 0}`
+            ? `Confirm ignore all ${bulk?.items.length ?? 0}`
             : `Ignore all ${bulk?.items.length ?? 0}`;
         return (
           <div

@@ -55,7 +55,7 @@ export function DataQualityBadge({
       role="img"
       aria-label={label}
       title={label}
-      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-status-warn-text"
+      className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap text-status-warn-text"
     >
       {/* Roster chip THEN gap chip (§6.5 order). Glyphs aria-hidden; visible counts
           are subsumed by the outer role="img" name. Distinct glyph + count per
@@ -66,7 +66,7 @@ export function DataQualityBadge({
           aria-hidden="true"
           className="inline-flex items-center gap-0.5 leading-none"
         >
-          <Users className="size-3.5" />
+          <Users className="size-4" />
           <span className="text-xs font-medium tabular-nums leading-none">{rosterTotal}</span>
         </span>
       ) : null}
@@ -76,7 +76,7 @@ export function DataQualityBadge({
           aria-hidden="true"
           className="inline-flex items-center gap-0.5 leading-none"
         >
-          <TriangleAlert className="size-3.5" />
+          <TriangleAlert className="size-4" />
           <span className="text-xs font-medium tabular-nums leading-none">{gapTotal}</span>
         </span>
       ) : null}

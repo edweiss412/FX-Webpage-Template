@@ -417,6 +417,81 @@ describe("BlockedRowResolver — code-less statuses get plain copy (F2)", () => 
   });
 });
 
+describe("BlockedRowResolver — HelpAffordance gating (BLOCKRES-2, spec §3.6)", () => {
+  test("code-less status (wrong_action) renders plain copy with NO HelpAffordance", async () => {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, status: "wrong_action" }));
+    const { getByTestId, container } = render(
+      <BlockedRowResolver
+        driveFileId={DFID}
+        wizardSessionId={WSID}
+        code={ARCHIVED}
+        onResolved={vi.fn()}
+      />,
+    );
+    const btn = getByTestId(`blocked-row-resolver-${DFID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      fireEvent.click(btn); // confirm
+    });
+    await waitFor(() =>
+      expect(btn.parentElement?.textContent ?? "").toContain("Refresh and try again."),
+    );
+    // code-less branch is self-explanatory — no §12.4 disclosure (mirrors RescanSheetButton's info branch).
+    expect(container.querySelector('[data-testid="help-affordance"]')).toBeNull();
+  });
+
+  test("needs_attention renders HelpAffordance keyed to the RESPONSE code (not the row code)", async () => {
+    // Response code differs from the row code: help must follow the response's cataloged code,
+    // matching the dougFacing copy source (spec §3.6: same code drives copy + disclosure).
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ ok: false, status: "needs_attention", code: CORRUPT_A }),
+    );
+    const { getByTestId, container } = render(
+      <BlockedRowResolver
+        driveFileId={DFID}
+        wizardSessionId={WSID}
+        code={ARCHIVED}
+        onResolved={vi.fn()}
+      />,
+    );
+    const btn = getByTestId(`blocked-row-resolver-${DFID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      fireEvent.click(btn); // confirm
+    });
+    await waitFor(() =>
+      expect(btn.parentElement?.textContent ?? "").toContain(
+        MESSAGE_CATALOG.STAGED_REVIEW_ITEMS_CORRUPT.dougFacing!,
+      ),
+    );
+    expect(container.querySelector('[data-testid="help-affordance"]')).not.toBeNull();
+    // The disclosure body is the RESPONSE code's helpfulContext, not the row (archived) code's.
+    expect(container.querySelector('[data-testid="help-affordance-body"]')?.textContent ?? "").toBe(
+      MESSAGE_CATALOG.STAGED_REVIEW_ITEMS_CORRUPT.helpfulContext!,
+    );
+  });
+});
+
+describe("BlockedRowResolver — escalated HelpAffordance (BLOCKRES-1)", () => {
+  test("escalation branch renders a HelpAffordance disclosure for the row code, still NO button", () => {
+    const { getByTestId, container } = render(
+      <BlockedRowResolver
+        driveFileId={DFID}
+        wizardSessionId={WSID}
+        code={CORRUPT_A}
+        rebuildExhausted={true}
+        onResolved={vi.fn()}
+      />,
+    );
+    expect(getByTestId(`blocked-row-escalated-${DFID}`)).not.toBeNull();
+    expect(container.querySelector('[data-testid="help-affordance"]')).not.toBeNull();
+    // The escalated "no clickable trigger" contract is about action buttons — a disclosure
+    // <summary>/<a> is neither a <button> nor role="button".
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector('[role="button"]')).toBeNull();
+  });
+});
+
 describe("BlockedRowResolver — invariant 5: no raw code in visible DOM text", () => {
   test("SHOW_ARCHIVED_IMMUTABLE never appears as literal visible text (HelpAffordance subtree stripped first)", async () => {
     fetchMock.mockResolvedValueOnce(

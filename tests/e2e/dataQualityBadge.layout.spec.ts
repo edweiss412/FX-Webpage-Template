@@ -6,8 +6,9 @@
  *
  * WHY A REAL BROWSER (jsdom is insufficient): this project's Tailwind v4 does NOT
  * default `.flex` to `align-items: stretch`, and the invariant is about CSS line
- * boxes — `text-xs` is `0.75rem × 1.4 = 16.8px`, taller than the 14px `size-3.5`
- * glyph. `leading-none` on the count collapses that line box so the glyph stays
+ * boxes — `text-xs` is `0.75rem × 1.4 = 16.8px`, taller than the 16px `size-4`
+ * glyph (FLOW4-2/3-POLISH; was 14px `size-3.5`). `leading-none` on the count
+ * collapses that line box so the glyph stays
  * the tallest child and the badge height == glyph height. Only a layout engine
  * computes this.
  *

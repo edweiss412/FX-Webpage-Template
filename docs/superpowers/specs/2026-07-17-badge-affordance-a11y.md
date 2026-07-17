@@ -44,6 +44,8 @@ Call sites (verified):
 
 The badge renders **up to two visible chips** inside the unchanged outer `role="img"` span. Each chip = a glyph + its count, both `text-status-warn-text`.
 
+> **Amendment (2026-07-17, FLOW4-2/3-POLISH):** glyph size and inter-chip gap in §5.1/§5.2/§5.4 below are superseded by `docs/superpowers/specs/2026-07-17-badge-glance-polish.md` — glyphs are `size-4` (16px, was `size-3.5`/14px) and the outer inter-chip gap is `gap-2` (8px, was `gap-1.5`/6px), to sharpen at-a-glance silhouette distinction on a sunlit phone. The values below are updated to the amended state; the dimensional invariant `badgeHeight === glyphHeight` is unchanged (still holds at the 16px baseline; `leading-none` on the 12px count box is still load-bearing).
+
 ### 5.1 Chip inventory
 
 | Chip | Condition | Glyph | Count |
@@ -52,13 +54,13 @@ The badge renders **up to two visible chips** inside the unchanged outer `role="
 | Parse-gap | `gapTotal > 0` | lucide `TriangleAlert` (unchanged) | `dataGaps.total` |
 
 - **Order: roster chip THEN gap chip**, matching the §6.5 aria-label concatenation order (roster segment then gap segment). Prevents a visual-vs-AT order mismatch a reviewer would flag.
-- Each glyph keeps `className="size-3.5"` (unchanged from the current `TriangleAlert`).
-- Each count: `text-xs font-medium tabular-nums leading-none`. `tabular-nums` is the project's numeric-value idiom (`components/atoms/KeyValue.tsx:134,144`); `text-xs`/`font-medium` are standard small-label sizes. **`leading-none` is load-bearing for the §5.4 dimensional invariant**: `text-xs` on this project is `0.75rem` with line-height `1.4` (`app/globals.css:106-107`, `DESIGN.md:132`) → a `12px × 1.4 = 16.8px` line box, taller than the 14px (`size-3.5`) glyph, which would grow the badge height; `leading-none` collapses the count's line box to its 12px font size so the 14px glyph remains the tallest child and the badge height stays at the single-glyph baseline.
+- Each glyph is `className="size-4"` (16px; FLOW4-2/3-POLISH amendment, was `size-3.5`/14px).
+- Each count: `text-xs font-medium tabular-nums leading-none`. `tabular-nums` is the project's numeric-value idiom (`components/atoms/KeyValue.tsx:134,144`); `text-xs`/`font-medium` are standard small-label sizes. **`leading-none` is load-bearing for the §5.4 dimensional invariant**: `text-xs` on this project is `0.75rem` with line-height `1.4` (`app/globals.css:106-107`, `DESIGN.md:132`) → a `12px × 1.4 = 16.8px` line box, taller than the 16px (`size-4`) glyph, which would grow the badge height; `leading-none` collapses the count's line box to its 12px font size so the 16px glyph remains the tallest child and the badge height stays at the single-glyph baseline.
 - Glyphs are `aria-hidden="true"`; counts are visible text but semantically subsumed by the outer `role="img"` name (screen readers read only the `aria-label`, never the inner text — unchanged AT behavior).
 
 ### 5.2 Outer element (contract-preserving)
 
-Unchanged: `<span data-testid={`shows-data-quality-${slug}`} role="img" aria-label={label} title={label}>`. ClassName becomes `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-status-warn-text` (adds `gap-1.5` between chips and `whitespace-nowrap` so the two-chip cluster never wraps within a table cell). Each chip is an inner `<span aria-hidden="true" className="inline-flex items-center gap-0.5 leading-none">{glyph}{count}</span>` (the count span carries the `text-xs font-medium tabular-nums leading-none` of §5.1).
+Unchanged: `<span data-testid={`shows-data-quality-${slug}`} role="img" aria-label={label} title={label}>`. ClassName becomes `inline-flex shrink-0 items-center gap-2 whitespace-nowrap text-status-warn-text` (adds `gap-2` between chips — FLOW4-2/3-POLISH amendment, was `gap-1.5` — and `whitespace-nowrap` so the two-chip cluster never wraps within a table cell). Each chip is an inner `<span aria-hidden="true" className="inline-flex items-center gap-0.5 leading-none">{glyph}{count}</span>` (the count span carries the `text-xs font-medium tabular-nums leading-none` of §5.1).
 
 `label`, `rosterLabel`, `gapLabel`, and `data-testid` are byte-identical to today. The **render gate is hardened** (see §5.3): from the old strict `gapTotal === 0 && rosterTotal === 0` (`components/admin/DataQualityBadge.tsx:24`) to `if (!hasGap && !hasRoster) return null`, where `hasGap`/`hasRoster` are the positive-total predicates below. `slug` is interpolated only into `data-testid`; it is never rendered as content and has no effect on the render gate or chips.
 
@@ -95,12 +97,12 @@ The badge sits inline beside the show title in a shows-table row (`ShowsTable.ts
 
 | Parent → child | Guarantee |
 |----------------|-----------|
-| Outer badge span → chips | `items-center` (vertical center), `gap-1.5` (inter-chip), `whitespace-nowrap` (no wrap) |
+| Outer badge span → chips | `items-center` (vertical center), `gap-2` (inter-chip; FLOW4-2/3-POLISH, was `gap-1.5`), `whitespace-nowrap` (no wrap) |
 | Chip span → glyph + count | `inline-flex items-center gap-0.5` |
-| Chip count → glyph | `leading-none` on the count so its line box (~12px) never exceeds the 14px (`size-3.5`) glyph → glyph is the tallest child → badge height == glyph height |
+| Chip count → glyph | `leading-none` on the count so its line box (~12px) never exceeds the 16px (`size-4`; FLOW4-2/3-POLISH, was `size-3.5`) glyph → glyph is the tallest child → badge height == glyph height |
 | Badge → table row | `shrink-0` (never squeezed); badge must NOT increase the row's height beyond its existing single-glyph height, and must NOT wrap to a second line |
 
-**Baseline definition (precise):** the invariant is `badgeHeight === glyphHeight` (the 14px `size-3.5` box), NOT "unchanged vs today" in the abstract — today's single-glyph badge already == glyph height, and `leading-none` on the count keeps the two-chip badge at that same height. Verified by a real-browser (Playwright) assertion in the plan: render a row with both chips, `getBoundingClientRect()` on the badge testid AND on a chip glyph, assert `|badge.height − glyph.height| ≤ 0.5px`, and assert the badge does not wrap (its height is within 0.5px of a single-chip badge's height, i.e. no second line). jsdom is insufficient (no layout).
+**Baseline definition (precise):** the invariant is `badgeHeight === glyphHeight` (the 16px `size-4` box; FLOW4-2/3-POLISH, was 14px `size-3.5`), NOT "unchanged vs today" in the abstract — today's single-glyph badge already == glyph height, and `leading-none` on the count keeps the two-chip badge at that same height. Verified by a real-browser (Playwright) assertion in the plan: render a row with both chips, `getBoundingClientRect()` on the badge testid AND on a chip glyph, assert `|badge.height − glyph.height| ≤ 0.5px`, and assert the badge does not wrap (its height is within 0.5px of a single-chip badge's height, i.e. no second line). jsdom is insufficient (no layout).
 
 ### 5.5 Transition inventory
 

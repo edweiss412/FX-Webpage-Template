@@ -232,6 +232,7 @@ const REV = "22222222-2222-4222-8222-222222222222";
 
 function items(n: number): GalleryItem[] {
   return Array.from({ length: n }, (_v, i) => ({
+    id: `embedded:obj-${i + 1}`,
     key: `embedded-obj-${i + 1}.png`,
     alt: `Diagram ${i + 1}`,
     available: true,

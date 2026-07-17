@@ -30,7 +30,7 @@ vi.mock("@/components/diagrams/Gallery", () => ({
     snapshotRevisionId,
     showId,
   }: {
-    items: { key: string; alt: string; available: boolean }[];
+    items: { id: string; key: string; alt: string; available: boolean }[];
     snapshotRevisionId: string;
     showId: string;
   }) => (
@@ -114,6 +114,7 @@ describe("DiagramsTile", () => {
     );
     const stub = screen.getByTestId("gallery-stub");
     const items = JSON.parse(stub.getAttribute("data-items") ?? "[]") as {
+      id: string;
       key: string;
       available: boolean;
     }[];
@@ -122,6 +123,11 @@ describe("DiagramsTile", () => {
       "embedded-obj-2.png",
       "folder-drv-1.jpg",
     ]);
+    // React/failed-tracking id is source-prefixed from the parser-side id —
+    // distinct from `key`, and list-unique (embedded ids never collide with
+    // linked ids) so a shared asset `key` can't produce a React key clash.
+    expect(items.map((i) => i.id)).toEqual(["embedded:obj-1", "embedded:obj-2", "linked:drv-1"]);
+    expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
     expect(stub.getAttribute("data-rev")).toBe(REV);
     expect(stub.getAttribute("data-show")).toBe(SHOW_ID);
   });
@@ -156,10 +162,12 @@ describe("DiagramsTile", () => {
     );
     const items = JSON.parse(
       screen.getByTestId("gallery-stub").getAttribute("data-items") ?? "[]",
-    ) as { key: string; available: boolean }[];
+    ) as { id: string; key: string; available: boolean }[];
     expect(items).toEqual([
-      { key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
-      { key: "obj-2", alt: "Diagram 2", available: false },
+      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
+      // null snapshotPath → asset `key` falls back to the bare parser id,
+      // but `id` stays source-prefixed and unique for React reconciliation.
+      { id: "embedded:obj-2", key: "obj-2", alt: "Diagram 2", available: false },
     ]);
   });
 

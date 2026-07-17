@@ -40,7 +40,7 @@
 import { Section } from "@/components/atoms/Section";
 import { MapIcon } from "@/components/crew/icons/sectionIcons";
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
-import { isAllowedDiagramMime } from "@/lib/data/diagrams";
+import { diagramAssetKeyFromPath, isAllowedDiagramMime } from "@/lib/data/diagrams";
 import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 import type {
   PersistedDiagrams,
@@ -53,20 +53,18 @@ type DiagramsTileProps = {
   diagrams: PersistedDiagrams | null;
 };
 
-function keyFromPath(snapshotPath: string | null, fallback: string): string {
-  // The persisted shape is `diagram-snapshots/shows/<id>/<rev>/<key>`.
-  // Take the last path segment so the Gallery emits a URL whose
-  // <key> segment is byte-identical to what the diagram route's
-  // findAsset() compares against. For null paths we still need a
-  // stable key for React's reconciler; use the parser-side id.
-  if (!snapshotPath) return fallback;
-  const idx = snapshotPath.lastIndexOf("/");
-  return idx >= 0 ? snapshotPath.slice(idx + 1) : snapshotPath;
-}
-
 function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryItem {
   return {
-    key: keyFromPath(entry.snapshotPath, entry.objectId),
+    // Stable, list-unique React/failed-tracking identity — source-prefixed so
+    // it can never collide with a linked entry, and content-derived (not
+    // ordinal) so it survives reorder/insert. DISTINCT from `key`: two entries
+    // can share an asset `key`, so `id` must NOT reuse it.
+    id: `embedded:${entry.objectId}`,
+    // Asset-key derivation shared with the admin published-review diagrams
+    // sub-block via lib/data/diagrams.ts (single source of truth). Last path
+    // segment of snapshotPath byte-matches the diagram route's findAsset();
+    // null paths fall back to the parser-side id (a 410-regardless entry).
+    key: diagramAssetKeyFromPath(entry.snapshotPath, entry.objectId),
     alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
     // Codex R13 P1: availability MUST gate on the same MIME allowlist
     // the asset route uses. Without this, a persisted `image/svg+xml`
@@ -78,7 +76,9 @@ function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryIt
 
 function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryItem {
   return {
-    key: keyFromPath(entry.snapshotPath, entry.driveFileId),
+    // See embeddedItem: source-prefixed so linked/embedded ids never collide.
+    id: `linked:${entry.driveFileId}`,
+    key: diagramAssetKeyFromPath(entry.snapshotPath, entry.driveFileId),
     alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
     // Codex R13 P1: see embeddedItem above. Same MIME allowlist gates
     // availability so a linked-folder SVG entry never renders as a

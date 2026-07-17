@@ -26,6 +26,7 @@ const REV = "22222222-2222-4222-8222-222222222222";
 
 function items(n: number, available = true, keyPrefix = "embedded-obj-"): GalleryItem[] {
   return Array.from({ length: n }, (_v, i) => ({
+    id: `${keyPrefix}${i + 1}`,
     key: `${keyPrefix}${i + 1}.png`,
     alt: `Diagram ${i + 1}`,
     available,
@@ -73,9 +74,9 @@ describe("Gallery — thumbnail grid", () => {
     // Caller (DiagramsTile) is responsible for placing embedded entries
     // first. The Gallery itself relays the order verbatim.
     const ordered: GalleryItem[] = [
-      { key: "embedded-obj-1.png", alt: "Embedded 1", available: true },
-      { key: "embedded-obj-2.png", alt: "Embedded 2", available: true },
-      { key: "folder-drv-1.jpg", alt: "Linked 1", available: true },
+      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Embedded 1", available: true },
+      { id: "embedded:obj-2", key: "embedded-obj-2.png", alt: "Embedded 2", available: true },
+      { id: "linked:drv-1", key: "folder-drv-1.jpg", alt: "Linked 1", available: true },
     ];
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={ordered} />);
     const imgs = screen.getAllByRole("img");
@@ -87,9 +88,9 @@ describe("Gallery — thumbnail grid", () => {
 
   test("AC-7.7: unavailable item renders a placeholder slot, NOT a hidden slot", () => {
     const mixed: GalleryItem[] = [
-      { key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
-      { key: "embedded-obj-2.png", alt: "Diagram 2", available: false },
-      { key: "embedded-obj-3.png", alt: "Diagram 3", available: true },
+      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
+      { id: "embedded:obj-2", key: "embedded-obj-2.png", alt: "Diagram 2", available: false },
+      { id: "embedded:obj-3", key: "embedded-obj-3.png", alt: "Diagram 3", available: true },
     ];
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={mixed} />);
 
@@ -132,5 +133,28 @@ describe("Gallery — thumbnail grid", () => {
     const slot1 = screen.getByTestId("diagram-slot-1");
     expect(within(slot1).queryByRole("img")).not.toBeNull();
     expect(slot1.getAttribute("data-unavailable")).toBeNull();
+  });
+
+  test("shared asset key + distinct id: onError isolates to its own slot (no twin blanking)", () => {
+    // Two entries can legitimately share an asset `key` (same snapshotPath
+    // last segment). Failed-load tracking MUST key on the unique `id`, else
+    // one thumbnail's 4xx blanks its twin. Distinct `id`, identical `key`.
+    const twins: GalleryItem[] = [
+      { id: "embedded:obj-1", key: "embedded-dup.png", alt: "Diagram 1", available: true },
+      { id: "embedded:obj-2", key: "embedded-dup.png", alt: "Diagram 2", available: true },
+    ];
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={twins} />);
+
+    // Both render (distinct React keys → no reconciliation collision).
+    expect(screen.getAllByRole("img")).toHaveLength(2);
+
+    // Fail slot 0 only.
+    fireEvent.error(within(screen.getByTestId("diagram-slot-0")).getByRole("img"));
+
+    // Slot 0 flips; slot 1 (same key, different id) stays available.
+    expect(screen.getByTestId("diagram-slot-0").getAttribute("data-unavailable")).toBe("true");
+    const slot1 = screen.getByTestId("diagram-slot-1");
+    expect(slot1.getAttribute("data-unavailable")).toBeNull();
+    expect(within(slot1).queryByRole("img")).not.toBeNull();
   });
 });
