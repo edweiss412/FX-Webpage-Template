@@ -626,7 +626,7 @@ git commit --no-verify -m "docs: CARDREPORT-1 resolved — direction-aware tap-t
 
 ## Self-Review
 
-**Spec coverage:** §2 constraints 1–5 → Tasks 1–3 (overlay + no-height-change + non-overlap) + Task 6 (behavioral proof). §3.1 direction anchoring → Tasks 1–4. §3.2 gap-4 + trigger width → Task 3 + Task 5 width probe. §4 e2e probe + §4.1 harness → Task 5 (merged, test-first). §4.2 wiring guard → Task 4. §5 guards → covered by defaults (Task 3) + Task 5 negative probes. §7 files → Tasks 1–7. Invariant 8 → Task 7.
+**Spec coverage:** §2 constraints 1–5 → Tasks 1–3 (overlay + no-height-change + non-overlap) + Task 5 (behavioral proof). §3.1 direction anchoring → Tasks 1–4. §3.2 gap-4 + trigger width → Task 3 + Task 5 width probe. §4 e2e probe + §4.1 harness → Task 5 (merged, test-first). §4.2 wiring guard → Task 4. §5 guards → covered by defaults (Task 3) + Task 5 negative probes. §7 files → Tasks 1–7. Invariant 8 → Task 7.
 
 **Placeholder scan:** every code step has full literal code; no TBD/TODO.
 
