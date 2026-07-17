@@ -4,7 +4,7 @@
  * A `drive_file_id` that no real Google Drive file could ever own — the synthetic
  * shape produced by the test-seed helpers:
  *   - `tests/db/_mi11Helpers.ts` seedShow → `drv-<uuid>`
- *   - other db-test seeders                → `drive-<uuid>`
+ *   - `tests/db/_b2Helpers.ts`             → `drive-<uuid>`
  *   - `tests/e2e/helpers/seedShowWithCrew` → `picker-e2e:<uuid>` (default)
  *
  * Why cron cares (BL-CRON-SYNTHETIC-SHOW-SKIP): a db/e2e test run pointed at a
@@ -18,9 +18,14 @@
  * closes that class regardless of test hygiene.
  *
  * Anchoring: `drv-`/`drive-` are matched ONLY when followed by a canonical UUID
- * (8-4-4-4-12 hex) so a real Drive id — 25-44 chars of [A-Za-z0-9_-], which never
- * contains the hyphenated-UUID shape after such a prefix — cannot false-positive.
- * `picker-e2e:` is matched literally (a `:` never appears in a real Drive id).
+ * (8-4-4-4-12 hex). This is a strong shape filter, NOT a proof of impossibility:
+ * `[A-Za-z0-9_-]` (the Drive-id charset) does admit hyphens and hex, so a real
+ * Drive id COULD in principle land on this exact hyphenated-UUID shape. The cron
+ * caller therefore does not treat a shape match as sufficient on its own — it
+ * ANDs this predicate with `lastSeenModifiedTime === null` (a leaked seed never
+ * synced; a genuine gone-show synced at least once), so a coincidental real match
+ * is still reconciled. `picker-e2e:` is matched literally (a `:` never appears in
+ * a real Drive id). (Codex R1 MEDIUM.)
  */
 const SYNTHETIC_DRIVE_FILE_ID =
   /^(?:drv|drive)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^picker-e2e:/i;

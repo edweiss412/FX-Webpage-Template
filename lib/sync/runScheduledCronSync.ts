@@ -3780,8 +3780,14 @@ export async function runScheduledCronSync(
         // BL-CRON-SYNTHETIC-SHOW-SKIP: a leaked test-seed show (synthetic
         // drive_file_id, published=true, never in Drive) can never resolve —
         // reconciling it just re-marks SHEET_UNAVAILABLE every tick forever.
-        // Excluding it here closes that class regardless of test hygiene.
-        !isSyntheticDriveFileId(show.driveFileId),
+        // Guard on the CONJUNCTION of (a) synthetic shape AND (b) never synced
+        // (lastSeenModifiedTime === null): the seed helpers insert with no
+        // last_seen, so a leak is always null; a genuine show that LEFT the
+        // folder synced at least once (non-null watermark). So even a real Drive
+        // id that coincidentally matched the synthetic shape (hyphens/hex are
+        // valid Drive-id chars) is still reconciled once it has synced — shape
+        // alone is not treated as proof of syntheticness. (Codex R1 MEDIUM.)
+        !(isSyntheticDriveFileId(show.driveFileId) && show.lastSeenModifiedTime === null),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
