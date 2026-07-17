@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-The sticky `StatusStrip` (`components/admin/showpage/StatusStrip.tsx:124-136`) wraps the **full-weight** `PublishedToggle` card (`components/admin/PublishedToggle.tsx:69-122`) — a bordered `p-tile-pad` box with an `<h3>Published`, a wrapping subline, and inline error/refusal slots. On desktop the strip is `sm:flex-nowrap` (single row) and the card is tolerable; on a ≤640px phone the strip is `flex-wrap` (`StatusStrip.tsx:106`) and the card is the dominant child, so the "slim, pinned" strip inflates to a tall multi-row block on Doug's venue-floor phone (Task 16 impeccable critique Assessment A, P1 "sticky strip overloads on mobile" + the toggle-weight watchpoint; pre-flagged in `.superpowers/sdd/task-10-report.md` §3).
+The sticky `StatusStrip` (`components/admin/showpage/StatusStrip.tsx:124-136`) wraps the **full-weight** `PublishedToggle` card (`components/admin/PublishedToggle.tsx:69-122`) — a bordered `p-tile-pad` box with an `<h3>Published`, a wrapping subline, and inline error/refusal slots. On desktop the strip is `sm:flex-nowrap` (single row) and the card is tolerable; on a ≤640px phone the strip is `flex-wrap` (`StatusStrip.tsx:106`) and the card is the dominant child, so the "slim, pinned" strip inflates to a tall multi-row block on Doug's venue-floor phone (Task 16 impeccable critique Assessment A, P1 "sticky strip overloads on mobile" + the toggle-weight watchpoint; also pre-flagged in the Task-10 report §3, quoted in `DEFERRED.md:618` — the report itself is gitignored under `.superpowers/` and not present in a fresh worktree, so `DEFERRED.md:618` is the verifiable source).
 
 ## 2. Goal
 
@@ -20,7 +20,7 @@ Give `PublishedToggle` a compact `variant="inline"` that renders **switch + "Pub
 - No change to the publish/unpublish server actions or their gates.
 - No cross-island state lift. The error `useState` + the form action stay **inside** `PublishedToggle` (§6). This is the deliberate divergence from the DEFERRED.md tentative "relocate the subline/error into the Overview share cluster" — relocating the React-19 refusal-error rendering is the B1 revoke-hang dispatch-safety surface, and a popover keeps it local.
 - No archived-mode change: the strip already renders zero mutating affordances when archived (`StatusStrip.tsx:117-123`); the toggle (and therefore the variant) never mounts on an archived show.
-- No motion. `PublishedToggle` is pinned motion-free by `tests/components/admin/transitionAudit.test.tsx:39` (no `framer-motion`/`motion\/react`, no `AnimatePresence`, no `animate-[`/`route-enter`/`stagger`). The popover appears/disappears by conditional mount — instant, no animation.
+- No motion. `PublishedToggle` is registered in the `SERVER_RENDERED` motion-pin list at `tests/components/admin/transitionAudit.test.tsx:39`; the actual no-motion assertions run at `tests/components/admin/transitionAudit.test.tsx:64-80` (no `framer-motion`/`motion\/react`, no `AnimatePresence`, no `animate-[`/`route-enter`/`stagger`). The popover appears/disappears by conditional mount — instant, no animation (§4.8 Transition Inventory).
 
 ## 4. Design
 
@@ -66,7 +66,7 @@ A single anchored popover surfaces BOTH the refusal/generic error AND the finali
 ### 4.5 Accessibility (popover)
 
 - **Error/refusal** popover: `role="alert"` — SR-announced on appear (mirrors card's `role="alert"` at `PublishedToggle.tsx:84`). Auto-persists until the next toggle attempt clears it (the form action already resets `errorCode`/`genericError` at `PublishedToggle.tsx:105-106`); no manual dismiss affordance.
-- **Finalize hint** popover: NOT `role="alert"` (it is a passive state description, not an interruption). Wired to the switch via `aria-describedby="published-toggle-popover-<slug>"` so a SR user focusing the disabled switch hears why it is locked. The `<span>Published</span>` label and the switch's own `aria-label="Published"` mean the control is already named.
+- **Finalize hint** popover: NOT `role="alert"` (it is a passive state description, not an interruption). **Reachability caveat (Codex R1 finding 3):** the switch during finalize is a real `disabled` native `<button>` (B1 requirement, §6) — a disabled button is removed from the Tab order, so "Tab to the switch to hear the reason" is NOT a sound path. The finalize reason is instead made reachable two ways that do NOT depend on focusing a disabled control: (a) it is **visible text in normal reading order** immediately adjacent to the switch (a virtual-cursor / reading-mode SR user encounters it inline), and (b) it is associated to the switch via `aria-describedby="published-toggle-popover-<slug>"` — Chromium keeps disabled buttons and their accessible descriptions in the a11y tree, so a reading-cursor user landing on the switch still gets the association even though Tab skips it. The test (§8.5) asserts (i) the visible reason text is in the DOM and (ii) the switch carries the matching `aria-describedby` — it does NOT assert focus-announcement (unprovable in jsdom, and not the reachability guarantee we rely on). The `<span>Published</span>` label and the switch's own `aria-label="Published"` name the control.
 - **Decision:** the switch keeps ONLY its existing `aria-label="Published"` (`PublishedToggle.tsx:139`) — no `aria-labelledby`. Adding both would double-announce ("Published Published"). The visible `<span>Published</span>` is a sighted-only label (no `id` needed — nothing references it). The finalize-hint `aria-describedby` points at the popover's own `id="published-toggle-popover-<slug>"`.
 
 ### 4.6 StatusStrip change
@@ -76,6 +76,37 @@ A single anchored popover surfaces BOTH the refusal/generic error AND the finali
 ### 4.7 Overview copy reconciliation (critique P2)
 
 The Overview `#share-access` inactive notice already exists (`OverviewSection.tsx:113-120`, `data-testid="admin-share-link-inactive"`: "The crew link is inactive while this show is {archived ? 'archived' : 'unpublished'}. It will be available once the show is published."). With the inline subline gone, this becomes the **single** source for the crew-link-off copy. No code change required in `OverviewSection.tsx` — the reconciliation is achieved by the inline variant NOT re-rendering the "Crew link is off — nobody can open this show." subline. Card mode still renders its subline (unchanged), so non-strip callers are unaffected. Recorded here so the reviewer does not flag the remaining card subline as a duplicate: card mode is a different surface (not co-located with the Overview notice).
+
+### 4.8 Transition Inventory (inline mode)
+
+Inline mode has these visual states:
+
+- **S1 — idle:** label + switch, no popover.
+- **S2 — refusal popover:** known-code error popover (`role="alert"`, warning skin).
+- **S3 — generic-error popover:** unknown-code retry popover (`role="alert"`, warning skin).
+- **S4 — finalize-hint popover:** disabled switch + calm-skin popover (no `role="alert"`).
+- **S5 — error + finalize:** error popover only (§4.4 precedence → visually identical to S2/S3; the switch is disabled as in S4).
+
+Every state pair, N=5 → 10 pairs. The popover is a conditional mount (no `AnimatePresence`, no CSS enter/exit animation), so every appear/disappear/swap is **instant**:
+
+| Pair | Treatment |
+|---|---|
+| S1↔S2 | Instant — popover mounts/unmounts. No animation. |
+| S1↔S3 | Instant — popover mounts/unmounts. |
+| S1↔S4 | Instant — popover mounts/unmounts; switch `disabled` toggles (no animation on disable). |
+| S1↔S5 | Instant — popover mounts + switch disables. |
+| S2↔S3 | Instant — same popover element, text/`ErrorExplainer` content swaps in place. |
+| S2↔S4 | Instant — popover skin (warning↔calm) + `role` swap; no transition. |
+| S2↔S5 | No visual change — S5 renders the same error popover as S2 (switch disabled state may differ but the popover is identical). |
+| S3↔S4 | Instant — skin + `role` swap. |
+| S3↔S5 | No visual change (S5 == error popover). |
+| S4↔S5 | Instant — calm finalize popover → warning error popover (error arrives while finalize-owned; error wins). `role` gains `alert`. |
+
+**The one animation in the component (unchanged, both variants):** the switch thumb slide `transition-transform duration-fast` on the on/off flip (`PublishedToggle.tsx:150-154`) and the track `transition-colors duration-fast` (`PublishedToggle.tsx:145`). These are pre-existing, shared by card mode, and not touched.
+
+**Compound transition:** error arrives while the show is finalize-owned (S4→S5). The popover content+skin swap and the switch stays disabled — a single instant re-render, no mid-animation hazard (nothing is animating; the thumb only animates on an actual publish-state flip, which cannot happen while disabled). No `AnimatePresence` means no exit-animation race.
+
+This inventory is pinned by the transition-audit test task (§8.11), which enumerates these state pairs — distinct from the motion-import pin (§8.8).
 
 ## 5. Guard conditions (every prop / state)
 
@@ -89,6 +120,8 @@ The Overview `#share-access` inactive notice already exists (`OverviewSection.ts
 | both error and finalizeOwned | error popover only (§4.4 precedence). |
 | `variant` omitted / `"card"` | today's card, byte-identical. |
 | `variant="inline"` while archived | not reachable — the strip never mounts the toggle when archived (`StatusStrip.tsx:117`). No archived-specific inline branch. |
+| `slug` value | `slug` is typed `string` and documented never-null at the call site (`PublishedToggle.tsx:42-43`); it is used verbatim in the popover `id` (`published-toggle-popover-<slug>`). Empty string is still a valid id suffix (`published-toggle-popover-`) and never renders — the slug is not displayed to the user. No guard needed beyond the type. |
+| `setPublished` throws / rejects | Out of scope — **inline matches card exactly**. The shared `<form action>` closure (`PublishedToggle.tsx:104-116`) has no `try/catch` today; a rejected `setPublished` propagates as a React form-action rejection in BOTH variants. This spec does not change that behavior (any catch would be a card-mode behavioral change and a separate concern). Callers pass a bound server action that resolves a `LifecycleResult` rather than throwing (the established contract). |
 
 ## 6. B1 dispatch-safety invariant (unchanged, both variants)
 
@@ -111,7 +144,13 @@ TDD per task. Failure mode stated per test (anti-tautology).
 7. **B1 dispatch-safety preserved** (`tests/components/admin/per-show-lifecycle.test.tsx` or the existing dispatch test): the inline switch is a `type="submit"` inside the `<form>`, `disabled` only on pending/finalizeOwned. Assert the switch is not disabled synchronously on click when enabled. *Catches:* a variant refactor that moves the submitter or adds an onClick disable (the revoke-hang class).
 8. **transitionAudit stays green** (`tests/components/admin/transitionAudit.test.tsx`): unchanged — the popover uses no motion library / `AnimatePresence` / `animate-[`. Re-run to confirm the inline additions don't trip the motion pin. *Catches:* a framer/animate import sneaking into the popover.
 9. **StatusStrip passes `variant="inline"`** (`tests/components/admin/showpage/statusStrip.test.tsx`, jsdom): the strip's `strip-publish-toggle` wrapper contains `published-toggle-inline` (not `published-toggle-row`) and the switch reflects `aria-checked`. Existing "wraps the existing PublishedToggle" test still passes (switch testid unchanged). *Catches:* the strip regressing to the card wrap.
-10. **Real-browser 390px strip height** (`tests/e2e/*` Playwright, real browser): mount the strip (via the existing `_showPageLayoutHarness.tsx`) at 390px in three states — idle, error-popover-open, finalize-disabled — and assert (a) `show-status-strip` height is unchanged (±0.5px) between idle and error-popover-open (popover out of flow, §7), and (b) the strip is within the slim band (single row on the strip's `sm:flex-nowrap`… at 390px it is the `flex-wrap` mobile layout — assert the height is ≤ the height of a strip whose only extra child is the OLD card, i.e. strictly less than the card-wrapped baseline). *Catches:* the exact CASP-2 defect — a popover or label that inflates the phone strip. Derive the baseline from a card-variant render in the same harness, never a hardcoded pixel count (anti-tautology / project fixture rule).
+10. **Real-browser 390px strip height** (`tests/e2e/*` Playwright, real browser — jsdom computes no layout). At 390px viewport, render the strip in ALL THREE inline states and assert the full §7 invariant (Codex R1 finding 1 — idle-vs-error alone was insufficient; a finalize-only popover rendered in-flow would have slipped through):
+    - **(a) State-invariance (primary):** measure `show-status-strip` `getBoundingClientRect().height` in state **idle**, **error-popover-open**, and **finalize-disabled-popover-open**. Assert all three are equal within 0.5px. Because the popover is `position:absolute`, NO state may change the strip's flow height. This single equality across all three states is the load-bearing assertion — it fails if ANY popover (error OR finalize) is accidentally in-flow.
+    - **(b) Compaction (secondary):** render the same strip once with the toggle in `variant="card"` (the pre-CASP-2 layout) at 390px; assert the inline idle strip height is strictly less than the card strip height by more than one text-line (≥ ~20px), proving real compaction, not a no-op rename. Baseline derived from the card render in the same harness — never a hardcoded pixel count (anti-tautology / project fixture rule).
+    - **Driving the states in a static harness:** the existing `_showPageLayoutHarness.tsx` uses `renderToStaticMarkup`, which cannot fire the form to open the error popover. The plan's layout task must render the three states directly — either by mounting `PublishedToggle variant="inline"` in an interactive Playwright page and clicking to trigger a mocked-refusal `setPublished` (error state) / passing `finalizeOwned` (finalize state), or by a harness variant that renders each state's initial markup (error via a test-only forced-error render path is NOT allowed — it must be the real conditional output; pass `finalizeOwned` for S4, and drive a real mocked-refusal submit for S2). The plan pins the exact mechanism.
+    *Catches:* the exact CASP-2 defect — any popover or label that inflates the phone strip in any state.
+
+11. **Transition-audit state-pair enumeration** (`tests/components/admin/*`, jsdom — new, distinct from §8.8's motion-import pin; Codex R1 finding 2): enumerate the §4.8 inventory. Assert: (a) rendering each of S1–S5 (idle / refusal / generic-error / finalize / error+finalize) produces the expected popover presence + `role` (S2/S3/S5 → `role="alert"`; S4 → no `alert`; S1 → no popover); (b) the inline branch contains no `AnimatePresence` / motion import / `animate-[` (belt-and-suspenders with §8.8); (c) the compound S4→S5 case: with `finalizeOwned` true, driving a mocked refusal yields the ERROR popover with `role="alert"` (not the finalize hint), proving the precedence swap is instant and error-wins. *Catches:* an unenumerated state pair (e.g. a finalize popover that keeps `role="alert"`, or an error that fails to override the finalize hint) — the class the global writing-plans "transition-audit task" rule mandates for multi-state components.
 
 ## 9. Impeccable dual-gate (invariant 8)
 
