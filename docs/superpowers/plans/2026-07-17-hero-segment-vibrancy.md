@@ -27,6 +27,7 @@
 - Test: `tests/components/crew/rightNowHero.test.tsx:489-496` (existing test, edited)
 - Test: `tests/styles/_metaBgAccentInventory.test.ts:107-110` (add one row)
 - Modify: `DESIGN.md` §1.2 accent-edge row
+- Modify: `DEFERRED.md` (ledger reconciliation, Steps 11-14; `BACKLOG.md` needs no change)
 
 **Interfaces:**
 - Consumes: nothing new. `--color-accent` (`bg-accent`), `--color-accent-edge` (`border-accent-edge`) already in `app/globals.css`.
@@ -34,7 +35,7 @@
 
 - [ ] **Step 1: Edit the existing component test to the new contract (RED).**
 
-In `tests/components/crew/rightNowHero.test.tsx`, replace the `:489-496` block. The comment at `:489-491` currently reads "the ACTIVE segment must carry the darkened bg-accent-on-bg (5.34:1 vs bg, 4.38:1 vs inactive)." Replace the comment + the two `expect`s:
+In `tests/components/crew/rightNowHero.test.tsx`, replace the WHOLE `:488-496` block — the 4-line stale comment (`:488-491`, "Accent-contrast token pass (spec 2026-07-16 §4.1b B4)… the ACTIVE segment must carry the darkened bg-accent-on-bg…") AND the assertions (`:492-496`). Do not leave the old comment prefix. Replace with:
 
 ```tsx
 // progress lives in a role="img" indicator — NOT decorative. The ACTIVE segment
@@ -118,32 +119,26 @@ git add components/crew/RightNowHero.tsx tests/components/crew/rightNowHero.test
 git commit --no-verify -m "fix(crew-page): ACCENT-PASS-1 — vibrant active show-day segment with accent-edge boundary"
 ```
 
----
+_Steps 11-14 are the ledger reconciliation for the same deliverable — kept inside Task 1 (not a separate task) because a docs-only DEFERRED/BACKLOG edit carries no behavioral surface and therefore no RED-test step; invariant 1's failing-test cycle is satisfied by Steps 1-9 above, and the reconciliation ships in the same task as a second commit._
 
-### Task 2: DEFERRED / BACKLOG reconciliation
+- [ ] **Step 11: Mark ACCENT-PASS-1 resolved in `DEFERRED.md`.**
 
-**Files:**
-- Modify: `DEFERRED.md` (ACCENT-PASS-1 → RESOLVED; rewrite the `:625` backlog-reference line; add HERO-VIBRANCY-DIM-1)
-- `BACKLOG.md`: **no change** — `BL-HERO-SEGMENT-VIBRANCY` was never filed there (grep-confirmed; only referenced in DEFERRED.md:625).
+Change the `ACCENT-PASS-1` heading (`:621`) to `✅ RESOLVED` and add a resolution line citing this spec/plan + the `border-accent-edge bg-accent` treatment and the §3 contrast tables. Rewrite the `:625` "Backlog: `BL-HERO-SEGMENT-VIBRANCY`" line to: "Closed directly in DEFERRED — no `BL-*` row was ever filed."
 
-- [ ] **Step 1: Mark ACCENT-PASS-1 resolved in `DEFERRED.md`.**
+- [ ] **Step 12: Add the `HERO-VIBRANCY-DIM-1` DEFERRED-AS-N/A row** (mirrors `KINDDOT-DIM-1`): the segment's dims are CSS literals with border-box; no fixed-parent stretch dependency, so no real-browser `getBoundingClientRect` parity test — the hairline visual is covered by the impeccable real-browser gate.
 
-Change the `ACCENT-PASS-1` heading to `✅ RESOLVED` and add a resolution line citing this spec/plan + the `border-accent-edge bg-accent` treatment and the §3 contrast tables.
+- [ ] **Step 13: BACKLOG.md — no change (verify).** Run `grep -rn "BL-HERO-SEGMENT-VIBRANCY" BACKLOG.md` — expected: no output (never filed). Nothing to flip; the aspirational reference lived only in DEFERRED.md:625 and is rewritten in Step 11.
 
-- [ ] **Step 2: Add the `HERO-VIBRANCY-DIM-1` DEFERRED-AS-N/A row** (mirrors `KINDDOT-DIM-1`): the segment's dims are CSS literals with border-box; no fixed-parent stretch dependency, so no real-browser `getBoundingClientRect` parity test — the hairline visual is covered by the impeccable real-browser gate.
-
-- [ ] **Step 3: BACKLOG.md — no change.** `BL-HERO-SEGMENT-VIBRANCY` was never filed as a BACKLOG row (grep-confirmed: `grep -rn BL-HERO-SEGMENT-VIBRANCY BACKLOG.md` returns nothing; only DEFERRED.md:625 references it aspirationally). The DEFERRED.md:625 line is rewritten in Step 1 to "closed directly in DEFERRED — no `BL-*` row was ever filed." No twin-row flip.
-
-- [ ] **Step 4: Commit.**
+- [ ] **Step 14: Commit the reconciliation.**
 
 ```bash
-git add DEFERRED.md BACKLOG.md
-git commit --no-verify -m "docs: reconcile ACCENT-PASS-1 + BL-HERO-SEGMENT-VIBRANCY resolved"
+git add DEFERRED.md
+git commit --no-verify -m "docs: reconcile ACCENT-PASS-1 resolved (no BACKLOG twin filed)"
 ```
 
 ---
 
-### Task 3: Impeccable dual-gate + whole-diff review (milestone close-out)
+### Task 2: Impeccable dual-gate + whole-diff review (milestone close-out)
 
 - [ ] **Step 1:** Run `/impeccable critique` on the diff (setup gates: `context.mjs` load, register read). UI surface = `RightNowHero.tsx` + `DESIGN.md`.
 - [ ] **Step 2:** Run `/impeccable audit` on the diff (a11y/contrast/responsive). Real-browser screenshot of the hero progress bar at light + dark to confirm the 1px stroke reads as a crisp hairline on the 6px pill (the one visual judgment §4 defers to this gate).
@@ -154,11 +149,11 @@ git commit --no-verify -m "docs: reconcile ACCENT-PASS-1 + BL-HERO-SEGMENT-VIBRA
 
 ## Self-Review
 
-- **Spec coverage:** §2 change → Task 1 Step 3; §3 contrast (no code, doc) → cited in test comment + DESIGN.md; §6.1 test → Task 1 Steps 1-2; §6.2 registry → Task 1 Steps 5-7; §6.3 DESIGN.md → Task 1 Step 8; §8 reconciliation → Task 2; §4 DEFERRED-AS-N/A → Task 2 Step 2; invariant 8 → Task 3. All covered.
+- **Spec coverage:** §2 change → Task 1 Step 3; §3 contrast (no code, doc) → cited in test comment + DESIGN.md; §6.1 test → Task 1 Steps 1-2; §6.2 registry → Task 1 Steps 5-7; §6.3 DESIGN.md → Task 1 Step 8; §5/§8 reconciliation → Task 1 Steps 11-14; §4 DEFERRED-AS-N/A → Task 1 Step 12; invariant 8 → Task 2. All covered.
 - **Placeholder scan:** none.
 - **Type consistency:** N/A (no new types; className strings only). Occurrence index `1` used consistently (spec §6.2, plan Task 1 Step 6).
 - **Anti-tautology:** the component test scopes to the `[data-segment-active="true"]` node's own class set, not a container that renders both segments — a bug leaving the inactive segment wrong or the active un-edged fails.
 
 ## §12 — Impeccable dual-gate results
 
-_(filled during Task 3.)_
+_(filled during Task 2.)_

@@ -84,7 +84,7 @@ The one genuinely visual question (does a 1px stroke on a 6px pill read as a cri
 | File | Change |
 |---|---|
 | `components/crew/RightNowHero.tsx` | `:559` active-segment class `bg-accent-on-bg` → `border border-accent-edge bg-accent`; update the load-bearing comment at `:556-558`. |
-| `tests/components/crew/rightNowHero.test.tsx` | `:489-496` flip the class assertion (§6.1). |
+| `tests/components/crew/rightNowHero.test.tsx` | `:488-496` flip the stale comment + class assertion (§6.1). |
 | `tests/styles/_metaBgAccentInventory.test.ts` | add one `edge-treated` row for the new `bg-accent` occurrence (§6.2). |
 | `DESIGN.md` | §1.2 accent-edge row: add "active show-day progress segment" to the boundary-consumer list (§6.3). |
 | `DEFERRED.md` | `ACCENT-PASS-1` → ✅ RESOLVED; rewrite the `:625` "Backlog: `BL-HERO-SEGMENT-VIBRANCY`" line to "closed directly in DEFERRED — no `BL-*` row was ever filed"; add `HERO-VIBRANCY-DIM-1` DEFERRED-AS-N/A row. |
