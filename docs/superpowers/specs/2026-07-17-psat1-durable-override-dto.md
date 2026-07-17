@@ -110,16 +110,16 @@ const divergent = staged && !overrideSnapshotsEqual(durableSnapshot, previewSnap
 
 ### 3.3 State machine (§5.6) with the new recovery state
 
-`PackListBreakdown` renders the pack-list cases (`PackListCases`, unchanged) PLUS one archived-tab region. The region's state:
+`PackListBreakdown` renders the pack-list cases (`PackListCases`, unchanged) PLUS one archived-tab region. The archived-tab region is a **single mutually-exclusive, total state machine** evaluated in strict **first-match-wins precedence order** — S5 is checked FIRST so it preempts S1/S2/S3/S4:
 
-| State | Condition (staged) | Renders |
-| --- | --- | --- |
-| S1 (empty) | `!hasCases && archivedPullSheetTabs.length === 0` | "No pack list parsed." (unchanged) |
-| **S5 (divergent — NEW)** | `divergent` | The recovery block (§3.4). **Suppresses S2/S3/S4.** |
-| S2 (offer) / S4 (re-confirm) | `!divergent && !overrideActive` → `offers = tabs.filter(!included)` | `ArchivedTabOffer` per offer (unchanged; S4 = `contentChangedSinceAccept`). |
-| S3 (included note) | `!divergent && overrideActive && includedTab` | `ArchivedTabIncludedNote` (unchanged). |
+| Order | State | Condition (staged; each row assumes all earlier rows' conditions are false) | Renders |
+| --- | --- | --- | --- |
+| 1 | **S5 (divergent — NEW)** | `divergent` | The recovery block (§3.4). **Preempts S1/S2/S3/S4** — a durable-set + empty-preview row is S5, NOT S1. |
+| 2 | S1 (empty) | `!hasCases && archivedPullSheetTabs.length === 0` | "No pack list parsed." (unchanged). |
+| 3 | S3 (included note) | `overrideActive && includedTab` | `ArchivedTabIncludedNote` (unchanged). |
+| 4 | S2 (offer) / S4 (re-confirm) | `!overrideActive` → `offers = tabs.filter(!included)` | `ArchivedTabOffer` per offer (unchanged; S4 = `contentChangedSinceAccept`). |
 
-S5 takes priority over S2/S3/S4 (it is the "these disagree, neither offer is trustworthy" state). Cases (`hasCases`) still render in every non-empty state.
+Because S5 is row 1, its condition (`divergent`) is the guard on every later row. Concretely: S1's implemented gate MUST become `!divergent && !hasCases && archivedPullSheetTabs.length === 0` (so the durable-set/empty-preview case in §3.5 falls to S5, not the empty state — the P2 exclusivity fix). S3/S2/S4 already carry `!divergent` in their derivations below. **Totality:** every `(durableSnapshot, previewSnapshot, hasCases)` combination matches exactly one row — divergent → S5; else empty → S1; else durable-active-and-included → S3; else → S2/S4 offers (possibly empty list, which renders just the cases). Cases (`hasCases`) still render independently in every non-empty state.
 
 Updated internal derivations (the boolean `overrideActive` prop is gone):
 
@@ -173,19 +173,19 @@ Table: valid object → snapshot; missing/blank `tabName` or `fingerprint` → n
 
 ### 4.3 Component — `PackListBreakdown` state machine
 
-Derive expected state from fixtures (anti-tautology: assert against the durable/preview inputs, never a container that renders both). Cases:
+Derive expected state from fixtures (anti-tautology: assert against the durable/preview inputs, never a container that renders both). The `archivedPullSheetTabs fixture` column is the EXACT preview array each case must supply — the fixture is spelled out so a case can't be satisfied by an accidentally-empty array that has nothing to suppress. `fp1`/`fp2` are distinct fingerprints; every non-published case supplies `wizardSessionId`.
 
-| # | durable | preview included | expected |
-| --- | --- | --- | --- |
-| a | null | none | S2 offer(s) for non-included tabs |
-| b | A | A (fp match) | S3 included note |
-| c | **A** | **none** (accept-stale) | **S5 recovery block** (`RescanSheetButton` present; NO S2 offer) |
-| d | **null** | **A** (revoke-stale) | **S5 recovery block** (NO S3 revoke note) |
-| e | B | A (tab swap) | **S5** (snapshot mismatch) |
-| f | null | A, `contentChangedSinceAccept:true` on a **null-durable** re-detected entry | S4 re-confirm (NOT S5) — proves the S4 non-collision |
-| g | published mode (no `wizardSessionId`) | — | plain pack list, no affordance, no S5 |
+| # | durable `pullSheetOverride` | `archivedPullSheetTabs` fixture (EXACT) | expected | failure mode the case pins |
+| --- | --- | --- | --- | --- |
+| a | `null` | `[{tabName:'OLD A', fingerprint:fp1, included:false, contentChangedSinceAccept:false}]` | **S2 offer** for `OLD A` | normal first-discovery offer still renders |
+| b | `{OLD A, fp1}` | `[{tabName:'OLD A', fingerprint:fp1, included:true, contentChangedSinceAccept:false}]` | **S3 included note** | converged accept renders the revoke note |
+| c | `{OLD A, fp1}` | `[{tabName:'OLD A', fingerprint:fp1, included:false, contentChangedSinceAccept:false}]` (tab PRESENT, not included — the accept-stale preview) | **S5 recovery block** (`RescanSheetButton` present) AND assert the `data-testid` for the `OLD A` S2 offer (`pack-list-archived-offer-…-OLD A`) is **absent** | catches the accept-stale re-offer loop: the non-included tab that WOULD render S2 is suppressed by S5. (Empty-array fixture is explicitly disallowed here — it would leave nothing to suppress.) |
+| d | `null` | `[{tabName:'OLD A', fingerprint:fp1, included:true, contentChangedSinceAccept:false}]` (tab still INCLUDED — the revoke-stale preview) | **S5 recovery block** AND assert the S3 revoke note (`ArchivedTabIncludedNote` Revoke button) is **absent** | catches the revoke-stale re-offer loop: the included tab that WOULD render S3 is suppressed by S5 |
+| e | `{OLD B, fp2}` | `[{tabName:'OLD A', fingerprint:fp1, included:true, contentChangedSinceAccept:false}]` | **S5** (snapshot `tabName` mismatch) | catches the accept-A-then-preview-shows-B tab swap (boolean-only detection would miss it) |
+| f | `null` | `[{tabName:'OLD A', fingerprint:fp2, included:false, contentChangedSinceAccept:true}]` (durable null, re-detected entry NOT included, content-changed flag set — the exact `discardAndRerun` output) | **S4 re-confirm** (NOT S5) — `previewSnapshot === null` because no tab is `included`, so `overrideSnapshotsEqual(null, null) === true` → not divergent | catches S5 stealing the content-changed re-confirm (proves the S4 non-collision from §3.2) |
+| g | `null` | `[{tabName:'OLD A', fingerprint:fp1, included:false, contentChangedSinceAccept:false}]`, **no `wizardSessionId`** (published mode) | plain pack list, no affordance, no S5 | published mode never shows the staged affordance or S5 |
 
-Each assertion states the failure mode it catches (e.g. case c: "catches the accept-stale re-offer loop"; case f: "catches S5 stealing the content-changed re-confirm").
+Each assertion asserts the S5 recovery block via its own `data-testid` AND asserts the competing state's affordance is absent (cases c/d) — proving suppression, not merely presence.
 
 ### 4.4 Real-browser (impeccable / Playwright)
 
