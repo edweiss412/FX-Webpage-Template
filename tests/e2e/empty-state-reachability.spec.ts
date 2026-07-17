@@ -23,7 +23,7 @@
  *      `hotel_reservations` row. <LodgingTile> returns null; the grid
  *      reflows around the missing tile.
  *
- *   4. **Stale-sync** — `shows.last_synced_at` is more than 6 hours old
+ *   4. **Stale-sync** — `shows.last_checked_at` is more than 6 hours old
  *      with `last_sync_status='ok'`. <StaleFooter> (M9 Task 9.1) renders
  *      the red SYNC_DELAYED_SEVERE message; per-tile content stays as
  *      last-good (no per-tile staleness signal — invariant from spec
@@ -66,13 +66,14 @@ type Snapshot = {
   originalVenueName: string | null;
   originalEventDetails: Record<string, string>;
   originalLastSyncedAt: string | null;
+  originalLastCheckedAt: string | null;
   originalLastSyncStatus: string | null;
 };
 
 async function snapshot(): Promise<Snapshot> {
   const showRes = await admin
     .from("shows")
-    .select("id, slug, venue, event_details, last_synced_at, last_sync_status")
+    .select("id, slug, venue, event_details, last_synced_at, last_checked_at, last_sync_status")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
   if (showRes.error || !showRes.data) {
@@ -86,6 +87,7 @@ async function snapshot(): Promise<Snapshot> {
     originalVenueName: venue?.name ?? null,
     originalEventDetails: (showRes.data.event_details as Record<string, string> | null) ?? {},
     originalLastSyncedAt: (showRes.data.last_synced_at as string | null) ?? null,
+    originalLastCheckedAt: (showRes.data.last_checked_at as string | null) ?? null,
     originalLastSyncStatus: (showRes.data.last_sync_status as string | null) ?? null,
   };
 }
@@ -97,6 +99,7 @@ async function restore(s: Snapshot): Promise<void> {
       venue: { name: s.originalVenueName },
       event_details: s.originalEventDetails,
       last_synced_at: s.originalLastSyncedAt,
+      last_checked_at: s.originalLastCheckedAt,
       last_sync_status: s.originalLastSyncStatus,
     })
     .eq("id", s.showId);
@@ -203,13 +206,13 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     );
   });
 
-  test("category 4: stale-sync — last_synced_at >6h ago → SYNC_DELAYED_SEVERE footer", async ({
+  test("category 4: stale-sync — last_checked_at >6h ago → SYNC_DELAYED_SEVERE footer", async ({
     page,
   }) => {
     const stale = new Date(Date.now() - STALE_SEVERE_AGE_MS).toISOString();
     const res = await admin
       .from("shows")
-      .update({ last_synced_at: stale, last_sync_status: "ok" })
+      .update({ last_checked_at: stale, last_sync_status: "ok" })
       .eq("id", s.showId);
     if (res.error) throw new Error(`category-4 patch failed: ${res.error.message}`);
     await page.goto(`/show/${s.slug}`);

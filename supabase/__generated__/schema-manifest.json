@@ -338,6 +338,7 @@
     "drive_file_id",
     "event_details",
     "id",
+    "last_checked_at",
     "last_seen_modified_time",
     "last_sync_error",
     "last_sync_status",

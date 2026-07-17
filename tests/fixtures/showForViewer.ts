@@ -99,6 +99,7 @@ const DEFAULT: ShowForViewer = {
   diagrams: null,
   openingReelHasVideo: false,
   lastSyncedAt: null,
+  lastCheckedAt: null,
   lastSyncStatus: null,
   tileErrors: {},
   runOfShow: null,

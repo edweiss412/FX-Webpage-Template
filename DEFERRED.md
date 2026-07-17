@@ -470,17 +470,21 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **Why deferred:** Spec §8 scopes the strip's placement to the needs-attention inbox column, which is desktop-only by the EXISTING dashboard convention (the full `NeedsAttentionInbox` is already `<720px`-hidden; mobile gets the summary card for every needs-attention concern, not just this one). Dispositioning auto-applied diffs is inherently a desk task; the mobile badge is a deliberate awareness cue ("roster changed — review at desk"), and the strip's list self-heals on revalidate so nothing is lost. A mobile disposition surface is a net-new UI scope beyond this PR.
 - **Trigger:** a real report of Doug needing to disposition auto-applies from his phone, OR a dashboard mobile-parity pass. Backlog: `BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY`.
 
-### FLOW4-2 — [P2→deferred] Badge detail is hover/SR-only for sighted touch/keyboard users
+### FLOW4-2 — [✅ RESOLVED 2026-07-17] Badge detail is hover/SR-only for sighted touch/keyboard users
 
-- **What:** `DataQualityBadge.tsx` exposes the roster/gap breakdown to AT via `role="img"` + `aria-label`, but sighted users reach the detail only through the `title` tooltip on a non-focusable `<span>` — invisible on touch (venue-floor phone) and keyboard.
-- **Why deferred:** This is the PRE-EXISTING badge mechanism (data-gaps already used `title` + `aria-label` + the amber `TriangleAlert` before Flow 4). Task 7 folded roster-shift into that same established affordance; it did not introduce the hover-only pattern. Reworking the badge into a focusable/tap popover is a change to a shared, pre-existing component beyond this PR's spec.
-- **Trigger:** a badge-affordance a11y pass across the shows table. Backlog: `BL-DATAQUALITY-BADGE-TOUCH-DETAIL`.
+- **Resolved (branch `feat/badge-affordance-a11y`, spec `docs/superpowers/specs/2026-07-17-badge-affordance-a11y.md`):** `DataQualityBadge` now renders the signal type + count as VISIBLE text chips (glyph + `tabular-nums` count), so sighted touch/keyboard users get the primary signal with zero hover/tap — dissolving the `title`-only dependency. The full class-level breakdown stays in the unchanged `aria-label`/`title` as progressive enhancement (contract byte-preserved). No interactive control; stays a hook-free presentational component. Closes `BL-DATAQUALITY-BADGE-TOUCH-DETAIL`.
+- **Original:** the roster/gap breakdown reached sighted users only through the `title` tooltip on a non-focusable `<span>` — invisible on touch (venue-floor phone) and keyboard.
 
-### FLOW4-3 — [P2→deferred] One amber glyph now conflates parse-gaps and roster-shift
+### FLOW4-3 — [✅ RESOLVED 2026-07-17] One amber glyph now conflates parse-gaps and roster-shift
 
-- **What:** `DataQualityBadge` renders both data-gaps and roster-shift with the same amber `TriangleAlert`; a sighted glance can't distinguish "parse gaps" from "roster changed" (the `aria-label` DOES distinguish them for AT).
-- **Why deferred:** The combined amber signal is intentional per spec §6.4 (both are "this show needs a glance" states sharing the data-quality badge). A distinct glyph/count-chip per segment is a visual-design decision on a shared component; the aria-label already carries the semantic split for AT. Not a defect, an enhancement.
-- **Trigger:** a DESIGN.md decision to split data-quality signal types. Backlog: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH`.
+- **Resolved (branch `feat/badge-affordance-a11y`):** the badge renders up to two distinct chips — `Users` (roster changed) + `TriangleAlert` (parse gaps), each with a visible count, roster first. Distinction is carried by glyph shape + count, never hue (both stay `text-status-warn-text`, upholding the DESIGN §1 color-blind floor). The DESIGN.md decision to split data-quality signal types is recorded (DESIGN §1.3 two-glyph note). Closes `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH`.
+- **Original:** both signals shared one amber `TriangleAlert`; a sighted glance couldn't distinguish "parse gaps" from "roster changed".
+
+### FLOW4-2/3-POLISH — [P2→deferred] At-a-glance glyph distinction on a sunlit venue-floor phone
+
+- **What:** the two amber chips (`Users` vs `TriangleAlert`, both `size-3.5`, 6px inter-chip gap) rely on a fine silhouette difference for the pre-count glance. The impeccable v3 critique (Assessment A, P2) on the `feat/badge-affordance-a11y` diff noted that on Casey's sunlit venue-floor phone the two same-hue chips can momentarily conflate before the count is parsed.
+- **Why deferred (not a blocker):** the distinction is already carried by three independent channels — distinct silhouette (people outline vs triangle-with-`!`), a distinct per-chip count, and the full `aria-label`; contrast is AAA (`--color-status-warn-text` 8.1:1 / 10.3:1, DESIGN.md:68). `size-3.5` is spec-pinned (matches the pre-existing badge and the real-browser dimensional invariant `tests/e2e/dataQualityBadge.layout.spec.ts`). Bumping glyphs or widening the gap is optional polish that would diverge from the ratified spec for a marginal glance improvement; both critique + audit passed with zero P0/P1.
+- **Trigger:** a shows-table glance-legibility pass, OR an operator report that the two amber chips are hard to tell apart at arm's length. Then consider `size-4` glyphs and/or `gap-2` between chips (both height-neutral — re-verify the dimensional spec), updating spec §5.1/§5.2 in lockstep.
 
 ### FLOW4-4 — [✅ RESOLVED 2026-07-16] Bulk Undo-all does not surface per-item typed failures — aggregate role=alert ("Couldn't undo N of M…") shipped in the destructive-confirm pass; thrown actions count as failures
 
