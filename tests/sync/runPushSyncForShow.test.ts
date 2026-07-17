@@ -114,6 +114,8 @@ function lockWithArchived(
     fn({
       async queryOne(sql: string) {
         if (/select archived from public\.shows/i.test(sql)) return { archived } as never;
+        // Non-error skip advances last_checked_at inside the same lock tx (spec 2026-07-16-last-checked-at §4).
+        if (/update public\.shows set last_checked_at/i.test(sql)) return { updated: true } as never;
         throw new Error(`unexpected SQL in lock tx: ${sql}`);
       },
     } as never);
