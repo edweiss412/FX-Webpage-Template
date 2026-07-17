@@ -17,7 +17,7 @@
 - **Invariant 6 + green-per-commit:** conventional commits, one task per commit, `--no-verify`. **Every commit's tree is green** — a task that breaks legacy tests updates them to the new contract IN THE SAME COMMIT (Task 2 is the atomic refactor; that is why it is the largest).
 - **DESIGN.md token rule:** entrance uses `var(--duration-normal)` + `var(--ease-out-quart)`, never a hardcoded ms literal. Reduced-motion: `motion-reduce:animate-none`.
 - **No framer-motion in `FinalizeButton.tsx`:** the six-shell-files guard (`step3Page.transitions.test.tsx:49-68`) asserts `FinalizeButton.tsx` never imports `framer-motion`/`AnimatePresence`. The modal entrance is CSS keyframes only (`animate-[…]`) — do NOT reach for framer. Instant unmount (no exit animation) keeps this clean.
-- **Testids preserved:** `wizard-finalize-race-row`, `wizard-finalize-cas-per-row`, `wizard-finalize-error`, `wizard-finalize-reapply-<dfid>`, `wizard-finalize-publish-complete`. New: `wizard-finalize-blocker-modal`, `wizard-finalize-blocker-backdrop`, `wizard-finalize-blocker-dismiss`.
+- **Testids preserved:** `wizard-finalize-race-row`, `wizard-finalize-cas-per-row`, `wizard-finalize-error`, `wizard-finalize-reapply-<dfid>`, `wizard-finalize-publish-complete`. New: `wizard-finalize-blocker-modal` (overlay root), `wizard-finalize-blocker-panel` (the sheet/panel), `wizard-finalize-blocker-backdrop`, `wizard-finalize-blocker-dismiss`.
 - **Meta-test inventory:** creates NONE. Extends `Step3TransitionAudit.test.tsx`; updates `FinalizeButton.test.tsx` (focus + invariant-5 rescope + error-retry path). No `pg_advisory*`/Supabase/admin-alert/migration → no advisory-lock topology, no DB parity.
 - **Commands:** `pnpm vitest run <path>`; Playwright `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts <spec>`; close-out `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`.
 
@@ -91,7 +91,7 @@ test("dismiss() resets a TERMINAL state (error) back to idle", async () => {
 - [ ] **Step 2 — run, expect FAIL** (`dismiss` undefined → left on `error`): `pnpm vitest run tests/components/admin/FinalizeBlockerModal.test.tsx`
 - [ ] **Step 3 — implement:** add to the `useFinalizeRun` return object: `dismiss: () => setState({ kind: "idle" }),`
 - [ ] **Step 4 — run, expect PASS.**
-- [ ] **Step 5 — commit:** `git commit --no-verify -am "feat(admin): add dismiss() reset-to-idle to useFinalizeRun"`
+- [ ] **Step 5 — commit** (new test file → `git add` explicitly, `-am` alone skips untracked files): `git add components/admin/FinalizeButton.tsx tests/components/admin/FinalizeBlockerModal.test.tsx && git commit --no-verify -m "feat(admin): add dismiss() reset-to-idle to useFinalizeRun"`
 
 ---
 
@@ -101,11 +101,23 @@ test("dismiss() resets a TERMINAL state (error) back to idle", async () => {
 
 This task moves the three panels; the moment it does, the legacy focus + `container.textContent` assertions break — so it fixes them in the same commit (green-per-commit).
 
-**Component (`FinalizeBlockerModal({ run }: { run: FinalizeRun })`, co-located):**
-- Mount gate (correct order — do NOT render-gate on `!useHasMounted()` as an inverted condition): `const mounted = useHasMounted(); const active = run.state.kind === "race_row" || run.state.kind === "cas_per_row" || run.state.kind === "error"; if (!mounted || !active) return null; return createPortal(<overlay/>, document.body);`
+**Component — TWO parts (a hooks-safe split; a single self-gating component that also calls `useDialogFocus` would violate the Rules of Hooks — the inner dialog's hooks must run unconditionally only while mounted):**
+
+`FinalizeBlockerModal({ run })` — OUTER gate, calls ONLY `useHasMounted()` (unconditional), then gates:
+```tsx
+export? function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // NOT exported — module-private, exercised via FinalizeStatusRegion
+  const mounted = useHasMounted();
+  const active = run.state.kind === "race_row" || run.state.kind === "cas_per_row" || run.state.kind === "error";
+  if (!mounted || !active) return null;
+  return <FinalizeBlockerDialog run={run} state={run.state} />; // pass the narrowed terminal state
+}
+```
+
+`FinalizeBlockerDialog({ run, state })` — INNER, mounted ONLY while active, so ALL dialog hooks run unconditionally on mount / clean up on unmount: `useRef`s (`panelRef`, `dismissRef`, `portalRef`, `dismissedRef`, `dismissibleRef`), `useDialogFocus(panelRef, dismissRef)`, the scroll-lock effect, the capture-Escape effect (Task 3), the background-inert effect (Task 5, declared AFTER `useDialogFocus`). Body:
+- `const portalEl = useRef<HTMLDivElement | null>(null); if (portalEl.current === null) portalEl.current = document.createElement("div");` then `useEffect(() => { document.body.appendChild(portalEl.current!); return () => { portalEl.current!.remove(); }; }, []);` and `createPortal(<overlay/>, portalEl.current)`. (A dedicated portal node the inert effect can exclude by identity.)
 - Overlay: `<div role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="wizard-finalize-blocker-modal" className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">`.
 - Backdrop (state-conditional — §6): `error` → `<button aria-label="Close" tabIndex={-1} data-testid="wizard-finalize-blocker-backdrop" onClick={() => run.dismiss()} className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"/>`; blocking → `<div aria-hidden="true" data-testid="wizard-finalize-blocker-backdrop" className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"/>`.
-- Panel: `<div ref={panelRef} className="relative flex w-full max-w-md flex-col items-stretch gap-3 rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none">`.
+- Panel: `<div ref={panelRef} data-testid="wizard-finalize-blocker-panel" className="relative flex w-full max-w-md flex-col items-stretch gap-3 rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none">`. **Distinct `wizard-finalize-blocker-panel` testid on the PANEL** (the overlay root carries `wizard-finalize-blocker-modal`) so the Playwright task (Task 7) measures the bottom-sheet panel, not the full-screen scrim overlay.
 - Bodies: move the EXACT markup + testids from `FinalizeStatusRegion` (`FinalizeButton.tsx:586-671`) — race_row `<ul>` of re-apply `<Link>`s + `HelpAffordance`; cas_per_row `<ul>` with `RESCANNABLE_CAS_CODES.has(code) ? <RescanSheetButton driveFileId wizardSessionId/> : <BlockedRowResolver … onResolved={…}/>` + `HelpAffordance`; error `<p>{renderEmphasis(state.copy)}</p>` + `HelpAffordance`. Promote the primary line of each to `<h2 id={titleId} …>` (race/cas headings) or set `id={titleId}` on the error `<p>`.
 - Dismiss control: `state.kind === "error"` → `<button data-testid="wizard-finalize-blocker-dismiss" ref={dismissRef} onClick={() => run.dismiss()}>Close</button>`; blocking → same testid, label `Back`, same handler. (Backdrop-inert-for-blocking, capture-Escape, dismissedRef guard, focus/inert are Tasks 3–5 — Task 2 wires `useDialogFocus(panelRef, dismissRef)` + body-scroll-lock so the shell is a real modal, and a plain `run.dismiss()` on the control.)
 - `FinalizeStatusRegion` becomes: `return (<>{state.kind === "complete" ? <inline-complete-note/> : null}<FinalizeBlockerModal run={run} /></>);` — delete the inline race/cas/error branches and the `alertRef`/`isAlert` effect.
@@ -229,13 +241,23 @@ test("focus lands on the dismiss control; Tab cycles within the modal", async ()
   const focusables = within(screen.getByTestId("wizard-finalize-blocker-modal")).getAllByRole("link").concat(screen.getByTestId("wizard-finalize-blocker-dismiss"));
   // Tab from last → first and Shift+Tab from first → last (fireEvent.keyDown on the panel; assert activeElement wraps)
 });
-// Compound harness (template: step3Page.transitions.test.tsx:33-41 fixtures + :190-208 T8-b flow):
+// Compound harness (template: step3Page.transitions.test.tsx:33-41 fixtures + :183-208 T8-b flow).
+// The order matters: the review modal must be OPEN before the finalize terminal fires. Use a DEFERRED
+// first fetch so the run stays `running` until we resolve it (a hanging response like T8-b's never
+// terminates; a plain mockResolvedValueOnce terminates before we can open the review modal):
+//   let resolveFinalize!: (r: Response) => void;
+//   const finalizeP = new Promise<Response>((r) => { resolveFinalize = r; });
+//   fetchMock.mockReturnValueOnce(finalizeP);                                     // 1st /finalize hangs (controllable)
 //   const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[stagedRow("a","applied")]} finishable initialPublishCount={1} initialUncheckedCleanCount={0}/>);
-//   fireEvent.click(q.getByTestId("wizard-finalize-button"));                    // start the run
-//   fireEvent.click(q.getByTestId("wizard-step3-card-a-more"));                  // open Step3ReviewModal (still enabled mid-run)
+//   fireEvent.click(q.getByTestId("wizard-finalize-button"));                     // state → running (fetch pending)
+//   await waitFor(() => expect(q.getByTestId("wizard-step3-tracking")).toBeTruthy());
+//   fireEvent.click(q.getByTestId("wizard-step3-card-a-more"));                   // open Step3ReviewModal (enabled mid-run)
 //   const reviewModal = q.getByTestId("wizard-step3-card-a-review-modal");
-//   ...then queue the finalize responses to reach the target terminal (recipes above) and await the blocker.
-// stagedRow/WSID come from the fixture; `wizard-step3-card-a-more` is the card's Review/View button.
+//   // For cas_per_row: queue the /finalize-cas 409 (SHOW_ARCHIVED_IMMUTABLE) as the NEXT mock, then
+//   //   await act(async () => resolveFinalize(mockJsonResponse({status:"all_batches_complete",wizard_session_id:WSID,remaining_count:0,unresolved_manifest_count:0,per_row:[]})));
+//   // For error: await act(async () => resolveFinalize(mockJsonResponse({ok:false,code:"ONBOARDING_NOT_RESOLVED"},{status:409})));
+//   await waitFor(() => expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument());
+// stagedRow/WSID from the fixture; `wizard-step3-card-a-more` is the card's Review/View button.
 
 test("compound BLOCKING (cas_per_row): single root; Escape is INERT (review stays); Back closes blocker; focus restores into review", async () => {
   // reach cas_per_row with the review modal open (harness above)
@@ -295,11 +317,11 @@ test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the revi
 - a top-of-stack STAND-IN for `Step3ReviewModal`: a plain `<div data-testid="review-standin" className="fixed inset-0 z-50">` mounted in the app-root subtree (NOT portaled). This replicates `Step3ReviewModal`'s exact stacking shell (`fixed inset-0 z-50`, `Step3ReviewModal.tsx:563`) — bundling the full `Step3ReviewModal` (ShowReviewSurface + a full staged fixture) is disproportionate; the z-context/paint-order behavior under test is identical to the one-line shell.
 - Compile token CSS via the Tailwind CLI as the template does; emulate `prefers-reduced-motion: reduce` (stable geometry on load, matching `step3-review-modal.layout.spec.ts`).
 
-- [ ] **Step 1 — failing test:** at 390px: (a) measure `wizard-footer-inner` height with `stubRun` idle, flip to `cas_per_row`, assert height unchanged ±0.5px (the no-layout-shift regression proof — the primary acceptance test); (b) `wizard-finalize-blocker-modal` panel rect within `[0, innerHeight + 0.5]`; (c) with the `review-standin` present, `document.elementFromPoint(panelCX, panelCY)` resolves to a node INSIDE `wizard-finalize-blocker-modal` (portal-to-body z-50 beats an app-root z-50 stand-in — top-of-stack). Bounds from `window.innerHeight`.
+- [ ] **Step 1 — failing test:** at 390px: (a) measure `wizard-footer-inner` height with `stubRun` idle, flip to `cas_per_row`, assert height unchanged ±0.5px (the no-layout-shift regression proof — the primary acceptance test); (b) measure the PANEL element `wizard-finalize-blocker-panel` (NOT the full-screen overlay `wizard-finalize-blocker-modal`) — assert its rect is within `[0, innerHeight + 0.5]`; (c) with the `review-standin` present, `document.elementFromPoint(panelRect.x + panelRect.width/2, panelRect.y + panelRect.height/2)` (the PANEL's center, which is real panel content, not scrim) resolves to a node INSIDE `wizard-finalize-blocker-modal` (portal-to-body z-50 beats an app-root z-50 stand-in — top-of-stack). Bounds from `window.innerHeight`.
 - [ ] **Step 2 — run, expect FAIL** (harness/spec not built / not in allowlist): `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-blocker-modal.layout.spec.ts`
 - [ ] **Step 3 — implement** the harness + spec; add the allowlist regex entry.
 - [ ] **Step 4 — run, expect PASS.**
-- [ ] **Step 5 — commit:** `git commit --no-verify -am "test(admin): real-browser layout — blocker modal viewport-pinned, no footer shift"`
+- [ ] **Step 5 — commit** (new spec file → `git add` explicitly): `git add tests/e2e/wizard-blocker-modal.layout.spec.ts tests/e2e/standalone.config.ts tests/e2e/_*Harness* && git commit --no-verify -m "test(admin): real-browser layout — blocker modal viewport-pinned, no footer shift"`
 
 ---
 
