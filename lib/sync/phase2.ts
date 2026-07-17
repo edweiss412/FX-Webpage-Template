@@ -238,16 +238,29 @@ function roleFlagsEqual(left: readonly string[], right: readonly string[]): bool
   return left.every((flag) => rightSet.has(flag));
 }
 
-function hasLead(flags: readonly string[]): boolean {
-  return flags.includes("LEAD");
+// Capability flags — the ONLY role_flags values that grant access to sensitive cross-viewer data
+// (shows_internal financials): LEAD and FINANCIALS. Both gate `financialsVisible`/`financialsEntitled`
+// (lib/visibility/scopeTiles.ts:141, lib/data/getShowForViewer.ts:380). The scope-tile flags
+// (A1/A2/V1/L1/BO/SHOP/…) only change which tile a crew member sees on their OWN page — no
+// cross-viewer capability. The ROLE_FLAGS_NOTICE bell alert + the durable LEAD_ROLE_APPLIED event
+// fire on capability changes only; scope-tile changes get a change-log row (writeRoleChangeLogRows).
+const CAPABILITY_FLAGS = ["LEAD", "FINANCIALS"] as const;
+function isCapabilityFlag(flag: string): boolean {
+  return flag === "LEAD" || flag === "FINANCIALS";
+}
+function capabilityDelta(prior: readonly string[], next: readonly string[]): boolean {
+  return CAPABILITY_FLAGS.some((flag) => prior.includes(flag) !== next.includes(flag));
 }
 
-// MI-9 / MI-10 (owner option B, 2026-07-17): a LEAD-bit change is a deliberate sheet edit that
-// AUTO-APPLIES (no auth-floor bump, no stage). This producer emits the audit FYI for EVERY applied
-// role_flags change — the LEAD bit is no longer skipped (the old `nonLeadRoleFlagChanges` name +
-// LEAD-skip left a LEAD grant/loss silent). Diff the ACTUALLY-APPLIED crew list (post-hold /
-// post-fold, §3.1) so a LEAD change folded onto a retained row under a held MI-11 rename is caught.
-function roleFlagChangesForNotice(
+// MI-9 / MI-10 (owner option B, 2026-07-17; capability-narrow 2026-07-17): a capability-flag change
+// (LEAD or FINANCIALS gain/loss) is a deliberate sheet edit / admin mapping that AUTO-APPLIES and is
+// worth an operator audit FYI + durable event; scope-tile-only changes are not. This producer diffs
+// the ACTUALLY-APPLIED crew list (post-hold / post-fold, §3.1) and returns capability changes across
+// THREE arms: (a) existing-member capability change, (b) new-crew capability grant, (c)
+// removed-member capability loss. Arm (c) excludes identity-link-renamed-away names so a cron
+// identity-preserving rename does not false-fire a phantom loss (the successor's capability is
+// caught by arm (a) via the rename map).
+function capabilityRoleChangesForNotice(
   previousCrewMembers: ParseResult["crewMembers"] | undefined,
   nextCrewMembers: ParseResult["crewMembers"],
   identityLinkRenames: readonly IdentityLinkRename[] = [],
@@ -257,12 +270,14 @@ function roleFlagChangesForNotice(
   );
   // F2: an MI-12/13/14 identity-linked rename applies the SAME person under a NEW name (the applied
   // crew list carries the added name). Map the added name back to its linked prior (removed-name)
-  // row so a rename BEFORE the new-crew-with-LEAD branch resolves to the real prior — otherwise a
-  // LEAD crew member renamed with UNCHANGED flags is falsely reported as a fresh LEAD grant, and a
-  // rename that DOES flip LEAD would carry the wrong prior_flags.
+  // row so a rename resolves to the real prior — otherwise a capability crew member renamed with
+  // UNCHANGED flags is falsely reported as a fresh grant, and a rename that DOES flip a capability
+  // would carry the wrong prior_flags.
   const priorNameForAdded = new Map(
     identityLinkRenames.map((rename) => [rename.addedName, rename.removedName]),
   );
+  const renamedAway = new Set(identityLinkRenames.map((rename) => rename.removedName));
+  const nextByName = new Set(nextCrewMembers.map((member) => member.name));
   const changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> = [];
 
   for (const nextMember of nextCrewMembers) {
@@ -271,11 +286,11 @@ function roleFlagChangesForNotice(
       previousByName.get(nextMember.name) ??
       (linkedPriorName !== undefined ? previousByName.get(linkedPriorName) : undefined);
     if (!priorMember) {
-      // New crew member: the crew_added change-log image is only {name,email} (no role_flags), so a
-      // brand-new crew member WHOSE APPLIED role_flags include LEAD would grant ops/financial access
-      // silently. Emit a notice entry (prior_flags: []) only for the LEAD case; non-LEAD new crew
-      // stay covered by crew_added alone (§3.1 new-crew-with-LEAD, Codex R2 F1).
-      if (hasLead(nextMember.role_flags)) {
+      // Arm (b) — new crew member: the crew_added change-log image is only {name,email} (no
+      // role_flags), so a brand-new crew member WHOSE APPLIED role_flags include a CAPABILITY flag
+      // (LEAD or FINANCIALS) would grant ops/financial access silently. Emit a notice entry
+      // (prior_flags: []) for that case; scope-tile-only new crew stay covered by crew_added alone.
+      if (nextMember.role_flags.some(isCapabilityFlag)) {
         changes.push({
           crew_name: nextMember.name,
           prior_flags: [],
@@ -285,10 +300,30 @@ function roleFlagChangesForNotice(
       continue;
     }
     if (roleFlagsEqual(priorMember.role_flags, nextMember.role_flags)) continue;
+    // Arm (a) — existing-member change: only a CAPABILITY-flag toggle fires the notice; a
+    // scope-tile-only swap gets a change-log row (§2.4) but no bell/event.
+    if (!capabilityDelta(priorMember.role_flags, nextMember.role_flags)) continue;
     changes.push({
       crew_name: nextMember.name,
       prior_flags: [...priorMember.role_flags],
       new_flags: [...nextMember.role_flags],
+    });
+  }
+
+  // Arm (c) — removed-member capability loss: a member present in the prior roster but NOT in the
+  // applied roster (and NOT identity-link-renamed away) whose prior flags held a capability has lost
+  // that access. Auditing the loss is path-independent (esp. the staged remove+add of an
+  // identity-link rename, where args.identityLinkRenames is empty so the removed old name is a
+  // genuine removal here). Cron identity-preserving renames are EXCLUDED (renamedAway) so no phantom
+  // loss fires — the successor's capability, if any, is caught by arm (a) above via the rename map.
+  for (const priorMember of previousCrewMembers ?? []) {
+    if (nextByName.has(priorMember.name)) continue;
+    if (renamedAway.has(priorMember.name)) continue;
+    if (!priorMember.role_flags.some(isCapabilityFlag)) continue;
+    changes.push({
+      crew_name: priorMember.name,
+      prior_flags: [...priorMember.role_flags],
+      new_flags: [],
     });
   }
 
@@ -320,7 +355,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   parseResult = useRawOutcome.result;
   const useRawKept = useRawOutcome.kept.map((d) => ({ ...d, applied: true }));
   // "Recognize this role" overlay (spec §6.1) — runs immediately after use-raw, BEFORE the crew
-  // upsert (role_flags) and roleFlagChangesForNotice diffing. PURE (deep-clones); [] → no-op.
+  // upsert (role_flags) and capabilityRoleChangesForNotice diffing. PURE (deep-clones); [] → no-op.
   const roleMappingOutcome = applyRoleTokenMappings(parseResult, args.roleTokenMappings ?? []);
   parseResult = roleMappingOutcome.result;
   // Consumed-token stamp for shows_internal.applied_role_mappings (staging-overlay spec
@@ -544,7 +579,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   // a held MI-11 rename/fold suppresses the renamed row and applies its role_flags onto the retained
   // old-name row; diffing the raw parse by name would see no priorMember and emit nothing, leaving a
   // folded LEAD change silent. This is the same list writeAutoApplyChanges uses (:478, P2-F2).
-  const roleFlagChanges = roleFlagChangesForNotice(
+  const roleFlagChanges = capabilityRoleChangesForNotice(
     snapshot.previousCrewMembers,
     applyOutcome.appliedCrewMembers,
     args.identityLinkRenames ?? [],
@@ -562,7 +597,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       : undefined;
 
   // §10 point 2/4: gate the applied role mappings against PRIOR-PERSISTED state only — the same
-  // prior-crew source roleFlagChangesForNotice diffs (snapshot.previousCrewMembers) plus the
+  // prior-crew source capabilityRoleChangesForNotice diffs (snapshot.previousCrewMembers) plus the
   // prior persisted parse_warnings threaded via args.priorParseWarnings.
   const appliedRoleMappings = gateAppliedRoleMappings(
     roleMappingOutcome.applied,
