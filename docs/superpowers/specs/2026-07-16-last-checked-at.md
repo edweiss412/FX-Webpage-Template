@@ -36,8 +36,12 @@ Idle-but-healthy show (checked 5 min ago, content 3h old) → **positive / subtl
 no warning**. A genuinely stalled sync (cron/watch stopped reaching Drive) still
 escalates, because `last_checked_at` then ages.
 
-Non-goals: no change to `last_synced_at` semantics; no change to the crew
-version/high-water-mark token; no change to status-based tiers (`watch_*`,
+Non-goals: **no change to `last_synced_at` write behavior** — this spec ADDS no
+`last_synced_at` write and REMOVES none. In particular the existing
+`last_synced_at = now()` bumps on the error writers (`parse_error` `:1087`,
+`sheet_unavailable` `:1150`, `drive_error` `:1176`) stay exactly as they are;
+this spec does not touch them. No change to the crew version/high-water-mark
+token; no change to status-based tiers (`watch_*`,
 `drive_error`, `sheet_unavailable`, `parse_error`, `shrink_held`, `sync_unknown`);
 no new alert codes; no CHECK/enum change.
 
@@ -88,7 +92,7 @@ tx. No new lock is acquired anywhere; topology is unchanged.
 | pending_review (stage) | `updateShowPendingReview` `:1130` | append `last_checked_at = now()` |
 | shrink_held | `updateShowShrinkHeld` `~:1100` | append `last_checked_at = now()` (note: `last_synced_at` stays UNchanged here per audit #3, `:1104-1110`; only `last_checked_at` advances) |
 | watermark-skip / deferred_modtime | non-archived skip already runs inside `lock(driveFileId, async (lockedTx) => {…})` (`:2688`, `deps.withShowLock ?? withPostgresSyncPipelineLock` — the SAME single-holder wrapper as the apply path at `:2698`) | inside that callback, **after** the `readShowArchived_unlocked` guard (`:2689`) and alongside `logSync` (`:2692`), add `update shows set last_checked_at = now() where drive_file_id = $1` using `lockedTx`. Archived-in-the-gap shows return at `:2690` before the write (correct — archived get no write); a contended lock (`ConcurrentSyncSkipped`, `:2695`) returns without writing (another holder writes). Single holder; no second acquisition. |
-| parse_error `:1087` / sheet_unavailable `:1150` / drive_error `:1176` | — | **no write** (error outcomes) |
+| parse_error `:1087` / sheet_unavailable `:1150` / drive_error `:1176` | these UPDATEs already set `last_synced_at = now()` | **add NO `last_checked_at` write**; leave the existing `last_synced_at` bump untouched (§2 non-goal). These outcomes retain their own hard-failure status tiers (red regardless of age), so a checked-but-errored show still flags via status, never via a fresh `last_checked_at`. |
 
 The outside-lock skip early-return at `:2810-2811` is **not** a write site (no tx
 active there). `deferred_permanent` targets non-show files (no active `shows`
@@ -113,10 +117,9 @@ row) → the write matches zero rows, harmless.
 - `syncingCount` (active-show count) unchanged.
 
 ### 5.2 `components/shared/StaleFooter.tsx` (crew footer)
-- Prop `lastSyncedAt` → `lastCheckedAt` (crew "as-of" is now check-based). Call
-  site `_CrewShell.tsx:481` updated in lockstep (see §5.3). The prop JSDoc
-  (`:29-37`, the "required `now`" contract) stays; only the timestamp source
-  changes.
+- Prop `lastSyncedAt` → `lastCheckedAt` (crew "as-of" is now check-based). Fed by
+  `Footer.tsx:123` (see the §5.3 chain). The prop JSDoc (`:29-37`, the "required
+  `now`" contract) stays; only the timestamp source changes.
 - Both the **displayed relative time** and the **yellow/red tier** derive from
   `lastCheckedAt`. Threshold ladder unchanged: `<10m` subtle, `10m–1h` subtle-dot,
   `1h–6h` yellow (`SYNC_DELAYED_MODERATE`), `>6h` red (`SYNC_DELAYED_SEVERE`).
@@ -128,19 +131,24 @@ row) → the write matches zero rows, harmless.
 - Status-based red branches (`drive_error`, `sheet_unavailable`, `parse_error`
   `:59-61`) unchanged.
 
-### 5.3 `lib/data/getShowForViewer.ts` + `_CrewShell.tsx` (crew viewer wiring)
-Full plumbing chain for the crew footer (all four hops change together):
-- `getShowForViewer.ts`: add `lastCheckedAt: string | null` to the return type
-  (`:200`, beside `lastSyncedAt`) and project it at `:846`
-  (`(showRowDb.last_checked_at as string | null | undefined) ?? null`).
-  `select("*")` at `:376` already returns the column — no select change.
-  **Keep `lastSyncedAt` in the return** — it still feeds the version token and any
-  content-recency consumer.
-- `app/show/[slug]/[shareToken]/_CrewShell.tsx:481`: pass
-  `lastCheckedAt={data.lastCheckedAt}` to `<StaleFooter>` (replacing the
-  `lastSyncedAt={data.lastSyncedAt}` prop). This is the sole `StaleFooter`
-  call site (crew route + its `admin_preview` mode; there is no slug-only mirror
-  per the M11.5 picker pivot).
+### 5.3 Crew viewer wiring — full 4-hop chain (all change in lockstep)
+The crew footer timestamp flows through an intermediate `Footer` component; the
+rename touches every hop. Call sites verified sole (no other consumers):
+1. `lib/data/getShowForViewer.ts`: add `lastCheckedAt: string | null` to the
+   return type (`:200`, beside `lastSyncedAt`) and project it at `:846`
+   (`(showRowDb.last_checked_at as string | null | undefined) ?? null`).
+   `select("*")` at `:376` already returns the column — no select change.
+   **Keep `lastSyncedAt` in the return** — it still feeds the version token and
+   the content-recency consumers.
+2. `app/show/[slug]/[shareToken]/_CrewShell.tsx:481`: change
+   `lastSyncedAt={data.lastSyncedAt}` → `lastCheckedAt={data.lastCheckedAt}` on
+   the `<Footer>` element (`:453`, the **sole** `<Footer>` call site).
+3. `components/layout/Footer.tsx`: rename prop `lastSyncedAt` → `lastCheckedAt`
+   (type `:65`, JSDoc `:60-67`, destructure `:101`), the render guard
+   `{lastSyncedAt ? (` → `{lastCheckedAt ? (` (`:121`), and the pass-through
+   `lastSyncedAt={lastSyncedAt}` → `lastCheckedAt={lastCheckedAt}` (`:123`, the
+   **sole** `<StaleFooter>` call site). `lastSyncStatus` prop unchanged.
+4. `components/shared/StaleFooter.tsx`: prop rename (§5.2).
 - **Do NOT** touch the version high-water-mark. The token is computed by the
   RPC `public.viewer_version_token(uuid)` using `extract(epoch from last_synced_at)`
   (`supabase/migrations/20260501001000_internal_and_admin.sql:26`) — `last_checked_at`
@@ -205,7 +213,7 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
 | DDL | add `shows.last_checked_at timestamptz` + backfill (new migration) |
 | CHECK | N/A (no constraint) |
 | Write (cron) | `last_checked_at = now()` on applied / watermark-skip / deferred_modtime / shrink_held / pending_review; ride existing lock tx |
-| Write (errors) | none (drive_error / sheet_unavailable / parse_error) |
+| Write (errors) | add NO `last_checked_at` (drive_error / sheet_unavailable / parse_error); their existing `last_synced_at = now()` bump is UNCHANGED |
 | RPC read (version token) | **unchanged** — stays on `last_synced_at` |
 | Read (admin health) | `driveConnectionHealth` age tiers + `lastReadAt` → `last_checked_at`; drop pending_review>6h clause |
 | Read (crew footer) | `StaleFooter` tier + display → `last_checked_at`; drop pending_review/shrink_held>6h clause; copy synced→checked |
@@ -223,9 +231,11 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
 
 - **Cron write (DB test):** watermark-skip on a non-archived show bumps
   `last_checked_at` and leaves `last_synced_at` unchanged; an applied outcome bumps
-  both; `drive_error`/`sheet_unavailable`/`parse_error` bump **neither**;
-  `shrink_held` bumps `last_checked_at` only (not `last_synced_at`). Assert the
-  write happens under the held lock (topology unchanged).
+  both; `shrink_held` bumps `last_checked_at` only (not `last_synced_at`, per audit
+  #3); `drive_error`/`sheet_unavailable`/`parse_error` do **NOT** bump
+  `last_checked_at` but **DO** still bump `last_synced_at` exactly as today (assert
+  the pre-existing `last_synced_at` behavior is preserved — this spec must not
+  regress it). Assert the writes happen under the held lock (topology unchanged).
 - **`driveConnectionHealth` unit:** the **core regression** — active show,
   `last_checked_at` = 5 min ago, `last_synced_at` = 3h ago, status `ok` →
   `health: "positive"` (NOT `stale_moderate`). Plus: `last_checked_at` 2h ago →
