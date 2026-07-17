@@ -200,7 +200,7 @@ export async function fetchDashboardData(
         supabase
           .from("shows")
           .select(
-            "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published, requires_resync, archived_at",
+            "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, last_checked_at, published, requires_resync, archived_at",
           )
           .eq("archived", isArchived),
       )
@@ -510,6 +510,7 @@ export async function fetchDashboardData(
       crewCount: crewCountByShow.get(s.id as string) ?? 0,
       lastSyncedAt: (s.last_synced_at as string | null) ?? null,
       lastSyncStatus: (s.last_sync_status as string | null) ?? null,
+      lastCheckedAt: (s.last_checked_at as string | null) ?? null,
       published,
       isLive,
       finalizeOwned,

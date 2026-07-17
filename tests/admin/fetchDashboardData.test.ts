@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
     head: boolean;
     inCol: string | null;
     inArgs: unknown[] | null;
+    selectCols: string | null;
   }>,
   // ── Deferred-mode infra (nav-perf phase 1 concurrency + A5 bound tests) ──
   // When `deferred` is true, every from()/rpc read returns a promise held open
@@ -78,9 +79,23 @@ function makeClient() {
         inArgs: unknown[] | null;
         rangeStart: number | null;
         rangeEnd: number | null;
-      } = { head: false, inCol: null, inArgs: null, rangeStart: null, rangeEnd: null };
+        selectCols: string | null;
+      } = {
+        head: false,
+        inCol: null,
+        inArgs: null,
+        rangeStart: null,
+        rangeEnd: null,
+        selectCols: null,
+      };
       const resolve = () => {
-        state.calls.push({ table, head: ctx.head, inCol: ctx.inCol, inArgs: ctx.inArgs });
+        state.calls.push({
+          table,
+          head: ctx.head,
+          inCol: ctx.inCol,
+          inArgs: ctx.inArgs,
+          selectCols: ctx.selectCols,
+        });
         if (ctx.head) {
           const count =
             table === "shows"
@@ -115,8 +130,9 @@ function makeClient() {
       };
       const builder: Record<string, unknown> = {};
       const pass = () => builder;
-      builder.select = (_cols?: unknown, opts?: { count?: string; head?: boolean }) => {
+      builder.select = (cols?: unknown, opts?: { count?: string; head?: boolean }) => {
         if (opts?.head) ctx.head = true;
+        else if (typeof cols === "string") ctx.selectCols = cols;
         return builder;
       };
       builder.eq = pass;
@@ -289,6 +305,36 @@ async function releaseUntilSettled(p: Promise<unknown>): Promise<unknown> {
 }
 
 describe("fetchDashboardData", () => {
+  it("selects last_checked_at and maps it onto ActiveShowRow.lastCheckedAt", async () => {
+    state.seed = {
+      showsList: [
+        {
+          id: "1",
+          slug: "s1",
+          title: "S1",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+          last_sync_status: "ok",
+          last_synced_at: "2026-06-03T08:00:00.000Z",
+          last_checked_at: "2026-06-03T11:58:00.000Z",
+        },
+      ],
+      showsActiveCount: 1,
+    };
+    const r = (await run()) as { rows: Array<{ slug: string; lastCheckedAt: string | null }> };
+    // Assertion A — the shows-LIST select (non-head, not the drive_file_id existence probe)
+    // includes the column. The mock returns seeded rows regardless of columns, so B alone
+    // would pass even with an unselected column; A pins the SELECT string.
+    const listCall = state.calls.find(
+      (c) => c.table === "shows" && !c.head && c.inCol !== "drive_file_id",
+    );
+    expect(listCall?.selectCols).toContain("last_checked_at");
+    // Assertion B — the value maps through to the produced row.
+    expect(r.rows.find((x) => x.slug === "s1")?.lastCheckedAt).toBe("2026-06-03T11:58:00.000Z");
+  });
+
   it("Active set = archived=false (incl unpublished); liveCount over published && inWindow", async () => {
     state.seed = {
       showsList: [

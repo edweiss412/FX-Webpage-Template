@@ -27,6 +27,11 @@ export type ActiveShowRow = {
   crewCount: number | null;
   lastSyncedAt: string | null;
   lastSyncStatus: string | null;
+  // 2026-07-17 sync-cell — last time the cron SUCCESSFULLY reached Drive and
+  // evaluated this show (shows.last_checked_at). Distinct from lastSyncedAt
+  // (last content apply / error stamp). Feeds the Sync cell "Checked {rel}"
+  // line. Required: the Dashboard loader always selects it.
+  lastCheckedAt: string | null;
   published: boolean;
   // M12.2 Phase A (§3.2) — single-source live flag computed once in
   // fetchDashboardData (published && today∈span, show tz). ShowsTable's Live
