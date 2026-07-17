@@ -41,6 +41,8 @@ import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
 import { warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -225,6 +227,36 @@ describe("buildSectionWarningModel (server derivation)", () => {
     // Plain-language label, never the raw §12.4 code (invariant 5).
     expect(groups[0]!.label).not.toBe("FIELD_UNREADABLE");
   });
+
+  it("derives per-code active groups — every active code gets a group, bulk only on eligible (DQIGNORE-6)", () => {
+    // Two codes routing to the SAME section (crew): a lone role token (not bulk-eligible) and
+    // two distinct-content field snippets (bulk-eligible). The active list groups by code.
+    const d = buildData({ warnings: [roleWarning, fieldWarningA, fieldWarningB] });
+    const model = buildSectionWarningModel({
+      slug: SLUG,
+      warnings: d.warnings,
+      ignoredFingerprints: new Set(),
+      renderedSectionIds: renderedSectionIds(d),
+    });
+    const active = model.crew?.active ?? [];
+    const groups = model.crew?.activeGroups ?? [];
+    // Every active code gets exactly one group, in first-code-appearance order (derived from
+    // the routed active order — NOT hardcoded, so a routing reorder can't silently pass).
+    const expectedCodeOrder = [...new Set(active.map((a) => a.warning.code))];
+    expect(groups.map((g) => g.code)).toEqual(expectedCodeOrder);
+    const roleGroup = groups.find((g) => g.code === "UNKNOWN_ROLE_TOKEN")!;
+    const fieldGroup = groups.find((g) => g.code === "FIELD_UNREADABLE")!;
+    // Bulk descriptor rides only the eligible group; the lone role token has none.
+    expect(roleGroup.bulk).toBeNull();
+    expect(roleGroup.items.map((i) => i.warning.code)).toEqual(["UNKNOWN_ROLE_TOKEN"]);
+    expect(fieldGroup.bulk?.items.length).toBe(2);
+    expect(fieldGroup.items.length).toBe(2);
+    // Each group item still carries its crypto-derived report surface id (server derivation).
+    expect(fieldGroup.items.every((i) => i.reportSurfaceId.length > 0)).toBe(true);
+    // Label via the plain-language path (catalog title), never the raw §12.4 code (invariant 5).
+    expect(roleGroup.label).toBe(messageFor("UNKNOWN_ROLE_TOKEN" as MessageCode).title);
+    expect(roleGroup.label).not.toBe("UNKNOWN_ROLE_TOKEN");
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -272,6 +304,26 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
     expect(
       within(sectionEl("contacts")).queryByTestId("section-warning-controls-contacts"),
     ).toBeNull();
+  });
+
+  it("groups the section's active warnings by code — one card-list + eyebrow per code, chip only on bulk-eligible (DQIGNORE-6)", () => {
+    // roleWarning (lone UNKNOWN_ROLE_TOKEN) + two distinct FIELD_UNREADABLE snippets, all
+    // routing to crew → two per-code groups inside the crew section.
+    const d = buildData({ warnings: [roleWarning, fieldWarningA, fieldWarningB] });
+    render(<SurfaceHarness data={d} />);
+    const crew = within(sectionEl("crew"));
+    // Two distinct active codes → two group wrappers → two active card-lists.
+    expect(crew.getByTestId("dq-active-group-UNKNOWN_ROLE_TOKEN")).toBeTruthy();
+    expect(crew.getByTestId("dq-active-group-FIELD_UNREADABLE")).toBeTruthy();
+    expect(crew.getAllByTestId("per-show-actionable-warnings")).toHaveLength(2);
+    // The bulk chip rides only the eligible group (2 distinct snippets); the lone role token has none.
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore all 2");
+    expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
+    // Eyebrow label scoped to its own testid (anti-tautology: the cards also render copy) — the
+    // plain-language bulkGroupLabel path, never the raw §12.4 code (invariant 5).
+    const eyebrow = crew.getByTestId("dq-group-label-UNKNOWN_ROLE_TOKEN");
+    expect(eyebrow.textContent).toBe(messageFor("UNKNOWN_ROLE_TOKEN" as MessageCode).title);
+    expect(eyebrow.textContent).not.toContain("UNKNOWN_ROLE_TOKEN");
   });
 });
 

@@ -417,7 +417,9 @@ test.skipIf(!dbUp)(
                 await flipSessionTo(W2);
                 return {
                   outcome: "completed" as const,
-                  processed: [{ driveFileId: FILE, outcome: "staged" as const }],
+                  processed: [
+                    { driveFileId: FILE, name: "f5-race.xlsx", outcome: "staged" as const },
+                  ],
                 };
               },
             },
@@ -514,7 +516,9 @@ test.skipIf(!dbUp)(
                 return {
                   outcome: "superseded" as const,
                   code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" as const,
-                  processed: [{ driveFileId: FILE, outcome: "staged" as const }],
+                  processed: [
+                    { driveFileId: FILE, name: "f5-race.xlsx", outcome: "staged" as const },
+                  ],
                 };
               },
             },

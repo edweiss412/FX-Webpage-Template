@@ -3,6 +3,7 @@ import { warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatu
 import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
+import { groupActiveByCode } from "@/lib/dataQuality/groupActiveByCode";
 import { DATA_GAP_CLASS_LABELS } from "@/lib/parser/dataGaps";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
@@ -27,6 +28,20 @@ export type SectionWarningItem = {
   reportSurfaceId: string;
 };
 
+/**
+ * DQIGNORE-6 — one per-code group of a section's ACTIVE list, first-code-appearance order.
+ * Each group carries its plain-language eyebrow `label`, the `bulk` "Ignore all N" descriptor
+ * iff the code is bulk-eligible (>=2 distinct-content ignorable warnings), and the `items`
+ * (warning + report surface id) that render as the group's cards. Serializable (no crypto,
+ * no ReactNode) — the client extras factory wraps `items` in the card slot at render time.
+ */
+export type ActiveWarningCodeGroup = {
+  code: string;
+  label: string | null;
+  bulk: BulkIgnoreGroupWithLabel | null;
+  items: SectionWarningItem[];
+};
+
 export type SectionWarningModel = {
   /** Warnings still active for this section (not ignored), in routed order. */
   active: SectionWarningItem[];
@@ -34,6 +49,9 @@ export type SectionWarningModel = {
   ignored: SectionWarningItem[];
   /** Codes with >=2 distinct-content ACTIVE ignorable warnings → one bulk "Ignore all N". */
   bulkGroups: BulkIgnoreGroupWithLabel[];
+  /** The ACTIVE list grouped by code (first-appearance order) — every active code gets a group
+   *  (eyebrow), bulk-eligible or not; the bulk chip rides only groups whose `bulk` is present. */
+  activeGroups: ActiveWarningCodeGroup[];
 };
 
 /** Plain object (RSC-serializable — a Map is NOT). Only sections with warnings appear. */
@@ -70,10 +88,31 @@ export function buildSectionWarningModel(input: {
       ...g,
       label: bulkGroupLabel(g.code),
     }));
+    const activeItems = active.map(stamp);
+    // DQIGNORE-6 — group the section's ACTIVE items by code (first-appearance order). Every
+    // active code gets a group/eyebrow; `bulk` is attached only when the code is bulk-eligible
+    // (matches a groupIgnorableByCode entry). Code order from groupActiveByCode; items gathered
+    // per code preserving routed order (both derive from the same ordered `activeItems`).
+    const bulkByCode = new Map(bulkGroups.map((g) => [g.code, g] as const));
+    const itemsByCode = new Map<string, SectionWarningItem[]>();
+    for (const it of activeItems) {
+      const bucket = itemsByCode.get(it.warning.code);
+      if (bucket) bucket.push(it);
+      else itemsByCode.set(it.warning.code, [it]);
+    }
+    const activeGroups: ActiveWarningCodeGroup[] = groupActiveByCode(
+      activeItems.map((it) => it.warning),
+    ).map((g) => ({
+      code: g.code,
+      label: bulkGroupLabel(g.code),
+      bulk: bulkByCode.get(g.code) ?? null,
+      items: itemsByCode.get(g.code)!,
+    }));
     record[sid] = {
-      active: active.map(stamp),
+      active: activeItems,
       ignored: ignored.map(stamp),
       bulkGroups,
+      activeGroups,
     };
   }
   return record;

@@ -26,6 +26,15 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
+// Mock the hybrid-lifecycle resolve helper so the ambient-DB-guard test can
+// assert the DEFAULT (un-injected) helper is never invoked when a test-injected
+// `listFolder` is present (mirrors the listLiveShows / driftEligible guard).
+vi.mock("@/lib/adminAlerts/resolveOnboardingSheetUnreadable", () => ({
+  resolveUnreadableAlertIfHealed: vi.fn(async () => ({ kind: "ok", resolved: false })),
+  resolveOpenUnreadableAlertUnconditionally: vi.fn(async () => ({ kind: "ok", resolved: false })),
+}));
+import { resolveUnreadableAlertIfHealed as defaultResolveIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
+
 type PipelineTx = Phase1Tx &
   Phase2Tx & {
     operations: string[];
@@ -2314,6 +2323,91 @@ describe("runScheduledCronSync", () => {
       driveFileId: "file-b",
       result: { outcome: "applied" },
     });
+  });
+
+  test("epilogue calls resolveUnreadableAlertIfHealed once with the listed id→modifiedTime map", async () => {
+    // Expected map derived from the fixture inputs (anti-tautology).
+    const files = [
+      fileMeta("file-a", "2026-05-08T12:00:00.000Z"),
+      fileMeta("file-b", "2026-05-09T00:00:00.000Z"),
+    ];
+    const resolveUnreadableAlertIfHealed = vi.fn(
+      async (_input: { activeFolderId: string; listedFiles: ReadonlyMap<string, string> }) => ({
+        kind: "ok" as const,
+        resolved: false,
+      }),
+    );
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    }));
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => files),
+      processOneFile,
+      resolveUnreadableAlertIfHealed,
+    });
+
+    expect(resolveUnreadableAlertIfHealed).toHaveBeenCalledTimes(1);
+    const arg = resolveUnreadableAlertIfHealed.mock.calls[0]![0];
+    expect(arg.activeFolderId).toBe("folder-1");
+    expect(arg.listedFiles).toBeInstanceOf(Map);
+    for (const f of files) {
+      expect(arg.listedFiles.get(f.driveFileId)).toBe(f.modifiedTime);
+    }
+    expect(arg.listedFiles.size).toBe(files.length);
+  });
+
+  test("epilogue observer does NOT run on the no_folder_configured early return", async () => {
+    const resolveUnreadableAlertIfHealed = vi.fn(async () => ({
+      kind: "ok" as const,
+      resolved: false,
+    }));
+    await runScheduledCronSync({
+      listFolder: vi.fn(async () => [fileMeta("file-a")]),
+      processOneFile: vi.fn(),
+      getActiveWatchedFolderId: vi.fn(async () => ({ kind: "no_folder_configured" as const })),
+      resolveUnreadableAlertIfHealed,
+    } as unknown as Parameters<typeof runScheduledCronSync>[0]);
+    expect(resolveUnreadableAlertIfHealed).not.toHaveBeenCalled();
+  });
+
+  test("epilogue observer does NOT run on the folder-resolve infra fault early return", async () => {
+    const resolveUnreadableAlertIfHealed = vi.fn(async () => ({
+      kind: "ok" as const,
+      resolved: false,
+    }));
+    await runScheduledCronSync({
+      listFolder: vi.fn(async () => [fileMeta("file-a")]),
+      processOneFile: vi.fn(),
+      logSync: vi.fn(async () => undefined),
+      getActiveWatchedFolderId: vi.fn(async () => ({
+        kind: "infra_error" as const,
+        operation: "readActiveWatchedFolderId" as const,
+        source: "thrown_error" as const,
+        cause: new Error("boom"),
+      })),
+      resolveUnreadableAlertIfHealed,
+    } as unknown as Parameters<typeof runScheduledCronSync>[0]);
+    expect(resolveUnreadableAlertIfHealed).not.toHaveBeenCalled();
+  });
+
+  test("ambient-DB guard: injected listFolder with NO observer dep never invokes the real helper", async () => {
+    vi.mocked(defaultResolveIfHealed).mockClear();
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => [fileMeta("file-a")]),
+      processOneFile: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-a",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      })),
+    });
+    expect(vi.mocked(defaultResolveIfHealed)).not.toHaveBeenCalled();
   });
 
   test("passes the configured sync_log sink into each cron file pipeline", async () => {

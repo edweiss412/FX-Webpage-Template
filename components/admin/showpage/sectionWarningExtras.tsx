@@ -12,7 +12,7 @@ import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableW
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
-import { BulkIgnoreControls } from "@/components/admin/BulkIgnoreControls";
+import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
 
 /**
@@ -79,33 +79,48 @@ export function buildSectionWarningExtras(args: {
     if (!model || (model.active.length === 0 && model.ignored.length === 0)) return null;
 
     const { slug, showId, driveFileId, useRawDecisions } = d;
-    const activeWarnings = model.active.map((a) => a.warning);
     const ignoredWarnings = model.ignored.map((a) => a.warning);
+
+    // DQIGNORE-6 — the section's ACTIVE list, grouped by code. Each group's cards are a
+    // server-derived <PerShowActionableWarnings> passed through BulkIgnoreControls as the
+    // `cards` slot (RSC: server nodes as props of a client component), so the bulk "Ignore
+    // all N" chip sits on its own group's eyebrow, bound to the cards it ignores. The report
+    // surface ids come from the pre-derived model (ZERO crypto here); each card keeps the
+    // self-hiding Report/Ignore + use-raw + recognize-role controls.
+    const activeGroups: ActiveWarningGroup[] = model.activeGroups.map((g) => ({
+      code: g.code,
+      label: g.label,
+      bulk: g.bulk,
+      cards: (
+        <PerShowActionableWarnings
+          items={g.items.map((it) => it.warning)}
+          driveFileId={driveFileId}
+          renderItemControls={(w, i) => (
+            <SectionWarningItemControls
+              warning={w}
+              reportSurfaceId={g.items[i]!.reportSurfaceId}
+              mode="active"
+              slug={slug}
+              showId={showId}
+              driveFileId={driveFileId}
+              useRawDecisions={useRawDecisions}
+            />
+          )}
+        />
+      ),
+    }));
 
     return (
       <div
         data-testid={`section-warning-controls-${id}`}
         className="mt-3 flex flex-col gap-3 border-t border-border pt-3"
       >
-        {/* DQIGNORE-2 — per-section bulk "Ignore all N of this type"; renders nothing when no
-            code has >=2 distinct-content active ignorable warnings. */}
-        <BulkIgnoreControls slug={slug} groups={model.bulkGroups} />
+        {/* DQIGNORE-6 — the ACTIVE warnings grouped by code; each bulk "Ignore all N" chip is
+            its group's eyebrow header, bound to the cards it ignores. BulkIgnoreControls renders
+            BOTH the eyebrow/chip headers AND the grouped per-warning cards; renders null when
+            this section has no active warnings. */}
         <div data-testid={`section-warning-active-${id}`}>
-          <PerShowActionableWarnings
-            items={activeWarnings}
-            driveFileId={driveFileId}
-            renderItemControls={(w, i) => (
-              <SectionWarningItemControls
-                warning={w}
-                reportSurfaceId={model.active[i]!.reportSurfaceId}
-                mode="active"
-                slug={slug}
-                showId={showId}
-                driveFileId={driveFileId}
-                useRawDecisions={useRawDecisions}
-              />
-            )}
-          />
+          <BulkIgnoreControls slug={slug} groups={activeGroups} />
         </div>
         {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive re-sync.
             Native <details>: chevron transform only, body instant. */}

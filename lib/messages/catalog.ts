@@ -2010,11 +2010,12 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "Some sheets in your show folder couldn't be read during setup and were skipped. To see which ones and fix them, re-run setup from Settings.",
+      "Some sheets in your show folder couldn't be read, so they were skipped — the affected sheets are named on this alert. Fix or remove them in Drive and this alert clears on its own; you can also dismiss it now.",
     crewFacing: null,
-    followUp: "Doug → Settings → Re-run setup; fix the flagged sheets in Drive; re-scan",
+    followUp:
+      "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
     helpfulContext:
-      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name while setup is open; after setup you can see them again by re-running setup from Settings. Fix the sheet's layout in Drive (most often a missing or renamed section header), then re-scan.",
+      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The first few affected sheets are named on this alert. Fix the sheet's layout in Drive (most often a missing or renamed section header) or remove the file from the folder — the live sync notices on its own and this alert clears automatically. Re-running setup from Settings also works and gives a guided list. You can dismiss this alert at any time.",
     title: "Some sheets couldn't be read",
     longExplanation:
       "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them. They aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name; after setup, re-run setup from Settings to see them again. Fix the sheet's layout in Drive, then re-scan.",

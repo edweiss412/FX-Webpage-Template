@@ -26,6 +26,8 @@ export interface IdentityContext {
     attempted_action?: string;
     /** Derived from `changes[].crew_name` (cap 3) — never the raw `changes` array. */
     role_change_crew_names?: string[];
+    /** Derived from `failed_sheet_names` (cap 3) — the failed onboarding sheet titles. */
+    failed_sheet_names?: string[];
     /** PII — present ONLY when `includePii` is true. */
     email?: string;
     /** PII — present ONLY when `includePii` is true. */
@@ -34,6 +36,7 @@ export interface IdentityContext {
   counts: {
     role_change_count?: number;
     crew_member_count?: number;
+    failed_sheet_names_count?: number;
   };
 }
 

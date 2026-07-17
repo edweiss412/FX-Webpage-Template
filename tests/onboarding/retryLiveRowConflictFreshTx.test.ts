@@ -127,7 +127,7 @@ describe("retry/rescan injected-tx live-row-conflict recovery runs on a fresh tx
 
     expect(result).toMatchObject({
       outcome: "completed",
-      processed: [{ driveFileId: FILE, outcome: "live_row_conflict" }],
+      processed: [{ driveFileId: FILE, name: `${FILE}.gsheet`, outcome: "live_row_conflict" }],
     });
     // The conflict record went to the FRESH runner...
     expect(recoveryRunnerCreated).toBe(1);

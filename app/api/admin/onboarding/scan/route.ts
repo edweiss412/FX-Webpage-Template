@@ -16,6 +16,7 @@ import {
 import { deriveRequestId, log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { resolveOpenUnreadableAlertUnconditionally } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -289,11 +290,17 @@ export async function handleOnboardingScan(
           // (all per-file txs committed inside runOnboardingScan), no advisory
           // lock held. Last-write-wins context (NO failedKeys key). Fires for
           // first-run AND re-run setup; showId null (first-seen parse semantics).
-          const failedIds = Array.from(
-            new Set(
-              result.processed.filter((p) => p.outcome === "hard_failed").map((p) => p.driveFileId),
+          const failedPairs = Array.from(
+            // Map dedupes by driveFileId (first name wins); sort pairs by id so
+            // failed_sheet_names[i] names failed_drive_file_ids[i].
+            new Map(
+              result.processed
+                .filter((p) => p.outcome === "hard_failed")
+                .map((p) => [p.driveFileId, p.name] as const),
             ),
-          ).sort();
+          ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+          const failedIds = failedPairs.map(([id]) => id);
+          const failedNames = failedPairs.map(([, name]) => name);
           if (failedIds.length > 0) {
             try {
               await upsertAdminAlert({
@@ -303,8 +310,26 @@ export async function handleOnboardingScan(
                   folder_id: folder.folderId,
                   wizard_session_id: wizardSessionId,
                   failed_drive_file_ids: failedIds,
+                  failed_sheet_names: failedNames,
                 },
               });
+            } catch {
+              /* best-effort */
+            }
+          } else {
+            // Hybrid lifecycle §3.4: a completed scan with ZERO hard-failed
+            // files means the unreadable condition has healed — auto-resolve the
+            // one open global alert. Own best-effort boundary, POST-COMMIT, no
+            // advisory lock. The ONLY durable emit is the info-level forensic
+            // code on a successful resolve (never warn/error).
+            try {
+              const r = await resolveOpenUnreadableAlertUnconditionally();
+              if (r.kind === "ok" && r.resolved) {
+                await log.info("onboarding unreadable-sheet alert auto-resolved (clean scan)", {
+                  source: "admin.onboarding.scan",
+                  code: "ONBOARDING_ALERT_AUTO_RESOLVED",
+                });
+              }
             } catch {
               /* best-effort */
             }
