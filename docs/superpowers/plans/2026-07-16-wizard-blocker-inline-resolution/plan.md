@@ -573,6 +573,13 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
           const sid = rows[0]?.pending_wizard_session_id ?? null;
           if (sid === null) return { early: { ok: false, status: "no_active_session" } as const };
           if (sid !== wizardSessionId) return { early: { ok: false, status: "superseded" } as const };
+          // Advisory pre-restage cap read: if already exhausted, escalate WITHOUT the wasted Drive
+          // fetch. The AUTHORITATIVE race-safe cap gate still runs under the lock in resolveRebuild.
+          const capRows = (await t.unsafe(
+            `select attempts from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid and drive_file_id = $2`,
+            [wizardSessionId, driveFileId],
+          )) as Array<{ attempts: number }>;
+          if ((capRows[0]?.attempts ?? 0) >= 1) return { early: { ok: false, status: "escalated", code } as const };
           return { folderId: rows[0]?.pending_folder_id ?? null };
         });
         if ("early" in pre) return NextResponse.json(pre.early);
@@ -720,7 +727,9 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
 
 - [ ] Write failing tests in `tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts` (real DB, using the `applyRescanDecisionUnderLock.test.ts` fake-restage-injection idiom is NOT sufficient here since this test must drive the route's Drive-fetch + `prepareOnboardingFiles` pre-lock step too — inject via the route's dep-injection seam analogous to `finalize/route.ts`'s `prepareOnboardingFiles` dep):
   - **not_currently_blocked cases:** (a) no `shows_pending_changes` row → `not_currently_blocked`; (b) shadow parses clean (not `STAGED_*_CORRUPT`) → `not_currently_blocked`; (c) **a corrupt shadow that exists but has NO `onboarding_scan_manifest` row for `(session, sheet)` → `not_currently_blocked`, no mutation** (Codex plan-R1 F1 — a stale/forged shadow outside the session manifest must not be rebuildable).
-  - **Pre-restage cap gate:** seed `onboarding_rebuild_attempts.attempts = 1` (== CAP) for `(session, sheet)` → `{ ok: false, status: "escalated", code }`, NO restage attempted (assert the injected `prepareOnboardingFiles` dep was never called).
+  - **Wrong-code shadow (R3 F1):** a shadow present but refusing with a code ≠ the requested `code` (e.g. request claims `STAGED_REVIEW_ITEMS_CORRUPT` but the shadow parses/refuses otherwise) → `not_currently_blocked`, no mutation. Failure mode caught: rebuilding a shadow whose actual refusal is not the claimed corrupt blocker.
+  - **Pre-restage cap gate (advisory, no Drive fetch):** seed `onboarding_rebuild_attempts.attempts = 1` (== CAP); a full-route rebuild → `{ ok: false, status: "escalated", code }` AND the injected `fetchDriveFileMetadata`/`prepareOnboardingFiles` deps are NEVER called (the pre-lock advisory cap read short-circuits before the Drive fetch).
+  - **Cap gate (authoritative, under-lock race backstop):** call `resolveRebuild` directly with a seeded `attempts = 1` + a matching corrupt shadow + manifest row (bypassing the pre-lock advisory read to exercise the under-lock gate) → `escalated`, no restage.
   - **Seven-outcome enumeration (structural defense — REAL core, NOT injected):** the test injects ONLY `scanOnboardingPreparedFiles` (the real core's own seam, `ApplyRescanDecisionDeps.scanOnboardingPreparedFiles`) — the REAL `applyRescanDecisionUnderLock` runs, so its real `shows_pending_changes` deletes + `onShadowDeleted` co-location are exercised (Codex plan-R2 F3 — injecting the whole apply fn would be tautological). Force each outcome: the four scan-level outcomes (`schema_missing`, `superseded`, `not_staged` via a non-`staged` `processed` entry, `hard_failed`) come straight from the mocked scan result; the three staged outcomes require the scan to report `staged` AND the REAL `computeRescanDecision` to yield dirty/clean — so seed the prior state (a corrupt `shows_pending_changes` payload → `priorReady=true, priorParse=null` forces the §6 DIRTY clause → `dirty_demoted`; a seeded clean prior + matching prepared parse with `priorReady=true` → `clean_restamped`; `priorReady=false` → `clean_unchecked`) and pass the matching `prepared` (via the pre-lock `prepareOnboardingFiles` seam). Assert `onboarding_rebuild_attempts.attempts` increments iff the outcome deleted the shadow (`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked`):
     ```ts
     const OUTCOMES: Array<{ outcome: RescanDecisionOutcome["kind"]; consumesCap: boolean }> = [
@@ -744,7 +753,7 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
     }
     ```
     Failure mode caught: exactly the R5 F1 hole — `hard_failed` deletes-and-commits-and-returns-`needs_attention`, indistinguishable at the route from a shadow-retaining `needs_attention` (`schema_missing`) without this per-outcome enumeration.
-  - **Concurrent double-submit:** two simultaneous rebuild POSTs for the same `(session, sheet)` → exactly one shadow-deleting rescan consumes one attempt; the other (blocked on the lock, then re-reading `attempts >= CAP`) returns `escalated`.
+  - **Concurrent double-submit (R3 F2):** two simultaneous rebuild POSTs for the same `(session, sheet)` on a shadow-deleting outcome → exactly ONE shadow-deleting rescan runs and consumes one attempt (`attempts == 1` total); the other, serialized after the lock, finds the corrupt shadow already superseded (deleted by the winner) and returns **`not_currently_blocked`** (the shadow-check precedes the cap gate; after a successful rebuild the blocker is gone — `escalated` is the LATER recurred-corruption case, not this concurrency case). Assert both the single increment and the loser's `not_currently_blocked`.
   - **Forensic reason survives a shadow-deleting `hard_failed`:** the authz-scoping re-derivation's `parseShadowPayloadForApply` call (Task 5) captures `corruptionReason` BEFORE the rescan; assert it's non-null even when the outcome is `hard_failed`.
 - [ ] Run the new test file — fails (stub throws / table doesn't gate anything yet).
 - [ ] Minimal implementation:
@@ -780,11 +789,17 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
       return NextResponse.json({ ok: false, status: "not_currently_blocked" });
     }
     const parsed = parseShadowPayloadForApply(shadowRows[0].payload);
-    if (parsed.ok) {
+    // Must STILL refuse with EXACTLY the corrupt code the request claims (Codex plan-R3 F1). A
+    // clean parse, OR a refusal with a DIFFERENT code (e.g. a freshness/other refusal), means this
+    // is not the STAGED_*_CORRUPT blocker the request targets → not this rebuild's job. `code` was
+    // already gated to a STAGED_*_CORRUPT value by the scaffold's wrong_action check.
+    if (parsed.ok || parsed.code !== code) {
       return NextResponse.json({ ok: false, status: "not_currently_blocked" });
     }
     const corruptionReason = parsed.reason;
 
+    // Authoritative, race-safe cap gate UNDER the lock (the pre-lock read was advisory only). A
+    // concurrent request that lost the lock race sees the winner's committed attempts here.
     const attemptRows = (await tx.unsafe(
       `select attempts from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, driveFileId],
