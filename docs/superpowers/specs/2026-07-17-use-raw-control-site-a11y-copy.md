@@ -115,7 +115,7 @@ Applied only when a token is present (the control already early-returns on a bla
 
 ## 8. Boundary changes
 
-`UseRawControlBoundary.tsx` and `RoleRecognizeControlBoundary.tsx`: add optional `site?: WarningControlSite` to the props (alongside, not inside, the `SurfaceProps` union) and forward it to the control (`<UseRawControl ... site={props.site} />` / `<RoleRecognizeControl ... site={props.site} />`). No action/logic change. Absent `site` forwards `undefined` (bare testids).
+`UseRawControlBoundary.tsx` and `RoleRecognizeControlBoundary.tsx`: add optional `site?: WarningControlSite` to the props (alongside, not inside, the `SurfaceProps` union) and forward it to the control with a **conditional spread**, NOT a bare `site={props.site}` — under `exactOptionalPropertyTypes` (`tsconfig.json`), a JSX attribute whose value may be `undefined` is not assignable to a `site?:` child prop, so the attribute must be omitted when absent: `<UseRawControl ... {...(props.site ? { site: props.site } : {})} />` / `<RoleRecognizeControl ... {...(props.site ? { site: props.site } : {})} />`. No action/logic change. When `site` is absent the attribute is omitted → the control renders bare testids.
 
 ## 9. Copy requalification (`step3ReviewSections.tsx:2344` + doc)
 
