@@ -260,7 +260,9 @@ describe("ShowsTable", () => {
     const src = readFileSync("components/admin/ShowsTable.tsx", "utf8");
     const start = src.indexOf("function SyncCell");
     const body = src.slice(start, src.indexOf("\nfunction ", start + 1));
-    expect(body).not.toMatch(/AnimatePresence|framer-motion|motion\.|\bexit=|\binitial=|\banimate=/);
+    expect(body).not.toMatch(
+      /AnimatePresence|framer-motion|motion\.|\bexit=|\binitial=|\banimate=/,
+    );
   });
 
   it("Live pill renders by title iff row.isLive (never in sync column)", () => {
