@@ -54,12 +54,10 @@ const RPC_NAME = "get_admin_show_review_snapshot";
 // Each row is file + table + one-line reason. Any review-table read NOT listed
 // here fails the pin. (Populated by grepping the current tree at Task 7.)
 const FROM_ALLOWLIST: ReadonlyArray<{ file: string; table: string; reason: string }> = [
-  {
-    file: "app/admin/show/[slug]/page.tsx",
-    table: "crew_members",
-    reason:
-      "Per-show admin landing page's existing crew roster read (predates the consolidated review surface); not the snapshot read path.",
-  },
+  // The per-show admin page's prior direct `crew_members` read is GONE — Task 13
+  // routes the whole review surface (crew included) through the snapshot RPC, so
+  // its allowlist row was removed. The only surviving review-table read is the
+  // Preview-As impersonation page's single-row lookup below.
   {
     file: "app/admin/show/[slug]/preview/[crewId]/page.tsx",
     table: "crew_members",
