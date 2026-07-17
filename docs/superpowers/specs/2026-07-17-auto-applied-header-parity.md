@@ -50,26 +50,30 @@ Drop `h-full` from the populated inbox root only:
 
 **Why not `flex-1`:** making the inbox `flex-1 min-h-0` would still fill remaining space and re-push the strip to the bottom — the opposite of the goal. Content-sizing (`h-full` removed, no grow) is correct.
 
-### 4.2 Header parity (G2)
+### 4.2 Header parity (G2) — dashboard-only
 
-Extract a single `StripHeader` sub-component rendered by BOTH the `ok` and `infra_error` returns (one `<HoverHelp>` call site total — the affordance parity meta-test scans call sites, so a single definition keeps it clean):
+**Scope decision (Codex R1 finding 2).** `RecentAutoAppliedStrip` is SHARED: the dashboard renders it at `headingLevel={4}` (`Dashboard.tsx:777-780`), and the mobile `/admin/needs-attention` page renders it at `headingLevel={2}` (`app/admin/needs-attention/page.tsx:105-108`). The count chip + `?` help are a **dashboard-header-parity** request; putting a `dashboard`-named help testid on the needs-attention page would (a) mis-name the affordance for its route, (b) duplicate that page's own `help-affordance--needs-attention-page--tooltip` header help, and (c) leave a second surface the desktop-only walker never covers. **Therefore the chip + help render ONLY when `headingLevel === 4` (dashboard).** The `/admin/needs-attention` header stays byte-for-byte as today (bare heading).
+
+Extract a single `StripHeader` sub-component rendered by BOTH the `ok` and `infra_error` returns (one `<HoverHelp>` call site total — the affordance parity meta-test scans call sites, so a single definition keeps it clean). The `<HoverHelp>` literal stays unconditionally present in source (satisfying the parity scanner); its *rendering* is gated at runtime by `showAffordances`:
 
 ```tsx
 function StripHeader({
   SectionHeading,
   headingId,
-  count,
+  count,          // null when there is no data to count (infra_error, or non-dashboard)
+  showAffordances, // true only on the dashboard (headingLevel === 4)
 }: {
   SectionHeading: "h2" | "h4";
   headingId: string;
-  count: number | null; // null in the infra_error branch (no data to count)
+  count: number | null;
+  showAffordances: boolean;
 }) {
   return (
     <div className="flex items-center gap-2">
       <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
         Recently auto-applied
       </SectionHeading>
-      {count !== null ? (
+      {showAffordances && count !== null ? (
         <span
           data-testid="recent-auto-applied-count-chip"
           className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
@@ -77,26 +81,30 @@ function StripHeader({
           {count}
         </span>
       ) : null}
-      <HoverHelp
-        label="Help: Recently auto-applied"
-        testId="recent-auto-applied-help"
-        rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"
-        learnMore={{ href: "/help/admin/review-queues#re-stage" }}
-      >
-        <p>
-          Changes that already went live on their own — crew added, removed, or renamed, plus
-          schedule and field edits. Accept to clear them from this list, or undo the ones you
-          didn&apos;t want.
-        </p>
-      </HoverHelp>
+      {showAffordances ? (
+        <HoverHelp
+          label="Help: Recently auto-applied"
+          testId="recent-auto-applied-help"
+          rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"
+          learnMore={{ href: "/help/admin/review-queues#re-stage" }}
+        >
+          <p>
+            Changes that already went live on their own — crew added, removed, or renamed, plus
+            schedule and field edits. Accept to clear them from this list, or undo the ones you
+            didn&apos;t want.
+          </p>
+        </HoverHelp>
+      ) : null}
     </div>
   );
 }
 ```
 
+Both call sites pass `showAffordances={headingLevel === 4}`. On the dashboard: `count = data.kind === "ok" ? data.renderedCount + data.overflowCount : null`. On `/admin/needs-attention` (`headingLevel === 2`): `showAffordances={false}` → bare heading, unchanged.
+
 - Count chip classes are copied verbatim from the "Needs attention" chip (`Dashboard.tsx:743-748`) so the two headers read as one system.
 - The heading keeps `id={headingId}` so the section's `aria-labelledby` (RecentAutoAppliedStrip.tsx:553/531) still resolves; the chip + help sit as siblings inside the flex row.
-- `ok` branch passes `count={data.renderedCount + data.overflowCount}` — the TRUE backlog total, identical to the value Dashboard computes for the mobile summary chip (`Dashboard.tsx:485-487`). `infra_error` passes `count={null}`.
+- Dashboard `ok` branch count = the TRUE backlog total, identical to the value Dashboard computes for the mobile summary chip (`Dashboard.tsx:485-487`). Dashboard `infra_error` → `count={null}` (help still shown). Non-dashboard → chip + help both suppressed.
 
 ### 4.3 Affordance matrix row (G3)
 
@@ -131,9 +139,16 @@ Add an idempotent, non-locked `show_change_log` insert to `supabase/seedWalkerFi
 // for the deep-link walker. show_change_log is NOT in the per-show advisory-lock
 // table set (plan-wide invariant 2: shows/crew_members/crew_member_auth/
 // pending_syncs/pending_ingestions) — no lock needed. Idempotent via the stable
-// created_by sentinel. Column shape mirrors the live producer
-// (lib/sync change-log writer): show_id, drive_file_id, source, change_kind,
-// summary, after_image, status, individually_undoable, created_by.
+// created_by sentinel.
+//
+// NON-UNDOABLE by design (Codex R1 finding 1): change_kind='field_changed' is
+// outside UNDOABLE_KINDS (loader:70 = {crew_added,crew_removed,crew_renamed}),
+// so the strip renders an Accept-only row and NO Undo control — the walker only
+// needs the strip + help visible, and a `crew_added` fixture would have surfaced
+// an Undo button whose RPC (undo_change tombstones `crew_members where name =
+// entity_ref`) deterministically fails with a null entity_ref / no matching crew
+// row. field_changed's diff is `{kind:"none"}` (buildDiff loader:82-101) so it
+// renders its summary sentence — no after_image / entity_ref / crew row needed.
 function autoAppliedSeedSql(): string {
   return `
     do $$
@@ -147,17 +162,16 @@ function autoAppliedSeedSql(): string {
 
     insert into public.show_change_log
       (show_id, drive_file_id, occurred_at, source, change_kind, summary,
-       after_image, status, individually_undoable, created_by)
-    select id, drive_file_id, ${sqlTimestamp(SEED_TIMESTAMP)}, 'auto_apply', 'crew_added',
-      'Added crew member Jordan Rivera', ${sqlJson({ name: "Jordan Rivera" })}::jsonb,
-      'applied', true, ${sqlString(AUTO_APPLIED_SENTINEL)}
+       status, individually_undoable, created_by)
+    select id, drive_file_id, ${sqlTimestamp(SEED_TIMESTAMP)}, 'auto_apply', 'field_changed',
+      'Updated the main-stage call time', 'applied', false, ${sqlString(AUTO_APPLIED_SENTINEL)}
       from public.shows where slug = ${sqlString(RPAS_SLUG)};
   `;
 }
 ```
 
 - `AUTO_APPLIED_SENTINEL = "seed-fixture:walker-auto-applied"` — a stable `created_by` sentinel in the `seed-fixture:` namespace.
-- `change_kind = 'crew_added'` ∈ `STRIP_KINDS` (`lib/admin/loadRecentAutoApplied.ts:63-69`); `after_image.name` drives the strip's "Added" diff (`buildDiff`, loader:94-96).
+- `change_kind = 'field_changed'` ∈ `STRIP_KINDS` (`lib/admin/loadRecentAutoApplied.ts:63-69`) but NOT in `UNDOABLE_KINDS` (loader:70) → Accept-only row, no Undo. `individually_undoable=false` is belt-and-suspenders.
 - `acknowledged_at` is omitted → defaults `null` (`supabase/migrations/20260706130000_show_change_log_acknowledged.sql:2`), satisfying the loader's `.is("acknowledged_at", null)` filter (loader:152).
 - Composed into the seeder's SQL alongside `alertSeedSql()` — a sibling top-level statement, NOT inside the advisory-lock transaction block (invariant 2 does not cover `show_change_log`).
 
@@ -175,9 +189,10 @@ delete from public.show_change_log where created_by like 'seed-fixture:%';
 | --- | --- |
 | `data.kind === "ok"`, `groups.length === 0` | Strip returns `null` (unchanged, RecentAutoAppliedStrip.tsx:549). Header never renders — no count chip, no orphan help. |
 | `data.kind === "ok"`, `renderedCount + overflowCount === 0` but a group exists | Not reachable — a rendered group implies ≥1 row → count ≥ 1. If it somehow occurs, chip shows `0` (harmless). |
-| `data.kind === "infra_error"` | Header renders with `count={null}` → no chip, HoverHelp present. Error sentence unchanged. |
+| `data.kind === "infra_error"` (dashboard) | Header renders `count={null}` → no chip, HoverHelp present. Error sentence unchanged. |
 | `overflowCount > 0` | Chip counts the full backlog (`rendered + overflow`), matching the existing overflow note below the list (RecentAutoAppliedStrip.tsx:571-578). |
-| `headingLevel === 2` (mobile needs-attention page) | `SectionHeading = "h2"`; StripHeader flex row + chip + help render identically. Walker only asserts desktop, but the header is correct at both levels. |
+| `headingLevel === 2` (mobile needs-attention page) | `SectionHeading = "h2"`, `showAffordances = false` → bare heading, **no chip, no help** — identical to today. The page's own `help-affordance--needs-attention-page--tooltip` header help is unchanged. |
+| Seeded walker row's Undo | None rendered — `field_changed` ∉ `UNDOABLE_KINDS`, so no Undo control exists to fail (Codex R1 finding 1). Accept renders and is a no-op-safe fixture affordance the walker never actuates. |
 | Walker seed run twice | `delete ... where created_by = sentinel` then insert → exactly one row (idempotent). |
 | Base-seed-only run (screenshots) | Base cleanup removes sentinel rows; `seedWalkerFixtures` not run → strip absent → no baseline drift. |
 
@@ -198,7 +213,7 @@ The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_chan
 - `tests/db/seed-restage-fixture.test.ts` — NOT touched (no `WALKER_DRIVE_FILE_IDS` change); must stay green (regression check).
 
 **New / updated unit tests (TDD):**
-- `RecentAutoAppliedStrip.test.tsx` — (a) header renders `recent-auto-applied-count-chip` with `renderedCount + overflowCount`; (b) header renders the HoverHelp with `rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"` and `learnMore` href `/help/admin/review-queues#re-stage`; (c) `infra_error` branch renders the help but NO count chip; (d) existing per-group `auto-applied-count-${showId}` badges unaffected.
+- `RecentAutoAppliedStrip.test.tsx` — (a) dashboard header (`headingLevel={4}`) renders `recent-auto-applied-count-chip` with `renderedCount + overflowCount`; (b) dashboard header renders the HoverHelp with `rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"` and `learnMore` href `/help/admin/review-queues#re-stage`; (c) dashboard `infra_error` branch renders the help but NO count chip; (d) `headingLevel={2}` (needs-attention page) renders NEITHER chip NOR help (queryByTestId null); (e) existing per-group `auto-applied-count-${showId}` badges unaffected.
   - Anti-tautology: assert the chip text equals `renderedCount + overflowCount` derived from the fixture (e.g. `4 + 3 = 7`), not a hardcoded literal divorced from the fixture.
 - `NeedsAttentionInbox` gap: a real-browser (Playwright) assertion at desktop (≥1240px) with a populated inbox + a rendered strip, asserting the strip section's `getBoundingClientRect().top` is within a small tolerance of the inbox's `bottom + gap-3` (12px) — i.e. no detached band. jsdom cannot compute layout, so this is a Playwright test (project rule). Concrete failure mode it catches: reintroducing `h-full` (or `flex-1`) on the inbox re-opens the gap.
 
@@ -237,3 +252,5 @@ No migration (`show_change_log` already exists); no `validation-schema-parity` i
 - **Why reuse `#re-stage`, not a new anchor:** `review-queues#re-stage` ("Live-show changes") documents auto-applied crew/field/schedule changes verbatim — the exact content of the strip. A new anchor would duplicate it.
 - **Why the count chip in the header and not just per-group badges:** the request is header parity with "Needs attention," whose header carries a section total. Per-group badges remain; the header chip is the section roll-up.
 - **Screenshot drift:** the `h-full` removed is on the populated branch; the two `/admin` baselines use the 0-pending RPAS fixture → empty-state branch (no `h-full`) → provably unaffected.
+- **Chip + help are dashboard-only (Codex R1 finding 2):** the shared strip also renders on `/admin/needs-attention` (`headingLevel={2}`); gating the new chrome on `headingLevel === 4` keeps a `dashboard`-named affordance on the dashboard, avoids duplicating that page's existing header help, and matches the single desktop matrix row. Not a scope cut — the request was dashboard-header parity.
+- **Seeded fixture is non-undoable (Codex R1 finding 1):** `field_changed` avoids the broken-Undo path a `crew_added` fixture would create (undo RPC keys on `entity_ref`→`crew_members`, which the fixture wouldn't populate). The walker only needs the strip + tooltip visible.
