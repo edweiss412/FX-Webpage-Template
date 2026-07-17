@@ -111,6 +111,7 @@ import {
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
+import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
@@ -589,6 +590,16 @@ export type RunScheduledCronSyncDeps = {
    * DB reads). An empty result is inert — the file-loop gate treats it as "no rescue".
    */
   listRoleVocabDriftEligible?: () => Promise<ReadonlySet<string>>;
+  /**
+   * Hybrid-lifecycle observer (spec 2026-07-16 §3.4). Test injection point for
+   * the per-tick "resolve the open ONBOARDING_SHEET_UNREADABLE alert if healed"
+   * epilogue. Production leaves it undefined and the tick calls the real
+   * `resolveUnreadableAlertIfHealed` — UNLESS a test-injected `listFolder`
+   * suppresses ambient DB reads (mirrors the listLiveShows / driftEligible
+   * guard). An explicitly-injected spy ALWAYS runs (that is how DB/integration
+   * tests drive it).
+   */
+  resolveUnreadableAlertIfHealed?: typeof import("@/lib/adminAlerts/resolveOnboardingSheetUnreadable").resolveUnreadableAlertIfHealed;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -3675,6 +3686,9 @@ export async function runScheduledCronSync(
     | "finish" = "resolve-folder";
   let inFlightDriveFileId: string | null = null;
   let resolvedFolderId: string | null = null;
+  // HOISTED for the hybrid-lifecycle epilogue (spec 2026-07-16 §3.4): the listed
+  // drive_file_id -> Drive modifiedTime map, assigned once the folder is listed.
+  let listedFiles: ReadonlyMap<string, string> = new Map();
   const processed: RunScheduledCronSyncResult["processed"] = []; // HOISTED for throw attribution
 
   // Keep the local lets (read by the S1 syncRunContext attach below) AND the
@@ -3731,6 +3745,7 @@ export async function runScheduledCronSync(
     setPhase("list-folder");
     const files = await listFolder(folderId);
     const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
+    listedFiles = new Map(files.map((file) => [file.driveFileId, file.modifiedTime]));
     setPhase("list-live-shows");
     const liveShows = deps.listLiveShows
       ? await deps.listLiveShows()
@@ -3874,6 +3889,32 @@ export async function runScheduledCronSync(
         });
       }
       setInFlightId(null); // reached only if neither try nor catch re-threw
+    }
+
+    // Hybrid-lifecycle epilogue (spec 2026-07-16 §3.4): resolve the open
+    // ONBOARDING_SHEET_UNREADABLE alert if every previously-failed sheet has
+    // healed. POST-COMMIT, no advisory lock, fail-open (never fail the tick).
+    // The default helper is suppressed when a test-injected `listFolder` is
+    // present (mirrors the listLiveShows / driftEligible ambient-DB guard); an
+    // explicitly-injected observer spy ALWAYS runs. The only durable emit is the
+    // info-level forensic code on a successful resolve (never warn/error).
+    try {
+      const resolveHealed = deps.resolveUnreadableAlertIfHealed
+        ? deps.resolveUnreadableAlertIfHealed
+        : deps.listFolder
+          ? null
+          : resolveUnreadableAlertIfHealed;
+      if (resolveHealed) {
+        const r = await resolveHealed({ activeFolderId: folderId, listedFiles });
+        if (r.kind === "ok" && r.resolved) {
+          await log.info("onboarding unreadable-sheet alert auto-resolved (cron heal)", {
+            source: "cron/sync",
+            code: "ONBOARDING_ALERT_AUTO_RESOLVED",
+          });
+        }
+      }
+    } catch {
+      /* fail-open: never fail the tick */
     }
 
     setPhase("finish");

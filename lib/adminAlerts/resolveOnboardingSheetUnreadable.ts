@@ -83,8 +83,10 @@ export async function resolveUnreadableAlertIfHealed(
   const owns = !sql;
   try {
     // (a) Fetch the open row FIRST — no open row => no further queries (§3.4a).
+    // `last_seen_at::text` preserves Postgres microsecond precision for the CAS
+    // below (a Date round-trip truncates to millisecond and would never match).
     const open = await db<{ id: string; context: Record<string, unknown>; last_seen_at: string }>`
-      select id, context, last_seen_at
+      select id, context, last_seen_at::text as last_seen_at
         from public.admin_alerts
        where code = 'ONBOARDING_SHEET_UNREADABLE'
          and show_id is null
@@ -115,12 +117,18 @@ export async function resolveUnreadableAlertIfHealed(
     }
     if (!shouldResolve) return { kind: "ok", resolved: false };
 
+    // CAS on last_seen_at via TEXT comparison (both sides text): binding the
+    // observed value back as `::timestamptz` truncates to millisecond (the
+    // postgres driver coerces the string to a JS Date first), which would never
+    // match the stored microsecond value. Read + update run on the same
+    // connection/session, so `::text` is stable; an intervening re-emit bumps
+    // last_seen_at and its text form, correctly cancelling the resolve.
     const updated = await db<{ id: string }>`
       update public.admin_alerts
          set resolved_at = now()
        where id = ${row.id}::uuid
          and resolved_at is null
-         and last_seen_at = ${row.last_seen_at}::timestamptz
+         and last_seen_at::text = ${row.last_seen_at}
       returning id`;
     return { kind: "ok", resolved: updated.length > 0 };
   } catch {

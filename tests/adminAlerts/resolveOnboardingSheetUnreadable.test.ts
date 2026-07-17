@@ -21,7 +21,7 @@ function fakeSql(handler: (text: string, values: unknown[]) => Array<Record<stri
 }
 
 const isOpenSelect = (t: string) =>
-  /select\s+id,\s*context,\s*last_seen_at\s+from\s+public\.admin_alerts/i.test(t);
+  /select\s+id,\s*context,\s*last_seen_at[\s\S]*from\s+public\.admin_alerts/i.test(t);
 const isSettings = (t: string) => /pending_wizard_session_id\s+from\s+public\.app_settings/i.test(t);
 const isRegistered = (t: string) => /from\s+public\.shows\s+where\s+drive_file_id/i.test(t);
 const isStaged = (t: string) => /from\s+public\.pending_syncs/i.test(t);
@@ -159,7 +159,7 @@ describe("resolveUnreadableAlertIfHealed", () => {
     expect(stagedCall.text).toMatch(/staged_modified_time\s*=\s*\$\d/i);
     expect(stagedCall.values).toContain("2026-06-11T00:00:00.000Z");
     const updateCall = calls.find((c) => isUpdate(c.text))!;
-    expect(updateCall.text).toMatch(/last_seen_at\s*=\s*\$\d/i);
+    expect(updateCall.text).toMatch(/last_seen_at::text\s*=\s*\$\d/i);
     expect(updateCall.values).toContain("T0");
   });
 
