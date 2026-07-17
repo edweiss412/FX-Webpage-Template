@@ -118,7 +118,7 @@ Read spec §2.1 durable-event paragraph + §7 durable-event test bullet.
 
 - [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/log/emitLeadRoleApplied.test.ts` → PASS. `pnpm tsc --noEmit`.
 
-- [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(log): broaden LEAD_ROLE_APPLIED to capability changes; per-flag capability_changes payload"`
+- [ ] **Step 5: Commit** — `git add lib/log/emitLeadRoleApplied.ts tests/log/emitLeadRoleApplied.test.ts && git commit --no-verify -m "feat(log): broaden LEAD_ROLE_APPLIED to capability changes; per-flag capability_changes payload"`
 
 ---
 
@@ -192,7 +192,7 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
 
 - [ ] **Step 4: Run, verify ALL pass** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts` → PASS (unit writer + DB-path wiring). Run the topology meta-test: `pnpm vitest run tests/sync/_metaLeadRoleAppliedTopology.test.ts` → PASS (unchanged). `pnpm tsc --noEmit`.
 
-- [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(sync): identifiable role change-log rows via shared runPhase2 writer; drop MI-9 arm from writeAutoApplyChanges"`
+- [ ] **Step 5: Commit** — `git add lib/sync/changeLog/writeRoleChangeLogRows.ts lib/sync/phase2.ts lib/sync/changeLog/writeAutoApplyChanges.ts "tests/sync/roleChangeLog.test.ts" "tests/sync/roleChangeLogCoverageParity.test.ts" tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts && git commit --no-verify -m "feat(sync): identifiable role change-log rows via shared runPhase2 writer; drop MI-9 arm from writeAutoApplyChanges"`
 
 ---
 
@@ -205,7 +205,7 @@ Read spec §7 last two bullets before starting.
 
 - [ ] **Step 1: Grep** — `rg -n "ROLE_FLAGS_NOTICE" tests/sync tests/log tests/messages` and inspect each fixture's flags. For every test asserting a PURE scope-tile delta (A1→V1, +BO) emits the notice, flip it to assert no-notice. Verify each flipped fixture holds no `LEAD`/`FINANCIALS` transition (leave capability cases asserting notice).
 - [ ] **Step 2: Run the affected files** → PASS.
-- [ ] **Step 3: Commit** — `git commit --no-verify -m "test(sync): flip scope-tile role-change fixtures to no-notice (capability-only narrowing)"`
+- [ ] **Step 3: Commit** — `git add tests/ && git commit --no-verify -m "test(sync): flip scope-tile role-change fixtures to no-notice (capability-only narrowing)"`
 
 ---
 
@@ -245,7 +245,7 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
     ```
     Manually inspect each hit: ZERO may assert that a scope-tile/department/non-capability change emits `ROLE_FLAGS_NOTICE`. Every §6.8/§6.8.2/§12.4/help dept-swap example must read "change-log row, no bell alert" (a mention of "department" NEAR ROLE_FLAGS_NOTICE is only OK if it explicitly says the dept change gets a change-log row, NOT the alert). (Historical docs 06-drive-sync.md / handoffs / doug-validation-questions.md / html-plans are NOT edited — §4 classifies them historical.)
 
-- [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(admin): reclassify ROLE_FLAGS_NOTICE audience health→doug + capability master-spec reconciliation (§12.4 lockstep)"`
+- [ ] **Step 5: Commit** — `git add lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts tests/messages/_metaAlertAudienceContract.test.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md && git commit --no-verify -m "feat(admin): reclassify ROLE_FLAGS_NOTICE audience health→doug + capability master-spec reconciliation (§12.4 lockstep)"`
 
 ---
 
@@ -256,7 +256,7 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
 
 - [ ] **Step 1** — add two `BACKLOG.md` rows: (a) `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` — the `rowTone` `isHealth → critical` short-circuit (`BellPanel.tsx:129`) still renders OTHER notice-weight health codes red; fix to `DEGRADED_HEALTH_CODES.includes(code) ? "critical" : "notice"` (spec §5, deferred to keep this change non-UI); (b) `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY` — the dashboard staged path applies identity-link renames as remove+add (R33-2); if identity-preservation on that path is ever wanted, thread `identityLinkRenames` (out of scope; capability AUDIT is already complete via arms b/c).
 - [ ] **Step 2: Full suite + gates** — `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` all green. Grep for any removed test-ids / renamed symbols (`rg -rln "roleFlagChangesForNotice" tests lib` → 0). Confirm `tests/sync/_metaLeadRoleAppliedTopology.test.ts`, `tests/messages/_metaAdminAlertCatalog.test.ts`, x1 all green.
-- [ ] **Step 3: Commit** — `git commit --no-verify -m "docs(backlog): file BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT + BL-STAGED-IDENTITYLINK-RENAME-IDENTITY"`
+- [ ] **Step 3: Commit** — `git add BACKLOG.md && git commit --no-verify -m "docs(backlog): file BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT + BL-STAGED-IDENTITYLINK-RENAME-IDENTITY"`
 
 ---
 
