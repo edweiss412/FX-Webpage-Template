@@ -113,7 +113,10 @@ row) → the write matches zero rows, harmless.
 - `syncingCount` (active-show count) unchanged.
 
 ### 5.2 `components/shared/StaleFooter.tsx` (crew footer)
-- Prop `lastSyncedAt` → `lastCheckedAt` (crew "as-of" is now check-based).
+- Prop `lastSyncedAt` → `lastCheckedAt` (crew "as-of" is now check-based). Call
+  site `_CrewShell.tsx:481` updated in lockstep (see §5.3). The prop JSDoc
+  (`:29-37`, the "required `now`" contract) stays; only the timestamp source
+  changes.
 - Both the **displayed relative time** and the **yellow/red tier** derive from
   `lastCheckedAt`. Threshold ladder unchanged: `<10m` subtle, `10m–1h` subtle-dot,
   `1h–6h` yellow (`SYNC_DELAYED_MODERATE`), `>6h` red (`SYNC_DELAYED_SEVERE`).
@@ -125,9 +128,19 @@ row) → the write matches zero rows, harmless.
 - Status-based red branches (`drive_error`, `sheet_unavailable`, `parse_error`
   `:59-61`) unchanged.
 
-### 5.3 `lib/data/getShowForViewer.ts` (crew viewer wiring)
-- Add `last_checked_at` to the projection threaded to the footer at `:846`
-  (`select("*")` at `:376` already returns the column — no select change needed).
+### 5.3 `lib/data/getShowForViewer.ts` + `_CrewShell.tsx` (crew viewer wiring)
+Full plumbing chain for the crew footer (all four hops change together):
+- `getShowForViewer.ts`: add `lastCheckedAt: string | null` to the return type
+  (`:200`, beside `lastSyncedAt`) and project it at `:846`
+  (`(showRowDb.last_checked_at as string | null | undefined) ?? null`).
+  `select("*")` at `:376` already returns the column — no select change.
+  **Keep `lastSyncedAt` in the return** — it still feeds the version token and any
+  content-recency consumer.
+- `app/show/[slug]/[shareToken]/_CrewShell.tsx:481`: pass
+  `lastCheckedAt={data.lastCheckedAt}` to `<StaleFooter>` (replacing the
+  `lastSyncedAt={data.lastSyncedAt}` prop). This is the sole `StaleFooter`
+  call site (crew route + its `admin_preview` mode; there is no slug-only mirror
+  per the M11.5 picker pivot).
 - **Do NOT** touch the version high-water-mark. The token is computed by the
   RPC `public.viewer_version_token(uuid)` using `extract(epoch from last_synced_at)`
   (`supabase/migrations/20260501001000_internal_and_admin.sql:26`) — `last_checked_at`
@@ -137,6 +150,19 @@ row) → the write matches zero rows, harmless.
 ### 5.4 `components/admin/Dashboard.tsx`
 - No change. It sorts active shows by `last_synced_at DESC` (`:178`) — content
   recency, not health. Leave as-is.
+
+### 5.5 `app/admin/show/[slug]/page.tsx` — admin per-show detail footer (LEAVE)
+- The admin per-show detail page renders its OWN `syncFooterLabel` (`:556-560`)
+  from `show.last_synced_at` ("Last synced {rel}" / "<status-label> · Last synced
+  {rel}") — this is NOT `StaleFooter` and NOT a health-tier surface. It is a
+  **factual content-recency label** on a single-show admin view (answers "when did
+  THIS show's content last change"), carries no yellow/red alarm, and reads
+  correctly for an idle-healthy show ("Last synced 3h ago" is true, not a false
+  attention signal). **Leave unchanged** — deliberately keeping `last_synced_at`
+  and the word "synced" here. It is a different question from the connection
+  badge (health) and the crew footer (check-freshness), on a different page; no
+  double-render (crew route and admin-detail route are distinct). Documented to
+  preempt a "you missed this surface" relitigation.
 
 ## 6. Copy — §12.4 catalog (3-file lockstep)
 
@@ -183,8 +209,11 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
 | RPC read (version token) | **unchanged** — stays on `last_synced_at` |
 | Read (admin health) | `driveConnectionHealth` age tiers + `lastReadAt` → `last_checked_at`; drop pending_review>6h clause |
 | Read (crew footer) | `StaleFooter` tier + display → `last_checked_at`; drop pending_review/shrink_held>6h clause; copy synced→checked |
+| Crew wiring | `getShowForViewer` return gains `lastCheckedAt` (:200/:846); `_CrewShell.tsx:481` passes it to `StaleFooter` |
 | Frontend (admin) | `DriveConnectionPanel` — no structural change; copy is data-driven from health result |
+| Frontend (admin per-show detail) | `app/admin/show/[slug]/page.tsx:556` — LEAVE (content-recency label, not health) |
 | Frontend (dashboard) | unchanged |
+| x4 gate | `last_checked_at` per-show = invariant-4-compliant; regen watermark-symbols; run x4 green |
 | Copy §12.4 | `SYNC_DELAYED_MODERATE` crew + both trigger-prose rows (3-file lockstep) |
 | schema-manifest | regen + commit |
 | validation | surgical apply + parity gate |
@@ -208,6 +237,10 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
   `SYNC_DELAYED_SEVERE`; `shrink_held` + fresh check → subtle (dropped clause);
   `drive_error` → red regardless. **Anti-tautology:** derive the expected tier
   from the fixture age, assert against `data-code`/`data-tier`, not container text.
+- **Crew wiring:** `getShowForViewer` projects `lastCheckedAt` from the row (test
+  in `tests/data/getShowForViewer.*`); the version token stays derived from
+  `last_synced_at` (existing version-token contract test must still pass unchanged
+  — proves `last_checked_at` did NOT leak into the token).
 - **Catalog parity:** `x1-catalog-parity` green after the 3-file lockstep edit.
 - **schema parity:** `validation-schema-parity` green after surgical apply +
   manifest regen.
@@ -216,6 +249,14 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
   → no PostgREST-DML-lockdown meta-test. Advisory-lock topology unchanged (no new
   acquisition) → no new `advisoryLockRpcDeadlock` pin required, but the plan
   documents the enumerated holders.
+- **x4-no-global-cursor gate** (`tests/cross-cutting/no-global-cursor.test.ts`,
+  fed by `pnpm gen:watermark-symbols` → `lib/audit/watermark-symbols.generated.ts`):
+  `last_checked_at` is a **per-show** column (invariant 4 — no global cursor),
+  so it is compliant by construction. The generator runs in `pretest`/`prelint`/
+  `pretypecheck` pre-hooks and re-derives symbols from the master spec, not this
+  spec — adding a per-show DB column introduces no `lastPollAt`-style global
+  cursor. Verification step: run `pnpm test:audit:x4-no-global-cursor` green after
+  the migration. No master-spec watermark-symbols edit required.
 
 ## 10. UI quality gate (invariant 8)
 
@@ -238,3 +279,9 @@ the amber/red tiers still render correctly under the re-based thresholds.
   rule intact (invariant 2). Cite `lockedShowTx.ts:57-94`, cron wrapper `:1851`.
 - **`SYNC_DELAYED_SEVERE` copy unchanged** — reads correctly under the new
   meaning; not an oversight.
+- **Admin per-show detail footer (`page.tsx:556`) left on `last_synced_at`** —
+  deliberate (§5.5): it is a factual content-recency label with no alarm, a
+  different question on a different page from the two health surfaces. Not a
+  missed surface.
+- **Version route `app/api/show/[slug]/version/route.ts`** — reads
+  `last_synced_at` for the version token; unchanged by design (mirrors §5.3).
