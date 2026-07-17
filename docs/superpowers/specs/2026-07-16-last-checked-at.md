@@ -277,8 +277,16 @@ shrinks the §12.4 lockstep surface. No other catalog rows change.
   so it is compliant by construction. The generator runs in `pretest`/`prelint`/
   `pretypecheck` pre-hooks and re-derives symbols from the master spec, not this
   spec — adding a per-show DB column introduces no `lastPollAt`-style global
-  cursor. Verification step: run `pnpm test:audit:x4-no-global-cursor` green after
-  the migration. No master-spec watermark-symbols edit required.
+  cursor. **Verified against the audit itself:** `isBannedName` tokenizes
+  `last_checked_at` → `{last, checked, at}`, matching **no** `BANNED_COMBOS` entry
+  (`watermark-symbols.generated.ts:41-53` — every combo needs
+  `watermark`/`cursor`/`poll`/`run`/`processed`, or `sync`+`at`; none present), and
+  `watermarkColumnHeuristic`'s `/last_(seen|sync|poll|processed|run|cursor)/`
+  (`noGlobalCursor.ts:107`) does NOT match "checked". So `last_checked_at` is never
+  flagged — **no** allowlist entry (`DISPLAY_ONLY_TIMESTAMPS` /
+  `OUT_OF_SCOPE_WATERMARK_COLUMNS` / `ALLOWED_TOKEN_NAMES`) and **no** master-spec
+  watermark-symbols edit required. Verification step: run
+  `pnpm test:audit:x4-no-global-cursor` green after the migration.
 
 ## 10. UI quality gate (invariant 8)
 
