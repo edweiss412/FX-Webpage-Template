@@ -111,6 +111,15 @@ describe("buildFieldChangesRow", () => {
     expect(entries[0]).toEqual({ label: "Pull sheet", from: null, to: null, note: "200 cases removed" });
   });
 
+  it("MI-8c with an invalid mode (incl. a prototype key like 'toString') is skipped + counted", () => {
+    const badMode = { id: "m", invariant: "MI-8c", mode: "toString" } as unknown as TriggeredReviewItem;
+    const row = buildFieldChangesRow([mi8b("pending", "received"), badMode])!;
+    const entries = row.afterImage.fieldChanges;
+    // "toString" must NOT be silently dropped (no Pull sheet entry) — it counts as omitted.
+    expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
+    expect(entries[1]!.note).toBe("1 other field change(s) on this sync — details unavailable");
+  });
+
   it("MI-9 → From→To role entry; empty prior → (none); existing-crew LEAD loss", () => {
     const grant = buildFieldChangesRow([mi9("Priya Natarajan", [], ["A1", "LEAD"])])!;
     expect(grant.afterImage.fieldChanges).toEqual([
@@ -226,6 +235,10 @@ const MI8C_MODE_SENTENCES: Record<string, (n: number) => string> = {
   case_dropped: (n) => `${n} case(s) removed`,
 };
 const MI8C_MODE_ORDER = ["collapse", "ambiguous_format", "halved", "case_dropped"] as const;
+// Own-key membership set — NEVER validate a mode with `m in MI8C_MODE_SENTENCES`
+// (that matches prototype keys like "toString", silently dropping a malformed item
+// without counting it → no-silent-omission violation, Codex plan-review R3 F3).
+const VALID_MI8C_MODES: ReadonlySet<string> = new Set(MI8C_MODE_ORDER);
 
 /** Trim-aware, capped. Empty/whitespace/non-string → sentinel. */
 function coerce(x: unknown, sentinel: string): string {
@@ -291,7 +304,7 @@ function build(items: TriggeredReviewItem[]): Built {
   const byMode = new Map<string, number>();
   for (const it of mi8c) {
     const m = it.mode;
-    if (typeof m !== "string" || !(m in MI8C_MODE_SENTENCES)) { omitted++; continue; }
+    if (typeof m !== "string" || !VALID_MI8C_MODES.has(m)) { omitted++; continue; }
     byMode.set(m, (byMode.get(m) ?? 0) + 1);
   }
   for (const mode of MI8C_MODE_ORDER) {
@@ -512,11 +525,12 @@ describe("deriveFieldsDiff (read-side re-validation)", () => {
     expect(r.invalid).toBe(false);
     expect((r.diff as { entries: unknown[] }).entries).toHaveLength(500);
   });
-  it("mixed valid + malformed → valid kept + read-side incompleteness marker", () => {
+  it("mixed valid + malformed → valid kept + read-side marker + invalid (warns)", () => {
     const r = deriveFieldsDiff({ fieldChanges: [entry, { nope: 1 }] } as never);
     const entries = (r.diff as { entries: Array<{ label: string }> }).entries;
     expect(entries[0]!.label).toBe("COI status");
     expect(entries[entries.length - 1]!.label).toBe("Other changes");
+    expect(r.invalid).toBe(true); // a dropped stored entry is corrupt → warn (R3 F1)
   });
   it("a note-entry carrying a non-string from/to does NOT crash — treated as malformed", () => {
     // isValidEntry must reject before boundEntry's capValue touches a number (R1 F2).
@@ -620,8 +634,11 @@ export function deriveFieldsDiff(
     return invalidMarker("This change record could not be displayed — review it in the change log");
   }
   if (kept.length < fc.length) {
+    // A well-formed writer row never has a droppable entry, so a partial drop means
+    // a corrupt/tampered stored payload → warn (invalid: true), not just a marker
+    // (Codex plan-review R3 F1 — otherwise the partial corruption is telemetry-dark).
     kept.push({ label: "Other changes", from: null, to: null, note: "some changes could not be displayed" });
-    return { diff: { kind: "fields", entries: kept }, invalid: false }; // read-side drop marker is not a warn
+    return { diff: { kind: "fields", entries: kept }, invalid: true };
   }
   return { diff: { kind: "fields", entries: kept }, invalid: false };
 }
@@ -695,37 +712,38 @@ git commit --no-verify -m "feat(admin): read-side field-change deriver + corrupt
 
 **Rationale:** the digest reads `scl.summary` only (`lib/notify/monitorDigest.ts:230-232`), so the summary must name the changed field TYPES (incl. `"Role"`) and encode omissions. This is behavior of the writer's summary (Task 1/2) — this task pins it at the digest boundary (no digest code change; guards against a future digest test pinning the old literal).
 
-- [ ] **Step 1: Write the test**
+- [ ] **Step 1: Write the test** — assert through the REAL digest boundary. `groupAutoApplied` (`@/lib/notify/monitorDigest`) is the pure helper the digest uses; it passes each row's `summary` through verbatim into `group.items` (verified `monitorDigest.ts:64` `g.items.push(r.summary)`). Feeding a builder-produced summary through it proves the digest surfaces (and never mangles) the field-type names + omission clause.
 
 ```ts
-it("digest surfaces a role change by name and omits crew names", () => {
-  // Build a field_changed row whose summary is produced by buildFieldChangesRow
-  // for [MI-8b(pending→received), MI-9(Alex A1→A1,LEAD)] and feed it through the
-  // digest's summary path (reuse the file's existing digest fixture builder).
+import { groupAutoApplied } from "@/lib/notify/monitorDigest";
+import { buildFieldChangesRow } from "@/lib/sync/changeLog/fieldChanges";
+import type { TriggeredReviewItem } from "@/lib/parser/types";
+
+const digestRow = (summary: string) => ({ show_id: "s1", slug: "east", title: "East", summary, occurred_at: "t1" });
+
+test("digest surfaces a role change by name, omits crew names (through groupAutoApplied)", () => {
   const summary = buildFieldChangesRow([
     { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
     { id: "b", invariant: "MI-9", crew_name: "Alex", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] },
   ] as TriggeredReviewItem[])!.summary;
-  expect(summary).toContain("Role");
-  expect(summary).toContain("COI status");
-  expect(summary).not.toContain("Alex");
+  const item = groupAutoApplied([digestRow(summary)])[0]!.items[0]!;
+  expect(item).toContain("Role");
+  expect(item).toContain("COI status");
+  expect(item).not.toContain("Alex");
 });
 
-it("digest-boundary: a valid+malformed row's summary carries the omission clause (spec §5)", () => {
-  // The digest reads scl.summary verbatim (monitorDigest.ts:64,230) — so the
-  // summary MUST encode the omission or the email hides a dropped change.
+test("digest surfaces the omission clause for a valid+malformed row (through groupAutoApplied)", () => {
   const summary = buildFieldChangesRow([
     { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
     { id: "b", invariant: "MI-8", field: "bogus" },
   ] as unknown as TriggeredReviewItem[])!.summary;
-  expect(summary).toMatch(/\d+ more field change/);
-  // Feed it through the file's existing digest fixture builder + render, and assert
-  // the rendered digest line for that row contains the same clause (reuse the
-  // suite's existing render helper — the digest passes scl.summary through unchanged).
+  const item = groupAutoApplied([digestRow(summary)])[0]!.items[0]!;
+  expect(item).toMatch(/\d+ more field change/); // omission visible in the emailed digest
+  expect(item).toContain("COI status");
 });
 ```
 
-- [ ] **Step 2: Run** — `pnpm vitest run tests/notify/monitorDigest.autoApplied.test.ts` → Expected: PASS (summary already produced by Task 1).
+- [ ] **Step 2: Run** — `pnpm vitest run tests/notify/monitorDigest.autoApplied.test.ts` → Expected: PASS (summary produced by Task 1, surfaced verbatim by `groupAutoApplied`).
 - [ ] **Step 3: Commit**
 
 ```bash
