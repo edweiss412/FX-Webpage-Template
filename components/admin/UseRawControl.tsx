@@ -408,7 +408,11 @@ export function UseRawControl({
   // Guard states carry no toggle.
   if (state === "legacy-unavailable") {
     return (
-      <p data-testid={tid("use-raw-control")} data-state={state} className="mt-1 text-xs text-text-subtle">
+      <p
+        data-testid={tid("use-raw-control")}
+        data-state={state}
+        className="mt-1 text-xs text-text-subtle"
+      >
         Re-sync this show to enable the &ldquo;use the sheet&rsquo;s raw value&rdquo; option.
       </p>
     );
@@ -419,7 +423,11 @@ export function UseRawControl({
         ? DISABLED_REASON[warning.resolution.reason]
         : "";
     return (
-      <p data-testid={tid("use-raw-control")} data-state={state} className="mt-1 text-xs text-text-subtle">
+      <p
+        data-testid={tid("use-raw-control")}
+        data-state={state}
+        className="mt-1 text-xs text-text-subtle"
+      >
         {reason}
       </p>
     );
@@ -462,7 +470,11 @@ export function UseRawControl({
   };
 
   return (
-    <div data-testid={tid("use-raw-control")} data-state={state} className="mt-1.5 flex flex-col gap-1.5">
+    <div
+      data-testid={tid("use-raw-control")}
+      data-state={state}
+      className="mt-1.5 flex flex-col gap-1.5"
+    >
       <div
         role="radiogroup"
         aria-label={radiogroupLabel}
@@ -508,7 +520,10 @@ export function UseRawControl({
           onArrowKey={() => arrowFrom("raw")}
           buttonRef={rawRowRef}
         >
-          <span data-testid={tid("use-raw-raw")} className="min-w-0 wrap-break-word text-xs text-text">
+          <span
+            data-testid={tid("use-raw-raw")}
+            className="min-w-0 wrap-break-word text-xs text-text"
+          >
             {/* Matched runs get a dotted underline so the split boundaries read
                 as the gaps between runs — text content itself never changes
                 (the label's "exactly" claim stays true). Fail-soft: no anchor

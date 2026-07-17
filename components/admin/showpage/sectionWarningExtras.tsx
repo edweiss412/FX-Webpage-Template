@@ -62,7 +62,12 @@ function SectionWarningItemControls(props: {
         site="showpage"
       />
       {/* spec §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN warnings; self-hides otherwise. */}
-      <RoleRecognizeControlBoundary surface="show" showId={showId} warning={warning} site="showpage" />
+      <RoleRecognizeControlBoundary
+        surface="show"
+        showId={showId}
+        warning={warning}
+        site="showpage"
+      />
     </>
   );
 }

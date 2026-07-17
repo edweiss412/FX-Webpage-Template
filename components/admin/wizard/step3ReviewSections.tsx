@@ -2345,8 +2345,8 @@ export function WarningsBreakdown({
             data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
             className="text-xs text-text-subtle"
           >
-            These warnings don&rsquo;t block publishing. Some include an optional fix you can
-            apply below.
+            These warnings don&rsquo;t block publishing. Some include an optional fix you can apply
+            below.
           </p>
           <ul className="flex flex-col gap-3">
             {warnings.map((w, i) => {

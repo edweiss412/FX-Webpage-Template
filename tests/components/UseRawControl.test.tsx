@@ -829,7 +829,12 @@ describe("UseRawControl — site scoping (spec 2026-07-17 §6.1)", () => {
 
   it("guard-state <p> also carries the suffix — legacy-unavailable AND disabled", () => {
     const legacy = render(
-      <UseRawControl warning={legacyWarning()} decision={undefined} site="callout" onToggle={noop} />,
+      <UseRawControl
+        warning={legacyWarning()}
+        decision={undefined}
+        site="callout"
+        onToggle={noop}
+      />,
     );
     expect(legacy.getByTestId("use-raw-control-callout")).toBeTruthy();
     assertAllTestidsSuffixed(legacy.container, "callout");
@@ -841,7 +846,12 @@ describe("UseRawControl — site scoping (spec 2026-07-17 §6.1)", () => {
       resolution: { resolvable: false, reason: "empty-raw" },
     };
     const dis = render(
-      <UseRawControl warning={disabledWarning} decision={undefined} site="callout" onToggle={noop} />,
+      <UseRawControl
+        warning={disabledWarning}
+        decision={undefined}
+        site="callout"
+        onToggle={noop}
+      />,
     );
     expect(dis.getByTestId("use-raw-control-callout")).toBeTruthy();
     assertAllTestidsSuffixed(dis.container, "callout");

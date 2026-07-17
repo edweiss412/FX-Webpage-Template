@@ -406,7 +406,9 @@ describe("RoleRecognizeControl — site scoping (spec 2026-07-17 §7.1)", () => 
   // every phase the outcome exposes (terminal leaf differs per outcome).
   async function driveAndSweep(outcome: RoleRecognizeSaveOutcome) {
     const onSave = vi.fn().mockResolvedValue(outcome);
-    const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" site="showpage" onSave={onSave} />);
+    const q = render(
+      <RoleRecognizeControl roleToken="SLED DRIVER" site="showpage" onSave={onSave} />,
+    );
     allTestidsSuffixed(q.container, "showpage"); // collapsed
     fireEvent.click(q.getByTestId("role-recognize-trigger-showpage"));
     allTestidsSuffixed(q.container, "showpage"); // panel/idle (none-helper, checks, save, cancel)
