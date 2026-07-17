@@ -96,7 +96,7 @@ Financial field → display name map (new constant, colocated with the writer):
 
 ### 3.4 MI-8c mode sentences
 
-`collapse` → `"lost all rows"`; `ambiguous_format` → `"format became ambiguous"`; `halved` → `"lost more than half its cases"`; `case_dropped` → `"{N} case(s) removed"` (N = count of `case_dropped` items — §3.4a). Rendered as `"Pull sheet {sentence}"` in the note. (Descriptive English, no codes — invariant 5.)
+`collapse` → `"lost all rows"`; `ambiguous_format` → `"format became ambiguous"`; `halved` → `"lost more than half its cases"`; `case_dropped` → **proper-pluralized** `"{N} case removed"` (N=1) / `"{N} cases removed"` (N≠1) (N = count of `case_dropped` items — §3.4a). Rendered as `"Pull sheet {sentence}"` in the note. (Plain-English, no `"case(s)"` machine-plural — impeccable critique P1, Doug's plain voice; no codes — invariant 5.) The omission/all-malformed markers pluralize the same way: `"1 field change"` / `"N field changes"`, `"1 other field change"` / `"N other field changes"`.
 
 ### 3.4a MI-8c aggregation (cardinality bound — Codex R19)
 

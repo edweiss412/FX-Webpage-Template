@@ -129,7 +129,6 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
     // dismiss an applied change Doug never saw). The "Unavailable" / "Other changes"
     // markers render as a distinct warm-yellow warning row (never red; §1 color-blind
     // floor pairs the fill with text).
-    const capF = "text-[11px] font-semibold uppercase tracking-wide text-text-faint";
     return (
       <ul className="mt-1 flex flex-col">
         {d.entries.map((e, i) => {
@@ -153,9 +152,11 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
                 <p className="wrap-break-word mt-1 pl-0.5 text-sm text-text-subtle">{e.note}</p>
               ) : (
                 <div className="mt-1 grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
-                  <span className={capF}>From</span>
-                  <span className="wrap-break-word text-sm text-text-subtle line-through">{e.from}</span>
-                  <span className={capF}>To</span>
+                  <span className={cap}>From</span>
+                  <span className="wrap-break-word text-sm text-text-subtle line-through">
+                    {e.from}
+                  </span>
+                  <span className={cap}>To</span>
                   <span className="wrap-break-word text-sm text-text">{e.to}</span>
                 </div>
               )}

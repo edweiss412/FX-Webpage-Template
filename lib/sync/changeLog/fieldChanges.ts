@@ -24,7 +24,7 @@ const MI8C_MODE_SENTENCES: Record<string, (n: number) => string> = {
   collapse: () => "lost all rows",
   ambiguous_format: () => "format became ambiguous",
   halved: () => "lost more than half its cases",
-  case_dropped: (n) => `${n} case(s) removed`,
+  case_dropped: (n) => `${n} ${n === 1 ? "case" : "cases"} removed`,
 };
 const MI8C_MODE_ORDER = ["collapse", "ambiguous_format", "halved", "case_dropped"] as const;
 // Own-key membership set — NEVER validate a mode with `m in MI8C_MODE_SENTENCES`
@@ -52,7 +52,8 @@ export function joinFlags(flags: string[]): string {
  *  prior_flags/new_flags are each an ARRAY OF STRINGS). A value failing these is
  *  MALFORMED → skip + omittedCount++, never coerced into a fake concrete entry. */
 const isStrOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
-const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+const isStrArr = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
 
 type Built = { entries: FieldChangeEntry[]; omitted: number; types: string[] };
 
@@ -75,7 +76,12 @@ function build(items: TriggeredReviewItem[]): Built {
   for (const field of FINANCIAL_ORDER) {
     for (const f of mi8Fields) {
       if (f !== field) continue;
-      entries.push({ label: FIELD_DISPLAY_NAMES[field]!, from: null, to: null, note: "cleared on this sync" });
+      entries.push({
+        label: FIELD_DISPLAY_NAMES[field]!,
+        from: null,
+        to: null,
+        note: "cleared on this sync",
+      });
       if (!types.includes(FIELD_DISPLAY_NAMES[field]!)) types.push(FIELD_DISPLAY_NAMES[field]!);
     }
   }
@@ -84,10 +90,16 @@ function build(items: TriggeredReviewItem[]): Built {
   for (const it of items) {
     if (it.invariant !== "MI-8b") continue;
     const raw = it as { prior?: unknown; next?: unknown };
-    if (!isStrOrNull(raw.prior) || !isStrOrNull(raw.next)) { omitted++; continue; }
+    if (!isStrOrNull(raw.prior) || !isStrOrNull(raw.next)) {
+      omitted++;
+      continue;
+    }
     const from = coerce(raw.prior, "(none)");
     const to = coerce(raw.next, "(none)");
-    if (from === to) { omitted++; continue; }
+    if (from === to) {
+      omitted++;
+      continue;
+    }
     entries.push({ label: "COI status", from, to, note: null });
     if (!types.includes("COI status")) types.push("COI status");
   }
@@ -96,13 +108,21 @@ function build(items: TriggeredReviewItem[]): Built {
   const byMode = new Map<string, number>();
   for (const it of mi8c) {
     const m = it.mode;
-    if (typeof m !== "string" || !VALID_MI8C_MODES.has(m)) { omitted++; continue; }
+    if (typeof m !== "string" || !VALID_MI8C_MODES.has(m)) {
+      omitted++;
+      continue;
+    }
     byMode.set(m, (byMode.get(m) ?? 0) + 1);
   }
   for (const mode of MI8C_MODE_ORDER) {
     const n = byMode.get(mode);
     if (n == null) continue;
-    entries.push({ label: "Pull sheet", from: null, to: null, note: capValue(MI8C_MODE_SENTENCES[mode]!(n)) });
+    entries.push({
+      label: "Pull sheet",
+      from: null,
+      to: null,
+      note: capValue(MI8C_MODE_SENTENCES[mode]!(n)),
+    });
     if (!types.includes("Pull sheet")) types.push("Pull sheet");
   }
   // MI-9 role (existing-crew items only ever arrive; one per crew). Skip if
@@ -111,8 +131,14 @@ function build(items: TriggeredReviewItem[]): Built {
   for (const it of items) {
     if (it.invariant !== "MI-9") continue;
     const raw = it as { crew_name?: unknown; prior_flags?: unknown; new_flags?: unknown };
-    const name = typeof raw.crew_name === "string" && raw.crew_name.trim() !== "" ? raw.crew_name.trim() : null;
-    if (name === null || !isStrArr(raw.prior_flags) || !isStrArr(raw.new_flags)) { omitted++; continue; }
+    const name =
+      typeof raw.crew_name === "string" && raw.crew_name.trim() !== ""
+        ? raw.crew_name.trim()
+        : null;
+    if (name === null || !isStrArr(raw.prior_flags) || !isStrArr(raw.new_flags)) {
+      omitted++;
+      continue;
+    }
     entries.push({
       label: capValue(`Role — ${name}`),
       from: joinFlags(raw.prior_flags),
@@ -126,10 +152,10 @@ function build(items: TriggeredReviewItem[]): Built {
 
 function summarize(types: string[], overflow: number): string {
   const named = types.slice(0, 3);
-  const more = (types.length - named.length) + overflow;
+  const more = types.length - named.length + overflow;
   const head = named.join(", ");
   return more > 0
-    ? `${head} and ${more} more field change(s) changed on this sync`
+    ? `${head} and ${more} more field ${more === 1 ? "change" : "changes"} changed on this sync`
     : `${head} changed on this sync`;
 }
 
@@ -143,15 +169,20 @@ export function buildFieldChangesRow(
   if (entries.length > 0) {
     if (omitted > 0) {
       entries.push({
-        label: "Other changes", from: null, to: null,
-        note: `${omitted} other field change(s) on this sync — details unavailable`,
+        label: "Other changes",
+        from: null,
+        to: null,
+        note: `${omitted} other field ${omitted === 1 ? "change" : "changes"} on this sync — details unavailable`,
       });
     }
     return { summary: summarize(types, omitted), afterImage: { fieldChanges: entries } };
   }
   // All-malformed → explicit visible Unavailable marker (never null after_image).
-  const note = `${omitted} field change(s) on this sync — details unavailable`;
-  return { summary: note, afterImage: { fieldChanges: [{ label: "Unavailable", from: null, to: null, note }] } };
+  const note = `${omitted} field ${omitted === 1 ? "change" : "changes"} on this sync — details unavailable`;
+  return {
+    summary: note,
+    afterImage: { fieldChanges: [{ label: "Unavailable", from: null, to: null, note }] },
+  };
 }
 
 // ── Reader-side re-validation (spec §5) ──────────────────────────────────────
@@ -172,7 +203,10 @@ function isValidEntry(e: unknown): e is FieldChangeEntry {
   // requires a non-empty note. `{ from:"", to:"" }` is corrupt, not a valid entry.
   const hasNote = typeof o.note === "string" && o.note.trim() !== "";
   const hasFromTo =
-    typeof o.from === "string" && o.from.trim() !== "" && typeof o.to === "string" && o.to.trim() !== "";
+    typeof o.from === "string" &&
+    o.from.trim() !== "" &&
+    typeof o.to === "string" &&
+    o.to.trim() !== "";
   return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
 }
 // Normalize to a canonical single-branch entry: exactly ONE of {note} / {from,to}
@@ -187,15 +221,24 @@ function boundEntry(e: FieldChangeEntry): FieldChangeEntry {
     return { label, from: null, to: null, note: capValue((e.note as string).trim()) };
   }
   // isValidEntry guarantees from & to are non-empty strings when not the note branch.
-  return { label, from: capValue((e.from as string).trim()), to: capValue((e.to as string).trim()), note: null };
+  return {
+    label,
+    from: capValue((e.from as string).trim()),
+    to: capValue((e.to as string).trim()),
+    note: null,
+  };
 }
 function invalidMarker(note: string): { diff: FieldsDiff; invalid: true } {
-  return { diff: { kind: "fields", entries: [{ label: "Unavailable", from: null, to: null, note }] }, invalid: true };
+  return {
+    diff: { kind: "fields", entries: [{ label: "Unavailable", from: null, to: null, note }] },
+    invalid: true,
+  };
 }
 
-export function deriveFieldsDiff(
-  after: Record<string, unknown> | null | undefined,
-): { diff: FieldsDiff; invalid: boolean } {
+export function deriveFieldsDiff(after: Record<string, unknown> | null | undefined): {
+  diff: FieldsDiff;
+  invalid: boolean;
+} {
   const fc = after == null ? undefined : (after as { fieldChanges?: unknown }).fieldChanges;
   if (fc == null) return { diff: { kind: "none" }, invalid: false }; // legacy/generic
   if (!Array.isArray(fc)) {
@@ -203,7 +246,9 @@ export function deriveFieldsDiff(
   }
   if (fc.length === 0) return { diff: { kind: "none" }, invalid: false };
   if (fc.length > READ_FIELDS_ENTRY_CAP) {
-    return invalidMarker(`This change record is too large to display safely (${fc.length} entries) — review it in the change log`);
+    return invalidMarker(
+      `This change record is too large to display safely (${fc.length} entries) — review it in the change log`,
+    );
   }
   const kept = fc.filter(isValidEntry).map(boundEntry);
   if (kept.length === 0) {
@@ -213,7 +258,12 @@ export function deriveFieldsDiff(
     // A well-formed writer row never has a droppable entry, so a partial drop means
     // a corrupt/tampered stored payload → warn (invalid: true), not just a marker
     // (Codex plan-review R3 F1 — otherwise the partial corruption is telemetry-dark).
-    kept.push({ label: "Other changes", from: null, to: null, note: "some changes could not be displayed" });
+    kept.push({
+      label: "Other changes",
+      from: null,
+      to: null,
+      note: "some changes could not be displayed",
+    });
     return { diff: { kind: "fields", entries: kept }, invalid: true };
   }
   return { diff: { kind: "fields", entries: kept }, invalid: false };

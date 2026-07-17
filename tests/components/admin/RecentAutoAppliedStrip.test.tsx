@@ -1173,7 +1173,7 @@ it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () =>
           label: "Unavailable",
           from: null,
           to: null,
-          note: "1 field change(s) on this sync — details unavailable",
+          note: "1 field change on this sync — details unavailable",
         },
       ])}
       actions={noopActions()}
