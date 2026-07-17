@@ -656,7 +656,9 @@ it("FLOW4-7: populated section is a named region via aria-labelledby, with NO ar
 });
 
 it("FLOW4-7: infra_error section is also a named region via aria-labelledby, no aria-label", () => {
-  render(<RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />);
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
   const region = screen.getByRole("region", { name: "Recently auto-applied" });
   expect(region).not.toHaveAttribute("aria-label");
   expect(region).toHaveAttribute("aria-labelledby");

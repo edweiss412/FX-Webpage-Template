@@ -21,7 +21,9 @@ export function NeedsAttentionSummaryCard({
   className?: string;
 }) {
   const autoApplied =
-    typeof autoAppliedCount === "number" && Number.isFinite(autoAppliedCount) && autoAppliedCount > 0
+    typeof autoAppliedCount === "number" &&
+    Number.isFinite(autoAppliedCount) &&
+    autoAppliedCount > 0
       ? autoAppliedCount
       : 0;
   // "All caught up" may not claim the desk is clear while dispositions wait.

@@ -343,7 +343,9 @@ describe("Dashboard composition", () => {
       '[data-testid="needs-attention-summary-card"]',
     ) as HTMLElement;
     // 3 rendered + 2 overflow = 5 total backlog (chip must NOT report the capped 3).
-    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent("5 auto-applied");
+    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent(
+      "5 auto-applied",
+    );
   });
 
   it("summary card: infra_error auto-applied read → no auto-applied chip", async () => {
