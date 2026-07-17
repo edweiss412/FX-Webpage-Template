@@ -64,20 +64,20 @@ export function DataQualityBadge({
         <span
           data-testid="dq-chip-roster"
           aria-hidden="true"
-          className="inline-flex items-center gap-0.5"
+          className="inline-flex items-center gap-0.5 leading-none"
         >
           <Users className="size-3.5" />
-          <span className="text-xs font-medium tabular-nums">{rosterTotal}</span>
+          <span className="text-xs font-medium tabular-nums leading-none">{rosterTotal}</span>
         </span>
       ) : null}
       {hasGap ? (
         <span
           data-testid="dq-chip-gap"
           aria-hidden="true"
-          className="inline-flex items-center gap-0.5"
+          className="inline-flex items-center gap-0.5 leading-none"
         >
           <TriangleAlert className="size-3.5" />
-          <span className="text-xs font-medium tabular-nums">{gapTotal}</span>
+          <span className="text-xs font-medium tabular-nums leading-none">{gapTotal}</span>
         </span>
       ) : null}
     </span>
