@@ -24,6 +24,7 @@
 import { useState } from "react";
 import { ChevronRight, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
+import { CollapsePanel } from "@/components/admin/CollapsePanel";
 
 export function IgnoredSheetsDisclosure({
   count,
@@ -46,7 +47,7 @@ export function IgnoredSheetsDisclosure({
     <section
       data-testid="admin-ignored-sheets"
       aria-label="Ignored sheets"
-      className="flex w-full max-w-4xl flex-col gap-3"
+      className="flex w-full max-w-4xl flex-col"
     >
       <div className="flex min-w-0 items-center gap-2">
         {/* WAI accordion pattern: the heading wraps the interactive button so the
@@ -58,9 +59,9 @@ export function IgnoredSheetsDisclosure({
             type="button"
             data-testid="ignored-sheets-toggle"
             aria-expanded={open}
-            // Only reference the panel when it exists (mounted on expand) — a
-            // dangling aria-controls idref confuses strict screen readers.
-            aria-controls={open ? "ignored-sheets-panel" : undefined}
+            // The panel region is always mounted (CollapsePanel height-morph), so
+            // aria-controls resolves unconditionally.
+            aria-controls="ignored-sheets-panel"
             onClick={() => setOpen((v) => !v)}
             className="group flex min-h-tap-min w-full min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
@@ -94,16 +95,11 @@ export function IgnoredSheetsDisclosure({
         {help}
       </div>
 
-      {open ? (
-        <div
-          id="ignored-sheets-panel"
-          data-testid="ignored-sheets-panel"
-          role="region"
-          aria-label="Ignored sheets list"
-        >
-          {children}
-        </div>
-      ) : null}
+      <CollapsePanel open={open} id="ignored-sheets-panel" label="Ignored sheets list">
+        {/* pt-3 provides open-state separation from the header; overflow-hidden
+            clips it to 0 when closed (no phantom gap — the section drops gap-3). */}
+        <div className="pt-3">{children}</div>
+      </CollapsePanel>
     </section>
   );
 }
