@@ -418,10 +418,7 @@ describe("§11 T8: rescanPending false ↔ true — existing RescanSheetButton l
     const btn = q.getByTestId(`rescan-sheet-button-${DFID}`) as HTMLButtonElement;
     expect(btn.getAttribute("aria-busy")).toBe("false");
     expect(btn.textContent).toBe("Re-scan this sheet");
-    // G3 two-tap guard: first click arms (still not busy), second click fires.
-    fireEvent.click(btn);
-    expect(btn.getAttribute("aria-busy")).toBe("false");
-    expect(btn.textContent).toBe("Confirm re-scan: replaces this staged review");
+    // One-tap (G3 guard withdrawn): a single click fires and flips to pending.
     fireEvent.click(btn);
     await waitFor(() => expect(btn.getAttribute("aria-busy")).toBe("true"));
     expect(btn.textContent).toBe("Re-scanning…");
@@ -712,8 +709,7 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
       ),
     );
     const { q } = renderModal();
-    // G3 two-tap guard: first click arms, second click fires.
-    fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
+    // One tap fires (G3 guard withdrawn).
     fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     const result = q.getByTestId(`rescan-sheet-result-${DFID}`);
@@ -1002,8 +998,7 @@ describe("§H compound (d): unpublish resolves while the rescan overlay result i
         }),
     );
     const { q } = renderModal({ d, checked: true, onRequestSetChecked });
-    // Open the overlay result first (G3 two-tap guard: arm, then fire).
-    fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
+    // Open the overlay result first (one tap fires — G3 guard withdrawn).
     fireEvent.click(q.getByTestId(`rescan-sheet-button-${DFID}`));
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     // Start the unpublish while the overlay is open.

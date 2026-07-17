@@ -609,3 +609,57 @@ it("renders a bounded infra_error message that never leaks the raw code", () => 
   expect(screen.queryByText(/infra_error/)).toBeNull();
   expect(screen.queryByText(/connection refused/)).toBeNull();
 });
+
+// ── Mobile auto-applied parity (Task 1): headingLevel prop + FLOW4-7 ──────────
+
+it("default: section heading is h4, group headings are h5 (dashboard regression pin)", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  expect(
+    screen.getByRole("heading", { level: 4, name: "Recently auto-applied" }),
+  ).toBeInTheDocument();
+  // okData() has two groups → two group headings, all at level 5.
+  const groupHeadings = screen.getAllByRole("heading", { level: 5 });
+  expect(groupHeadings.length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+  expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+});
+
+it("headingLevel=2: section heading is h2, group headings are h3 (no h1->h4 skip on the page)", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} headingLevel={2} />);
+  expect(
+    screen.getByRole("heading", { level: 2, name: "Recently auto-applied" }),
+  ).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { level: 3 }).length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByRole("heading", { level: 4 })).toBeNull();
+  expect(screen.queryByRole("heading", { level: 5 })).toBeNull();
+});
+
+it("headingLevel=2 infra_error branch renders an h2 (not a hardcoded h4)", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={{ kind: "infra_error", message: "x" }}
+      actions={noopActions()}
+      headingLevel={2}
+    />,
+  );
+  expect(
+    screen.getByRole("heading", { level: 2, name: "Recently auto-applied" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 4 })).toBeNull();
+});
+
+it("FLOW4-7: populated section is a named region via aria-labelledby, with NO aria-label", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const region = screen.getByRole("region", { name: "Recently auto-applied" });
+  expect(region).not.toHaveAttribute("aria-label");
+  expect(region).toHaveAttribute("aria-labelledby");
+});
+
+it("FLOW4-7: infra_error section is also a named region via aria-labelledby, no aria-label", () => {
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
+  const region = screen.getByRole("region", { name: "Recently auto-applied" });
+  expect(region).not.toHaveAttribute("aria-label");
+  expect(region).toHaveAttribute("aria-labelledby");
+});
