@@ -621,3 +621,19 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-
 - **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
 - **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
 - **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.
+
+## Mobile auto-applied parity — impeccable dual-gate deferrals (2026-07-16)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/mobile-autoapplied-parity` (spec `docs/superpowers/specs/2026-07-16-mobile-autoapplied-parity.md`). Verdict: critique 33/40 (dual-agent), audit 19/20, deterministic detector `[]`, anti-patterns PASS, zero P0/P1. FIXED in-branch: audit P2 — the strip escaped the inbox's `max-w-3xl` cap on `/admin/needs-attention` (full-width sibling of the page's `flex w-full` div), rendering wider than the inbox cards above it on desktop; now wrapped in a `w-full max-w-3xl` container so the strip and inbox columns align. The entries below are the accepted/deferred P3s.
+
+### MOBILEPARITY-1 — [P3→deferred] Strip section heading renders at body size as a page `<h2>`
+
+- **What:** `RecentAutoAppliedStrip` keeps `text-sm font-semibold text-text-strong` on its section heading at BOTH `headingLevel` values. On `/admin/needs-attention` that heading is a semantic `<h2>` but renders at 14px, visually subordinate to the group cards beneath it.
+- **Why deferred (ratified):** spec §D3 ratifies the visual classes UNCHANGED across mount contexts — the strip looks identical on the dashboard (h4) and the page (h2); only the semantic level differs. A level-tied size would fork the strip's appearance between its two surfaces. Semantically correct (real `<h2>`); the size is a deliberate calm-secondary-section choice.
+- **Trigger:** a DESIGN.md decision to size the strip heading by level. Backlog: `BL-MOBILEPARITY-STRIP-HEADING-SIZE`.
+
+### MOBILEPARITY-2 — [P3→noted] Needs-attention inbox `<section>` carries only `aria-label`, no heading element
+
+- **What:** `page.tsx:70` the primary inbox `<section aria-label="Needs attention">` has no heading, so the page's first `<h2>` belongs to the (secondary) strip. A heading-navigation SR user reaches the strip's h2 before any inbox heading.
+- **Why noted (pre-existing, not diff-introduced):** the inbox's heading IS the page `<h1>` "Needs attention" (the page IS the inbox list); the strip is correctly a secondary `<h2>`. The `aria-label` on the section predates this diff. The diff ADDED the h2 (before it the page had only h1) — added structure, not a regression.
+- **Trigger:** a needs-attention page IA pass, if the inbox section ever needs a distinct in-outline heading. Backlog: none (accepted).
