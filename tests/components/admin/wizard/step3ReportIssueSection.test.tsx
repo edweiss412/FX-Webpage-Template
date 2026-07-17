@@ -31,8 +31,11 @@ import {
   REPORT_PARSE_WARNINGS_CAP,
   ReportIssueSection,
   Step3SectionChromeContext,
-  type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
@@ -53,24 +56,26 @@ function expectedErrorCopy(code: MessageCode): string {
 
 function sectionData(
   rowOverrides: Partial<Step3Row> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult();
   const row = stagedRow(pr, rowOverrides);
   return {
-    pr,
-    row,
-    dfid: DFID,
-    wizardSessionId: WSID,
-    crewMembers: pr.crewMembers,
-    rooms: pr.rooms,
-    hotels: pr.hotelReservations,
-    pullSheet: pr.pullSheet ?? [],
-    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-    ros: pr.runOfShow ?? {},
-    warnings: pr.warnings,
-    agendaBaseline: [],
-    useRawDecisions: [],
+    ...buildStagedSectionData({
+      pr,
+      row,
+      dfid: DFID,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [],
+    }),
     ...dataOverrides,
   };
 }
@@ -102,7 +107,7 @@ function expandReport(q: ReturnType<typeof render>) {
 
 /** Render the section inside the modal chrome provider (the production mount),
  *  expanded (§D T-D2) so the pre-existing form assertions keep their teeth. */
-function renderInChrome(d: SectionData, getActiveSection: () => SectionId) {
+function renderInChrome(d: StagedSectionData, getActiveSection: () => SectionId) {
   const q = render(
     <Step3SectionChromeContext.Provider
       value={{

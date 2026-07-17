@@ -23,7 +23,10 @@ import {
   Step3ReviewModal,
   type Step3ReviewResolution,
 } from "@/components/admin/wizard/Step3ReviewModal";
-import { type SectionData } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const DFID = "drive-abc-123";
@@ -34,11 +37,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function sectionData(): SectionData {
+function sectionData(): StagedSectionData {
   const pr = buildParseResult({});
-  return {
+  const row = stagedRow(pr);
+  return buildStagedSectionData({
     pr,
-    row: stagedRow(pr),
+    row,
     dfid: DFID,
     wizardSessionId: WSID,
     crewMembers: pr.crewMembers,
@@ -50,7 +54,7 @@ function sectionData(): SectionData {
     warnings: pr.warnings,
     agendaBaseline: [],
     useRawDecisions: [],
-  };
+  });
 }
 
 const mi13Item = {

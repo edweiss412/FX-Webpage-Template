@@ -68,9 +68,12 @@ import type {
   ClientContact,
   ContactRow,
   CrewMemberRow,
+  EmbeddedImageStub,
   HotelReservationRow,
   ParseResult,
   ParseWarning,
+  PersistedDiagrams,
+  PersistedEmbeddedImage,
   PullSheetCase,
   PullSheetItem,
   RoomRow,
@@ -78,8 +81,16 @@ import type {
   ShowRow,
   TransportationRow,
 } from "@/lib/parser/types";
+import {
+  diagramAssetKeyFromPath,
+  isAllowedDiagramMime,
+  resolveCurrentDiagrams,
+} from "@/lib/data/diagrams";
 import { useRouter } from "next/navigation";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import Link from "next/link";
+import { isPublished, isStaged } from "@/components/admin/review/sectionData";
+import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
+import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
@@ -833,7 +844,7 @@ export function ContactsBreakdown({
   clientContact,
   contacts,
 }: {
-  dfid: string;
+  dfid: string | null;
   clientContact: ClientContact | null;
   contacts: ContactRow[];
 }) {
@@ -908,7 +919,7 @@ export function ContactsBreakdown({
   );
 }
 
-export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: ShowRow["venue"] }) {
   const rows = venue
     ? contentRows([
         ["Venue", venue.name],
@@ -996,7 +1007,7 @@ export function TransportBreakdown({
   dfid,
   transportation,
 }: {
-  dfid: string;
+  dfid: string | null;
   transportation: TransportationRow | null;
 }) {
   const t = transportation;
@@ -1206,13 +1217,19 @@ function TransportBody({
   );
 }
 
-export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
+export function OpsBreakdown({
+  dfid,
+  billing,
+}: {
+  dfid: string | null;
+  billing: SectionData["billing"];
+}) {
   const rows = contentRows([
-    ["COI", show.coi_status],
-    ["Proposal", show.proposal],
-    ["PO#", show.po],
-    ["Invoice", show.invoice],
-    ["Invoice notes", show.invoice_notes],
+    ["COI", billing.coiStatus],
+    ["Proposal", billing.proposal],
+    ["PO#", billing.po],
+    ["Invoice", billing.invoice],
+    ["Invoice notes", billing.invoiceNotes],
   ]);
   return (
     <BreakdownSection
@@ -1229,7 +1246,18 @@ export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   );
 }
 
-export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
+export function CrewBreakdown({
+  dfid,
+  members,
+  previewAs,
+}: {
+  dfid: string | null;
+  members: CrewMemberRow[];
+  /** §5.5 (published mode): the crew-scoped Preview-As affordance. `enabled` folds the
+   *  published && !archived gate; `crewIds` is index-aligned with `members` (adapter's single
+   *  crew sort). Absent in staged mode → no link, byte-identical to the pre-Phase-2 modal. */
+  previewAs?: { slug: string; enabled: boolean; crewIds: readonly string[] };
+}) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   return (
@@ -1246,6 +1274,9 @@ export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMe
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
+            // §5.5: crew-scoped Preview-As link, only when published && !archived AND this row
+            // has a persisted crew id (index-aligned with `members`).
+            const previewCrewId = previewAs?.enabled ? (previewAs.crewIds[i] ?? "") : "";
             return (
               <Fragment key={`${m.name}-${i}`}>
                 <li className="flex items-center gap-3 py-1">
@@ -1289,6 +1320,15 @@ export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMe
                       </a>
                     ) : null}
                   </span>
+                  {previewCrewId ? (
+                    <Link
+                      data-testid={`admin-show-preview-as-link-${previewCrewId}`}
+                      href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
+                      className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                    >
+                      Preview as<span className="sr-only"> {name}</span>
+                    </Link>
+                  ) : null}
                 </li>
               </Fragment>
             );
@@ -1327,7 +1367,7 @@ export function ScheduleDayRow({
   phase = null,
   label = null,
 }: {
-  dfid: string;
+  dfid: string | null;
   iso: string;
   entries: AgendaEntry[];
   showStart?: string | null;
@@ -1454,7 +1494,7 @@ export function ScheduleBreakdown({
   ros,
   dates = EMPTY_DATES,
 }: {
-  dfid: string;
+  dfid: string | null;
   ros: RunOfShow;
   dates?: ShowRow["dates"];
 }) {
@@ -1524,7 +1564,7 @@ export function ScheduleBreakdown({
   );
 }
 
-export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
+export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: RoomRow[] }) {
   const shown = rooms.slice(0, ROOMS_CAP);
   const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
   // Count only rooms that actually carry A/V scope — a no-A/V placeholder room
@@ -1708,8 +1748,8 @@ export function EventDetailsBreakdown({
   dfid,
   eventDetails,
 }: {
-  dfid: string;
-  eventDetails: Record<string, string> | undefined;
+  dfid: string | null;
+  eventDetails: Record<string, string> | null | undefined;
 }) {
   const ed = eventDetails ?? {};
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
@@ -1889,18 +1929,23 @@ export function PackListBreakdown({
   archivedPullSheetTabs,
   overrideActive,
 }: {
-  dfid: string;
-  wizardSessionId: string;
+  dfid: string | null;
+  // Staged-only: the archived-tab accept/skip affordance posts against the wizard
+  // session. Absent (published) → the plain pull sheet renders with no affordance.
+  // Presence is the control-gate, NOT archivedPullSheetTabs emptiness (spec §3.2).
+  wizardSessionId?: string;
   cases: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
   overrideActive: boolean;
 }) {
+  const staged = wizardSessionId != null;
   // §5.6 state machine. The included tab (override applied) carries the revoke
   // note (S3); every non-included archived tab is an offer/re-confirm card (S2/S4,
   // §6 renders all, no cap). When an override is active we suppress the offers —
-  // only one override at a time (the RPC enforces it).
-  const includedTab = archivedPullSheetTabs.find((t) => t.included) ?? null;
-  const offers = overrideActive ? [] : archivedPullSheetTabs.filter((t) => !t.included);
+  // only one override at a time (the RPC enforces it). The affordance is staged-
+  // only, so both derivations gate on `staged`.
+  const includedTab = staged ? (archivedPullSheetTabs.find((t) => t.included) ?? null) : null;
+  const offers = staged && !overrideActive ? archivedPullSheetTabs.filter((t) => !t.included) : [];
   const hasCases = cases.length > 0;
   // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
   // override (S3) suppresses the empty state.
@@ -1926,22 +1971,24 @@ export function PackListBreakdown({
       >
         {isEmpty ? <p className="text-sm text-text-subtle">No pack list parsed.</p> : null}
         {hasCases ? <PackListCases dfid={dfid} cases={cases} /> : null}
-        {overrideActive && includedTab ? (
+        {overrideActive && includedTab && wizardSessionId != null ? (
           <ArchivedTabIncludedNote
             dfid={dfid}
             wizardSessionId={wizardSessionId}
             tab={includedTab}
           />
         ) : null}
-        {offers.map((tab, i) => (
-          <ArchivedTabOffer
-            key={`${tab.tabName}-${i}`}
-            dfid={dfid}
-            wizardSessionId={wizardSessionId}
-            tab={tab}
-            onDismissFocus={focusSection}
-          />
-        ))}
+        {wizardSessionId != null
+          ? offers.map((tab, i) => (
+              <ArchivedTabOffer
+                key={`${tab.tabName}-${i}`}
+                dfid={dfid}
+                wizardSessionId={wizardSessionId}
+                tab={tab}
+                onDismissFocus={focusSection}
+              />
+            ))
+          : null}
       </div>
     </BreakdownSection>
   );
@@ -1982,7 +2029,7 @@ function PackCaseItems({ items }: { items: PullSheetItem[] }) {
 /** The parsed PULL-tab case list — the disclosure body shared by the normal
  *  pack list and the S3/S4-mixed states (current gear renders even when an
  *  archived-tab offer or included note is also present). */
-function PackListCases({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+function PackListCases({ dfid, cases }: { dfid: string | null; cases: PullSheetCase[] }) {
   const shown = cases.slice(0, PACK_LIST_CASES_CAP);
   const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
   return (
@@ -2075,7 +2122,7 @@ function ArchivedTabOffer({
   tab,
   onDismissFocus,
 }: {
-  dfid: string;
+  dfid: string | null;
   wizardSessionId: string;
   tab: ArchivedPullSheetTab;
   /** Focus a persistent sibling before this card unmounts on dismiss (WCAG 2.4.3). */
@@ -2179,7 +2226,7 @@ function ArchivedTabIncludedNote({
   wizardSessionId,
   tab,
 }: {
-  dfid: string;
+  dfid: string | null;
   wizardSessionId: string;
   tab: ArchivedPullSheetTab;
 }) {
@@ -2231,7 +2278,13 @@ function ArchivedTabIncludedNote({
   );
 }
 
-export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
+export function HotelsBreakdown({
+  dfid,
+  hotels,
+}: {
+  dfid: string | null;
+  hotels: HotelReservationRow[];
+}) {
   const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
@@ -2397,7 +2450,10 @@ export function WarningsBreakdown({
   useRawDecisions,
   wizardSessionId,
 }: {
-  dfid: string;
+  // dfid stays nullable (this branch's SectionCore refactor: published/missing-show
+  // sources carry a null driveFileId). Per-warning controls below additionally gate
+  // on a non-null dfid, so the null case renders the list without controls.
+  dfid: string | null;
   warnings: ParseWarning[];
   /** spec 2026-07-16 §4.1: staged decisions + session so every in-scope row can
    *  render the use-raw / recognize-role controls (live-page parity). Optional/
@@ -2514,7 +2570,7 @@ export function WarningsBreakdown({
                         use-raw + recognize-role controls (live-page parity; the §E3
                         callout stays a capped, actionable preview). Both boundaries
                         self-hide out-of-scope warnings. */}
-                    {wizardSessionId ? (
+                    {wizardSessionId && dfid ? (
                       <UseRawControlBoundary
                         surface="wizard"
                         wizardSessionId={wizardSessionId}
@@ -2523,7 +2579,7 @@ export function WarningsBreakdown({
                         decision={findUseRawDecision(w, useRawDecisions)}
                       />
                     ) : null}
-                    {wizardSessionId ? (
+                    {wizardSessionId && dfid ? (
                       <RoleRecognizeControlBoundary
                         surface="wizard"
                         wizardSessionId={wizardSessionId}
@@ -2964,6 +3020,49 @@ export function AgendaBreakdown({
 }
 
 /**
+ * Published-mode agenda body (spec §3.5). A STATIC render of the server-built
+ * `agendaBaseline` — the persisted `agenda_links` extraction, already validated
+ * and fresh-by-construction at finalize (adapter `buildAgendaBaseline`). Reuses
+ * the same presentational `AgendaItemRow` the staged `AgendaBreakdown` renders
+ * in its `ready` state (extraction blocks + published `/api/asset/agenda/...`
+ * PDF anchors), so there is exactly one row-rendering surface. Unlike the staged
+ * `AgendaBreakdown`, this performs NO extract POST, NO polling, and has NO
+ * wizard-session dependency — every item is pinned `ready`.
+ */
+export function PublishedAgendaList({ items }: { items: AdminAgendaItem[] }) {
+  // Modal/page chrome parity with AgendaBreakdown: inside a section chrome the
+  // §6.4 heading row replaces the card-context "Agenda" eyebrow (no double label).
+  const chrome = useContext(Step3SectionChromeContext);
+  if (items.length === 0) return null;
+  const body = (
+    <ul className="flex flex-col gap-3">
+      {items.map((item, i) => (
+        <AgendaItemRow key={`${item.label}-${i}`} item={item} state="ready" index={i} />
+      ))}
+    </ul>
+  );
+  if (chrome) {
+    return (
+      <section data-testid="published-agenda" className="flex min-w-0 flex-col">
+        <ModalSectionChrome chrome={chrome} count={null}>
+          {body}
+        </ModalSectionChrome>
+      </section>
+    );
+  }
+  return (
+    <section data-testid="published-agenda" className="flex flex-col gap-2">
+      {/* Non-heading eyebrow: the reused AgendaScheduleBlock emits its own <h3>
+          day labels, so a real <h4> here would invert the heading order. */}
+      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        Agenda
+      </p>
+      {body}
+    </section>
+  );
+}
+
+/**
  * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
  * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
  * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish
@@ -2995,24 +3094,10 @@ export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: st
  * (Task 4+) renders: rail items, chip rail, content-pane sections.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** Everything a section body needs, assembled once by the caller. */
-export type SectionData = {
-  pr: ParseResult;
-  row: Step3Row;
-  dfid: string;
-  wizardSessionId: string;
-  crewMembers: CrewMemberRow[];
-  rooms: RoomRow[];
-  hotels: HotelReservationRow[];
-  pullSheet: PullSheetCase[];
-  archivedPullSheetTabs: ArchivedPullSheetTab[];
-  ros: RunOfShow;
-  warnings: ParseWarning[];
-  agendaBaseline: AdminAgendaItem[];
-  // spec §8/§9a: the staged use-raw decisions (matched by code + resolution.contentHash)
-  // that drive the judgment callout's per-warning use-raw toggle.
-  useRawDecisions: UseRawDecision[];
-};
+// Everything a section body needs is now the mode-agnostic `SectionData` union
+// (SectionCore + staged/published discriminant) defined in
+// @/components/admin/review/sectionData and re-exported at the top of this file.
+// Panels render from SectionCore fields; staged-only reads sit behind isStaged().
 
 export type Step3SectionDef = {
   id: SectionId;
@@ -3110,11 +3195,28 @@ export function DiagramsBreakdown({
   dfid,
   wizardSessionId,
   diagrams,
+  buildSrc,
+  previewSourceFor,
 }: {
-  dfid: string;
-  wizardSessionId: string;
-  diagrams: ParseResult["diagrams"] | null | undefined;
+  dfid: string | null;
+  // Staged-only: the default src builder + preview gate below use it. Absent in
+  // published mode, which supplies `buildSrc`/`previewSourceFor` instead.
+  wizardSessionId?: string;
+  diagrams: ParseResult["diagrams"] | PersistedDiagrams | null | undefined;
+  // Mode-derived tile source (spec §3.5). Absent → the staged default: the
+  // wizard-session staged-diagram preview route. Published passes the
+  // `/api/asset/diagram/...` asset-route builder (crew Gallery pattern).
+  buildSrc?: (stub: EmbeddedImageStub) => string;
+  // Mode-derived servability gate. Absent → `hasStagedPreviewSource` (trusted
+  // legacy contentUrl OR fingerprint-addressable media). Published passes the
+  // persisted-snapshot gate (non-null snapshotPath + allowed MIME).
+  previewSourceFor?: (stub: EmbeddedImageStub) => boolean;
 }) {
+  const resolveSrc =
+    buildSrc ??
+    ((stub: EmbeddedImageStub) =>
+      `/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`);
+  const resolvePreviewSource = previewSourceFor ?? hasStagedPreviewSource;
   const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
   const folderItems = arr(diagrams?.linkedFolderItems);
   const folderHref = diagrams?.linkedFolder
@@ -3145,15 +3247,16 @@ export function DiagramsBreakdown({
             <DiagramTile
               key={`${stub.objectId}-${i}`}
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
-              src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
+              src={resolveSrc(stub)}
               // `?? ` only catches null/undefined — a persisted `alt: ""`
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.
               alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
               // Shared servability predicate (spec §A4): the tile and the
-              // preview route can never disagree on what's fetchable —
-              // trusted legacy contentUrl OR fingerprint-addressable media.
-              hasPreviewSource={hasStagedPreviewSource(stub)}
+              // serving route can never disagree on what's fetchable. Staged →
+              // trusted legacy contentUrl OR fingerprint-addressable media;
+              // published → non-null snapshotPath + allowed MIME.
+              hasPreviewSource={resolvePreviewSource(stub)}
             />
           ))}
         </div>
@@ -3182,6 +3285,52 @@ export function DiagramsBreakdown({
         </p>
       ) : null}
     </BreakdownSection>
+  );
+}
+
+/**
+ * Published-mode diagrams sub-block (spec §3.5). Resolves the persisted
+ * `shows.diagrams` `{ current }` wrapper to its live `PersistedDiagrams`
+ * (`resolveCurrentDiagrams` — the same gate the crew gallery and asset route
+ * use), gates on the shared diagram signal, and renders the shared
+ * `DiagramsBreakdown` with `/api/asset/diagram/<show>/<rev>/<key>` image srcs
+ * (crew Gallery pattern, components/diagrams/Gallery.tsx). NO wizard session,
+ * NO staged-diagram route → zero `/api/admin/onboarding/*` traffic. Owns its
+ * own §6.4 "Diagrams" sub-heading chrome so it reads as part of Rooms & scope.
+ */
+export function PublishedDiagramsBreakdown({
+  showId,
+  driveFileId,
+  diagrams,
+}: {
+  showId: string;
+  driveFileId: string | null;
+  diagrams: unknown;
+}) {
+  const persisted = resolveCurrentDiagrams(diagrams);
+  if (!hasDiagramSignal(persisted)) return null;
+  // `snapshot_revision_id` is required on PersistedDiagrams; "" only if a
+  // malformed persisted row slipped the resolver gate — the asset route 410s it.
+  const rev = persisted?.snapshot_revision_id ?? "";
+  return (
+    <Step3SectionChromeContext.Provider
+      value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+    >
+      <DiagramsBreakdown
+        dfid={driveFileId}
+        diagrams={persisted}
+        buildSrc={(stub) =>
+          `/api/asset/diagram/${showId}/${rev}/${diagramAssetKeyFromPath(
+            (stub as PersistedEmbeddedImage).snapshotPath,
+            stub.objectId,
+          )}`
+        }
+        previewSourceFor={(stub) =>
+          (stub as PersistedEmbeddedImage).snapshotPath !== null &&
+          isAllowedDiagramMime(stub.mimeType)
+        }
+      />
+    </Step3SectionChromeContext.Provider>
   );
 }
 
@@ -3288,7 +3437,10 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
         className="flex min-h-tap-min items-center justify-between gap-2 text-left text-sm font-semibold text-text-strong"
       >
         <span>{`Content we couldn't read (${view.total})`}</span>
-        <span aria-hidden>{expanded ? "−" : "+"}</span>
+        <ChevronRight
+          aria-hidden
+          className={`size-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
       </button>
       <p className="text-xs text-text-subtle">
         These rows were in your sheet but didn&rsquo;t match anything we know how to read. They
@@ -3322,7 +3474,7 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
   );
 }
 
-export function ReportIssueSection({ data }: { data: SectionData }) {
+export function ReportIssueSection({ data }: { data: StagedSectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
   const [draft, setDraft] = useState("");
@@ -3481,7 +3633,9 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
  * sub-block agree. Diagrams are no longer their own section; this gates the
  * sub-block rendered BELOW the rooms inside the Rooms & scope section.
  */
-export function hasDiagramSignal(diagrams: ParseResult["diagrams"] | null | undefined): boolean {
+export function hasDiagramSignal(
+  diagrams: ParseResult["diagrams"] | PersistedDiagrams | null | undefined,
+): boolean {
   const count = arr(diagrams?.embeddedImages).length + arr(diagrams?.linkedFolderItems).length;
   return diagrams != null && (diagrams.linkedFolder != null || count > 0);
 }
@@ -3492,7 +3646,9 @@ export function hasDiagramSignal(diagrams: ParseResult["diagrams"] | null | unde
  * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
  * section (rendered below the rooms), so they are NOT a separate registry def.
  * Every other section always renders (empty states preserved); `warnings`
- * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
+ * always renders (§3.10); `report` is STAGED-ONLY and ALWAYS last (§D2) — its
+ * published render is null, so it is gated by `includesReport` to keep the
+ * published consolidated page from surfacing a blank "Report an issue" rail entry.
  */
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
@@ -3502,7 +3658,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: MapPin,
       railCount: null,
-      render: (s) => <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />,
+      render: (s) => <VenueBreakdown dfid={s.driveFileId} venue={s.venue} />,
     },
     {
       id: "event",
@@ -3510,7 +3666,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: Sparkles,
       railCount: null,
-      render: (s) => <EventDetailsBreakdown dfid={s.dfid} eventDetails={s.pr.show.event_details} />,
+      render: (s) => <EventDetailsBreakdown dfid={s.driveFileId} eventDetails={s.eventDetails} />,
     },
     {
       id: "crew",
@@ -3518,7 +3674,22 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      render: (s) => <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />,
+      // Mode fork (spec §5.5): published rows gain the crew-scoped Preview-As link (gated on
+      // published && !archived); staged renders byte-identically (no previewAs prop).
+      render: (s) =>
+        isPublished(s) ? (
+          <CrewBreakdown
+            dfid={s.driveFileId}
+            members={s.crewMembers}
+            previewAs={{
+              slug: s.slug,
+              enabled: s.published && !s.archived,
+              crewIds: (s.previewRoster ?? []).map((r) => r.id),
+            }}
+          />
+        ) : (
+          <CrewBreakdown dfid={s.driveFileId} members={s.crewMembers} />
+        ),
     },
     {
       id: "contacts",
@@ -3527,12 +3698,12 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Phone,
       // Contact-BLOCK count, exactly as the body renders it today
       // (count={blocks.length}) — shared shaping via contactBlocks.
-      railCount: (s) => contactBlocks(s.pr.show.client_contact, arr(s.pr.contacts)).length,
+      railCount: (s) => contactBlocks(s.clientContact, s.contacts).length,
       render: (s) => (
         <ContactsBreakdown
-          dfid={s.dfid}
-          clientContact={s.pr.show.client_contact}
-          contacts={arr(s.pr.contacts)}
+          dfid={s.driveFileId}
+          clientContact={s.clientContact}
+          contacts={s.contacts}
         />
       ),
     },
@@ -3544,24 +3715,31 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />,
+      render: (s) => (
+        <ScheduleBreakdown dfid={s.driveFileId} ros={s.ros} dates={s.dates ?? EMPTY_DATES} />
+      ),
     },
   ];
-  if (d.agendaBaseline.length > 0) {
+  if (includesAgenda(d)) {
     defs.push({
       id: "agenda",
       label: "Agenda",
       group: "Schedule",
       Icon: FileText,
       railCount: null,
-      render: (s) => (
-        <AgendaBreakdown
-          driveFileId={s.dfid}
-          wizardSessionId={s.wizardSessionId}
-          baseline={s.agendaBaseline}
-          stateKey={s.row.agendaStateKey ?? s.dfid}
-        />
-      ),
+      // Mode fork (spec §3.5): staged AgendaBreakdown POSTs the wizard session +
+      // polls; published renders the static baseline (no fetch, no wizard session).
+      render: (s) =>
+        isStaged(s) ? (
+          <AgendaBreakdown
+            driveFileId={s.dfid}
+            wizardSessionId={s.wizardSessionId}
+            baseline={s.agendaBaseline}
+            stateKey={s.row.agendaStateKey ?? s.dfid}
+          />
+        ) : (
+          <PublishedAgendaList items={s.agendaBaseline} />
+        ),
     });
   }
   defs.push(
@@ -3572,7 +3750,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: BedDouble,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
+      render: (s) => <HotelsBreakdown dfid={s.driveFileId} hotels={s.hotels} />,
     },
     {
       id: "transport",
@@ -3580,7 +3758,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Logistics",
       Icon: Truck,
       railCount: null,
-      render: (s) => <TransportBreakdown dfid={s.dfid} transportation={s.pr.transportation} />,
+      render: (s) => <TransportBreakdown dfid={s.driveFileId} transportation={s.transportation} />,
     },
     {
       id: "rooms",
@@ -3600,20 +3778,32 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // never inheriting the outer "Rooms & scope" chrome.
       render: (s) => (
         <div className="flex min-w-0 flex-col gap-4">
-          <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />
-          {hasDiagramSignal(s.pr.diagrams) ? (
-            // headingLevel 4 → subordinate "Diagrams" sub-heading (h4, smaller)
-            // so it reads as part of Rooms & scope, not a co-equal section.
-            <Step3SectionChromeContext.Provider
-              value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
-            >
-              <DiagramsBreakdown
-                dfid={s.dfid}
-                wizardSessionId={s.wizardSessionId}
-                diagrams={s.pr.diagrams}
-              />
-            </Step3SectionChromeContext.Provider>
-          ) : null}
+          <RoomsBreakdown dfid={s.driveFileId} rooms={s.rooms} />
+          {/* Diagrams sub-block mode fork (spec §3.5). Staged renders staged
+              preview URLs via the wizard session; published resolves the
+              persisted snapshot and renders asset-route srcs (zero onboarding
+              traffic). Both wrap the sub-block in its OWN chrome provider so it
+              keeps the subordinate "Diagrams" heading (headingLevel 4), never
+              inheriting the outer "Rooms & scope" chrome. */}
+          {isStaged(s) ? (
+            hasDiagramSignal(s.diagrams) ? (
+              <Step3SectionChromeContext.Provider
+                value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+              >
+                <DiagramsBreakdown
+                  dfid={s.dfid}
+                  wizardSessionId={s.wizardSessionId}
+                  diagrams={s.diagrams}
+                />
+              </Step3SectionChromeContext.Provider>
+            ) : null
+          ) : (
+            <PublishedDiagramsBreakdown
+              showId={s.showId}
+              driveFileId={s.driveFileId}
+              diagrams={s.diagrams}
+            />
+          )}
         </div>
       ),
     },
@@ -3626,13 +3816,17 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Package,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
+      // The pull sheet itself is source-agnostic; only the archived-tab accept/skip
+      // affordance is staged (it needs the wizard session). wizardSessionId is
+      // passed ONLY when staged — its presence is the control-gate inside the
+      // component, not archivedPullSheetTabs emptiness (spec §3.2).
       render: (s) => (
         <PackListBreakdown
-          dfid={s.dfid}
-          wizardSessionId={s.wizardSessionId}
+          dfid={s.driveFileId}
           cases={s.pullSheet}
           archivedPullSheetTabs={s.archivedPullSheetTabs}
           overrideActive={s.archivedPullSheetTabs.some((t) => t.included)}
+          {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
         />
       ),
     },
@@ -3642,7 +3836,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Money",
       Icon: Receipt,
       railCount: null,
-      render: (s) => <OpsBreakdown dfid={s.dfid} show={s.pr.show} />,
+      render: (s) => <OpsBreakdown dfid={s.driveFileId} billing={s.billing} />,
     },
     {
       id: "warnings",
@@ -3653,24 +3847,35 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       railCount: (s) => s.warnings.length,
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).
+      // driveFileId is the mode-agnostic SectionCore locator (nullable); the
+      // wizard session is staged-only, so it threads through only for staged
+      // sources (published sources render the list without the mutate controls).
       render: (s) => (
         <WarningsBreakdown
-          dfid={s.dfid}
+          dfid={s.driveFileId}
           warnings={s.warnings}
           useRawDecisions={s.useRawDecisions}
-          wizardSessionId={s.wizardSessionId}
+          {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
         />
       ),
     },
-    {
+  );
+  // `report` is STAGED-ONLY (spec §D2 + Task-2 gate): its render returns null in
+  // published mode, and `ShowReviewSurface` would still emit a rail item + chip +
+  // blank content section for it on the published consolidated per-show page. It
+  // stays ALWAYS last, gated by the single-source-of-truth `includesReport` so the
+  // lockstep with `renderedSectionIds` holds in both modes.
+  if (includesReport(d)) {
+    defs.push({
       id: "report",
       label: "Report an issue",
       group: "Checks",
       Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
       railCount: null,
       hideDot: true, // spec §D2 — the only section without a status dot
-      render: (s) => <ReportIssueSection data={s} />,
-    },
-  );
+      // Staged-only: the report form posts the staged session + row.
+      render: (s) => (isStaged(s) ? <ReportIssueSection data={s} /> : null),
+    });
+  }
   return defs;
 }

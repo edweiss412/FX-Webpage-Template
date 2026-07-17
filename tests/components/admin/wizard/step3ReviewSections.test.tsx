@@ -54,9 +54,12 @@ import {
   roomHasScope,
   step3Sections,
   STEP3_SECTION_GROUPS,
-  type SectionData,
   type Step3SectionDef,
 } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
@@ -134,24 +137,29 @@ function warning(overrides: Partial<ParseWarning> = {}): ParseWarning {
 /** Assemble the registry's SectionData from the shared fixture builders. */
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
-  const row = stagedRow(pr);
+  // Row/dfid may be overridden via dataOverrides; derive the row/dfid-dependent
+  // SectionCore fields from the FINAL values so an overridden row propagates.
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? DFID;
   return {
-    pr,
-    row,
-    dfid: DFID,
-    wizardSessionId: WSID,
-    crewMembers: pr.crewMembers,
-    rooms: pr.rooms,
-    hotels: pr.hotelReservations,
-    pullSheet: pr.pullSheet ?? [],
-    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-    ros: pr.runOfShow ?? {},
-    warnings: pr.warnings,
-    agendaBaseline: [],
-    useRawDecisions: [],
+    ...buildStagedSectionData({
+      pr,
+      row,
+      dfid,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [],
+    }),
     ...dataOverrides,
   };
 }
@@ -162,7 +170,7 @@ function defById(defs: Step3SectionDef[], id: string): Step3SectionDef {
   return def;
 }
 
-function renderBody(d: SectionData, id: string) {
+function renderBody(d: StagedSectionData, id: string) {
   const def = defById(step3Sections(d), id);
   return render(<>{def.render(d)}</>);
 }
@@ -432,7 +440,7 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
 // ── Modal navs consume hideDot (§D2) ────────────────────────────────────────
 
 describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
-  function renderModal(d: SectionData) {
+  function renderModal(d: StagedSectionData) {
     return render(
       <Step3ReviewModal
         data={d}
@@ -942,7 +950,7 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
     notes: null,
   };
 
-  function roomsData(rooms: RoomRow[]): SectionData {
+  function roomsData(rooms: RoomRow[]): StagedSectionData {
     return sectionData({ rooms });
   }
 

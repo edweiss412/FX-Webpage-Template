@@ -19,11 +19,8 @@
 import React from "react";
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import {
-  step3Sections,
-  VenueBreakdown,
-  type SectionData,
-} from "@/components/admin/wizard/step3ReviewSections";
+import { step3Sections, VenueBreakdown } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData, type SectionData } from "@/components/admin/review/sectionData";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { buildParseResult, stagedRow, harnessVenue } from "./_step3ReviewFixture";
 
@@ -33,7 +30,7 @@ afterEach(() => cleanup());
 function sectionData(): SectionData {
   const pr = buildParseResult({});
   const row = stagedRow(pr);
-  return {
+  return buildStagedSectionData({
     pr,
     row,
     dfid: "dfid-eyebrow-test",
@@ -47,7 +44,7 @@ function sectionData(): SectionData {
     warnings: pr.warnings,
     agendaBaseline: [],
     useRawDecisions: [],
-  } as SectionData;
+  });
 }
 
 function renderSection(id: string) {

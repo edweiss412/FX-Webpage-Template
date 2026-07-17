@@ -291,28 +291,16 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
     ).toBeLessThanOrEqual(TOL);
   });
 
-  test("per-show desktop: Crew ⟷ Share & access columns equal-height", async ({ page }) => {
-    const slug = await lookupSeededSlug();
-    await page.setViewportSize({ width: 1200, height: 1000 });
-    await page.goto(`/admin/show/${slug}`);
-    await expect(page.getByTestId("per-show-split")).toBeVisible();
-
-    const crew = await rect(page, "per-show-crew-col");
-    const share = await rect(page, "per-show-share-col");
-    expect(Math.abs(crew.height - share.height)).toBeLessThanOrEqual(TOL);
-    expect(share.left).toBeGreaterThan(crew.left + 1); // side-by-side
-  });
-
-  test("per-show mobile: Crew/Share split stacks (non-overlap, non-zero)", async ({ page }) => {
-    const slug = await lookupSeededSlug();
-    await page.setViewportSize({ width: 390, height: 1000 });
-    await page.goto(`/admin/show/${slug}`);
-    await expect(page.getByTestId("per-show-split")).toBeVisible();
-
-    const crew = await rect(page, "per-show-crew-col");
-    const share = await rect(page, "per-show-share-col");
-    expect(crew.height).toBeGreaterThan(0);
-    expect(share.height).toBeGreaterThan(0);
-    expect(share.top).toBeGreaterThanOrEqual(crew.bottom - TOL);
-  });
+  // NOTE (consolidated-admin-show-page rebuild): the two per-show tests that
+  // asserted the `per-show-split` / `per-show-crew-col` / `per-show-share-col`
+  // two-column equal-height + mobile-stack invariants were DELETED here. That
+  // two-column layout was dissolved when the /admin/show/[slug] route was
+  // rebuilt into <PublishedReviewPage> (pinned <StatusStrip> over a shared
+  // <ShowReviewSurface layout="page"> — a side-rail + panel-column two-pane).
+  // Their successor real-browser assertions live in
+  // tests/e2e/showPageLayout.spec.ts:
+  //   - desktop two-pane equal-height  → §8.1 (rail.height === content.height)
+  //   - mobile presentation            → §8.3 (side rail hidden, chip rail is a
+  //     single horizontal-scroll row)
+  // The dashboard (/admin) tests above are UNAFFECTED by the rebuild and stay.
 });

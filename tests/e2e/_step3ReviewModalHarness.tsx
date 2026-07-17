@@ -24,7 +24,10 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
-import type { SectionData } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 import {
   buildParseResult,
@@ -125,7 +128,7 @@ function withContactableCrew(crew: CrewMemberRow[]): CrewMemberRow[] {
 export function buildSectionData(
   prOverrides: Partial<ParseResult> = {},
   showOverrides: Partial<ParseResult["show"]> = {},
-): SectionData {
+): StagedSectionData {
   // Harness defaults (diagrams + crew warnings, above) layer UNDER the
   // caller's prOverrides so existing override-driven cases stay authoritative.
   const base = buildParseResult({
@@ -139,7 +142,7 @@ export function buildSectionData(
     crewMembers: withContactableCrew(base.crewMembers),
   };
   const row = stagedRow(pr);
-  return {
+  return buildStagedSectionData({
     pr,
     row,
     dfid: HARNESS_DFID,
@@ -153,7 +156,7 @@ export function buildSectionData(
     warnings: pr.warnings,
     agendaBaseline: [],
     useRawDecisions: [],
-  };
+  });
 }
 
 /** The modal element tree (shared so Task 11's esbuild entry can hydrate the
@@ -166,7 +169,7 @@ export function buildSectionData(
  *  ("Objects are not valid as a React child"). createElement is untouched
  *  by that transform and esbuild (Task 11) compiles it identically. */
 export function modalElement(
-  data: SectionData,
+  data: StagedSectionData,
   handlers: {
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
     onClose?: () => void;

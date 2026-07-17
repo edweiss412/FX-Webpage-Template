@@ -43,8 +43,8 @@ import {
   step3Sections,
   Step3SectionChromeContext,
   WarningsBreakdown,
-  type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData, type SectionData } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 afterEach(() => {
@@ -209,7 +209,7 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     const N = CALLOUT_MAX_ENTRIES + 1;
     const warnings = [...Array.from({ length: N }, (_, k) => roomSplitWarning(k)), OUT_OF_SCOPE];
     const pr = buildParseResult({ warnings });
-    const d: SectionData = {
+    const d: SectionData = buildStagedSectionData({
       pr,
       row: stagedRow(pr),
       dfid: DFID,
@@ -223,7 +223,7 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
       warnings: pr.warnings,
       agendaBaseline: [],
       useRawDecisions: [decisionFor(roomSplitWarning(0))],
-    };
+    });
     const def = step3Sections(d).find((s) => s.id === "warnings")!;
     const q = render(<>{def.render(d)}</>);
     expect(q.getAllByTestId("use-raw-control")).toHaveLength(N);

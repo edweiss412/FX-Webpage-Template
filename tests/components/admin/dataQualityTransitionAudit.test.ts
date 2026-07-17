@@ -9,7 +9,10 @@ import type { ParseWarning } from "@/lib/parser/types";
 // remounting a sibling's Report modal) lives in perShowActionableKeyStability.test.tsx.
 describe("Data quality controls — transition audit (spec §7.6)", () => {
   const controls = readFileSync("components/admin/DataQualityWarningControls.tsx", "utf8");
-  const page = readFileSync("app/admin/show/[slug]/page.tsx", "utf8");
+  // Task 13 (consolidated page): the flat per-show Data-quality panel dissolved
+  // into per-section warning controls — the "Ignored (N)" disclosure (and its
+  // chevron transform) now lives in the shared render factory.
+  const page = readFileSync("components/admin/showpage/sectionWarningExtras.tsx", "utf8");
 
   test("controls have NO motion/AnimatePresence — all transitions instant (D9)", () => {
     expect(controls).not.toMatch(/AnimatePresence|framer-motion|\bmotion\./);

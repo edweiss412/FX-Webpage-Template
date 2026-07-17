@@ -57,3 +57,20 @@ export function resolveCurrentDiagrams(diagrams: unknown): PersistedDiagrams | n
   const wrapper = diagrams as DiagramsWrapper;
   return isPersistedDiagrams(wrapper.current) ? wrapper.current : null;
 }
+
+/**
+ * The `<key>` URL segment for a published diagram asset route
+ * (`/api/asset/diagram/<show>/<rev>/<key>`): the LAST path segment of the
+ * persisted `snapshotPath`, so the emitted URL literal-equality matches what the
+ * route's `findAsset()` reconstructs via `canonicalPath()`
+ * (app/api/asset/diagram/[show]/[rev]/[key]/route.ts). For a null path (an
+ * incomplete entry the route 410s regardless) the parser-side id is a stable
+ * fallback so React's reconciler still has a key. Single source of truth shared
+ * by the admin published-review diagrams sub-block; mirrors the crew
+ * `keyFromPath` (components/crew/DiagramsBlock.tsx).
+ */
+export function diagramAssetKeyFromPath(snapshotPath: string | null, fallback: string): string {
+  if (!snapshotPath) return fallback;
+  const idx = snapshotPath.lastIndexOf("/");
+  return idx >= 0 ? snapshotPath.slice(idx + 1) : snapshotPath;
+}
