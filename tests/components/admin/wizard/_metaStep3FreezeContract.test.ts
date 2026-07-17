@@ -23,6 +23,7 @@ const ROOT = join(__dirname, "..", "..", "..", "..");
 const SURFACES = [
   "components/admin/wizard/Step3ReviewModal.tsx",
   "components/admin/wizard/Step3SheetCard.tsx",
+  "components/admin/wizard/step3ReviewSections.tsx",
 ];
 
 /** Extract every `<RescanSheetButton … />` JSX element body (open tag → `/>`). */

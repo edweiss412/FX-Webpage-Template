@@ -39,6 +39,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { coerceOverrideSnapshotFromRow } from "@/lib/sync/pullSheetOverride";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import { deriveStep3DisplayState } from "@/lib/admin/step3DisplayState";
@@ -249,6 +250,7 @@ type PendingSyncRowForBuild = {
   parse_result: unknown;
   last_finalize_failure_code?: string | null;
   triggered_review_items?: unknown;
+  pull_sheet_override?: unknown;
 } | null;
 
 /** A public.shows candidate for the row's drive_file_id. */
@@ -366,6 +368,10 @@ export function buildStep3Row(
   if (pending) row.stagedId = pending.staged_id;
   if (triggeredReviewItems) row.triggeredReviewItems = triggeredReviewItems;
   if (lastFinalizeFailureCode !== null) row.lastFinalizeFailureCode = lastFinalizeFailureCode;
+  const pullSheetOverride = pending
+    ? coerceOverrideSnapshotFromRow(pending.pull_sheet_override)
+    : null;
+  if (pullSheetOverride) row.pullSheetOverride = pullSheetOverride;
   // Backfill summary from the linked live show (owner decision 2026-07-06). Only
   // attach when at least one summary field is present, so a pure buildStep3Row
   // unit test (candidates without summary fields) yields no linkedShowSummary.
@@ -427,7 +433,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items, use_raw_decisions",
+        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items, use_raw_decisions, pull_sheet_override",
       )
       .eq("wizard_session_id", wizardSessionId);
     if (error) {
@@ -521,6 +527,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       parse_result: ps.parse_result,
       last_finalize_failure_code: (ps.last_finalize_failure_code as string | null) ?? null,
       triggered_review_items: ps.triggered_review_items,
+      pull_sheet_override: ps.pull_sheet_override,
     });
   }
 

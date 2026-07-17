@@ -152,6 +152,7 @@ export function buildSectionData(
     hotels: pr.hotelReservations,
     pullSheet: pr.pullSheet ?? [],
     archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+    pullSheetOverride: null,
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],
