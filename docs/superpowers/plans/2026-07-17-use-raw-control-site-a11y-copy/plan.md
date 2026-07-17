@@ -78,12 +78,20 @@ describe("UseRawControl — site scoping (spec 2026-07-17 §6.1)", () => {
     expect(a.queryByTestId("use-raw-control")).toBeNull();
     expect(a.queryByTestId("use-raw-toggle-off")).toBeNull();
     cleanup();
-    // (b) apply-pending → adds use-raw-pending-note
+    // (b) apply-pending → use-raw-pending-note branch 1 (UseRawControl.tsx:514)
     const b = render(
       <UseRawControl warning={warning()} decision={decision({ preference: "raw", applied: false })} site="list" onToggle={noop} />,
     );
     assertAllTestidsSuffixed(b.container, "list");
     expect(b.getByTestId("use-raw-pending-note-list")).toBeTruthy();
+    cleanup();
+    // (b2) clear-pending → use-raw-pending-note branch 2 (UseRawControl.tsx:520).
+    // preference "transform" + applied:false derives "clear-pending".
+    const b2 = render(
+      <UseRawControl warning={warning()} decision={decision({ preference: "transform", applied: false })} site="list" onToggle={noop} />,
+    );
+    assertAllTestidsSuffixed(b2.container, "list");
+    expect(b2.getByTestId("use-raw-pending-note-list")).toBeTruthy();
     cleanup();
     // (c) post-failed-toggle → adds use-raw-error + use-raw-retry
     const c = render(
@@ -185,16 +193,20 @@ Immediately after the `useState`/`useRef` block (before `const state = ...`), ad
 ```
 Replace every `data-testid="..."` string literal in this component with `data-testid={tid("...")}`, and every `buttonTestId="use-raw-toggle-off"` / `="use-raw-toggle-on"` with `buttonTestId={tid("use-raw-toggle-off")}` / `{tid("use-raw-toggle-on")}`. Affected: `use-raw-control` (×3: `:392`,`:403`,`:445`), `use-raw-parsed` (`:462`), `use-raw-raw` (`:491`), `use-raw-pending-note` (`:514`,`:520`), `use-raw-error` (`:534`), `use-raw-retry` (`:541`), and the two `buttonTestId` props (`:456`,`:486`).
 
-After the resolvable narrowing (`const resolution = warning.resolution as Extract<...>;`, ~`:410`), add:
+At MODULE scope (near the other `const` maps at the top of the file), add an EXHAUSTIVE map keyed on the parsed-kind union — a nested ternary is rejected (spec §6.2: a new `parsed.kind` must be a COMPILE error at the map, which a ternary's `else` silently swallows). Deriving the key type from the live union means adding a 4th kind widens `resolution.parsed.kind` past the map's keys and the index access below fails to typecheck:
 ```ts
-  const radiogroupLabel =
-    resolution.parsed.kind === "rooms"
-      ? "Which reading crew pages use for the room split"
-      : resolution.parsed.kind === "hotels"
-        ? "Which reading crew pages use for the hotel guest split"
-        : "Which reading crew pages use for the show dates";
+// Kind → radiogroup accessible name (spec 2026-07-17 §6.2). Exhaustive over the
+// UseRawResolution parsed-kind union; a new kind is a compile error here.
+const RADIOGROUP_LABEL: Record<
+  Extract<UseRawResolution, { resolvable: true }>["parsed"]["kind"],
+  string
+> = {
+  rooms: "Which reading crew pages use for the room split",
+  hotels: "Which reading crew pages use for the hotel guest split",
+  dates: "Which reading crew pages use for the show dates",
+};
 ```
-Replace the radiogroup's `aria-label="Which reading crew pages use"` (`:448`) with `aria-label={radiogroupLabel}`.
+(`UseRawResolution` is already imported in this file.) After the resolvable narrowing (`const resolution = warning.resolution as Extract<...>;`, ~`:410`), read it: `const radiogroupLabel = RADIOGROUP_LABEL[resolution.parsed.kind];`. Replace the radiogroup's `aria-label="Which reading crew pages use"` (`:448`) with `aria-label={radiogroupLabel}`.
 
 - [ ] **Step 5: Run — verify PASS**
 
