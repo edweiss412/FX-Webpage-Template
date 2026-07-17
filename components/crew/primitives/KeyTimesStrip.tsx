@@ -162,44 +162,54 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
       ))}
 
       {overflow > 0 ? (
-        <details
-          data-testid="key-times-shows-overflow"
-          // Recessive disclosure. The chevron rotates and the summary label swaps
-          // via the native `[open]` attribute (no client JS). `motion-safe:`
-          // gates the rotation transition for reduced-motion users.
-          className="group [&[open]_.kt-more]:hidden [&[open]_.kt-fewer]:inline [&[open]_.kt-chev]:rotate-90"
-        >
-          <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-1.5 border-t border-border pt-2 text-xs font-medium tabular-nums text-text-subtle transition-colors duration-fast marker:content-none hover:text-accent-on-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface [&::-webkit-details-marker]:hidden">
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="kt-chev size-3 shrink-0 motion-safe:transition-transform motion-safe:duration-fast"
+        // The overflow is a real <dt>/<dd> group so the outer <dl> content model
+        // stays valid — a <dl> permits only <dt>/<dd> or <div> groups, never a
+        // bare <details>. The <dd> legally holds the disclosure, and the hidden
+        // days nest under the "More show days" term as their definition, so a SR
+        // reads them as a continuation of the key-times list, not a stray list.
+        <div className="min-w-0">
+          <dt className="sr-only">More show days</dt>
+          <dd className="min-w-0">
+            <details
+              data-testid="key-times-shows-overflow"
+              // Recessive disclosure. The chevron rotates and the summary label
+              // swaps via the native `[open]` attribute (no client JS).
+              // `motion-safe:` gates the rotation for reduced-motion users.
+              className="group [&[open]_.kt-more]:hidden [&[open]_.kt-fewer]:inline [&[open]_.kt-chev]:rotate-90"
             >
-              <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span className="kt-more">+{overflow} more days</span>
-            <span className="kt-fewer hidden">Show fewer days</span>
-          </summary>
-          <dl className="flex flex-col gap-2 pt-2">
-            {hiddenShows.map((s) => (
-              // No `anchor` → no `data-anchor`, so these are not counted among the
-              // visible show rows; they still keep `<dt>`/`<dd>` + `<time>` for
-              // association + machine-readable dates.
-              <AnchorRow
-                key={`show-${s.date}`}
-                row={{ rowKey: `show-${s.date}`, label: s.label, value: s.time, date: s.date }}
-                anchorClass={anchorClass}
-              />
-            ))}
-          </dl>
-        </details>
+              <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-1.5 border-t border-border pt-2 text-xs font-medium tabular-nums text-text-subtle transition-colors duration-fast marker:content-none hover:text-accent-on-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface [&::-webkit-details-marker]:hidden">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className="kt-chev size-3 shrink-0 motion-safe:transition-transform motion-safe:duration-fast"
+                >
+                  <path
+                    d="M6 4l4 4-4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="kt-more">+{overflow} more days</span>
+                <span className="kt-fewer hidden">Show fewer days</span>
+              </summary>
+              <dl className="flex flex-col gap-2 pt-2">
+                {hiddenShows.map((s) => (
+                  // No `anchor` → no `data-anchor`, so these are not counted among
+                  // the visible show rows; they still keep <dt>/<dd> + <time> for
+                  // association + machine-readable dates.
+                  <AnchorRow
+                    key={`show-${s.date}`}
+                    row={{ rowKey: `show-${s.date}`, label: s.label, value: s.time, date: s.date }}
+                    anchorClass={anchorClass}
+                  />
+                ))}
+              </dl>
+            </details>
+          </dd>
+        </div>
       ) : null}
 
       {anchors.strike != null ? (
