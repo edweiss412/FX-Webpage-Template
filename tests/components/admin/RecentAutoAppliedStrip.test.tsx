@@ -543,9 +543,7 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
   });
   expect(toggle).toHaveFocus(); // no steal (already there; nothing yanked elsewhere)
   fireEvent.click(toggle); // re-expand
-  expect(
-    await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`),
-  ).toBeInTheDocument();
+  expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
 });
 
 it("renders the overflow line when overflowCount > 0", () => {

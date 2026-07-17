@@ -258,9 +258,7 @@ describe("ResolveAlertButton state machine", () => {
       </>,
     );
     fireEvent.click(screen.getByTestId("admin-alert-resolve-button"));
-    await vi.waitFor(() =>
-      expect(screen.getByTestId("admin-alert-cancel-button")).toHaveFocus(),
-    );
+    await vi.waitFor(() => expect(screen.getByTestId("admin-alert-cancel-button")).toHaveFocus());
     const external = screen.getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
