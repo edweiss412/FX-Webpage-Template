@@ -5,7 +5,11 @@
 // unrecognized value defensively buckets to `warn` (makes enum drift VISIBLE
 // to the operator, never silently "clean").
 import { describe, expect, it } from "vitest";
-import { syncStatusBucket } from "@/lib/admin/syncStatus";
+import {
+  syncStatusBucket,
+  showsEditedClause,
+  EDIT_STAMP_EXCLUDED_STATUSES,
+} from "@/lib/admin/syncStatus";
 
 describe("syncStatusBucket", () => {
   it.each([
@@ -32,5 +36,31 @@ describe("syncStatusBucket", () => {
     expect(syncStatusBucket("ok").label).toBe("Synced");
     expect(syncStatusBucket(null).label).toBe("Not synced yet");
     expect(syncStatusBucket("xyzzy").label).toBe("Unknown sync state");
+  });
+});
+
+describe("showsEditedClause", () => {
+  it.each([
+    ["ok", true],
+    ["pending", true],
+    ["pending_review", true],
+    ["shrink_held", true], // hold does NOT stamp last_synced_at → Edited is a true last-apply
+    [null, true],
+    [undefined, true],
+    ["", true],
+    ["totally_unknown_value", true], // unknown defaults to showing Edited
+    ["drive_error", false],
+    ["sheet_unavailable", false],
+    ["parse_error", false],
+  ])("showsEditedClause(%s) === %s", (status, expected) => {
+    expect(showsEditedClause(status as string | null | undefined)).toBe(expected);
+  });
+
+  it("deny-set is exactly the three last_synced_at error-stamp statuses", () => {
+    expect([...EDIT_STAMP_EXCLUDED_STATUSES].sort()).toEqual([
+      "drive_error",
+      "parse_error",
+      "sheet_unavailable",
+    ]);
   });
 });

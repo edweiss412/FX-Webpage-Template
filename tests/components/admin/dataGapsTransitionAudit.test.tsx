@@ -71,6 +71,7 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
     crewCount: 4,
     lastSyncedAt: "2026-06-03T10:00:00.000Z",
     lastSyncStatus: "ok",
+    lastCheckedAt: "2026-06-03T10:05:00.000Z",
     published: true,
     isLive: false,
     finalizeOwned: false,
