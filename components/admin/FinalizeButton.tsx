@@ -662,6 +662,30 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   const dismissible = state.kind === "error";
   const dismissLabel = dismissible ? "Close" : "Back";
 
+  // Escape handling. A `Step3ReviewModal` open UNDERNEATH also listens for Escape
+  // on `document` (bubble phase); a bubble-phase stopPropagation from here would
+  // NOT preempt it (same target, review modal registered first). So listen in the
+  // CAPTURE phase and stopImmediatePropagation — a capture-phase document listener
+  // runs before all bubble-phase document listeners, so the review modal's handler
+  // never fires (spec §7a). For `error` we also dismiss; for blocking states the
+  // key is swallowed (action-only). A ref keeps the stable listener reading the
+  // current `dismissible`/`dismiss`.
+  const escRef = useRef<{ dismissible: boolean; dismiss: () => void }>({
+    dismissible,
+    dismiss: run.dismiss,
+  });
+  escRef.current = { dismissible, dismiss: run.dismiss };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (escRef.current.dismissible) escRef.current.dismiss();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
   if (portalRef.current === null) return null;
 
   return createPortal(
@@ -672,16 +696,27 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
       data-testid="wizard-finalize-blocker-modal"
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
     >
-      {/* Backdrop. Task 2 renders the interactive Close form for all states;
-          Task 3 makes the blocking states' backdrop a non-interactive scrim. */}
-      <button
-        type="button"
-        aria-label="Close"
-        tabIndex={-1}
-        data-testid="wizard-finalize-blocker-backdrop"
-        onClick={() => run.dismiss()}
-        className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"
-      />
+      {/* Backdrop. For `error` (dismissible) it is an interactive Close control
+          kept OUT of the tab order (Escape + the visible Close button are the
+          keyboard exits). For the blocking states it is a NON-interactive scrim
+          (a click must NOT dismiss — the operator resolves or hits Back), so it
+          exposes no button role and is aria-hidden (spec §6). */}
+      {dismissible ? (
+        <button
+          type="button"
+          aria-label="Close"
+          tabIndex={-1}
+          data-testid="wizard-finalize-blocker-backdrop"
+          onClick={() => run.dismiss()}
+          className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"
+        />
+      ) : (
+        <div
+          aria-hidden="true"
+          data-testid="wizard-finalize-blocker-backdrop"
+          className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"
+        />
+      )}
 
       <div
         ref={panelRef}

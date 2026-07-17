@@ -252,3 +252,35 @@ describe("FinalizeBlockerModal — shell", () => {
     expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
   });
 });
+
+// ── Task 3: dismiss matrix ───────────────────────────────────────────────────
+describe("FinalizeBlockerModal — dismiss matrix", () => {
+  test.each([["escape"], ["backdrop"], ["close"]] as const)(
+    "error dismisses via %s → idle",
+    async (via) => {
+      const q = await driveToError();
+      if (via === "escape") fireEvent.keyDown(document, { key: "Escape" });
+      else if (via === "backdrop") fireEvent.click(q.getByTestId("wizard-finalize-blocker-backdrop"));
+      else fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss"));
+      await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+    },
+  );
+
+  test.each([
+    ["race_row", driveToRaceRow],
+    ["cas_per_row", () => driveToCasPerRow()],
+  ] as const)(
+    "%s: Escape + backdrop are inert; backdrop is a non-interactive div; only Back dismisses",
+    async (_kind, drive) => {
+      const q = await drive();
+      const backdrop = q.getByTestId("wizard-finalize-blocker-backdrop");
+      expect(backdrop.tagName).toBe("DIV");
+      expect(backdrop).toHaveAttribute("aria-hidden", "true");
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.click(backdrop);
+      expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // still open
+      fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back
+      await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+    },
+  );
+});
