@@ -15,20 +15,21 @@ afterAll(async () => {
 
 describe("shows.last_checked_at column", () => {
   it("exists as a nullable timestamptz", async () => {
-    const rows = await sql`
+    const rows = await sql<{ data_type: string; is_nullable: string }[]>`
       select data_type, is_nullable
       from information_schema.columns
       where table_schema = 'public' and table_name = 'shows' and column_name = 'last_checked_at'`;
     expect(rows.length).toBe(1);
-    expect(rows[0].data_type).toBe("timestamp with time zone");
-    expect(rows[0].is_nullable).toBe("YES");
+    const col = rows[0]!;
+    expect(col.data_type).toBe("timestamp with time zone");
+    expect(col.is_nullable).toBe("YES");
   });
 
   it("is backfilled: no active row has null last_checked_at where last_synced_at is set", async () => {
-    const [{ orphans }] = await sql`
+    const rows = await sql<{ orphans: number }[]>`
       select count(*)::int as orphans
       from public.shows
       where archived = false and last_synced_at is not null and last_checked_at is null`;
-    expect(orphans).toBe(0);
+    expect(rows[0]!.orphans).toBe(0);
   });
 });
