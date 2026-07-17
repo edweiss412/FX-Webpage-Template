@@ -130,6 +130,17 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         const armed = armedCode === group.code;
         const errored = state.kind === "error" && state.code === group.code;
         const bulk = group.bulk;
+        // Single source for the chip's VISIBLE text; the accessible name (below) mirrors it
+        // and appends the type context. Because it tracks state, the accessible name stays in
+        // sync with the visible label in every state — armed reads "Confirm: ignore all N ·
+        // <type>" (WCAG 2.5.3 Label-in-Name holds across the morph, not just idle). The type
+        // moved off the chip into the eyebrow for sighted users; the aria-label restores it
+        // for screen-reader / voice-control.
+        const chipText = running
+          ? "Ignoring…"
+          : armed
+            ? `Confirm: ignore all ${bulk?.items.length ?? 0}`
+            : `Ignore all ${bulk?.items.length ?? 0}`;
         return (
           <div
             key={group.code}
@@ -154,20 +165,10 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                     onClick={() => onGuardedClick(bulk)}
                     disabled={state.kind === "running"}
                     aria-busy={running}
-                    // The type context now lives in the eyebrow (sighted users); give the
-                    // chip a stable accessible name so a screen-reader user who tabs straight
-                    // to it still hears WHICH type it ignores. The armed "Confirm" step is
-                    // announced by the sibling role="status" live region, not this name.
-                    aria-label={
-                      group.label ? `Ignore all ${bulk.items.length} · ${group.label}` : undefined
-                    }
+                    aria-label={group.label ? `${chipText} · ${group.label}` : undefined}
                     className={armed ? ARMED_BTN : BTN}
                   >
-                    {running
-                      ? "Ignoring…"
-                      : armed
-                        ? `Confirm: ignore all ${bulk.items.length}`
-                        : `Ignore all ${bulk.items.length}`}
+                    {chipText}
                   </button>
                   {/* Persistent sr-only live region (always mounted — conditional mounting
                       drops the announcement). Kept as the chip's nextElementSibling. */}

@@ -81,6 +81,48 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     expect(chip.textContent).toBe(`Ignore all ${g.bulk!.items.length}`); // no "· label" suffix now
   });
 
+  test("chip accessible name TRACKS the visible text + appends the type (WCAG 2.5.3 across the morph)", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    // idle: accessible name mirrors the visible "Ignore all 2" AND carries the type context.
+    expect(chip.getAttribute("aria-label")).toBe("Ignore all 2 · Unrecognized row in sheet");
+    fireEvent.click(chip); // arm
+    // armed: the name must contain the NEW visible text "Confirm: ignore all 2" (not a stale
+    // "Ignore all 2"); a fixed aria-label would fail Label-in-Name in this state.
+    expect(chip.textContent).toBe("Confirm: ignore all 2");
+    expect(chip.getAttribute("aria-label")).toBe(
+      "Confirm: ignore all 2 · Unrecognized row in sheet",
+    );
+  });
+
+  test("a group with no label omits aria-label (visible chip text is the accessible name)", () => {
+    render(
+      <BulkIgnoreControls
+        slug="rpas"
+        groups={[
+          {
+            code: "UNKNOWN_FIELD",
+            label: null,
+            bulk: {
+              code: "UNKNOWN_FIELD",
+              label: null,
+              items: [
+                { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" },
+                { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
+              ],
+            },
+            cards: <ul data-testid="cards-UNKNOWN_FIELD" />,
+          },
+        ]}
+      />,
+    );
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(chip.getAttribute("aria-label")).toBeNull();
+    expect(chip.textContent).toBe("Ignore all 2");
+    // no label → no eyebrow label span either
+    expect(screen.queryByTestId("dq-group-label-UNKNOWN_FIELD")).toBeNull();
+  });
+
   test("Ignore all N fires one POST per distinct item, then refreshes; chip re-enables", async () => {
     fetchMock.mockResolvedValue(okResponse());
     render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
