@@ -250,12 +250,11 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "false");
-      // The toggle's subline reflects the paused state. (Rebuild note: the old
-      // "Held — not published" AdminPageHeader status pill was removed; the
-      // consolidated StatusStrip surfaces the paused state as the PublishedToggle
-      // OFF-state subline — PublishedToggle.tsx:61-70.)
-      await expect(page.getByTestId("published-toggle-subline")).toHaveText(
-        "Crew link is off — nobody can open this show.",
+      // CASP-2: the compact inline StatusStrip toggle no longer carries a subline; the
+      // paused-state copy now lives once in the Overview #share-access inactive notice
+      // (the single source — the inline variant dropped its duplicate subline).
+      await expect(page.getByTestId("admin-share-link-inactive")).toContainText(
+        "The crew link is inactive while this show is unpublished.",
       );
 
       // Crew view in a FRESH context (no admin session — admins bypass the gate).

@@ -108,6 +108,16 @@ describe("StatusStrip", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("renders the compact INLINE toggle (not the full card) in the strip (CASP-2)", () => {
+    renderStrip({ published: true });
+    const wrapper = screen.getByTestId("strip-publish-toggle");
+    expect(within(wrapper).getByTestId("published-toggle-inline")).toBeTruthy();
+    expect(within(wrapper).queryByTestId("published-toggle-row")).toBeNull();
+    expect(within(wrapper).getByTestId("published-toggle").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
   it("renders the copy-link (with the token URL) for a published, non-archived show with a token", () => {
     renderStrip({ published: true, archived: false }, { token: "TOK" });
     const copy = screen.getByTestId("strip-copy-link");
