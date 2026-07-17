@@ -124,9 +124,10 @@ export function StatusStrip({
       ) : (
         <>
           <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-border sm:block" />
-          <div data-testid="strip-publish-toggle" className="min-w-0 shrink-0">
+          <div data-testid="strip-publish-toggle" className="shrink-0">
             <PublishedToggle
               slug={slug}
+              variant="inline"
               published={published}
               finalizeOwned={finalizeOwned}
               setPublished={setPublished}
