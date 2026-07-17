@@ -284,16 +284,32 @@ test("recently-auto-applied strip sits directly beneath the needs-attention inbo
   // detaches the strip. The seed's short shows list can't reach it on its own, so
   // we induce it deterministically (Codex-safe: DOM-only, no DB write). With the
   // fix the strip stays adjacent; with `h-full` back it drops ~1500px below.
-  await page.evaluate(() => {
+  const forced = await page.evaluate(() => {
     const col = document.querySelector('[data-testid="dashboard-shows-col"]');
-    if (col instanceof HTMLElement) col.style.minHeight = "2000px";
+    if (!(col instanceof HTMLElement)) return false;
+    col.style.minHeight = "2000px";
+    return true;
   });
+  // Fail loud if the force-tall target is missing (e.g. a future testid rename):
+  // a silent no-op would let the ratio assertion below false-pass without ever
+  // creating the stretched-column condition it depends on.
+  expect(forced, "dashboard-shows-col must exist to induce the stretched-column condition").toBe(
+    true,
+  );
   await expect(strip).toBeVisible();
 
   const inboxBox = await inbox.boundingBox();
   const colBox = await page.getByTestId("dashboard-inbox-col").boundingBox();
   expect(inboxBox, "inbox has a box").not.toBeNull();
   expect(colBox, "inbox column has a box").not.toBeNull();
+  // Precondition guard: the ratio test is only meaningful when the sidebar column
+  // is genuinely stretched well beyond the inbox's content. If this ever fails,
+  // the two-col items-stretch contract changed and the regression test below would
+  // be vacuous — surface that instead of silently passing.
+  expect(
+    colBox!.height,
+    "sidebar column must be stretched tall for the content-sized-inbox assertion to bite",
+  ).toBeGreaterThan(1500);
   // THE FIX: the inbox is sized to its content, NOT stretched to fill the (now
   // force-tall) sidebar column. The detached-band bug was the OLD `h-full` on the
   // populated inbox root ballooning it to the full column height — its short
