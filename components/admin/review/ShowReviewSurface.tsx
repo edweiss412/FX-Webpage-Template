@@ -45,6 +45,7 @@ import {
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
+  Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
@@ -139,8 +140,10 @@ export function ShowReviewSurface({
   renderSectionExtras,
   bottomSlot,
   children,
+  isPublishRunActive = false,
 }: {
   data: SectionData;
+  isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
   scrollerRef: RefObject<HTMLElement | null>; // the scroll container the SHELL owns
   layout: "modal" | "page"; // modal: current <lg chip rail + ≥lg two-pane inside dialog; page: full-page two-pane
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
@@ -602,6 +605,7 @@ export function ShowReviewSurface({
   }
 
   return (
+    <Step3RunStateContext.Provider value={{ isPublishRunActive }}>
     <div
       data-testid={`wizard-step3-card-${dfid}-review-main`}
       className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
@@ -833,5 +837,6 @@ export function ShowReviewSurface({
         {extraSectionsAfter?.map(renderExtraPanel)}
       </div>
     </div>
+    </Step3RunStateContext.Provider>
   );
 }

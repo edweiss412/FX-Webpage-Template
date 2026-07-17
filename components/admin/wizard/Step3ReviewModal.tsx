@@ -714,6 +714,7 @@ export function Step3ReviewModal({
             → the rail model is byte-identical to the pre-extraction modal. */}
         <ShowReviewSurface
           data={data}
+          isPublishRunActive={isPublishRunActive}
           scrollerRef={scrollerRef}
           layout="modal"
           bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}

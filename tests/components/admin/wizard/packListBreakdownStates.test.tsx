@@ -15,6 +15,7 @@
  * the expected snapshot fails. Copy carries NO em dashes (DESIGN.md §UI-copy);
  * the S4 assertion pins the period form, so an em dash reintroduced here fails.
  */
+import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { PullSheetCase } from "@/lib/parser/types";
@@ -22,7 +23,7 @@ import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
-import { PackListBreakdown } from "@/components/admin/wizard/step3ReviewSections";
+import { PackListBreakdown, Step3RunStateContext } from "@/components/admin/wizard/step3ReviewSections";
 
 const DFID = "drive-abc-123";
 const WSID = "00000000-1111-4222-8333-444444444444";
@@ -297,5 +298,25 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     const sec = packSection(container);
     expect(within(sec).queryByTestId(`pack-list-rescan-needed-${DFID}`)).toBeNull();
     expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull();
+  });
+
+  test("S5 Re-scan freezes when the context flag is true (context consumption)", () => {
+    const { container } = render(
+      <Step3RunStateContext.Provider value={{ isPublishRunActive: true }}>
+        <PackListBreakdown dfid={DFID} wizardSessionId={WSID} cases={[]}
+          archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
+          pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }} />
+      </Step3RunStateContext.Provider>,
+    );
+    expect(within(packSection(container)).getByRole("button", { name: /re-scan/i })).toBeDisabled();
+  });
+
+  test("S5 Re-scan enabled with no publish run (default context)", () => {
+    const { container } = render(
+      <PackListBreakdown dfid={DFID} wizardSessionId={WSID} cases={[]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
+        pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }} />,
+    );
+    expect(within(packSection(container)).getByRole("button", { name: /re-scan/i })).not.toBeDisabled();
   });
 });

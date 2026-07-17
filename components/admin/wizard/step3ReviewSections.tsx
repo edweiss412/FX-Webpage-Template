@@ -489,6 +489,14 @@ export type Step3SectionChrome = {
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
+/** PSAT-1 run-state context: threads the publish-run freeze flag to body-surface
+ *  mutators (the S5 Re-scan) that render via `s.render(data)` with only `data`.
+ *  Provided by ShowReviewSurface (Step 4 below); default false so direct-render
+ *  tests and the published page get an enabled/no-op default. */
+export const Step3RunStateContext = createContext<{ isPublishRunActive: boolean }>({
+  isPublishRunActive: false,
+});
+
 // §E3 callout row cap (spec §2 named constant): at most this many warning
 // titles render inline; the remainder collapses to "+N more in Parse warnings".
 export const CALLOUT_MAX_ENTRIES = 3;
@@ -2305,6 +2313,7 @@ function ArchivedTabRescanNeeded({
   dfid: string;
   wizardSessionId: string;
 }) {
+  const { isPublishRunActive } = useContext(Step3RunStateContext);
   return (
     <div
       data-testid={`pack-list-rescan-needed-${dfid}`}
@@ -2312,7 +2321,7 @@ function ArchivedTabRescanNeeded({
     >
       <p className="font-medium">Gear saved. The preview is out of date.</p>
       <p>Re-scan to refresh it.</p>
-      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} disabled={isPublishRunActive} />
     </div>
   );
 }
