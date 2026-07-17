@@ -274,7 +274,10 @@ describe("computeRescanDecision", () => {
 
     test("present baseline, no increase → regressedGapClasses empty", () => {
       const priorGaps = mkDataGaps({ FIELD_UNREADABLE: 2 });
-      const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], unreadable(1));
+      const refreshed = makeParse(
+        [{ name: "Ada Lovelace", email: "ada@x.example" }],
+        unreadable(1),
+      );
       expect(computeRescanDecision(PRIOR, refreshed, priorGaps).regressedGapClasses).toEqual([]);
     });
 

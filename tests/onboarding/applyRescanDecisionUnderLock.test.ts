@@ -549,7 +549,10 @@ describe("applyRescanDecisionUnderLock — dirty_demoted reviewCodes", () => {
       parse_result: PRIOR_PARSE,
       staged_modified_time: PRIOR_MODTIME,
     });
-    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada-new@x.example" }], archivedTab);
+    const refreshed = makeParse(
+      [{ name: "Ada Lovelace", email: "ada-new@x.example" }],
+      archivedTab,
+    );
     const out = await applyRescanDecisionUnderLock(
       tx,
       {

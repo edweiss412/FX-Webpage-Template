@@ -136,7 +136,13 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
       { ok: true, status: "updated", needsReview: false, changed: true, demoted: false },
     ],
     [
-      { status: "updated", needsReview: true, changed: false, demoted: true, reviewCodes: ["MI-11"] },
+      {
+        status: "updated",
+        needsReview: true,
+        changed: false,
+        demoted: true,
+        reviewCodes: ["MI-11"],
+      },
       { ok: true, status: "updated", needsReview: true, changed: false, demoted: true },
     ],
     [
