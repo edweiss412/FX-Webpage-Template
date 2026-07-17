@@ -21,6 +21,7 @@ export const ALERT_ACTION_CODES = [
   "BRANCH_PROTECTION_DRIFT",
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
   "RESYNC_SHRINK_HELD",
+  "ONBOARDING_SHEET_UNREADABLE",
 ] as const;
 
 export type AlertActionCode = (typeof ALERT_ACTION_CODES)[number];
@@ -111,6 +112,15 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
       href: `/admin/show/${encodeURIComponent(slug)}#resync`,
       external: false,
     };
+  },
+  // Setup-scan hard-fail folder alert (global, showId null). The card names the
+  // failed sheets; this link jumps to the Drive folder where they live so the
+  // admin can fix the layout or remove the file — the condition then self-heals
+  // (hybrid lifecycle, PR #414). Only folder_id is in context (many files fail
+  // at once, so there is no single drive_file_id to deep-link). Fail-quiet.
+  ONBOARDING_SHEET_UNREADABLE: (context) => {
+    const folder = driveFolderUrl(str(context, "folder_id"));
+    return folder ? { label: "Open Drive folder", href: folder, external: true } : null;
   },
 };
 
