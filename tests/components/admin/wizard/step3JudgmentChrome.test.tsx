@@ -104,7 +104,14 @@ const WIZARD_DIR = join(process.cwd(), "components/admin/wizard");
 const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   "Step3Review.tsx": 6,
   "Step3SheetCard.tsx": 4,
-  "step3ReviewSections.tsx": 5,
+  // Was 5; the archived-tab offer cluster (ARCHIVED_TAB_BTN + ARCHIVED_TAB_GHOST_BTN,
+  // each carrying `transition-colors duration-fast`) was extracted to
+  // archivedTabOffer.tsx (spec 2026-07-17 §4.2), so 2 hover transitions moved there.
+  "step3ReviewSections.tsx": 3,
+  // The extracted offer cluster's 2 hover-affordance transitions (accept/ghost
+  // buttons). Zero AnimatePresence; both are `transition-colors` hover states, not
+  // state-swap animations (spec §7.4: all pairs instant).
+  "archivedTabOffer.tsx": 2,
   // 11 = modal 6 + surface 5. Task 13 (consolidated-admin-show-page §5/§9) added
   // the Overview/Changes extra rail items, whose side-rail + chip buttons carry
   // the same `transition-colors duration-fast` hover affordance every registry

@@ -13,8 +13,9 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
+import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -98,6 +99,193 @@ function renderModal(resolution: Step3ReviewResolution, onClose = vi.fn()) {
     />,
   );
 }
+
+// ── Archived-tab offer in the Resolve box (spec §4.3/§4.5b) ──────────────────
+const archivedTab: ArchivedPullSheetTab = {
+  tabName: "OLD gear",
+  headerPreviews: ["CASE A"],
+  fingerprint: "fp1",
+  included: false,
+  contentChangedSinceAccept: false,
+};
+
+// sectionData() variant that injects archived tabs + a durable override snapshot.
+// data.driveFileId === DFID, data.wizardSessionId === WSID. Default override null
+// (no divergence → pending offers surface); PSAT-1 SectionData field.
+function sectionDataWith(
+  archivedPullSheetTabs: ArchivedPullSheetTab[],
+  pullSheetOverride: import("@/lib/sync/pullSheetOverride").OverrideSnapshot = null,
+): StagedSectionData {
+  const pr = buildParseResult({});
+  const row = stagedRow(pr);
+  return buildStagedSectionData({
+    pr,
+    row,
+    dfid: DFID,
+    wizardSessionId: WSID,
+    crewMembers: pr.crewMembers,
+    rooms: pr.rooms,
+    hotels: pr.hotelReservations,
+    pullSheet: pr.pullSheet ?? [],
+    archivedPullSheetTabs,
+    pullSheetOverride,
+    ros: pr.runOfShow ?? {},
+    warnings: pr.warnings,
+    agendaBaseline: [],
+    useRawDecisions: [],
+  });
+}
+
+// Render helper allowing resolution === undefined (archived-only rows) and
+// threading archivedPullSheetTabs + the top-level isPublishRunActive prop.
+function renderModalWith(opts: {
+  resolution?: Step3ReviewResolution | undefined;
+  archivedPullSheetTabs?: ArchivedPullSheetTab[];
+  pullSheetOverride?: import("@/lib/sync/pullSheetOverride").OverrideSnapshot;
+  isPublishRunActive?: boolean;
+  onClose?: () => void;
+}) {
+  return render(
+    <Step3ReviewModal
+      data={sectionDataWith(opts.archivedPullSheetTabs ?? [], opts.pullSheetOverride ?? null)}
+      checked={false}
+      isDirtyRescan={false}
+      onRequestSetChecked={vi.fn(async () => true)}
+      onClose={opts.onClose ?? vi.fn()}
+      {...(opts.resolution ? { resolution: opts.resolution } : {})}
+      isPublishRunActive={opts.isPublishRunActive ?? false}
+    />,
+  );
+}
+
+describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4.5b)", () => {
+  // 1. Box appears on a clean staged row (no resolution) when an offer is pending.
+  test("renders the Resolve box with the accept offer on a clean row with a pending archived tab", () => {
+    renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+    const box = screen.getByLabelText("Resolve before publishing");
+    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+  });
+
+  // 2. Box offer has NO "Keep skipped" (showDismiss=false → no empty-box path).
+  test("box offer omits the 'Keep skipped' dismiss", () => {
+    renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+    const box = screen.getByLabelText("Resolve before publishing");
+    expect(within(box).queryByRole("button", { name: "Keep skipped" })).toBeNull();
+  });
+
+  // 3. Re-apply footer ABSENT but NORMAL footer PRESENT on an archived-only row (§4.4).
+  test("shows the normal footer, not the re-apply footer, on an archived-only row", () => {
+    renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+    expect(screen.queryByTestId(`wizard-step3-card-${DFID}-review-resolution-note`)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Approve & apply|Ignore/ })).toBeNull();
+    expect(screen.getByTestId(`wizard-step3-card-${DFID}-review-footer`)).toBeInTheDocument();
+  });
+
+  // 4. No box offer when the durable override is already accepted (S3): the
+  //    override snapshot MATCHES the included-tab preview → overrideActive, not
+  //    divergent → offers empty. (Threading pullSheetOverride proves the true S3
+  //    suppression path, not S5.)
+  test("shows no box offer when the archived override is already accepted (S3)", () => {
+    renderModalWith({
+      resolution: undefined,
+      archivedPullSheetTabs: [{ ...archivedTab, included: true }],
+      pullSheetOverride: { tabName: archivedTab.tabName, fingerprint: archivedTab.fingerprint },
+    });
+    expect(screen.queryByLabelText("Resolve before publishing")).toBeNull();
+  });
+
+  // 4b. No box offer on an S5-divergent row: an included-tab preview with NO
+  //     durable override is divergent → offers empty → the box shows no archived
+  //     offer (the S5 recovery lives in the Pack-list section, not the box).
+  test("shows no box offer on an S5-divergent row (included preview, null override)", () => {
+    renderModalWith({
+      resolution: undefined,
+      archivedPullSheetTabs: [{ ...archivedTab, included: true }],
+      pullSheetOverride: null,
+    });
+    expect(screen.queryByLabelText("Resolve before publishing")).toBeNull();
+  });
+
+  // 5. Accept POSTs the FULL CAS body incl. driveFileId===DFID + wizardSessionId===WSID.
+  test("box accept POSTs the full override body with the correct driveFileId + session", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, status: "override_set" }), { status: 200 }),
+      );
+    renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+    const box = screen.getByLabelText("Resolve before publishing");
+    fireEvent.click(within(box).getByRole("button", { name: "Use this show’s gear" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/admin/onboarding/pull-sheet-override",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse((fetchSpy.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body).toEqual({
+      driveFileId: DFID,
+      wizardSessionId: WSID,
+      tabName: archivedTab.tabName,
+      expectedFingerprint: archivedTab.fingerprint,
+      expectedOverrideSnapshot: null,
+    });
+  });
+
+  // 6. Publish-run parity (§4.5): box accept stays ENABLED during a publish run.
+  test("does not freeze the box accept during an active publish run", () => {
+    renderModalWith({
+      resolution: undefined,
+      archivedPullSheetTabs: [archivedTab],
+      isPublishRunActive: true,
+    });
+    const box = screen.getByLabelText("Resolve before publishing");
+    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeEnabled();
+  });
+
+  // 7. Combined mode (§5 row 2): re-apply items AND the archived offer both render.
+  test("renders both the re-apply items and the archived offer when resolution + offer coexist", () => {
+    const sentinel = {
+      id: "i1",
+      invariant: "ONBOARDING_SCAN_REVIEW",
+    } as unknown as TriggeredReviewItem;
+    renderModalWith({
+      resolution: resWith([sentinel]),
+      archivedPullSheetTabs: [archivedTab],
+    });
+    const box = screen.getByLabelText("Resolve before publishing");
+    expect(
+      within(box).getByText("Onboarding scan staged this sheet for review."),
+    ).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+  });
+
+  // 8. reviewItemsCorrupt + offer (§6): corrupt copy AND the archived offer both render.
+  test("renders the corrupt-review copy and the archived offer together", () => {
+    renderModalWith({
+      resolution: resWith([], { reviewItemsCorrupt: true }),
+      archivedPullSheetTabs: [archivedTab],
+    });
+    const box = screen.getByLabelText("Resolve before publishing");
+    expect(
+      within(box).getByTestId(`wizard-step3-card-${DFID}-review-resolution-corrupt`),
+    ).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+  });
+
+  // 9. Coexistence (REQUIRED, spec §9.6): offer renders in BOTH box and Pack-list.
+  test("renders the accept offer in BOTH the Resolve box and the Pack-list section", () => {
+    renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+    expect(
+      screen.getByTestId(
+        `wizard-step3-card-${DFID}-review-resolution-archived-${archivedTab.tabName}`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId(`pack-list-archived-offer-${DFID}-${archivedTab.tabName}`),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Use this show’s gear" })).toHaveLength(2);
+  });
+});
 
 describe("Step3ReviewModal resolution body (spec §4.4)", () => {
   test("tier-3 (MI-13) forces a choice before Approve enables", () => {
