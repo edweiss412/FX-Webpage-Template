@@ -18,6 +18,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 
 import { AddAdminForm } from "@/app/admin/settings/admins/AddAdminForm";
+import { CollapsePanel } from "@/components/admin/CollapsePanel";
 
 export function AddAdminTrigger({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
@@ -56,16 +57,22 @@ export function AddAdminDisclosure({
         <AddAdminTrigger open={open} onToggle={() => setOpen((v) => !v)} />
       </header>
 
+      {/* gap-3 dropped from the CARD (the always-mounted 0-height CollapsePanel
+          would otherwise incur a phantom ~12px gap below the list when closed).
+          The `list` slot is a multi-child fragment (active list + optional revoked
+          list), so its internal spacing is preserved by its OWN gap-3 wrapper —
+          NOT the card's — keeping the developer view consistent with the
+          non-developer branch. Form open-state separation is the panel's pt-3. */}
       <div
         data-testid="admin-settings-admins-card"
-        className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4"
+        className="flex flex-col rounded-md border border-border bg-surface p-4"
       >
-        {list}
-        {open ? (
-          <div id="admin-settings-add-admin" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">{list}</div>
+        <CollapsePanel open={open} id="admin-settings-add-admin" label="Add administrator form">
+          <div className="flex flex-col gap-3 pt-3">
             <AddAdminForm />
           </div>
-        ) : null}
+        </CollapsePanel>
       </div>
     </>
   );

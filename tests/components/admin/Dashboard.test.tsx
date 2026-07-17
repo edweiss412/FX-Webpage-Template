@@ -150,9 +150,10 @@ describe("Dashboard composition", () => {
 
   it("renders the ignored-sheets disclosure (collapsed) below the split, with its help affordance", async () => {
     await renderDashboard();
-    // Collapsed by default: the toggle + help are present, the panel is not.
+    // Collapsed by default: the toggle + help are present; the panel region is
+    // always mounted (CollapsePanel height-morph) but inert while collapsed.
     expect(screen.getByTestId("ignored-sheets-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByTestId("ignored-sheets-panel")).toBeNull();
+    expect(screen.getByTestId("ignored-sheets-panel")).toHaveAttribute("inert");
     expect(screen.getByTestId("help-affordance--ignored-sheets-page--tooltip")).toBeInTheDocument();
   });
 

@@ -32,6 +32,7 @@ import type {
 } from "@/lib/admin/loadRecentAutoApplied";
 import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
+import { CollapsePanel } from "@/components/admin/CollapsePanel";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -137,14 +138,72 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
   );
 }
 
+// COLLAPSE-1: a compact, non-interactive kind hint in the collapsed group header
+// so a destructive "Removed" (and any other kind) is visible before expanding.
+// One colored dot per DISTINCT kind in the group, in KIND_ORDER; the aria-label
+// names each kind for AT (color is a sighted-glance accelerant, not the sole
+// channel — every disposition control lives in the disclosed panel, so no change
+// is actioned without expanding and seeing the per-row KindPill first).
+// KIND_ORDER is typed string[] (not a literal tuple) so `.includes(changeKind)`
+// with the plain `string` changeKind is type-clean under strict TS.
+const KIND_ORDER: string[] = [
+  "crew_removed",
+  "crew_renamed",
+  "crew_added",
+  "field_changed",
+  "crew_email_changed",
+];
+const MAX_DOTS = 4;
+
+function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
+  const present = KIND_ORDER.filter((k) => rows.some((r) => r.changeKind === k));
+  // Any kind outside KIND_ORDER collapses to the single neutral fallback dot,
+  // deduped as one (never leaks the raw enum — invariant 5).
+  const hasUnknown = rows.some((r) => !KIND_ORDER.includes(r.changeKind));
+  const kinds = hasUnknown ? [...present, "__fallback__"] : present;
+  if (kinds.length === 0) return null;
+  const shown = kinds.slice(0, MAX_DOTS);
+  const overflow = kinds.length - shown.length;
+  const labelFor = (k: string) => KIND_PILL[k]?.label ?? FALLBACK_PILL.label;
+  return (
+    <span
+      data-testid="auto-applied-kind-dots"
+      // role="img" gives the aria-hidden dot cluster a single reliable text
+      // alternative — aria-label on a role-less generic span is inconsistently
+      // exposed to AT; role="img"+aria-label is the canonical named-graphic
+      // pattern, and still folds the kind names into the toggle's accessible name.
+      role="img"
+      className="flex shrink-0 items-center gap-1"
+      aria-label={`Change kinds: ${kinds.map(labelFor).join(", ")}`}
+    >
+      {shown.map((k) => (
+        <span
+          key={k}
+          aria-hidden="true"
+          className={`size-2 rounded-full ${KIND_PILL[k]?.dot ?? FALLBACK_PILL.dot}`}
+        />
+      ))}
+      {overflow > 0 ? (
+        <span aria-hidden="true" className="text-xs font-semibold text-text-subtle">
+          +{overflow}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function StripRow({
   row,
   group,
   actions,
+  flatten = false,
 }: {
   row: AutoAppliedRow;
   group: AutoAppliedGroup;
   actions: RecentAutoAppliedStripActions;
+  // REDESIGN-2: for a singleton group, drop the inner card chrome so the one row
+  // is not a card-in-card inside the group card. Multi-row keeps per-row cards.
+  flatten?: boolean;
 }) {
   // Crew kinds carry a structured diff → show a "Crew member" entity label; the
   // none-kinds (field/email/unknown) render their summary sentence instead.
@@ -152,7 +211,11 @@ function StripRow({
   return (
     <li
       data-testid={`auto-applied-row-${row.id}`}
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+      className={
+        flatten
+          ? "flex flex-col gap-2"
+          : "flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+      }
     >
       <div className="flex items-center gap-2">
         <KindPill changeKind={row.changeKind} />
@@ -291,9 +354,9 @@ function GroupSection({
           type="button"
           data-testid={`auto-applied-toggle-${group.showId}`}
           aria-expanded={open}
-          // Only reference the panel while it exists (mounted on expand) — a
-          // dangling aria-controls idref confuses strict screen readers.
-          aria-controls={open ? panelId : undefined}
+          // The panel region is always mounted (CollapsePanel height-morph), so
+          // aria-controls resolves unconditionally.
+          aria-controls={panelId}
           onClick={() => setOpen((v) => !v)}
           // ring-inset (not the token's offset ring) is deliberate: this toggle is
           // a full-bleed sunken bar flush to the card's top edge + rounded-t
@@ -312,6 +375,7 @@ function GroupSection({
           <span className="min-w-0 flex-1 wrap-break-word text-sm font-semibold text-text-strong">
             {group.showName}
           </span>
+          <KindDotCluster rows={group.rows} />
           <span
             data-testid={`auto-applied-count-${group.showId}`}
             aria-label={`${group.rows.length} ${group.rows.length === 1 ? "change" : "changes"}`}
@@ -322,13 +386,8 @@ function GroupSection({
         </button>
       </GroupHeading>
 
-      {open ? (
-        <div
-          id={panelId}
-          data-testid={panelId}
-          role="region"
-          aria-label={`Auto-applied changes for ${group.showName}`}
-        >
+      <CollapsePanel open={open} id={panelId} label={`Auto-applied changes for ${group.showName}`}>
+        <div>
           {/* Bulk actions sit on their OWN row underneath the show name, not beside
               it — and outside the toggle <button> (a11y: no nested interactives). */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border p-tile-pad">
@@ -395,6 +454,7 @@ function GroupSection({
           ) : null}
 
           {bulkUndoOutcome && bulkUndoOutcome.failed > 0 ? (
+            // Failure: role=alert (assertive) announces reliably on insertion.
             <p
               role="alert"
               data-testid={`auto-applied-bulk-undo-alert-${group.showId}`}
@@ -422,11 +482,17 @@ function GroupSection({
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">
             {group.rows.map((row) => (
-              <StripRow key={row.id} row={row} group={group} actions={actions} />
+              <StripRow
+                key={row.id}
+                row={row}
+                group={group}
+                actions={actions}
+                flatten={group.rows.length === 1}
+              />
             ))}
           </ul>
         </div>
-      ) : null}
+      </CollapsePanel>
     </li>
   );
 }

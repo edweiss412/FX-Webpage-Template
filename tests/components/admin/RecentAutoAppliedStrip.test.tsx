@@ -88,23 +88,42 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
   };
 }
 
-it("collapses every group by default (dashboard): rows + bulk actions hidden, count still shown", () => {
+it("collapses every group by default (dashboard): panel present-but-inert, count shown", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
   expect(toggle).toHaveAttribute("aria-expanded", "false");
+  // aria-controls is now unconditional (region always mounted)
+  expect(toggle).toHaveAttribute("aria-controls", `auto-applied-panel-${FIN_ID}`);
   // count badge shows even while collapsed (it lives in the header toggle)
   expect(screen.getByTestId(`auto-applied-count-${FIN_ID}`)).toHaveTextContent("3");
-  // disclosed panel absent → rows + bulk Accept-all not mounted
-  expect(screen.queryByTestId("auto-applied-row-r1")).toBeNull();
-  expect(screen.queryByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeNull();
-  expect(screen.queryByTestId(`auto-applied-panel-${FIN_ID}`)).toBeNull();
+  // panel region is always mounted but inert while collapsed (height-morph)
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  expect(region).toHaveAttribute("inert");
+  // rows are present in the DOM (inside the inert region), not unmounted
+  expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
 });
 
-it("expands a group on toggle click: rows + bulk Accept all appear, aria-expanded flips", () => {
+it("expanding a group clears inert on its panel region", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  expect(region).not.toHaveAttribute("inert");
+  expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+});
+
+it("expands a group on toggle click: panel region flips inert->active, aria-expanded flips", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  // before click: region inert (real reveal signal, not mere presence — rows are
+  // always mounted now)
+  expect(region).toHaveAttribute("inert");
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(region).not.toHaveAttribute("inert");
   expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
   expect(screen.getByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeInTheDocument();
 });
@@ -200,6 +219,114 @@ it("shows a per-group count badge = rendered rows", () => {
       `auto-applied-count-${RIA_ID}`,
     ),
   ).toHaveTextContent("1");
+});
+
+// ── COLLAPSE-1: collapsed-header kind-dot cluster ──────────────────────────
+// helper to build a single-group fixture with the given change kinds
+function groupData(kinds: string[]): RecentAutoApplied {
+  return {
+    kind: "ok",
+    renderedCount: kinds.length,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: "g",
+        slug: "g",
+        showName: "G",
+        acceptableIds: kinds.map((_, i) => `k${i}`),
+        undoableIds: [],
+        rows: kinds.map((k, i) => ({
+          id: `k${i}`,
+          changeKind: k,
+          summary: "s",
+          occurredAt: "2026-07-07T00:00:00Z",
+          undoable: false,
+          diff: { kind: "none" as const },
+        })),
+      },
+    ],
+  };
+}
+
+it("collapsed header shows a kind-dot cluster: one dot per distinct kind, labeled", () => {
+  // FIN group has crew_added + crew_renamed + field_changed (3 distinct kinds)
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const cluster = within(screen.getByTestId(`auto-applied-group-${FIN_ID}`)).getByTestId(
+    "auto-applied-kind-dots",
+  );
+  // role="img" gives the aria-hidden dot cluster a reliable AT-exposed text
+  // alternative (aria-label on a role-less span is inconsistently announced)
+  expect(cluster).toHaveAttribute("role", "img");
+  // aria-label names each kind (data source = group.rows, not per-row pills)
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Renamed"));
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Added"));
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Field"));
+  // one dot per distinct kind (3), no +N (≤4)
+  expect(cluster.querySelectorAll("span[aria-hidden='true']").length).toBe(3);
+  // header flex invariant: cluster is shrink-0, precedes the shrink-0 count badge
+  expect(cluster.className).toContain("shrink-0");
+  const count = screen.getByTestId(`auto-applied-count-${FIN_ID}`);
+  expect(cluster.compareDocumentPosition(count) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it("kind-dot cluster: destructive crew_removed renders and is ordered first (safety hint)", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_added", "crew_removed"])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const label = cluster.getAttribute("aria-label") ?? "";
+  expect(label).toContain("Removed");
+  expect(label).toContain("Added");
+  // KIND_ORDER puts crew_removed before crew_added → "Removed" precedes "Added"
+  expect(label.indexOf("Removed")).toBeLessThan(label.indexOf("Added"));
+});
+
+it("kind-dot cluster with an unknown kind → single fallback dot, label 'Change', raw enum absent", () => {
+  render(<RecentAutoAppliedStrip data={groupData(["weird_new_kind"])} actions={noopActions()} />);
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Change"));
+  expect(cluster.textContent ?? "").not.toContain("weird_new_kind");
+});
+
+it("kind-dot cluster: >4 distinct kinds → 4 dots + a +N overflow marker", () => {
+  // 5 known + 1 unknown = 6 distinct → 4 dots + "+2"
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData([
+        "crew_removed",
+        "crew_renamed",
+        "crew_added",
+        "field_changed",
+        "crew_email_changed",
+        "weird",
+      ])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const dotEls = [...cluster.querySelectorAll("span[aria-hidden='true']")].filter((el) =>
+    el.className.includes("rounded-full"),
+  );
+  expect(dotEls.length).toBe(4);
+  expect(cluster.textContent ?? "").toContain("+2");
+});
+
+it("kind-dot cluster: empty rows → renders nothing", () => {
+  render(<RecentAutoAppliedStrip data={groupData([])} actions={noopActions()} />);
+  expect(screen.queryByTestId("auto-applied-kind-dots")).toBeNull();
+});
+
+// ── REDESIGN-2: singleton group flatten (no card-in-card) ──────────────────
+it("singleton group flattens the inner row card; multi-row keeps per-row cards", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  // RIA = one row (r4) → flattened (no border card chrome)
+  expect(screen.getByTestId("auto-applied-row-r4").className).not.toContain("border");
+  // FIN = three rows → each keeps its card border
+  expect(screen.getByTestId("auto-applied-row-r1").className).toContain("border");
 });
 
 it("maps EVERY kind to its status-token pill (label + token classes, incl. removed/email/fallback)", () => {
@@ -494,7 +621,7 @@ it("reopening the confirm clears a visible alert (open-clears lifecycle)", async
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
-it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
+it("failure alert then a later all-success run: failure alert gone, sr-only success shown (completion writes {failed:0,total})", async () => {
   const actions = noopActions();
   actions.undoFromDashboardAction = vi
     .fn()
@@ -505,6 +632,78 @@ it("failure alert then a later all-success run: alert stays gone after settle (c
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+  // DESTRUCT-3 (#422): the all-success second run writes the sentence into the
+  // persistent sr-only status region (text present, not the always-mounted empty node)
+  expect(screen.getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toHaveTextContent(
+    "Undid all 2 changes",
+  );
+});
+
+// ── Transition-audit: compound collapse-while-confirm-open ─────────────────
+it("collapsing a group while its confirm panel is open keeps the confirm mounted (inert), state persists", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  // open the Undo-all confirm
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+  // collapse the group (toggle) while the confirm is open
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  // confirm markup persists (always-mounted morph, state preserved) but the
+  // region is inert — no second animation fires on the confirm sub-panel
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).toHaveAttribute("inert");
+  // re-expand: confirm still open (state persisted)
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).not.toHaveAttribute("inert");
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+});
+
+// DESTRUCT-3 singular-copy coverage (complements #422's persistent-region tests,
+// which only exercise the plural 2-change case).
+it("all-success bulk undo with a single undoable row → singular 'change' copy", async () => {
+  const SID = "solo";
+  const data: RecentAutoApplied = {
+    kind: "ok",
+    renderedCount: 1,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: SID,
+        slug: "solo",
+        showName: "Solo",
+        acceptableIds: ["u1"],
+        undoableIds: ["u1"],
+        rows: [
+          {
+            id: "u1",
+            changeKind: "crew_added",
+            summary: "added",
+            occurredAt: "2026-07-07T00:00:00Z",
+            undoable: true,
+            diff: { kind: "single", caption: "Added", value: "X" },
+          },
+        ],
+      },
+    ],
+  };
+  render(
+    <RecentAutoAppliedStrip
+      data={data}
+      actions={{
+        ...noopActions(),
+        undoFromDashboardAction: vi.fn().mockResolvedValue({ ok: true }),
+      }}
+      defaultExpanded
+    />,
+  );
+  fireEvent.click(screen.getByTestId(`auto-applied-undo-all-${SID}`));
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`auto-applied-undo-all-confirm-go-${SID}`));
+  });
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-status-${SID}`);
+  expect(status.textContent).toContain("Undid all 1 change");
+  expect(status.textContent).not.toContain("1 changes"); // singular, not plural
 });
 
 it("alert persists across collapse → re-expand", async () => {
@@ -517,7 +716,9 @@ it("alert persists across collapse → re-expand", async () => {
   await openConfirmAndRunUndoAll();
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // collapse
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+  // alert node persists (always-mounted height-morph) but its region is inert while collapsed
+  expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).toHaveAttribute("inert");
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // re-expand
   // "1 of" = the single {ok:false} arranged above; derived from the mock arrangement.
   expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`).textContent).toContain(
