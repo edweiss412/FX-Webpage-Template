@@ -80,6 +80,38 @@ describe("B2 lifecycle RPC meta — private cores + advisory-lock topology (sing
       ].join("|"),
     );
   });
+
+  // Wizard blocker in-wizard resolution (2026-07-16 spec §3.2): extracts _unarchive_show_apply as a
+  // lock-free, gate-free internal helper so the wizard resolve-blocker route (privileged postgres.js
+  // connection, no JWT) can call it by ownership. unarchive_show still self-locks + is_admin()-gates and
+  // now delegates its transition body to the helper.
+  test("unarchive_show wrapper takes the in-RPC show lock; _unarchive_show_apply takes none, is revoked from all roles, and pins search_path", () => {
+    const out = runPsql(`
+      select
+        (pg_get_functiondef('public.unarchive_show(uuid)'::regprocedure) ~ 'pg_advisory_xact_lock\\s*\\(\\s*hashtext\\s*\\(\\s*''show:''') || '|' ||
+        has_function_privilege('authenticated', 'public.unarchive_show(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('service_role', 'public.unarchive_show(uuid)', 'EXECUTE') || '|' ||
+        (pg_get_functiondef('public._unarchive_show_apply(uuid)'::regprocedure) ~ 'pg_advisory_xact_lock') || '|' ||
+        (pg_get_functiondef('public._unarchive_show_apply(uuid)'::regprocedure) ~ 'search_path TO ''public'', ''pg_temp''') || '|' ||
+        has_function_privilege('authenticated', 'public._unarchive_show_apply(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('anon', 'public._unarchive_show_apply(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('service_role', 'public._unarchive_show_apply(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('public', 'public._unarchive_show_apply(uuid)', 'EXECUTE')
+    `);
+    expect(out).toBe(
+      [
+        "true", // unarchive_show takes the lock
+        "true", // authenticated may call unarchive_show
+        "false", // service_role may NOT call unarchive_show
+        "false", // _unarchive_show_apply takes NO lock
+        "true", // _unarchive_show_apply pins search_path=public,pg_temp
+        "false", // authenticated may NOT call _unarchive_show_apply
+        "false", // anon may NOT call _unarchive_show_apply
+        "false", // service_role may NOT call _unarchive_show_apply
+        "false", // PUBLIC may NOT call _unarchive_show_apply
+      ].join("|"),
+    );
+  });
 });
 
 describe("B2 first-published parity — every autoPublishFirstSeen site routes through emitSuccessfulPhase2Tail", () => {
