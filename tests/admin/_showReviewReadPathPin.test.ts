@@ -46,6 +46,12 @@ const REVIEW_TABLES = [
   "hotel_reservations",
   "transportation",
   "contacts",
+  // The snapshot RPC also owns the show's `shows_internal` row (parse_warnings,
+  // run_of_show, financials, use_raw_decisions). The branch retired the page's
+  // old direct `shows_internal.parse_warnings` read, so a hand-rolled review-
+  // surface read of it escapes the single-statement snapshot's consistency
+  // guarantee + the RPC's is_admin() gate exactly like the other review tables.
+  "shows_internal",
 ] as const;
 
 const RPC_NAME = "get_admin_show_review_snapshot";
@@ -63,6 +69,12 @@ const FROM_ALLOWLIST: ReadonlyArray<{ file: string; table: string; reason: strin
     table: "crew_members",
     reason:
       "Preview-as impersonation page's lookupCrewMember (spec §preview); an independent single-row lookup, not the review snapshot.",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/roleToken.ts",
+    table: "shows_internal",
+    reason:
+      "createRoleToken warning-provenance re-read (§8.3): a service-role single-column shows_internal.parse_warnings lookup that verifies an UNKNOWN_ROLE_TOKEN warning names this exact token before minting a global role-token row (anti-tamper) — a mutation-path security check, NOT the review-surface render read.",
   },
 ];
 
