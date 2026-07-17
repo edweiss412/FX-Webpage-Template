@@ -38,17 +38,31 @@ const REGISTRY: Row[] = [
     "panel",
     "cleanup-abandoned-finalize-confirm-yes",
   ),
-  R(
-    "components/admin/ReapStaleSessionsButton.tsx",
-    0,
-    "panel",
-    "reap-stale-sessions-confirm-yes",
-  ),
+  R("components/admin/ReapStaleSessionsButton.tsx", 0, "panel", "reap-stale-sessions-confirm-yes"),
   R(
     "components/admin/PreviewBanner.tsx",
     0,
     "exempt-non-confirm",
     "preview-banner CTA: inverted amber as banner emphasis, NOT a destructive confirm; predates spec; intentionally violates C1 (hover:bg-warning-text/90)",
+  ),
+  R(
+    "app/admin/show/[slug]/RotateShareTokenButton.tsx",
+    0,
+    "panel",
+    "admin-rotate-share-token-confirm-button",
+  ),
+  R(
+    "app/admin/show/[slug]/ResetPickerEpochButton.tsx",
+    0,
+    "panel",
+    "admin-reset-picker-epoch-confirm-button",
+  ),
+  R("app/admin/show/[slug]/PickerResetControl.tsx", 0, "panel", "picker-reset-confirm-button"),
+  R(
+    "app/admin/settings/admins/RevokeRowButton.tsx",
+    0,
+    "panel",
+    "admin-allowlist-revoke-confirm-button",
   ),
 ];
 
@@ -106,11 +120,13 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
       const row = REGISTRY.find((r) => r.file === h.file && r.index === h.index);
       if (!row || row.kind === "exempt-non-confirm") continue;
       const t = h.tokens;
-      if (!t.includes("font-semibold")) problems.push(`${h.file}:${h.lineNo} missing font-semibold`);
+      if (!t.includes("font-semibold"))
+        problems.push(`${h.file}:${h.lineNo} missing font-semibold`);
       if (!t.includes("hover:opacity-90"))
         problems.push(`${h.file}:${h.lineNo} missing hover:opacity-90`);
       for (const bad of ["bg-accent", "bg-surface", "bg-bg"]) {
-        if (t.some((x) => baseUtil(x) === bad)) problems.push(`${h.file}:${h.lineNo} forbidden ${bad}`);
+        if (t.some((x) => baseUtil(x) === bad))
+          problems.push(`${h.file}:${h.lineNo} forbidden ${bad}`);
       }
       // any token whose variant chain includes `hover` and whose base utility is bg-*
       for (const x of t) {

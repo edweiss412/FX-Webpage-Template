@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 
 // Stable mock of the Server Action; the test controls the resolved
 // value per case.
@@ -34,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 describe("RevokeRowButton — R8 MEDIUM lockout UI reset", () => {
@@ -135,5 +137,94 @@ describe("RevokeRowButton — R8 MEDIUM lockout UI reset", () => {
     expect(getByTestId("admin-allowlist-revoke-confirm-button").textContent?.trim()).toBe(
       "Confirm revoke",
     );
+  });
+});
+
+// ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R5/F4) ----
+
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
+
+describe("RevokeRowButton — destructive recipe + focus-safe open/close (R5, F4)", () => {
+  it("confirm-go carries the destructive recipe; cancel + idle trigger reject recipe tokens (C1/C2)", () => {
+    const { getByTestId, unmount } = render(
+      <RevokeRowButton email="x@example.com" disabled={false} />,
+    );
+    // Idle trigger is NOT restyled (spec §5 R5 — trigger, not confirm-go).
+    const triggerTokens = getByTestId("admin-allowlist-revoke-button").className.split(/\s+/);
+    expect(triggerTokens).not.toContain("bg-warning-text");
+    expect(triggerTokens).not.toContain("text-warning-bg");
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    expectDestructiveRecipe(getByTestId("admin-allowlist-revoke-confirm-button"));
+    const cancelTokens = getByTestId("admin-allowlist-revoke-cancel-button").className.split(/\s+/);
+    expect(cancelTokens).not.toContain("bg-warning-text");
+    expect(cancelTokens).not.toContain("text-warning-bg");
+    unmount();
+  });
+
+  it("open focus (C3): entering confirm moves focus to the cancel button", async () => {
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await vi.waitFor(() =>
+      expect(getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
+    );
+  });
+
+  it("close focus (C5): cancel activation returns focus to the re-mounted idle trigger", async () => {
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await vi.waitFor(() =>
+      expect(getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
+    );
+    fireEvent.click(getByTestId("admin-allowlist-revoke-cancel-button"));
+    await vi.waitFor(() => expect(getByTestId("admin-allowlist-revoke-button")).toHaveFocus());
+  });
+
+  it("close focus (C5): auto-revert with focus inside the confirm row restores the trigger", async () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await vi.waitFor(() =>
+      expect(getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
+    );
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    await vi.waitFor(() => expect(getByTestId("admin-allowlist-revoke-button")).toHaveFocus());
+  });
+
+  it("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(
+      <>
+        <RevokeRowButton email="x@example.com" disabled={false} />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await vi.waitFor(() =>
+      expect(getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
+    );
+    const external = getByTestId("external-btn");
+    act(() => external.focus());
+    act(() => {
+      vi.advanceTimersByTime(3_001);
+    });
+    expect(external).toHaveFocus();
+    expect(getByTestId("admin-allowlist-revoke-button")).not.toHaveFocus();
   });
 });

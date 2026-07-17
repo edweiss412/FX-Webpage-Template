@@ -53,6 +53,11 @@ export function ResetPickerEpochButton({
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descId = useId(); // compact row-description id (aria-describedby target)
+  // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const confirmRowRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef(false);
 
   const clearAutoRevert = () => {
     if (autoRevertRef.current !== null) {
@@ -62,6 +67,35 @@ export function ResetPickerEpochButton({
   };
 
   useEffect(() => () => clearAutoRevert(), []);
+
+  function closeConfirm() {
+    // used ONLY by cancel onClick and the auto-revert timer callback — never submit/result paths
+    // Capture ONLY while the confirm row is still mounted; a timer firing after the row is
+    // gone must not write anything (and the functional setUi guard below already no-ops then).
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
+    // Preserve the existing functional guard — only confirm → idle, never clobber a later state.
+    setUi((prev) => (prev === "confirm" ? "idle" : prev));
+  }
+
+  // C3 (open focus): the confirm row mounts with the SAFE control focused,
+  // closing the stray-second-Enter vector (spec §3 C3).
+  useEffect(() => {
+    if (ui === "confirm") cancelRef.current?.focus();
+  }, [ui]);
+
+  // C5 (close focus), single-shot consumption: the idle-render effect resets
+  // restoreFocusRef to false when it fires, and only one close happens per
+  // confirm episode (cancel clears the timer; the timer cannot race a consumed
+  // restore because the effect runs on the very next render, before any later
+  // macro-task timer callback).
+  useEffect(() => {
+    if (ui === "idle" && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [ui]);
 
   // Snap back to idle when the transition settles so the banner
   // anchors next to the original button cluster (matches the
@@ -91,13 +125,13 @@ export function ResetPickerEpochButton({
     setResult(null);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
-      setUi((prev) => (prev === "confirm" ? "idle" : prev));
+      closeConfirm();
     }, AUTO_REVERT_MS);
   };
 
   const onCancelClick = () => {
     clearAutoRevert();
-    setUi("idle");
+    closeConfirm();
   };
 
   const onConfirmClick = () => {
@@ -133,6 +167,7 @@ export function ResetPickerEpochButton({
   const idleButton = (
     <button
       type="button"
+      ref={triggerRef}
       onClick={onResetClick}
       data-testid="admin-reset-picker-epoch-button"
       aria-label={compact ? "Reset name picker" : undefined}
@@ -208,12 +243,13 @@ export function ResetPickerEpochButton({
         aria-busy={isResolving}
         aria-describedby="admin-reset-picker-epoch-warning"
         data-testid="admin-reset-picker-epoch-confirm-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isResolving ? "Resetting…" : "Confirm reset"}
       </button>
       <button
         type="button"
+        ref={cancelRef}
         onClick={onCancelClick}
         disabled={isResolving}
         data-testid="admin-reset-picker-epoch-cancel-button"
@@ -239,6 +275,7 @@ export function ResetPickerEpochButton({
       )
     ) : (
       <div
+        ref={confirmRowRef}
         data-testid="admin-reset-picker-epoch-confirm-row"
         role="group"
         aria-label="Confirm resetting picker selections for this show"
