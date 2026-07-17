@@ -389,6 +389,14 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "deleteRoleTokenMapping",
     code: "ROLE_TOKEN_MAPPING_DELETED",
   },
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 7): the resolve-blocker
+  // route's unarchive action. Emit is POST-COMMIT via deferPostResponse, outside the
+  // advisory-lock txn (invariant 2/10).
+  {
+    file: "app/api/admin/onboarding/resolve-blocker/route.ts",
+    fn: "POST",
+    code: "ONBOARDING_BLOCKER_UNARCHIVED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -478,6 +486,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // scan); flow into NEW_FORENSIC_CODES via spread.
   "ROLE_TOKEN_MAPPING_SET",
   "ROLE_TOKEN_MAPPING_DELETED",
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 7): forensic outcome
+  // code for the resolve-blocker route's unarchive action. §12.4-exempt
+  // (logAdminOutcome-stamped -> stripped from the producer scan); flows into
+  // NEW_FORENSIC_CODES via spread.
+  "ONBOARDING_BLOCKER_UNARCHIVED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

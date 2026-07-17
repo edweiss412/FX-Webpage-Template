@@ -14,14 +14,12 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { deferPostResponse } from "@/lib/async/deferPostResponse";
 
 /**
- * POST /api/admin/onboarding/resolve-blocker — Task 6 SCAFFOLD ONLY.
+ * POST /api/admin/onboarding/resolve-blocker.
  *
- * This module intentionally does NOT `export function POST` yet (Codex plan-R1 F2): the
- * route is not live until Task 8 adds both real action bodies. `resolveUnarchive` and
- * `resolveRebuild` are SAFE non-throwing placeholders in this task — each returns the typed
- * `not_currently_blocked` guard response, never a throw, never a mutation — so the module
- * typechecks and the body/session guard tests can run before Tasks 7/8 land the real
- * transition logic.
+ * Task 7 makes `action: "unarchive"` real and exports the live `POST` handler
+ * (Codex plan-R1 F2). `resolveRebuild` is STILL the Task 6 SAFE non-throwing
+ * `not_currently_blocked` placeholder until Task 8 — it never throws and never
+ * mutates, so the now-live surface can never 500 on a `rebuild` request.
  *
  * Two-phase structure for `action: "rebuild"` (spec §3.2): a PRE-LOCK phase (advisory
  * session read + advisory cap read + Drive fetch + prepareOnboardingFiles) runs with NO
@@ -81,18 +79,68 @@ type Body = { wizardSessionId?: unknown; driveFileId?: unknown; code?: unknown; 
 // generic TransactionSql type.
 type RawTx = { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> };
 
-// Task 6 SAFE PLACEHOLDER — never throws, never mutates. Task 7 replaces this body with the
-// real `_unarchive_show_apply` dispatch under the already-held advisory lock.
+// Adapts the raw postgres.js RawTx (`.unsafe`) to the `{ queryOne }` shape
+// `readShowArchived_unlocked` expects (mirrors lib/sync/lockedShowTx.ts's private
+// `postgresTxAdapter` — not exported there, so this route keeps its own copy).
+function queryOneTxAdapter(tx: RawTx): { queryOne<T>(sql: string, params: unknown[]): Promise<T> } {
+  return {
+    async queryOne<T>(sql: string, params: unknown[]) {
+      const rows = await tx.unsafe(sql, params);
+      return rows[0] as T;
+    },
+  };
+}
+
+// Task 7 — real `_unarchive_show_apply` dispatch under the already-held advisory lock
+// (spec §3.2 "action: unarchive", steps 3-6).
 async function resolveUnarchive(
-  _tx: RawTx,
-  _ctx: {
+  tx: RawTx,
+  { wizardSessionId, driveFileId, showId, admin }: {
     wizardSessionId: string;
     driveFileId: string;
     showId: string;
     admin: { email: string };
   },
 ): Promise<Response> {
-  return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+  // Step 3a — authorization scoping (Codex R2 F2 + R3 F1): re-derive session
+  // membership under the held lock. Absent → not_currently_blocked, no mutation.
+  const manifestRows = (await tx.unsafe(
+    `select 1 from public.onboarding_scan_manifest where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [wizardSessionId, driveFileId],
+  )) as unknown[];
+  if (manifestRows.length === 0) {
+    return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+  }
+  // Step 3b — re-derive the current blocking condition (the exact predicate
+  // finalize-cas uses). Not archived → not_currently_blocked, no mutation.
+  const archived = await readShowArchived_unlocked(queryOneTxAdapter(tx), driveFileId);
+  if (!archived) {
+    return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+  }
+  // Step 4 — the single source of the archived->held transition (owner SQL,
+  // NOT the is_admin()-gated unarchive_show — the route's owner postgres.js
+  // connection has no JWT for is_admin() to read; see spec §3.2).
+  const applyRows = (await tx.unsafe(`select public._unarchive_show_apply($1) as transitioned`, [
+    showId,
+  ])) as Array<{ transitioned: boolean }>;
+  const transitioned = applyRows[0]?.transitioned ?? false;
+  // Step 6 — post-commit forensic breadcrumb (invariant 10): scheduled via the
+  // canonical post-response scheduler, outside the advisory-lock txn. The task
+  // body catches ALL rejections; deferPostResponse itself is never awaited.
+  deferPostResponse(async () => {
+    await logAdminOutcome({
+      code: "ONBOARDING_BLOCKER_UNARCHIVED",
+      source: "api.admin.onboarding.resolveBlocker",
+      actorEmail: admin.email,
+      driveFileId,
+      wizardSessionId,
+      showId,
+      result: transitioned ? "unarchived" : "noop",
+    }).catch(() => {});
+  });
+  // Step 5 — either boolean maps to the same success response (idempotent no-op
+  // is still a resolve from the wizard UI's perspective).
+  return NextResponse.json({ ok: true, status: "resolved" } satisfies ResolveBlockerResponse);
 }
 
 // Task 6 SAFE PLACEHOLDER — never throws, never mutates. Task 8 replaces this body with the
@@ -228,16 +276,15 @@ export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRo
   }
 }
 
-// NOTE (Codex plan-R1 F2): Task 6 does NOT `export function POST` — the file is not a
-// live route yet, so no throwing/incomplete handler is ever reachable in this intermediate
-// commit. `export const POST` is added in Task 8, once BOTH actions are real.
+// Live route entrypoint (Codex plan-R1 F2 — deferred from Task 6, landed here in Task 7):
+// `action: "unarchive"` is real; `action: "rebuild"` is still the Task 6 SAFE
+// non-throwing `not_currently_blocked` placeholder until Task 8, so this export can
+// never 500 on either action.
+export const POST = (req: Request): Promise<Response> => handleResolveBlocker(req);
 
-// Referenced only to keep the Task 7/8 import surface stable across this scaffold commit —
-// neither is called yet (placeholders above never reach them). Prevents an unused-import
-// lint pass from being the thing that forces a diff between this scaffold and Tasks 7/8.
-void readShowArchived_unlocked;
+// Referenced only to keep the Task 8 import surface stable across this commit — not
+// called yet (resolveRebuild's placeholder body never reaches them). Prevents an
+// unused-import lint pass from being the thing that forces a diff in Task 8.
 void applyRescanDecisionUnderLock;
 void parseShadowPayloadForApply;
-void logAdminOutcome;
-void deferPostResponse;
 void defaultScanOnboardingPreparedFiles;

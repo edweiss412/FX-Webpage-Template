@@ -531,6 +531,29 @@ vi.mock("@/lib/sync/discardStaged", async (importActual) => ({
 
 import { POST as snapshotRepairPost } from "@/app/api/admin/snapshot-rollback/[id]/repair/route";
 
+// ── Wizard blocker in-wizard resolution (spec 2026-07-16, Task 7) — resolve-blocker's
+// unarchive action. It opens its OWN privileged postgres.js connection (mirrors
+// finalize-cas), not an injectable withTx seam, so this is an honest DB-integration
+// proof against local Postgres (54322) — same pattern as
+// tests/api/admin/onboarding/resolveBlocker.test.ts. It also defers its post-commit
+// logAdminOutcome via deferPostResponse (Next's after()), which throws synchronously
+// outside a request scope — module-mock it here to capture the scheduled task instead
+// of letting it throw and roll back the route's transaction (mirrors
+// tests/admin/setUseRawDecisionAction.test.ts). Safe file-wide: useRaw.ts is the only
+// OTHER production caller of deferPostResponse, and its logAdminOutcome call happens
+// BEFORE its deferPostResponse call, so mocking this does not affect its own
+// success-code assertions elsewhere in this file.
+const resolveBlockerDeferredTasks: Array<() => Promise<void>> = [];
+const deferPostResponseMock = vi.fn((task: () => Promise<void>) => {
+  resolveBlockerDeferredTasks.push(task);
+});
+vi.mock("@/lib/async/deferPostResponse", () => ({
+  deferPostResponse: (t: () => Promise<void>) => deferPostResponseMock(t),
+}));
+
+import postgres from "postgres";
+import { handleResolveBlocker } from "@/app/api/admin/onboarding/resolve-blocker/route";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -3494,6 +3517,166 @@ describe("role-mapping actions — post-commit forensic emit (spec 2026-07-15 §
     const failCodes = await observeCodes(() => deleteRoleTokenMapping("DRONE OP"));
     expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_DELETED");
   });
+});
+
+// ── Wizard blocker in-wizard resolution (spec 2026-07-16, Task 7): resolve-blocker
+// unarchive route observes success only ──
+const RESOLVE_BLOCKER_ROUTE = "app/api/admin/onboarding/resolve-blocker/route.ts";
+const RESOLVE_BLOCKER_LOCAL_URL =
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const RB_SESSION = "7a7a7a7a-1111-4111-8111-7a7a7a7a7a7a";
+const RB_DRIVE_FILE_ID = "admin-outcome-resolve-blocker-drive-file";
+const RB_ADMIN_EMAIL = "admin@example.com";
+const RB_FOLDER_ID = "admin-outcome-resolve-blocker-folder";
+
+let resolveBlockerSql: ReturnType<typeof postgres> | null = null;
+let resolveBlockerDbUp = false;
+try {
+  const probe = postgres(RESOLVE_BLOCKER_LOCAL_URL, {
+    max: 2,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
+  await probe.unsafe("select 1", []);
+  resolveBlockerSql = probe;
+  resolveBlockerDbUp = true;
+} catch {
+  if (resolveBlockerSql) await (resolveBlockerSql as ReturnType<typeof postgres>).end().catch(() => {});
+  resolveBlockerSql = null;
+  resolveBlockerDbUp = false;
+}
+
+function rbOne<T = Record<string, unknown>>(rows: unknown): T {
+  return (rows as T[])[0]!;
+}
+
+async function rbCleanup(): Promise<void> {
+  if (!resolveBlockerSql) return;
+  await resolveBlockerSql
+    .unsafe(`delete from public.onboarding_scan_manifest where drive_file_id = $1`, [
+      RB_DRIVE_FILE_ID,
+    ])
+    .catch(() => {});
+  await resolveBlockerSql
+    .unsafe(`delete from public.shows where drive_file_id = $1`, [RB_DRIVE_FILE_ID])
+    .catch(() => {});
+  await resolveBlockerSql
+    .unsafe(
+      `update public.app_settings
+          set pending_wizard_session_id = null, pending_wizard_session_at = null,
+              pending_folder_id = null
+        where id = 'default'`,
+      [],
+    )
+    .catch(() => {});
+}
+
+async function rbSeedActiveSession(session: string): Promise<void> {
+  await resolveBlockerSql!.unsafe(
+    `update public.app_settings
+        set pending_wizard_session_id = $1::uuid, pending_wizard_session_at = now()
+      where id = 'default'`,
+    [session],
+  );
+}
+
+async function rbSeedShow(opts: { archived?: boolean } = {}): Promise<string> {
+  const row = rbOne<{ id: string }>(
+    await resolveBlockerSql!.unsafe(
+      `insert into public.shows
+         (drive_file_id, slug, title, client_label, template_version, published, last_sync_status, archived)
+       values ($1, $2, 'Resolve Blocker Behavior', 'Client', 'v4', true, 'ok', $3)
+       returning id`,
+      [RB_DRIVE_FILE_ID, `slug-${RB_DRIVE_FILE_ID}`, opts.archived ?? false],
+    ),
+  );
+  return row.id;
+}
+
+async function rbSeedManifestRow(session: string, driveFileId: string): Promise<void> {
+  await resolveBlockerSql!.unsafe(
+    `insert into public.onboarding_scan_manifest
+       (folder_id, wizard_session_id, drive_file_id, mime_type, name, status)
+     values ($1, $2::uuid, $3, 'application/vnd.google-apps.spreadsheet', 'Resolve Blocker Sheet', 'applied')`,
+    [RB_FOLDER_ID, session, driveFileId],
+  );
+}
+
+function resolveBlockerReq(body: unknown): Request {
+  return new Request("https://crew.fxav.test/api/admin/onboarding/resolve-blocker", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("Task 7 — resolve-blocker unarchive route observes success only", () => {
+  beforeEach(async () => {
+    resolveBlockerDeferredTasks.length = 0;
+    if (!resolveBlockerDbUp) return;
+    await rbCleanup();
+  });
+  afterAll(async () => {
+    if (resolveBlockerDbUp) await rbCleanup();
+    if (resolveBlockerSql) await resolveBlockerSql.end().catch(() => {});
+  });
+
+  test.skipIf(!resolveBlockerDbUp)(
+    "unarchive emits ONBOARDING_BLOCKER_UNARCHIVED with result:'unarchived' on a committed transition; nothing on the not_currently_blocked guard branch",
+    async () => {
+      // success drive: real archived + in-manifest show → committed transition.
+      await rbSeedActiveSession(RB_SESSION);
+      await rbSeedShow({ archived: true });
+      await rbSeedManifestRow(RB_SESSION, RB_DRIVE_FILE_ID);
+
+      const codes = await observeSuccessCodes(async () => {
+        const res = await handleResolveBlocker(
+          resolveBlockerReq({
+            wizardSessionId: RB_SESSION,
+            driveFileId: RB_DRIVE_FILE_ID,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            action: "unarchive",
+          }),
+          { requireAdminIdentity: async () => ({ email: RB_ADMIN_EMAIL }) },
+        );
+        expect(await res.clone().json()).toEqual({ ok: true, status: "resolved" });
+        // The route defers the emit post-commit; the sink-spy only observes it once
+        // the captured deferPostResponse task is drained (proving it is genuinely
+        // post-commit, not synchronous).
+        const task = resolveBlockerDeferredTasks.at(-1);
+        expect(task, "route did not schedule a deferPostResponse task on success").toBeDefined();
+        await task!();
+      });
+      expect(codes).toContain("ONBOARDING_BLOCKER_UNARCHIVED");
+      recordAdminOutcomeBehavior({
+        file: RESOLVE_BLOCKER_ROUTE,
+        fn: "POST",
+        code: "ONBOARDING_BLOCKER_UNARCHIVED",
+      });
+      resolveBlockerDeferredTasks.length = 0; // drained above; reset before the failure drive
+
+      // failure drive: unrelated archived show (not in THIS session's manifest) →
+      // not_currently_blocked, no mutation, no emit at all (no deferred task scheduled).
+      await rbCleanup();
+      await rbSeedActiveSession(RB_SESSION);
+      await rbSeedShow({ archived: true }); // archived, but no manifest row for RB_SESSION
+      const failCodes = await observeCodes(async () => {
+        const res = await handleResolveBlocker(
+          resolveBlockerReq({
+            wizardSessionId: RB_SESSION,
+            driveFileId: RB_DRIVE_FILE_ID,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            action: "unarchive",
+          }),
+          { requireAdminIdentity: async () => ({ email: RB_ADMIN_EMAIL }) },
+        );
+        expect(await res.clone().json()).toEqual({ ok: false, status: "not_currently_blocked" });
+      });
+      expect(failCodes).not.toContain("ONBOARDING_BLOCKER_UNARCHIVED");
+      expect(resolveBlockerDeferredTasks.length).toBe(0);
+    },
+  );
 });
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
