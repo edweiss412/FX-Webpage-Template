@@ -221,13 +221,13 @@ function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
 }
 
 // Bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked; 2026-07-17 revision).
-// Line 1 = health (bare bucket label). The former "Edited {rel}" clause moved to the
-// show-page header (StatusStrip); the "Checked {rel}" clause is now a secondary signal
-// shown ONLY on the desktop Sync column (place="desktop"), collapsed by default and
-// revealed on row hover / keyboard focus via the `group` on the row Link (below). Mobile
-// stacked rows (place="mobile") omit it entirely — no hover surface, and the sub-line
-// stays lean. Every element is a <span> (block/flex): this mounts inside a <span> wrapper
-// and StatusIndicator's root is a <span>; a <div> would be invalid.
+// Renders the health bucket (dot + bare label). The former "Edited {rel}" clause moved to
+// the show-page header (StatusStrip). The "Checked {rel}" time (last successful Drive
+// reach) is now a NATIVE hover tooltip (`title`) on the desktop Sync column — a popup that
+// adds NO in-row element, so moving the cursor across rows never shifts layout, and it is
+// never clipped by the list's `overflow-hidden` wrapper. Mobile stacked rows
+// (place="mobile") omit it entirely (no hover surface). The root is a <span> (this mounts
+// inside a <span> wrapper and StatusIndicator's root is a <span>; a <div> would be invalid).
 function SyncCell({
   row,
   now,
@@ -238,19 +238,13 @@ function SyncCell({
   place?: "mobile" | "desktop";
 }) {
   const { bucket, label } = syncStatusBucket(row.lastSyncStatus);
-  // Checked line: desktop only, and only when a check stamp exists (falsy null/""/undefined).
-  const showChecked = place === "desktop" && Boolean(row.lastCheckedAt);
+  const checkedTitle =
+    place === "desktop" && row.lastCheckedAt
+      ? `Checked ${formatRelative(row.lastCheckedAt, now)}`
+      : undefined;
   return (
-    <span className="flex flex-col">
+    <span className="flex flex-col" title={checkedTitle}>
       <StatusIndicator status={bucket} label={label} />
-      {showChecked ? (
-        <span
-          data-testid={`shows-sync-times-${row.slug}`}
-          className="mt-0.5 hidden text-xs text-text-subtle tabular-nums group-hover:block group-focus-visible:block"
-        >
-          Checked {formatRelative(row.lastCheckedAt, now)}
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -480,7 +474,7 @@ export function ShowsTable({
                   <Link
                     href={`/admin/show/${encodeURIComponent(row.slug)}`}
                     data-testid={`shows-table-row-${row.slug}`}
-                    className={`group flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
+                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
                   >
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">

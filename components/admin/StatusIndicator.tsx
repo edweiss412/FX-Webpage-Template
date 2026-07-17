@@ -23,26 +23,35 @@ const DOT_BG: Record<StatusKind, string> = {
   idle: "bg-status-idle",
 };
 
-export function StatusIndicator({ status, label }: { status: StatusKind; label: string }) {
+// The bare status dot (no text). Color is health/state only; callers MUST pair it
+// with a visible text label (the §1 color-blind floor) — StatusIndicator does this
+// inline; the StatusStrip stacks the dot beside its own text lines.
+export function StatusDot({ status }: { status: StatusKind }) {
   const known: StatusKind = (STATUSES as readonly string[]).includes(status)
     ? (status as StatusKind)
     : "idle";
 
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="relative inline-flex shrink-0">
-        {known === "live" && (
-          <span
-            aria-hidden="true"
-            className="absolute inline-flex size-full rounded-full bg-status-live opacity-60 animate-ping motion-reduce:hidden"
-          />
-        )}
+    <span className="relative inline-flex shrink-0">
+      {known === "live" && (
         <span
-          data-testid={`status-dot-${known}`}
           aria-hidden="true"
-          className={`relative inline-block size-2 rounded-full ${DOT_BG[known]}`}
+          className="absolute inline-flex size-full rounded-full bg-status-live opacity-60 animate-ping motion-reduce:hidden"
         />
-      </span>
+      )}
+      <span
+        data-testid={`status-dot-${known}`}
+        aria-hidden="true"
+        className={`relative inline-block size-2 rounded-full ${DOT_BG[known]}`}
+      />
+    </span>
+  );
+}
+
+export function StatusIndicator({ status, label }: { status: StatusKind; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <StatusDot status={status} />
       <span className="text-sm text-text-subtle">{label}</span>
     </span>
   );

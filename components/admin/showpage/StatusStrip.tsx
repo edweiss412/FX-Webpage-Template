@@ -42,7 +42,7 @@
 
 import { TriangleAlert } from "lucide-react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
-import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { syncStatusBucket, showsEditedClause } from "@/lib/admin/syncStatus";
 import { ShareLinkCopyButton } from "@/app/admin/show/[slug]/ShareLinkCopyButton";
@@ -182,17 +182,18 @@ export function StatusStrip({
       ) : null}
 
       {syncLabel != null && sync != null ? (
-        <span data-testid="strip-sync-age" className="shrink-0">
-          <StatusIndicator status={sync.bucket} label={syncLabel} />
-        </span>
-      ) : null}
-
-      {editedRel != null ? (
-        <span
-          data-testid="strip-edited-age"
-          className="shrink-0 text-xs text-text-subtle tabular-nums"
-        >
-          Edited {editedRel}
+        <span data-testid="strip-sync-age" className="flex shrink-0 items-center gap-2">
+          {/* One health dot, colored by sync HEALTH (last_sync_status bucket) — NOT the
+              edit time. It pairs with both text lines (the color-blind floor). */}
+          <StatusDot status={sync.bucket} />
+          {/* Synced (last-checked) over Edited (last-synced), stacked and equally weighted
+              — same size/color, neither is the "primary" of the pair. */}
+          <span className="flex flex-col text-xs/tight text-text-subtle tabular-nums">
+            <span data-testid="strip-synced-line">{syncLabel}</span>
+            {editedRel != null ? (
+              <span data-testid="strip-edited-age">Edited {editedRel}</span>
+            ) : null}
+          </span>
         </span>
       ) : null}
 

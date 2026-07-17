@@ -71,25 +71,20 @@ describe("ShowsTable", () => {
     expect(within(sync).getByTestId("status-dot-warn")).toBeInTheDocument();
   });
 
-  // ── Two-line bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked) ──
-  // The line-2 testid renders once per mode (mobile + desktop) → twice per row, so
-  // every line-2 query scopes through the DESKTOP wrapper `shows-sync-{slug}`.
+  // ── Bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked; revision) ──
+  // Line 1 = health (dot + bare label). "Checked {rel}" is now a NATIVE hover tooltip
+  // (`title`) on the desktop cell — no in-row element (zero layout shift), and mobile
+  // omits it. "Edited" moved to the show-page header.
   const NOW_10 = new Date("2026-06-03T10:00:00.000Z");
-  // desktop line-2 node for a slug (null when suppressed)
-  function line2(slug: string) {
-    return within(screen.getByTestId(`shows-sync-${slug}`)).queryByTestId(
-      `shows-sync-times-${slug}`,
-    );
-  }
 
-  it("ok: line 1 is bare 'Synced'; line 2 is Checked-only (Edited moved to the show-page header)", () => {
+  it("ok: renders bare 'Synced' inline; Checked is a hover title with no in-row element (no layout shift)", () => {
     render(
       <ShowsTable
         rows={[
           row({
             slug: "ok1",
             lastSyncStatus: "ok",
-            lastSyncedAt: "2026-06-03T08:00:00.000Z", // Edited: 2h ago — NOT shown here anymore
+            lastSyncedAt: "2026-06-03T08:00:00.000Z", // Edited: 2h ago — now in the header only
             lastCheckedAt: "2026-06-03T09:58:00.000Z", // Checked: 2 min ago
           }),
         ]}
@@ -99,43 +94,20 @@ describe("ShowsTable", () => {
       />,
     );
     const cell = screen.getByTestId("shows-sync-ok1");
-    const l2 = within(cell).getByTestId("shows-sync-times-ok1");
-    const line1 = cell.textContent!.replace(l2.textContent!, "");
-    expect(line1).toContain("Synced");
-    expect(line1).not.toMatch(/ago|Edited|Checked/);
-    // Line 2 = Checked only; no Edited clause, no middot separator.
-    expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
-    expect(l2.textContent).not.toMatch(/Edited|·/);
-  });
-
-  it("Checked line collapses by default and reveals on row hover / keyboard focus (group-driven)", () => {
-    render(
-      <ShowsTable
-        rows={[
-          row({
-            slug: "hov",
-            lastSyncStatus: "ok",
-            lastSyncedAt: "2026-06-03T08:00:00.000Z",
-            lastCheckedAt: "2026-06-03T09:58:00.000Z",
-          }),
-        ]}
-        now={NOW_10}
-        activeCount={1}
-        overflowCount={0}
-      />,
-    );
-    // The reveal is CSS-only (jsdom can't compute it) — assert the recipe: collapsed
-    // (`hidden`) by default, expanded on the row Link's group hover/focus.
-    const l2 = within(screen.getByTestId("shows-sync-hov")).getByTestId("shows-sync-times-hov");
-    expect(l2.className).toContain("hidden");
-    expect(l2.className).toContain("group-hover:block");
-    expect(l2.className).toContain("group-focus-visible:block");
-    // The row Link carries the `group` marker that drives the reveal.
-    expect(screen.getByTestId("shows-table-row-hov").className).toContain("group");
+    // Inline text is the health label only — no Checked/Edited text renders in the row,
+    // so hovering across rows never changes row height.
+    expect(cell.textContent).toContain("Synced");
+    expect(cell.textContent).not.toMatch(/ago|Edited|Checked/);
+    // Checked time lives on the native tooltip (title) of the desktop cell.
+    expect(within(cell).getByTitle("Checked 2 min ago")).toBeInTheDocument();
+    // No hover-reveal element remains, and the row Link no longer carries the
+    // layout-shifting `group` marker.
+    expect(within(cell).queryByTestId("shows-sync-times-ok1")).toBeNull();
+    expect(screen.getByTestId("shows-table-row-ok1").className).not.toContain("group");
   });
 
   it.each(["drive_error", "sheet_unavailable", "parse_error"])(
-    "%s: line 2 is Checked-only (no Edited, no middot)",
+    "%s: Checked title present, no inline Checked/Edited text",
     (status) => {
       render(
         <ShowsTable
@@ -152,13 +124,13 @@ describe("ShowsTable", () => {
           overflowCount={0}
         />,
       );
-      const l2 = within(screen.getByTestId("shows-sync-e")).getByTestId("shows-sync-times-e");
-      expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
-      expect(l2.textContent).not.toMatch(/Edited|·/);
+      const cell = screen.getByTestId("shows-sync-e");
+      expect(within(cell).getByTitle("Checked 2 min ago")).toBeInTheDocument();
+      expect(cell.textContent).not.toMatch(/Checked|Edited/);
     },
   );
 
-  it.each([null, undefined, ""])("line 2 suppressed when lastCheckedAt is %p", (v) => {
+  it.each([null, undefined, ""])("no Checked title when lastCheckedAt is %p", (v) => {
     render(
       <ShowsTable
         rows={[row({ slug: "s", lastSyncStatus: null, lastCheckedAt: v as string | null })]}
@@ -168,12 +140,11 @@ describe("ShowsTable", () => {
       />,
     );
     const cell = screen.getByTestId("shows-sync-s");
-    expect(within(cell).queryByTestId("shows-sync-times-s")).toBeNull();
+    expect(within(cell).queryByTitle(/Checked/)).toBeNull();
     expect(cell.textContent).toContain("Not synced yet");
-    expect(line2("s")).toBeNull();
   });
 
-  it("null lastSyncedAt but present lastCheckedAt (non-error) → Checked only, no Edited", () => {
+  it("Checked title uses lastCheckedAt independent of lastSyncedAt (null synced still gets a title)", () => {
     render(
       <ShowsTable
         rows={[
@@ -189,12 +160,12 @@ describe("ShowsTable", () => {
         overflowCount={0}
       />,
     );
-    const l2 = within(screen.getByTestId("shows-sync-n")).getByTestId("shows-sync-times-n");
-    expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
-    expect(l2.textContent).not.toMatch(/Edited/);
+    const cell = screen.getByTestId("shows-sync-n");
+    expect(within(cell).getByTitle("Checked 2 min ago")).toBeInTheDocument();
+    expect(cell.textContent).not.toMatch(/Edited/);
   });
 
-  it("mobile sub-line omits the Checked line entirely (no hover surface on touch)", () => {
+  it("mobile stacked cell exposes no Checked title (no hover surface on touch)", () => {
     render(
       <ShowsTable
         rows={[
@@ -210,17 +181,16 @@ describe("ShowsTable", () => {
         overflowCount={0}
       />,
     );
-    // Mobile SyncCell (place="mobile") renders line 1 only; the Checked line is not in the DOM.
     const mobile = screen.getByTestId("shows-meta-mobile-mb");
-    expect(within(mobile).queryByTestId("shows-sync-times-mb")).toBeNull();
+    expect(within(mobile).queryByTitle(/Checked/)).toBeNull();
     expect(mobile.textContent).toMatch(/Synced/);
     expect(mobile.textContent).not.toMatch(/Checked|Edited/);
   });
 
   it.each([
-    ["t_two", "ok", "2026-06-03T09:58:00.000Z"], // two-clause
-    ["t_chk", "drive_error", "2026-06-03T09:58:00.000Z"], // checked-only
-    ["t_abs", "ok", null], // absent
+    ["t_two", "ok", "2026-06-03T09:58:00.000Z"],
+    ["t_chk", "drive_error", "2026-06-03T09:58:00.000Z"],
+    ["t_abs", "ok", null],
   ])("SyncCell renders %s with no animation markup", (slug, status, checked) => {
     render(
       <ShowsTable
@@ -234,11 +204,6 @@ describe("ShowsTable", () => {
     const cellRoot = cell.firstElementChild as HTMLElement; // SyncCell <span> root
     expect(cellRoot.className).not.toMatch(/transition|animate-/);
     expect(cellRoot.getAttribute("data-motion")).toBeNull();
-    const l2 = within(cell).queryByTestId(`shows-sync-times-${slug}`);
-    if (l2) {
-      expect(l2.className).not.toMatch(/transition|animate-/);
-      expect(l2.getAttribute("data-motion")).toBeNull();
-    }
   });
 
   it("SyncCell source declares no framer-motion / exit / initial / animate", () => {
