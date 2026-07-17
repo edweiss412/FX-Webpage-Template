@@ -26,7 +26,7 @@ PR #399 (2026-07-16) made the wizard Step-3 `WarningsBreakdown` a complete actio
 ## 3. Resolved decisions
 
 1. **`site` is an optional, additive discriminator, orthogonal to `surface`.** A `surface` (`show` | `wizard`) already exists on both boundaries to pick the server action. `site` is separate: one surface (wizard) hosts two sites (callout + list). New closed union `WarningControlSite = "callout" | "list" | "showpage"`.
-2. **Optional, absent = byte-identical.** When `site` is absent (standalone/unit mounts that render the control directly), every testid is emitted exactly as today (`use-raw-control`, not `use-raw-control-callout`). Only a present `site` appends `-${site}`. This keeps the two unit suites (`tests/components/UseRawControl.test.tsx`, `tests/components/RoleRecognizeControl.test.tsx`) untouched.
+2. **Optional; absent = testids byte-identical.** When `site` is absent (standalone/unit mounts that render the control directly), every **testid** is emitted exactly as today (`use-raw-control`, not `use-raw-control-callout`); only a present `site` appends `-${site}`. The accessible-name qualification (§4.4) is INDEPENDENT of `site` and applies in every mount, so a no-site render's ARIA output does change (the radiogroup/trigger accessible name gains its kind/token subject). This is safe for the existing unit suites (`tests/components/UseRawControl.test.tsx`, `tests/components/RoleRecognizeControl.test.tsx`) because **no existing assertion checks these aria strings** (verified: no test greps `"Which reading"` or the trigger `aria-label`) — their testid/behavior assertions stay green unchanged; the aria change is covered by NEW assertions added in §10.1–10.2.
 3. **Every leaf testid the control emits is suffixed** when `site` is present — not just the root container — so cross-site multi-match is resolved for the inner `use-raw-toggle-*` / `role-recognize-*` elements the finding names, not only the container.
 4. **Accessible-name qualification uses the warning's own subject, not a threaded title** (the approach the user chose over full `reviewWarningTitle` plumbing):
    - use-raw radiogroup: qualified by `resolution.parsed.kind` (`rooms` | `hotels` | `dates`), which the control already computes in-scope.
@@ -132,6 +132,15 @@ The `-nonblocking` testid (`:2341`) and the surrounding structure are unchanged.
 
 Each gets a `(requalified 2026-07-17 → "…optional fix you can apply below."; non-blocking contract unchanged)` note appended to its quote — the historical claim stays true, the current wording is discoverable. These are prior specs, not the master spec (§12.4) — no `x1-catalog` gate involved.
 
+### 9.1 Ledger resolution (this change closes the deferrals)
+
+Because this PR IS the fix for both deferred findings, the live ledgers must move from "deferred" to "resolved" in the same PR — leaving them describing an unresolved gap (or, for `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y`, quoting a `warning-title-qualified` fix this spec deliberately supersedes with kind/token qualification) would be stale.
+
+- `DEFERRED.md` USE-RAW-FULL-LIST-2 (currently `:608`) and USE-RAW-FULL-LIST-3 (currently `:614`): append a `**Resolution (2026-07-17):**` line to each pointing at this spec + PR (mirrors the existing resolution-line convention in the file, e.g. the §555 use-raw-full-list resolution).
+- `BACKLOG.md` `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y` (currently `:77`) and `BL-WIZARD-WARNINGS-COPY-QUALIFIER` (currently `:83`): mark each `✅ RESOLVED` with the branch/spec, and correct the `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y` prose so it no longer claims the fix is `warning-title-qualified aria-labels` — the shipped approach is **site-scoped testids + kind/token-qualified accessible names** (the user-ratified approach for this diff). Note that leaf-testid suffixing is applied to ALL leaf testids, not only the container, and that all in-repo queries were container-scoped so no query broke.
+
+Line numbers above are the current origin/main positions; the implementer re-greps at edit time (the ledgers are append-only churny files). These edits land in the copy/ledger commit, not a separate cleanup PR.
+
 ## 10. Test plan (anti-tautology)
 
 ### 10.1 Unit — `tests/components/UseRawControl.test.tsx` (extend)
@@ -143,7 +152,7 @@ Each gets a `(requalified 2026-07-17 → "…optional fix you can apply below.";
 ### 10.2 Unit — `tests/components/RoleRecognizeControl.test.tsx` (extend)
 
 - Site-scoped vs bare testid for `role-recognize-control` + `role-recognize-trigger` (present `showpage` / absent), mirroring 10.1.
-- **Trigger aria contains token AND visible label:** assert the trigger's `aria-label` contains the raw `roleToken` fixture value AND contains `COPY.TRIGGER_LABEL` as a substring (label-in-name). Failure caught: an aria-label that drops the visible text (2.5.3 violation) or omits the token.
+- **Trigger aria contains token AND the RENDERED visible label:** read the trigger button's own rendered visible text at test time — `trigger.textContent` with the `aria-hidden` chevron stripped (query the chevron `<span aria-hidden>` and subtract, or read the first text node) — and assert the trigger's `aria-label` (a) contains the raw `roleToken` fixture value AND (b) contains that rendered visible string as a substring. Deliberately does NOT import `COPY.TRIGGER_LABEL` — deriving the expected label from the same constant the component uses would be tautological (both sides move together); reading the rendered DOM proves label-in-name against what a user actually sees, catching a future drift where the visible text changes but the aria-label doesn't. Failure caught: an aria-label that drops the visible text (WCAG 2.5.3) or omits the token.
 
 ### 10.3 Integration — `tests/components/admin/wizard/warningsBreakdownControls.test.tsx` (migrate)
 
