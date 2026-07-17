@@ -13,8 +13,9 @@
 // `count` carries the true filtered total while `data` is bounded by the
 // captured limit — so overflowCount is proven to come from the total, not from
 // the capped row count (which production bounds and could never exceed +1).
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { loadRecentAutoApplied as LoadFn } from "@/lib/admin/loadRecentAutoApplied";
+import { log } from "@/lib/log";
 
 type Row = Record<string, unknown>;
 type RosterRow = { show_id: string; added: number; removed: number; renamed: number };
@@ -442,5 +443,78 @@ describe("loadRecentAutoApplied", () => {
     for (const row of result.groups.find((x) => x.showId === S)!.rows) {
       expect(row.diff).toEqual({ kind: "none" });
     }
+  });
+
+  test("field_changed with valid after_image → {kind:fields}; corrupt → warn + Unavailable", async () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(async () => {});
+    try {
+      const rows = [
+        clRow({
+          id: "f1",
+          show_id: "show-1",
+          occurred_at: iso(50),
+          change_kind: "field_changed",
+          after_image: { fieldChanges: [{ label: "COI status", from: "(none)", to: "received", note: null }] },
+        }),
+        clRow({
+          id: "f2",
+          show_id: "show-1",
+          occurred_at: iso(49),
+          change_kind: "field_changed",
+          after_image: { fieldChanges: { bad: 1 } },
+        }),
+      ];
+      const { client } = makeClient({ rows });
+      const { loadRecentAutoApplied } = await loader();
+      const res = await loadRecentAutoApplied({
+        publishedShowIds: ["show-1"],
+        supabase: client as unknown as InjectedClient,
+      });
+      if (res.kind !== "ok") throw new Error("unreachable");
+      const diffs = res.groups.flatMap((g) => g.rows).map((r) => r.diff);
+      expect(diffs[0]).toEqual({
+        kind: "fields",
+        entries: [{ label: "COI status", from: "(none)", to: "received", note: null }],
+      });
+      expect(diffs[1]).toMatchObject({ kind: "fields", entries: [{ label: "Unavailable" }] });
+      // Pin the FULL forensic context (R4/R5): required `source`, forensic `code`, and the
+      // reserved `showId` (NOT `show_id`) so the persisted event stays show-filterable.
+      // LogFields allows arbitrary keys, so a `show_id` regression would pass a code-only assertion.
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("invalid fieldChanges payload"),
+        expect.objectContaining({
+          source: "admin.loadRecentAutoApplied",
+          code: "AUTOAPPLIED_FIELDCHANGES_INVALID",
+          showId: "show-1",
+        }),
+      );
+      // Negative assertion: the un-reserved `show_id` key must NOT be what carries correlation.
+      const warnCtx = warn.mock.calls[0]![1] as Record<string, unknown>;
+      expect(warnCtx.show_id).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("pre-existing null after_image field_changed row → {kind:none} (summary renders)", async () => {
+    const { client } = makeClient({
+      rows: [
+        clRow({
+          id: "n1",
+          show_id: "show-1",
+          occurred_at: iso(50),
+          change_kind: "field_changed",
+          summary: "A field changed on this sync",
+          after_image: null,
+        }),
+      ],
+    });
+    const { loadRecentAutoApplied } = await loader();
+    const res = await loadRecentAutoApplied({
+      publishedShowIds: ["show-1"],
+      supabase: client as unknown as InjectedClient,
+    });
+    if (res.kind !== "ok") throw new Error("unreachable");
+    expect(res.groups.flatMap((g) => g.rows)[0]!.diff).toEqual({ kind: "none" });
   });
 });

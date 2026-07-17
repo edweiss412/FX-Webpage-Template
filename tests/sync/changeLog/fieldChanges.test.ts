@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildFieldChangesRow, VALUE_CAP } from "@/lib/sync/changeLog/fieldChanges";
+import {
+  buildFieldChangesRow,
+  deriveFieldsDiff,
+  READ_FIELDS_ENTRY_CAP,
+  VALUE_CAP,
+  type FieldChangeEntry,
+} from "@/lib/sync/changeLog/fieldChanges";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
 // Fixture-derived expectations (anti-tautology): expected labels/values come from
@@ -140,5 +146,73 @@ describe("buildFieldChangesRow", () => {
     expect(e.label.endsWith("…")).toBe(true);
     expect(e.to!.length).toBeLessThanOrEqual(VALUE_CAP); // flag-join capped
     expect(e.to!.endsWith("…")).toBe(true);
+  });
+});
+
+describe("deriveFieldsDiff (read-side re-validation)", () => {
+  const entry = { label: "COI status", from: "(none)", to: "received", note: null };
+
+  it("absent/null/[] → {kind:none} (legacy), not invalid", () => {
+    for (const after of [null, undefined, {}, { fieldChanges: [] }]) {
+      const r = deriveFieldsDiff(after as never);
+      expect(r.diff).toEqual({ kind: "none" });
+      expect(r.invalid).toBe(false);
+    }
+  });
+  it("well-formed → {kind:fields}", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [entry] });
+    expect(r.diff).toEqual({ kind: "fields", entries: [entry] });
+    expect(r.invalid).toBe(false);
+  });
+  it("present non-array fieldChanges → Unavailable marker + invalid", () => {
+    const r = deriveFieldsDiff({ fieldChanges: { nope: 1 } } as never);
+    expect(r.diff).toMatchObject({ kind: "fields", entries: [{ label: "Unavailable" }] });
+    expect(r.invalid).toBe(true);
+  });
+  it("non-empty all-malformed array → Unavailable marker + invalid", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [{ nope: 1 }, { label: "" }] } as never);
+    expect(r.diff).toMatchObject({ kind: "fields", entries: [{ label: "Unavailable" }] });
+    expect(r.invalid).toBe(true);
+  });
+  it(">500 entries → over-cap marker stating observed length + invalid", () => {
+    const many = Array.from({ length: 501 }, () => entry);
+    const r = deriveFieldsDiff({ fieldChanges: many });
+    expect(r.invalid).toBe(true);
+    expect((r.diff as { entries: Array<{ note: string }> }).entries[0]!.note).toMatch(/501/);
+  });
+  it("exactly 500 valid entries → all render (ceiling never truncates a plausible sync)", () => {
+    const many = Array.from({ length: 500 }, () => entry);
+    const r = deriveFieldsDiff({ fieldChanges: many });
+    expect(r.invalid).toBe(false);
+    expect((r.diff as { entries: unknown[] }).entries).toHaveLength(500);
+  });
+  it("mixed valid + malformed → valid kept + read-side marker + invalid (warns)", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [entry, { nope: 1 }] } as never);
+    const entries = (r.diff as { entries: Array<{ label: string }> }).entries;
+    expect(entries[0]!.label).toBe("COI status");
+    expect(entries[entries.length - 1]!.label).toBe("Other changes");
+    expect(r.invalid).toBe(true); // a dropped stored entry is corrupt → warn (R3 F1)
+  });
+  it("a note-entry carrying a non-string from/to does NOT crash — treated as malformed", () => {
+    // isValidEntry must reject before boundEntry's capValue touches a number (R1 F2).
+    expect(() =>
+      deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never),
+    ).not.toThrow();
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never);
+    // the sole entry is malformed → all-malformed → Unavailable marker
+    expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
+    expect(r.invalid).toBe(true);
+  });
+  it("a from/to entry with blank strings is corrupt (no blank cell) → Unavailable (R2 F2)", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "COI status", from: "", to: "", note: null }] } as never);
+    expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
+    expect(r.invalid).toBe(true);
+  });
+  it("a from/to entry carrying a whitespace note normalizes note→null (renders From→To, not blank) (R4 F2)", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "COI status", from: "pending", to: "received", note: " " }] } as never);
+    expect(r.invalid).toBe(false);
+    expect((r.diff as { entries: FieldChangeEntry[] }).entries[0]).toEqual({
+      label: "COI status", from: "pending", to: "received", note: null,
+    });
   });
 });

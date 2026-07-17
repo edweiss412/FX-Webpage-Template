@@ -20,10 +20,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { RosterShiftSummary } from "@/lib/admin/showDisplay";
+import {
+  deriveFieldsDiff,
+  FIELDCHANGES_INVALID_CODE,
+  type FieldChangeEntry,
+} from "@/lib/sync/changeLog/fieldChanges";
+import { log } from "@/lib/log";
 
 export type AutoAppliedDiff =
   | { kind: "fromTo"; from: string; to: string }
   | { kind: "single"; caption: "Added" | "Removed"; value: string }
+  | { kind: "fields"; entries: FieldChangeEntry[] }
   | { kind: "none" };
 
 export type AutoAppliedRow = {
@@ -97,6 +104,12 @@ function deriveDiff(
   if (changeKind === "crew_removed") {
     const value = readName(before);
     return value ? { kind: "single", caption: "Removed", value } : { kind: "none" };
+  }
+  if (changeKind === "field_changed") {
+    // Read-side re-validation of the stored after_image (defence-in-depth). The
+    // corrupt-payload warn is emitted at the call site (which has the row id), keeping
+    // deriveDiff pure of side effects it can't attribute to a specific row.
+    return deriveFieldsDiff(after).diff;
   }
   return { kind: "none" };
 }
@@ -180,7 +193,24 @@ export async function loadRecentAutoApplied(deps: {
       summary: r.summary,
       occurredAt: r.occurred_at,
       undoable,
-      diff: deriveDiff(r.change_kind, r.before_image, r.after_image),
+      diff: (() => {
+        if (r.change_kind !== "field_changed") {
+          return deriveDiff(r.change_kind, r.before_image, r.after_image);
+        }
+        const { diff, invalid } = deriveFieldsDiff(r.after_image);
+        if (invalid) {
+          // Row-attributed forensic warn. `LogFields` REQUIRES `source`; the show
+          // correlation field is the reserved `showId` (NOT `show_id`), so the persisted
+          // app_event is show-filterable (`observe events --show`). Row id in the message
+          // so the corrupt row is findable via `observe events --q <id>` (R4 F1).
+          log.warn(`auto-applied field_changed row ${r.id} has an invalid fieldChanges payload`, {
+            source: "admin.loadRecentAutoApplied",
+            code: FIELDCHANGES_INVALID_CODE,
+            showId: r.show_id,
+          });
+        }
+        return diff;
+      })(),
     };
     let group = groupMap.get(r.show_id);
     if (!group) {

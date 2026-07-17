@@ -153,3 +153,68 @@ export function buildFieldChangesRow(
   const note = `${omitted} field change(s) on this sync — details unavailable`;
   return { summary: note, afterImage: { fieldChanges: [{ label: "Unavailable", from: null, to: null, note }] } };
 }
+
+// ── Reader-side re-validation (spec §5) ──────────────────────────────────────
+// Self-contained union — NOT imported from the loader (avoids a circular import).
+// Structurally assignable into the loader's AutoAppliedDiff.
+export type FieldsDiff = { kind: "none" } | { kind: "fields"; entries: FieldChangeEntry[] };
+
+function isValidEntry(e: unknown): e is FieldChangeEntry {
+  if (!e || typeof e !== "object") return false;
+  const o = e as Record<string, unknown>;
+  const strOrNull = (v: unknown) => v == null || typeof v === "string";
+  // ALL of label/from/to/note must be well-typed BEFORE boundEntry touches them —
+  // otherwise a note-entry carrying a numeric `from` would pass the XOR check and
+  // then crash capValue(42) at bound time (Codex plan-review R1 F2).
+  if (typeof o.label !== "string" || o.label.trim() === "") return false;
+  if (!strOrNull(o.from) || !strOrNull(o.to) || !strOrNull(o.note)) return false;
+  // A from/to branch requires BOTH non-empty (no blank cell, spec §7); a note branch
+  // requires a non-empty note. `{ from:"", to:"" }` is corrupt, not a valid entry.
+  const hasNote = typeof o.note === "string" && o.note.trim() !== "";
+  const hasFromTo =
+    typeof o.from === "string" && o.from.trim() !== "" && typeof o.to === "string" && o.to.trim() !== "";
+  return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
+}
+// Normalize to a canonical single-branch entry: exactly ONE of {note} / {from,to}
+// is non-null. isValidEntry guarantees the XOR; here we NULL the inactive branch so
+// a corrupt-but-XOR-valid entry (e.g. a from/to entry carrying `note: " "`) cannot
+// leave a non-null blank that the component's `e.note != null` check renders as a
+// blank line instead of the From→To (R4 F2). Trim active values before capping.
+function boundEntry(e: FieldChangeEntry): FieldChangeEntry {
+  const label = capValue(e.label);
+  const hasNote = typeof e.note === "string" && e.note.trim() !== "";
+  if (hasNote) {
+    return { label, from: null, to: null, note: capValue((e.note as string).trim()) };
+  }
+  // isValidEntry guarantees from & to are non-empty strings when not the note branch.
+  return { label, from: capValue((e.from as string).trim()), to: capValue((e.to as string).trim()), note: null };
+}
+function invalidMarker(note: string): { diff: FieldsDiff; invalid: true } {
+  return { diff: { kind: "fields", entries: [{ label: "Unavailable", from: null, to: null, note }] }, invalid: true };
+}
+
+export function deriveFieldsDiff(
+  after: Record<string, unknown> | null | undefined,
+): { diff: FieldsDiff; invalid: boolean } {
+  const fc = after == null ? undefined : (after as { fieldChanges?: unknown }).fieldChanges;
+  if (fc == null) return { diff: { kind: "none" }, invalid: false }; // legacy/generic
+  if (!Array.isArray(fc)) {
+    return invalidMarker("This change record could not be displayed — review it in the change log");
+  }
+  if (fc.length === 0) return { diff: { kind: "none" }, invalid: false };
+  if (fc.length > READ_FIELDS_ENTRY_CAP) {
+    return invalidMarker(`This change record is too large to display safely (${fc.length} entries) — review it in the change log`);
+  }
+  const kept = fc.filter(isValidEntry).map(boundEntry);
+  if (kept.length === 0) {
+    return invalidMarker("This change record could not be displayed — review it in the change log");
+  }
+  if (kept.length < fc.length) {
+    // A well-formed writer row never has a droppable entry, so a partial drop means
+    // a corrupt/tampered stored payload → warn (invalid: true), not just a marker
+    // (Codex plan-review R3 F1 — otherwise the partial corruption is telemetry-dark).
+    kept.push({ label: "Other changes", from: null, to: null, note: "some changes could not be displayed" });
+    return { diff: { kind: "fields", entries: kept }, invalid: true };
+  }
+  return { diff: { kind: "fields", entries: kept }, invalid: false };
+}
