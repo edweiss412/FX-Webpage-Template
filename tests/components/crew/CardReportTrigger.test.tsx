@@ -84,4 +84,32 @@ describe("CardReportTrigger", () => {
     );
     expect(container.querySelector('[data-slot="card-report-trigger"]')).toBeNull();
   });
+
+  // CARDREPORT-1: icon-only trigger gets a ≥44×44 tap target via a transparent
+  // centered ::before overlay, grown in one direction only.
+  it("default (up): the <button> is a positioned host with a bottom-anchored 44x44 overlay", () => {
+    const { container } = render(
+      <CardReportTrigger cardId="today-dress" region="dress" showId={SHOW_ID} />,
+    );
+    const c = container.querySelector('button[data-slot="card-report-trigger"]')!.getAttribute("class")!;
+    // Failure mode: missing overlay (14px target), or wrong grow-edge (down-bleed
+    // into interactive rows below a SectionCard).
+    expect(c).toContain("relative");
+    expect(c).toContain("before:absolute");
+    expect(c).toContain("before:w-tap-min");
+    expect(c).toContain("before:h-tap-min");
+    expect(c).toContain("before:left-1/2");
+    expect(c).toContain("before:-translate-x-1/2");
+    expect(c).toContain("before:bottom-0");
+    expect(c).not.toContain("before:top-0");
+  });
+
+  it("down: 44x44 overlay is top-anchored", () => {
+    const { container } = render(
+      <CardReportTrigger cardId="today-dress" region="dress" showId={SHOW_ID} hitDirection="down" />,
+    );
+    const c = container.querySelector('button[data-slot="card-report-trigger"]')!.getAttribute("class")!;
+    expect(c).toContain("before:top-0");
+    expect(c).not.toContain("before:bottom-0");
+  });
 });
