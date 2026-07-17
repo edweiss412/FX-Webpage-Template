@@ -543,9 +543,25 @@ Run `/impeccable critique` scoped to the `ShowsTable.tsx` / Sync-cell diff, with
 
 Run `/impeccable audit` (same setup gates). Same disposition rule. Both commands must pass before the cross-model review in Stage 4.
 
-- [ ] **Step 4: Help-screenshot reconciliation**
+- [ ] **Step 4: Help-screenshot reconciliation (exact commands)**
 
-The two-line cell grows dashboard row height → committed help-screenshot WebPs of the admin dashboard may drift. Run the screenshot manifest check (`pnpm screenshot:help` per the manifest, or the repo's committed check). If dashboard shots drift: regenerate FROM the pinned Playwright Docker image with `--platform linux/amd64` (byte-comparison discipline — never from this arm64 host directly), and commit the regenerated WebPs. If NO drift, change nothing (do not overwrite committed WebPs with host-architecture bytes). Record the outcome.
+The two-line cell grows dashboard row height → committed help-screenshot WebPs may drift. The CI arbiter is `.github/workflows/screenshots-drift.yml` (capture in the pinned image, then `git diff --exit-code public/help/screenshots/`). **Never run bare `pnpm screenshot:help` on this arm64 host and commit the result** — it writes host-architecture bytes that differ from the x64 CI baseline (byte-comparison discipline).
+
+Sanctioned regen — capture FROM the pinned Docker image (same command the workflow uses), which requires the local Supabase stack up (`bash scripts/ci/supabase-local-bootstrap.sh` if not already running):
+
+```bash
+docker run --rm --platform linux/amd64 --network host \
+  -v "$PWD:/work" -w /work -e CI=true \
+  mcr.microsoft.com/playwright:v1.59.1-jammy \
+  bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
+git status --porcelain public/help/screenshots/   # which shots changed
+```
+
+- If the dashboard shots changed: `git add public/help/screenshots/` and commit — these are pinned-image (x64) bytes, CI-parity-correct.
+- If nothing changed: change nothing.
+- **If Docker is unavailable** and you captured with a bare local `pnpm screenshot:help` to inspect drift: **`git restore public/help/screenshots/`** to discard the host-architecture bytes, then let the `screenshots-drift` CI job (Task 5) be the arbiter — on CI-reported drift, regen via the Docker command above (or re-trigger the regen workflow) and commit. Do NOT push host-captured bytes.
+
+Record the outcome (drift / no-drift + how regenerated).
 
 - [ ] **Step 5: Commit any gate fixes / regenerated assets**
 
