@@ -493,3 +493,21 @@ The instant-rotate rework updates the crew URL on every surface (header ShareChi
 **Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** A11Y
 
 The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolving → idle) unmounts the focused button on each edge, so a keyboard user's focus drops to `<body>` after tapping Rotate and again after the action resolves. Pre-existing (the state machine + 3s auto-revert predate the instant-rotate dedup; this diff only changed the success-banner content), and impeccable-audit-rated P2 (not a WCAG-A blocker — the controls remain reachable by re-tabbing). Deferred: a correct fix moves focus to the Confirm button on entering confirm and to the idle Rotate button (or the banner) on resolve via a ref/effect, plus `waitFor`-based focus assertions (async activeElement). Out of scope for a dedup/instant-update refactor. Trigger to promote: an a11y pass on the admin per-show action rows.
+
+### BL-DESTRUCT-ARMED-REFLOW — verify/fix armed morph label reflow under the finger at 360px
+
+**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** medium · **Class:** UI MOBILE ERGONOMICS
+
+The four two-tap guards (BulkIgnoreControls, PendingPanelDiscardButtons, RescanSheetButton, StagedReviewCard) swap in a longer armed label (`whitespace-normal`, `max-w-full`), so the confirm hit-target can grow/wrap between tap 1 and tap 2 while a phone user's finger is already traveling. Needs a real-browser 360-390px reflow measurement and, if it wraps, a design decision (reserve max size vs fixed-height armed state). DEFERRED.md DESTRUCT-1. Trigger to promote: next admin mobile pass or a venue-floor mis-tap report.
+
+### BL-DESTRUCT-CONFIRM-COPY-HARMONIZE — harmonize confirm-label grammar + auto-revert timing across destructive surfaces
+
+**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** low · **Class:** UI CONSISTENCY
+
+Morph guards say "Confirm: X" while panel confirms say bare "Confirm revoke|reset|rotate|dismiss"; panels auto-revert at 3s (`AUTO_REVERT_MS`) while guards + Archive use 4s (`ARM_REVERT_MS`). One grammar + one timing constant across all 11 recipe surfaces. DEFERRED.md DESTRUCT-2. Trigger: next destructive-surface polish pass.
+
+### BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS — announce bulk-undo full success to screen readers
+
+**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** low · **Class:** UI A11Y
+
+`RecentAutoAppliedStrip` renders the aggregate outcome only when `failed > 0`; an all-success bulk undo self-heals visually (rows drop on revalidate) but emits no `role="status"` confirmation for SR users. Net-new affordance beyond spec §6 F2's ratified failure-only alert. DEFERRED.md DESTRUCT-3. Trigger: bundled with BL-DESTRUCT-CONFIRM-COPY-HARMONIZE or an SR-user report.
