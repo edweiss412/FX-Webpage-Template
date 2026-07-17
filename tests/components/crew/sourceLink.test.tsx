@@ -15,7 +15,7 @@
  *     output, NOT a hardcoded literal (anti-tautology) — opening in a new tab with
  *     a hardened rel and the descriptive aria-label.
  */
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, it, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
@@ -63,4 +63,28 @@ test("renders the bare spreadsheet base link when no anchor is supplied", () => 
   const anchorEl = container.querySelector("a");
   expect(anchorEl).not.toBeNull();
   expect(anchorEl).toHaveAttribute("href", expectedHref!);
+});
+
+// CARDREPORT-1: the recessive header link gets a ≥44px tap target via a
+// transparent out-of-flow ::before overlay that grows in one direction only.
+it("default (up): the <a> is a positioned host carrying a bottom-anchored 44px hit overlay", () => {
+  const { container } = render(<SourceLink driveFileId={driveFileId} anchor={anchor} />);
+  const c = container.querySelector('a[data-slot="source-link"]')!.getAttribute("class")!;
+  // Failure mode caught: overlay omitted, or grown from the wrong edge (would
+  // bleed downward into the interactive rows below in a SectionCard).
+  expect(c).toContain("relative");
+  expect(c).toContain("before:absolute");
+  expect(c).toContain("before:inset-x-0");
+  expect(c).toContain("before:bottom-0");
+  expect(c).toContain("before:h-tap-min");
+  expect(c).not.toContain("before:top-0");
+});
+
+it("down: the overlay is top-anchored instead (clears the agenda above the bare schedule header)", () => {
+  const { container } = render(
+    <SourceLink driveFileId={driveFileId} anchor={anchor} hitDirection="down" />,
+  );
+  const c = container.querySelector('a[data-slot="source-link"]')!.getAttribute("class")!;
+  expect(c).toContain("before:top-0");
+  expect(c).not.toContain("before:bottom-0");
 });

@@ -256,6 +256,12 @@ export function ScheduleSection({
                       anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
                       showId={showId}
                       cardReport={cardReport}
+                      // CARDREPORT-1: this bare header is NOT a SectionCard — the
+                      // agenda area sits just above it and the non-interactive day
+                      // list below. Grow the tap overlays DOWN so they clear the
+                      // agenda. (Every SectionCard-hosted cluster keeps the "up"
+                      // default; see the schedule-call-times SectionCard below.)
+                      hitDirection="down"
                     />
                   </div>
                 </div>

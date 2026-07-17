@@ -35,12 +35,32 @@ type SourceLinkProps = {
    * `noUncheckedIndexedAccess` — without a non-null assertion.
    */
   anchor?: SourceAnchor | null | undefined;
+  /**
+   * CARDREPORT-1: which direction the invisible ≥44px tap overlay grows. The
+   * visible glyph+label are unchanged; a transparent out-of-flow `::before`
+   * (invisible to `getBoundingClientRect()`) enlarges only the hit area.
+   * `"up"` (default) anchors the overlay bottom to the box bottom and grows
+   * upward — zero downward overhang, so it never intersects the interactive
+   * rows below a SectionCard header. `"down"` anchors the top and grows down —
+   * used only by the bare `schedule-days` header to clear the agenda above.
+   */
+  hitDirection?: "up" | "down";
 };
 
-export function SourceLink({ driveFileId, anchor }: SourceLinkProps): ReactNode {
+export function SourceLink({
+  driveFileId,
+  anchor,
+  hitDirection = "up",
+}: SourceLinkProps): ReactNode {
   const href = buildSheetDeepLink(driveFileId, anchor);
   // No source sheet → no affordance. Mirrors the helper's null contract.
   if (href === null) return null;
+
+  // Full-literal per branch so the Tailwind v4 JIT sees complete class names.
+  const overlay =
+    hitDirection === "down"
+      ? "relative before:absolute before:content-[''] before:inset-x-0 before:top-0 before:h-tap-min"
+      : "relative before:absolute before:content-[''] before:inset-x-0 before:bottom-0 before:h-tap-min";
 
   return (
     <a
@@ -49,7 +69,7 @@ export function SourceLink({ driveFileId, anchor }: SourceLinkProps): ReactNode 
       target="_blank"
       rel="noopener noreferrer"
       aria-label="View this section in the source sheet"
-      className="inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle [&_svg]:size-3.5 [&_svg]:opacity-70"
+      className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />
       <span>In sheet</span>

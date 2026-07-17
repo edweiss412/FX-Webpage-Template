@@ -48,7 +48,7 @@
  * The ONLY hardcoded number is the ±0.5px tolerance; the expected height for each
  * row is DERIVED from the measured no-link rect (anti-hardcode discipline).
  */
-import { test, expect, type Locator } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 
@@ -181,5 +181,130 @@ test.describe("SourceLink header does not change row heights (spec §5.4)", () =
         `${slot} (h=${box!.height}) must not exceed the header band (h=${headerBox!.height})`,
       ).toBeLessThanOrEqual(headerBox!.height + TOL);
     }
+  });
+});
+
+/**
+ * CARDREPORT-1 (spec §4): the two recessive header affordances must expose ≥44px
+ * tap targets via a transparent out-of-flow `::before` overlay that grows in ONE
+ * direction — UP for SectionCard headers (zero downward overhang clears the
+ * interactive rows below), DOWN for the bare `schedule-days` header (zero upward
+ * overhang clears the agenda above; the day list below is non-interactive).
+ *
+ * This probes the LIVE compositor with `elementFromPoint` (not class strings):
+ * a point over the transparent `::before` returns the originating element, which
+ * carries `data-slot`. All coordinates are derived from measured rects; the only
+ * literals are the ±1/±2/±21/±43 probe offsets (each strictly inside/outside the
+ * 44px span). The `card-actions-up` / `card-actions-down` harness contexts embed
+ * realistic interactive neighbors so the negative probes are non-vacuous.
+ */
+test.describe("CARDREPORT-1: ≥44px direction-aware hit targets (spec §4)", () => {
+  test.setTimeout(120_000);
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    const res = await page.goto(HARNESS_PATH, { waitUntil: "domcontentloaded" });
+    expect(res?.status()).toBe(200);
+    await expect(page.getByTestId("card-actions-up")).toBeVisible();
+    await expect(page.getByTestId("card-actions-down")).toBeVisible();
+  });
+
+  // Probe the live compositor ENTIRELY in-browser: `getBoundingClientRect()` and
+  // `elementFromPoint()` share the viewport coordinate space, whereas Playwright's
+  // `boundingBox()` is document-relative — mixing them mis-probes once the page
+  // scrolls (these harness cards sit below the 800px fold). `ref` is scrolled into
+  // view first; the probe point is `(ax, ay)` as a fraction of ref's rect plus a
+  // pixel `(dx, dy)`. Returns the `data-slot` the point resolves to (a transparent
+  // `::before` returns its originating element, which carries the slot), or
+  // `testid:<id>` for an interactive neighbor without a slot, or null.
+  async function hitNear(
+    page: Page,
+    refSelector: string,
+    ax: number,
+    ay: number,
+    dx: number,
+    dy: number,
+  ): Promise<string | null> {
+    return page.evaluate(
+      ({ refSelector, ax, ay, dx, dy }) => {
+        const ref = document.querySelector(refSelector);
+        if (!ref) return "NO_REF";
+        ref.scrollIntoView({ block: "center", inline: "center" });
+        const r = ref.getBoundingClientRect();
+        const x = r.left + r.width * ax + dx;
+        const y = r.top + r.height * ay + dy;
+        const el = document.elementFromPoint(x, y);
+        if (!el) return null;
+        const slotEl = el.closest("[data-slot]");
+        if (slotEl) return slotEl.getAttribute("data-slot");
+        const tid = el.closest("[data-testid]")?.getAttribute("data-testid") ?? null;
+        return tid ? `testid:${tid}` : null;
+      },
+      { refSelector, ax, ay, dx, dy },
+    );
+  }
+
+  const slotSel = (rootTestId: string, slot: string) =>
+    `[data-testid="${rootTestId}"] [data-slot="${slot}"]`;
+
+  test("UP context: 44px reachable upward; zero downward bleed; both tel rows intact", async ({
+    page,
+  }) => {
+    for (const slot of ["source-link", "card-report-trigger"]) {
+      const ref = slotSel("card-actions-up", slot);
+      // 44px reachable UP: 1px above the box bottom AND 43px above it (1px inside
+      // the top of a bottom-anchored 44px overlay) both resolve to the slot.
+      expect(await hitNear(page, ref, 0.5, 1, 0, -1)).toBe(slot);
+      expect(await hitNear(page, ref, 0.5, 1, 0, -43)).toBe(slot);
+      // Zero downward overhang: 2px below the box bottom is NOT the slot.
+      expect(await hitNear(page, ref, 0.5, 1, 0, 2)).not.toBe(slot);
+    }
+    // The trigger also reaches 44px WIDE (±21px from its centre).
+    const trig = slotSel("card-actions-up", "card-report-trigger");
+    expect(await hitNear(page, trig, 0.5, 0.5, -21, 0)).toBe("card-report-trigger");
+    expect(await hitNear(page, trig, 0.5, 0.5, 21, 0)).toBe("card-report-trigger");
+    // The interactive tel row BELOW is still hittable at its top edge (overlay didn't shave it).
+    expect(await hitNear(page, '[data-testid="dim-tel-below"]', 0.5, 0, 0, 1)).toBe(
+      "testid:dim-tel-below",
+    );
+    // The interactive tel row ABOVE is still hittable at its bottom edge (upward overhang never reached it).
+    expect(await hitNear(page, '[data-testid="dim-tel-above"]', 0.5, 1, 0, -1)).toBe(
+      "testid:dim-tel-above",
+    );
+  });
+
+  test("DOWN context: 44px reachable downward + wide; zero upward bleed; no sibling overlap; agenda intact", async ({
+    page,
+  }) => {
+    for (const slot of ["source-link", "card-report-trigger"]) {
+      const ref = slotSel("card-actions-down", slot);
+      // 44px reachable DOWN: 1px below the box top AND 43px below it (1px inside the
+      // bottom of a top-anchored 44px overlay) both resolve to the slot.
+      expect(await hitNear(page, ref, 0.5, 0, 0, 1)).toBe(slot);
+      expect(await hitNear(page, ref, 0.5, 0, 0, 43)).toBe(slot);
+      // Zero upward overhang: 2px above the box top is NOT the slot.
+      expect(await hitNear(page, ref, 0.5, 0, 0, -2)).not.toBe(slot);
+    }
+    // The trigger reaches 44px WIDE in the DOWN branch too.
+    const trig = slotSel("card-actions-down", "card-report-trigger");
+    expect(await hitNear(page, trig, 0.5, 0.5, -21, 0)).toBe("card-report-trigger");
+    expect(await hitNear(page, trig, 0.5, 0.5, 21, 0)).toBe("card-report-trigger");
+    // No sibling overlap in the DOWN branch: SourceLink's right edge belongs to SourceLink.
+    expect(await hitNear(page, slotSel("card-actions-down", "source-link"), 1, 0.5, -2, 0)).toBe(
+      "source-link",
+    );
+    // The agenda link ABOVE is still hittable at its bottom edge (down overlay stole nothing).
+    expect(await hitNear(page, '[data-testid="dim-agenda-above"]', 0.5, 1, 0, -1)).toBe(
+      "testid:dim-agenda-above",
+    );
+  });
+
+  test("UP context no sibling overlap: SourceLink label + right edge belong to SourceLink, not the trigger", async ({
+    page,
+  }) => {
+    const ref = slotSel("card-actions-up", "source-link");
+    expect(await hitNear(page, ref, 1, 0.5, -2, 0)).toBe("source-link"); // right edge
+    expect(await hitNear(page, ref, 0.5, 0.5, 0, 0)).toBe("source-link"); // mid-label
   });
 });

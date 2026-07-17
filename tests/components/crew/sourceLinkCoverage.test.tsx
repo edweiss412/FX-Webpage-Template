@@ -364,4 +364,31 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(href).toBe(buildSheetDeepLink(data.driveFileId, data.sourceAnchors["gear_scope"]));
     expect(href).not.toBe(buildSheetDeepLink(data.driveFileId, data.sourceAnchors["rooms"]));
   });
+
+  // CARDREPORT-1 (spec §4.2): the real-browser probe proves the mechanism, but
+  // only this per-call-site assertion proves ScheduleSection actually PASSES
+  // hitDirection="down" to the bare schedule-days header. A forgotten prop would
+  // silently default schedule-days to "up", re-introducing the agenda bleed.
+  it("schedule-days actions grow DOWN; every other actions cluster grows UP (production wiring)", () => {
+    const { container } = renderAllSections(fullFixture());
+    const clusters = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="card-header-actions"]'),
+    );
+    expect(clusters.length, "no CardHeaderActions clusters rendered").toBeGreaterThan(8);
+    let sawScheduleDown = false;
+    for (const cluster of clusters) {
+      const card = cluster.closest("[data-card-id]");
+      const id = card?.getAttribute("data-card-id");
+      const dir = cluster.getAttribute("data-hit-direction");
+      if (id === "schedule-days") {
+        expect(dir, "schedule-days must grow DOWN (clears the agenda above)").toBe("down");
+        sawScheduleDown = true;
+      } else {
+        expect(dir, `cluster in "${id}" must default to UP`).toBe("up");
+      }
+    }
+    expect(sawScheduleDown, "schedule-days cluster was never rendered — assertion vacuous").toBe(
+      true,
+    );
+  });
 });

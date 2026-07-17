@@ -41,6 +41,7 @@ import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { FactRows } from "@/components/crew/primitives/FactRows";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
+import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import type { ReactNode } from "react";
 
@@ -131,6 +132,74 @@ export default async function SourceLinkDimPage() {
         >
           <MeasuredBody />
         </SectionCard>
+      </div>
+
+      {/* CARDREPORT-1 (spec §4.1): UP-direction hit-target context. An interactive
+          `tel:` row sits ABOVE the actions SectionCard at the tightest real
+          inter-card gap (gap-3), and another interactive `tel:` row is the card's
+          FIRST body child. The e2e probe asserts the header affordances reach 44px
+          upward, never bleed downward onto the below row, and never reach the row
+          above. */}
+      <div data-testid="card-actions-up" className="flex flex-col gap-3">
+        <a
+          data-testid="dim-tel-above"
+          href="tel:5085550100"
+          className="inline-flex min-h-tap-min items-center text-sm"
+        >
+          Call sheet lead
+        </a>
+        <SectionCard
+          icon={<ClockIcon />}
+          title="Tonight"
+          action={
+            <CardHeaderActions
+              cardId="today-dress"
+              driveFileId="harness-drive"
+              anchor={{ title: "INFO", gid: 0, a1: "A1:B2" }}
+              showId="harness-show"
+            />
+          }
+        >
+          <a
+            data-testid="dim-tel-below"
+            href="tel:5085550111"
+            className="inline-flex min-h-tap-min items-center text-sm"
+          >
+            Call venue
+          </a>
+        </SectionCard>
+      </div>
+
+      {/* CARDREPORT-1 (spec §4.1): DOWN-direction hit-target context — a replica of
+          the bare `schedule-days` header (NOT a SectionCard). A possibly-interactive
+          agenda link sits ABOVE; a non-interactive day-card stub sits BELOW. The
+          e2e probe asserts the affordances reach 44px downward and never bleed
+          upward onto the agenda link. */}
+      <div data-testid="card-actions-down" className="flex flex-col gap-4">
+        <a
+          data-testid="dim-agenda-above"
+          href="#agenda"
+          className="inline-flex min-h-tap-min items-center text-sm"
+        >
+          Full agenda (PDF)
+        </a>
+        <div className="mb-2 flex justify-end">
+          <div data-slot="section-card-action" className="flex shrink-0 items-center">
+            <CardHeaderActions
+              cardId="schedule-days"
+              driveFileId="harness-drive"
+              anchor={{ title: "SCHED", gid: 1, a1: "A1:B2" }}
+              showId="harness-show"
+              hitDirection="down"
+            />
+          </div>
+        </div>
+        <div
+          data-testid="dim-daycard-below"
+          className="rounded-md border border-border p-tile-pad text-sm text-text-subtle"
+        >
+          Fri · Show day
+        </div>
       </div>
     </main>
   );
