@@ -49,13 +49,16 @@ Ellipsis is the `…` character (U+2026), consistent with the existing curly-pun
 
 ### 3.3 Precedence (unchanged)
 
-`showError = errorCode != null || genericError`; `showFinalize = !showError && finalizeOwned`. Error wins over finalize (S5). The `showError`/`showFinalize` conditional **structure is unchanged** — only the finalize branch's rendered element changes from an absolute banner to the in-flow chip. No new conditional is introduced.
+`showError = errorCode != null || genericError`; `showFinalize = !showError && finalizeOwned`. Error wins over finalize (S5). The `showError`/`showFinalize` **popover-region mount/unmount conditional structure is unchanged** — only the finalize branch's rendered element changes from an absolute banner to the in-flow chip. No new *popover-region* mount/unmount conditional is introduced. (The mode-dependent visible label `published ? "Finalizing…" : "Publishing…"` is a plain expression that selects text inside the already-mounted chip — it is not a mount/unmount site. It also does not affect any count-pin: the pageTransitions conditional-count registry scans only `components/admin/showpage/*`, not `components/admin/PublishedToggle.tsx` — verified `PublishedToggle` is absent from `PAGE_COMPONENT_COUNTS`, `pageTransitions.test.tsx:118-124`, and `StatusStrip.tsx` stays pinned at 7.)
 
-## 4. Guard conditions
+## 4. Guard conditions (every prop)
 
 - **`finalizeOwned === false`** → `showFinalize` false → no chip renders (unchanged).
-- **Error present while `finalizeOwned` true** (S5) → `showError` true suppresses `showFinalize`; the absolute **error** banner renders, chip does not. Error-wins precedence intact.
+- **`finalizeOwned === true` + error present** (S5) → `showError` true suppresses `showFinalize`; the absolute **error** banner renders, chip does not. Error-wins precedence intact.
 - **`published` null** → not possible at this callsite (`published: boolean`, server-computed, never null — `PublishedToggleProps.published`, `PublishedToggle.tsx:65`). The `published` boolean only selects which of the two visible labels shows.
+- **`variant` = `"card"` (default) or omitted** → the entire inline branch (and the chip) does not render; the card row renders its own in-flow subline/error blocks, byte-unchanged by this spec. The chip is inline-variant-only. (`variant`, `PublishedToggle.tsx:72`.)
+- **`slug`** → still required and non-empty at this callsite; it composes the chip's stable `popoverId` = `` `published-toggle-popover-${_slug}` `` (`PublishedToggle.tsx:110`) that `aria-describedby` targets. Unchanged by this spec.
+- **`setPublished`** → its `{ ok } | { ok:false; code }` result still drives `showError`/`genericError` (success → `router.refresh()`; known refusal → `errorCode`; else → `genericError`). The chip only renders in the `showFinalize` branch, which is orthogonal to `setPublished`'s result path. Unchanged.
 - **Empty/zero copy** → labels are constant literals, never empty.
 
 ## 5. Dimensional invariants (in-flow containment)
@@ -63,6 +66,7 @@ Ellipsis is the `…` character (U+2026), consistent with the existing curly-pun
 The whole point of the change is a containment invariant, verified in a **real browser** (jsdom computes no layout — global CLAUDE.md layout-dimensions rule):
 
 - **CI-1 (no overhang / no overlay).** The finalize chip's bounding box is **fully within** the strip's bounding box: `chip.top >= strip.top − 0.5` AND `chip.bottom <= strip.bottom + 0.5`. This is the precise proof the chip does not overlay content below the strip. (The pre-change absolute banner fails this — its `bottom > strip.bottom`.)
+- **CI-1b (bounded strip growth at ≥sm).** At a desktop width (≥sm, no flex-wrap), the finalize strip height equals the idle strip height within 0.5px: `stripHeight(finalizeShort) === stripHeight(idleShort) ± 0.5`. This proves the chip fits on the switch's existing row and does not grow the strip when horizontal space exists (it retains the discarded (a) height-invariance coverage as a real bound, so a regression that made the strip materially taller cannot pass CI-1 alone). The baseline is derived from the idle render in the same harness — never a hardcoded pixel. (At 390px the strip may legitimately grow by one wrapped line; CI-1 still holds there because the chip stays inside the strip box — it pushes content down, never overlays it.)
 - **CI-2 (in-viewport at 390px).** `chip.left >= 0` AND `chip.right <= 390`; no document horizontal scroll.
 - **CI-3 (right-of-switch, compact — not a banner).** `chip.left >= switch.right − 0.5` (sits after the switch in flow) AND `chip.width < 200` (a compact pill, NOT the >300px full-strip banner the old finalize skin was).
 
@@ -89,7 +93,7 @@ No `AnimatePresence`, no `exit`/`initial`/`animate` props, no `animate-*` utilit
 
 - **S4 (L218) — extended, still green in spirit.** Keep: disabled switch, `role != "alert"`, `aria-describedby` → chip `id`, `id === "published-toggle-popover-s1"`, textContent contains `"Changes are being finalized"` (now satisfied via the `sr-only` full-copy span). **Add:** the chip's className contains **none** of `absolute`/`top-full`/`inset-x-0` (proves in-flow), and contains the `FINALIZE_CHIP` skin tokens (`bg-surface-sunken`, `border-border-strong`, `text-xs`). Add a `!published` finalize case asserting visible `Publishing…` + sr-only `"A publish is finishing"`.
 - **Parity test (L270) — rewritten.** Its premise ("error and finalize share the EXACT positioning class set") is now false by design. Replace with two assertions:
-  1. **Error skin** still carries every `POPOVER_POSITION` token (`absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile`) + `ERROR_SKIN`, and no `FORBIDDEN` geometry (single-side anchor / width cap) — the CASP2-2 banner invariant is preserved for errors.
+  1. **Error skin** still carries every `POPOVER_POSITION` token (`absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile`) + `ERROR_SKIN`, and no forbidden geometry (single-side anchor / width cap) — the CASP2-2 banner invariant is preserved for errors. **Fix the `FORBIDDEN` regex while rewriting** (`PublishedToggle.test.tsx:298`): the current `/^(…|max-w-|min-w-|…)$/` anchors `$` immediately after `max-w-`/`min-w-`, so a real width cap like `max-w-60` is NOT caught (only the bare literal `max-w-` would be). Replace those alternatives with prefix-matching forms — `max-w-\S+`, `min-w-\S+`, and `w-\d+` — so an actual width-cap token trips the assertion (a `.some(t => FORBIDDEN.test(t))` scan, or per-token as today). This is a real gap in the current test, not just a mechanical port.
   2. **Finalize chip** carries **none** of `{absolute, inset-x-0, top-full, z-40, mt-1}` (in-flow) and carries the `FINALIZE_CHIP` tokens. Anti-tautology: extract tokens from the rendered chip className (the data source), not from a container.
 - **S1/S2/S3/S5 unchanged** — error path and idle path untouched. S5 still asserts the **error** banner wins (`role="alert"`) when a refusal is preserved across a finalize flip.
 
@@ -97,7 +101,7 @@ No `AnimatePresence`, no `exit`/`initial`/`animate` props, no `animate-*` utilit
 
 The harness (`_statusStripToggleHarness.tsx`) renders the **real** `StatusStrip`/`PublishedToggle`, so the finalize markup updates automatically; no harness change needed beyond the doc comment. Rewrites:
 
-- **(a) L151 — rewritten to CI-1 containment.** Was "absolute popover adds zero strip-flow height (idle === finalize)". Replace with: the finalize chip's box is fully within the strip's box (`chip.top >= strip.top − 0.5`, `chip.bottom <= strip.bottom + 0.5`) — proves in-flow, no overhang/overlay. Measured on `finalizeShort`.
+- **(a) L151 — rewritten to CI-1 containment + CI-1b bound.** Was "absolute popover adds zero strip-flow height (idle === finalize)". Replace with: (i) the finalize chip's box is fully within the strip's box (`chip.top >= strip.top − 0.5`, `chip.bottom <= strip.bottom + 0.5`) — proves in-flow, no overhang/overlay (measured on `finalizeShort` at 390px); and (ii) CI-1b at a desktop width (≥sm, e.g. 800px): `stripHeight(finalizeShort) === stripHeight(idleShort) ± 0.5` — the chip fits the existing row, bounding strip growth (baseline derived from `idleShort`, not hardcoded).
 - **(c) L168 — rewritten to CI-2/CI-3 compact geometry.** Was "finalize popover is a full-strip-width banner … stable across title length". Replace with: chip is in-viewport (`left >= 0`, `right <= 390`, no h-scroll), sits right-of-switch (`chip.left >= switch.right − 0.5` using `published-toggle` testid), and is compact (`width < 200`, i.e. NOT the >300px banner). The "identical x across title length" sub-check was banner-specific → dropped.
 - **(b) compaction, (d) error-content banner, (e) control divider — UNCHANGED.** (d) still proves the **error** banner content stays in-viewport as a full-width break-words banner.
 - Update the file's header invariant comment block (§8.10 (a)/(c)) to describe the in-flow chip instead of the absolute finalize banner.
