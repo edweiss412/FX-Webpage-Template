@@ -433,6 +433,41 @@ it("zero failures → no alert", async () => {
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
+it("all-success bulk undo announces completion to screen readers (DESTRUCT-3)", async () => {
+  // The strip self-heals VISUALLY on revalidate (rows drop), but SR users got no
+  // confirmation because the outcome node rendered only on failure. An all-success
+  // run now writes a role="status" so assistive tech hears the undo landed.
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(status).toHaveAttribute("role", "status");
+  // FIN group has a 2-id undoable set (r1, r2) — count derives from the group, not a literal.
+  expect(status.textContent).toContain("Undid all 2 changes.");
+  // The failure alert never renders on an all-success run.
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("success status does NOT render on a partial failure (failure alert owns that branch)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toBeNull();
+});
+
+it("reopening the confirm clears a visible success status (open-clears lifecycle)", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // reopen
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toBeNull();
+});
+
 it("reopening the confirm clears a visible alert (open-clears lifecycle)", async () => {
   const actions = noopActions();
   actions.undoFromDashboardAction = vi
