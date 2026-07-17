@@ -1,0 +1,212 @@
+<title>REDESIGN-3 — Option B: structured field changes</title>
+<style>
+  :root {
+    --bg: #FAFAF9; --surface: #FFFFFF; --surface-sunken: #F4F3F1;
+    --text: #1A1B1F; --text-strong: #0E0F12; --text-subtle: #5A5B62; --text-faint: #8B8C92;
+    --border: #E5E4E0; --border-strong: #CFCDC7;
+    --status-idle-text: #5A5B62; --status-idle-dot: #8B8C92;
+    --status-review: #A87716; --status-review-text: #6E4E00;
+    --status-positive: #3F8A83; --status-positive-text: #2C655F;
+    --warning-bg: #FFF3D6; --warning-text: #5C3F00; --warning-border: #E7CE93;
+    --shadow: 0 1px 2px rgba(20,18,12,0.04);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0F1014; --surface: #16171C; --surface-sunken: #0B0C10;
+      --text: #E8E6E0; --text-strong: #F5F3EE; --text-subtle: #9C9A93; --text-faint: #74736D;
+      --border: #2A2B30; --border-strong: #3A3B40;
+      --status-idle-text: #9C9A93; --status-idle-dot: #74736D;
+      --status-review: #E0B84E; --status-review-text: #F0C860;
+      --status-positive: #5FB0A8; --status-positive-text: #74C3BB;
+      --warning-bg: #3A2E14; --warning-text: #FFD68A; --warning-border: #5A4A22;
+      --shadow: 0 1px 3px rgba(0,0,0,0.45);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #FAFAF9; --surface: #FFFFFF; --surface-sunken: #F4F3F1;
+    --text: #1A1B1F; --text-strong: #0E0F12; --text-subtle: #5A5B62; --text-faint: #8B8C92;
+    --border: #E5E4E0; --border-strong: #CFCDC7;
+    --status-idle-text: #5A5B62; --status-idle-dot: #8B8C92;
+    --status-review: #A87716; --status-review-text: #6E4E00;
+    --status-positive: #3F8A83; --status-positive-text: #2C655F;
+    --warning-bg: #FFF3D6; --warning-text: #5C3F00; --warning-border: #E7CE93;
+    --shadow: 0 1px 2px rgba(20,18,12,0.04);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1014; --surface: #16171C; --surface-sunken: #0B0C10;
+    --text: #E8E6E0; --text-strong: #F5F3EE; --text-subtle: #9C9A93; --text-faint: #74736D;
+    --border: #2A2B30; --border-strong: #3A3B40;
+    --status-idle-text: #9C9A93; --status-idle-dot: #74736D;
+    --status-review: #E0B84E; --status-review-text: #F0C860;
+    --status-positive: #5FB0A8; --status-positive-text: #74C3BB;
+    --warning-bg: #3A2E14; --warning-text: #FFD68A; --warning-border: #5A4A22;
+    --shadow: 0 1px 3px rgba(0,0,0,0.45);
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); margin: 0; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 28px 20px 64px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-subtle); }
+  h1 { font-size: 22px; line-height: 1.25; margin: 6px 0 4px; color: var(--text-strong); text-wrap: balance; }
+  .lede { font-size: 14px; color: var(--text-subtle); margin: 0 0 28px; max-width: 52ch; }
+  .caption-note { font-size: 12px; color: var(--text-faint); margin: 22px 0 10px; }
+
+  /* phone frame to signal mobile-first */
+  .phone { max-width: 390px; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 22px; padding: 16px 14px; box-shadow: var(--shadow); }
+
+  .strip-title { font-size: 17px; font-weight: 700; color: var(--text-strong); margin: 2px 2px 12px; }
+
+  /* group card */
+  .group { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .group-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px; background: var(--surface-sunken); }
+  .chev { color: var(--text-subtle); flex: 0 0 auto; }
+  .group-name { font-size: 15px; font-weight: 700; color: var(--text-strong); line-height: 1.25; flex: 1 1 auto; min-width: 0; }
+  .count { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--text-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+
+  .bulk { display: flex; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border); }
+  .btn { font-size: 14px; font-weight: 500; color: var(--text-strong); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 16px; }
+
+  .rows { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .change { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: var(--surface); }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; border: 1px solid; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 999px; }
+  .pill-field { border-color: var(--border); background: var(--surface-sunken); color: var(--status-idle-text); }
+  .pill-field .dot { background: var(--status-idle-dot); }
+
+  /* structured field list */
+  .fieldlist { margin-top: 12px; display: flex; flex-direction: column; }
+  .entry { padding: 11px 0; border-top: 1px solid var(--border); }
+  .entry:first-child { border-top: 0; padding-top: 2px; }
+  /* Field NAME is the entry heading — carries the most weight; the diff is supporting detail. */
+  .flabel { font-size: 15px; font-weight: 700; color: var(--text-strong); line-height: 1.25; margin-bottom: 5px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .fromto { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 10px; row-gap: 2px; padding-left: 2px; }
+  .cap { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); }
+  .old { font-size: 13.5px; color: var(--text-subtle); text-decoration: line-through; overflow-wrap: anywhere; }
+  .new { font-size: 13.5px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+  .note { font-size: 13.5px; color: var(--text-subtle); padding-left: 2px; overflow-wrap: anywhere; }
+  .note strong { color: var(--text); font-weight: 600; }
+
+  /* details-unavailable marker */
+  .marker { margin-top: 10px; border: 1px solid var(--warning-border); background: var(--warning-bg); color: var(--warning-text); border-radius: 10px; padding: 9px 11px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+  .marker svg { flex: 0 0 auto; margin-top: 1px; }
+
+  .accept { margin-top: 14px; }
+  .accept .btn { width: 100%; }
+
+  .divider-lbl { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); margin: 30px 0 10px; padding-top: 20px; border-top: 1px dashed var(--border); }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">REDESIGN-3 · Option B (starting direction)</div>
+  <h1>Structured field changes in the auto-applied strip</h1>
+  <p class="lede">Replaces the generic “A field changed on this sync” with a per-field list: each field named, with old→new where the value is safe to show. One card per sync — no new rows, no undo/count change. This is the direction to finalize, not the final pixels.</p>
+
+  <!-- PRIMARY: a sync that changed several fields -->
+  <div class="phone">
+    <div class="strip-title">Recently auto-applied</div>
+    <div class="group">
+      <div class="group-head">
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        <div class="group-name">East Coast Family Office Wealth Conference</div>
+        <div class="count">1</div>
+      </div>
+      <div class="bulk">
+        <button class="btn">Accept all</button>
+      </div>
+      <div class="rows">
+        <div class="change">
+          <span class="pill pill-field"><span class="dot"></span>Field</span>
+          <div class="fieldlist">
+            <div class="entry">
+              <div class="flabel">COI status</div>
+              <div class="fromto">
+                <span class="cap">From</span><span class="old">(none)</span>
+                <span class="cap">To</span><span class="new">received</span>
+              </div>
+            </div>
+            <div class="entry">
+              <div class="flabel">Role — Jordan A. Lee</div>
+              <div class="fromto">
+                <span class="cap">From</span><span class="old">A1, LEAD</span>
+                <span class="cap">To</span><span class="new">A1</span>
+              </div>
+            </div>
+            <div class="entry">
+              <div class="flabel">PO number</div>
+              <div class="note"><strong>Cleared</strong> on this sync</div>
+            </div>
+            <div class="entry">
+              <div class="flabel">Pull sheet</div>
+              <div class="note">200 cases removed</div>
+            </div>
+          </div>
+          <div class="accept"><button class="btn">Accept</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="caption-note">Above: the common-to-busy case (financial clear, COI, an auth-sensitive role/LEAD change, a pull-sheet regression). Old values shown struck-through, new values bold — reusing the existing crew From→To treatment. A financial number is never shown (only “cleared”); role flags render as their tokens.</p>
+
+  <!-- SECONDARY: the single-field common case -->
+  <div class="divider-lbl">Most common — one field</div>
+  <div class="phone">
+    <div class="group">
+      <div class="group-head">
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        <div class="group-name">Fixed Income Trading Summit 2025</div>
+        <div class="count">1</div>
+      </div>
+      <div class="rows" style="padding-top:12px">
+        <div class="change">
+          <span class="pill pill-field"><span class="dot"></span>Field</span>
+          <div class="fieldlist">
+            <div class="entry">
+              <div class="flabel">Role — Priya Natarajan</div>
+              <div class="fromto">
+                <span class="cap">From</span><span class="old">(none)</span>
+                <span class="cap">To</span><span class="new">A1, LEAD</span>
+              </div>
+            </div>
+          </div>
+          <div class="accept"><button class="btn">Accept</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MARKER: details unavailable -->
+  <div class="divider-lbl">Rare — a value couldn’t be shown</div>
+  <div class="phone">
+    <div class="group">
+      <div class="group-head">
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        <div class="group-name">RIA Investment Forum — Central 2025</div>
+        <div class="count">1</div>
+      </div>
+      <div class="rows" style="padding-top:12px">
+        <div class="change">
+          <span class="pill pill-field"><span class="dot"></span>Field</span>
+          <div class="fieldlist">
+            <div class="entry">
+              <div class="flabel">COI status</div>
+              <div class="fromto">
+                <span class="cap">From</span><span class="old">pending</span>
+                <span class="cap">To</span><span class="new">received</span>
+              </div>
+            </div>
+          </div>
+          <div class="marker">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+            <span>1 other field change on this sync — details unavailable</span>
+          </div>
+          <div class="accept"><button class="btn">Accept</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="caption-note">The “details unavailable” marker (warm-yellow warning texture, never red) appears when a stored change couldn’t be rendered — so a whole-card Accept never silently dismisses an unseen change. It reads as clearly distinct from a normal field row.</p>
+</div>

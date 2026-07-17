@@ -122,6 +122,50 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
       </div>
     );
   }
+  if (d.kind === "fields") {
+    // Structured field list (REDESIGN-3). Field NAME is the entry heading (owner
+    // direction: weighted OVER the diff); the From→To / note is supporting detail.
+    // Render ALL entries — no "+N more" collapse (a whole-row Accept must never
+    // dismiss an applied change Doug never saw). The "Unavailable" / "Other changes"
+    // markers render as a distinct warm-yellow warning row (never red; §1 color-blind
+    // floor pairs the fill with text).
+    return (
+      <ul className="mt-1 flex flex-col">
+        {d.entries.map((e, i) => {
+          const isMarker = e.label === "Unavailable" || e.label === "Other changes";
+          if (isMarker) {
+            return (
+              <li
+                key={i}
+                className="mt-1.5 flex items-start gap-2 rounded-md bg-warning-bg px-2.5 py-1.5 text-sm text-warning-text"
+              >
+                <span className="wrap-break-word">{e.note}</span>
+              </li>
+            );
+          }
+          return (
+            <li key={i} className="border-t border-border py-2.5 first:border-t-0 first:pt-0.5">
+              <p className="wrap-break-word text-[15px] font-semibold leading-tight text-text-strong">
+                {e.label}
+              </p>
+              {e.note != null ? (
+                <p className="wrap-break-word mt-1 pl-0.5 text-sm text-text-subtle">{e.note}</p>
+              ) : (
+                <div className="mt-1 grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
+                  <span className={cap}>From</span>
+                  <span className="wrap-break-word text-sm text-text-subtle line-through">
+                    {e.from}
+                  </span>
+                  <span className={cap}>To</span>
+                  <span className="wrap-break-word text-sm text-text">{e.to}</span>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   const removed = d.caption === "Removed";
   return (
     <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">
@@ -224,9 +268,10 @@ function StripRow({
   // is not a card-in-card inside the group card. Multi-row keeps per-row cards.
   flatten?: boolean;
 }) {
-  // Crew kinds carry a structured diff → show a "Crew member" entity label; the
-  // none-kinds (field/email/unknown) render their summary sentence instead.
-  const isCrew = row.diff.kind !== "none";
+  // Only the CREW diff kinds carry a "Crew member" entity label. Keyed on the
+  // specific crew kinds — NOT `!== "none"` — so the `fields` variant (a show-field
+  // change, not a crew member) never renders "Crew member" (REDESIGN-3 §6).
+  const isCrew = row.diff.kind === "fromTo" || row.diff.kind === "single";
   return (
     <li
       data-testid={`auto-applied-row-${row.id}`}

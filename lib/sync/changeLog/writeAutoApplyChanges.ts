@@ -1,5 +1,6 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import { buildFieldChangesRow } from "@/lib/sync/changeLog/fieldChanges";
 import type { PreviousCrewMember } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
 
@@ -139,23 +140,17 @@ export async function writeAutoApplyChanges(args: WriteAutoApplyChangesArgs): Pr
       afterImage: null,
     });
   }
-  // Field changes (MI-8/8b/8c + MI-9 LEAD — non-identity crew field, not undoable per F17).
-  if (
-    hasInvariant(
-      args.triggeredItems,
-      (i) =>
-        i.invariant === "MI-8" ||
-        i.invariant === "MI-8b" ||
-        i.invariant === "MI-8c" ||
-        i.invariant === "MI-9",
-    )
-  ) {
+  // Field changes (MI-8/8b/8c + MI-9 role — non-identity crew field, not undoable per F17).
+  // Structured enrichment (spec 2026-07-17-autoapplied-field-structured-diff §3):
+  // buildFieldChangesRow returns null iff no field-family item is present.
+  const fieldRow = buildFieldChangesRow(args.triggeredItems);
+  if (fieldRow) {
     rows.push({
       changeKind: "field_changed",
       entityRef: null,
-      summary: "A field changed on this sync",
+      summary: fieldRow.summary,
       beforeImage: null,
-      afterImage: null,
+      afterImage: fieldRow.afterImage,
     });
   }
   // Asset drift (DIAGRAMS_* / REEL_DRIFT).
