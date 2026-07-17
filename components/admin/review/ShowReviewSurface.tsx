@@ -686,14 +686,15 @@ export function ShowReviewSurface({
                       >
                         {s.label}
                       </span>
-                      {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
-                      {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
                       {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                       {s.railCount !== null ? (
                         <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
                           {s.railCount(data)}
                         </span>
                       ) : null}
+                      {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
+                          the count so the accessible name reads "Rooms 2 — needs review". */}
+                      {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
                       {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
                       {!s.hideDot ? (
                         <span
