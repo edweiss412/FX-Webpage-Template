@@ -2250,7 +2250,7 @@ export const MESSAGE_CATALOG = {
   SYNC_DELAYED_MODERATE: {
     code: "SYNC_DELAYED_MODERATE",
     dougFacing: null,
-    crewFacing: "Last synced *<time>* ago. Text Doug if anything looks off.",
+    crewFacing: "Last checked *<time>* ago. Text Doug if anything looks off.",
     followUp: "Crew → mention to Doug",
     helpfulContext: null,
     title: null,
@@ -2516,7 +2516,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
     helpfulContext:
-      "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+      "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_checked_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
     title: "Couldn't read sync status",
     longExplanation:
       "We couldn't read how your Drive sync is doing. Refresh in a moment; if it keeps failing, the developer needs to check the database connection.",

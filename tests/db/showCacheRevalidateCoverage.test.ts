@@ -53,7 +53,7 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 22,
+    siteCount: 23,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
     reason:
@@ -65,7 +65,12 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
       "`update public.admin_overrides` writes were removed with the field-override teardown, #376.) " +
       "The 22nd site is renameCrewMember's identity-preserving `update public.crew_members set name` " +
       "(BL-CREW-RENAME-SILENT-REPLACEMENT) — it runs inside applyParseResult within the same " +
-      "processOneFile apply flow, so the existing apply-tail revalidateShowFromResult covers it.",
+      "processOneFile apply flow, so the existing apply-tail revalidateShowFromResult covers it. " +
+      "The 23rd site is the non-error skip-path `update public.shows set last_checked_at = now()` " +
+      "(spec 2026-07-16-last-checked-at §4): last_checked_at advances every ~5min via cron, and the " +
+      "getShowForViewer cache's `revalidate: 300` backstop (lib/data/getShowForViewer.ts:910) re-reads " +
+      "it within one cron cycle — an explicit per-write revalidateTag would thrash the show tag every " +
+      "5min for every idle show with zero freshness benefit, so this site is intentionally not revalidated.",
   },
   {
     file: "lib/sync/runManualSyncForShow.ts",

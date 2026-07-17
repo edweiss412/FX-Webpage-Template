@@ -478,7 +478,7 @@ export async function CrewShell({
               reportSurfaceIdOverride: `admin-preview-footer-${slug}-${viewer.crewMemberId}`,
             }
           : {})}
-        lastSyncedAt={data.lastSyncedAt}
+        lastCheckedAt={data.lastCheckedAt}
         lastSyncStatus={data.lastSyncStatus}
       />
     </div>

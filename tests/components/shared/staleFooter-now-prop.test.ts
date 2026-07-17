@@ -21,7 +21,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaleFooter } from "@/components/shared/StaleFooter";
 
 const FROZEN_ISO = "2026-03-24T15:00:00.000Z";
-const LAST_SYNCED_AT = "2026-03-24T14:59:30.000Z";
+const LAST_CHECKED_AT = "2026-03-24T14:59:30.000Z";
 
 describe("StaleFooter — required `now` prop + deterministic-output contract (AC-11.38)", () => {
   beforeEach(() => {
@@ -35,7 +35,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
     vi.setSystemTime(new Date(FROZEN_ISO));
     const first = renderToStaticMarkup(
       StaleFooter({
-        lastSyncedAt: LAST_SYNCED_AT,
+        lastCheckedAt: LAST_CHECKED_AT,
         lastSyncStatus: "ok",
         now: new Date(FROZEN_ISO),
       }) as React.ReactElement,
@@ -44,7 +44,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
     vi.setSystemTime(new Date("2026-03-24T15:01:01.000Z"));
     const second = renderToStaticMarkup(
       StaleFooter({
-        lastSyncedAt: LAST_SYNCED_AT,
+        lastCheckedAt: LAST_CHECKED_AT,
         lastSyncStatus: "ok",
         now: new Date(FROZEN_ISO),
       }) as React.ReactElement,

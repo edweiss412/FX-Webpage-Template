@@ -24,7 +24,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Couldn't read sync status right now. Refresh in a moment.",
     "followUp": "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
-    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_checked_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
   },
   "ADMIN_EMAIL_ALREADY_ACTIVE": {
     "crewFacing": null,
@@ -1347,7 +1347,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "SYNC_DELAYED_MODERATE": {
-    "crewFacing": "Last synced *<time>* ago. Text Doug if anything looks off.",
+    "crewFacing": "Last checked *<time>* ago. Text Doug if anything looks off.",
     "dougFacing": null,
     "followUp": "Crew → mention to Doug",
     "helpfulContext": null,

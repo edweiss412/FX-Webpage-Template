@@ -35,7 +35,7 @@ vi.mock("@/lib/appSettings/getWatchedFolderId", () => ({
 // ---- Supabase client mock --------------------------------------------------
 // Each `shows` head:true count query is classified into a label by the filters
 // it accumulates. The test seeds `counts[label]`. The watch row read is seeded
-// via `watchRow`. `lastSyncedAtRow` seeds the max-last_synced_at display read.
+// via `watchRow`. `lastCheckedAtRow` seeds the max-last_checked_at display read.
 type CountLabel =
   | "active" // syncingCount: archived=false, no other predicate
   | "drive_error"
@@ -59,7 +59,8 @@ const sbMock = vi.hoisted(() => ({
     expires_at: string | null;
     activated_at: string | null;
   },
-  lastSyncedAtRow: null as null | { last_synced_at: string | null },
+  lastCheckedAtRow: null as null | { last_checked_at: string | null },
+  staleSevereOrArg: null as string | null, // captured .or() filter for the stale_severe count
 }));
 
 function classifyShowsCount(filters: Array<{ op: string; args: unknown[] }>): CountLabel {
@@ -87,22 +88,24 @@ function classifyShowsCount(filters: Array<{ op: string; args: unknown[] }>): Co
   ) {
     return "null_status_fresh_ts";
   }
-  // stale_severe: an .or(...) clause referencing 6 hours / null last_synced_at
+  // stale_severe: an .or(...) clause referencing 6 hours / null last_checked_at.
+  // (Re-based onto last_checked_at; the former pending_review>6h sub-clause is gone.)
   if (
     has(
       "or",
       (a) =>
         typeof a[0] === "string" &&
-        /last_synced_at/.test(a[0]) &&
+        /last_checked_at/.test(a[0]) &&
         /is\.null|06:00:00|6 hour|21600|2026-06-01T06/.test(a[0]),
     )
   ) {
     return "stale_severe";
   }
-  // stale_moderate: lt last_synced_at < now-1h AND gte >= now-6h (two range filters, no or())
+  // stale_moderate: lt last_checked_at < now-1h AND gte >= now-6h (two range filters, no or())
   if (
-    has("lt", (a) => a[0] === "last_synced_at") &&
-    (has("gte", (a) => a[0] === "last_synced_at") || has("gt", (a) => a[0] === "last_synced_at")) &&
+    has("lt", (a) => a[0] === "last_checked_at") &&
+    (has("gte", (a) => a[0] === "last_checked_at") ||
+      has("gt", (a) => a[0] === "last_checked_at")) &&
     !has("or", () => true)
   ) {
     return "stale_moderate";
@@ -150,6 +153,10 @@ function makeShowsBuilder(isHeadCount: boolean) {
   const resolve = () => {
     if (selectIsHead) {
       const label = classifyShowsCount(filters);
+      if (label === "stale_severe") {
+        const orFilter = filters.find((f) => f.op === "or");
+        sbMock.staleSevereOrArg = (orFilter?.args?.[0] as string | undefined) ?? null;
+      }
       if (sbMock.errorOnLabel === label) {
         return { data: null, count: null, error: { message: `seeded error on ${label}` } };
       }
@@ -157,7 +164,7 @@ function makeShowsBuilder(isHeadCount: boolean) {
       return { data: null, count, error: null };
     }
     // Non-head select → the lastReadAt display read (order + limit, returns rows).
-    const row = sbMock.lastSyncedAtRow;
+    const row = sbMock.lastCheckedAtRow;
     return { data: row ? [row] : [], count: null, error: null };
   };
 
@@ -220,7 +227,8 @@ beforeEach(() => {
   sbMock.watchQueryCalls = 0;
   sbMock.counts = {};
   sbMock.watchRow = null;
-  sbMock.lastSyncedAtRow = null;
+  sbMock.lastCheckedAtRow = null;
+  sbMock.staleSevereOrArg = null;
 });
 
 // Helper: a live, unexpired active watch row (so watch tiers don't fire).
@@ -533,16 +541,29 @@ describe("fetchDriveConnectionHealth", () => {
     }
   });
 
-  it("(o) lastReadAt = max last_synced_at (display only); positive requires all-ok <1h + active unexpired watch", async () => {
+  it("(o) lastReadAt = max last_checked_at (display only); positive requires all-ok <1h + active unexpired watch", async () => {
     const maxTs = new Date(NOW_MS - 5 * 60_000).toISOString(); // 5 min ago
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 7 };
-    sbMock.lastSyncedAtRow = { last_synced_at: maxTs };
+    sbMock.lastCheckedAtRow = { last_checked_at: maxTs };
     const r = await fetchDriveConnectionHealth();
     expect(r).toMatchObject({ health: "positive" });
     expect((r as { lastReadAt: string | null }).lastReadAt).toBe(maxTs);
     expect((r as { syncingCount: number }).syncingCount).toBe(7);
     expect((r as { folderName: string | null }).folderName).toBe("Doug's Shows");
+  });
+
+  it("(p) stale_severe query is based on last_checked_at, with NO pending_review sub-clause (spec §5.1)", async () => {
+    sbMock.watchRow = liveWatch;
+    sbMock.counts = { active: 1, stale_severe: 1 };
+    await fetchDriveConnectionHealth();
+    const orArg = sbMock.staleSevereOrArg;
+    expect(orArg).toBeTruthy();
+    expect(orArg).toContain("last_checked_at");
+    // The dropped clause + the re-base: the severe filter must NOT reference
+    // pending_review or last_synced_at anymore.
+    expect(orArg).not.toContain("pending_review");
+    expect(orArg).not.toContain("last_synced_at");
   });
 
   it("infra_error short-circuit — getActiveWatchedFolder infra_error → infra_error", async () => {

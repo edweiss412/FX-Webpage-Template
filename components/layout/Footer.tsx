@@ -57,13 +57,13 @@ type FooterProps = {
    */
   reportAutocapture?: React.ComponentProps<typeof ReportButton>["autocapture"];
   /**
-   * `shows.last_synced_at` ISO timestamp. When provided alongside
-   * `lastSyncStatus`, the asOf slot renders <StaleFooter> (Task 9.1)
-   * with tier-aware copy + status precedence. When omitted, the slot
+   * `shows.last_checked_at` ISO timestamp (last successful Drive check). When
+   * provided alongside `lastSyncStatus`, the asOf slot renders <StaleFooter>
+   * (Task 9.1) with tier-aware copy + status precedence. When omitted, the slot
    * falls back to the legacy raw "as of …" rendering (or "syncing…").
    */
-  lastSyncedAt?: string | null;
-  /** `shows.last_sync_status`. Pairs with lastSyncedAt — see above. */
+  lastCheckedAt?: string | null;
+  /** `shows.last_sync_status`. Pairs with lastCheckedAt — see above. */
   lastSyncStatus?: string | null;
   /**
    * Override the report button surface and per-instance scope when the
@@ -98,7 +98,7 @@ export async function Footer({
   showId,
   showSlug,
   reportAutocapture,
-  lastSyncedAt,
+  lastCheckedAt,
   lastSyncStatus,
   reportSurfaceOverride,
   reportSurfaceIdOverride,
@@ -118,9 +118,9 @@ export async function Footer({
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
         <div data-testid="page-footer-as-of" className="min-w-0">
-          {lastSyncedAt ? (
+          {lastCheckedAt ? (
             <StaleFooter
-              lastSyncedAt={lastSyncedAt}
+              lastCheckedAt={lastCheckedAt}
               lastSyncStatus={lastSyncStatus ?? null}
               now={currentNow}
             />
