@@ -527,13 +527,11 @@ export function ShowReviewSurface({
   // ── Extra rail items (spec §5: Overview / Changes) ──────────────────────────
   // Full rail participants: side-rail button, chip entry, active-highlight, and
   // (side rail) an optional `railBadge`. Rendered via `.map` from the extras
-  // arrays so the modal (no extras) mounts none. Hover/active bg swaps are
-  // INSTANT (no color-fade utility): the §7.4 audit pins the modal+surface
-  // transition-class count, and the extras must not grow it — instant hover is
-  // also strictly §7.4-compliant ("all pairs instant"). (The registry items use
-  // a fast color fade; the subtle hover-parity nuance is an impeccable/Task-16
-  // call — bump the §7.4 pin there if the fade is wanted.) The ONLY animated rail
-  // element remains the shared sliding indicator (§A3).
+  // arrays so the modal (no extras) mounts none. Each carries the SAME hover/
+  // active color-fade the registry rail/chip items carry (hover parity) — spec §9
+  // enumerates these two transitions and the §7.4 pin acknowledges them (modal 6
+  // + surface 5 = 11). The ONLY animated rail element is the shared sliding
+  // indicator (§A3); these are the fast colour affordance, not a state-swap.
   function renderExtraRailItem(extra: ExtraSection) {
     const isActive = active === extra.id;
     return (
@@ -547,7 +545,7 @@ export function ShowReviewSurface({
         data-testid={`wizard-step3-card-${dfid}-review-rail-item-${extra.id}`}
         aria-current={isActive ? "true" : undefined}
         onClick={() => handleNavClick(extra.id)}
-        className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left ${
+        className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left transition-colors duration-fast ${
           isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
         }`}
       >
@@ -576,7 +574,7 @@ export function ShowReviewSurface({
         data-testid={`wizard-step3-card-${dfid}-review-chip-item-${extra.id}`}
         aria-current={isActive ? "true" : undefined}
         onClick={() => handleNavClick(extra.id)}
-        className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap ${
+        className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
           isActive
             ? "border-transparent bg-surface-sunken text-text-strong"
             : "border-border bg-surface text-text"
