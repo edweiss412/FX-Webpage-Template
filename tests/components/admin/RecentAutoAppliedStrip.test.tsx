@@ -88,23 +88,42 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
   };
 }
 
-it("collapses every group by default (dashboard): rows + bulk actions hidden, count still shown", () => {
+it("collapses every group by default (dashboard): panel present-but-inert, count shown", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
   expect(toggle).toHaveAttribute("aria-expanded", "false");
+  // aria-controls is now unconditional (region always mounted)
+  expect(toggle).toHaveAttribute("aria-controls", `auto-applied-panel-${FIN_ID}`);
   // count badge shows even while collapsed (it lives in the header toggle)
   expect(screen.getByTestId(`auto-applied-count-${FIN_ID}`)).toHaveTextContent("3");
-  // disclosed panel absent → rows + bulk Accept-all not mounted
-  expect(screen.queryByTestId("auto-applied-row-r1")).toBeNull();
-  expect(screen.queryByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeNull();
-  expect(screen.queryByTestId(`auto-applied-panel-${FIN_ID}`)).toBeNull();
+  // panel region is always mounted but inert while collapsed (height-morph)
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  expect(region).toHaveAttribute("inert");
+  // rows are present in the DOM (inside the inert region), not unmounted
+  expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
 });
 
-it("expands a group on toggle click: rows + bulk Accept all appear, aria-expanded flips", () => {
+it("expanding a group clears inert on its panel region", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  expect(region).not.toHaveAttribute("inert");
+  expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+});
+
+it("expands a group on toggle click: panel region flips inert->active, aria-expanded flips", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  // before click: region inert (real reveal signal, not mere presence — rows are
+  // always mounted now)
+  expect(region).toHaveAttribute("inert");
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(region).not.toHaveAttribute("inert");
   expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
   expect(screen.getByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeInTheDocument();
 });
@@ -470,7 +489,9 @@ it("alert persists across collapse → re-expand", async () => {
   await openConfirmAndRunUndoAll();
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // collapse
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+  // alert node persists (always-mounted height-morph) but its region is inert while collapsed
+  expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).toHaveAttribute("inert");
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // re-expand
   // "1 of" = the single {ok:false} arranged above; derived from the mock arrangement.
   expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`).textContent).toContain(

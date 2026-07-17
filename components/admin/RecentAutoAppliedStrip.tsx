@@ -32,6 +32,7 @@ import type {
 } from "@/lib/admin/loadRecentAutoApplied";
 import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
+import { CollapsePanel } from "@/components/admin/CollapsePanel";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -287,9 +288,9 @@ function GroupSection({
           type="button"
           data-testid={`auto-applied-toggle-${group.showId}`}
           aria-expanded={open}
-          // Only reference the panel while it exists (mounted on expand) — a
-          // dangling aria-controls idref confuses strict screen readers.
-          aria-controls={open ? panelId : undefined}
+          // The panel region is always mounted (CollapsePanel height-morph), so
+          // aria-controls resolves unconditionally.
+          aria-controls={panelId}
           onClick={() => setOpen((v) => !v)}
           // ring-inset (not the token's offset ring) is deliberate: this toggle is
           // a full-bleed sunken bar flush to the card's top edge + rounded-t
@@ -318,13 +319,8 @@ function GroupSection({
         </button>
       </GroupHeading>
 
-      {open ? (
-        <div
-          id={panelId}
-          data-testid={panelId}
-          role="region"
-          aria-label={`Auto-applied changes for ${group.showName}`}
-        >
+      <CollapsePanel open={open} id={panelId} label={`Auto-applied changes for ${group.showName}`}>
+        <div>
           {/* Bulk actions sit on their OWN row underneath the show name, not beside
               it — and outside the toggle <button> (a11y: no nested interactives). */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border p-tile-pad">
@@ -407,7 +403,7 @@ function GroupSection({
             ))}
           </ul>
         </div>
-      ) : null}
+      </CollapsePanel>
     </li>
   );
 }
