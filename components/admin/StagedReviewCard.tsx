@@ -81,6 +81,9 @@ type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
 // Plain-language label for each `pending_syncs.source_kind` enum value.
 // PRODUCT.md design principle 5 ("plain language, never technical chrome")
 // requires admin copy to read as English, not schema vocabulary.
+// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+
 const SOURCE_LABELS: Record<"cron" | "push" | "manual" | "onboarding_scan", string> = {
   cron: "Auto sync",
   push: "Drive push",
@@ -249,7 +252,7 @@ export function StagedReviewCard({
       ignoreArmTimerRef.current = setTimeout(() => {
         ignoreArmTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setIgnoreArmed(false);
-      }, 4_000);
+      }, ARM_REVERT_MS);
       return;
     }
     clearIgnoreArmTimer();
@@ -661,6 +664,12 @@ export function StagedReviewCard({
           >
             {ignoreArmed ? "Confirm: stop showing this sheet" : "Stop showing this sheet"}
           </button>
+          {/* Persistent sr-only live region: announces the silent label morph to
+              screen readers (impeccable P2). Always mounted — conditional
+              mounting drops the announcement (project a11y rule). */}
+          <span role="status" className="sr-only">
+            {ignoreArmed ? "Tap again to confirm." : ""}
+          </span>
           <p id={`staged-${row.stagedId}-ignore-note`} className="mt-1 text-xs text-text-subtle">
             This sheet will not reappear until Doug clears it from settings.
           </p>

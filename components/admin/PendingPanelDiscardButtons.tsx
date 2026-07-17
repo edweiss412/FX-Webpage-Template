@@ -33,6 +33,9 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try again.";
 
+// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -56,7 +59,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setArmed(false);
-      }, 4_000);
+      }, ARM_REVERT_MS);
       return;
     }
     clearArmTimer();
@@ -125,6 +128,12 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
               ? "Ignoring…"
               : "Permanently ignore"}
         </button>
+        {/* Persistent sr-only live region: announces the silent label morph to
+            screen readers (impeccable P2). Always mounted — conditional
+            mounting drops the announcement (project a11y rule). */}
+        <span role="status" className="sr-only">
+          {armed ? "Tap again to confirm." : ""}
+        </span>
       </div>
       {state.kind === "error" ? (
         <div

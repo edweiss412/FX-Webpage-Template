@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
 
@@ -22,6 +22,9 @@ const BTN =
 
 // G4 armed branch (spec 2026-07-16-destructive-confirm-pass §4): the destructive
 // recipe fill (C1), same shape/wrap behavior as the idle skin.
+// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+
 const ARMED_BTN =
   "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
@@ -57,7 +60,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setArmedCode(null);
-      }, 4_000);
+      }, ARM_REVERT_MS);
       return;
     }
     clearArmTimer();
@@ -116,28 +119,35 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         const running = state.kind === "running" && state.code === group.code;
         const armed = armedCode === group.code;
         return (
-          <button
-            key={group.code}
-            type="button"
-            data-testid={`dq-bulk-ignore-${group.code}`}
-            onClick={() => onGuardedClick(group)}
-            disabled={state.kind === "running"}
-            aria-busy={running}
-            className={armed ? ARMED_BTN : BTN}
-          >
-            {running
-              ? "Ignoring…"
-              : armed
-                ? `Confirm: ignore all ${group.items.length}`
-                : `Ignore all ${group.items.length}`}
-            {group.label ? (
-              // While armed the span stays (it identifies WHICH group is armed) but
-              // drops text-text-subtle so it inherits the recipe's text-warning-bg.
-              <span className={armed ? "ml-1 font-normal" : "ml-1 font-normal text-text-subtle"}>
-                · {group.label}
-              </span>
-            ) : null}
-          </button>
+          <Fragment key={group.code}>
+            <button
+              type="button"
+              data-testid={`dq-bulk-ignore-${group.code}`}
+              onClick={() => onGuardedClick(group)}
+              disabled={state.kind === "running"}
+              aria-busy={running}
+              className={armed ? ARMED_BTN : BTN}
+            >
+              {running
+                ? "Ignoring…"
+                : armed
+                  ? `Confirm: ignore all ${group.items.length}`
+                  : `Ignore all ${group.items.length}`}
+              {group.label ? (
+                // While armed the span stays (it identifies WHICH group is armed) but
+                // drops text-text-subtle so it inherits the recipe's text-warning-bg.
+                <span className={armed ? "ml-1 font-normal" : "ml-1 font-normal text-text-subtle"}>
+                  · {group.label}
+                </span>
+              ) : null}
+            </button>
+            {/* Per-group persistent sr-only live region: announces the silent
+                label morph to screen readers (impeccable P2). Always mounted —
+                conditional mounting drops the announcement (project a11y rule). */}
+            <span role="status" className="sr-only">
+              {armed ? "Tap again to confirm." : ""}
+            </span>
+          </Fragment>
         );
       })}
       {state.kind === "error" ? (

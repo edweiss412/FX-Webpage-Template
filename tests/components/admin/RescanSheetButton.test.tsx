@@ -595,4 +595,23 @@ describe("G3 two-tap guard — Re-scan this sheet", () => {
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  test("persistent sr-only status region announces arming and clears on auto-revert", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    const region = btn.nextElementSibling as HTMLElement;
+    expect(region).not.toBeNull();
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.className.split(/\s+/)).toContain("sr-only");
+    expect(region.textContent).toBe("");
+    fireEvent.click(btn); // arm
+    expect(region.textContent).toBe("Tap again to confirm.");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    // Same persistently-mounted element, emptied — never unmounted.
+    expect(btn.nextElementSibling).toBe(region);
+    expect(region.textContent).toBe("");
+  });
 });

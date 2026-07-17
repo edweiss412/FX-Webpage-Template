@@ -207,6 +207,31 @@ describe("BulkIgnoreControls", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    test("per-group persistent sr-only status regions announce arming and clear on auto-revert", () => {
+      vi.useFakeTimers();
+      render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
+      const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
+      const btnY = screen.getByTestId(`dq-bulk-ignore-${groupY.code}`);
+      const regionX = btnX.nextElementSibling as HTMLElement;
+      const regionY = btnY.nextElementSibling as HTMLElement;
+      for (const region of [regionX, regionY]) {
+        expect(region).not.toBeNull();
+        expect(region.getAttribute("role")).toBe("status");
+        expect(region.className.split(/\s+/)).toContain("sr-only");
+        expect(region.textContent).toBe("");
+      }
+      fireEvent.click(btnX); // arm X — only X's region announces
+      expect(regionX.textContent).toBe("Tap again to confirm.");
+      expect(regionY.textContent).toBe("");
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      // Same persistently-mounted elements, emptied — never unmounted.
+      expect(btnX.nextElementSibling).toBe(regionX);
+      expect(regionX.textContent).toBe("");
+      expect(regionY.textContent).toBe("");
+    });
+
     test("running disables ALL group buttons and no group stays armed", async () => {
       const resolvers: Array<(r: Response) => void> = [];
       fetchMock.mockImplementation(

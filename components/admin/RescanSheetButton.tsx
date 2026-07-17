@@ -82,6 +82,9 @@ const PLAIN_COPY: Record<"superseded" | "no_active_session" | "not_found" | "not
     not_a_sheet: "This file isn't a Google Sheet, so there's nothing to re-scan.",
   };
 
+// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+
 function resultFor(body: RescanResponse): ResultState {
   if (body.ok) {
     if (body.needsReview) {
@@ -138,7 +141,7 @@ export function RescanSheetButton({
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setArmed(false);
-      }, 4_000);
+      }, ARM_REVERT_MS);
       return;
     }
     clearArmTimer();
@@ -212,6 +215,12 @@ export function RescanSheetButton({
             ? "Re-scanning…"
             : "Re-scan this sheet"}
       </button>
+      {/* Persistent sr-only live region: announces the silent label morph to
+          screen readers (impeccable P2). Always mounted — conditional
+          mounting drops the announcement (project a11y rule). */}
+      <span role="status" className="sr-only">
+        {armed ? "Tap again to confirm." : ""}
+      </span>
 
       {result ? (
         placement === "overlay" ? (

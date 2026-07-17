@@ -24,7 +24,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 
 const CONFIRM_COPY =
-  "Confirm archive — crew links stop working now and won't come back until you re-publish and issue a new link.";
+  "Confirm archive: crew links stop working now and won't come back until you re-publish and issue a new link.";
 
 beforeEach(() => {
   vi.clearAllMocks();

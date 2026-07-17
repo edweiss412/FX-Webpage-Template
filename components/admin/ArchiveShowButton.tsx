@@ -9,7 +9,7 @@
  * mirroring components/admin/ResolveAlertButton:
  *
  *   resting → [ Archive ] (type=button). Tap → armed.
- *   armed   → [ Confirm archive — crew links stop working now and won't come
+ *   armed   → [ Confirm archive: crew links stop working now and won't come
  *             back until you re-publish and issue a new link. ] (type=submit).
  *             Tap → submits the parent <form action> → the bound server action.
  *   4s idle → auto-reverts armed → resting (a misfired tap doesn't strand the
@@ -203,7 +203,7 @@ function ConfirmButton({
     >
       {pending
         ? "Archiving…"
-        : "Confirm archive — crew links stop working now and won’t come back until you re-publish and issue a new link."}
+        : "Confirm archive: crew links stop working now and won’t come back until you re-publish and issue a new link."}
     </button>
   );
 }
