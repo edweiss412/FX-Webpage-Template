@@ -140,10 +140,20 @@ git commit --no-verify -m "docs: reconcile ACCENT-PASS-1 resolved (no BACKLOG tw
 
 ### Task 2: Impeccable dual-gate + whole-diff review (milestone close-out)
 
+**This is a review/gate task, not an implementation task — it authors no behavioral surface, so it has no RED-test step (invariant 1's failing-test cycle governs code-bearing tasks; Task 1 carries it).** The task RUNS the gates and records dispositions. If any gate surfaces a P0/P1/P2 that needs a code fix, that fix follows the normal micro-cycle inside this task — failing test → minimal fix → passing test → its own commit — before the gate is re-run to green. The §12 results-recording is committed as a docs commit (Step 5).
+
 - [ ] **Step 1:** Run `/impeccable critique` on the diff (setup gates: `context.mjs` load, register read). UI surface = `RightNowHero.tsx` + `DESIGN.md`.
-- [ ] **Step 2:** Run `/impeccable audit` on the diff (a11y/contrast/responsive). Real-browser screenshot of the hero progress bar at light + dark to confirm the 1px stroke reads as a crisp hairline on the 6px pill (the one visual judgment §4 defers to this gate).
-- [ ] **Step 3:** Record findings + dispositions (P0/P1/P2 fixed or DEFERRED) in this plan's §12.
-- [ ] **Step 4:** Whole-diff Codex cross-model review to APPROVE.
+- [ ] **Step 2:** Run `/impeccable audit` on the diff (a11y/contrast/responsive). Real-browser screenshot of the hero progress bar at light + dark to confirm the 1px stroke reads as a crisp hairline on the 6px pill (the one visual judgment §4 defers to this gate). Also capture the `bg-stale-tint` morph state if reachable in the harness (spec §3 morph-path).
+- [ ] **Step 3:** For any P0/P1/P2 requiring a code fix: write the failing test, apply the minimal fix, confirm green, commit (`fix(crew-page): …`), then re-run the affected gate.
+- [ ] **Step 4:** Record findings + dispositions (P0/P1/P2 fixed or DEFERRED) in this plan's §12.
+- [ ] **Step 5: Commit the gate results.**
+
+```bash
+git add docs/superpowers/plans/2026-07-17-hero-segment-vibrancy.md
+git commit --no-verify -m "docs(plan): record impeccable dual-gate results (§12)"
+```
+
+- [ ] **Step 6:** Whole-diff Codex cross-model review to APPROVE.
 
 ---
 
