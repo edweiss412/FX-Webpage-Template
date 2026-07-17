@@ -227,8 +227,9 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     // The inbox <section aria-label="Needs attention"> has implicit role=region.
     const inbox = screen.getByRole("region", { name: "Needs attention" });
     const strip = screen.getByTestId("recent-auto-applied-strip");
-    // Same parent → siblings (strip NOT nested inside the inbox section).
-    expect(strip.parentElement).toBe(inbox.parentElement);
+    // Strip is NOT nested inside the inbox section (it sits in its own max-w-3xl
+    // wrapper, a sibling of the inbox — separate concept).
+    expect(inbox.contains(strip)).toBe(false);
     // strip follows the inbox in document order (below, not above). Bare `Node` is
     // the established repo convention (tests/components/admin/ShowsTable.test.tsx:288).
     expect(inbox.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

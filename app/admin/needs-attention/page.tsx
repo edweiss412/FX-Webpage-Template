@@ -90,12 +90,16 @@ export default async function NeedsAttentionPage() {
           is a SIBLING after the inbox section (separate concept — mirrors the
           desktop dashboard where it follows the inbox), so mobile admins get a
           count + Accept/Undo path. headingLevel={2} keeps the outline monotonic
-          under the page <h1> (no h1→h4 skip). Renders null on empty groups. */}
-      <RecentAutoAppliedStrip
-        data={recentAutoApplied}
-        actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
-        headingLevel={2}
-      />
+          under the page <h1> (no h1→h4 skip). Renders null on empty groups. The
+          max-w-3xl wrapper matches the inbox section's width cap so the strip
+          cards align with the inbox cards on desktop (impeccable audit P2). */}
+      <div className="w-full max-w-3xl">
+        <RecentAutoAppliedStrip
+          data={recentAutoApplied}
+          actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
+          headingLevel={2}
+        />
+      </div>
     </div>
   );
 }
