@@ -44,3 +44,22 @@ export function syncStatusBucket(status: string | null | undefined): SyncStatusR
       return { bucket: "warn", label: "Unknown sync state" };
   }
 }
+
+// The three last_sync_status values whose `last_synced_at` is an error-attempt
+// stamp (markShowParseError / markShowSheetUnavailable / markShowDriveError in
+// lib/sync/runScheduledCronSync.ts:1098/1163/1189), NOT a content apply. On these
+// buckets the Sync cell hides the "Edited" clause (it would misread as a content
+// edit). If a future status stamps last_synced_at on error, add it here — keep in
+// lockstep with the cron error paths.
+export const EDIT_STAMP_EXCLUDED_STATUSES = new Set<string>([
+  "drive_error",
+  "sheet_unavailable",
+  "parse_error",
+]);
+
+// True ⇒ the Sync cell line 2 shows "Edited {rel} · Checked {rel}"; false ⇒
+// "Checked {rel}" only. Unknown/future statuses default to true (show Edited); a
+// new *error* status must be added to EDIT_STAMP_EXCLUDED_STATUSES explicitly.
+export function showsEditedClause(status: string | null | undefined): boolean {
+  return !EDIT_STAMP_EXCLUDED_STATUSES.has(status ?? "");
+}
