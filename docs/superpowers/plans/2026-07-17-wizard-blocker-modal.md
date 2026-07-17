@@ -54,7 +54,7 @@ fetchMock
   .mockResolvedValueOnce(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 0, per_row: [] }))
   .mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "SHOW_ARCHIVED_IMMUTABLE",
     per_row: [{ drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" }] }, { status: 409 }));
-// resolver control testid: `blocked-row-resolver-drive-archived-1`; it is TWO-TAP (arm, then confirm) → POST /api/admin/onboarding/resolve-blocker (BlockedRowResolver.tsx:186-198,210).
+// resolver control testid: `blocked-row-resolver-drive-archived-1`; guarded two-tap (arm, then confirm) at BlockedRowResolver.tsx:184-198; the fetch + onResolved() path is BlockedRowResolver.tsx:153-166; control testid at :210.
 // review modal testid (compound tests): `wizard-step3-card-<dfid>-review-modal` (Step3ReviewModal.tsx:559).
 
 // EXECUTABLE drive helpers (define once in FinalizeBlockerModal.test.tsx; every test calls one — no "drive to X" prose):
@@ -165,7 +165,7 @@ This task moves the three panels; the moment it does, the legacy focus + `contai
 
 `FinalizeBlockerModal({ run })` — OUTER gate, calls ONLY `useHasMounted()` (unconditional), then gates:
 ```tsx
-export? function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // NOT exported — module-private, exercised via FinalizeStatusRegion
+function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // module-private (NOT exported); exercised via FinalizeStatusRegion
   const mounted = useHasMounted();
   const active = run.state.kind === "race_row" || run.state.kind === "cas_per_row" || run.state.kind === "error";
   if (!mounted || !active) return null;
@@ -195,9 +195,12 @@ test.each([
   const dialog = q.getByTestId("wizard-finalize-blocker-modal");
   expect(dialog).toHaveAttribute("role", "dialog");
   expect(dialog).toHaveAttribute("aria-modal", "true");
-  const labelEl = document.getElementById(dialog.getAttribute("aria-labelledby")!);
+  const labelledby = dialog.getAttribute("aria-labelledby")!;
+  expect(labelledby.trim().split(/\s+/)).toHaveLength(1);      // §6: exactly ONE labelling element (single id token)
+  expect(dialog).not.toHaveAttribute("aria-label");            // no competing aria-label
+  const labelEl = document.getElementById(labelledby);
   expect(labelEl).not.toBeNull();
-  expect(labelEl!.textContent!.trim().length).toBeGreaterThan(0); // exactly one labelling element, non-empty
+  expect(labelEl!.textContent!.trim().length).toBeGreaterThan(0); // non-empty accessible name
   expect(q.getByTestId(panelTestid)).toBeInTheDocument();
 });
 // §10.5 — body scroll lock while open, restored on close
@@ -317,7 +320,10 @@ test("Back during a PENDING resolver request suppresses the late runLoop", async
 - [ ] **Step 1 — failing tests:**
 
 ```tsx
-beforeAll(() => { Object.defineProperty(HTMLElement.prototype, "offsetParent", { configurable: true, get() { return this.parentNode; } }); }); // jsdom visibility (Step3ReviewModal.test.tsx:403-429)
+// jsdom visibility stub — SAVE + RESTORE the descriptor around this suite (Step3ReviewModal.test.tsx:403-432), so it can't mask focusability bugs in other tests in this file.
+let __offsetParentDesc: PropertyDescriptor | undefined;
+beforeAll(() => { __offsetParentDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent"); Object.defineProperty(HTMLElement.prototype, "offsetParent", { configurable: true, get() { return this.parentNode; } }); });
+afterAll(() => { if (__offsetParentDesc) Object.defineProperty(HTMLElement.prototype, "offsetParent", __offsetParentDesc); else delete (HTMLElement.prototype as any).offsetParent; });
 test("focus lands on the dismiss control; Tab cycles within the modal", async () => {
   const q = await driveToRaceRow(); // multi-control: a re-apply link + Back
   await waitFor(() => expect(document.activeElement).toBe(q.getByTestId("wizard-finalize-blocker-dismiss")));
