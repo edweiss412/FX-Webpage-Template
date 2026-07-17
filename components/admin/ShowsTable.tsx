@@ -237,7 +237,7 @@ function SyncCell({ row, now }: { row: ActiveShowRow; now: Date }) {
       {showTimes ? (
         <span
           data-testid={`shows-sync-times-${row.slug}`}
-          className="mt-0.5 block text-xs text-text-faint tabular-nums"
+          className="mt-0.5 block text-xs text-text-subtle tabular-nums"
         >
           {showEdited ? (
             <>

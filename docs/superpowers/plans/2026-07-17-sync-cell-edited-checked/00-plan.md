@@ -608,3 +608,17 @@ Push the branch, open the PR, confirm CI is actually green on the GitHub Actions
 ## Handoff notes (execution log)
 
 **Pre-existing test failures (NOT this diff):** the full local `pnpm vitest run` shows 9 failing tests across DB lifecycle-guard files — `tests/db/undo_change_lifecycle_guard.test.ts`, `tests/db/reset_crew_member_selection_lifecycle_guard.test.ts`, `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (+1 sibling). Each fails because the local shared Postgres is missing the recently-merged lifecycle-guard RPC migrations (PR #426 `feat/rpc-reset-selection-lifecycle-guard`); the RPCs return `ok:true` instead of the guard code. **Confirmed pre-existing**: the same tests fail identically on the clean `main` checkout (zero of this diff's changes). This diff is read-only display (predicate + `ActiveShowRow` field + `SyncCell` render + one SELECT column) and touches no RPC/migration/DB — real CI (fresh Supabase, all migrations) is the arbiter and runs these green. All new tests (Tasks 1–3) and the 14,148 non-DB tests pass.
+
+## Impeccable dual-gate dispositions (invariant 8)
+
+Register: product (admin dashboard). Scope: the `SyncCell` diff.
+
+| Finding | Tier | Disposition |
+|---|---|---|
+| Line 2 muted color `text-faint` fails WCAG AA — light `#8b8c92`/#fff ≈ 3.35:1, dark `#74736d`/`#16171c` ≈ 3.75:1, vs 4.5:1 for 12px text (PRODUCT.md flags muted text as top legibility risk) | P1 | **FIXED** — changed to `text-subtle` (≈6.7:1 light); also now consistent with the row's Dates/Crew meta cells. Hierarchy vs line 1 preserved by the smaller `text-xs` size. |
+| Middot separator announced by SR | P2 | Already handled — own `aria-hidden="true"` span (spec §4.1, test-covered). |
+| State signal color-only | — | N/A — line 1 status is dot + text label (StatusIndicator), never color-only. |
+| Line 2 overflow in 12rem track | — | Wraps within track, no `whitespace-nowrap`, no body h-scroll (spec §6). Mobile parity test-covered. |
+| Motion / reduced-motion | — | N/A — static text, no animation (transition-audit test H). |
+
+No P0. No remaining P1. Critique + audit pass on the diff.
