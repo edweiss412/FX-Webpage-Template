@@ -146,7 +146,9 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
   - **Coverage-parity** (`tests/sync/roleChangeLogCoverageParity.test.ts`): over fixtures {scope-tile change, held-fold, applied-rename, new-crew, removed-capability, staged-shaped empty-identityLinkRenames}, assert the SET of member names the writer emits == the set an UNFILTERED `capabilityRoleChangesForNotice` arm (a) (existing-member diff, capability filter removed) would flag. Roster arms (b/c) excluded.
   - **Supersession regression** (DB test, `tests/sync/roleChangeLog.db.test.ts` or extend an existing DB test): sync 1 inserts a `crew_added` "Alice" row (undoable, before_image set); sync 2 writes a role row for Alice's `["A1"] → ["V1"]` and runs `cleanup_superseded_before_images($show)`; assert the older `crew_added` row is STILL `status='applied'` with `before_image` intact (null entity_ref triggered no supersession).
 
-- [ ] **Step 2: Run, verify fail** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts` → FAIL.
+- [ ] **Step 1b: Write the failing DB-path (wiring) tests FIRST** (TDD invariant 1 — these exercise the `runPhase2` writer call, so they precede its implementation). Extend `tests/sync/runScheduledCronSync.test.ts` (cron auto-apply) and `tests/sync/applyStaged.test.ts` (staged) per spec §7: a scope-tile role change → identifiable row + no `ROLE_FLAGS_NOTICE`; a LEAD change → row + `LEAD_ROLE_APPLIED`; a FINANCIALS change → row + `ROLE_FLAGS_NOTICE` + `LEAD_ROLE_APPLIED`; held-fold FINANCIALS → all three; a staged remove+add of a capability holder → arm (c) loss event + arm (b) grant. Anti-tautology: derive expected member/flags from the fixture.
+
+- [ ] **Step 2: Run, verify all fail** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts` AND the extended `tests/sync/runScheduledCronSync.test.ts` / `tests/sync/applyStaged.test.ts` cases → FAIL (writer + `runPhase2` wiring not yet present).
 
 - [ ] **Step 3: Implement** `lib/sync/changeLog/writeRoleChangeLogRows.ts` per spec §2.4 pseudocode:
   ```ts
@@ -188,11 +190,9 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
     **Port availability (verified, load-bearing):** both real apply paths wire `holdPort` — cron (`runScheduledCronSync.ts:735`) and the staged/dashboard path (the locked `applyStaged` tx, `applyStaged.ts:1751`) — so `port` is DEFINED on every real apply path; the `if (port)` guard only no-ops for port-less test doubles / legacy raw txs. Critically, the capability AUDIT (notice + durable `LEAD_ROLE_APPLIED` event) is produced by `capabilityRoleChangesForNotice` (arms a/b/c, in-memory, returned to the tail callers and emitted post-commit) and does **NOT** depend on `port` — so a missing port drops only the Doug-visible change-log ROW, never the security-critical capability audit. The change-log row is Doug-visible sugar for role changes; the durable event is the audit of record. The writer's optional `occurredAt` defaults to `new Date().toISOString()` (mirrors `writeAutoApplyChanges.ts:177`); unit tests pass an explicit value for determinism.
   - In `lib/sync/changeLog/writeAutoApplyChanges.ts:142-152`, remove `|| i.invariant === "MI-9"` from the field_changed `hasInvariant` predicate (keep MI-8/8b/8c).
 
-- [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts` → PASS. Run the topology meta-test: `pnpm vitest run tests/sync/_metaLeadRoleAppliedTopology.test.ts` → PASS (unchanged). `pnpm tsc --noEmit`.
+- [ ] **Step 4: Run, verify ALL pass** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts` → PASS (unit writer + DB-path wiring). Run the topology meta-test: `pnpm vitest run tests/sync/_metaLeadRoleAppliedTopology.test.ts` → PASS (unchanged). `pnpm tsc --noEmit`.
 
-- [ ] **Step 5: DB-path coverage** — extend `tests/sync/runScheduledCronSync.test.ts` (cron auto-apply) and `tests/sync/applyStaged.test.ts` (staged) per spec §7: a scope-tile role change → identifiable row + no `ROLE_FLAGS_NOTICE`; a LEAD change → row + `LEAD_ROLE_APPLIED`; a FINANCIALS change → row + `ROLE_FLAGS_NOTICE` + `LEAD_ROLE_APPLIED`; held-fold FINANCIALS → all three; a staged remove+add of a capability holder → arm (c) loss event + arm (b) grant. Run those files → PASS.
-
-- [ ] **Step 6: Commit** — `git commit --no-verify -m "feat(sync): identifiable role change-log rows via shared runPhase2 writer; drop MI-9 arm from writeAutoApplyChanges"`
+- [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(sync): identifiable role change-log rows via shared runPhase2 writer; drop MI-9 arm from writeAutoApplyChanges"`
 
 ---
 
@@ -237,7 +237,13 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
   - `pnpm gen:spec-codes` → regen `lib/messages/__generated__/spec-codes.ts`.
   - `_metaAlertAudienceContract.test.ts`: apply the NOTICE→DOUG move + count updates from Step 1.
 
-- [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/messages tests/cross-cutting/codes.test.ts` + the resolve/render tests → PASS. Then the **grep-verification** (§4): `rg -nE "non-LEAD.*ROLE_FLAGS_NOTICE|AUTO-APPLIES.*ROLE_FLAGS_NOTICE|department.*ROLE_FLAGS_NOTICE" docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` → ZERO hits asserting a non-capability alert. (Historical docs 06-drive-sync.md / handoffs / doug-validation-questions.md / html-plans are NOT edited — §4 classifies them historical.)
+- [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/messages tests/cross-cutting/codes.test.ts` + the resolve/render tests → PASS. Then the **grep-verification** (§4) — check BOTH orderings AND the dept-swap example rows on the canonical surfaces (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` + `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md`):
+    ```bash
+    rg -nE "non-LEAD.*ROLE_FLAGS_NOTICE|ROLE_FLAGS_NOTICE.*non-LEAD|AUTO-?APPLIES.*ROLE_FLAGS_NOTICE|ROLE_FLAGS_NOTICE.*(department|dept|scope|A1 → V1|→ V1|BO)|(department|dept|scope|A1 → V1|→ V1|additive).*ROLE_FLAGS_NOTICE" \
+      docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md \
+      docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md
+    ```
+    Manually inspect each hit: ZERO may assert that a scope-tile/department/non-capability change emits `ROLE_FLAGS_NOTICE`. Every §6.8/§6.8.2/§12.4/help dept-swap example must read "change-log row, no bell alert" (a mention of "department" NEAR ROLE_FLAGS_NOTICE is only OK if it explicitly says the dept change gets a change-log row, NOT the alert). (Historical docs 06-drive-sync.md / handoffs / doug-validation-questions.md / html-plans are NOT edited — §4 classifies them historical.)
 
 - [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(admin): reclassify ROLE_FLAGS_NOTICE audience health→doug + capability master-spec reconciliation (§12.4 lockstep)"`
 
