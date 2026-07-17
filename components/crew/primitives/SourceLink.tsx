@@ -47,7 +47,11 @@ type SourceLinkProps = {
   hitDirection?: "up" | "down";
 };
 
-export function SourceLink({ driveFileId, anchor, hitDirection = "up" }: SourceLinkProps): ReactNode {
+export function SourceLink({
+  driveFileId,
+  anchor,
+  hitDirection = "up",
+}: SourceLinkProps): ReactNode {
   const href = buildSheetDeepLink(driveFileId, anchor);
   // No source sheet → no affordance. Mirrors the helper's null contract.
   if (href === null) return null;

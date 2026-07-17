@@ -91,7 +91,9 @@ describe("CardReportTrigger", () => {
     const { container } = render(
       <CardReportTrigger cardId="today-dress" region="dress" showId={SHOW_ID} />,
     );
-    const c = container.querySelector('button[data-slot="card-report-trigger"]')!.getAttribute("class")!;
+    const c = container
+      .querySelector('button[data-slot="card-report-trigger"]')!
+      .getAttribute("class")!;
     // Failure mode: missing overlay (14px target), or wrong grow-edge (down-bleed
     // into interactive rows below a SectionCard).
     expect(c).toContain("relative");
@@ -106,9 +108,16 @@ describe("CardReportTrigger", () => {
 
   it("down: 44x44 overlay is top-anchored", () => {
     const { container } = render(
-      <CardReportTrigger cardId="today-dress" region="dress" showId={SHOW_ID} hitDirection="down" />,
+      <CardReportTrigger
+        cardId="today-dress"
+        region="dress"
+        showId={SHOW_ID}
+        hitDirection="down"
+      />,
     );
-    const c = container.querySelector('button[data-slot="card-report-trigger"]')!.getAttribute("class")!;
+    const c = container
+      .querySelector('button[data-slot="card-report-trigger"]')!
+      .getAttribute("class")!;
     expect(c).toContain("before:top-0");
     expect(c).not.toContain("before:bottom-0");
   });
