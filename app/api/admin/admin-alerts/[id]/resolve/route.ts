@@ -106,7 +106,11 @@ export async function handleAdminAlertGlobalResolve(
           from public.admin_alerts a
           left join public.shows s on s.id = a.show_id
          where a.id = $1::uuid
-         for update
+         -- Scope the row lock to admin_alerts only. A bare FOR UPDATE would also try
+         -- to lock the LEFT JOINed shows row (the nullable side), which Postgres
+         -- rejects: "FOR UPDATE cannot be applied to the nullable side of an outer
+         -- join" — a 500 on every global resolve (ADMIN_ALERT_RESOLVE_FAILED).
+         for update of a
       `,
         [id],
       );
