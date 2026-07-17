@@ -117,7 +117,7 @@ function findConditionalLines(source: string): number[] {
 // the head site's count row and are proven instant by the blanket below.
 const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   "components/admin/showpage/PublishedReviewPage.tsx": 0, // railBadge is an object-spread conditional (asserted separately), not a JSX mount
-  "components/admin/showpage/StatusStrip.tsx": 5, // archived / live / sync / alert / copy-link
+  "components/admin/showpage/StatusStrip.tsx": 6, // archived / control-divider / live / sync / alert / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure

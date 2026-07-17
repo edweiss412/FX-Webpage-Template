@@ -138,6 +138,38 @@ describe("StatusStrip", () => {
     expect(screen.queryByTestId("strip-copy-link")).toBeNull();
   });
 
+  describe("control divider (CASP2-4)", () => {
+    it("renders the divider when the ONLY signal is isLive (isolates the isLive disjunct)", () => {
+      // baseProps sets lastSyncedAt: SYNCED_12M — null it and zero alerts so ONLY isLive drives
+      // hasSignal; a guard that dropped the isLive disjunct would still pass if sync co-fired.
+      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
+    });
+
+    it("renders the divider when the only signal is an alert", () => {
+      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 1 });
+      expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
+    });
+
+    it("omits the divider when the show has no signal (not live, never synced, no alerts)", () => {
+      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 0 });
+      expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+    });
+
+    it("omits the divider when archived, even if a sync signal would render", () => {
+      renderStrip({ archived: true, lastSyncedAt: SYNCED_12M, alertCount: 3 });
+      expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+    });
+
+    it("carries the responsive-suppression + decorative recipe", () => {
+      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      const divider = screen.getByTestId("strip-control-divider");
+      expect(divider.className).toContain("hidden");
+      expect(divider.className).toContain("sm:block");
+      expect(divider.getAttribute("aria-hidden")).toBe("true");
+    });
+  });
+
   describe("archived (read-only)", () => {
     it("shows the archived badge and hides the toggle, copy-link, and live badge", () => {
       renderStrip({ archived: true, published: false, isLive: true }, { token: "TOK" });

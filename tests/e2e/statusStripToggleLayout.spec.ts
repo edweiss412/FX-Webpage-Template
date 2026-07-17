@@ -51,6 +51,7 @@ type HarnessJson = {
   finalizeLong: string;
   cardShort: string;
   errorProbe: string;
+  liveShort: string;
 };
 
 function pageHtml(cssHref: string, body: string): string {
@@ -90,6 +91,7 @@ test.beforeAll(async () => {
     "finalizeLong",
     "cardShort",
     "errorProbe",
+    "liveShort",
   ];
   for (const k of keys) writeFileSync(join(workDir, `${k}.html`), pageHtml("out.css", states[k]));
 
@@ -220,5 +222,37 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     expect(probe.left).toBeGreaterThanOrEqual(0);
     expect(probe.right).toBeLessThanOrEqual(390);
     expect(await noHorizontalOverflow(page)).toBe(true);
+  });
+
+  test("(e) CASP2-4 control divider separates toggle from signals at ≥sm, absent at 390px", async ({
+    page,
+  }) => {
+    await page.goto(`${baseUrl}liveShort.html`);
+
+    // ≥sm: `hidden sm:block` → the divider renders with real width, sitting between the
+    // toggle cluster's right edge and the live badge's left edge.
+    await page.setViewportSize({ width: 800, height: 900 });
+    const box = (n: Element) => {
+      const r = n.getBoundingClientRect();
+      return { left: r.left, right: r.right, width: r.width };
+    };
+    const dividerAt800 = await page.getByTestId("strip-control-divider").evaluate(box);
+    const toggle = await page.getByTestId("strip-publish-toggle").evaluate(box);
+    const live = await page.getByTestId("strip-live-badge").evaluate(box);
+    expect(dividerAt800.width, "divider has real width at ≥sm").toBeGreaterThan(0);
+    expect(
+      toggle.right,
+      "toggle sits left of the divider",
+    ).toBeLessThanOrEqual(dividerAt800.left + 0.5);
+    expect(
+      dividerAt800.right,
+      "divider sits left of the live badge",
+    ).toBeLessThanOrEqual(live.left + 0.5);
+
+    // 390px: `hidden` (no sm) → display:none → no layout box (boundingBox() is null),
+    // so the CASP-2 §8.10 mobile geometry is unchanged — no new element on the wrapped row.
+    await page.setViewportSize(MOBILE);
+    const dividerAt390 = await page.getByTestId("strip-control-divider").boundingBox();
+    expect(dividerAt390, "divider is display:none at 390px").toBeNull();
   });
 });

@@ -100,6 +100,15 @@ export function StatusStrip({
   const copyUrl =
     published && !archived && token != null ? `${resolveOrigin()}/show/${slug}/${token}` : null;
 
+  // CASP2-4 (item 2, approach A): a control/signal divider so the ON switch (bg-accent) and the
+  // Live-now dot (bg-status-live = accent, SAME hue — globals.css:89) stop reading as one orange
+  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The three
+  // disjuncts are exactly the render conditions of the live/sync/alert elements below, so the
+  // divider appears iff a signal renders beside the toggle. `hidden sm:block` matches the title
+  // divider — no vertical divider on the wrapped 390px mobile row.
+  const hasSignal = isLive || (syncLabel != null && sync != null) || alertCount > 0;
+  const showControlDivider = !archived && hasSignal;
+
   return (
     <div
       data-testid="show-status-strip"
@@ -135,6 +144,14 @@ export function StatusStrip({
           </div>
         </>
       )}
+
+      {showControlDivider ? (
+        <span
+          aria-hidden="true"
+          data-testid="strip-control-divider"
+          className="hidden h-5 w-px shrink-0 bg-border sm:block"
+        />
+      ) : null}
 
       {!archived && isLive ? (
         <span data-testid="strip-live-badge" className="shrink-0">
