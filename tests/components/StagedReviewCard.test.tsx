@@ -20,7 +20,7 @@
  * runtime call (which would round-trip and pass even if both sides drifted).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { mkDataGaps } from "../helpers/dataGapsFixture";
@@ -137,17 +137,110 @@ describe("StagedReviewCard", () => {
     expect(body.variant).toBe("defer_until_modified");
   });
 
-  test("permanent_ignore posts variant=permanent_ignore", async () => {
+  test("permanent_ignore posts variant=permanent_ignore (second tap of the G2 guard)", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const row: StagedRow = {
       ...baseRow,
       triggeredReviewItems: [{ id: "first-seen", invariant: "FIRST_SEEN_REVIEW" }],
     };
     const { getByTestId } = render(<StagedReviewCard row={row} />);
+    // G2 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId("staged-review-discard-ignore"));
     fireEvent.click(getByTestId("staged-review-discard-ignore"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
     expect(body.variant).toBe("permanent_ignore");
+  });
+
+  // G2 (spec 2026-07-16-destructive-confirm-pass §4): "Stop showing this sheet"
+  // is a two-tap morph — the recessive underline link arms into a solid recipe
+  // button (4s auto-revert); the second tap fires the EXISTING
+  // handleDiscard("permanent_ignore") unchanged. aria-describedby is preserved
+  // in both states.
+  describe("G2 two-tap guard — Stop showing this sheet", () => {
+    const ARMED_LABEL = "Confirm — stop showing this sheet";
+    const firstSeenRow = (): StagedRow => ({
+      ...baseRow,
+      triggeredReviewItems: [{ id: "first-seen", invariant: "FIRST_SEEN_REVIEW" }],
+    });
+
+    function expectDestructiveRecipe(el: HTMLElement) {
+      const tokens = el.className.split(/\s+/);
+      for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+        expect(tokens).toContain(t);
+      }
+      for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+        expect(tokens).not.toContain(t);
+      }
+      expect(
+        tokens
+          .filter((t) => t.includes("hover:") && /(^|:)bg-/.test(t.slice(t.indexOf("hover:"))))
+          .filter((t) => t !== "hover:opacity-90"),
+      ).toEqual([]);
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    test("first click arms: no fetch, underline link morphs into the recipe button, aria-describedby kept", () => {
+      vi.useFakeTimers();
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const btn = getByTestId("staged-review-discard-ignore");
+      expect(btn.className.split(/\s+/)).toContain("underline"); // idle = recessive link
+      fireEvent.click(btn);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(btn.textContent).toBe(ARMED_LABEL);
+      expectDestructiveRecipe(btn);
+      expect(btn.className.split(/\s+/)).not.toContain("underline");
+      expect(btn.getAttribute("aria-describedby")).toBe(`staged-${STAGED_ID}-ignore-note`);
+    });
+
+    test("second click fires exactly once and clears the pending disarm timer", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const btn = getByTestId("staged-review-discard-ignore");
+      fireEvent.click(btn); // arm
+      await act(async () => {
+        fireEvent.click(btn); // confirm — fires
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+      expect(url).toBe("/api/admin/staged/drive-1/discard");
+      expect(JSON.parse(init.body as string).variant).toBe("permanent_ignore");
+      // The fire path killed the pending disarm timer (real observable).
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => {
+        vi.advanceTimersByTime(4_000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("4s auto-revert restores the recessive link without firing; aria-describedby kept", () => {
+      vi.useFakeTimers();
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const btn = getByTestId("staged-review-discard-ignore");
+      const idleClass = btn.className;
+      fireEvent.click(btn);
+      expect(btn.textContent).toBe(ARMED_LABEL);
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      expect(btn.textContent).toBe("Stop showing this sheet");
+      expect(btn.className).toBe(idleClass);
+      expect(btn.getAttribute("aria-describedby")).toBe(`staged-${STAGED_ID}-ignore-note`);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("unmount while armed clears the timer", () => {
+      vi.useFakeTimers();
+      const { getByTestId, unmount } = render(<StagedReviewCard row={firstSeenRow()} />);
+      fireEvent.click(getByTestId("staged-review-discard-ignore"));
+      expect(vi.getTimerCount()).toBe(1);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   test("apply error response renders the catalog dougFacing text via ErrorExplainer", async () => {

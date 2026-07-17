@@ -10,7 +10,7 @@
  * LivePendingIngestionDiscardResponse). On success refreshes; on 409
  * errors renders Doug-facing copy via messageFor.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
@@ -36,6 +36,33 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
+  // G1 two-tap guard (spec 2026-07-16-destructive-confirm-pass §4): the
+  // "Permanently ignore" button arms on first tap (recipe fill + confirm label,
+  // 4s auto-revert) and fires the EXISTING handleClick("permanent_ignore") on
+  // the second. The sibling "Defer until modified" stays one-tap (§7).
+  const [armed, setArmed] = useState(false);
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearArmTimer() {
+    if (armTimerRef.current !== null) {
+      clearTimeout(armTimerRef.current);
+      armTimerRef.current = null;
+    }
+  }
+  useEffect(() => clearArmTimer, []);
+  function onGuardedIgnoreClick() {
+    if (!armed) {
+      setArmed(true);
+      clearArmTimer();
+      armTimerRef.current = setTimeout(() => {
+        armTimerRef.current = null; // callback clears its own ref — no stale identity survives
+        setArmed(false);
+      }, 4_000);
+      return;
+    }
+    clearArmTimer();
+    setArmed(false);
+    void handleClick("permanent_ignore");
+  }
 
   async function handleClick(kind: DiscardKind) {
     if (state.kind === "running") return;
@@ -84,13 +111,19 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
         <button
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
-          onClick={() => handleClick("permanent_ignore")}
+          onClick={onGuardedIgnoreClick}
           disabled={isRunning}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className={
+            armed
+              ? "inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              : "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          }
         >
-          {state.kind === "running" && state.pendingKind === "permanent_ignore"
-            ? "Ignoring…"
-            : "Permanently ignore"}
+          {armed
+            ? "Confirm — stop tracking this sheet permanently"
+            : state.kind === "running" && state.pendingKind === "permanent_ignore"
+              ? "Ignoring…"
+              : "Permanently ignore"}
         </button>
       </div>
       {state.kind === "error" ? (

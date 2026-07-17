@@ -47,7 +47,7 @@
  * FIRST_SEEN_REVIEW and surface here for explicit operator review.
  * Amendment 9's auto-publish + 24h undo path is M6-D12 territory.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -229,6 +229,33 @@ export function StagedReviewCard({
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const router = useRouter();
+  // G2 two-tap guard (spec 2026-07-16-destructive-confirm-pass §4): "Stop
+  // showing this sheet" arms on first tap (the recessive underline link morphs
+  // into a solid recipe button, 4s auto-revert) and fires the EXISTING
+  // handleDiscard("permanent_ignore") on the second.
+  const [ignoreArmed, setIgnoreArmed] = useState(false);
+  const ignoreArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearIgnoreArmTimer() {
+    if (ignoreArmTimerRef.current !== null) {
+      clearTimeout(ignoreArmTimerRef.current);
+      ignoreArmTimerRef.current = null;
+    }
+  }
+  useEffect(() => clearIgnoreArmTimer, []);
+  function onGuardedIgnoreClick() {
+    if (!ignoreArmed) {
+      setIgnoreArmed(true);
+      clearIgnoreArmTimer();
+      ignoreArmTimerRef.current = setTimeout(() => {
+        ignoreArmTimerRef.current = null; // callback clears its own ref — no stale identity survives
+        setIgnoreArmed(false);
+      }, 4_000);
+      return;
+    }
+    clearIgnoreArmTimer();
+    setIgnoreArmed(false);
+    void handleDiscard("permanent_ignore");
+  }
 
   const isFirstSeen = row.triggeredReviewItems.some((i) => FIRST_SEEN_INVARIANTS.has(i.invariant));
 
@@ -621,14 +648,18 @@ export function StagedReviewCard({
         <div className="mt-4 border-t border-border pt-4">
           <button
             type="button"
-            onClick={() => handleDiscard("permanent_ignore")}
+            onClick={onGuardedIgnoreClick}
             disabled={pending}
             data-testid="staged-review-discard-ignore"
             aria-busy={pending}
             aria-describedby={`staged-${row.stagedId}-ignore-note`}
-            className="min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+            className={
+              ignoreArmed
+                ? "min-h-tap-min rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+                : "min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+            }
           >
-            Stop showing this sheet
+            {ignoreArmed ? "Confirm — stop showing this sheet" : "Stop showing this sheet"}
           </button>
           <p id={`staged-${row.stagedId}-ignore-note`} className="mt-1 text-xs text-text-subtle">
             This sheet will not reappear until Doug clears it from settings.

@@ -75,6 +75,8 @@ describe("RescanSheetButton — states + posted body", () => {
       }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -96,6 +98,8 @@ describe("RescanSheetButton — states + posted body", () => {
       }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -116,6 +120,8 @@ describe("RescanSheetButton — states + posted body", () => {
       }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -145,6 +151,8 @@ describe("RescanSheetButton — states + posted body", () => {
       const { getByTestId } = render(
         <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />,
       );
+      // G3 two-tap guard: first click arms, second click fires.
+      fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
       await act(async () => {
         fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
       });
@@ -171,6 +179,8 @@ describe("RescanSheetButton — states + posted body", () => {
     const { getByTestId, container } = render(
       <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />,
     );
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -192,6 +202,8 @@ describe("RescanSheetButton — states + posted body", () => {
     const { getByTestId, container } = render(
       <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />,
     );
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -206,6 +218,8 @@ describe("RescanSheetButton — states + posted body", () => {
   test("superseded → a short plain line, no raw code, no refresh", async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, status: "superseded" }));
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -309,6 +323,8 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     const utils = render(
       <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} {...props} />,
     );
+    // G3 two-tap guard: first click arms, second click fires.
+    fireEvent.click(utils.getByTestId(`rescan-sheet-button-${DFID}`));
     await act(async () => {
       fireEvent.click(utils.getByTestId(`rescan-sheet-button-${DFID}`));
     });
@@ -472,5 +488,111 @@ describe("RescanSheetButton — final-publish blocker mount (OUTDATED rows only)
     await waitFor(() => expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull());
     expect(getByTestId("rescan-sheet-button-fin-outdated")).not.toBeNull();
     expect(queryByTestId("rescan-sheet-button-fin-corrupt")).toBeNull();
+  });
+});
+
+// G3 (spec 2026-07-16-destructive-confirm-pass §4): Re-scan is a two-tap morph —
+// first tap arms (recipe fill + confirm label, 4s auto-revert), second tap fires
+// the EXISTING handleClick() unchanged. Same button in both placement variants;
+// self-start sizing preserved.
+describe("G3 two-tap guard — Re-scan this sheet", () => {
+  const ARMED_LABEL = "Confirm re-scan — replaces this staged review";
+
+  function expectDestructiveRecipe(el: HTMLElement) {
+    const tokens = el.className.split(/\s+/);
+    for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+      expect(tokens).toContain(t);
+    }
+    for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+      expect(tokens).not.toContain(t);
+    }
+    expect(
+      tokens
+        .filter((t) => t.includes("hover:") && /(^|:)bg-/.test(t.slice(t.indexOf("hover:"))))
+        .filter((t) => t !== "hover:opacity-90"),
+    ).toEqual([]);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("first click arms: no fetch, label + recipe classes morph, self-start preserved", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    fireEvent.click(btn);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(btn.textContent).toBe(ARMED_LABEL);
+    expectDestructiveRecipe(btn);
+    expect(btn.className.split(/\s+/)).toContain("self-start");
+  });
+
+  test("overlay placement uses the same guarded button (armed morph applies there too)", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(
+      <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} resultPlacement="overlay" />,
+    );
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    fireEvent.click(btn);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(btn.textContent).toBe(ARMED_LABEL);
+    expectDestructiveRecipe(btn);
+    expect(btn.className.split(/\s+/)).toContain("self-start");
+  });
+
+  test("second click fires exactly once and clears the pending disarm timer", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      }),
+    );
+    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      fireEvent.click(btn); // confirm — fires
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("/api/admin/onboarding/rescan-sheet");
+    expect(JSON.parse(init.body as string)).toEqual({ driveFileId: DFID, wizardSessionId: WSID });
+    // The fire path killed the pending disarm timer (real observable).
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("4s auto-revert restores the idle branch without firing", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    const idleClass = btn.className;
+    fireEvent.click(btn);
+    expect(btn.textContent).toBe(ARMED_LABEL);
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(btn.textContent).toBe("Re-scan this sheet");
+    expect(btn.className).toBe(idleClass);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("unmount while armed clears the timer", () => {
+    vi.useFakeTimers();
+    const { getByTestId, unmount } = render(
+      <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />,
+    );
+    fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

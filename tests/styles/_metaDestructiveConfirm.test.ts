@@ -39,6 +39,24 @@ const REGISTRY: Row[] = [
   ),
   R("components/admin/MaintenanceResetButtons.tsx", 0, "panel", "validation-reset-confirm"),
   R(
+    "components/admin/PendingPanelDiscardButtons.tsx",
+    0,
+    "morph",
+    "admin-pending-ignore-* armed branch (G1 two-tap guard)",
+  ),
+  R(
+    "components/admin/StagedReviewCard.tsx",
+    0,
+    "morph",
+    "staged-review-discard-ignore armed branch (G2 two-tap guard)",
+  ),
+  R(
+    "components/admin/RescanSheetButton.tsx",
+    0,
+    "morph",
+    "rescan-sheet-button-* armed branch (G3 two-tap guard)",
+  ),
+  R(
     "components/admin/RecentAutoAppliedStrip.tsx",
     0,
     "panel",
@@ -51,12 +69,7 @@ const REGISTRY: Row[] = [
     "cleanup-abandoned-finalize-confirm-yes",
   ),
   R("components/admin/ReapStaleSessionsButton.tsx", 0, "panel", "reap-stale-sessions-confirm-yes"),
-  R(
-    "components/admin/ResolveAlertButton.tsx",
-    0,
-    "panel",
-    "admin-alert-confirm-resolve-button",
-  ),
+  R("components/admin/ResolveAlertButton.tsx", 0, "panel", "admin-alert-confirm-resolve-button"),
   R("components/admin/ReSyncButton.tsx", 0, "panel", "admin-resync-accept"),
   R(
     "components/admin/PreviewBanner.tsx",
