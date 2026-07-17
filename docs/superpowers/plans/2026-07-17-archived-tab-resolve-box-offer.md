@@ -143,7 +143,8 @@ git commit --no-verify -m "feat(admin): add deriveArchivedOffers pure helper for
 
 **Files:**
 - Modify: `components/admin/wizard/archivedTabOffer.tsx` (add the moved cluster)
-- Modify: `components/admin/wizard/step3ReviewSections.tsx` (delete cluster lines `2085-2279`; import from module; `PackListBreakdown` uses `deriveArchivedOffers`)
+- Modify: `components/admin/wizard/step3ReviewSections.tsx` (delete cluster lines `2085-2279`; import from module; `PackListBreakdown` uses `deriveArchivedOffers` as single source + drop the `overrideActive` prop; delete the section-def `overrideActive={...}` line at `:3828`)
+- Create (test): `tests/components/admin/wizard/archivedTabOffer.render.test.tsx` (new API — showDismiss)
 - Test: `tests/components/admin/wizard/packListBreakdownStates.test.tsx` (regression — must stay green)
 
 **Interfaces:**
@@ -152,25 +153,53 @@ git commit --no-verify -m "feat(admin): add deriveArchivedOffers pure helper for
   - `ArchivedTabIncludedNote({ dfid, wizardSessionId, tab })` — unchanged behavior.
   - `postPullSheetOverride(body): Promise<{ ok: boolean; refresh: boolean }>` — unchanged.
 
-- [ ] **Step 1: Write the failing regression test guard (parity of the `showDismiss` default)**
+- [ ] **Step 1: Write the failing test for the new module API (`showDismiss`)**
 
-Add to `tests/components/admin/wizard/packListBreakdownStates.test.tsx` a test asserting the Pack-list offer still renders "Keep skipped" (proving the default `showDismiss` stays `true` after extraction). If the file already asserts this, extend the nearest describe:
+This test targets the *new* behavior that does not exist yet — it MUST fail before the move (TDD invariant 1). Create `tests/components/admin/wizard/archivedTabOffer.render.test.tsx`:
 
 ```tsx
 import { render, screen } from "@testing-library/react";
-// ...existing imports/fixtures for PackListBreakdown with one non-included archived tab...
+import { describe, expect, it, vi } from "vitest";
+import { ArchivedTabOffer } from "@/components/admin/wizard/archivedTabOffer";
+import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
-it("pack-list offer keeps its 'Keep skipped' dismiss (default showDismiss)", () => {
-  render(/* <PackListBreakdown ... one pending archived tab, staged /> */);
-  expect(screen.getByRole("button", { name: "Keep skipped" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+const tab: ArchivedPullSheetTab = {
+  tabName: "OLD gear",
+  headerPreviews: ["CASE A"],
+  fingerprint: "fp1",
+  included: false,
+  contentChangedSinceAccept: false,
+};
+
+describe("ArchivedTabOffer showDismiss", () => {
+  it("omits 'Keep skipped' when showDismiss=false", () => {
+    render(<ArchivedTabOffer dfid="d1" wizardSessionId="s1" tab={tab} showDismiss={false} />);
+    expect(screen.getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Keep skipped" })).toBeNull();
+  });
+
+  it("renders 'Keep skipped' by default (Pack-list contract)", () => {
+    render(
+      <ArchivedTabOffer dfid="d1" wizardSessionId="s1" tab={tab} onDismissFocus={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: "Keep skipped" })).toBeInTheDocument();
+  });
+
+  it("uses a custom testId when provided", () => {
+    render(
+      <ArchivedTabOffer dfid="d1" wizardSessionId="s1" tab={tab} showDismiss={false} testId="box-offer-1" />,
+    );
+    expect(screen.getByTestId("box-offer-1")).toBeInTheDocument();
+  });
 });
 ```
 
-- [ ] **Step 2: Run to verify it passes today (pre-move baseline) then will be re-run after the move**
+- [ ] **Step 2: Run to verify it FAILS**
 
-Run: `pnpm vitest run tests/components/admin/wizard/packListBreakdownStates.test.tsx`
-Expected: PASS now (behavior exists inline). This is the regression anchor for the move.
+Run: `cd /Users/ericweiss/fxav-wt-archived-tab-resolve-box && pnpm vitest run tests/components/admin/wizard/archivedTabOffer.render.test.tsx`
+Expected: FAIL — `archivedTabOffer` does not export `ArchivedTabOffer` yet (only `deriveArchivedOffers` from Task 1).
 
 - [ ] **Step 3: Move the cluster into `archivedTabOffer.tsx`**
 
@@ -380,15 +409,23 @@ import {
 } from "@/components/admin/wizard/archivedTabOffer";
 ```
 
-In `PackListBreakdown`, replace the two inline derivation lines with the shared helper:
+In `PackListBreakdown`, make `deriveArchivedOffers` the **single source** — destructure all three values from it (including `overrideActive`) and stop taking `overrideActive` as a prop (F1: no dual source of truth). Replace the two inline derivation lines:
 
 ```tsx
-const { includedTab, offers } = deriveArchivedOffers(archivedPullSheetTabs, staged);
+const staged = wizardSessionId != null;
+const { overrideActive, includedTab, offers } = deriveArchivedOffers(archivedPullSheetTabs, staged);
 ```
 
-(Keep `const staged = wizardSessionId != null;` and `overrideActive` prop usage as-is; `overrideActive` is still passed in by the section def and used for the `includedTab && wizardSessionId != null` render guard. `deriveArchivedOffers` recomputes `overrideActive` internally but the render guard already uses the prop — leave that untouched to keep the diff minimal.)
+Then **remove `overrideActive` from the `PackListBreakdown` props** (both the destructure and the type). This is behavior-preserving: the section def currently passes `overrideActive={s.archivedPullSheetTabs.some((t) => t.included)}` (`step3ReviewSections.tsx:3828`) using the **same array** `s.archivedPullSheetTabs` that it also passes as `archivedPullSheetTabs`, and `deriveArchivedOffers` computes `overrideActive = tabs.some((t) => t.included)` on that same array — provably identical. **Delete the now-dead `overrideActive={...}` line from the section def** (`step3ReviewSections.tsx:3828`) so no caller passes a removed prop.
 
 If `ArchivedPullSheetTab` is now imported only for types elsewhere in the file, keep its existing import. Do NOT remove `useRouter`/`useState` imports from `step3ReviewSections.tsx` unless a post-edit `pnpm lint` flags them unused (other components in that file use them).
+
+- [ ] **Step 4b: Re-run the new-module test (now passes) + the Pack-list regression**
+
+Run: `pnpm vitest run tests/components/admin/wizard/archivedTabOffer.render.test.tsx`
+Expected: PASS (3 tests) — the module now exports `ArchivedTabOffer` with `showDismiss`.
+
+The Pack-list regression is the pre-existing `packListBreakdownStates.test.tsx` (asserts the S2/S3/S4 states incl. "Keep skipped" via default `showDismiss`); it must stay green in Step 5.
 
 - [ ] **Step 5: Run the regression + typecheck + lint**
 
@@ -404,7 +441,7 @@ Expected: clean (fix any now-unused import it flags).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add components/admin/wizard/archivedTabOffer.tsx components/admin/wizard/step3ReviewSections.tsx tests/components/admin/wizard/packListBreakdownStates.test.tsx
+git add components/admin/wizard/archivedTabOffer.tsx components/admin/wizard/step3ReviewSections.tsx tests/components/admin/wizard/archivedTabOffer.render.test.tsx tests/components/admin/wizard/packListBreakdownStates.test.tsx
 git commit --no-verify -m "refactor(admin): extract archived-tab offer cluster to shared module + showDismiss"
 ```
 
@@ -421,10 +458,12 @@ git commit --no-verify -m "refactor(admin): extract archived-tab offer cluster t
 
 - [ ] **Step 1: Write the failing box tests**
 
-Extend `tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx`. Use the file's existing `renderModal`/fixture helpers; the snippets below show the assertions (adapt to the file's fixture builder — a `data` with one non-included archived tab, `wizardSessionId` set, and `resolution` undefined unless stated).
+Extend `tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx`. The file already has: `DFID = "drive-abc-123"`, `WSID` (session uuid), `sectionData()` (builds `StagedSectionData` via `buildStagedSectionData`, `archivedPullSheetTabs` empty by default), `resWith(items, over?)` (builds a `Step3ReviewResolution`), and `renderModal(resolution, onClose)` — which **always** passes a resolution and does **not** thread archived tabs or `isPublishRunActive`.
+
+First add two helpers to the file (the existing `renderModal` stays for the current tests):
 
 ```tsx
-import { render, screen, within } from "@testing-library/react";
+import { within } from "@testing-library/react"; // add if not already imported
 
 const archivedTab = {
   tabName: "OLD gear",
@@ -432,11 +471,45 @@ const archivedTab = {
   fingerprint: "fp1",
   included: false,
   contentChangedSinceAccept: false,
-};
+} as unknown as ArchivedPullSheetTab; // import type from "@/lib/drive/exportSheetToMarkdown"
+
+// A section-data builder that injects archived tabs (mirrors sectionData() but
+// overrides the tabs). data.driveFileId === DFID, data.wizardSessionId === WSID.
+function sectionDataWith(archivedPullSheetTabs: ArchivedPullSheetTab[]): StagedSectionData {
+  const pr = buildParseResult({});
+  const row = stagedRow(pr);
+  return buildStagedSectionData({
+    pr, row, dfid: DFID, wizardSessionId: WSID,
+    crewMembers: pr.crewMembers, rooms: pr.rooms, hotels: pr.hotelReservations,
+    pullSheet: pr.pullSheet ?? [], archivedPullSheetTabs,
+    ros: pr.runOfShow ?? {}, warnings: pr.warnings, agendaBaseline: [], useRawDecisions: [],
+  });
+}
+
+// A render helper that allows resolution === undefined (archived-only rows) and
+// threads archivedPullSheetTabs + the top-level isPublishRunActive prop.
+function renderModalWith(opts: {
+  resolution?: Step3ReviewResolution;
+  archivedPullSheetTabs?: ArchivedPullSheetTab[];
+  isPublishRunActive?: boolean;
+  onClose?: () => void;
+}) {
+  return render(
+    <Step3ReviewModal
+      data={sectionDataWith(opts.archivedPullSheetTabs ?? [])}
+      checked={false}
+      isDirtyRescan={false}
+      onRequestSetChecked={vi.fn(async () => true)}
+      onClose={opts.onClose ?? vi.fn()}
+      {...(opts.resolution ? { resolution: opts.resolution } : {})}
+      isPublishRunActive={opts.isPublishRunActive ?? false}
+    />,
+  );
+}
 
 // 1. Box appears on a clean staged row (no resolution) when an offer is pending.
 it("renders the Resolve box with the accept offer on a clean row with a pending archived tab", () => {
-  renderModal({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
   const box = screen.getByLabelText("Resolve before publishing");
   expect(
     within(box).getByRole("button", { name: "Use this show’s gear" }),
@@ -445,29 +518,36 @@ it("renders the Resolve box with the accept offer on a clean row with a pending 
 
 // 2. Box offer has NO "Keep skipped" (showDismiss=false → no empty-box path).
 it("box offer omits the 'Keep skipped' dismiss", () => {
-  renderModal({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
   const box = screen.getByLabelText("Resolve before publishing");
   expect(within(box).queryByRole("button", { name: "Keep skipped" })).toBeNull();
 });
 
-// 3. Re-apply footer is ABSENT on an archived-only row (footer decoupling, §4.4).
-it("does not render the re-apply Approve/Ignore footer on an archived-only row", () => {
-  renderModal({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+// 3. Re-apply footer ABSENT but NORMAL footer PRESENT on an archived-only row (§4.4/§9.5).
+//    DFID is the fixture's dfid constant used by renderModal (assert the real footer testid).
+it("shows the normal footer, not the re-apply footer, on an archived-only row", () => {
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  // The re-apply resolution note only renders in the re-apply footer branch.
+  expect(screen.queryByTestId(`wizard-step3-card-${DFID}-review-resolution-note`)).toBeNull();
   expect(screen.queryByRole("button", { name: /Approve & apply|Ignore/ })).toBeNull();
+  // The footer container itself is still present (the normal footer path rendered).
+  expect(screen.getByTestId(`wizard-step3-card-${DFID}-review-footer`)).toBeInTheDocument();
 });
 
 // 4. No box offer when an override is already accepted.
 it("shows no box offer when the archived override is already accepted", () => {
-  renderModal({ resolution: undefined, archivedPullSheetTabs: [{ ...archivedTab, included: true }] });
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [{ ...archivedTab, included: true }] });
   expect(screen.queryByLabelText("Resolve before publishing")).toBeNull();
 });
 
-// 5. Accept POSTs the CAS body.
-it("box accept POSTs the override with expectedOverrideSnapshot null", async () => {
+// 5. Accept POSTs the FULL CAS body — incl. driveFileId (must be data.driveFileId,
+//    NOT dfid) and wizardSessionId (F3). DFID/DFID/WSID are the
+//    renderModal fixture constants; assert against them, not hardcoded literals.
+it("box accept POSTs the full override body with the correct driveFileId + session", async () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     new Response(JSON.stringify({ ok: true, status: "override_set" }), { status: 200 }),
   );
-  renderModal({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
   const box = screen.getByLabelText("Resolve before publishing");
   await userEvent.click(within(box).getByRole("button", { name: "Use this show’s gear" }));
   expect(fetchSpy).toHaveBeenCalledWith(
@@ -475,11 +555,47 @@ it("box accept POSTs the override with expectedOverrideSnapshot null", async () 
     expect.objectContaining({ method: "POST" }),
   );
   const body = JSON.parse((fetchSpy.mock.calls[0]![1] as RequestInit).body as string);
-  expect(body).toMatchObject({
-    tabName: "OLD gear",
-    expectedFingerprint: "fp1",
+  expect(body).toEqual({
+    driveFileId: DFID,
+    wizardSessionId: WSID,
+    tabName: archivedTab.tabName,
+    expectedFingerprint: archivedTab.fingerprint,
     expectedOverrideSnapshot: null,
   });
+});
+
+// 6. Publish-run parity (§9.4/§4.5): box accept stays ENABLED during a publish run.
+it("does not freeze the box accept during an active publish run", () => {
+  renderModalWith({
+    resolution: undefined,
+    archivedPullSheetTabs: [archivedTab],
+    isPublishRunActive: true,
+  });
+  const box = screen.getByLabelText("Resolve before publishing");
+  expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeEnabled();
+});
+
+// 7. Combined mode (§5 row 2): re-apply items AND the archived offer both render.
+it("renders both the re-apply items and the archived offer when resolution + offer coexist", () => {
+  renderModalWith({
+    // a resolution with a single tier-1 sentinel item, plus a pending archived tab
+    resolution: resWith([{ id: "i1", invariant: "ONBOARDING_SCAN_REVIEW" } as unknown as TriggeredReviewItem]),
+    archivedPullSheetTabs: [archivedTab],
+  });
+  const box = screen.getByLabelText("Resolve before publishing");
+  expect(within(box).getByText("Onboarding scan staged this sheet for review.")).toBeInTheDocument();
+  expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+});
+
+// 8. reviewItemsCorrupt + offer (§6): corrupt copy AND the archived offer both render.
+it("renders the corrupt-review copy and the archived offer together", () => {
+  renderModalWith({
+    resolution: resWith([], { reviewItemsCorrupt: true }),
+    archivedPullSheetTabs: [archivedTab],
+  });
+  const box = screen.getByLabelText("Resolve before publishing");
+  expect(within(box).getByTestId(`wizard-step3-card-${DFID}-review-resolution-corrupt`)).toBeInTheDocument();
+  expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
 });
 ```
 
