@@ -325,7 +325,7 @@ describe("Step3ReviewModal — rooms rail sub-nav", () => {
         expect(q.getByTestId(tid(`rail-room-${i}`)).textContent).toBe(r.name);
       });
       // The room card is the scroll target (queryable, no id — twin-nav rule).
-      expect(q.container.querySelector('[data-room-nav="2"]')).not.toBeNull();
+      expect(document.querySelector('[data-room-nav="2"]')).not.toBeNull();
       // Clicking a child keeps the parent "Rooms & scope" item active + scrolls.
       fireEvent.click(q.getByTestId(tid("rail-room-2")));
       expect(q.getByTestId(tid("rail-item-rooms")).getAttribute("aria-current")).toBe("true");
@@ -2072,7 +2072,7 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     const setPointerCapture = vi.fn();
     const releasePointerCapture = vi.fn();
     Object.assign(grab, { setPointerCapture, releasePointerCapture });
-    const panel = q.container.querySelector<HTMLElement>("[data-step3-review-panel]");
+    const panel = document.querySelector<HTMLElement>("[data-step3-review-panel]");
     if (!panel) throw new Error("panel not rendered");
     return { grab, panel, setPointerCapture, releasePointerCapture };
   }
@@ -2628,5 +2628,16 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
     // tid() = `wizard-step3-card-${DFID}-review-sheetlink` (the header link, out of scope)
     const header = q.getByTestId(tid("sheetlink")) as HTMLAnchorElement;
     expect(header.getAttribute("href")).toBe(buildSheetDeepLink(DFID));
+  });
+});
+
+describe("Step3ReviewModal — §S3C-2 portal to document.body", () => {
+  test("the dialog mounts under document.body, not inside the RTL mount container", () => {
+    const { q } = renderModal();
+    // Pre-change the dialog was a descendant of the RTL container; once portaled
+    // it lives directly under document.body, so the container no longer holds it.
+    expect(q.container.querySelector("[role='dialog']")).toBeNull();
+    // Document-bound query still finds it (RTL queries default to document.body).
+    expect(document.body.contains(q.getByRole("dialog"))).toBe(true);
   });
 });
