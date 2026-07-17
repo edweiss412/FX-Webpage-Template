@@ -554,9 +554,10 @@ export function RightNowHero({ context }: RightNowHeroProps) {
                     className={[
                       "h-1.5 flex-1 rounded-pill",
                       // Load-bearing graphical indicator (role="img" show-day
-                      // progress): darkened accent-on-bg clears 3:1 vs bg AND
-                      // vs the inactive segments (spec 2026-07-16 §4.1b B4).
-                      active ? "bg-accent-on-bg" : "bg-border",
+                      // progress): vibrant bg-accent fill; the border-accent-edge
+                      // stroke is the 3:1 WCAG 1.4.11 boundary vs the surface
+                      // (DESIGN.md §1.2; spec ACCENT-PASS-1 2026-07-17).
+                      active ? "border border-accent-edge bg-accent" : "bg-border",
                     ].join(" ")}
                   />
                 );

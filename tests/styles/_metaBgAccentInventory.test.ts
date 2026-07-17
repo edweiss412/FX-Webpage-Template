@@ -88,13 +88,16 @@ const REGISTRY: Row[] = [
   L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 1),
   L("app/show/[slug]/[shareToken]/error.tsx", 0),
   L("app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx", 0),
-  // edge-treated (6)
+  // edge-treated (7)
   E("components/admin/OnboardingWizard.tsx", 0),
   E("components/admin/PublishedToggle.tsx", 0),
   E("components/admin/settings/AutoPublishToggle.tsx", 0),
   E("components/admin/settings/DeveloperToggleButton.tsx", 0),
   E("components/admin/settings/NotifyToggle.tsx", 0),
   E("components/admin/telemetry/AutoRefreshControl.tsx", 2),
+  // ACCENT-PASS-1: RightNowHero active show-day segment (occurrence 0 = live-dot,
+  // decorative, below). Vibrant bg-accent fill + border-accent-edge 1.4.11 boundary.
+  E("components/crew/RightNowHero.tsx", 1),
   // redundant-glyph (2): checkbox fills with a Check glyph opacity swap
   G("components/admin/wizard/Step3SheetCard.tsx", 0),
   G("components/admin/wizard/Step3Review.tsx", 1),

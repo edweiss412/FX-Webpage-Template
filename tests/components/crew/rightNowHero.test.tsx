@@ -485,15 +485,17 @@ describe("RightNowHero — owns the live clock (Test 5 re-derive)", () => {
     // asserted here — we only need the kind to flip).
     expect(progress(container)?.querySelectorAll("[data-segment]").length).toBe(2);
 
-    // Accent-contrast token pass (spec 2026-07-16 §4.1b B4): the show-day
-    // progress lives in a role="img" indicator — NOT decorative. Raw accent is
-    // 1.46:1 vs the inactive border segments; the ACTIVE segment must carry the
-    // darkened bg-accent-on-bg (5.34:1 vs bg, 4.38:1 vs inactive).
+    // ACCENT-PASS-1 (spec 2026-07-17): the show-day progress lives in a
+    // role="img" indicator — NOT decorative. The ACTIVE segment carries the
+    // vibrant bg-accent fill; its WCAG 1.4.11 3:1 boundary is the
+    // border-accent-edge stroke (DESIGN.md §1.2: 8.06:1 vs bg, 3.61:1 vs fill).
     const activeSeg = progress(container)?.querySelector('[data-segment-active="true"]');
     expect(activeSeg, "active segment not rendered").toBeTruthy();
     const segTokens = new Set((activeSeg!.getAttribute("class") ?? "").split(/\s+/));
-    expect(segTokens.has("bg-accent-on-bg")).toBe(true);
-    expect(segTokens.has("bg-accent")).toBe(false);
+    expect(segTokens.has("bg-accent")).toBe(true);
+    expect(segTokens.has("border-accent-edge")).toBe(true);
+    expect(segTokens.has("border")).toBe(true);
+    expect(segTokens.has("bg-accent-on-bg")).toBe(false);
 
     // Advance the wall clock to day 2, fire the minute tick + a
     // visibilitychange (the §4.3 refresh hooks), and let React re-render.
