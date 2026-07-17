@@ -154,6 +154,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     return (
       <div
         data-testid="admin-layout"
+        // §S3C-2: stable hook the Step-3 review modal inerts while open (it
+        // portals to <body>, so it can inert this shell without inerting itself).
+        data-inert-root=""
         // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
         // bar to clear, so the mobile-bottom-bar reservation is dropped.
         className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
@@ -171,6 +174,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   return (
     <div
       data-testid="admin-layout"
+      // §S3C-2: stable hook the Step-3 review modal inerts while open (see the
+      // onboarding-branch note above).
+      data-inert-root=""
       // Bottom padding reserves space for the fixed mobile bottom tab bar so
       // the last content row is never occluded (spec §6). It MUST stay large
       // across the entire mobile band (< 720px) and only drop at >= 720px when

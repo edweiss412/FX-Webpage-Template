@@ -252,7 +252,7 @@ describe("§11 T3-T5: drag states — re-asserted table values (Task 7 owns the 
   function grabWithCaptureStubs(q: ReturnType<typeof renderModal>["q"]) {
     const grab = q.getByTestId(tid("grab"));
     Object.assign(grab, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() });
-    const panel = q.container.querySelector<HTMLElement>("[data-step3-review-panel]");
+    const panel = document.querySelector<HTMLElement>("[data-step3-review-panel]");
     if (!panel) throw new Error("panel not rendered");
     return { grab, panel };
   }

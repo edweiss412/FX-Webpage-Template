@@ -326,7 +326,7 @@ describe("Step3ReviewModal — rooms rail sub-nav", () => {
         expect(q.getByTestId(tid(`rail-room-${i}`)).textContent).toBe(r.name);
       });
       // The room card is the scroll target (queryable, no id — twin-nav rule).
-      expect(q.container.querySelector('[data-room-nav="2"]')).not.toBeNull();
+      expect(document.querySelector('[data-room-nav="2"]')).not.toBeNull();
       // Clicking a child keeps the parent "Rooms & scope" item active + scrolls.
       fireEvent.click(q.getByTestId(tid("rail-room-2")));
       expect(q.getByTestId(tid("rail-item-rooms")).getAttribute("aria-current")).toBe("true");
@@ -1066,7 +1066,7 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     const { q } = renderModal({ d });
     for (const s of step3Sections(d)) {
       const item = q.getByTestId(tid(`rail-item-${s.id}`));
-      const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+      const dot = item.querySelector(".bg-status-review, .border-status-positive");
       if (s.hideDot) {
         // §D2: report is the only def with hideDot — its rail item has NO dot.
         expect(dot).toBeNull();
@@ -1074,7 +1074,9 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
       }
       expect(dot).not.toBeNull();
       const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
-      expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bbg-status-positive\b/);
+      expect(dot!.className).toMatch(
+        expectRed ? /\bbg-status-review\b/ : /\bborder-status-positive\b/,
+      );
       expect(dot!.className).toMatch(/\bsize-2\b/);
       expect(dot!.className).toMatch(/\brounded-pill\b/);
     }
@@ -1102,13 +1104,13 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     const { q } = renderModal({ d });
     const item = q.getByTestId(tid("rail-item-warnings"));
     expect(item.querySelector(".tabular-nums")?.textContent).toBe("1");
-    const dot = item.querySelector(".bg-status-review, .bg-status-positive");
-    expect(dot!.className).toMatch(/\bbg-status-positive\b/);
+    const dot = item.querySelector(".bg-status-review, .border-status-positive");
+    expect(dot!.className).toMatch(/\bborder-status-positive\b/);
     // Same rule on the chip twin.
     const chipDot = q
       .getByTestId(tid("chip-item-warnings"))
-      .querySelector(".bg-status-review, .bg-status-positive");
-    expect(chipDot!.className).toMatch(/\bbg-status-positive\b/);
+      .querySelector(".bg-status-review, .border-status-positive");
+    expect(chipDot!.className).toMatch(/\bborder-status-positive\b/);
   });
 });
 
@@ -1131,12 +1133,19 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
       expect(chip.querySelector(".tabular-nums")).toBeNull(); // chips never show counts
       if (s.hideDot) {
         // §D2: report is the only def with hideDot — its chip has NO dot.
-        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).toBeNull();
+        expect(chip.querySelector(".bg-status-review, .border-status-positive")).toBeNull();
       } else {
-        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+        expect(chip.querySelector(".bg-status-review, .border-status-positive")).not.toBeNull();
       }
-      // Label ONLY — a stray count/extra text would change textContent.
-      expect(chip.textContent).toBe(s.label);
+      // Visible label ONLY (no counts) + the §S3C-1 sr-only status suffix on
+      // dotted sections. Strip the sr-only status and assert the remainder is
+      // exactly the label — a stray count/extra text would still break this.
+      if (s.hideDot) {
+        expect(chip.textContent).toBe(s.label);
+      } else {
+        expect(chip.textContent).toMatch(/ — (needs review|no issues)$/);
+        expect(chip.textContent?.replace(/ — (needs review|no issues)$/, "")).toBe(s.label);
+      }
     }
   });
 
@@ -2066,7 +2075,7 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     const setPointerCapture = vi.fn();
     const releasePointerCapture = vi.fn();
     Object.assign(grab, { setPointerCapture, releasePointerCapture });
-    const panel = q.container.querySelector<HTMLElement>("[data-step3-review-panel]");
+    const panel = document.querySelector<HTMLElement>("[data-step3-review-panel]");
     if (!panel) throw new Error("panel not rendered");
     return { grab, panel, setPointerCapture, releasePointerCapture };
   }
@@ -2622,5 +2631,54 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
     // tid() = `wizard-step3-card-${DFID}-review-sheetlink` (the header link, out of scope)
     const header = q.getByTestId(tid("sheetlink")) as HTMLAnchorElement;
     expect(header.getAttribute("href")).toBe(buildSheetDeepLink(DFID));
+  });
+});
+
+describe("Step3ReviewModal — §S3C-2 portal to document.body", () => {
+  test("the dialog mounts under document.body, not inside the RTL mount container", () => {
+    const { q } = renderModal();
+    // Pre-change the dialog was a descendant of the RTL container; once portaled
+    // it lives directly under document.body, so the container no longer holds it.
+    expect(q.container.querySelector("[role='dialog']")).toBeNull();
+    // Document-bound query still finds it (RTL queries default to document.body).
+    expect(document.body.contains(q.getByRole("dialog"))).toBe(true);
+  });
+});
+
+describe("Step3ReviewModal — §S3C-2 background inert", () => {
+  test("inerts every [data-inert-root] while open; restores prior state on unmount", () => {
+    const shell = document.createElement("div");
+    shell.setAttribute("data-inert-root", "");
+    document.body.appendChild(shell);
+    try {
+      const { q } = renderModal();
+      // While the modal is mounted (== open) the background shell is inert + hidden from AT.
+      expect(shell.hasAttribute("inert")).toBe(true);
+      expect(shell.getAttribute("aria-hidden")).toBe("true");
+      // The portaled dialog itself is a body sibling of the shell, never inerted.
+      expect(q.getByRole("dialog").closest("[data-inert-root]")).toBeNull();
+      q.unmount();
+      // Closing (unmount) restores the shell's prior state — no stuck inert/aria-hidden.
+      expect(shell.hasAttribute("inert")).toBe(false);
+      expect(shell.hasAttribute("aria-hidden")).toBe(false);
+    } finally {
+      shell.remove();
+    }
+  });
+
+  test("preserves a pre-existing aria-hidden on the shell across open/close", () => {
+    const shell = document.createElement("div");
+    shell.setAttribute("data-inert-root", "");
+    shell.setAttribute("aria-hidden", "false");
+    document.body.appendChild(shell);
+    try {
+      const { q } = renderModal();
+      expect(shell.getAttribute("aria-hidden")).toBe("true"); // overridden while open
+      q.unmount();
+      expect(shell.getAttribute("aria-hidden")).toBe("false"); // restored, not removed
+      expect(shell.hasAttribute("inert")).toBe(false);
+    } finally {
+      shell.remove();
+    }
   });
 });

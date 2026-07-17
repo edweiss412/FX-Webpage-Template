@@ -688,6 +688,53 @@ test("§DI-6 venue Directions target ≥ 44px tall @ popup 800px", async ({ page
   );
 });
 
+// §S3C-1 (WCAG 1.4.1): the section-nav status dot occupies an IDENTICAL 8px box
+// in both states — filled amber disc (flagged) and hollow teal ring (clean, a
+// `border-[1.5px]` that must sit INSIDE the box via border-box) — so a section
+// flipping clean↔flagged never reflows the adjacent count/label. jsdom computes
+// no layout; measured here. The sawFill/sawRing guard proves BOTH forms were
+// actually measured (the harness fixture flags crew + leaves other sections clean).
+test("§S3C-1 rail status dots: identical 8px box, both forms present @ two-pane 1280", async ({
+  page,
+}) => {
+  await openHarness(page, { width: 1280, height: 800 });
+  const dots = page.locator(`[data-testid*="${tid("rail-dot-")}"]`);
+  const n = await dots.count();
+  expect(n, "side rail renders section status dots").toBeGreaterThan(1);
+  let sawFill = false;
+  let sawRing = false;
+  for (let i = 0; i < n; i++) {
+    const { w, h, cls } = await dots.nth(i).evaluate((el) => ({
+      w: el.getBoundingClientRect().width,
+      h: el.getBoundingClientRect().height,
+      cls: el.className,
+    }));
+    expect(Math.abs(w - 8), `rail dot ${i} width ${w} ≈ 8`).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(h - 8), `rail dot ${i} height ${h} ≈ 8`).toBeLessThanOrEqual(TOL);
+    if (cls.includes("bg-status-review")) sawFill = true;
+    if (cls.includes("border-status-positive")) sawRing = true;
+  }
+  expect(
+    sawFill && sawRing,
+    "fixture exercises BOTH the filled (flagged) and ring (clean) dot forms",
+  ).toBe(true);
+});
+
+test("§S3C-1 chip status dots: identical 8px box @ sheet 390", async ({ page }) => {
+  await openHarness(page, { width: 390, height: 844 });
+  const dots = page.locator(`[data-testid*="${tid("chip-dot-")}"]`);
+  const n = await dots.count();
+  expect(n, "chip rail renders section status dots").toBeGreaterThan(1);
+  for (let i = 0; i < n; i++) {
+    const { w, h } = await dots.nth(i).evaluate((el) => ({
+      w: el.getBoundingClientRect().width,
+      h: el.getBoundingClientRect().height,
+    }));
+    expect(Math.abs(w - 8), `chip dot ${i} width ${w} ≈ 8`).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(h - 8), `chip dot ${i} height ${h} ≈ 8`).toBeLessThanOrEqual(TOL);
+  }
+});
+
 test("§DI-1 link-only venue: map region fills text column height AND is ≥ tile-min-h (anti-tautology) @ popup 800px", async ({
   page,
 }) => {

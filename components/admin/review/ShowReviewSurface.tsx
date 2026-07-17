@@ -227,10 +227,23 @@ export function ShowReviewSurface({
   // section, so the cast is sound at every call site.
   const getActiveSection = useCallback((): SectionId => activeRef.current as SectionId, []);
 
-  /** Rail/chip status-dot tone (§6.2/§6.3). */
-  function dotToneClass(id: SectionId): string {
+  /** Rail/chip status-dot appearance (§6.2/§6.3; §S3C-1 WCAG 1.4.1). Carries
+   *  BOTH hue and fill/shape so "needs review" is never signalled by color
+   *  alone: flagged = filled amber disc (higher salience); clean = hollow teal
+   *  ring. Both occupy an identical 8px box (border-box) — no layout shift. */
+  function dotClass(id: SectionId): string {
     const review = id === "warnings" ? hasWarnRow : flagged.has(id);
-    return review ? "bg-status-review" : "bg-status-positive";
+    return review
+      ? "size-2 shrink-0 rounded-pill bg-status-review"
+      : "size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent";
+  }
+
+  /** §S3C-1 text channel: the aria-hidden dot's SR/text equivalent, appended to
+   *  the nav control's accessible name so review state is conveyed to AT and to
+   *  sighted users who don't perceive the hue. Rendered only where a dot is. */
+  function dotStatusText(id: SectionId): string {
+    const review = id === "warnings" ? hasWarnRow : flagged.has(id);
+    return review ? " — needs review" : " — no issues";
   }
 
   // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
@@ -683,11 +696,15 @@ export function ShowReviewSurface({
                             {s.railCount(data)}
                           </span>
                         ) : null}
+                        {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
+                            the count so the accessible name reads "Rooms 2 — needs review". */}
+                        {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
                         {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
                         {!s.hideDot ? (
                           <span
                             aria-hidden="true"
-                            className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                            data-testid={`wizard-step3-card-${dfid}-review-rail-dot-${s.id}`}
+                            className={dotClass(s.id)}
                           />
                         ) : null}
                       </button>
@@ -738,7 +755,7 @@ export function ShowReviewSurface({
                 data-testid={`wizard-step3-card-${dfid}-review-chip-item-${s.id}`}
                 aria-current={isActive ? "true" : undefined}
                 onClick={() => handleNavClick(s.id)}
-                className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
+                className={`relative inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
                   isActive
                     ? "border-transparent bg-surface-sunken text-text-strong"
                     : "border-border bg-surface text-text"
@@ -746,11 +763,14 @@ export function ShowReviewSurface({
               >
                 <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
                 {s.label}
+                {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
+                {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
                 {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
                 {!s.hideDot ? (
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                    data-testid={`wizard-step3-card-${dfid}-review-chip-dot-${s.id}`}
+                    className={dotClass(s.id)}
                   />
                 ) : null}
               </button>

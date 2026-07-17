@@ -452,7 +452,9 @@ describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
       />,
     );
   }
-  const DOT = '[class*="bg-status-"]';
+  // §S3C-1: flagged dot is filled (`bg-status-review`); clean dot is a hollow
+  // ring (`border-status-positive`). Match either via the shared `status-` stem.
+  const DOT = '[class*="status-"]';
   const railItem = (q: ReturnType<typeof render>, id: string) =>
     q.getByTestId(`wizard-step3-card-${DFID}-review-rail-item-${id}`);
   const chipItem = (q: ReturnType<typeof render>, id: string) =>
@@ -485,7 +487,9 @@ describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip-item-diagrams`)).toBeNull();
     // The warn lands in warnings (red); rooms stays positive.
     expect(railItem(q, "warnings").querySelector(DOT)!.className).toMatch(/\bbg-status-review\b/);
-    expect(railItem(q, "rooms").querySelector(DOT)!.className).toMatch(/\bbg-status-positive\b/);
+    expect(railItem(q, "rooms").querySelector(DOT)!.className).toMatch(
+      /\bborder-status-positive\b/,
+    );
   });
 });
 

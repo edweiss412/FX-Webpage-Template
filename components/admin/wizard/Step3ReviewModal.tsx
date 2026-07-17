@@ -41,8 +41,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
+import { useHasMounted } from "@/lib/a11y/useHasMounted";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
 import {
@@ -166,6 +168,11 @@ export function Step3ReviewModal({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const h2Id = useId();
+  // §S3C-2: portal the fixed-overlay dialog to document.body on the client so
+  // the background admin shell can be inerted (below) and the modal escapes any
+  // transformed ancestor (PageTransition) that would confine `position: fixed`.
+  // Server/hydration render in place first (identical markup), portal after mount.
+  const mounted = useHasMounted();
   const [publishState, setPublishState] = useState<PublishState>("idle");
 
   // ── Re-apply resolution state (spec §4.4) — active only when `resolution` is
@@ -303,6 +310,32 @@ export function Step3ReviewModal({
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
+    };
+  }, []);
+
+  // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
+  // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
+  // beyond `aria-modal`, which browse-mode readers honor inconsistently). The
+  // modal is portaled to <body> (above), a SIBLING of `[data-inert-root]`, so
+  // inerting the shell never inerts the dialog. Restore prior state on unmount
+  // (== close). Runs client-only (effects never fire on the server).
+  useEffect(() => {
+    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-inert-root]"));
+    const prev = roots.map((el) => ({
+      el,
+      hadInert: el.hasAttribute("inert"),
+      ariaHidden: el.getAttribute("aria-hidden"),
+    }));
+    for (const el of roots) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, hadInert, ariaHidden } of prev) {
+        if (!hadInert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
     };
   }, []);
 
@@ -567,7 +600,7 @@ export function Step3ReviewModal({
   // this pair is the unchecked publish CTA's only.
   const publishLabel = pendingOp === "publish" ? "Selecting…" : "Publish this show";
 
-  return (
+  const tree = (
     <div
       data-testid={`wizard-step3-card-${dfid}-review-modal`}
       role="dialog"
@@ -979,4 +1012,9 @@ export function Step3ReviewModal({
       </div>
     </div>
   );
+
+  // §S3C-2: portal to body once mounted (client). Pre-mount (SSR/hydration)
+  // render in place with identical markup — no hydration mismatch; the modal is
+  // client-interaction-only, so nothing is lost before the post-mount portal.
+  return mounted ? createPortal(tree, document.body) : tree;
 }
