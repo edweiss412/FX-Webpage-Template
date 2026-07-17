@@ -20,7 +20,7 @@
 - **No old financial value shown or stored** — MI-8 is note-only ("cleared on this sync").
 - **`VALUE_CAP = 120`** chars per stored string; **`READ_FIELDS_ENTRY_CAP = 500`** render-side corruption ceiling.
 - **No migration, no new column, no new §12.4 code, no advisory-lock surface.** The reader warn uses a forensic code (`AUTOAPPLIED_FIELDCHANGES_INVALID`), not a §12.4 catalog row.
-- **UI (Task 5) is Opus-only + impeccable dual-gate (invariant 8)** — `/impeccable critique` AND `/impeccable audit` on the component diff; P0/P1 fixed or `DEFERRED.md` before close-out.
+- **UI (Task 4) is Opus-only + impeccable dual-gate (invariant 8)** — `/impeccable critique` AND `/impeccable audit` on the component diff; P0/P1 fixed or `DEFERRED.md` before close-out.
 
 ### Meta-test inventory (mandatory declaration)
 
@@ -33,7 +33,7 @@
 ### Layout-dimensions / Transition-audit (mandatory declarations)
 
 - **Layout-dimensions task: N/A.** Spec §6 "Dimensional invariants": the entries list is an auto-sized grid/flow inside the auto-height row card (`StripRow` `li`, `:212`) — **no fixed-dimension parent**, no flex-stretch dependency. Jsdom component tests suffice; no real-browser `getBoundingClientRect` task.
-- **Transition-audit: empty inventory, pinned.** Spec §6 "Transition inventory": the `field_changed` row is static content, one visual state, no `AnimatePresence`/ternary-render/animation added. Task 5's component test includes an assertion that the `fields` branch introduces no transition wrapper (§Task 5 Step 1c).
+- **Transition-audit: empty inventory, pinned.** Spec §6 "Transition inventory": the `field_changed` row is static content, one visual state, no `AnimatePresence`/ternary-render/animation added. Task 4's component test includes an assertion that the `fields` branch introduces no transition wrapper (Task 4 Step 1c).
 
 ---
 
@@ -44,7 +44,7 @@
 - **Modify:** `lib/sync/changeLog/writeAutoApplyChanges.ts` — replace the field_changed block (`:142-160`) with a call to `buildFieldChangesRow`.
 - **Modify:** `lib/admin/loadRecentAutoApplied.ts` — extend `AutoAppliedDiff` (`:24`); add the `field_changed` branch + forensic warn (`log` import).
 - **Modify:** `components/admin/RecentAutoAppliedStrip.tsx` — `DiffBlock` `fields` branch (`:105`, field-name-weighted); narrow `isCrew` (`:210`).
-- **Modify tests:** `tests/sync/writeChangeLog.autoApply.test.ts` (`:37`), `tests/admin/loadRecentAutoApplied.test.ts` (`:139`), `tests/components/admin/RecentAutoAppliedStrip.test.tsx`, `tests/notify/monitorDigest.autoApplied.test.ts`.
+- **Modify tests:** `tests/sync/writeChangeLog.autoApply.test.ts` (`:37`) — writer rows + digest-parity via the writer's persisted summary fed through `groupAutoApplied` (imported from `@/lib/notify/monitorDigest`); `tests/sync/phase1.test.ts` — debounce behavior-preservation; `tests/admin/loadRecentAutoApplied.test.ts` (`:139`); `tests/components/admin/RecentAutoAppliedStrip.test.tsx`. (All digest + debounce coverage folds into Task 2's commit — no separate `monitorDigest.autoApplied.test.ts` edit.)
 
 ---
 
@@ -190,10 +190,21 @@ describe("buildFieldChangesRow", () => {
 
   it("value cap: a >120-char COI value is truncated with an ellipsis", () => {
     const long = "x".repeat(200);
-    const row = buildFieldChangesRow([mi8b("(none)-was-empty-ish".replace(/.*/, ""), long)])!;
+    const row = buildFieldChangesRow([mi8b("", long)])!;
     const to = row.afterImage.fieldChanges[0]!.to!;
     expect(to.length).toBeLessThanOrEqual(VALUE_CAP);
     expect(to.endsWith("…")).toBe(true);
+  });
+
+  it("value cap: MI-9 user-sourced crew_name (label) AND the flag-join (from/to) are capped", () => {
+    const longName = "N".repeat(200);
+    const longFlag = "F".repeat(200);
+    const row = buildFieldChangesRow([mi9(longName, [], [longFlag])])!;
+    const e = row.afterImage.fieldChanges[0]!;
+    expect(e.label.length).toBeLessThanOrEqual(VALUE_CAP); // "Role — <name>" capped
+    expect(e.label.endsWith("…")).toBe(true);
+    expect(e.to!.length).toBeLessThanOrEqual(VALUE_CAP); // flag-join capped
+    expect(e.to!.endsWith("…")).toBe(true);
   });
 });
 ```
@@ -426,14 +437,59 @@ it("all-malformed field-family sync writes a visible Unavailable marker, not nul
   expect(row.after_image).not.toBeNull();
   expect((row.after_image as { fieldChanges: Array<{ label: string }> }).fieldChanges[0]!.label).toBe("Unavailable");
 });
+
+// Digest-boundary parity (folded here — real red→green: this task changes the
+// PERSISTED summary from the generic literal to the structured summary; RED before
+// Step 3, GREEN after). groupAutoApplied (@/lib/notify/monitorDigest) is what the
+// digest uses; it pushes r.summary verbatim into items (monitorDigest.ts:64).
+it("the PERSISTED field_changed summary surfaces in the digest: names Role/COI, no crew name", async () => {
+  await writeAutoApplyChanges({
+    ...baseArgs,
+    triggeredItems: [
+      { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
+      { id: "b", invariant: "MI-9", crew_name: "Alex", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] },
+    ] as TriggeredReviewItem[],
+  });
+  const summary = capturedRows().find((r) => r.change_kind === "field_changed")!.summary;
+  const item = groupAutoApplied([{ show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" }])[0]!.items[0]!;
+  expect(item).toContain("Role");
+  expect(item).toContain("COI status");
+  expect(item).not.toContain("Alex");
+});
+it("the PERSISTED summary carries the omission clause for a valid+malformed sync (digest never hides a drop)", async () => {
+  await writeAutoApplyChanges({
+    ...baseArgs,
+    triggeredItems: [
+      { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
+      { id: "b", invariant: "MI-8", field: "bogus" },
+    ] as unknown as TriggeredReviewItem[],
+  });
+  const summary = capturedRows().find((r) => r.change_kind === "field_changed")!.summary;
+  const item = groupAutoApplied([{ show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" }])[0]!.items[0]!;
+  expect(item).toMatch(/\d+ more field change/);
+});
 ```
 
-> **Note for the implementer:** reuse the suite's existing arg-builder + `port` capture mechanism (the file already asserts on inserted rows — mirror how the crew_renamed/crew_added cases read `after_image`). `capturedRows()` above is a stand-in for that existing helper; wire to the real one.
+Import `groupAutoApplied` from `@/lib/notify/monitorDigest` in the writer test file.
+
+**Behavior-preservation: the Phase-1 debounce still writes no row** (spec §9). The writer-enrichment must NOT weaken the pre-Phase-2 unstable-`modifiedTime` debounce (`mi8DebounceReason`, `phase1.ts:278-292`): a sync whose only field-family items are MI-8/MI-8b with an unstable Drive `modifiedTime` returns `defer`, so `writeAutoApplyChanges` is never reached and NO `field_changed` row is written. Add/extend in `tests/sync/phase1.test.ts`:
+
+```ts
+it("unstable-modifiedTime MI-8/MI-8b sync defers → writes NO field_changed row", async () => {
+  // reuse the suite's phase-1 harness; assert the outcome is `defer` (mi8DebounceReason)
+  // AND that the change-log writer captured zero field_changed rows for this pass.
+  const out = await runPhase1(/* MI-8b item + unstable modifiedTime fixture */);
+  expect(out.outcome).toBe("defer");
+  expect(capturedChangeLogRows().filter((r) => r.change_kind === "field_changed")).toHaveLength(0);
+});
+```
+
+> **Note for the implementer:** reuse the suite's existing arg-builder + `port` capture mechanism (the file already asserts on inserted rows — mirror how the crew_renamed/crew_added cases read `after_image`). `capturedRows()`/`runPhase1()`/`capturedChangeLogRows()` are stand-ins for the two suites' existing helpers; wire to the real ones. If `tests/sync/phase1.test.ts` already covers the `defer` outcome, add only the "no field_changed row" assertion.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/sync/writeChangeLog.autoApply.test.ts`
-Expected: FAIL — the field_changed row still has `summary: "A field changed on this sync"`, `after_image: null`.
+Run: `pnpm vitest run tests/sync/writeChangeLog.autoApply.test.ts tests/sync/phase1.test.ts`
+Expected: FAIL — the field_changed row still has `summary: "A field changed on this sync"`, `after_image: null` (the debounce assertion passes already — it is a behavior-preservation guard, not red from this change).
 
 - [ ] **Step 3: Write minimal implementation** — replace `writeAutoApplyChanges.ts:142-160` with:
 
@@ -459,15 +515,15 @@ Add the import at the top:
 import { buildFieldChangesRow } from "@/lib/sync/changeLog/fieldChanges";
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm vitest run tests/sync/writeChangeLog.autoApply.test.ts`
+Run: `pnpm vitest run tests/sync/writeChangeLog.autoApply.test.ts tests/sync/phase1.test.ts`
 Expected: PASS. (Confirm no other case in the suite asserted the old literal as the *only* possible field_changed value; if one did, update it to the structured shape.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/sync/changeLog/writeAutoApplyChanges.ts tests/sync/writeChangeLog.autoApply.test.ts
+git add lib/sync/changeLog/writeAutoApplyChanges.ts tests/sync/writeChangeLog.autoApply.test.ts tests/sync/phase1.test.ts
 git commit --no-verify -m "feat(sync): write structured field_changed rows via buildFieldChangesRow"
 ```
 
@@ -571,7 +627,20 @@ it("field_changed with valid after_image → {kind:fields}; corrupt → warn + U
   const diffs = allRows(res).map((r) => r.diff);
   expect(diffs[0]).toEqual({ kind: "fields", entries: [{ label: "COI status", from: "(none)", to: "received", note: null }] });
   expect(diffs[1]).toMatchObject({ kind: "fields", entries: [{ label: "Unavailable" }] });
-  expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: "AUTOAPPLIED_FIELDCHANGES_INVALID" }));
+  // Pin the FULL forensic context (R4/R5): required `source`, forensic `code`, and the
+  // reserved `showId` (NOT `show_id`) so the persisted event stays show-filterable.
+  // LogFields allows arbitrary keys, so a `show_id` regression would pass a code-only assertion.
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining("invalid fieldChanges payload"),
+    expect.objectContaining({
+      source: "admin.loadRecentAutoApplied",
+      code: "AUTOAPPLIED_FIELDCHANGES_INVALID",
+      showId: "show-1", // the fixture row's show_id, mapped to the reserved field
+    }),
+  );
+  // Negative assertion: the un-reserved `show_id` key must NOT be what carries correlation.
+  const warnCtx = warn.mock.calls[0]![1] as Record<string, unknown>;
+  expect(warnCtx.show_id).toBeUndefined();
 });
 
 it("pre-existing null after_image field_changed row → {kind:none} (summary renders)", async () => {
@@ -721,55 +790,7 @@ git commit --no-verify -m "feat(admin): read-side field-change deriver + corrupt
 
 ---
 
-## Task 4: Digest summary parity test (no code change)
-
-**Files:**
-- Test: `tests/notify/monitorDigest.autoApplied.test.ts`
-
-**Rationale:** the digest reads `scl.summary` only (`lib/notify/monitorDigest.ts:230-232`), so the summary must name the changed field TYPES (incl. `"Role"`) and encode omissions. This is behavior of the writer's summary (Task 1/2) — this task pins it at the digest boundary (no digest code change; guards against a future digest test pinning the old literal).
-
-- [ ] **Step 1: Write the test** — assert through the REAL digest boundary. `groupAutoApplied` (`@/lib/notify/monitorDigest`) is the pure helper the digest uses; it passes each row's `summary` through verbatim into `group.items` (verified `monitorDigest.ts:64` `g.items.push(r.summary)`). Feeding a builder-produced summary through it proves the digest surfaces (and never mangles) the field-type names + omission clause.
-
-```ts
-import { groupAutoApplied } from "@/lib/notify/monitorDigest";
-import { buildFieldChangesRow } from "@/lib/sync/changeLog/fieldChanges";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
-
-const digestRow = (summary: string) => ({ show_id: "s1", slug: "east", title: "East", summary, occurred_at: "t1" });
-
-test("digest surfaces a role change by name, omits crew names (through groupAutoApplied)", () => {
-  const summary = buildFieldChangesRow([
-    { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
-    { id: "b", invariant: "MI-9", crew_name: "Alex", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] },
-  ] as TriggeredReviewItem[])!.summary;
-  const item = groupAutoApplied([digestRow(summary)])[0]!.items[0]!;
-  expect(item).toContain("Role");
-  expect(item).toContain("COI status");
-  expect(item).not.toContain("Alex");
-});
-
-test("digest surfaces the omission clause for a valid+malformed row (through groupAutoApplied)", () => {
-  const summary = buildFieldChangesRow([
-    { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
-    { id: "b", invariant: "MI-8", field: "bogus" },
-  ] as unknown as TriggeredReviewItem[])!.summary;
-  const item = groupAutoApplied([digestRow(summary)])[0]!.items[0]!;
-  expect(item).toMatch(/\d+ more field change/); // omission visible in the emailed digest
-  expect(item).toContain("COI status");
-});
-```
-
-- [ ] **Step 2: Run** — `pnpm vitest run tests/notify/monitorDigest.autoApplied.test.ts` → Expected: PASS (summary produced by Task 1, surfaced verbatim by `groupAutoApplied`).
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/notify/monitorDigest.autoApplied.test.ts
-git commit --no-verify -m "test(notify): pin digest summary names Role/COI status, no crew name"
-```
-
----
-
-## Task 5: Component render (`DiffBlock` fields branch + `isCrew` narrowing) — UI, Opus + impeccable
+## Task 4: Component render (`DiffBlock` fields branch + `isCrew` narrowing) — UI, Opus + impeccable
 
 **Files:**
 - Modify: `components/admin/RecentAutoAppliedStrip.tsx` (`DiffBlock:105`, `isCrew:210`)
@@ -886,7 +907,7 @@ git commit --no-verify -m "feat(admin): render structured field_changed entries;
 
 ---
 
-## Task 6: Self-review, whole-diff adversarial review, close-out
+## Task 5: Self-review, whole-diff adversarial review, close-out
 
 - [ ] **Step 1: Full local gate.**
 
@@ -908,6 +929,6 @@ Fix any regression (especially any pre-existing test that pinned `"A field chang
 
 ## Self-Review (author checklist — run after drafting)
 
-- **Spec coverage:** §3 predicate → Task 1/2; §3.1 matrix + ordering → Task 1; §3.2 MI-9 → Task 1; §3.4a MI-8c agg → Task 1; §3.4b flag-join/cardinality → Task 1; §3.5 no-widening → honored (reader-only reads); §3.6 validation + marker → Task 1; §3 step 3 all-malformed marker → Task 1; §4 storage (after_image) → Task 2; §5 read caps + warn → Task 3; §5 summary/digest → Task 1 + Task 4; §6 UI + isCrew → Task 5; §7 guards → Tasks 1/3/5; §8 non-goals honored; §9 test surface → Tasks 1-5; §10 do-not-relitigate honored. **No gaps.**
+- **Spec coverage:** §3 predicate → Task 1/2; §3.1 matrix + ordering → Task 1; §3.2 MI-9 → Task 1; §3.4a MI-8c agg → Task 1; §3.4b flag-join/cardinality → Task 1; §3.5 no-widening → honored (reader-only reads); §3.6 validation + marker → Task 1; §3 step 3 all-malformed marker → Task 1; §4 storage (after_image) → Task 2; §5 read caps + warn → Task 3; §5 summary/digest parity → Task 1 (builder summary) + Task 2 (persisted summary through `groupAutoApplied`); §9 Phase-1 debounce behavior-preservation → Task 2; §6 UI + isCrew → Task 4; §7 guards → Tasks 1/3/4; §8 non-goals honored; §9 test surface → Tasks 1-4; §10 do-not-relitigate honored. **No gaps.**
 - **Placeholder scan:** the only stand-ins are the suites' existing fixture helpers (`capturedRows`, `okData`, `mockClient`, etc.), flagged inline as "reuse the file's existing helper" — not placeholder logic, and the real names are discoverable in each named test file. All impl code is complete.
 - **Type consistency:** `FieldChangeEntry` shape identical across Tasks 1/3/5; `buildFieldChangesRow` / `deriveFieldsDiff` signatures match their call sites; `AutoAppliedDiff` `fields` variant consistent writer→reader→component.
