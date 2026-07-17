@@ -17,6 +17,7 @@ function renderCard(props: {
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal?: number;
+  autoAppliedCount?: number;
 }) {
   render(<NeedsAttentionSummaryCard syncProblemTotal={0} {...props} />);
   return screen.getByTestId("needs-attention-summary-card");
@@ -57,6 +58,36 @@ describe("NeedsAttentionSummaryCard", () => {
     expect(within(card).getByTestId("summary-chip-ingestions")).toHaveTextContent(
       "4 couldn't process",
     );
+  });
+
+  // ── Mobile auto-applied parity (Task 4): the "N auto-applied" chip ─────────
+
+  it("autoAppliedCount 3 → 'summary-chip-auto-applied' reads '3 auto-applied'", () => {
+    const card = renderCard({ totalCount: 5, ingestionTotal: 0, syncTotal: 0, autoAppliedCount: 3 });
+    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent("3 auto-applied");
+  });
+
+  it("autoAppliedCount 0 / undefined / negative / NaN → chip ABSENT", () => {
+    for (const v of [0, undefined, -2, Number.NaN]) {
+      const card = renderCard({ totalCount: 5, ingestionTotal: 0, syncTotal: 0, autoAppliedCount: v });
+      expect(within(card).queryByTestId("summary-chip-auto-applied")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("totalCount 0 but autoAppliedCount 4 → NOT 'All caught up'; title without '· 0'; only the auto-applied chip", () => {
+    const card = renderCard({ totalCount: 0, ingestionTotal: 0, syncTotal: 0, autoAppliedCount: 4 });
+    expect(within(card).queryByText("All caught up")).toBeNull();
+    expect(card.textContent).toContain("Needs attention");
+    expect(card.textContent).not.toContain("· 0");
+    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent("4 auto-applied");
+    expect(within(card).queryByTestId("summary-chip-ingestions")).toBeNull();
+  });
+
+  it("totalCount 6 + autoAppliedCount 2 → title count + auto-applied chip together", () => {
+    const card = renderCard({ totalCount: 6, ingestionTotal: 6, syncTotal: 0, autoAppliedCount: 2 });
+    expect(card.textContent).toContain("Needs attention · 6");
+    expect(within(card).getByTestId("summary-chip-auto-applied")).toHaveTextContent("2 auto-applied");
   });
 
   it("card meets the tap target (min-h-tap-min) and renders the chevron", () => {

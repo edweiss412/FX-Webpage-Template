@@ -7,15 +7,25 @@ export function NeedsAttentionSummaryCard({
   ingestionTotal,
   syncTotal,
   syncProblemTotal,
+  autoAppliedCount,
   className,
 }: {
   totalCount: number;
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal: number;
+  // Mobile parity (spec 2026-07-16-mobile-autoapplied-parity §D5): the count of
+  // un-dispositioned auto-applied changes. Optional so the pre-existing card
+  // render sites keep compiling; undefined/non-finite/≤0 → chip absent.
+  autoAppliedCount?: number;
   className?: string;
 }) {
-  const zero = totalCount === 0;
+  const autoApplied =
+    typeof autoAppliedCount === "number" && Number.isFinite(autoAppliedCount) && autoAppliedCount > 0
+      ? autoAppliedCount
+      : 0;
+  // "All caught up" may not claim the desk is clear while dispositions wait.
+  const zero = totalCount === 0 && autoApplied === 0;
   return (
     <Link
       href="/admin/needs-attention"
@@ -31,7 +41,13 @@ export function NeedsAttentionSummaryCard({
         ) : (
           <>
             <span className="text-base font-semibold text-text-strong">
-              Needs attention · <span className="tabular-nums">{totalCount}</span>
+              Needs attention
+              {totalCount > 0 ? (
+                <>
+                  {" · "}
+                  <span className="tabular-nums">{totalCount}</span>
+                </>
+              ) : null}
             </span>
             <span className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-text-subtle">
               {ingestionTotal > 0 && (
@@ -47,6 +63,11 @@ export function NeedsAttentionSummaryCard({
               {syncProblemTotal > 0 && (
                 <span data-testid="summary-chip-sync-problems" className="tabular-nums">
                   {syncProblemTotal} sync problem{syncProblemTotal === 1 ? "" : "s"}
+                </span>
+              )}
+              {autoApplied > 0 && (
+                <span data-testid="summary-chip-auto-applied" className="tabular-nums">
+                  {autoApplied} auto-applied
                 </span>
               )}
             </span>
