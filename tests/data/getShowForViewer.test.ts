@@ -612,3 +612,38 @@ describe("getShowForViewer — schedule_phases projection (Task 4.9 prerequisite
     );
   });
 });
+
+describe("getShowForViewer — last_checked_at projection (spec 2026-07-16-last-checked-at §5.3)", () => {
+  afterEach(async () => {
+    await cleanupTestShows();
+  });
+
+  test("projects lastCheckedAt from the shows row, independent of lastSyncedAt", async () => {
+    const showId = await seedShow({ title: "LCA Projection" });
+    const checked = "2026-07-16T20:00:00.000Z";
+    const synced = "2026-07-16T17:00:00.000Z";
+    const { error } = await admin
+      .from("shows")
+      .update({ last_checked_at: checked, last_synced_at: synced })
+      .eq("id", showId);
+    if (error) throw new Error(`update failed: ${error.message}`);
+
+    const r = await getShowForViewer(showId, { kind: "admin" });
+    // last_checked_at is surfaced for the crew StaleFooter; last_synced_at is STILL returned
+    // (it drives the version high-water-mark token — must not be dropped).
+    expect(new Date(r.lastCheckedAt as string).toISOString()).toBe(checked);
+    expect(new Date(r.lastSyncedAt as string).toISOString()).toBe(synced);
+  });
+
+  test("null last_checked_at → lastCheckedAt null", async () => {
+    const showId = await seedShow({ title: "LCA Null" });
+    const { error } = await admin
+      .from("shows")
+      .update({ last_checked_at: null, last_synced_at: "2026-07-16T17:00:00.000Z" })
+      .eq("id", showId);
+    if (error) throw new Error(`update failed: ${error.message}`);
+
+    const r = await getShowForViewer(showId, { kind: "admin" });
+    expect(r.lastCheckedAt).toBeNull();
+  });
+});

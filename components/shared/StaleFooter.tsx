@@ -1,13 +1,16 @@
 /**
  * components/shared/StaleFooter.tsx — crew-facing "as of" footer with
- * §12.4 catalog-bound copy. Spec §5.4 / AC-9.1.
+ * §12.4 catalog-bound copy. Spec §5.4 / AC-9.1; age tiers re-based onto
+ * `last_checked_at` (last successful Drive check) per spec
+ * 2026-07-16-last-checked-at §5.2 — an idle-but-healthy show reads calm.
  *
- * Branches on `last_sync_status` × age:
+ * Branches on `last_sync_status` × age (age = time since last successful check):
  *   - `drive_error`        → DRIVE_FETCH_FAILED (red, regardless of age)
  *   - `sheet_unavailable`  → SHEET_UNAVAILABLE (red, regardless of age)
  *   - `parse_error`        → PARSE_ERROR_LAST_GOOD (red, regardless of age)
- *   - `pending_review`     → age <6h: behaves like `ok`; age >6h: SYNC_DELAYED_SEVERE
- *   - `shrink_held`        → same as `pending_review` (crew see valid last-good; audit #3)
+ *   - `pending_review` / `shrink_held` → fall through to the age ladder like
+ *     `ok` (crew see valid last-good; the former >6h→SEVERE sub-clause is DROPPED
+ *     because the tier now reflects check-freshness, not content age; audit #3)
  *   - `ok` / `pending`     → fall through to age tier ladder:
  *       <10 min:    subtle (no code)
  *       10 min-1h:  subtle + dot (no code)
@@ -24,7 +27,13 @@ import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 
 type StaleFooterProps = {
-  lastSyncedAt: Date | string | null;
+  /**
+   * `shows.last_checked_at` — the last successful Drive check (spec
+   * 2026-07-16-last-checked-at §5.2). Drives BOTH the "as-of" relative time and
+   * the yellow/red tier, so an idle-but-healthy show (checked every 5 min,
+   * content unchanged) reads calm, not "sync delayed".
+   */
+  lastCheckedAt: Date | string | null;
   lastSyncStatus: string | null | undefined;
   /**
    * Required as of M11 Phase C Task C.2 (AC-11.38). Every caller MUST pass
@@ -62,16 +71,11 @@ function selectCodeAndTier(
 
   const hours = ageMs / 3_600_000;
 
-  // `shrink_held` (re-sync quality gate, audit #3) is treated identically to `pending_review`:
-  // crew see the valid LAST-GOOD roster, so the honest framing is age-based "sync delayed / showing
-  // last confirmed version," NOT a red error. A fresh hold falls through to subtle; a hold older
-  // than 6h escalates to SYNC_DELAYED_SEVERE. (No crew-facing RESYNC_SHRINK_HELD copy — that alert
-  // is admin-only.)
-  if ((lastSyncStatus === "pending_review" || lastSyncStatus === "shrink_held") && hours > 6) {
-    return { code: "SYNC_DELAYED_SEVERE", tier: "red" };
-  }
-
-  // ok / pending / pending_review<=6h / shrink_held<=6h — fall through to age tiers
+  // `pending_review` and `shrink_held` (re-sync quality gate, audit #3): crew see the valid
+  // LAST-GOOD roster. The former ">6h escalates to SEVERE" sub-clause is DROPPED (spec
+  // 2026-07-16-last-checked-at §5.2) — the tier is now driven by last_checked_at (age since the
+  // last successful Drive CHECK), so a checked-recently show is not "delayed" regardless of status.
+  // Both fall through to the age ladder exactly like `ok`/`pending`.
   const minutes = ageMs / 60_000;
   if (minutes < 10) return { code: null, tier: "subtle" };
   if (minutes < 60) return { code: null, tier: "subtle-dot" };
@@ -79,10 +83,10 @@ function selectCodeAndTier(
   return { code: "SYNC_DELAYED_SEVERE", tier: "red" };
 }
 
-export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterProps) {
-  if (!lastSyncedAt) return null;
+export function StaleFooter({ lastCheckedAt, lastSyncStatus, now }: StaleFooterProps) {
+  if (!lastCheckedAt) return null;
 
-  const t = typeof lastSyncedAt === "string" ? new Date(lastSyncedAt) : lastSyncedAt;
+  const t = typeof lastCheckedAt === "string" ? new Date(lastCheckedAt) : lastCheckedAt;
   const ageMs = now.getTime() - t.getTime();
   const relative = formatRelative(t, now);
   const { code, tier } = selectCodeAndTier(lastSyncStatus, ageMs);
@@ -95,7 +99,7 @@ export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterPr
         className={`text-xs ${TIER_CLASS[tier]} flex items-center gap-1.5`}
       >
         {tier === "subtle-dot" ? <span aria-hidden="true">·</span> : null}
-        <span>Last synced {relative} ago</span>
+        <span>Last checked {relative} ago</span>
       </div>
     );
   }

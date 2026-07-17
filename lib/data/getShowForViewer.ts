@@ -198,6 +198,13 @@ export type ShowForViewer = {
    * contract surface.
    */
   lastSyncedAt: string | null;
+  /**
+   * `shows.last_checked_at` — last successful Drive check ("we reached Drive and
+   * evaluated this show"). Drives the crew StaleFooter as-of + tier (spec
+   * 2026-07-16-last-checked-at §5.3). Distinct from `lastSyncedAt` (last content
+   * apply), which still feeds the version high-water-mark token.
+   */
+  lastCheckedAt: string | null;
   lastSyncStatus: string | null;
   /**
    * Per-tile-domain sub-query errors (M9 Codex round-1 H1). Each
@@ -844,6 +851,7 @@ async function readShowDataForViewer(
     diagrams,
     openingReelHasVideo,
     lastSyncedAt: (showRowDb.last_synced_at as string | null | undefined) ?? null,
+    lastCheckedAt: (showRowDb.last_checked_at as string | null | undefined) ?? null,
     lastSyncStatus: (showRowDb.last_sync_status as string | null | undefined) ?? null,
     tileErrors,
     runOfShow,
