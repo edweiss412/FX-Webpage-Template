@@ -30,6 +30,10 @@ const state = vi.hoisted(() => ({
   snapshotKind: "ok" as "ok" | "not_admin_or_missing" | "infra_error",
   snapshot: null as ShowReviewSnapshot | null,
   finalizeOwned: false as boolean,
+  // finalize-owned RPC fault injection (invariant 9): a returned {error} or a
+  // thrown await must BOTH be logged and BOTH fail toward NOT-finalize-owned.
+  finalizeError: null as { message: string } | null,
+  finalizeThrows: false as boolean,
   token: "tok-123" as string | null,
   tokenThrows: false as boolean,
   feed: { entries: [], truncated: false, totalShown: 0 } as {
@@ -42,6 +46,13 @@ const state = vi.hoisted(() => ({
   ignoredInfraError: false as boolean,
   alerts: [] as Array<Record<string, unknown>>,
 }));
+
+const logSpy = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logSpy }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-14T18:00:00.000Z") }));
@@ -65,7 +76,10 @@ vi.mock("@/lib/supabase/server", () => ({
       return builder;
     },
     rpc: async (fn: string) => {
-      if (fn === "readfinalizeowned_b2") return { data: state.finalizeOwned, error: null };
+      if (fn === "readfinalizeowned_b2") {
+        if (state.finalizeThrows) throw new Error("META: finalize rpc await fault");
+        return { data: state.finalizeOwned, error: state.finalizeError };
+      }
       return { data: null, error: null };
     },
   }),
@@ -196,6 +210,11 @@ beforeEach(() => {
   state.snapshotKind = "ok";
   state.snapshot = baseSnapshot();
   state.finalizeOwned = false;
+  state.finalizeError = null;
+  state.finalizeThrows = false;
+  logSpy.error.mockClear();
+  logSpy.warn.mockClear();
+  logSpy.info.mockClear();
   state.token = "tok-123";
   state.tokenThrows = false;
   state.feed = { entries: [], truncated: false, totalShown: 0 };
@@ -366,6 +385,57 @@ describe("consolidated per-show page — Changes + alerts (§5.4/§5.1)", () => 
     state.alerts = [];
     await renderPage();
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+  });
+});
+
+// Finalize-owned read fault (invariant 9): the readfinalizeowned_b2 RPC read
+// must NOT be silently dark. A RETURNED {error} and a THROWN await are BOTH
+// logged (log.error, source admin.show, ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED +
+// slug) and BOTH fail toward NOT-finalize-owned (fail-open). The observable
+// fail-open proof: a published+!archived show whose finalize read faults still
+// renders the Archive control (finalizeOwned true would suppress it, §6), rather
+// than freezing the affordance on a transient blip. The prior page silently
+// yielded finalize=false on the returned-error branch with ZERO telemetry — the
+// P0 this pins.
+describe("consolidated per-show page — finalize-owned read fault (invariant 9)", () => {
+  const finalizeErrorCall = () =>
+    logSpy.error.mock.calls.find(
+      (c) =>
+        (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+    );
+
+  it("readfinalizeowned_b2 returned error → fail-open (Archive control renders) + logged, not silent", async () => {
+    state.finalizeError = { message: "rpc boom" };
+    await renderPage();
+    // fail-open: finalizeOwned=false, so the Archive affordance is NOT frozen.
+    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
+    // NOT silent: the returned-error path emits the forensic code with source+slug.
+    const call = finalizeErrorCall();
+    expect(
+      call,
+      "returned-error path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+    ).toBeTruthy();
+    expect(String(call![0])).toMatch(/returned error/);
+    const ctx = call![1] as { source?: string; slug?: string };
+    expect(ctx.source).toBe("admin.show");
+    expect(ctx.slug).toBe("rpas");
+  });
+
+  it("readfinalizeowned_b2 threw → fail-open (Archive control renders) + logged (distinct 'threw' path)", async () => {
+    state.finalizeThrows = true;
+    await renderPage();
+    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
+    const call = finalizeErrorCall();
+    expect(call, "thrown path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED").toBeTruthy();
+    expect(String(call![0])).toMatch(/threw/);
+    expect((call![1] as { slug?: string }).slug).toBe("rpas");
+  });
+
+  it("healthy finalize=true (no fault) suppresses the Archive control — proves the affordance is finalize-gated", async () => {
+    state.finalizeOwned = true;
+    await renderPage();
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    expect(finalizeErrorCall()).toBeUndefined();
   });
 });
 

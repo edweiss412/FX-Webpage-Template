@@ -154,15 +154,32 @@ export default async function AdminShowPage({
   const isShowEligibleForCrewLink = published && !archived;
 
   // §3.2 finalize-owned ("Publishing…") — same SECURITY DEFINER predicate the
-  // dashboard uses. Queried for every non-archived show; fail toward
-  // NOT-finalize-owned on any RPC fault (the RPC's hard refusal is the backstop).
+  // dashboard uses. Queried for every non-archived show. Invariant 9: the RPC
+  // boundary destructures { data, error } and BOTH the returned-error and the
+  // thrown-error paths are surfaced (distinct log.error emits) — never a silent
+  // finalize=false. Posture preserved from the prior page (§6): fail toward
+  // NOT-finalize-owned on ANY fault (returned error, non-true value, or throw).
+  // A transiently enabled toggle is safe — the mutation server actions
+  // independently refuse during finalize (the RPC's hard FINALIZE_OWNED_SHOW
+  // refusal is the backstop) — so a read fault degrades to a logged cosmetic
+  // exposure, never an admin lockout on a transient blip.
   let finalizeOwned = false;
   if (!archived) {
     try {
       const { data, error } = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
-      if (!error && data === true) finalizeOwned = true;
+      if (error) {
+        void log.error("readfinalizeowned_b2 rpc returned error:", {
+          source: "admin.show",
+          code: "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+          slug,
+          showId,
+          error: error.message,
+        });
+      } else if (data === true) {
+        finalizeOwned = true;
+      }
     } catch (err) {
-      void log.warn("readfinalizeowned_b2 rpc threw:", {
+      void log.error("readfinalizeowned_b2 rpc threw:", {
         source: "admin.show",
         code: "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
         slug,

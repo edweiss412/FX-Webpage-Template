@@ -404,7 +404,7 @@ const grepShapeRegistry = [
   {
     surface: "app/admin/show/[slug]/page.tsx",
     contract:
-      "supabase client construction + shows/pending_syncs/crew_members awaits each wrapped in try/catch; parse-data-quality-warnings Task 12 — the per-show Data-Quality panel's shows_internal.parse_warnings read (readDataQuality closure) destructures { data, error } and degrades VISIBLE on returned-error OR thrown (failed:true → calm notice), NEVER a silent empty panel (invariant 9, R10 F1); null/absent row kept distinct (panel simply absent). Behavioral coverage in tests/app/admin/perShowPage.test.tsx (returned-error AND thrown)",
+      "supabase client construction + shows slug→id lookup await each wrapped in try/catch; the finalize-owned RPC read (readfinalizeowned_b2, §3.2) destructures { data, error } and surfaces BOTH the returned-error path AND the thrown path as distinct log.error emits (code ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED + slug), failing toward NOT-finalize-owned (fail-open — the mutation server actions independently refuse during finalize, so a read fault is a logged cosmetic exposure, never a silent finalize=false NOR an admin lockout; invariant 9). Behavioral returned-error + thrown coverage in tests/app/admin/perShowPage.test.tsx",
   },
   // validationReset.ts intentionally omitted from grepShapeRegistry:
   // the file carries a `not-subject-to-meta` annotation and uses named client
