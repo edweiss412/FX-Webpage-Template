@@ -53,7 +53,9 @@ No subline in inline mode. No in-flow error block.
 
 ### 4.4 Popover (inline mode only)
 
-A single anchored popover surfaces BOTH the refusal/generic error AND the finalize-disabled reason. Rendered when `errorCode != null`, `genericError`, OR `finalizeOwned` is true. Precedence when more than one is active: **error/refusal wins over the finalize hint** (an active refusal is the more urgent, action-relevant message; finalize is a transient wait-state).
+A single anchored popover surfaces EITHER the refusal/generic error OR the finalize-disabled reason. Render order (an `if / else-if`, top-down): `errorCode != null || genericError` → error popover; **else if** `finalizeOwned` → finalize popover; else → nothing.
+
+**Error + finalize is unreachable (Codex R2 finding 1) — the ordering is defensive, not a live "precedence."** `errorCode`/`genericError` are set ONLY by the `<form action>` on a completed submit (`PublishedToggle.tsx:105-116`), and a submit requires the user to click an **enabled** switch — but `finalizeOwned` **disables** the switch (`PublishedToggle.tsx:119,141`), so no refusal can be produced while finalize-owned. And a refusal deliberately does NOT `router.refresh()` (§6), so `finalizeOwned` (a server prop) cannot flip to true mid-refusal either. The error-first ordering therefore never actually arbitrates between two live messages; it is defensive render-order only (verified by reading, like the `BLOCKRES-3` defensive branch). This is why the transition inventory (§4.8) treats "error + finalize" as an **unreachable non-state**, not a tested transition.
 
 - Positioning: `absolute` under the switch (`top-full` + right-aligned to the switch), `z-40` (above the strip's `z-30`), `mt-1`, `w-max max-w-[15rem]`. Because it is `position:absolute`, it never contributes to the strip's flow height.
 - Chrome: `rounded-sm border border-border-strong bg-warning-bg p-2 text-sm text-warning-text shadow-tile` for error/refusal; the finalize-only hint uses the calmer `border-border bg-surface text-text-subtle` (it is not a warning). One popover element; the skin switches on which message is active.
@@ -79,34 +81,31 @@ The Overview `#share-access` inactive notice already exists (`OverviewSection.ts
 
 ### 4.8 Transition Inventory (inline mode)
 
-Inline mode has these visual states:
+Inline mode has these REACHABLE visual states (N=4):
 
 - **S1 — idle:** label + switch, no popover.
 - **S2 — refusal popover:** known-code error popover (`role="alert"`, warning skin).
 - **S3 — generic-error popover:** unknown-code retry popover (`role="alert"`, warning skin).
 - **S4 — finalize-hint popover:** disabled switch + calm-skin popover (no `role="alert"`).
-- **S5 — error + finalize:** error popover only (§4.4 precedence → visually identical to S2/S3; the switch is disabled as in S4).
 
-Every state pair, N=5 → 10 pairs. The popover is a conditional mount (no `AnimatePresence`, no CSS enter/exit animation), so every appear/disappear/swap is **instant**:
+(A fifth "error + finalize" combination is **unreachable** — §4.4 — because finalize disables the switch so no refusal can be produced, and refusals don't refresh so finalize can't flip in. It is not a state, not a transition, and not tested as a live pair.)
+
+N=4 → 6 pairs. The popover is a conditional mount (no `AnimatePresence`, no CSS enter/exit animation), so every appear/disappear/swap is **instant**:
 
 | Pair | Treatment |
 |---|---|
 | S1↔S2 | Instant — popover mounts/unmounts. No animation. |
 | S1↔S3 | Instant — popover mounts/unmounts. |
 | S1↔S4 | Instant — popover mounts/unmounts; switch `disabled` toggles (no animation on disable). |
-| S1↔S5 | Instant — popover mounts + switch disables. |
 | S2↔S3 | Instant — same popover element, text/`ErrorExplainer` content swaps in place. |
-| S2↔S4 | Instant — popover skin (warning↔calm) + `role` swap; no transition. |
-| S2↔S5 | No visual change — S5 renders the same error popover as S2 (switch disabled state may differ but the popover is identical). |
-| S3↔S4 | Instant — skin + `role` swap. |
-| S3↔S5 | No visual change (S5 == error popover). |
-| S4↔S5 | Instant — calm finalize popover → warning error popover (error arrives while finalize-owned; error wins). `role` gains `alert`. |
+| S2↔S4 | Instant, but **not directly reachable** — you cannot go refusal→finalize or finalize→refusal without passing through S1 (a refusal clears on the next submit; finalize is a server-prop change that arrives via refresh, i.e. from S1). Listed for completeness; the render output for each endpoint is still pinned by the per-state test. |
+| S3↔S4 | Same as S2↔S4 — not directly reachable; endpoints pinned individually. |
 
-**The one animation in the component (unchanged, both variants):** the switch thumb slide `transition-transform duration-fast` on the on/off flip (`PublishedToggle.tsx:150-154`) and the track `transition-colors duration-fast` (`PublishedToggle.tsx:145`). These are pre-existing, shared by card mode, and not touched.
+**The one animation in the component (unchanged, both variants):** the switch thumb slide `transition-transform duration-fast` on the on/off flip (`PublishedToggle.tsx:150-154`) and the track `transition-colors duration-fast` (`PublishedToggle.tsx:145`). Pre-existing, shared by card mode, not touched.
 
-**Compound transition:** error arrives while the show is finalize-owned (S4→S5). The popover content+skin swap and the switch stays disabled — a single instant re-render, no mid-animation hazard (nothing is animating; the thumb only animates on an actual publish-state flip, which cannot happen while disabled). No `AnimatePresence` means no exit-animation race.
+**Compound transitions:** none. There is no state where two things animate at once — the only animation (thumb slide) fires solely on an actual publish-state flip, which requires an enabled switch and a successful (non-refusal, non-finalize) submit, so it never coincides with a popover mount. No `AnimatePresence` means no exit-animation race.
 
-This inventory is pinned by the transition-audit test task (§8.11), which enumerates these state pairs — distinct from the motion-import pin (§8.8).
+This inventory is pinned by the transition-audit test task (§8.11), which asserts each reachable state's popover presence + `role` — distinct from the motion-import pin (§8.8).
 
 ## 5. Guard conditions (every prop / state)
 
@@ -117,7 +116,7 @@ This inventory is pinned by the transition-audit test task (§8.11), which enume
 | `errorCode` set (known refusal) | error popover with `ErrorExplainer` + `HelpAffordance`; `role="alert"`. |
 | `genericError` true | error popover with the retry copy; `role="alert"`. |
 | no error, not finalize-owned | **no popover** (only label + switch). |
-| both error and finalizeOwned | error popover only (§4.4 precedence). |
+| both error and finalizeOwned | **unreachable non-state** (§4.4): finalize disables the switch so no refusal can be produced, and refusals don't refresh so finalize can't flip in. The error-first render order is defensive only. Not tested as a live combination. |
 | `variant` omitted / `"card"` | today's card, byte-identical. |
 | `variant="inline"` while archived | not reachable — the strip never mounts the toggle when archived (`StatusStrip.tsx:117`). No archived-specific inline branch. |
 | `slug` value | `slug` is typed `string` and documented never-null at the call site (`PublishedToggle.tsx:42-43`); it is used verbatim in the popover `id` (`published-toggle-popover-<slug>`). Empty string is still a valid id suffix (`published-toggle-popover-`) and never renders — the slug is not displayed to the user. No guard needed beyond the type. |
@@ -140,7 +139,7 @@ TDD per task. Failure mode stated per test (anti-tautology).
 3. **Inline error → popover, not in-flow** (same file): mock `setPublished` to resolve `{ok:false, code:"PUBLISH_BLOCKED_PENDING_REVIEW"}`; submit; assert a `published-toggle-popover` with `role="alert"` appears containing the resolved copy (via `ErrorExplainer`, NOT the raw code), and NO `published-toggle-error` in-flow block. *Catches:* raw-code leak (invariant 5) + error re-inflating the strip. Assert the popover text is the looked-up message, scoping into the popover subtree so the switch's "Published" can't satisfy it (anti-tautology).
 4. **Inline generic error → popover** (same file): mock `setPublished` to resolve `{ok:false, code:"SOMETHING_UNKNOWN"}`; assert the retry copy renders in the popover. *Catches:* unknown-code path bypassing the popover.
 5. **Inline finalize hint** (same file): `finalizeOwned` + no error → switch disabled AND `published-toggle-popover` shows the finalize copy, `role` is NOT `alert`, and the switch has `aria-describedby` pointing at the popover id. *Catches:* a bare disabled switch with no explanation (the venue-floor confusion the design fixes).
-6. **Inline error precedence over finalize** (same file): `finalizeOwned` true AND an error set → popover shows the ERROR copy, not the finalize copy, and is `role="alert"`. *Catches:* the finalize hint masking an actionable refusal.
+6. **Error+finalize is unreachable (structural guard)** (same file): with `finalizeOwned` true, assert the switch carries the `disabled` attribute — so a user cannot submit to produce a refusal while finalize-owned (the structural reason the error+finalize combination is a non-state, §4.4). Do NOT attempt to drive a refusal in this state (impossible — the switch is disabled). *Catches:* a regression that re-enables the switch during finalize (which would both break B1 AND make the unreachable state reachable).
 7. **B1 dispatch-safety preserved** (`tests/components/admin/per-show-lifecycle.test.tsx` or the existing dispatch test): the inline switch is a `type="submit"` inside the `<form>`, `disabled` only on pending/finalizeOwned. Assert the switch is not disabled synchronously on click when enabled. *Catches:* a variant refactor that moves the submitter or adds an onClick disable (the revoke-hang class).
 8. **transitionAudit stays green** (`tests/components/admin/transitionAudit.test.tsx`): unchanged — the popover uses no motion library / `AnimatePresence` / `animate-[`. Re-run to confirm the inline additions don't trip the motion pin. *Catches:* a framer/animate import sneaking into the popover.
 9. **StatusStrip passes `variant="inline"`** (`tests/components/admin/showpage/statusStrip.test.tsx`, jsdom): the strip's `strip-publish-toggle` wrapper contains `published-toggle-inline` (not `published-toggle-row`) and the switch reflects `aria-checked`. Existing "wraps the existing PublishedToggle" test still passes (switch testid unchanged). *Catches:* the strip regressing to the card wrap.
@@ -150,7 +149,7 @@ TDD per task. Failure mode stated per test (anti-tautology).
     - **Driving the states in a static harness:** the existing `_showPageLayoutHarness.tsx` uses `renderToStaticMarkup`, which cannot fire the form to open the error popover. The plan's layout task must render the three states directly — either by mounting `PublishedToggle variant="inline"` in an interactive Playwright page and clicking to trigger a mocked-refusal `setPublished` (error state) / passing `finalizeOwned` (finalize state), or by a harness variant that renders each state's initial markup (error via a test-only forced-error render path is NOT allowed — it must be the real conditional output; pass `finalizeOwned` for S4, and drive a real mocked-refusal submit for S2). The plan pins the exact mechanism.
     *Catches:* the exact CASP-2 defect — any popover or label that inflates the phone strip in any state.
 
-11. **Transition-audit state-pair enumeration** (`tests/components/admin/*`, jsdom — new, distinct from §8.8's motion-import pin; Codex R1 finding 2): enumerate the §4.8 inventory. Assert: (a) rendering each of S1–S5 (idle / refusal / generic-error / finalize / error+finalize) produces the expected popover presence + `role` (S2/S3/S5 → `role="alert"`; S4 → no `alert`; S1 → no popover); (b) the inline branch contains no `AnimatePresence` / motion import / `animate-[` (belt-and-suspenders with §8.8); (c) the compound S4→S5 case: with `finalizeOwned` true, driving a mocked refusal yields the ERROR popover with `role="alert"` (not the finalize hint), proving the precedence swap is instant and error-wins. *Catches:* an unenumerated state pair (e.g. a finalize popover that keeps `role="alert"`, or an error that fails to override the finalize hint) — the class the global writing-plans "transition-audit task" rule mandates for multi-state components.
+11. **Transition-audit state enumeration** (`tests/components/admin/*`, jsdom — new, distinct from §8.8's motion-import pin; Codex R1 finding 2, corrected R2 finding 1): enumerate the §4.8 **reachable** states S1–S4. Assert: (a) each reachable state produces the expected popover presence + `role` — **S1** idle → no `published-toggle-popover`; **S2** (mocked known refusal, submitted from the enabled switch) → popover with `role="alert"`; **S3** (mocked unknown-code, submitted) → popover with `role="alert"` + retry copy; **S4** (`finalizeOwned` true, switch disabled) → popover WITHOUT `role="alert"` + the switch's `aria-describedby` matches the popover `id`. (b) The inline branch contains no `AnimatePresence` / motion import / `animate-[` (belt-and-suspenders with §8.8). (c) **Unreachability guard for error+finalize:** assert that rendering with `finalizeOwned` true yields a disabled switch (`disabled` attribute present) — proving a user cannot submit to produce a refusal in that state (the structural reason S5 is unreachable). Do NOT attempt to drive a refusal while `finalizeOwned` (impossible — the switch is disabled; §4.4). *Catches:* an unenumerated reachable state (e.g. a finalize popover that wrongly keeps `role="alert"`, or a missing `aria-describedby`) — the class the global writing-plans "transition-audit task" rule mandates for multi-state components.
 
 ## 9. Impeccable dual-gate (invariant 8)
 
