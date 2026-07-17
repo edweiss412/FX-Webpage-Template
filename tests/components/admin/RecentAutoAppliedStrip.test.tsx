@@ -1044,3 +1044,143 @@ it("HEADERPARITY: needs-attention page (headingLevel 2) renders neither chip nor
   const heading = screen.getByRole("heading", { level: 2, name: "Recently auto-applied" });
   expect(heading.parentElement).toHaveAttribute("data-testid", "recent-auto-applied-strip");
 });
+
+// ── REDESIGN-3: structured field_changed diff (kind:"fields") ────────────────
+import type { FieldChangeEntry } from "@/lib/sync/changeLog/fieldChanges";
+
+function fieldsData(
+  entries: FieldChangeEntry[],
+  summary = "COI status changed on this sync",
+): Extract<RecentAutoApplied, { kind: "ok" }> {
+  return {
+    kind: "ok",
+    renderedCount: 1,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: "show-x",
+        slug: "x",
+        showName: "Test Show",
+        rows: [
+          {
+            id: "f1",
+            changeKind: "field_changed",
+            summary,
+            occurredAt: "2026-07-07T08:00:00Z",
+            undoable: false,
+            diff: { kind: "fields", entries },
+          },
+        ],
+        acceptableIds: ["f1"],
+        undoableIds: [],
+      },
+    ],
+  };
+}
+
+it("REDESIGN-3: renders a fields diff with the field name as the heading", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        { label: "COI status", from: "(none)", to: "received", note: null },
+        { label: "Role — Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
+        { label: "PO number", from: null, to: null, note: "cleared on this sync" },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(screen.getByText("COI status")).toBeInTheDocument();
+  expect(screen.getByText("Role — Jordan A. Lee")).toBeInTheDocument();
+  expect(screen.getByText("cleared on this sync")).toBeInTheDocument();
+  // field label is the heading — carries semibold weight (over the diff values).
+  expect(screen.getByText("COI status")).toHaveClass("font-semibold");
+});
+
+it("REDESIGN-3: the fields branch adds no transition wrapper (empty inventory)", () => {
+  const { container } = render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([{ label: "COI status", from: "(none)", to: "received", note: null }])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(container.querySelector("[data-framer-appear-id]")).toBeNull();
+});
+
+it("REDESIGN-3: a field_changed (fields) row renders NO 'Crew member' label", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([{ label: "COI status", from: "(none)", to: "received", note: null }])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(screen.queryByText("Crew member")).toBeNull();
+});
+
+it("REDESIGN-3: crew rows STILL render the 'Crew member' label", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  expect(screen.getAllByText("Crew member").length).toBeGreaterThan(0);
+});
+
+it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
+  const lname = "Role — " + "N".repeat(110);
+  const lfrom = "F".repeat(120);
+  const lto = "T".repeat(120);
+  const lnote = "P".repeat(120);
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        { label: lname, from: lfrom, to: lto, note: null },
+        { label: "Pull sheet", from: null, to: null, note: lnote },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  for (const s of [lname, lfrom, lto, lnote]) {
+    expect(screen.getByText(s)).toHaveClass("wrap-break-word");
+  }
+});
+
+it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
+  const entries: FieldChangeEntry[] = Array.from({ length: 14 }, (_, i) => ({
+    label: `Role — Person ${i}`,
+    from: "A1",
+    to: "A1, LEAD",
+    note: null,
+  }));
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData(entries, "Role changed on this sync")}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  for (let i = 0; i < 14; i++) {
+    expect(screen.getByText(`Role — Person ${i}`)).toBeInTheDocument();
+  }
+  expect(screen.queryByText(/\+\d+ more|show more/i)).toBeNull();
+});
+
+it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        {
+          label: "Unavailable",
+          from: null,
+          to: null,
+          note: "1 field change(s) on this sync — details unavailable",
+        },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  const marker = screen.getByText(/details unavailable/);
+  expect(marker).toBeInTheDocument();
+  expect(marker.closest("li")).toHaveClass("bg-warning-bg");
+});
