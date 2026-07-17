@@ -45,6 +45,7 @@ export class FakeReapTx implements OnboardingSessionTx {
     deferred_ingestions: [],
     shows: [],
     sync_log: [],
+    onboarding_rebuild_attempts: [],
   };
   operations: string[] = [];
 
@@ -190,6 +191,20 @@ export class FakeReapTx implements OnboardingSessionTx {
         rowCount: count,
       };
     }
+    // Wizard blocker in-wizard resolution (2026-07-16 spec §3.3): the cap-counter
+    // sweep is a bare session-only delete with NO `returning` clause (it doesn't
+    // feed the staging-row `deleted` count) — distinct shape from scopedDelete above.
+    const bareSessionDelete = q.match(
+      /^delete from public\.([a-z_]+) where wizard_session_id = \$1::uuid$/,
+    );
+    if (bareSessionDelete) {
+      const table = bareSessionDelete[1]!;
+      this.operations.push(`delete:${table}:${String(params[0])}`);
+      this.tables[table] = (this.tables[table] ?? []).filter(
+        (r) => r.wizard_session_id !== params[0],
+      );
+      return { rows: [] as T[], rowCount: 0 };
+    }
     const residue = q.match(
       /^select 1 from public\.([a-z_]+) where wizard_session_id = \$1::uuid limit 1$/,
     );
@@ -254,6 +269,10 @@ export function staleSessionFixture(tx: FakeReapTx) {
     { wizard_session_id: null, drive_file_id: "drive-live" },
   );
   tx.tables.pending_ingestions!.push({ wizard_session_id: STALE, drive_file_id: "drive-i1" });
+  tx.tables.onboarding_rebuild_attempts!.push(
+    { wizard_session_id: STALE, drive_file_id: "drive-m1" },
+    { wizard_session_id: ACTIVE, drive_file_id: "drive-active" },
+  );
   tx.tables.deferred_ingestions!.push(
     { wizard_session_id: STALE, drive_file_id: "drive-d1" },
     { wizard_session_id: null, drive_file_id: "drive-live" },
@@ -284,6 +303,7 @@ describe("reapStaleOnboardingSessions — session-scoped reap (F4)", () => {
       "pending_syncs",
       "pending_ingestions",
       "deferred_ingestions",
+      "onboarding_rebuild_attempts",
     ]) {
       expect(
         tx.tables[name]!.filter((r) => r.wizard_session_id === STALE),
@@ -294,6 +314,9 @@ describe("reapStaleOnboardingSessions — session-scoped reap (F4)", () => {
     // Active-session rows and live-partition (wizard_session_id IS NULL) rows survive.
     expect(
       tx.tables.onboarding_scan_manifest!.filter((r) => r.wizard_session_id === ACTIVE),
+    ).toHaveLength(1);
+    expect(
+      tx.tables.onboarding_rebuild_attempts!.filter((r) => r.wizard_session_id === ACTIVE),
     ).toHaveLength(1);
     expect(
       tx.tables.shows_pending_changes!.filter((r) => r.wizard_session_id === ACTIVE),

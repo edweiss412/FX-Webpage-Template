@@ -175,6 +175,13 @@
     "ignored_by",
     "show_id"
   ],
+  "onboarding_rebuild_attempts": [
+    "attempts",
+    "drive_file_id",
+    "escalation_logged",
+    "updated_at",
+    "wizard_session_id"
+  ],
   "onboarding_scan_manifest": [
     "created_show_id",
     "drive_file_id",

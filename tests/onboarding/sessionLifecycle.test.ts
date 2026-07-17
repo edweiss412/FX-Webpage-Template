@@ -41,6 +41,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
   staleByDbClock = false;
   appliedManifestDriveFileIds = ["drive-b", "drive-a"];
   shadowDriveFileIds = ["drive-c", "drive-a"];
+  rebuildAttemptsSessions = new Set<string>([W1]);
   failAfterOperation: string | null = null;
   operations: string[] = [];
   syncLog: string[] = [];
@@ -193,6 +194,11 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return { rows: [], rowCount: 0 };
     }
 
+    if (op === "delete-rebuild-attempts") {
+      this.rebuildAttemptsSessions.delete(String(params[0]));
+      return { rows: [], rowCount: 0 };
+    }
+
     if (op === "select-residue") {
       // These fixtures seed no mid-transaction insert → no residue → proceed.
       return { rows: [], rowCount: 0 };
@@ -264,6 +270,8 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return "select-recent-finalize";
     }
     if (sql.startsWith("delete from public.shows_pending_changes")) return "delete-shadow";
+    if (sql.startsWith("delete from public.onboarding_rebuild_attempts"))
+      return "delete-rebuild-attempts";
     if (
       sql.startsWith("delete from public.shows") &&
       sql.includes("using public.onboarding_scan_manifest") &&
@@ -307,6 +315,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     next.staleByDbClock = this.staleByDbClock;
     next.appliedManifestDriveFileIds = [...this.appliedManifestDriveFileIds];
     next.shadowDriveFileIds = [...this.shadowDriveFileIds];
+    next.rebuildAttemptsSessions = new Set(this.rebuildAttemptsSessions);
     next.failAfterOperation = this.failAfterOperation;
     next.operations = [...this.operations];
     next.syncLog = [...this.syncLog];
@@ -321,6 +330,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     this.manifestSessions = new Set(snapshot.manifestSessions);
     this.appliedManifestDriveFileIds = [...snapshot.appliedManifestDriveFileIds];
     this.shadowDriveFileIds = [...snapshot.shadowDriveFileIds];
+    this.rebuildAttemptsSessions = new Set(snapshot.rebuildAttemptsSessions);
     this.operations = [...snapshot.operations];
     this.syncLog = [...snapshot.syncLog];
   }
@@ -538,5 +548,20 @@ describe("onboarding session lifecycle helpers", () => {
     expect(tx.operations.indexOf("lock-show:drive-c")).toBeLessThan(
       tx.operations.indexOf("delete-interim-shows"),
     );
+  });
+
+  test("cleanupAbandonedFinalize deletes onboarding_rebuild_attempts rows for the discarded session", async () => {
+    const tx = new FakeLifecycleTx();
+    tx.staleByDbClock = true;
+    tx.rebuildAttemptsSessions = new Set([W1]);
+
+    await cleanupAbandonedFinalize(W1, {
+      randomUUID: () => W2,
+      requireAdminIdentity: async () => ({ email: "doug@example.com" }),
+      withTx: withFakeTx(tx),
+    });
+
+    expect(tx.rebuildAttemptsSessions.has(W1)).toBe(false);
+    expect(tx.operations).toContain("delete-rebuild-attempts");
   });
 });

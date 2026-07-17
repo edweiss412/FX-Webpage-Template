@@ -568,6 +568,12 @@ export async function cleanupAbandonedFinalize(
       `delete from public.shows_pending_changes where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
       [sessionId, lockedReapIds],
     );
+    // Wizard blocker in-wizard resolution (2026-07-16 spec §3.3): the cap counter is
+    // session-scoped bookkeeping (not user content), so it's swept for the WHOLE
+    // discarded session regardless of drive_file_id — no locked-set filter needed.
+    await tx.query(`delete from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid`, [
+      sessionId,
+    ]);
     // F4 Task 4.1 (spec §6 / R11-1): the first-seen interim-show delete is
     // PROVENANCE-keyed (created_show_id written by F1 Phase B in the same
     // per-row tx as the show INSERT), never the `published = false` proxy —
@@ -876,6 +882,14 @@ async function reapOneSession(
         [sessionId, lockedDriveFileIds],
       )
     ).rowCount;
+    // Wizard blocker in-wizard resolution (2026-07-16 spec §3.3): the cap counter is
+    // session-scoped bookkeeping (not user content), so it's swept for the WHOLE
+    // reaped session regardless of drive_file_id — no locked-set filter needed, and
+    // it deliberately does not feed the `deleted` staging-row count (it's not a
+    // staging row).
+    await tx.query(`delete from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid`, [
+      sessionId,
+    ]);
     deleted += (
       await tx.query(
         `delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid returning 1 as deleted`,
