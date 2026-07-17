@@ -43,13 +43,18 @@ Ordering rationale: the matrix row (Task 2) must precede the `<HoverHelp>` call 
 - **Impeccable note:** this is the primary UI surface — the invariant-8 dual-gate (Task 6) reviews this diff.
 - **Verify:** strip test file green; `pnpm test tests/help/_metaAffordanceMatrixParity.test.ts` green (call site now references the live row).
 
-### Task 4 — Walker seed + capture-isolation cleanup (`test(infra): …` or `feat(infra): …`)
+### Task 4 — Walker seed + capture-isolation cleanup (`test(infra): …` then `feat(infra): …`)
 
-- **Test (behavioral, e2e):** the deep-link walker itself. After implementation, run the help-docs-desktop project filtered to the new row and confirm it passes (tooltip visible on `/admin`, "Learn more" → `#re-stage`).
-- **Implementation:**
+The deep-link walker (`deep-link-walker.spec.ts`) IS the behavioral test; it auto-registered the new row in Task 2. TDD red→green is made explicit here:
+
+- **RED (prove the gap first, BEFORE any seed edit):** with Tasks 1-3 landed and the DB seeded base-only (`pnpm db:seed` + `pnpm dlx tsx supabase/seedWalkerFixtures.ts` WITHOUT the new `autoAppliedSeedSql`), run the help-docs-desktop walker filtered to the new row:
+  `pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts --project=help-docs-desktop -g "recently-auto-applied"`.
+  It MUST FAIL with the strip/tooltip absent (`help-affordance--dashboard-recently-auto-applied--tooltip should be visible on /admin`) — no `auto_apply` `show_change_log` row exists, so the strip returns `null`. Record the red output. (This is the failing test that pins the seed's necessity — the walker row alone is red until the fixture exists.)
+- **GREEN (implement the seed):**
   - `supabase/seedWalkerFixtures.ts` — add `AUTO_APPLIED_SENTINEL = "seed-fixture:walker-auto-applied"` + `autoAppliedSeedSql()` (spec §4.4, `field_changed`, non-undoable), composed into the seeder SQL as a sibling top-level statement next to `alertSeedSql()` (outside the advisory-lock block).
   - `supabase/seed.ts` — add `delete from public.show_change_log where created_by like 'seed-fixture:%';` to the base-seed cleanup block (near the existing seed-prefix deletes ~:559-565) for screenshot capture isolation.
-- **Verify:** `pnpm dlx tsx supabase/seedWalkerFixtures.ts` runs clean against the local seeded DB; strip renders on `/admin` (manual or e2e); `pnpm db:seed` alone (no walker fixtures) leaves NO strip row (`select count(*) from show_change_log where created_by like 'seed-fixture:%'` = 0). `seed-restage-fixture.test.ts` still green.
+  - Re-seed (`pnpm db:seed` + `pnpm dlx tsx supabase/seedWalkerFixtures.ts`) and rerun the SAME filtered walker command → now GREEN (tooltip visible on `/admin`, "Learn more" → `#re-stage`). Record the green output.
+- **Verify (isolation + regression):** `pnpm db:seed` ALONE (no walker fixtures) leaves NO strip row (`select count(*) from public.show_change_log where created_by like 'seed-fixture:%'` = 0 → capture isolation). `seed-restage-fixture.test.ts` still green.
 
 ### Task 5 — Full local gates
 
