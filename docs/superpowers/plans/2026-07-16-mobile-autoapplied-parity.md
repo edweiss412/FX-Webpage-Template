@@ -261,7 +261,12 @@ git commit -m "feat(admin): headingLevel prop + FLOW4-7 aria-labelledby on Recen
 Extend `tests/app/admin/needsAttentionPage.test.tsx`. Add a hoisted mock for `loadRecentAutoApplied` and the actions (the page imports them). Mirror the existing `state`/`vi.mock` pattern (`:15-26`):
 
 ```tsx
-// add alongside the existing state (:15):
+// add alongside the existing state (:15). Default result is an EMPTY-OK strip
+// result, NOT null: the page now unconditionally passes this to
+// RecentAutoAppliedStrip (which reads data.kind), so every pre-existing page
+// test that sets only `state.result` must still get a valid RecentAutoApplied.
+// Empty groups → the strip renders null (no visible change to those tests).
+const EMPTY_OK_AUTOAPPLIED = { kind: "ok" as const, groups: [], renderedCount: 0, overflowCount: 0, rosterShiftByShow: {} };
 const raState = vi.hoisted(() => ({ result: null as unknown, calls: [] as Array<Record<string, unknown>> }));
 
 vi.mock("@/lib/admin/loadRecentAutoApplied", () => ({
@@ -276,7 +281,8 @@ vi.mock("@/app/admin/_actions/autoApplied", () => ({
   undoFromDashboardAction: vi.fn(),
 }));
 
-// reset in beforeEach:  raState.result = null; raState.calls = [];
+// reset in beforeEach:  raState.result = EMPTY_OK_AUTOAPPLIED; raState.calls = [];
+// (EMPTY_OK default keeps every existing page test green — they render no strip.)
 ```
 
 Fixture with one group (reuse the Task-1 `okData` shape). Then:
@@ -307,7 +313,9 @@ it("strip is a SIBLING AFTER the needs-attention section (DOM order, not nested)
   const strip = screen.getByTestId("recent-auto-applied-strip");
   // Same parent → siblings (strip NOT nested inside the inbox section).
   expect(strip.parentElement).toBe(inbox.parentElement);
-  // strip follows the inbox in document order (below, not above).
+  // strip follows the inbox in document order (below, not above). Bare `Node`
+  // is the established repo convention for this (tests/components/admin/ShowsTable.test.tsx:288,
+  // tests/components/admin/nav/AdminPageHeader.test.tsx:37) — jsdom exposes it globally.
   expect(inbox.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
@@ -557,7 +565,7 @@ git commit -m "feat(admin): auto-applied count chip on NeedsAttentionSummaryCard
 
 - [ ] **Step 1: Write the failing tests**
 
-Extend `tests/components/admin/Dashboard.test.tsx`. Add a hoisted `raState` + mock for `loadRecentAutoApplied` (mirror the existing `naState` pattern `:18-28`):
+Extend `tests/components/admin/Dashboard.test.tsx`. First confirm the file has NO existing `loadRecentAutoApplied` mock (verified: `grep -c loadRecentAutoApplied tests/components/admin/Dashboard.test.tsx` → `0`; the Dashboard test currently drives `recentAutoApplied` through the `emptyClient` builder). Add a hoisted `raState` + mock (mirror the existing `naState` pattern `:18-28`):
 
 ```ts
 const raState = vi.hoisted(() => ({ override: null as unknown }));
