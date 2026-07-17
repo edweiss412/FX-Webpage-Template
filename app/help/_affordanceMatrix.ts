@@ -98,41 +98,11 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
-    sourceSurface: "Per-show - Sync health footer strip",
-    sourceRoute: "/admin/show/rpas-central-2026",
-    affordance: "? tooltip",
-    testid: "help-affordance--per-show-sync-footer--tooltip",
-    target: "/help/admin/per-show-panel#sync-health",
-    visibleAt: "both",
-    owningMilestone: "M12.12",
-  },
-  {
-    kind: "concrete",
     sourceSurface: "Per-show - Alerts section header",
     sourceRoute: "/admin/show/rpas-central-2026",
     affordance: "? tooltip",
     testid: "help-affordance--per-show-alerts--tooltip",
     target: "/help/admin/parse-warnings",
-    visibleAt: "both",
-    owningMilestone: "M12.12",
-  },
-  {
-    kind: "concrete",
-    sourceSurface: "Per-show - Data quality panel header",
-    sourceRoute: "/admin/show/rpas-central-2026",
-    affordance: "? tooltip",
-    testid: "help-affordance--per-show-data-quality--tooltip",
-    target: "/help/admin/parse-warnings",
-    visibleAt: "both",
-    owningMilestone: "parse-data-quality-warnings",
-  },
-  {
-    kind: "concrete",
-    sourceSurface: "Per-show - Crew section header",
-    sourceRoute: "/admin/show/rpas-central-2026",
-    affordance: "? tooltip",
-    testid: "help-affordance--per-show-crew--tooltip",
-    target: "/help/admin/preview-as-crew",
     visibleAt: "both",
     owningMilestone: "M12.12",
   },
@@ -286,15 +256,12 @@ export const DEFERRED_TESTIDS: ReadonlySet<string> = new Set([
   // staged-review card it pointed at was retired by the Phase 6 ChangesFeed; see
   // DEFERRED.md D9 and the removed matrix row above.)
   "help-affordance--preview-banner--tooltip",
-  // Consolidated-admin-show-page rebuild (spec 2026-07-16, Task 13): the old
-  // per-show page's Crew / Sync-footer / Data-quality HoverHelp affordances were
-  // removed with their sections — crew now renders inside the shared review
-  // surface, sync is a StatusStrip badge, and data-quality warnings moved
-  // per-section. The help TARGETS still exist; these affordances are DEFERRED
-  // pending Task 16 (impeccable) deciding whether/where to re-home each tooltip
-  // on the consolidated surface (un-defer on build, or drop the row + help page
-  // if the affordance is genuinely retired).
-  "help-affordance--per-show-crew--tooltip",
-  "help-affordance--per-show-sync-footer--tooltip",
-  "help-affordance--per-show-data-quality--tooltip",
+  // The consolidated-admin-show-page rebuild (spec 2026-07-16) dissolved the old
+  // per-show Crew / Sync-footer / Data-quality sections, orphaning their "?"
+  // HoverHelp affordances. Task 13 parked them here; Task 16 (impeccable critique
+  // gate) RETIRED all three — none was re-homed (crew: preview-as help is served
+  // by the preview-banner affordance; sync: hover-only affordances are banned on
+  // the slim floor strip; data-quality: the sibling per-show-alerts tooltip
+  // already links /help/admin/parse-warnings). Their matrix rows were removed and
+  // the help TARGET pages stay live. See DEFERRED.md CASP-1 (resolved-retired).
 ]);
