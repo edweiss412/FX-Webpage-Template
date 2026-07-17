@@ -32,9 +32,16 @@ const MI8C_MODE_ORDER = ["collapse", "ambiguous_format", "halved", "case_dropped
 // without counting it → no-silent-omission violation, Codex plan-review R3 F3).
 const VALID_MI8C_MODES: ReadonlySet<string> = new Set(MI8C_MODE_ORDER);
 
+// The strip render trims user-sourced DISPLAY strings (COI status, crew name,
+// role-flag tokens) for presentation. This is NOT email canonicalization — no
+// email touches this module; lib/email/canonicalize.ts remains the only email
+// boundary (invariant 3). Routed through one helper so the no-inline-email guard
+// (tests/admin/no-inline-email-normalization.test.ts) has a single exempt surface.
+const trimStr = (x: string): string => x.trim(); // canonicalize-exempt: display-value trim, not email (invariant 3 N/A)
+
 /** Trim-aware, capped. Empty/whitespace/non-string → sentinel. */
 function coerce(x: unknown, sentinel: string): string {
-  const s = typeof x === "string" && x.trim() !== "" ? x.trim() : sentinel;
+  const s = typeof x === "string" && trimStr(x) !== "" ? trimStr(x) : sentinel;
   return capValue(s);
 }
 export function capValue(s: string): string {
@@ -43,7 +50,7 @@ export function capValue(s: string): string {
 /** Sorted, comma-joined flag tokens; "(none)" for empty (spec §3.4b).
  *  Caller guarantees `flags` is a string[] (isStrArr) — this only sorts/joins/caps. */
 export function joinFlags(flags: string[]): string {
-  const toks = flags.filter((f) => f.trim() !== "").map((f) => f.trim());
+  const toks = flags.filter((f) => trimStr(f) !== "").map((f) => trimStr(f));
   if (toks.length === 0) return "(none)";
   return capValue([...toks].sort().join(", "));
 }
@@ -132,8 +139,8 @@ function build(items: TriggeredReviewItem[]): Built {
     if (it.invariant !== "MI-9") continue;
     const raw = it as { crew_name?: unknown; prior_flags?: unknown; new_flags?: unknown };
     const name =
-      typeof raw.crew_name === "string" && raw.crew_name.trim() !== ""
-        ? raw.crew_name.trim()
+      typeof raw.crew_name === "string" && trimStr(raw.crew_name) !== ""
+        ? trimStr(raw.crew_name)
         : null;
     if (name === null || !isStrArr(raw.prior_flags) || !isStrArr(raw.new_flags)) {
       omitted++;
@@ -197,16 +204,16 @@ function isValidEntry(e: unknown): e is FieldChangeEntry {
   // ALL of label/from/to/note must be well-typed BEFORE boundEntry touches them —
   // otherwise a note-entry carrying a numeric `from` would pass the XOR check and
   // then crash capValue(42) at bound time (Codex plan-review R1 F2).
-  if (typeof o.label !== "string" || o.label.trim() === "") return false;
+  if (typeof o.label !== "string" || trimStr(o.label) === "") return false;
   if (!strOrNull(o.from) || !strOrNull(o.to) || !strOrNull(o.note)) return false;
   // A from/to branch requires BOTH non-empty (no blank cell, spec §7); a note branch
   // requires a non-empty note. `{ from:"", to:"" }` is corrupt, not a valid entry.
-  const hasNote = typeof o.note === "string" && o.note.trim() !== "";
+  const hasNote = typeof o.note === "string" && trimStr(o.note) !== "";
   const hasFromTo =
     typeof o.from === "string" &&
-    o.from.trim() !== "" &&
+    trimStr(o.from) !== "" &&
     typeof o.to === "string" &&
-    o.to.trim() !== "";
+    trimStr(o.to) !== "";
   return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
 }
 // Normalize to a canonical single-branch entry: exactly ONE of {note} / {from,to}
@@ -216,15 +223,15 @@ function isValidEntry(e: unknown): e is FieldChangeEntry {
 // blank line instead of the From→To (R4 F2). Trim active values before capping.
 function boundEntry(e: FieldChangeEntry): FieldChangeEntry {
   const label = capValue(e.label);
-  const hasNote = typeof e.note === "string" && e.note.trim() !== "";
+  const hasNote = typeof e.note === "string" && trimStr(e.note) !== "";
   if (hasNote) {
-    return { label, from: null, to: null, note: capValue((e.note as string).trim()) };
+    return { label, from: null, to: null, note: capValue(trimStr(e.note as string)) };
   }
   // isValidEntry guarantees from & to are non-empty strings when not the note branch.
   return {
     label,
-    from: capValue((e.from as string).trim()),
-    to: capValue((e.to as string).trim()),
+    from: capValue(trimStr(e.from as string)),
+    to: capValue(trimStr(e.to as string)),
     note: null,
   };
 }
