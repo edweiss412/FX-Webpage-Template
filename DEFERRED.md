@@ -414,25 +414,25 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/telemetry-console-re
 
 Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/admin-field-overrides` for the P6 UI diff (Tasks 13–16). Full findings + dispositions in `docs/superpowers/plans/2026-07-07-admin-field-overrides/IMPECCABLE-REPORT.md`. Verdict: critique 25/40, audit 18/20, deterministic detector `[]` (0 new; the one `<img>` hit is a pre-existing/intentional diagrams-grid revert outside this diff), zero CRITICAL/P0. FIXED in-branch: sheet-value now a VISIBLE line + chip `aria-label` (was hover-only `title`); error `role="status"` → `role="alert"`; em dashes removed from all 5 rendered copy strings. The entries below are deferred/accepted.
 
-### OVR-1 — [P1→deferred] Destructive Revert/Discard: no confirm, no undo, no danger styling
+### OVR-1 — [✅ STALE 2026-07-16] Destructive Revert/Discard: no confirm, no undo, no danger styling — surface removed (PR #382 tore down the field-override feature); the project-wide destructive-action pass this entry's trigger called for shipped as spec 2026-07-16-destructive-confirm-pass
 
 - **What:** `OverrideableField.tsx` Revert (active state) and Discard (stale state) fire on a single tap, share the neutral `BUTTON_CLASS`, and sit immediately beside Edit / Re-point. A mis-tap on the venue floor destroys an override (Revert) with no confirmation, undo, or visual danger cue.
 - **Why deferred:** spec §7 defines Revert/Discard as single-op mutations and is **silent on any confirmation step**; PRODUCT.md explicitly bans multi-step modals ("no five-step modals") and the surface is phone-primary, so a modal confirm is the wrong instrument. Revert is **recoverable** (re-create the override on the same target — the RPC's reactivate-on-conflict path, §7.2 R28); Discard is valid ONLY on an already-inactive row (spec §7.2 — the live row already shows the parsed value, so "destroy" is low-stakes). A consistent destructive-action affordance is a cross-admin design decision, not an override-specific defect; the critique is not authoritative vs the spec/mock (project rule).
 - **Trigger:** a project-wide "destructive admin action" confirmation/undo pass (would also cover Rescan, role changes, etc.), OR the first real report of an accidental override loss.
 
-### OVR-2 — [P2→deferred] No post-save confirmation ("Saving…" / "Saved")
+### OVR-2 — [✅ STALE 2026-07-16] No post-save confirmation ("Saving…" / "Saved") — surface removed (PR #382)
 
 - **What:** `submit()` flips `mode` to `idle` on success with no transient "Saved" signal and no `Saving…` label on the Save button during `pending`.
 - **Why deferred:** the save is optimistic and the surface **re-renders into the overridden state** — the "Overridden" chip + the new value + the visible `Sheet: "X"` line ARE the confirmation. A transient toast/label is a polish nicety, not a correctness gap; the disabled-while-pending state already prevents double-submit.
 - **Trigger:** the next override-UI polish pass, or if usability testing shows Doug re-tapping Save uncertain it applied.
 
-### OVR-3 — [P3→deferred] Nested card in ShowOverrideBlocks (hotel row)
+### OVR-3 — [✅ STALE 2026-07-16] Nested card in ShowOverrideBlocks (hotel row) — surface removed (PR #382)
 
 - **What:** `ShowOverrideBlocks.tsx` renders each hotel reservation row as a `rounded-md border bg-bg` block inside the outer `rounded-md border bg-surface` Hotels block — a card-in-card.
 - **Why deferred:** mild — the inner surface is differentiated by **background token** (`bg-bg` vs `bg-surface`), not a redundant border-in-border stack, and it mirrors the existing wizard hotel-row grouping. Not an AI-slop tell in isolation.
 - **Trigger:** the next `ShowOverrideBlocks` layout pass, or a DESIGN.md ruling on nested-surface treatment.
 
-### OVR-4 — [P3→deferred] Repoint-input aria-label exposes DB nomenclature
+### OVR-4 — [✅ STALE 2026-07-16] Repoint-input aria-label exposes DB nomenclature — surface removed (PR #382)
 
 - **What:** the re-point input's `aria-label` names the internal "match key" concept rather than the user-facing "sheet value to match".
 - **Why deferred:** screen-reader-only clarity nicety; the visible label + stale note already frame the action ("Re-point", "the sheet no longer has «X»"). No sighted-user impact.
@@ -442,19 +442,19 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/a
 
 Source: invariant-8 impeccable v3 dual-gate on the NEW `OrphanedOverridesBlock` (Codex R3 G2 fix — the show page now renders overrides whose sheet target vanished, so the "Override paused" needs-attention deep-link lands on a real Re-point/Discard control instead of a dead end). Verdict: audit 19/20 (no P0/P1), critique AI-slop PASS (clean, 100% tokens, no bans) with two P1/HIGH. Both HIGH FIXED in-branch: (a) the block carries `id="paused-overrides"` and a target_missing card deep-links `#paused-overrides` (name_conflict stays inline, lands at top); (b) the orphan value cell renders Doug's actual override value (`override.overrideValue`) instead of the "—" no-data glyph, so he can decide Re-point vs Discard without recalling his correction. Deterministic detector `[]` (0 findings). The P2/P3 below are deferred.
 
-### OVR-5 — [P2→deferred] Orphan-block controls share generic Re-point/Discard accessible names
+### OVR-5 — [✅ STALE 2026-07-16] Orphan-block controls share generic Re-point/Discard accessible names — surface removed (PR #382)
 
 - **What:** the reused `OverrideableField` paused branch renders "Re-point"/"Discard" with no field qualifier; a screen-reader user tabbing multiple orphan rows hears the pair repeated, and the visible `ORPHAN_FIELD_LABEL` span isn't linked via `aria-labelledby` (WCAG 2.4.6).
 - **Why deferred:** an INHERITED pattern shared by every override surface (sibling crew/hotel blocks have the same shape), not introduced by G2; the per-row stale note carries the «matchKey» so context is partially conveyed. Fixing it belongs at the shared `OverrideableField` level across all surfaces, not in the orphan block alone.
 - **Trigger:** a shared-`OverrideableField` a11y pass (would also close OVR-4). Backlog: `BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER`.
 
-### OVR-6 — [P2→deferred] Orphan block lacks attention salience + "Re-point" jargon
+### OVR-6 — [✅ STALE 2026-07-16] Orphan block lacks attention salience + "Re-point" jargon — surface removed (PR #382)
 
 - **What:** the "Paused overrides" section is styled with the same calm neutral tokens (`border-border`/`bg-surface`) as the non-actionable Show-details/Hotels blocks, so nothing signals it needs action; and "Re-point" is jargon for a non-technical operator (no HelpAffordance).
 - **Why deferred:** the durable needs-attention stream (nav badge + inbox card with `status="warn"`) already draws Doug to the item; this block is the deep-link TARGET, not the primary alert. A warn accent + plainer microcopy are enhancements, not correctness. Consistent with the calm inline-edit tone of the sibling override blocks.
 - **Trigger:** `/impeccable polish` on the override surfaces, or a Doug-confusion report. Backlog: `BL-OVERRIDE-ORPHAN-SALIENCE`.
 
-### OVR-7 — [P3→deferred] Section `aria-label` differs from visible heading; intro/per-row copy overlap
+### OVR-7 — [✅ STALE 2026-07-16] Section `aria-label` differs from visible heading; intro/per-row copy overlap — surface removed (PR #382)
 
 - **What:** the section `aria-label="Paused overrides needing attention"` doesn't match the visible `<h2>Paused overrides</h2>` (siblings keep them identical); and the section intro ("The sheet no longer has these targets…") restates the per-row paused note framing.
 - **Why deferred:** both cosmetic — the aria-label is a valid (more descriptive) accessible name, not a WCAG failure; the mild copy overlap doesn't impede comprehension.
@@ -482,19 +482,19 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **Why deferred:** The combined amber signal is intentional per spec §6.4 (both are "this show needs a glance" states sharing the data-quality badge). A distinct glyph/count-chip per segment is a visual-design decision on a shared component; the aria-label already carries the semantic split for AT. Not a defect, an enhancement.
 - **Trigger:** a DESIGN.md decision to split data-quality signal types. Backlog: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH`.
 
-### FLOW4-4 — [P2→deferred] Bulk Undo-all does not surface per-item typed failures
+### FLOW4-4 — [✅ RESOLVED 2026-07-16] Bulk Undo-all does not surface per-item typed failures — aggregate role=alert ("Couldn't undo N of M…") shipped in the destructive-confirm pass; thrown actions count as failures
 
 - **What:** `RecentAutoAppliedStrip.tsx` `confirmUndoAll` awaits `undoFromDashboardAction` per id and discards each result, closing the confirm panel regardless. Per-row Undo surfaces `<ErrorExplainer>` on `{ok:false}`; the bulk loop does not, so a partial failure (e.g. `UNDO_SUPERSEDED`) gives no explicit message.
 - **Why deferred:** Softened by self-healing — the strip revalidates after the loop, so any row that failed to undo REMAINS visible (it isn't removed), giving Doug implicit "that one didn't go" feedback. It is NOT an invariant-5 leak (no raw code shown). Undo failures on freshly-auto-applied roster rows are rare. Surfacing an aggregate bulk-error banner is a real improvement but net-new UI.
 - **Trigger:** the next auto-applied-strip robustness pass, or a real partial-undo confusion report. Backlog: `BL-FLOW4-BULK-UNDO-ERROR-SURFACE`.
 
-### FLOW4-5 — [P2→deferred] Destructive confirm-go not visually differentiated from cancel
+### FLOW4-5 — [✅ RESOLVED 2026-07-16] Destructive confirm-go not visually differentiated from cancel — inverted-amber recipe (bg-warning-text/text-warning-bg) shipped project-wide, pinned by tests/styles/\_metaDestructiveConfirm.test.ts
 
 - **What:** In the Undo-all confirm, "Keep changes" (`bg-bg`) and "Undo all N" (`bg-surface`) are near-identical neutral buttons; mis-tap risk on a phone.
 - **Why deferred:** The primary accidental-activation vector (keyboard Enter on open) is already closed by the focus-on-safe fix shipped in this PR. Visual danger-styling of the destructive control is polish; the confirm step + safe-focus already gate the action. A danger token treatment is a small design decision deferrable to the next polish pass.
 - **Trigger:** `/impeccable polish` on the strip, or a mis-tap report. Backlog: `BL-FLOW4-CONFIRM-DANGER-STYLE`.
 
-### FLOW4-6 — [P3→deferred] Focus falls to body after bulk undo completes
+### FLOW4-6 — [✅ RESOLVED 2026-07-16] Focus falls to body after bulk undo completes — guarded focus restore to the disclosure toggle (ejection-aware capture-at-click), both cancel and completion paths
 
 - **What:** `confirmUndoAll` unmounts the confirm panel while focus may sit on the confirm-go button → focus drops to `<body>` (WCAG 2.4.3, soft).
 - **Why deferred:** Soft — the strip revalidates and re-renders after the loop, so focus context changes anyway. Cheap to address alongside FLOW4-5 in a polish pass.
@@ -615,3 +615,25 @@ Source: the consolidated-admin-show-page rebuild (spec `docs/superpowers/specs/2
 - **What:** the sticky `StatusStrip` (`components/admin/showpage/StatusStrip.tsx`) wraps the FULL `PublishedToggle` card (`components/admin/PublishedToggle.tsx` — a bordered `p-tile-pad` box with an `<h3>Published`, a wrapping subline, and inline error/refusal slots), not a compact switch. On desktop the strip is `sm:flex-nowrap` (single row) and the card is fine; on a ≤640px phone the strip is `flex-wrap` and the card is the dominant child, so the "slim, pinned" strip inflates to a tall multi-row block on Doug's venue-floor phone. Surfaced by the Task 16 impeccable critique (Assessment A, P1 "sticky strip overloads on mobile" + the toggle-weight watchpoint) and pre-flagged in `.superpowers/sdd/task-10-report.md` §3 ("in a slim strip this is visually heavy; a compact variant is a shared-component change for impeccable/Task 13").
 - **Why deferred (not a gate blocker; disproportionate + risky at close-out):** (1) The control WORKS correctly and desktop (Doug's primary desk context) is unaffected — this is a mobile density/weight concern, not broken function or a banned pattern. (2) The proper fix — a `variant="inline"` on the shared `PublishedToggle` (compact switch + label in the strip; subline/error relocated to the Overview share cluster where the `admin-share-link-inactive` notice already lives) — is a shared-component presentational redesign that RELOCATES the React-19 refusal-error rendering (`PUBLISH_BLOCKED_PENDING_REVIEW` etc.), which is exactly the dispatch-safety surface the B1 revoke-hang lesson governs; a half-done relocation is worse than a heavy-but-correct card, and it wants its own TDD cycle + adversarial review, not a close-out drive-by. (3) The heavy card is NOT diff-introduced — `PublishedToggle` is a pre-existing shipped component (spec `docs/superpowers/specs/admin/2026-07-01-published-toggle.md`) that this branch merely relocated into the strip. (4) Matching precedent for deferring pre-existing / shared-component P1 UI-weight findings with a trigger: STEP3MODAL-1, DQIGNORE-6, CARDREPORT-1. (5) Folds in the coupled critique P2 "duplicated crew-link-off copy" (the toggle subline vs the Overview inactive notice) — the compact variant removes the subline, leaving the Overview notice as the single source.
 - **Trigger:** the next `PublishedToggle` / `StatusStrip` touch, OR an operator report that the show page's sticky header eats too much of the phone. Then add `variant: "card" | "inline"` to `PublishedToggle` (default `card` preserves every current call), render `inline` in the strip (switch + "Published" label only), relocate the subline/error into the Overview share cluster, reconcile the crew-link-off copy to one source, and add the render tests for both variants + a real-browser strip-height check at 390px.
+
+## Destructive-confirm pass — impeccable dual-gate deferrals (2026-07-16)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-pass` (spec `docs/superpowers/specs/2026-07-16-destructive-confirm-pass.md`). Verdict: critique 33/40 (dual-agent), audit 19/20, deterministic detector `[]`, anti-patterns PASS, zero P0/P1. FIXED in-branch: armed-state sr-only `role="status"` announcement on all four two-tap morphs (SR double-tap guard-defeat vector); ArchiveShowButton rendered label em dash → colon form (§9); `ARM_REVERT_MS` named constant; completion-path focus restore made ejection-aware (audit P2 — `disabled={pending}` ejects focus to body in real browsers, defeating a post-loop `contains()` check); `border border-transparent` on armed morph skins (2px layout shift); `transition-opacity` on recipe hover. The entries below are deferred.
+
+### DESTRUCT-1 — [P2→deferred] Armed morph label expansion reflows the hit target under the finger
+
+- **What:** the four two-tap guards swap in a longer armed label (`whitespace-normal`, `max-w-full`), so the button can grow/wrap between tap 1 and tap 2 while a phone user's finger is already traveling. Unverified at 360-390px.
+- **Why deferred:** needs a real-browser 360px reflow measurement + a design decision (reserve max size vs fixed-height armed state); the auto-revert + label change are the shipped mitigations. Not demonstrable in jsdom.
+- **Trigger:** real-browser check in the next admin mobile pass, or a venue-floor mis-tap report. Backlog: `BL-DESTRUCT-ARMED-REFLOW`.
+
+### DESTRUCT-2 — [P3→deferred] Confirm-label grammar + auto-revert timing not harmonized
+
+- **What:** morphs use "Confirm: X" / panels use bare "Confirm revoke|reset|rotate|dismiss"; panels auto-revert at 3s (`AUTO_REVERT_MS`), guards + Archive at 4s (`ARM_REVERT_MS`).
+- **Why deferred:** copy + timing harmonization is a coordinated pass across 11 surfaces with shipped per-surface tests; no user-facing defect, only consistency polish (critique H4 note).
+- **Trigger:** next destructive-surface polish pass. Backlog: `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE`.
+
+### DESTRUCT-3 — [P3→deferred] Bulk-undo full success is silent for screen readers
+
+- **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
+- **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
+- **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.

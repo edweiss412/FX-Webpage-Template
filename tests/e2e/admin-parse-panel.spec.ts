@@ -33,19 +33,28 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
-/** A seeded EXISTING show (has a `shows` row) — used only by the Re-sync test,
- *  which drives the per-show page's Overview Re-sync button. */
-const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
-
+/**
+ * Self-derive a seeded EXISTING show for the Re-sync test (used only there).
+ * `pnpm db:seed` generates opaque `drive-<uuid>` / `slug-<hex>` ids with no
+ * stable constant to hardcode, so query for a suitable row instead. A
+ * PUBLISHED + NON-ARCHIVED show is what makes the Overview section render the
+ * Re-sync button (OverviewSection.tsx:126-137); the seed's synthetic
+ * drive_file_id is not a real Drive file, so the Re-sync round-trip fails and
+ * surfaces `admin-resync-error` — exactly the path this test asserts. Ordered
+ * by created_at for a deterministic pick across runs.
+ */
 async function lookupSeed(): Promise<{ slug: string; driveFileId: string }> {
   const res = await admin
     .from("shows")
     .select("slug, drive_file_id")
-    .eq("drive_file_id", SEED_DRIVE_FILE_ID)
-    .single();
+    .eq("published", true)
+    .eq("archived", false)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   if (res.error || !res.data) {
     throw new Error(
-      `admin-parse-panel.spec: seed show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}, error=${res.error?.message ?? "no row"}`,
+      `admin-parse-panel.spec: no published, non-archived seed show found (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
     );
   }
   return { slug: res.data.slug as string, driveFileId: res.data.drive_file_id as string };

@@ -2333,7 +2333,12 @@ describe("runScheduledCronSync", () => {
       logSync,
     });
 
-    expect(processOneFile).toHaveBeenCalledWith("file-a", "cron", file, { logSync });
+    // Task 6: the per-file deps now also carries the drift-eligibility set unconditionally (an
+    // empty set is inert). `logSync` stays present-only.
+    expect(processOneFile).toHaveBeenCalledWith("file-a", "cron", file, {
+      logSync,
+      roleVocabDriftEligibleIds: new Set(),
+    });
   });
 
   test("classifies and logs per-file infrastructure failures without flattening to a generic code", async () => {

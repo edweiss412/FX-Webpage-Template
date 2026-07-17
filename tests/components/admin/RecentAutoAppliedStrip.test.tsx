@@ -358,6 +358,226 @@ it("moves focus to the safe 'Keep changes' control when the Undo-all confirm ope
   await waitFor(() => expect(cancelBtn).toHaveFocus());
 });
 
+// ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R1/F2/F3) ----
+
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
+
+/** Expand-agnostic helper: open the FinTech confirm and run the bulk undo to settle. */
+async function openConfirmAndRunUndoAll() {
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  await act(async () => {
+    fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+}
+
+it("undo-all confirm-go carries the destructive recipe; cancel stays neutral (FLOW4-5)", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  expectDestructiveRecipe(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  const cancelTokens = within(fin)
+    .getByTestId(`auto-applied-undo-all-cancel-${FIN_ID}`)
+    .className.split(/\s+/);
+  expect(cancelTokens).not.toContain("bg-warning-text");
+  expect(cancelTokens).not.toContain("text-warning-bg");
+});
+
+it("partial bulk-undo failure renders the aggregate alert with counts from the mocked failures (FLOW4-4)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  const alert = await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  expect(alert).toHaveAttribute("role", "alert");
+  // Counts derive from the ARRANGED mocks: one {ok:false} + one {ok:true} over the
+  // 2-id undoable group (r1, r2) — not from any hardcoded fixture length.
+  expect(alert.textContent).toContain("Couldn't undo 1 of 2 changes.");
+  expect(alert.textContent).toContain("The ones that failed stay in this list.");
+});
+
+it("a thrown undo action counts as a failed undo in the aggregate", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("boom"))
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  const alert = await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  expect(alert.textContent).toContain("Couldn't undo 1 of 2 changes.");
+});
+
+it("zero failures → no alert", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("reopening the confirm clears a visible alert (open-clears lifecycle)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // reopen
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("alert persists across collapse → re-expand", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // collapse
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // re-expand
+  // "1 of" = the single {ok:false} arranged above; derived from the mock arrangement.
+  expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`).textContent).toContain(
+    "Couldn't undo 1 of",
+  );
+});
+
+it("bulk undo completion moves focus to the group toggle when focus was inside the panel (FLOW4-6)", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll(); // confirm-go click leaves focus inside the panel
+  await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveFocus());
+});
+
+it("keep-changes cancel moves focus to the group toggle", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-cancel-${FIN_ID}`));
+  await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveFocus());
+});
+
+it("completion restores focus to the toggle after disabled-focus ejection to body (WCAG 2.4.3)", async () => {
+  // Real-browser behavior: clicking confirm-go sets pending → disabled={pending}
+  // → Chrome/Firefox eject focus to <body>. The ejected-to-body state must still
+  // count as "focus was ours" so completion restores the toggle.
+  const actions = noopActions();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  actions.undoFromDashboardAction = vi.fn().mockImplementation(async () => {
+    await gate;
+    return { ok: true };
+  });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  const confirmGo = within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`);
+  confirmGo.focus();
+  fireEvent.click(confirmGo);
+  // Simulate the browser's disabled-focus ejection: focus falls to <body>.
+  // jsdom's blur() is a no-op on a disabled element (real browsers eject
+  // automatically on disable), so lift the attribute for the manual ejection.
+  (document.activeElement as HTMLElement).removeAttribute("disabled");
+  (document.activeElement as HTMLElement).blur();
+  expect(document.activeElement).toBe(document.body);
+  await act(async () => {
+    release();
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+  expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveFocus();
+});
+
+it("completion with focus planted outside the group does NOT move focus", async () => {
+  const actions = noopActions();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  actions.undoFromDashboardAction = vi.fn().mockImplementation(async () => {
+    await gate;
+    return { ok: true };
+  });
+  render(
+    <>
+      <button data-testid="external-focus-target">outside</button>
+      <RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />
+    </>,
+  );
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  const external = screen.getByTestId("external-focus-target");
+  external.focus();
+  await act(async () => {
+    release();
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+  expect(external).toHaveFocus();
+});
+
+it("collapse during pending: completes without throwing, no focus steal, alert on re-expand", async () => {
+  const actions = noopActions();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockImplementationOnce(async () => {
+      await gate;
+      return { ok: false, code: "UNDO_SUPERSEDED" };
+    })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  fireEvent.click(toggle); // collapse mid-loop; focus follows the click onto the toggle
+  toggle.focus();
+  await act(async () => {
+    release();
+  });
+  expect(toggle).toHaveFocus(); // no steal (already there; nothing yanked elsewhere)
+  fireEvent.click(toggle); // re-expand
+  expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
+});
+
 it("renders the overflow line when overflowCount > 0", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const overflow = screen.getByTestId("auto-applied-overflow");

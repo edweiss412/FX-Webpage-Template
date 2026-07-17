@@ -114,7 +114,7 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
 
 /**
  * The destructive discard confirm, as a floating dialog: labelled heading,
- * autofocus onto the destructive primary, Escape-to-cancel, and a two-stop focus
+ * autofocus onto the SAFE Cancel control (F1), Escape-to-cancel, and a two-stop focus
  * trap (Discard ↔ Cancel) so the decision is keyboard-complete. Copy + testids
  * are unchanged from the prior inline confirm (pinned by
  * CleanupAbandonedFinalizeButton.test.tsx). A surface-raised card + `shadow-popover`
@@ -130,8 +130,12 @@ function DiscardConfirmPopover({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
+  // F1 (destructive-confirm pass, spec §6 / C3, WCAG 2.4.3): the popover opens
+  // with the SAFE control focused — never the destructive confirm — so an
+  // inadvertent Enter cancels rather than discards. confirmRef stays: the
+  // two-stop focus trap below cycles between both controls.
   useEffect(() => {
-    confirmRef.current?.focus();
+    cancelRef.current?.focus();
   }, []);
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {

@@ -727,6 +727,8 @@ test("§K14: overlay rescan result keeps the footer height constant; floats abov
 
   // The live entry's fetch stub answers the rescan route with the clean
   // deterministic success body — the overlay result renders.
+  // G3 two-tap guard (destructive-confirm pass §4): first click arms, second fires.
+  await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
   await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
   const overlay = page.locator("[data-rescan-overlay-result]");
   await expect(overlay, "overlay result appears").toBeVisible();
@@ -771,6 +773,8 @@ test("§K14 at 390px (sheet mode): overlay rescan result stays fully on-screen �
 }) => {
   const VIEWPORT_W = 390;
   await openLive(page, { width: VIEWPORT_W, height: 844 });
+  // G3 two-tap guard (destructive-confirm pass §4): first click arms, second fires.
+  await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
   await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
   const overlay = page.locator("[data-rescan-overlay-result]");
   await expect(overlay, "overlay result appears").toBeVisible();

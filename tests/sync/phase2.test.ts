@@ -308,6 +308,79 @@ describe("runPhase2 destructive snapshot", () => {
     expect(tx.operations).toEqual(["applyShowSnapshot:strict_less_than"]);
   });
 
+  test("drift-rescued cron relaxes to less_than_or_equal and applies an equal-modtime re-sync", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T12:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice"],
+    });
+
+    // Equal watermark (12:00 == 12:00): the strict cron guard would abort stale; driftResync
+    // relaxes to the manual-mode <= guard so the convergence re-apply lands (spec §3.3 R3 F1).
+    await expect(runWith(tx, { driftResync: true })).resolves.toMatchObject({ outcome: "applied" });
+    expect(tx.operations).toContain("applyShowSnapshot:less_than_or_equal");
+  });
+
+  test("drift-rescued cron still aborts stale (STALE_WRITE_ABORTED) when the watermark advanced", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      // Concurrent real edit advanced the stored watermark past binding.modifiedTime (12:00):
+      // the <= CAS fails exactly as today; the stale code stays STALE_WRITE_ABORTED (§3.3).
+      lastSeenModifiedTime: "2026-05-08T12:01:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice"],
+    });
+
+    await expect(runWith(tx, { driftResync: true })).resolves.toEqual({
+      outcome: "stale",
+      code: "STALE_WRITE_ABORTED",
+    });
+    expect(tx.operations).toEqual(["applyShowSnapshot:less_than_or_equal"]);
+  });
+
+  test("plain cron (driftResync false) keeps the strict less-than guard", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T12:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice"],
+    });
+
+    await expect(runWith(tx, { driftResync: false })).resolves.toEqual({
+      outcome: "stale",
+      code: "STALE_WRITE_ABORTED",
+    });
+    expect(tx.operations).toEqual(["applyShowSnapshot:strict_less_than"]);
+  });
+
+  test("push keeps the strict guard even when driftResync is set (cron-only relaxation)", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T12:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice"],
+    });
+
+    await expect(runWith(tx, { mode: "push", driftResync: true })).resolves.toEqual({
+      outcome: "stale",
+      code: "STALE_PUSH_ABORTED",
+    });
+    expect(tx.operations).toEqual(["applyShowSnapshot:strict_less_than"]);
+  });
+
   test("push uses a strict less-than guard and reports STALE_PUSH_ABORTED", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {

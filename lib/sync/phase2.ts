@@ -88,6 +88,10 @@ export type Phase2Args = {
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
   binding: Phase1Binding;
+  // Role-vocab drift rescue (spec §3.3): a cron run re-syncing an unchanged sheet to converge
+  // stale role-vocab mappings relaxes the stale CAS to less_than_or_equal so the equal-watermark
+  // re-apply lands. Cron-only; never set by push/manual/onboarding/retry.
+  driftResync?: boolean;
   skipDiagramsWrite?: boolean;
   snapshotAssetsForApply?: (args: {
     driveFileId: string;
@@ -214,7 +218,11 @@ async function callTx<T>(operation: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function staleGuardForMode(mode: Phase2Mode): "strict_less_than" | "less_than_or_equal" {
+function staleGuardForMode(
+  mode: Phase2Mode,
+  driftResync?: boolean,
+): "strict_less_than" | "less_than_or_equal" {
+  if (mode === "cron" && driftResync === true) return "less_than_or_equal"; // spec §3.3 R3 F1 — manual-mode precedent for equal-watermark apply
   return mode === "cron" || mode === "push" ? "strict_less_than" : "less_than_or_equal";
 }
 
@@ -352,7 +360,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     tx.applyShowSnapshot({
       driveFileId: args.driveFileId,
       modifiedTime: args.binding.modifiedTime,
-      staleGuard: staleGuardForMode(args.mode),
+      staleGuard: staleGuardForMode(args.mode, args.driftResync),
       parseResult,
       slug: deriveSlug(parseResult, []),
       skipDiagramsWrite: args.skipDiagramsWrite ?? false,

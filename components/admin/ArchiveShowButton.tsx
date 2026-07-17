@@ -9,7 +9,7 @@
  * mirroring components/admin/ResolveAlertButton:
  *
  *   resting → [ Archive ] (type=button). Tap → armed.
- *   armed   → [ Confirm archive — crew links stop working now and won't come
+ *   armed   → [ Confirm archive: crew links stop working now and won't come
  *             back until you re-publish and issue a new link. ] (type=submit).
  *             Tap → submits the parent <form action> → the bound server action.
  *   4s idle → auto-reverts armed → resting (a misfired tap doesn't strand the
@@ -193,15 +193,17 @@ function ConfirmButton({
       onClick={onConfirmClick}
       disabled={pending}
       aria-busy={pending}
+      // Destructive-confirm recipe (spec R7): soft amber → inverted-amber C1
+      // fill on the armed morph. Each branch keeps its own sizing tokens.
       className={
         compact
-          ? "inline-flex min-h-tap-min min-w-tap-min max-w-88 items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-3 py-1.5 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-          : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-4 py-2 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          ? "inline-flex min-h-tap-min min-w-tap-min max-w-88 items-center justify-center rounded-sm bg-warning-text px-3 py-1.5 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       }
     >
       {pending
         ? "Archiving…"
-        : "Confirm archive — crew links stop working now and won’t come back until you re-publish and issue a new link."}
+        : "Confirm archive: crew links stop working now and won’t come back until you re-publish and issue a new link."}
     </button>
   );
 }

@@ -20,6 +20,7 @@ export type PerFileProcessorResult =
   | {
       outcome: "proceed";
       mode: ResolvedSyncMode;
+      driftResync?: true;
     };
 
 export class SyncInfraError extends Error {
@@ -270,6 +271,7 @@ export async function perFileProcessor(
   driveFileId: string,
   mode: SyncMode,
   fileMeta: DriveListedFile,
+  opts: { roleVocabDriftEligible?: boolean } = {},
 ): Promise<PerFileProcessorResult> {
   if (!isAutomaticMode(mode)) {
     return { outcome: "proceed", mode };
@@ -333,6 +335,12 @@ export async function perFileProcessor(
   }
 
   if (isAtOrBefore(fileMeta.modifiedTime, effectiveWatermark)) {
+    // Role-vocab drift rescue (spec 2026-07-16-role-vocab-mapping-convergence §3.3): cron-only,
+    // and never past a live pending review — a live pending_syncs gate row keeps its watermark
+    // hold (R1 F1) so cron cannot mutate state out from under a staged parse awaiting review.
+    if (mode === "cron" && opts.roleVocabDriftEligible === true && pendingSync == null) {
+      return { outcome: "proceed", mode: "cron", driftResync: true };
+    }
     return {
       outcome: "skip",
       reason: mode === "push" ? "WEBHOOK_NOOP_ALREADY_SYNCED" : "watermark",
