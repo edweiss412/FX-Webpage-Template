@@ -276,7 +276,7 @@ Every documented `data-testid` inside these parents gets a `getBoundingClientRec
 
 ## 9. Transition inventory
 
-Page-shell states: rail-active-section (A), strip-pinned (B, boolean — always true, no transition), section warning-disclosure open/closed (C), modal-shell-over-page open/closed (D), publish-toggle pending (E).
+Page-shell states: rail-active-section (A), strip-pinned (B, boolean — always true, no transition), section warning-disclosure open/closed (C), modal-shell-over-page open/closed (D), publish-toggle pending (E), Overview/Changes rail-item hover (F), Overview/Changes chip-item hover (G).
 
 | Pair | Treatment |
 | --- | --- |
@@ -284,11 +284,13 @@ Page-shell states: rail-active-section (A), strip-pinned (B, boolean — always 
 | C open↔closed | existing disclosure treatment of the reused components — unchanged |
 | D open↔closed | modal shell's existing entrance/exit animation hooks (`[data-step3-review-scrim]`/`[data-step3-review-panel]` in `app/globals.css`) — unchanged |
 | E idle↔pending↔settled | existing `PublishedToggle` treatment — unchanged |
+| F rest↔hover (Overview/Changes **side-rail** item) | fast colour affordance — `transition-colors duration-fast`, identical to every registry rail item (§5 hover parity); a background colour-fade on hover, NOT a state-swap animation. The active-section highlight itself is instant (row A). |
+| G rest↔hover (Overview/Changes **chip-rail** item) | fast colour affordance — `transition-colors duration-fast`, identical to every registry chip item (§5 hover parity); background colour-fade on hover, not a state-swap animation. |
 | Compound: scroll (A changes) while D open | body scroll lock (modal chrome) prevents it — assert lock still applies when modal opens over page |
 | Compound: E pending while D open | freeze contract — modal's `isPublishRunActive` prop already governs (`Step3ReviewModal.tsx:180`); page strip toggle disabled while a publish run is active, same signal |
 | Compound: C mid-toggle while A changes (user clicks rail during disclosure animation) | no coupling — disclosure state is per-section-local; no animation coordination needed (instant rail swap) |
 
-No new animations introduced by this feature; every visual transition is inherited from a relocated component or explicitly instant.
+The only transition classes this feature introduces are the F/G rail/chip **hover** colour-fades — a hover affordance carried for parity with the existing registry rail/chip items (they add +2 to the §7.4 modal+surface `transition-colors` count, taking it 9→11). Every state-pair transition (A–E) is instant or inherited from a relocated component; no new state-swap animation is introduced.
 
 ## 10. Navigation & URL
 
