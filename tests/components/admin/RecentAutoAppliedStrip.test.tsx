@@ -648,6 +648,37 @@ it("headingLevel=2 infra_error branch renders an h2 (not a hardcoded h4)", () =>
   expect(screen.queryByRole("heading", { level: 4 })).toBeNull();
 });
 
+// ── MOBILEPARITY-1: strip heading reads as a section head ─────────────────────
+// The heading sized text-sm (14px) matched the group-card show-names beneath it,
+// so it didn't read as a section head. Bump to text-base (16px) — identical class
+// at BOTH mount levels (spec §D3: same visual classes across dashboard h4 + page
+// h2). 16px stays below both parents (page h1 24px, dashboard section h3 18px), so
+// no hierarchy inversion. Weight stays font-semibold (app heading-weight convention).
+it("MOBILEPARITY-1: strip heading is text-base (not text-sm), identical class at both mounts (§D3)", () => {
+  const { unmount } = render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const h4 = screen.getByRole("heading", { level: 4, name: "Recently auto-applied" });
+  expect(h4).toHaveClass("text-base");
+  expect(h4).not.toHaveClass("text-sm");
+  const h4Class = h4.className;
+  unmount();
+
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} headingLevel={2} />);
+  const h2 = screen.getByRole("heading", { level: 2, name: "Recently auto-applied" });
+  expect(h2).toHaveClass("text-base");
+  expect(h2).not.toHaveClass("text-sm");
+  // §D3: identical visual classes across the two mount contexts.
+  expect(h2.className).toBe(h4Class);
+});
+
+it("MOBILEPARITY-1: infra_error heading is also text-base (both branches consistent, §D3)", () => {
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
+  const h4 = screen.getByRole("heading", { level: 4, name: "Recently auto-applied" });
+  expect(h4).toHaveClass("text-base");
+  expect(h4).not.toHaveClass("text-sm");
+});
+
 it("FLOW4-7: populated section is a named region via aria-labelledby, with NO aria-label", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const region = screen.getByRole("region", { name: "Recently auto-applied" });
