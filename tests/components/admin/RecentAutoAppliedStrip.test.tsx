@@ -433,21 +433,31 @@ it("zero failures → no alert", async () => {
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
-it("all-success bulk undo announces completion to screen readers (DESTRUCT-3)", async () => {
-  // The strip self-heals VISUALLY on revalidate (rows drop), but SR users got no
-  // confirmation because the outcome node rendered only on failure. An all-success
-  // run now writes a role="status" so assistive tech hears the undo landed.
+it("all-success bulk undo announces completion via a persistent live region (DESTRUCT-3)", async () => {
+  // The strip self-heals VISUALLY on revalidate (rows drop). SR parity comes from a
+  // PERSISTENT sr-only role="status" whose TEXT SWAPS on completion — conditional
+  // mounting drops the announcement (project a11y rule, mirrors StagedReviewCard).
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
-  await openConfirmAndRunUndoAll();
-  const status = await screen.findByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
-  expect(status).toHaveAttribute("role", "status");
-  // FIN group has a 2-id undoable set (r1, r2) — count derives from the group, not a literal.
-  expect(status.textContent).toContain("Undid all 2 changes.");
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // open confirm
+  // The region is mounted and EMPTY before completion, so the later text change — not a
+  // node insertion — is what a screen reader announces.
+  const region = within(fin).getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(region).toHaveAttribute("role", "status");
+  expect(region.textContent).toBe("");
+  await act(async () => {
+    fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`));
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+  // SAME node, text swapped in — count derives from the group's 2-id set, not a literal.
+  expect(region.textContent).toContain("Undid all 2 changes.");
   // The failure alert never renders on an all-success run.
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
-it("success status does NOT render on a partial failure (failure alert owns that branch)", async () => {
+it("the persistent status region stays empty on a partial failure (failure alert owns that branch)", async () => {
   const actions = noopActions();
   actions.undoFromDashboardAction = vi
     .fn()
@@ -456,16 +466,18 @@ it("success status does NOT render on a partial failure (failure alert owns that
   render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
   await openConfirmAndRunUndoAll();
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toBeNull();
+  // Region is present (persistent) but blank — no false "Undid all" on a partial failure.
+  expect(screen.getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`).textContent).toBe("");
 });
 
-it("reopening the confirm clears a visible success status (open-clears lifecycle)", async () => {
+it("reopening the confirm blanks the success announcement (open-clears lifecycle)", async () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
   await openConfirmAndRunUndoAll();
-  await screen.findByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
   const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  const region = within(fin).getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(region.textContent).toContain("Undid all"); // populated after the run
   fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`)); // reopen
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`)).toBeNull();
+  expect(region.textContent).toBe(""); // open-clears blanks it — no stale re-announcement
 });
 
 it("reopening the confirm clears a visible alert (open-clears lifecycle)", async () => {

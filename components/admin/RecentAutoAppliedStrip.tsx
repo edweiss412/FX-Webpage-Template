@@ -405,18 +405,20 @@ function GroupSection({
             </p>
           ) : null}
 
-          {/* All-success run: sr-only status (DESTRUCT-3). Sighted users see the rows
-              self-heal on revalidate; this gives assistive tech the same confirmation. */}
-          {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0 ? (
-            <p
-              role="status"
-              data-testid={`auto-applied-bulk-undo-status-${group.showId}`}
-              className="sr-only"
-            >
-              Undid all {bulkUndoOutcome.total} {bulkUndoOutcome.total === 1 ? "change" : "changes"}
-              .
-            </p>
-          ) : null}
+          {/* Persistent sr-only live region for the all-success announcement (DESTRUCT-3).
+              Always mounted while the panel is open so the TEXT SWAP — not a node
+              insertion — is what a screen reader announces; conditional mounting drops
+              the announcement (project a11y rule, mirrors StagedReviewCard). Sighted
+              users see the rows self-heal on revalidate; this is the SR equivalent. */}
+          <p
+            role="status"
+            data-testid={`auto-applied-bulk-undo-status-${group.showId}`}
+            className="sr-only"
+          >
+            {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0
+              ? `Undid all ${bulkUndoOutcome.total} ${bulkUndoOutcome.total === 1 ? "change" : "changes"}.`
+              : ""}
+          </p>
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">
             {group.rows.map((row) => (
