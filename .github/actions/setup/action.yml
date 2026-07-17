@@ -1,0 +1,27 @@
+# Shared host-preamble composite (DEFERRED.md D12).
+#
+# DRYs the checkout→pnpm→node→install block every workflow job repeated
+# verbatim (~20 jobs across 8 workflows). Anti-drift: the pnpm/node versions
+# and install flags now live in ONE place, so they can never diverge between
+# workflows again. 0s direct speedup — pure de-duplication plumbing.
+#
+# checkout is NOT part of this composite: a local (`./`) composite action can
+# only be referenced AFTER the repo is checked out, so each job still runs
+# `- uses: actions/checkout@v4` before `- uses: ./.github/actions/setup`.
+#
+# The pnpm version is NOT pinned here — pnpm/action-setup@v4 reads it from the
+# `packageManager: "pnpm@10.33.2"` field in package.json (the single version
+# source D12 calls for). setup-node's `cache: pnpm` needs pnpm on PATH first,
+# so pnpm/action-setup runs before it.
+name: Setup Node + pnpm
+description: Checkout-independent host preamble — install pnpm (version from package.json packageManager), Node 20, and project deps.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

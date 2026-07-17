@@ -69,14 +69,7 @@ jobs:
       CREW_E2E_ONLY: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - uses: supabase/setup-cli@v1
         with:
           # Pinned (NOT `latest`): `latest` resolves the newest release via the GitHub
