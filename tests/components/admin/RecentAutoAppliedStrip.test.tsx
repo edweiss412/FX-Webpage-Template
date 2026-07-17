@@ -583,6 +583,25 @@ it("failure alert then a later all-success run: failure alert gone, sr-only succ
   expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeInTheDocument();
 });
 
+// ── Transition-audit: compound collapse-while-confirm-open ─────────────────
+it("collapsing a group while its confirm panel is open keeps the confirm mounted (inert), state persists", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  // open the Undo-all confirm
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+  // collapse the group (toggle) while the confirm is open
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  // confirm markup persists (always-mounted morph, state preserved) but the
+  // region is inert — no second animation fires on the confirm sub-panel
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).toHaveAttribute("inert");
+  // re-expand: confirm still open (state persisted)
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`));
+  expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).not.toHaveAttribute("inert");
+  expect(within(fin).getByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeInTheDocument();
+});
+
 // ── DESTRUCT-3: sr-only status on all-success bulk undo ────────────────────
 it("all-success bulk undo announces an sr-only status; no failure alert", async () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);

@@ -32,3 +32,18 @@ it("closed: children still mounted, region is inert; track is 0fr", () => {
   // always-mounted: child present even when closed
   expect(screen.getByTestId("child2")).toBeInTheDocument();
 });
+
+// Transition-audit: the morph is animated (grid-template-rows over --duration-normal)
+// with a reduced-motion escape — NOT an instant mount/unmount.
+it("outer track animates grid-template-rows with a reduced-motion fallback", () => {
+  render(
+    <CollapsePanel open id="p3" label="Panel three">
+      <div>body</div>
+    </CollapsePanel>,
+  );
+  const track = screen.getByTestId("p3").parentElement;
+  const cls = track?.className ?? "";
+  expect(cls).toContain("transition-[grid-template-rows]");
+  expect(cls).toContain("duration-normal");
+  expect(cls).toContain("motion-reduce:transition-none");
+});
