@@ -69,6 +69,12 @@ export type PublishedSectionData = SectionCore & {
   slug: string;
   archived: boolean;
   published: boolean;
+  // §5.5 Preview-As roster: the `crew_members` DB ids (with display name), index-aligned
+  // with `crewMembers` — both derive from the adapter's single crew display sort, so
+  // `previewRoster[i]` is the persisted id of `crewMembers[i]`. `CrewMemberRow` is a pure
+  // parser type with no id; this carries the id the crew-scoped Preview-As link needs
+  // without polluting that shape. Absent in staged mode (exactOptionalPropertyTypes).
+  previewRoster?: { id: string; name: string }[];
 };
 
 export type SectionData = StagedSectionData | PublishedSectionData;

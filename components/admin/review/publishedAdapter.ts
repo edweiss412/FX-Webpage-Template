@@ -47,6 +47,11 @@ export function buildPublishedSectionData(
 
   const financials = asRecord(internal?.financials);
 
+  // ONE crew display sort feeds both the rendered `crewMembers` and the id-bearing
+  // `previewRoster` (§5.5), so `previewRoster[i]` is guaranteed to be the persisted id of
+  // `crewMembers[i]` by construction — no positional drift between the two arrays.
+  const sortedCrew = sortCrew(snapshot.crew_members);
+
   return {
     mode: "published",
     showId,
@@ -68,7 +73,8 @@ export function buildPublishedSectionData(
     transportation: pickTransportation(snapshot.transportation),
     rooms: sortRooms(snapshot.rooms).map(toRoomRow),
     diagrams: (show.diagrams as ParseResult["diagrams"] | null) ?? null,
-    crewMembers: sortCrew(snapshot.crew_members).map(toCrewRow),
+    crewMembers: sortedCrew.map(toCrewRow),
+    previewRoster: sortedCrew.map((r) => ({ id: str(r.id) ?? "", name: str(r.name) ?? "" })),
     pullSheet: (show.pull_sheet as PullSheetCase[] | null) ?? [],
     // Archived pull-sheet tabs are a staged-time accept/skip decision; published
     // rows carry the final pull sheet only (spec §3.2).

@@ -87,7 +87,8 @@ import {
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
 import { useRouter } from "next/navigation";
-import { isStaged } from "@/components/admin/review/sectionData";
+import Link from "next/link";
+import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
@@ -1247,9 +1248,14 @@ export function OpsBreakdown({
 export function CrewBreakdown({
   dfid,
   members,
+  previewAs,
 }: {
   dfid: string | null;
   members: CrewMemberRow[];
+  /** §5.5 (published mode): the crew-scoped Preview-As affordance. `enabled` folds the
+   *  published && !archived gate; `crewIds` is index-aligned with `members` (adapter's single
+   *  crew sort). Absent in staged mode → no link, byte-identical to the pre-Phase-2 modal. */
+  previewAs?: { slug: string; enabled: boolean; crewIds: readonly string[] };
 }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
@@ -1267,6 +1273,9 @@ export function CrewBreakdown({
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
+            // §5.5: crew-scoped Preview-As link, only when published && !archived AND this row
+            // has a persisted crew id (index-aligned with `members`).
+            const previewCrewId = previewAs?.enabled ? (previewAs.crewIds[i] ?? "") : "";
             return (
               <Fragment key={`${m.name}-${i}`}>
                 <li className="flex items-center gap-3 py-1">
@@ -1310,6 +1319,15 @@ export function CrewBreakdown({
                       </a>
                     ) : null}
                   </span>
+                  {previewCrewId ? (
+                    <Link
+                      data-testid={`admin-show-preview-as-link-${previewCrewId}`}
+                      href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
+                      className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                    >
+                      Preview as<span className="sr-only"> {name}</span>
+                    </Link>
+                  ) : null}
                 </li>
               </Fragment>
             );
@@ -3650,7 +3668,22 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      render: (s) => <CrewBreakdown dfid={s.driveFileId} members={s.crewMembers} />,
+      // Mode fork (spec §5.5): published rows gain the crew-scoped Preview-As link (gated on
+      // published && !archived); staged renders byte-identically (no previewAs prop).
+      render: (s) =>
+        isPublished(s) ? (
+          <CrewBreakdown
+            dfid={s.driveFileId}
+            members={s.crewMembers}
+            previewAs={{
+              slug: s.slug,
+              enabled: s.published && !s.archived,
+              crewIds: (s.previewRoster ?? []).map((r) => r.id),
+            }}
+          />
+        ) : (
+          <CrewBreakdown dfid={s.driveFileId} members={s.crewMembers} />
+        ),
     },
     {
       id: "contacts",
