@@ -34,7 +34,7 @@
 - `lib/admin/showDisplay.ts` — MODIFY: add required `lastCheckedAt: string | null` to `ActiveShowRow` (after `lastSyncStatus`, `:29`).
 - `components/admin/Dashboard.tsx` — MODIFY: add `last_checked_at` to shows SELECT (`:203`) + map to `lastCheckedAt` (`:511`).
 - `components/admin/ShowsTable.tsx` — MODIFY: rebuild `SyncCell` (`:223-228`) as two-line bucket-aware.
-- Tests: `tests/admin/syncStatus.test.ts` (extend), `tests/components/admin/ShowsTable.test.tsx` (extend + fix `:72-81`), and factory updates in `tests/components/admin/showsTableTransitionAudit.test.tsx`, `tests/components/admin/dataGapsTransitionAudit.test.tsx`, `tests/components/admin/Dashboard-archived.test.tsx`.
+- Tests: `tests/admin/syncStatus.test.ts` (extend), `tests/components/admin/ShowsTable.test.tsx` (extend + fix `:72-82`), and factory updates in `tests/components/admin/showsTableTransitionAudit.test.tsx`, `tests/components/admin/dataGapsTransitionAudit.test.tsx`, `tests/components/admin/Dashboard-archived.test.tsx`.
 
 ---
 
@@ -271,7 +271,7 @@ git commit --no-verify -m "feat(admin): load last_checked_at onto ActiveShowRow"
 
 **Files:**
 - Modify: `components/admin/ShowsTable.tsx` (`SyncCell`, `:223-228`; add `showsEditedClause` import)
-- Test: `tests/components/admin/ShowsTable.test.tsx` (extend; replace the `:72-81` ok assertion + extend `:57-69`)
+- Test: `tests/components/admin/ShowsTable.test.tsx` (extend; replace the `:72-82` ok assertion + extend `:57-70`)
 
 **Interfaces:**
 - Consumes: `ActiveShowRow.lastCheckedAt` (Task 2), `showsEditedClause` (Task 1), existing `syncStatusBucket`, `formatRelative`, `StatusIndicator`.
@@ -279,7 +279,7 @@ git commit --no-verify -m "feat(admin): load last_checked_at onto ActiveShowRow"
 
 - [ ] **Step 1: Write the failing tests**
 
-In `tests/components/admin/ShowsTable.test.tsx`, add `within` to the `@testing-library/react` import if absent. Replace the existing ok test (`:72-81`) and add the new cases. Query line 2 via the desktop wrapper. Helper:
+In `tests/components/admin/ShowsTable.test.tsx`, add `within` to the `@testing-library/react` import if absent. Replace the existing ok test (`:72-82`) and add the new cases. Query line 2 via the desktop wrapper. Helper:
 
 ```tsx
 // desktop line-2 node for a slug, or null when suppressed
@@ -288,7 +288,7 @@ function line2(slug: string) {
 }
 ```
 
-Test A — **ok: line 1 bare "Synced", line 2 two-clause, distinct fields** (replaces `:72-81`):
+Test A — **ok: line 1 bare "Synced", line 2 two-clause, distinct fields** (replaces `:72-82`):
 
 ```tsx
 it("ok: line 1 is bare 'Synced'; line 2 shows Edited·Checked from distinct fields", () => {
@@ -466,7 +466,7 @@ it("SyncCell source declares no framer-motion / exit / initial / animate", () =>
 });
 ```
 
-Also update the existing drive_error test (`:57-69`) so its `row(...)` includes a `lastCheckedAt` and it still asserts line 1 `Couldn't reach Drive` + `not.toMatch(/Synced|Live/)` (now also assert line 2 present + Checked-only, or leave Test B to own that — keep `:57-69` focused on line 1).
+Also update the existing drive_error test (`:57-70`) so its `row(...)` includes a `lastCheckedAt` and it still asserts line 1 `Couldn't reach Drive` + `not.toMatch(/Synced|Live/)` (now also assert line 2 present + Checked-only, or leave Test B to own that — keep `:57-70` focused on line 1).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
