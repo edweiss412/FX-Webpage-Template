@@ -185,18 +185,21 @@ function scanReturning(outcome: OutcomeKind): typeof ScanFn {
       case "not_staged":
         return {
           outcome: "completed",
-          processed: [{ driveFileId: DRIVE, outcome: "skipped_non_sheet" }],
+          processed: [{ driveFileId: DRIVE, name: "rebuild-test-sheet", outcome: "skipped_non_sheet" }],
         };
       case "hard_failed":
         return {
           outcome: "completed",
-          processed: [{ driveFileId: DRIVE, outcome: "hard_failed" }],
+          processed: [{ driveFileId: DRIVE, name: "rebuild-test-sheet", outcome: "hard_failed" }],
         };
       default:
         // The three staged outcomes: the mocked scan reports 'staged' WITHOUT touching the
         // DB — the REAL prior + readback both come from a pre-seeded pending_syncs row
         // (capturePriorState checks pending_syncs BEFORE the shadow).
-        return { outcome: "completed", processed: [{ driveFileId: DRIVE, outcome: "staged" }] };
+        return {
+          outcome: "completed",
+          processed: [{ driveFileId: DRIVE, name: "rebuild-test-sheet", outcome: "staged" }],
+        };
     }
   };
   return fn as unknown as typeof ScanFn;
