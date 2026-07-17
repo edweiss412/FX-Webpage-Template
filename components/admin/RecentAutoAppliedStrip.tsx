@@ -446,7 +446,7 @@ export function RecentAutoAppliedStrip({
         className="flex flex-col gap-2"
         aria-labelledby={headingId}
       >
-        <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+        <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
           Recently auto-applied
         </SectionHeading>
         <p
@@ -469,7 +469,7 @@ export function RecentAutoAppliedStrip({
       className="flex flex-col gap-2"
       aria-labelledby={headingId}
     >
-      <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+      <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
         Recently auto-applied
       </SectionHeading>
       <ul className="flex flex-col gap-2">

@@ -52,6 +52,7 @@ export default async function NeedsAttentionPage() {
     <div data-testid="admin-needs-attention-page" className="flex w-full flex-col gap-section-gap">
       <AdminPageHeader
         title="Needs attention"
+        titleId="needs-attention-inbox-heading"
         sub="Everything waiting on you, across all shows."
         titleAppendSlot={
           <HoverHelp
@@ -67,7 +68,14 @@ export default async function NeedsAttentionPage() {
           </HoverHelp>
         }
       />
-      <section aria-label="Needs attention" className="flex w-full max-w-3xl flex-col gap-3">
+      {/* MOBILEPARITY-2: the inbox IS the page's primary content, so the region is
+          named BY the page <h1> (via aria-labelledby) rather than a duplicate
+          aria-label string — a heading-nav SR user reaches the inbox heading (the
+          h1) before the strip's secondary h2. */}
+      <section
+        aria-labelledby="needs-attention-inbox-heading"
+        className="flex w-full max-w-3xl flex-col gap-3"
+      >
         {"kind" in result ? (
           <p
             data-testid="needs-attention-page-degraded"
