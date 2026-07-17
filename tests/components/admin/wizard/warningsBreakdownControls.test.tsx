@@ -406,3 +406,13 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
     expect(within(box).queryByTestId("use-raw-control-list")).toBeNull();
   });
 });
+
+describe("non-blocking copy requalification (spec 2026-07-17 §9)", () => {
+  test("headline drops 'informational', keeps 'don't block publishing', names the optional fix", () => {
+    const q = renderBreakdown([roleWarning("SLED DRIVER")], { decisions: [] });
+    const line = q.getByTestId(`wizard-step3-card-${DFID}-warnings-nonblocking`);
+    expect(line.textContent!).toMatch(/don.t block publishing/i);
+    expect(line.textContent!).not.toMatch(/informational/i);
+    expect(line.textContent!).toMatch(/optional fix/i);
+  });
+});
