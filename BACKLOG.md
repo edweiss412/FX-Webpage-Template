@@ -496,9 +496,9 @@ The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolvi
 
 ### BL-DESTRUCT-ARMED-REFLOW — verify/fix armed morph label reflow under the finger at 360px
 
-**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** medium · **Class:** UI MOBILE ERGONOMICS
+**Status:** RESOLVED (2026-07-17, branch `fix/destruct1-armed-reflow`) · **Severity:** medium · **Class:** UI MOBILE ERGONOMICS
 
-The four two-tap guards (BulkIgnoreControls, PendingPanelDiscardButtons, RescanSheetButton, StagedReviewCard) swap in a longer armed label (`whitespace-normal`, `max-w-full`), so the confirm hit-target can grow/wrap between tap 1 and tap 2 while a phone user's finger is already traveling. Needs a real-browser 360-390px reflow measurement and, if it wraps, a design decision (reserve max size vs fixed-height armed state). DEFERRED.md DESTRUCT-1. Trigger to promote: next admin mobile pass or a venue-floor mis-tap report.
+The three two-tap guards (BulkIgnoreControls, PendingPanelDiscardButtons, StagedReviewCard) swap in a longer armed label, so the confirm hit-target can grow/wrap between tap 1 and tap 2 while a phone user's finger is already traveling. (`RescanSheetButton`'s G3 arm guard was withdrawn in PR #411 — it no longer arms — so the surface is three, not the four this row originally listed.) **Resolved:** real-browser measurement at 360px found only `PendingPanelDiscardButtons` relocates the target (armed label wraps to a new flex row); fixed by stacking its two discard buttons full-width `< sm` (`basis-full sm:basis-auto`) so the ignore box is stable across the morph. `BulkIgnoreControls` (right-edge pinned) + `StagedReviewCard` (left-edge pinned) measured benign, no change. Real-browser layout spec with negative control: `tests/e2e/pendingDiscardReflow.layout.spec.ts`. DEFERRED.md DESTRUCT-1. Spec `docs/superpowers/specs/2026-07-17-destruct1-armed-reflow.md`.
 
 ### BL-DESTRUCT-CONFIRM-COPY-HARMONIZE — harmonize confirm-label grammar + auto-revert timing across destructive surfaces
 
