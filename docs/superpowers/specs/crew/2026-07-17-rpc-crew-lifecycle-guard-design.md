@@ -71,7 +71,7 @@ Placement note (verified at implementation): `undo_change` already reads `drive_
 
 ## 4. Whole-class audit (backlog part b)
 
-Universe = every `public` `SECURITY DEFINER` function whose live body mutates `crew_members`, `crew_member_auth`, `show_share_tokens`, or `shows.picker_epoch` (enumerated from `pg_catalog`, not source grep — `create or replace` means later migrations win). Guard tokens: **A** = archived refusal, **P** = published refusal, **F** = finalize-owned refusal.
+Universe = every `public` `SECURITY DEFINER` function that mutates `crew_members`, `crew_member_auth`, `show_share_tokens`, or `shows.picker_epoch` **directly OR by delegating to a private helper that does** (the delegating-wrapper arm — §5 Step B(b)), enumerated from `pg_catalog`, not source grep (`create or replace` + later `drop function` means later migrations win). Guard tokens: **A** = archived refusal, **P** = published refusal, **F** = finalize-owned refusal.
 
 Grant surface (live `has_function_privilege`, `authed|anon|svc`) drives which §5 bucket each lands in.
 
@@ -82,6 +82,10 @@ Grant surface (live `has_function_privilege`, `authed|anon|svc`) drives which §
 | `reset_crew_member_selection` | crew | `t\|f\|f` | GUARDED | none → **A P F**, **ADD guard** (§3.1) |
 | `undo_change` | crew | `t\|f\|f` | GUARDED | none → **A · F**, **ADD guard** (§3.2, no P) |
 | `mi11_approve_hold` | crew | `t\|f\|f` | EXEMPT (entry) | authenticated; pre-publish onboarding hold-approval; operates in the held/pre-publish window by design |
+| `archive_show` | (via `_archive_show_core`) | `t\|f\|f` | EXEMPT (entry) | lifecycle-transition wrapper; delegates mutation to its core; carries its own B2 guards |
+| `unarchive_show` | (via `_unarchive_show_apply`) | `t\|f\|f` | EXEMPT (entry) | lifecycle-transition wrapper; delegates to `_unarchive_show_apply`; own B2 guards |
+| `publish_show` | (via `_publish_show_core`) | `t\|f\|f` | EXEMPT (entry) | lifecycle-transition wrapper; delegates to its core; own B2 guards |
+| `unpublish_show` | (via `_unpublish_show_core`) | `t\|f\|f` | EXEMPT (entry) | lifecycle-transition wrapper; delegates to its core; own B2 guards |
 | `claim_oauth_identity` | crew, epoch | `f\|f\|t` | EXEMPT (entry) | **service-role**; live crew redemption; keyed on the caller's own email; must run whenever the link is live |
 | `mint_validation_fixture_atomic` | crew, share | `f\|f\|t` | EXEMPT (entry) | **service-role**; validation/test fixture seeding; not a production admin surface |
 | `validation_finalize_all_atomic` | crew | `f\|f\|t` | EXEMPT (entry) | **service-role**; validation/test fixture seeding; not a production admin surface |
@@ -101,7 +105,7 @@ Each row's disposition feeds the matching §5 registry (GUARDED / EXEMPT-entry /
 New `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (psql against `TEST_DATABASE_URL ?? DATABASE_URL ?? local`, mirroring `tests/db/b2-lifecycle-rpc-meta.test.ts:5-15`). Table set for all SQL below = `{crew_members, crew_member_auth, show_share_tokens}` plus the `shows.picker_epoch` column. Two predicates used throughout, both computed from the **live catalog** (Codex R2 F1 — grant surface, not "authenticated-only", is the discriminator):
 
 - `DIRECT_MUTATOR(f)` — `pg_get_functiondef(f)` references a table in the set (or `picker_epoch`) AND contains an `insert`/`update`/`delete` keyword.
-- `CLIENT_REACHABLE(f)` — `has_function_privilege(role, f, 'EXECUTE')` is true for **any** of `{authenticated, anon, service_role}`. (PUBLIC-only grants also count as reachable.) This is the fix for R2 F1: `claim_oauth_identity`, `mint_validation_fixture_atomic`, `validation_finalize_all_atomic` are `service_role`-granted (not `authenticated`) — verified live `f|t|f` — so an "authenticated-only" test would wrongly bucket them as private helpers.
+- `CLIENT_REACHABLE(f)` — `has_function_privilege(role, f, 'EXECUTE')` is true for **any** of `{authenticated, anon, service_role}`. (PUBLIC-only grants also count as reachable.) This is the fix for R2 F1: `claim_oauth_identity`, `mint_validation_fixture_atomic`, `validation_finalize_all_atomic` are `service_role`-granted (not `authenticated`) — verified live `f|f|t` (order authenticated|anon|service_role) — so an "authenticated-only" test would wrongly bucket them as private helpers.
 - `IS_TRIGGER(f)` — `f.prorettype = 'pg_catalog.trigger'::regtype`. Trigger functions can't be invoked as RPCs even when EXECUTE is granted to PUBLIC (`create_share_token_for_show` is `t|t|t` but is a trigger).
 
 **Step A — private mutating-helper registry (closes the delegation blind spot, R1 F4).** A wrapper can mutate crew/share tables *without inline DML* by delegating to a helper (e.g. `unarchive_show` → `_unarchive_show_apply` at `...20260718000001...:40-50`; `undo_change` → `_undo_tombstone`). Enumerate **helpers**: every function (definer OR invoker) where `DIRECT_MUTATOR(f)` AND NOT `CLIENT_REACHABLE(f)` AND NOT `IS_TRIGGER(f)` — i.e. reachable by no client role, so only via a definer call chain. Assert each enumerated helper is in the in-test `PRIVATE_HELPERS` registry `{name → reason}` (`_archive_show_core`, `_publish_show_core`, `_unpublish_show_core`, `_unarchive_show_apply`, `_undo_tombstone`; all verified `f|f|f`). **Fails-by-default:** a NEW private mutating helper forces a registry row — the prompt to check its callers. `HELPER_NAMES` = the registry's key set, used by Step B.
@@ -112,7 +116,11 @@ New `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (psql against `TEST_DATABAS
 
 **Step C — classify entry points.** Each Step-B function must be in exactly one registry:
 - `GUARDED` — `{rotate_show_share_token, reset_picker_epoch_atomic, reset_crew_member_selection}` (assert body carries `SHOW_ARCHIVED_IMMUTABLE` AND `readfinalizeowned_b2` AND `SHOW_NOT_PUBLISHED`) and `{undo_change}` (assert body carries `UNDO_SHOW_ARCHIVED` AND `UNDO_FINALIZE_OWNED`). Guard tokens asserted against `pg_get_functiondef`, so an accidental guard removal fails. (All four are `authenticated`-granted, `t|f|f`.)
-- `EXEMPT` — the client-reachable, non-guarded entry points, each `{name → reason}`: `claim_oauth_identity` (service-role; live crew redemption), `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (service-role; validation/test fixture infra), `mi11_approve_hold` (authenticated; pre-publish onboarding hold-approval).
+- `EXEMPT` — the client-reachable, non-guarded entry points, each `{name → reason}`:
+  - `claim_oauth_identity` (service-role; live crew redemption — must run whenever the link is live).
+  - `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (service-role; validation/test fixture infra).
+  - `mi11_approve_hold` (authenticated; pre-publish onboarding hold-approval — operates in the held window).
+  - **`archive_show`, `unarchive_show`, `publish_show`, `unpublish_show`** (authenticated `t|f|f`; **lifecycle-transition wrappers** — they enter Step B via arm (b) because they delegate their crew/share mutation to the private cores `_archive_show_core`/`_unarchive_show_apply`/`_publish_show_core`/`_unpublish_show_core`. A lifecycle guard is inapplicable: each **is** the transition and already carries its own B2 lifecycle refusals — pinned by `b2-lifecycle-rpc-meta.test.ts`, `archive_show_rpc.test.ts`, `publish_show_rpc.test.ts`, `unpublish_show_rpc.test.ts`, `unarchive_show_rpc.test.ts`. Confirmed live: these four are the ONLY authenticated definers besides `undo_change` that call a `HELPER_NAMES` member.)
 
 **Step D — parity, per registry against its own live set.** `GUARDED ∪ EXEMPT` == Step-B set; `PRIVATE_HELPERS` == Step-A set; `TRIGGER_MUTATORS` == Step-T set. No stale rows, no unclassified function in any bucket. Any mismatch fails with a message telling the author which bucket the offending function belongs in and how to classify (GUARD / EXEMPT / register-helper / register-trigger).
 
