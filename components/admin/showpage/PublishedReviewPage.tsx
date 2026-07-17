@@ -128,6 +128,8 @@ export function PublishedReviewPage(props: PublishedReviewPageProps) {
               className="ml-auto inline-flex shrink-0 items-center rounded-pill bg-warning-bg px-1.5 text-xs font-semibold tabular-nums text-warning-text"
             >
               {alertCount}
+              {/* The count alone reads as a bare number to a screen reader; name the unit. */}
+              <span className="sr-only"> open {alertCount === 1 ? "alert" : "alerts"}</span>
             </span>
           ),
         }

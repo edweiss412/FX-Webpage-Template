@@ -3436,7 +3436,10 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
         className="flex min-h-tap-min items-center justify-between gap-2 text-left text-sm font-semibold text-text-strong"
       >
         <span>{`Content we couldn't read (${view.total})`}</span>
-        <span aria-hidden>{expanded ? "−" : "+"}</span>
+        <ChevronRight
+          aria-hidden
+          className={`size-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
       </button>
       <p className="text-xs text-text-subtle">
         These rows were in your sheet but didn&rsquo;t match anything we know how to read. They

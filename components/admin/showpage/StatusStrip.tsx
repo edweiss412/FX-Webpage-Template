@@ -35,6 +35,7 @@
  * (Dashboard.tsx:483-484) — and passes the result as `isLive`.
  */
 
+import { TriangleAlert } from "lucide-react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
@@ -104,12 +105,14 @@ export function StatusStrip({
       data-testid="show-status-strip"
       className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6"
     >
-      <span
+      {/* The rebuild dropped AdminPageHeader, so the sticky strip title IS the page's
+          top-level heading — an <h1> (not a <span>), or screen readers get no h1 landmark. */}
+      <h1
         data-testid="strip-title"
         className="min-w-0 truncate text-base font-semibold text-text-strong"
       >
         {title ?? slug}
-      </span>
+      </h1>
 
       {archived ? (
         <span
@@ -148,9 +151,13 @@ export function StatusStrip({
         <a
           href="#overview"
           data-testid="strip-alert-badge"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          // The visible pill stays slim (text-xs); before:-inset-y-3 extends the HIT AREA to the
+          // 44px tap-min floor (PRODUCT a11y — no tiny click targets on the venue floor) without
+          // growing the pill, the same idiom the publish switch uses (PublishedToggle.tsx:143-145).
+          // Vertical-only extension keeps it from overlapping the strip's horizontal neighbours.
+          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
-          <span aria-hidden="true">▲</span>
+          <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
           {alertCount} {alertCount === 1 ? "alert" : "alerts"}
         </a>
       ) : null}

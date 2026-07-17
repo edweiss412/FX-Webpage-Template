@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
@@ -115,12 +116,10 @@ export function buildSectionWarningExtras(args: {
               className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
             >
               Ignored ({ignoredWarnings.length}){" "}
-              <span
+              <ChevronRight
                 aria-hidden="true"
-                className="ml-1 inline-block transition-transform group-open:rotate-90"
-              >
-                ▸
-              </span>
+                className="ml-1 inline-block size-4 shrink-0 align-text-bottom transition-transform group-open:rotate-90"
+              />
             </summary>
             <div className="mt-3" data-testid={`section-ignored-list-${id}`}>
               <PerShowActionableWarnings

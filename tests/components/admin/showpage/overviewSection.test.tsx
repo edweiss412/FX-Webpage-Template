@@ -81,6 +81,9 @@ describe("OverviewSection", () => {
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     const openSheet = screen.getByTestId("overview-open-sheet");
     expect(openSheet.getAttribute("href")).toBe(SHEET_HREF);
+    // Standalone block affordance (own row in the sheet/sync cluster), NOT an inline-in-prose
+    // link, so it is subject to the PRODUCT 44px tap-min floor for Doug-on-the-floor.
+    expect(openSheet.className).toContain("min-h-tap-min");
     // Not archived, not unpublished → none of the read-only / paused states.
     expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();

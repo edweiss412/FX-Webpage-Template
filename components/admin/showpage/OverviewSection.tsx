@@ -141,7 +141,9 @@ export function OverviewSection({
             href={openSheetHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex w-fit items-center gap-1 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            // Standalone block affordance on its own row (not inline-in-prose) → meets the 44px
+            // tap-min floor for the venue floor, matching the sibling phone/email/Preview-As links.
+            className="inline-flex min-h-tap-min w-fit items-center gap-1 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
             Open sheet
             <span aria-hidden="true">↗</span>

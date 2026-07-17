@@ -77,6 +77,15 @@ describe("StatusStrip", () => {
     expect(screen.getByTestId("strip-title").textContent).toBe("East Coast Broadcast Summit");
   });
 
+  it("renders the show title as the page's h1 (the consolidated page's top-level heading)", () => {
+    // The rebuild dropped AdminPageHeader; the sticky strip title IS the page heading, so it
+    // must be an <h1> — a page with no h1 loses its top-level landmark for screen readers.
+    renderStrip();
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("East Coast Broadcast Summit");
+    expect(heading.getAttribute("data-testid")).toBe("strip-title");
+  });
+
   it("falls back to the slug when title is null", () => {
     renderStrip({ title: null });
     expect(screen.getByTestId("strip-title").textContent).toBe("east-coast-summit");
@@ -154,6 +163,25 @@ describe("StatusStrip", () => {
       const badge = screen.getByTestId("strip-alert-badge");
       expect(badge.textContent).toMatch(/\b1\b/);
       expect(badge.textContent).not.toMatch(/alerts/i);
+    });
+
+    it("carries a 44px tap-min hit area without inflating the visual pill (PRODUCT a11y floor)", () => {
+      // The visible pill stays small (text-xs), but as an interactive chrome target it MUST
+      // meet 44×44 — extended via the same before:-inset hit-area pattern the publish switch
+      // uses (PublishedToggle.tsx), so the slim strip is unaffected.
+      renderStrip({ alertCount: 3 });
+      const badge = screen.getByTestId("strip-alert-badge");
+      expect(badge.className).toContain("relative");
+      expect(badge.className).toMatch(/before:-inset-y/);
+    });
+
+    it("renders the alert glyph as a committed lucide icon (svg), not a raw unicode glyph", () => {
+      // DESIGN §8: lucide-react is the icon system. The alert badge uses TriangleAlert
+      // (the same warning vocabulary as IgnoredSheetsDisclosure), never a raw '▲'.
+      renderStrip({ alertCount: 3 });
+      const badge = screen.getByTestId("strip-alert-badge");
+      expect(badge.querySelector("svg")).not.toBeNull();
+      expect(badge.textContent).not.toContain("▲");
     });
   });
 
