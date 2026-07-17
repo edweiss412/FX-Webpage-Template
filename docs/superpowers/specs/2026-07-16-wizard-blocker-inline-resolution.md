@@ -137,7 +137,9 @@ type ResolveBlockerResponse =
 
 > **is_admin() over the owner connection (load-bearing).** `unarchive_show`'s body gates on `is_admin()` (`20260602000002_...:25`), which reads `auth.jwt()->'app_metadata'->>'role'` OR `auth_email_canonical()=any(admin_emails)` (`20260514000000_...:135`) — both derive from the GoTrue JWT session context. The route's privileged `postgres.js` connection (`databaseUrl()`) has NO JWT, so `is_admin()` returns **false** → calling `unarchive_show` directly would `raise 'forbidden'`. The route is already admin-gated at the HTTP layer (`requireAdminIdentity`), so it must perform the archived→held transition **as the owner without the `is_admin()` gate** — the established wizard-route pattern (finalize-cas mutates tables via raw owner SQL, never through `authenticated`-gated RPCs).
 
-**Single-source-of-transition rule (no duplication):** the archived→held transition SQL has ONE source. Introduce a lock-free, gate-free internal `public._unarchive_show_apply(p_show_id uuid) returns boolean` (SECURITY DEFINER; the exact transition body of the current `unarchive_show` minus the advisory lock and the `is_admin()` gate: `archived=false, published=false, archived_at=null, requires_resync=true, picker_epoch+1, picker_epoch_bumped_at=clock_timestamp()`; rotate `show_share_tokens`; purge non-wizard `pending_syncs`/`pending_ingestions`/`deferred_ingestions`; returns `true` on a real transition, `false` on the already-non-archived no-op). Refactor `unarchive_show` to `is_admin()` gate + self-lock + `return _unarchive_show_apply(p_show_id)` (behavior-preserving; keeps its grant + boolean contract). Grant `_unarchive_show_apply` to `service_role` only; REVOKE from `anon, authenticated` (it bypasses `is_admin()` — must never be crew-callable; PostgREST DML/EXEC lockdown, pinned by meta-test). The route (owner) may execute it regardless of grant.
+**Single-source-of-transition rule (no duplication):** the archived→held transition SQL has ONE source. Introduce a lock-free, gate-free internal `public._unarchive_show_apply(p_show_id uuid) returns boolean` (SECURITY DEFINER; the exact transition body of the current `unarchive_show` minus the advisory lock and the `is_admin()` gate: `archived=false, published=false, archived_at=null, requires_resync=true, picker_epoch+1, picker_epoch_bumped_at=clock_timestamp()`; rotate `show_share_tokens`; purge non-wizard `pending_syncs`/`pending_ingestions`/`deferred_ingestions`; returns `true` on a real transition, `false` on the already-non-archived no-op). Refactor `unarchive_show` to `is_admin()` gate + self-lock + `return _unarchive_show_apply(p_show_id)` (behavior-preserving; keeps its grant + boolean contract).
+
+**EXECUTE lockdown (Codex R1 F1 — mandatory):** Postgres grants EXECUTE on a NEW function to **`PUBLIC`** by default; revoking only `anon`/`authenticated` leaves the PUBLIC grant intact, so a PostgREST-callable role would still inherit EXECUTE and could invoke the gate-free helper. The migration MUST `revoke all on function public._unarchive_show_apply(uuid) from public, anon, authenticated, service_role;` **then** `grant execute ... to service_role;` — matching the existing `unarchive_show` lockdown idiom (`20260602000002_...:49-50`, which revokes from `public, anon, authenticated, service_role`). The meta-test asserts **no PUBLIC EXECUTE** on `_unarchive_show_apply(uuid)` (not merely no anon/authenticated). The route connects as the DB owner and executes it regardless of grant.
 
 1. `pg_advisory_xact_lock(hashtext('show:' || driveFileId))` (route IS the single lock holder here — no RPC self-lock involved).
 2. Resolve `show.id` from `drive_file_id` → `not_found` when absent.
@@ -145,14 +147,15 @@ type ResolveBlockerResponse =
 4. Either boolean → `{ ok: true, status: "resolved" }`. (The wizard's subsequent finalize re-run is the catch-up sync; the route does NOT run `runManualSyncForShow` — see §3.6.)
 5. Post-commit (outside the lock txn) forensic breadcrumb `logAdminOutcome({ code: "ONBOARDING_BLOCKER_UNARCHIVED", ... , result: transition ? "unarchived" : "noop" })` (invariant 10 admin-surface behavioral proof).
 
-**`action: "rebuild"`** (under the per-show advisory lock — the route IS the sole holder here; `unarchive`'s RPC is not involved):
-1. `pg_advisory_xact_lock(hashtext('show:' || driveFileId))`.
-2. Read + increment the attempt counter (`onboarding_rebuild_attempts`, §3.3) for `(wizardSessionId, driveFileId)` → `attempts`.
-3. If `attempts > CAP` (CAP = 1, i.e. this is the 2nd+ attempt): emit the forensic escalation event (§3.4) with the **prior** corruption reason, return `{ ok:false, status:"escalated", code }`. Do NOT re-scan.
-4. Else: discard the corrupt shadow (`delete from public.shows_pending_changes where wizard_session_id=$1 and drive_file_id=$2`) and re-stage via `rescanWizardSheet(driveFileId, wizardSessionId)` (`lib/onboarding/rescanWizardSheet.ts:106` — fetch + `prepareOnboardingFiles` + `applyRescanDecisionUnderLock`; note `rescanWizardSheet` self-locks the same key — see §3.7 for the nesting resolution).
-5. Map `rescanWizardSheet`'s `RescanResult` → response: success → `{ ok:true, status:"resolved" }`; `needs_attention`/`busy`/`superseded`/etc. → the corresponding typed status.
+**`action: "rebuild"` — non-destructive recovery (Codex R1 F2/F3).** Recovery must NEVER remove the corrupt shadow before a valid replacement source exists. The durable replacement source is the **rescanned `pending_syncs` row**; the corrupt shadow is replaced only by the Phase-B **UPSERT** (`stageExistingShowShadow`, `finalize/route.ts:672` — `on conflict (wizard_session_id, drive_file_id) do update set payload=excluded.payload`), i.e. an atomic overwrite, **never a standalone delete**.
 
-> **§3.7 nesting note (load-bearing):** `rescanWizardSheet` already self-locks `hashtext('show:'||driveFileId)`. The rebuild flow MUST therefore acquire the lock at exactly ONE layer. Resolution: the route does the counter read/increment and the shadow discard **inside `rescanWizardSheet`'s existing locked section via a dependency hook / injected step**, OR performs counter+discard as a separate self-locked txn that commits BEFORE calling `rescanWizardSheet` (two sequential single-holder txns, never nested). The plan MUST pick one and pin it in `tests/auth/advisoryLockRpcDeadlock.test.ts`. Default recommendation: **counter+discard as a distinct self-locked txn, then `rescanWizardSheet` as the second self-locked txn** — simplest, provably non-nested, matches the unarchive→finalize two-txn shape.
+1. Read the current `attempts` for `(wizardSessionId, driveFileId)` from `onboarding_rebuild_attempts` (COALESCE missing → 0).
+2. **Cap check (F3):** if `attempts >= CAP` (CAP = 1) → `{ ok:false, status:"escalated", code }`. Do NOT rescan, do NOT consume. (The escalation event was already emitted by finalize-cas at exhaustion detection — §3.4; a stale client that still shows the button lands here.)
+3. Else re-stage via `rescanWizardSheet(driveFileId, wizardSessionId)` (`lib/onboarding/rescanWizardSheet.ts:106` — fetch + `prepareOnboardingFiles` + `applyRescanDecisionUnderLock`; self-locks the per-show key). This rebuilds the `pending_syncs` staged parse (the durable source). The corrupt shadow is left **untouched** at this point.
+4. **On rescan success only:** increment `attempts` (+1) **inside `rescanWizardSheet`'s locked section via its injected-step dependency hook** — atomic with the successful re-stage, so a rescan that rolls back does not consume an attempt. The corrupt shadow is then overwritten by the auto-retry finalize's Phase-B upsert (§3.5) — the plan MUST verify the auto-retry re-executes Phase B for this sheet (or have the route invoke `stageExistingShowShadow` directly in the same locked flow); test asserts the shadow is regenerated. Return `{ ok:true, status:"resolved" }`.
+5. **On any non-success `RescanResult`** (`needs_attention`/`busy`/`superseded`/`not_found`/`stale_override_refused`/…): the corrupt shadow is retained untouched, **no attempt consumed**, return the corresponding typed status. Recovery is fully reversible.
+
+> **§3.7 nesting note (load-bearing):** `rescanWizardSheet` self-locks `hashtext('show:'||driveFileId)`; the counter increment runs as its **injected step inside that same lock/txn** (single holder — no second lock, no nesting). The route holds NO separate lock for rebuild. There is no destructive delete anywhere in this path. Pinned in `tests/auth/advisoryLockRpcDeadlock.test.ts`.
 
 ### 3.3 Cap persistence — `onboarding_rebuild_attempts`
 
@@ -160,26 +163,32 @@ type ResolveBlockerResponse =
 
 | Field | Storage | Write path | Read path | Effect |
 | --- | --- | --- | --- | --- |
-| `attempts` | new table `public.onboarding_rebuild_attempts (wizard_session_id uuid, drive_file_id text, attempts int not null default 0, updated_at timestamptz not null default now(), primary key (wizard_session_id, drive_file_id))` | `resolve-blocker` route (rebuild action), incremented under the per-show lock | (a) `resolve-blocker` (cap check); (b) `finalize-cas` computes `rebuildExhausted` per corrupt row for the panel | `attempts > 1` ⇒ rebuild button suppressed, escalation shown, forensic event on the transition |
+| `attempts` | new table `public.onboarding_rebuild_attempts (wizard_session_id uuid, drive_file_id text, attempts int not null default 0 check (attempts >= 0), escalation_logged boolean not null default false, updated_at timestamptz not null default now(), primary key (wizard_session_id, drive_file_id))` | `resolve-blocker` route (rebuild action), incremented **only on a successful re-stage**, inside `rescanWizardSheet`'s injected step (per-show lock) | (a) `resolve-blocker` (cap check: `attempts >= CAP` → escalated); (b) `finalize-cas` sets `rebuildExhausted` per corrupt row | `attempts >= 1` (= CAP) ⇒ rebuild button suppressed, escalation shown |
+| `escalation_logged` | same table | `finalize-cas`, set `true` when it emits the forensic event (once) | `finalize-cas` (emit-once idempotency) | prevents duplicate `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` emits across finalize re-runs |
 
 - Modeled on `recovery_drift_cooldowns.retry_count` (`20260501001000_internal_and_admin.sql:447-453`) — composite PK + counter.
-- **PostgREST DML lockdown** (cross-cutting rule): `REVOKE INSERT, UPDATE, DELETE ON public.onboarding_rebuild_attempts FROM anon, authenticated;` — writes flow only through the route's privileged connection. Structural meta-test pins the REVOKE (extends the class-wide lockdown pattern).
+- **Exhausted (F3) is `attempts >= CAP`** (CAP = 1), NOT `> CAP`: after the single allowed rebuild `attempts == 1 == CAP` ⇒ exhausted ⇒ button suppressed on first paint (no wasted second click). The route rejects a rebuild when `attempts >= CAP` before consuming.
+- **PostgREST DML lockdown** (cross-cutting rule): `REVOKE INSERT, UPDATE, DELETE ON public.onboarding_rebuild_attempts FROM public, anon, authenticated;` (include **PUBLIC** — same default-ACL reason as R1 F1) — writes flow only through the route's privileged connection. Structural meta-test pins the REVOKE (extends the class-wide lockdown pattern).
 - **Cleanup:** deleted when the wizard session is purged/rotated (`lib/onboarding/sessionLifecycle.ts` `purgeAndRotateIfStale` path) and on session finalize-complete. Add to whatever cleanup already removes `shows_pending_changes` for a session. `ON DELETE`: not FK-linked to a session row (session id is in `app_settings`), so cleanup is an explicit `delete` in the session-teardown path.
-- **`rebuildExhausted` panel wiring:** `finalize-cas` already builds the `per_row` list; for each corrupt row it left-joins `onboarding_rebuild_attempts` and sets `rebuildExhausted = attempts > 1`. This makes the first paint correct (no wasted click that only re-escalates).
+- **`rebuildExhausted` panel wiring:** `finalize-cas` already builds the `per_row` list; for each corrupt row it left-joins `onboarding_rebuild_attempts` (COALESCE missing → 0) and sets `rebuildExhausted = attempts >= CAP`. First paint is correct (no wasted click).
 
 ### 3.4 Forensic escalation telemetry
 
-On the 2nd corrupt attempt (cap exhausted), a single post-commit emit via `logAdminOutcome` (`lib/log/logAdminOutcome.ts:27`). `code` is a **free-form forensic namespace, explicitly NOT §12.4** (`logAdminOutcome.ts:5-6`: `stripLogEmissionCalls` strips these spans; they never register as §12.4 producers) — so **no new user-facing code, no `gen:spec-codes`/catalog/help-family gates**.
+**Emit site = `finalize-cas` at exhaustion detection** (NOT `resolve-blocker`). Rationale: whether the one allowed rebuild actually *fixed* the shadow is only known when the rebuilt shadow is re-parsed at the next finalize — `resolve-blocker` returns before that. So the emit fires where the still-corrupt row is re-observed: when finalize-cas returns a `STAGED_*_CORRUPT` code for a row whose `attempts >= CAP`. Idempotent via the `escalation_logged` flag — emit once, set the flag in the same locked txn, so finalize re-runs never spam.
+
+`code` is a **free-form forensic namespace, explicitly NOT §12.4** (`logAdminOutcome.ts:5-6`: `stripLogEmissionCalls` strips these spans; they never register as §12.4 producers) — so **no new user-facing code, no `gen:spec-codes`/catalog/help-family gates**.
 
 ```
+// inside finalize-cas, when a corrupt row is re-observed with attempts >= CAP and !escalation_logged:
 logAdminOutcome({
   code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
-  source: "api.admin.onboarding.resolveBlocker",
+  source: "api.admin.onboarding.finalizeCas",
   actorEmail,                 // canonical, hashed by logAdminOutcome
   driveFileId, wizardSessionId, showId,   // showId if resolvable
-  result: priorCode,          // STAGED_REVIEW_ITEMS_CORRUPT | STAGED_PARSE_RESULT_CORRUPT
-  extra: { corruptionReason, attemptCount },
+  result: code,               // STAGED_REVIEW_ITEMS_CORRUPT | STAGED_PARSE_RESULT_CORRUPT
+  extra: { corruptionReason, attemptCount },   // attemptCount === attempts (== CAP)
 });
+// then: update onboarding_rebuild_attempts set escalation_logged = true where (session, drive_file_id)
 ```
 
 - `corruptionReason` is a **low-cardinality enum** derived from the `shadowPayload` refuse branch: `"parse_result_absent" | "parse_result_shape_invalid" | "review_items_invalid" | "reviewer_choice_element_invalid" | "override_snapshot_malformed"` (mapped from `shadowPayload.ts:140/148/160/167/171` and `:178/182/188-192/226/231-240`). **No PII** — `extra{}` only passes the email-redaction net (`logAdminOutcome.ts:16-20`); corruptionReason/attemptCount are safe scalars.
@@ -263,8 +272,8 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 | DDL | new table + composite PK (migration) | existing — no DDL | new internal RPC; refactor `unarchive_show` to delegate (behavior-preserving) | existing column |
 | CHECK / constraint | `attempts >= 0` CHECK | N/A | N/A | N/A |
 | PostgREST DML/EXEC | REVOKE ins/upd/del from anon+authenticated | existing lockdown (verify) | `_unarchive_show_apply`: revoke from anon+authenticated, grant service_role only; `unarchive_show` grant unchanged (authenticated) | existing |
-| RPC read | route cap check + finalize-cas panel join | route reads before discard | — | badge Rule 2 |
-| RPC write | route increment (locked) | route delete (locked) | route (owner) calls `_unarchive_show_apply` under route-held lock; Dashboard calls `unarchive_show` (self-lock+gate→delegate) | finalize writes on failure |
+| RPC read | route cap check + finalize-cas panel join + finalize-cas escalation gate | (read only) | — | badge Rule 2 |
+| RPC write | route increment on rescan-success (injected, locked); finalize-cas sets `escalation_logged` | **overwrite via Phase-B UPSERT only (non-destructive); NO standalone delete** | route (owner) calls `_unarchive_show_apply` under route-held lock; Dashboard calls `unarchive_show` (self-lock+gate→delegate) | finalize writes on failure |
 | Cleanup | session purge/finalize teardown | existing teardown | N/A | existing |
 | Frontend | `rebuildExhausted` prop | (indirect) | Unarchive action | badge |
 | Tests | meta REVOKE + route cap boundary | rebuild integration | unarchive branch + `unarchive_show` behavior-preserved regression + `_unarchive_show_apply` lockdown meta | Rule 2 sweep |
@@ -280,13 +289,14 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 - **5** (no raw error codes in UI): every coded status → `messageFor().dougFacing` + `HelpAffordance`.
 - **8** (impeccable v3 dual-gate): `BlockedRowResolver` + both panels are UI surfaces → `/impeccable critique` AND `/impeccable audit` on the diff before cross-model review; P0/P1 fixed or `DEFERRED.md`.
 - **9** (Supabase call-boundary): the route uses the `postgres.js` privileged connection (not the `{data,error}` client), consistent with `finalize-cas`; any Supabase-client call added registers in the relevant meta-test or carries an inline exemption. `logAdminOutcome`'s own try/catch preserves invariant 9 (telemetry never throws over a committed mutation).
-- **10** (admin mutation instrumentation): `resolve-blocker` is an admin-gated mutating route under `app/api/admin/` → `AUDITABLE_MUTATIONS` registry rows (`tests/log/_auditableMutations.ts`) + executable success-branch proof (`tests/log/adminOutcomeBehavior.test.ts`) for both the `ONBOARDING_BLOCKER_UNARCHIVED` breadcrumb and the `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` escalation. Static discovery meta-test (`_metaMutationSurfaceObservability.test.ts`) fails-by-default on the new route until registered.
+- **10** (admin mutation instrumentation): `resolve-blocker` is an admin-gated mutating route under `app/api/admin/` → `AUDITABLE_MUTATIONS` registry row (`tests/log/_auditableMutations.ts`) + executable success-branch proof (`tests/log/adminOutcomeBehavior.test.ts`) for the `ONBOARDING_BLOCKER_UNARCHIVED` breadcrumb (unarchive success branch). The `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` escalation emits from **`finalize-cas`** (already an instrumented admin route) at exhaustion detection — its success-branch proof asserts the emit fires once when a corrupt row is re-observed with `attempts >= CAP` and flips `escalation_logged`. Static discovery meta-test (`_metaMutationSurfaceObservability.test.ts`) fails-by-default on the new `resolve-blocker` route until registered.
 
 ---
 
 ## 7. Testing strategy (TDD per task)
 
-1. **Route** (`resolve-blocker`): each `action`×`status` branch; guards (superseded / no_active_session / not_found / bad_request / wrong_action); unarchive transition vs idempotent no-op; **cap boundary** (1st rebuild → resolved; 2nd → escalated + forensic emit); `rebuildExhausted` join in finalize-cas.
+1. **Route** (`resolve-blocker`): each `action`×`status` branch; guards (superseded / no_active_session / not_found / bad_request / wrong_action); unarchive transition vs idempotent no-op; **cap boundary** (`attempts<CAP` → rescan+consume; `attempts>=CAP` → escalated, no consume); **non-destructive-failure** (rescan returns busy/needs_attention/superseded → corrupt shadow intact, attempts unincremented); attempt increments only on rescan success; `rebuildExhausted` join in finalize-cas.
+   - **Forensic escalation** (finalize-cas): corrupt row re-observed with `attempts>=CAP` and `!escalation_logged` → single emit + flag set; a finalize re-run does NOT re-emit (idempotency).
 2. **Behavioral instrumentation:** sink-spy proving the success-branch emit fires only after the committed branch (invariant 10), for both codes.
 3. **Component** (`BlockedRowResolver`): per-code render (archived / corrupt / exhausted / freshness→null); two-tap arm→confirm; auto-revert; `onResolved` fires on resolved only (not escalated/error); `disabled` disarms; sr-only announce; no raw code rendered.
 4. **Badge** (WS2): the §4.2.2 matrix additions (§4.3) — pure-function assertions, anti-tautology neighbors.
@@ -311,6 +321,9 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 - **Corrupt is excluded from `RESCANNABLE_CAS_CODES`** and stays so — the resolver handles corrupt via a distinct capped path, NOT by adding corrupt to the freshness rescannable set (`FinalizeButton.tsx:64-67` comment stands).
 - **Lock nesting** — the rebuild's two-txn shape is the resolution to `rescanWizardSheet`'s self-lock; do not "optimize" into a single wrapping lock (would nest → deadlock, M5 R20 class).
 - **Wizard unarchive does NOT call `unarchive_show`** — deliberate. `is_admin()` derives from the GoTrue JWT, absent on the route's owner `postgres.js` connection, so the RPC would `raise 'forbidden'`. The route is HTTP-gated by `requireAdminIdentity` and applies the transition via the lock-free, gate-free internal `_unarchive_show_apply` (single source of the transition SQL; `unarchive_show` refactored to delegate). Do NOT relitigate as "just call the RPC" or "inline-duplicate the SQL" — both were considered and rejected (forbidden / drift). Cite `20260514000000_...:135` (is_admin body) + §3.2.
+- **Rebuild recovery is non-destructive (Codex R1 F2)** — the corrupt shadow is NEVER deleted before a replacement exists; the durable source (rescanned `pending_syncs`) is rebuilt first, then the corrupt shadow is overwritten by the Phase-B UPSERT (`finalize/route.ts:672`). Any non-success rescan retains the corrupt shadow and consumes no attempt. Do NOT re-introduce a pre-delete.
+- **Rebuild cap semantics (Codex R1 F3)** — `exhausted = attempts >= CAP` (CAP=1); the single allowed rebuild sets `attempts=1` ⇒ exhausted on first paint (no wasted click). Attempt increments only on a successful re-stage. Do NOT relitigate as `> CAP`.
+- **Forensic emit is in `finalize-cas`, not `resolve-blocker`** — the rebuild's success is only knowable when the rebuilt shadow is re-parsed at finalize; emit fires there, once, idempotent via `escalation_logged`.
 
 ## 10. Out of scope
 
@@ -321,6 +334,6 @@ Observed: the "This show is archived" blocker card persisted after the show was 
 
 ## 11. Numeric sweep
 
-- CAP = **1** (rebuild attempts) — referenced in §2 (goal 3), §3.3, §9. Single source: this constant. `attempts > 1` ⇒ exhausted.
+- CAP = **1** (rebuild attempts) — referenced in §2 (goal 3), §3.2, §3.3, §9. Single source: this constant. `attempts >= CAP` ⇒ exhausted (i.e. `attempts >= 1`). Increment only on a successful re-stage.
 - Auto-revert = **4 s** (arm timer) — inherited from `RescanSheetButton` `ARM_REVERT_MS`.
 - No other literals.
