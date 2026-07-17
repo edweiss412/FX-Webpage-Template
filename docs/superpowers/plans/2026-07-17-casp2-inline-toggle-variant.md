@@ -149,7 +149,7 @@ describe("PublishedToggle — inline variant", () => {
     // token set must be IDENTICAL, and neither may carry a stray geometry class (right-0,
     // translate-x-*, a max-w other than max-w-60) that would let the error popover overflow
     // while the measured finalize popover stays in-viewport.
-    const POSITION = ["absolute", "left-0", "top-full", "z-40", "mt-1", "w-max", "max-w-60",
+    const POSITION = ["absolute", "right-0", "top-full", "z-40", "mt-1", "w-max", "max-w-60",
       "break-words", "rounded-sm", "p-2", "text-sm", "shadow-tile"]; // === POPOVER_POSITION tokens
     const ERROR_SKIN = new Set(["border", "border-border-strong", "bg-warning-bg", "text-warning-text"]);
     const FINALIZE_SKIN = new Set(["border", "border-border", "bg-surface", "text-text-subtle"]);
@@ -213,10 +213,12 @@ Expected: FAIL — `variant` prop unknown / `published-toggle-inline` not found.
   ```ts
   // Reused verbatim by card (published-toggle-retry) and inline (popover) so the copy is byte-identical.
   const RETRY_COPY = "That didn’t go through. Refresh and try again.";
-  // Shared popover positioning — pinned equal across error+finalize skins (spec §8.11d). left-0
-  // (not right-0) keeps a 240px popover on-screen when the toggle wraps left on a 390px phone.
+  // Shared popover positioning — pinned equal across error+finalize skins (spec §8.11d). The inline
+  // container is intentionally NOT `relative`, so the popover anchors to the sticky StatusStrip
+  // (nearest positioned ancestor); right-0/top-full = the STRIP's right edge, in-viewport at 390px
+  // regardless of where the toggle flex-wraps (real-browser §8.10c — toggle-anchoring overflowed).
   const POPOVER_POSITION =
-    "absolute left-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
+    "absolute right-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
   // break-words (overflow-wrap:break-word) hard-caps content within max-w-60 (240px) so the
   // error popover's long ErrorExplainer/HelpAffordance content can never overflow horizontally
   // — only grow vertically (out of flow). Load-bearing for the §8.10d error-content probe.
@@ -231,7 +233,7 @@ Expected: FAIL — `variant` prop unknown / `published-toggle-inline` not found.
     const showError = errorCode != null || genericError;
     const showFinalize = !showError && finalizeOwned;
     return (
-      <div data-testid="published-toggle-inline" className="relative inline-flex items-center gap-2">
+      <div data-testid="published-toggle-inline" className="inline-flex items-center gap-2">
         <span className="text-sm font-medium text-text-strong">Published</span>
         <form action={formAction} className="contents">
           <SwitchButton
@@ -417,7 +419,7 @@ where `stripHeight`/`popoverRect` load the given markup key into the served page
 - [ ] **Step 3: Run to verify failure**
 
 Run: `pnpm exec playwright test tests/e2e/statusStripToggleLayout.spec.ts --config tests/e2e/standalone.config.ts`
-Expected: FAIL first because the harness/spec are new (compile/scaffold), then — once scaffolded — it exercises the real classes. (If the popover overflowed, `left>=0`/`right<=390` would fail; with `left-0 max-w-60` it passes.)
+Expected: FAIL first because the harness/spec are new (compile/scaffold), then — once scaffolded — it exercises the real classes. (If the popover overflowed, `left>=0`/`right<=390` would fail; with the strip-anchored `right-0 max-w-60` it passes. NOTE: the real-browser gate is what proved toggle-anchoring overflows and forced the strip-anchor — do NOT weaken these assertions.)
 
 - [ ] **Step 4: Make it pass.** With Tasks 1–2 already implemented, the assertions pass against the real classes. Fix only harness/scaffold wiring (paths, Tailwind `@source`, server) until green. Do NOT weaken assertions to pass.
 
@@ -495,7 +497,7 @@ git commit --no-verify -m "docs: mark CASP-2 resolved (inline StatusStrip toggle
 
 ## Self-Review
 
-**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, left-0, max-w-60, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 / §8.7 B1 → preserved + proven by the new inline dispatch test (T1) + existing suite (T5). §7/§8.10 dimensional (a height-invariance, b compaction, c finalize-containment, d error-content probe) → T3. §8.11 (incl. d break-words class-equality) → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
+**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, strip-anchored right-0, max-w-60 break-words, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 / §8.7 B1 → preserved + proven by the new inline dispatch test (T1) + existing suite (T5). §7/§8.10 dimensional (a height-invariance, b compaction, c finalize-containment, d error-content probe) → T3. §8.11 (incl. d break-words class-equality) → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
 
 **Placeholder scan:** none — every step has concrete code/commands.
 
