@@ -11,6 +11,15 @@ vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
 vi.mock("@/lib/log/logAdminOutcome", () => ({
   logAdminOutcome: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/adminAlerts/resolveOnboardingSheetUnreadable", () => ({
+  resolveOpenUnreadableAlertUnconditionally: vi
+    .fn()
+    .mockResolvedValue({ kind: "ok", resolved: false }),
+}));
+vi.mock("@/lib/log", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  deriveRequestId: () => "req-test",
+}));
 
 import type { OnboardingScanResult } from "@/lib/sync/runOnboardingScan";
 import { WIZARD_SESSION_SUPERSEDED_DURING_SCAN } from "@/lib/sync/runOnboardingScan";
@@ -22,6 +31,8 @@ import type {
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { resolveOpenUnreadableAlertUnconditionally } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
+import { log } from "@/lib/log";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const RUN_FOLDER = "folder-1";
@@ -112,6 +123,10 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
   beforeEach(() => {
     vi.mocked(upsertAdminAlert).mockClear().mockResolvedValue("alert-id");
     vi.mocked(logAdminOutcome).mockClear().mockResolvedValue(undefined);
+    vi.mocked(resolveOpenUnreadableAlertUnconditionally)
+      .mockClear()
+      .mockResolvedValue({ kind: "ok", resolved: false });
+    vi.mocked(log.info).mockClear();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -215,5 +230,73 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     const last = messages.at(-1) as { type?: string };
     expect(last?.type).toBe("result");
     expect(vi.mocked(logAdminOutcome)).toHaveBeenCalled();
+  });
+});
+
+describe("onboarding scan route — clean-scan auto-resolve (hybrid §3.4)", () => {
+  beforeEach(() => {
+    vi.mocked(upsertAdminAlert).mockClear().mockResolvedValue("alert-id");
+    vi.mocked(logAdminOutcome).mockClear().mockResolvedValue(undefined);
+    vi.mocked(resolveOpenUnreadableAlertUnconditionally)
+      .mockClear()
+      .mockResolvedValue({ kind: "ok", resolved: false });
+    vi.mocked(log.info).mockClear();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("resolves the open alert + emits the auto-resolved info code when a clean scan resolves a row", async () => {
+    vi.mocked(resolveOpenUnreadableAlertUnconditionally).mockResolvedValue({
+      kind: "ok",
+      resolved: true,
+    });
+    const result: OnboardingScanResult = {
+      outcome: "completed",
+      processed: [
+        { driveFileId: "d-ok", name: "OK Sheet", outcome: "staged" },
+        { driveFileId: "d-lrc", name: "LRC Sheet", outcome: "live_row_conflict" },
+      ],
+    };
+    await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
+
+    expect(vi.mocked(resolveOpenUnreadableAlertUnconditionally)).toHaveBeenCalledTimes(1);
+    // No hard_failed -> the producer alert must NOT be emitted.
+    expect(vi.mocked(upsertAdminAlert)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
+    );
+    expect(vi.mocked(log.info)).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "ONBOARDING_ALERT_AUTO_RESOLVED" }),
+    );
+  });
+
+  it("does NOT emit the info code when the clean scan resolved nothing (no open alert)", async () => {
+    vi.mocked(resolveOpenUnreadableAlertUnconditionally).mockResolvedValue({
+      kind: "ok",
+      resolved: false,
+    });
+    const result: OnboardingScanResult = {
+      outcome: "completed",
+      processed: [{ driveFileId: "d-ok", name: "OK Sheet", outcome: "staged" }],
+    };
+    await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
+
+    expect(vi.mocked(resolveOpenUnreadableAlertUnconditionally)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.info)).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "ONBOARDING_ALERT_AUTO_RESOLVED" }),
+    );
+  });
+
+  it("does NOT run the clean-scan resolver when the scan had a hard_failed file", async () => {
+    const result: OnboardingScanResult = {
+      outcome: "completed",
+      processed: [{ driveFileId: "d-a", name: "Alpha", outcome: "hard_failed" }],
+    };
+    await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
+
+    expect(vi.mocked(resolveOpenUnreadableAlertUnconditionally)).not.toHaveBeenCalled();
+    expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
+    );
   });
 });

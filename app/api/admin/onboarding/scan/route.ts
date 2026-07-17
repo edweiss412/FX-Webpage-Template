@@ -16,6 +16,7 @@ import {
 import { deriveRequestId, log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { resolveOpenUnreadableAlertUnconditionally } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -312,6 +313,23 @@ export async function handleOnboardingScan(
                   failed_sheet_names: failedNames,
                 },
               });
+            } catch {
+              /* best-effort */
+            }
+          } else {
+            // Hybrid lifecycle §3.4: a completed scan with ZERO hard-failed
+            // files means the unreadable condition has healed — auto-resolve the
+            // one open global alert. Own best-effort boundary, POST-COMMIT, no
+            // advisory lock. The ONLY durable emit is the info-level forensic
+            // code on a successful resolve (never warn/error).
+            try {
+              const r = await resolveOpenUnreadableAlertUnconditionally();
+              if (r.kind === "ok" && r.resolved) {
+                await log.info("onboarding unreadable-sheet alert auto-resolved (clean scan)", {
+                  source: "admin.onboarding.scan",
+                  code: "ONBOARDING_ALERT_AUTO_RESOLVED",
+                });
+              }
             } catch {
               /* best-effort */
             }
