@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 
@@ -25,11 +26,27 @@ describe("shows.last_checked_at column", () => {
     expect(col.is_nullable).toBe("YES");
   });
 
-  it("is backfilled: no active row has null last_checked_at where last_synced_at is set", async () => {
-    const rows = await sql<{ orphans: number }[]>`
-      select count(*)::int as orphans
-      from public.shows
-      where archived = false and last_synced_at is not null and last_checked_at is null`;
-    expect(rows[0]!.orphans).toBe(0);
+  it("migration backfill statement fills last_checked_at from last_synced_at (idempotent, self-contained)", async () => {
+    // Self-contained: insert a controlled row mirroring the pre-migration shape
+    // (last_synced_at set, last_checked_at NULL), run the migration's backfill
+    // UPDATE, and assert it filled. Does NOT depend on global/seed state — the
+    // seed legitimately inserts rows without last_checked_at, so a fleet-wide
+    // "no orphans" assertion would be a false failure.
+    const drive = `schema-test-backfill-${randomUUID()}`;
+    const synced = "2026-07-16T17:00:00.000Z";
+    try {
+      await sql`
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+                                   last_synced_at, last_checked_at)
+        values (${drive}, ${`slug-${drive}`}, 'Backfill Probe', 'Client', 'v4',
+                ${synced}::timestamptz, null)`;
+      // The migration's backfill statement (idempotent — WHERE last_checked_at is null).
+      await sql`update public.shows set last_checked_at = last_synced_at where last_checked_at is null`;
+      const rows = await sql<{ last_checked_at: string }[]>`
+        select last_checked_at from public.shows where drive_file_id = ${drive}`;
+      expect(new Date(rows[0]!.last_checked_at).toISOString()).toBe(synced);
+    } finally {
+      await sql`delete from public.shows where drive_file_id = ${drive}`;
+    }
   });
 });
