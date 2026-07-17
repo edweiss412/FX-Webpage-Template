@@ -28,6 +28,7 @@ const WIZARD_ACTION_ENUM = new Set([
 ]);
 
 const ROLE_CHANGE_NAMES_CAP = 3;
+const FAILED_SHEET_NAMES_CAP = 3;
 
 function isPlainString(v: unknown): v is string {
   return typeof v === "string";
@@ -98,6 +99,18 @@ export function projectIdentityContext(
 
   if (Array.isArray(ctx.crew_member_ids)) {
     out.counts.crew_member_count = ctx.crew_member_ids.length;
+  }
+
+  // ONBOARDING_SHEET_UNREADABLE — the failed onboarding sheet titles. Cap the
+  // displayed names at 3 (sanitized); the count is the full (filtered) length
+  // so the resolver can append a "+N more" disclosure.
+  if (Array.isArray(ctx.failed_sheet_names)) {
+    const names = ctx.failed_sheet_names.filter(isPlainString);
+    const capped = names
+      .slice(0, FAILED_SHEET_NAMES_CAP)
+      .map((n) => sanitizeIdentityString(n, opts));
+    if (capped.length > 0) out.display.failed_sheet_names = capped;
+    out.counts.failed_sheet_names_count = names.length;
   }
 
   return out;

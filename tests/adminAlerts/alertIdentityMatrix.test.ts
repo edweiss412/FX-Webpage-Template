@@ -356,7 +356,7 @@ const FIXTURES: Fixture[] = [
       drive_file_id: DRIVE_FILE_ID,
     },
   },
-  // ONBOARDING_SHEET_UNREADABLE — global (folder-level setup-scan alert).
+  // ONBOARDING_SHEET_UNREADABLE — Sheet name(s) from context.failed_sheet_names.
   {
     code: "ONBOARDING_SHEET_UNREADABLE",
     showId: null,
@@ -364,6 +364,7 @@ const FIXTURES: Fixture[] = [
       folder_id: "folder-x",
       wizard_session_id: "wiz-1",
       failed_drive_file_ids: ["d-a", "d-b"],
+      failed_sheet_names: ["Sheet A", "Sheet B"],
     },
   },
 ];
@@ -422,6 +423,11 @@ function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[]
           .map((c) =>
             c && typeof c === "object" ? (c as Record<string, unknown>).crew_name : undefined,
           )
+          .filter((n): n is string => typeof n === "string")
+          .slice(0, 3);
+        if (names.length > 0) tokens.push(names.join(", "));
+      } else if (seg.key === "failed_sheet_names" && Array.isArray(ctx.failed_sheet_names)) {
+        const names = ctx.failed_sheet_names
           .filter((n): n is string => typeof n === "string")
           .slice(0, 3);
         if (names.length > 0) tokens.push(names.join(", "));

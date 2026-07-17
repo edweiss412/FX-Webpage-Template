@@ -433,6 +433,40 @@ describe("resolveAlertIdentities", () => {
     ]);
   });
 
+  it("ONBOARDING_SHEET_UNREADABLE: failed_sheet_names cap 3 + '+N more', token redacted", async () => {
+    const { client } = makeFakeSupabase({});
+    // 5 names > cap (3): the resolver renders the first 3 plus "+N more" where
+    // N = failed_sheet_names_count - 3, derived from the fixture length (not
+    // hardcoded to echo the resolver). One name embeds a 30-hex-char token
+    // substring that sanitizeIdentityString MUST redact.
+    const HEX = "0123456789abcdef0123456789abcd"; // 30 hex chars (>=24 token run)
+    const names = [`Bad Sheet ${HEX}`, "Bravo", "Charlie", "Delta", "Echo"];
+    const identityContext = projectIdentityContext(
+      {
+        folder_id: "folder-x",
+        wizard_session_id: "wiz-1",
+        failed_drive_file_ids: ["d-a", "d-b", "d-c", "d-d", "d-e"],
+        failed_sheet_names: names,
+      },
+      { includePii: true },
+    );
+    const rows = [
+      row({ id: "unreadable-many", code: "ONBOARDING_SHEET_UNREADABLE", identityContext }),
+    ];
+
+    const result = await resolveAlertIdentities(rows, client, { includePii: true });
+    const identity = result.identities.get("unreadable-many")!;
+    const cap = 3;
+    const expectedExtra = names.length - cap; // 2, derived from the fixture
+    const firstThreeRedacted = ["Bad Sheet [redacted-token]", names[1], names[2]];
+    const expectedValue = `${firstThreeRedacted.join(", ")} +${expectedExtra} more`;
+    expect(identity.segments).toEqual([{ label: "Sheet", value: expectedValue }]);
+    expect(describeAlert(identity)).toBe(`Sheet: ${expectedValue}`);
+    const sheetValue = identity.segments[0]!.value;
+    expect(sheetValue).toContain("[redacted-token]");
+    expect(sheetValue).not.toContain(HEX);
+  });
+
   it("global code -> describeAlert returns null", async () => {
     const { client } = makeFakeSupabase({});
     const rows = [
