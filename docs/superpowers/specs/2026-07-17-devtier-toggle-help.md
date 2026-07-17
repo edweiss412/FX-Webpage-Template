@@ -46,6 +46,24 @@ The extended copy renders **only for developers**. Two independent gates guarant
 
 So only a viewer who can actually use the toggle ever sees the grant explanation. This is the core acceptance criterion.
 
+## Copy completeness — comprehensive inventory (do-not-relitigate)
+
+A full sweep of every developer-gated surface (`requireDeveloper*` call sites + `viewerIsDeveloper`/`isDeveloper` UI gates) classifies them as:
+
+**Material, user-visible grants — NAMED in the copy:**
+
+1. **Admin-roster management** (add / revoke / re-add admins, promote to developer) — `AdministratorsSection.tsx:160/:218/:255`, `app/admin/settings/admins/actions.ts`, `developerActions.ts`.
+2. **Telemetry** — `navConfig.ts:42` developerOnly nav item + `app/admin/dev/telemetry/page.tsx`.
+3. **Maintenance** — `app/admin/settings/page.tsx:237` section + `_actions/validationReset.ts`.
+4. **Diagnostics** — `app/admin/settings/page.tsx:292` section.
+5. **Developer tools** — `DevToolsRow.tsx:43` + `app/admin/dev/actions.ts` / `dev/page.tsx`.
+
+**Minor / sub-behaviors — covered by "the same developer access you have, including …" (NOT separately named; naming them would bloat a tooltip):** the bell DevFooter config + dev-only feed/count/config routes (`app/api/admin/alerts/bell/*`, `BellPanel.tsx` DevFooter), the AppHealthIndicator telemetry deep-link (`AppHealthIndicator.tsx`), the `dev/source-link-dim` + `dev/telemetry-dim` diagnostic sub-pages, dev-only health-alert bell audience (`lib/admin/healthAlerts.ts`), and `reap-stale-sessions` — each is a behavior OF a named surface or an internal route, not a distinct top-level destination a developer would look for.
+
+**Internal / not user-visible (never copy-relevant):** `lib/audit/authPrimitives.ts`, `lib/audit/trustDomains.ts`, `lib/auth/requireDeveloper.ts`, `app/admin/layout.tsx` (prop plumbing), catalog/generated files.
+
+The copy's `"same developer access you have, including …"` framing is deliberately non-exhaustive and accurate by construction: it anchors to the reading developer's own (complete) access and names the five principal surfaces. **Do not relitigate** by demanding every minor sub-behavior be enumerated — that was the intent of the "including" framing (ratified after Codex plan-R1/R2).
+
 ## Guard conditions
 
 - **`viewerIsDeveloper` false / omitted:** developer arm not rendered → grant sentence absent (asserted). Non-developer copy unchanged.
