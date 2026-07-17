@@ -29,7 +29,7 @@ import {
 } from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
-import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
+import { syncStatusBucket, showsEditedClause, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
@@ -220,11 +220,36 @@ function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
   );
 }
 
+// Two-line bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked).
+// Line 1 = health (bare bucket label). Line 2 (only when lastCheckedAt is truthy)
+// = muted relative times: "Edited {rel} · Checked {rel}" for non-error buckets,
+// "Checked {rel}" only for the three error buckets (showsEditedClause === false),
+// where lastSyncedAt is an error-attempt stamp not a content edit.
+// Every element is a <span> (block/flex) — this mounts inside a <span> desktop
+// wrapper (below) and StatusIndicator's root is a <span>; a <div> would be invalid.
 function SyncCell({ row, now }: { row: ActiveShowRow; now: Date }) {
   const { bucket, label } = syncStatusBucket(row.lastSyncStatus);
-  const display =
-    row.lastSyncStatus === "ok" ? `Synced ${formatRelative(row.lastSyncedAt, now)}` : label;
-  return <StatusIndicator status={bucket} label={display} />;
+  const showTimes = Boolean(row.lastCheckedAt); // falsy null/undefined/"" → suppress line 2
+  const showEdited = showsEditedClause(row.lastSyncStatus);
+  return (
+    <span className="flex flex-col">
+      <StatusIndicator status={bucket} label={label} />
+      {showTimes ? (
+        <span
+          data-testid={`shows-sync-times-${row.slug}`}
+          className="mt-0.5 block text-xs text-text-faint tabular-nums"
+        >
+          {showEdited ? (
+            <>
+              Edited {formatRelative(row.lastSyncedAt, now)}
+              <span aria-hidden="true"> · </span>
+            </>
+          ) : null}
+          Checked {formatRelative(row.lastCheckedAt, now)}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 // Title used by both the rendered cell and the Find filter (slug fallback).

@@ -6,6 +6,7 @@
 // syncStatusBucket (decoupled from live/publishing). Overflow notice when
 // overflowCount>0. Preserves ActiveShowsPanel empty-state + null-title (V3).
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
@@ -70,16 +71,196 @@ describe("ShowsTable", () => {
     expect(within(sync).getByTestId("status-dot-warn")).toBeInTheDocument();
   });
 
-  it("ok sync shows 'Synced {relative}' in the sync column", () => {
+  // ── Two-line bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked) ──
+  // The line-2 testid renders once per mode (mobile + desktop) → twice per row, so
+  // every line-2 query scopes through the DESKTOP wrapper `shows-sync-{slug}`.
+  const NOW_10 = new Date("2026-06-03T10:00:00.000Z");
+  // desktop line-2 node for a slug (null when suppressed)
+  function line2(slug: string) {
+    return within(screen.getByTestId(`shows-sync-${slug}`)).queryByTestId(
+      `shows-sync-times-${slug}`,
+    );
+  }
+
+  it("ok: line 1 is bare 'Synced'; line 2 shows Edited·Checked from distinct fields", () => {
     render(
       <ShowsTable
-        rows={[row({ slug: "ok1", lastSyncStatus: "ok" })]}
-        now={now}
+        rows={[
+          row({
+            slug: "ok1",
+            lastSyncStatus: "ok",
+            lastSyncedAt: "2026-06-03T08:00:00.000Z", // Edited: 2h ago
+            lastCheckedAt: "2026-06-03T09:58:00.000Z", // Checked: 2 min ago
+          }),
+        ]}
+        now={NOW_10}
         activeCount={1}
         overflowCount={0}
       />,
     );
-    expect(screen.getByTestId("shows-sync-ok1").textContent).toMatch(/Synced/);
+    const cell = screen.getByTestId("shows-sync-ok1");
+    const l2 = within(cell).getByTestId("shows-sync-times-ok1");
+    const line1 = cell.textContent!.replace(l2.textContent!, "");
+    expect(line1).toContain("Synced");
+    expect(line1).not.toMatch(/ago|Edited|Checked/);
+    expect(l2.textContent).toMatch(/Edited\s+2h ago/);
+    expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
+  });
+
+  it.each(["drive_error", "sheet_unavailable", "parse_error"])(
+    "%s: line 2 is Checked-only (no Edited, no middot)",
+    (status) => {
+      render(
+        <ShowsTable
+          rows={[
+            row({
+              slug: "e",
+              lastSyncStatus: status,
+              lastSyncedAt: "2026-06-03T08:00:00.000Z",
+              lastCheckedAt: "2026-06-03T09:58:00.000Z",
+            }),
+          ]}
+          now={NOW_10}
+          activeCount={1}
+          overflowCount={0}
+        />,
+      );
+      const l2 = within(screen.getByTestId("shows-sync-e")).getByTestId("shows-sync-times-e");
+      expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
+      expect(l2.textContent).not.toMatch(/Edited|·/);
+    },
+  );
+
+  it("shrink_held: line 2 keeps the Edited clause (warn bucket, not in deny-set)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({
+            slug: "sh",
+            lastSyncStatus: "shrink_held",
+            lastSyncedAt: "2026-06-03T08:00:00.000Z",
+            lastCheckedAt: "2026-06-03T09:58:00.000Z",
+          }),
+        ]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const l2 = within(screen.getByTestId("shows-sync-sh")).getByTestId("shows-sync-times-sh");
+    expect(l2.textContent).toMatch(/Edited/);
+    expect(l2.textContent).toMatch(/Checked/);
+  });
+
+  it.each([null, undefined, ""])("line 2 suppressed when lastCheckedAt is %p", (v) => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "s", lastSyncStatus: null, lastCheckedAt: v as string | null })]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const cell = screen.getByTestId("shows-sync-s");
+    expect(within(cell).queryByTestId("shows-sync-times-s")).toBeNull();
+    expect(cell.textContent).toContain("Not synced yet");
+    expect(line2("s")).toBeNull();
+  });
+
+  it("null lastSyncedAt but present lastCheckedAt (non-error) → Edited never · Checked", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({
+            slug: "n",
+            lastSyncStatus: "pending",
+            lastSyncedAt: null,
+            lastCheckedAt: "2026-06-03T09:58:00.000Z",
+          }),
+        ]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const l2 = within(screen.getByTestId("shows-sync-n")).getByTestId("shows-sync-times-n");
+    expect(l2.textContent).toMatch(/Edited\s+never/);
+    expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
+  });
+
+  it("two-clause line 2 separator is a single aria-hidden element", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({
+            slug: "m",
+            lastSyncStatus: "ok",
+            lastSyncedAt: "2026-06-03T08:00:00.000Z",
+            lastCheckedAt: "2026-06-03T09:58:00.000Z",
+          }),
+        ]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const l2 = within(screen.getByTestId("shows-sync-m")).getByTestId("shows-sync-times-m");
+    const seps = within(l2).getAllByText("·");
+    expect(seps).toHaveLength(1);
+    expect(seps[0]).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("mobile sub-line renders the same two-clause line 2", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({
+            slug: "mb",
+            lastSyncStatus: "ok",
+            lastSyncedAt: "2026-06-03T08:00:00.000Z",
+            lastCheckedAt: "2026-06-03T09:58:00.000Z",
+          }),
+        ]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const mobile = screen.getByTestId("shows-meta-mobile-mb");
+    const l2 = within(mobile).getByTestId("shows-sync-times-mb");
+    expect(l2.textContent).toMatch(/Edited/);
+    expect(l2.textContent).toMatch(/Checked/);
+  });
+
+  it.each([
+    ["t_two", "ok", "2026-06-03T09:58:00.000Z"], // two-clause
+    ["t_chk", "drive_error", "2026-06-03T09:58:00.000Z"], // checked-only
+    ["t_abs", "ok", null], // absent
+  ])("SyncCell renders %s with no animation markup", (slug, status, checked) => {
+    render(
+      <ShowsTable
+        rows={[row({ slug, lastSyncStatus: status, lastCheckedAt: checked as string | null })]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const cell = screen.getByTestId(`shows-sync-${slug}`);
+    const cellRoot = cell.firstElementChild as HTMLElement; // SyncCell <span> root
+    expect(cellRoot.className).not.toMatch(/transition|animate-/);
+    expect(cellRoot.getAttribute("data-motion")).toBeNull();
+    const l2 = within(cell).queryByTestId(`shows-sync-times-${slug}`);
+    if (l2) {
+      expect(l2.className).not.toMatch(/transition|animate-/);
+      expect(l2.getAttribute("data-motion")).toBeNull();
+    }
+  });
+
+  it("SyncCell source declares no framer-motion / exit / initial / animate", () => {
+    const src = readFileSync("components/admin/ShowsTable.tsx", "utf8");
+    const start = src.indexOf("function SyncCell");
+    const body = src.slice(start, src.indexOf("\nfunction ", start + 1));
+    expect(body).not.toMatch(/AnimatePresence|framer-motion|motion\.|\bexit=|\binitial=|\banimate=/);
   });
 
   it("Live pill renders by title iff row.isLive (never in sync column)", () => {
