@@ -461,10 +461,14 @@ export type ParsedShadowPayloadForApply =
 **Interfaces:**
 ```ts
 export type ResolveBlockerRouteDeps = {
-  // Injectable seams: auth (all tests), and the rebuild Drive/core steps (Task 8 forced-outcome tests).
+  // Injectable seams: auth (all tests), the pre-lock Drive parse, and — CRITICALLY — the
+  // REAL core's OWN `scanOnboardingPreparedFiles` seam (NOT the whole applyRescanDecisionUnderLock).
+  // Injecting the scan layer forces each RescanDecisionOutcome while the REAL core runs its
+  // real shadow-delete + onShadowDeleted co-location — injecting the whole apply function would
+  // make the seven-outcome/cap proof tautological (Codex plan-R2 F3).
   requireAdminIdentity?: () => Promise<{ email: string }>;
   prepareOnboardingFiles?: typeof defaultPrepareOnboardingFiles;
-  applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock;
+  scanOnboardingPreparedFiles?: typeof import("@/lib/sync/runOnboardingScan").scanOnboardingPreparedFiles;
 };
 type ResolveBlockerResponse =
   | { ok: true; status: "resolved" }
@@ -498,8 +502,8 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
   import { requireAdminIdentity as realRequireAdminIdentity } from "@/lib/auth/requireAdmin";
   import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
   import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
-  import { prepareOnboardingFiles as defaultPrepareOnboardingFiles } from "@/lib/sync/runOnboardingScan";
-  import { applyRescanDecisionUnderLock, applyRescanDecisionUnderLock as defaultApplyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
+  import { prepareOnboardingFiles as defaultPrepareOnboardingFiles, scanOnboardingPreparedFiles as defaultScanOnboardingPreparedFiles } from "@/lib/sync/runOnboardingScan";
+  import { applyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
   import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
   import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
   import { deferPostResponse } from "@/lib/async/deferPostResponse";
@@ -517,9 +521,10 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
 
   export type ResolveBlockerRouteDeps = {
     requireAdminIdentity?: () => Promise<{ email: string }>;
-    // Test seams (Task 8): force a specific RescanDecisionOutcome / inject a prepared file.
+    // Test seams: pre-lock Drive parse, and the REAL core's own scan layer (forces each
+    // outcome while the real applyRescanDecisionUnderLock runs — Codex plan-R2 F3).
     prepareOnboardingFiles?: typeof defaultPrepareOnboardingFiles;
-    applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock;
+    scanOnboardingPreparedFiles?: typeof defaultScanOnboardingPreparedFiles;
   };
 
   type Body = { wizardSessionId?: unknown; driveFileId?: unknown; code?: unknown; action?: unknown };
@@ -716,7 +721,7 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
 - [ ] Write failing tests in `tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts` (real DB, using the `applyRescanDecisionUnderLock.test.ts` fake-restage-injection idiom is NOT sufficient here since this test must drive the route's Drive-fetch + `prepareOnboardingFiles` pre-lock step too — inject via the route's dep-injection seam analogous to `finalize/route.ts`'s `prepareOnboardingFiles` dep):
   - **not_currently_blocked cases:** (a) no `shows_pending_changes` row → `not_currently_blocked`; (b) shadow parses clean (not `STAGED_*_CORRUPT`) → `not_currently_blocked`; (c) **a corrupt shadow that exists but has NO `onboarding_scan_manifest` row for `(session, sheet)` → `not_currently_blocked`, no mutation** (Codex plan-R1 F1 — a stale/forged shadow outside the session manifest must not be rebuildable).
   - **Pre-restage cap gate:** seed `onboarding_rebuild_attempts.attempts = 1` (== CAP) for `(session, sheet)` → `{ ok: false, status: "escalated", code }`, NO restage attempted (assert the injected `prepareOnboardingFiles` dep was never called).
-  - **Seven-outcome enumeration (structural defense):** drive each of `schema_missing`/`superseded`/`not_staged`/`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked` (via the injected `scanOnboardingPreparedFiles` seam threaded through to `applyRescanDecisionUnderLock`) and assert `onboarding_rebuild_attempts.attempts` increments iff the outcome is one of `hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked`:
+  - **Seven-outcome enumeration (structural defense — REAL core, NOT injected):** the test injects ONLY `scanOnboardingPreparedFiles` (the real core's own seam, `ApplyRescanDecisionDeps.scanOnboardingPreparedFiles`) — the REAL `applyRescanDecisionUnderLock` runs, so its real `shows_pending_changes` deletes + `onShadowDeleted` co-location are exercised (Codex plan-R2 F3 — injecting the whole apply fn would be tautological). Force each outcome: the four scan-level outcomes (`schema_missing`, `superseded`, `not_staged` via a non-`staged` `processed` entry, `hard_failed`) come straight from the mocked scan result; the three staged outcomes require the scan to report `staged` AND the REAL `computeRescanDecision` to yield dirty/clean — so seed the prior state (a corrupt `shows_pending_changes` payload → `priorReady=true, priorParse=null` forces the §6 DIRTY clause → `dirty_demoted`; a seeded clean prior + matching prepared parse with `priorReady=true` → `clean_restamped`; `priorReady=false` → `clean_unchecked`) and pass the matching `prepared` (via the pre-lock `prepareOnboardingFiles` seam). Assert `onboarding_rebuild_attempts.attempts` increments iff the outcome deleted the shadow (`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked`):
     ```ts
     const OUTCOMES: Array<{ outcome: RescanDecisionOutcome["kind"]; consumesCap: boolean }> = [
       { outcome: "schema_missing", consumesCap: false },
@@ -754,7 +759,7 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
       // (spec §3.2 "pre-lock, side-effect-free"); no Drive fetch happens under the lock.
       prepared: Awaited<ReturnType<typeof defaultPrepareOnboardingFiles>>[number] | undefined;
       pendingFolderId: string;
-      deps?: { applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock };
+      deps?: { scanOnboardingPreparedFiles?: typeof defaultScanOnboardingPreparedFiles };
     },
   ): Promise<Response> {
     // Authoritative authz re-derivation UNDER the lock (spec §3.2 point 3 — applies to BOTH
@@ -796,13 +801,15 @@ The route opens the privileged `postgres.js` connection directly (mirroring `fin
       return NextResponse.json({ ok: false, status: "needs_attention", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" });
     }
 
-    const runApply = deps.applyRescanDecisionUnderLock ?? applyRescanDecisionUnderLock;
+    // Call the REAL core (never an injected whole-function) so its real shadow-delete +
+    // onShadowDeleted co-location run; the test forces outcomes at the core's OWN scan seam.
     const rescanTx = { unsafe: (sql: string, params: unknown[] = []) => tx.unsafe(sql, params) };
     let shadowDeleted = false;
-    const outcome = await runApply(
+    const outcome = await applyRescanDecisionUnderLock(
       rescanTx,
       { wizardSessionId, driveFileId, pendingFolderId, prepared, refreshedParse: prepared.parseResult, isBlockerHeal: true },
       {
+        scanOnboardingPreparedFiles: deps.scanOnboardingPreparedFiles,
         onShadowDeleted: async (t) => {
           shadowDeleted = true;
           await t.unsafe(
@@ -926,6 +933,8 @@ export type BlockedRowResolverProps = {
   - `code: "STAGED_PARSE_OUTDATED_AT_PHASE_D"` (freshness) renders NOTHING (`container.firstChild` is `null` or an empty fragment — defensive; freshness stays on `RescanSheetButton`, not this component).
   - Armed state auto-reverts after 4000ms (`vi.useFakeTimers()`, assert label reverts, matching `RescanSheetButton`'s `ARM_REVERT_MS` idiom).
   - `onResolved` fires ONLY when the route returns `{ ok: true, status: "resolved" }`; does NOT fire on `escalated` or `error`/network-catch (assert with a mocked fetch returning each status).
+  - **Route-returned `escalated` (F1):** a `rebuild` click whose fetch resolves `{ ok: false, status: "escalated", code }` renders the escalation copy immediately (assert `blocked-row-escalated-${driveFileId}` appears) and the trigger button is gone — the click never silently returns to idle. Failure mode caught: a stale client that hit the cap silently reverting to an idle "Discard & rebuild" button.
+  - **Code-less statuses get plain copy (F2):** for each of `superseded`/`no_active_session`/`not_found`/`not_currently_blocked`/`wrong_action`, a mocked fetch returning that status renders the exact `PLAIN_COPY[status]` line (NOT the generic "Something went wrong"); a `needs_attention` status renders `messageFor(code).dougFacing`; only a network throw renders `GENERIC_ERROR`. Assert against the specific copy strings, not just "some error rendered."
   - `disabled: true` while `armed` disarms back to idle (compound transition per spec §3.1) — set armed, then rerender with `disabled: true`, assert label reverts to idle without a click.
   - Unmount while armed clears the revert timer (assert no `act()` warning / no state update after unmount — `vi.useFakeTimers` + unmount + advance timers + no console error).
   - No raw code rendered: assert the DOM text content never contains the literal string `"SHOW_ARCHIVED_IMMUTABLE"` or `"STAGED_REVIEW_ITEMS_CORRUPT"` (only via `<HelpAffordance code={...}>`'s accessible disclosure, never as visible body text) — clone-and-strip the `HelpAffordance` subtree before the text-content scan (anti-tautology: proves the code itself isn't leaking into the dougFacing copy path).
@@ -940,12 +949,27 @@ export type BlockedRowResolverProps = {
 
   const ARM_REVERT_MS = 4_000;
   const REBUILDABLE_CODES = new Set(["STAGED_REVIEW_ITEMS_CORRUPT", "STAGED_PARSE_RESULT_CORRUPT"]);
+  const GENERIC_ERROR = "Something went wrong. Refresh and try again.";
+
+  type CodelessStatus =
+    | "superseded" | "no_active_session" | "not_found" | "not_currently_blocked" | "bad_request" | "wrong_action";
+
+  // Spec §3.6: code-less statuses get short plain-English lines (mirrors RescanSheetButton's
+  // PLAIN_COPY), NOT the generic fallback (Codex plan-R2 F2). No em dashes (DESIGN.md).
+  const PLAIN_COPY: Record<CodelessStatus, string> = {
+    superseded: "This setup was replaced by a newer run. Refresh and try again.",
+    no_active_session: "Setup isn't running right now. Refresh the page and try again.",
+    not_found: "This show is no longer part of this setup.",
+    not_currently_blocked: "This sheet isn't blocking publish anymore. Refresh to see its current state.",
+    bad_request: GENERIC_ERROR,
+    wrong_action: "Refresh and try again.",
+  };
 
   type ResolveBlockerResponse =
     | { ok: true; status: "resolved" }
     | { ok: false; status: "escalated"; code: string }
     | { ok: false; status: "needs_attention" | "busy"; code: string }
-    | { ok: false; status: "superseded" | "no_active_session" | "not_found" | "not_currently_blocked" | "bad_request" | "wrong_action" };
+    | { ok: false; status: CodelessStatus };
 
   function lookupDougFacing(code: string): string | null {
     return isMessageCode(code) ? messageFor(code).dougFacing : null;
@@ -959,6 +983,11 @@ export type BlockedRowResolverProps = {
     const [armed, setArmed] = useState(false);
     const [pending, setPending] = useState(false);
     const [errorCopy, setErrorCopy] = useState<string | null>(null);
+    // Local escalated flag: a route-returned { status: "escalated" } (a stale client that still
+    // showed the button after the cap was hit) must render the escalation copy IMMEDIATELY,
+    // not silently return to idle (Codex plan-R2 F1). Renders the same escalation branch as the
+    // server-computed `rebuildExhausted` first-paint.
+    const [escalated, setEscalated] = useState(false);
     const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     function clearArmTimer() {
       if (armTimerRef.current !== null) { clearTimeout(armTimerRef.current); armTimerRef.current = null; }
@@ -969,7 +998,7 @@ export type BlockedRowResolverProps = {
     }, [disabled, armed]);
 
     if (!driveFileId || !wizardSessionId || action === null) return null;
-    if (action === "rebuild" && rebuildExhausted) {
+    if (action === "rebuild" && (rebuildExhausted || escalated)) {
       const name = displayName || driveFileId;
       return (
         <p className="text-sm text-warning-text" data-testid={`blocked-row-escalated-${driveFileId}`}>
@@ -993,10 +1022,17 @@ export type BlockedRowResolverProps = {
           onResolved();
           return;
         }
-        if (body.status === "escalated") return; // escalation copy renders via rebuildExhausted on next paint
-        setErrorCopy(lookupDougFacing((body as { code?: string }).code ?? "") ?? "Something went wrong. Refresh and try again.");
+        if (body.status === "escalated") {
+          setEscalated(true); // render escalation copy immediately (F1) — never silently idle
+          return;
+        }
+        if (body.status === "needs_attention" || body.status === "busy") {
+          setErrorCopy(lookupDougFacing(body.code) ?? GENERIC_ERROR);
+        } else {
+          setErrorCopy(PLAIN_COPY[body.status]); // code-less statuses get plain lines (F2)
+        }
       } catch {
-        setErrorCopy("Something went wrong. Refresh and try again.");
+        setErrorCopy(GENERIC_ERROR);
       } finally {
         setPending(false);
       }
