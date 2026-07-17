@@ -200,7 +200,7 @@ describe("RevokeRowButton — destructive recipe + focus-safe open/close (R5, F4
       expect(getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
     );
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     await vi.waitFor(() => expect(getByTestId("admin-allowlist-revoke-button")).toHaveFocus());
   });
@@ -222,7 +222,7 @@ describe("RevokeRowButton — destructive recipe + focus-safe open/close (R5, F4
     const external = getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(external).toHaveFocus();
     expect(getByTestId("admin-allowlist-revoke-button")).not.toHaveFocus();

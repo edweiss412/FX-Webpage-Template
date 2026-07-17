@@ -34,7 +34,9 @@ import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
 
-const AUTO_REVERT_MS = 3_000;
+// Armed-state auto-revert window — harmonized to 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
 
 // Task 7.1: no-response watchdog. A React server action dispatched via
 // useActionState routes a THROWN/hung action to the error boundary, not
@@ -140,7 +142,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
       closeConfirm();
-    }, AUTO_REVERT_MS);
+    }, ARM_REVERT_MS);
   };
 
   const onCancelClick = () => {

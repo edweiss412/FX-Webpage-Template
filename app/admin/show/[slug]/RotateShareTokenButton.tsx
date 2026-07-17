@@ -25,7 +25,9 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 
-const AUTO_REVERT_MS = 3_000;
+// Armed-state auto-revert window — harmonized to 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
 
 type UiState = "idle" | "confirm" | "resolving";
 type Result =
@@ -127,7 +129,7 @@ export function RotateShareTokenButton({
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
       closeConfirm();
-    }, AUTO_REVERT_MS);
+    }, ARM_REVERT_MS);
   };
 
   const onCancelClick = () => {

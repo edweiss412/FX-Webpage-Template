@@ -197,8 +197,10 @@ function GroupSection({
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
-  // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2).
-  // Lifecycle: open clears; completion writes ({failed,total} when failed>0, else null).
+  // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2;
+  // all-success announcement added for DESTRUCT-3). Lifecycle: open clears (null); completion
+  // always writes {failed,total}. failed>0 → visible failure alert; failed===0 → sr-only
+  // success status so SR users hear the undo landed (sighted users see rows self-heal).
   const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(
     null,
   );
@@ -262,7 +264,9 @@ function GroupSection({
         (groupContainerRef.current?.contains(document.activeElement) ?? false);
       if (wasInsideAtClick && stillOurs) toggleRef.current?.focus();
       setConfirming(false);
-      setBulkUndoOutcome(failed > 0 ? { failed, total } : null);
+      // Always record the outcome (DESTRUCT-3): failure → visible alert, all-success
+      // → sr-only status. Only the open-clears path writes null.
+      setBulkUndoOutcome({ failed, total });
     });
   }
 
@@ -400,6 +404,21 @@ function GroupSection({
               ones that failed stay in this list.
             </p>
           ) : null}
+
+          {/* Persistent sr-only live region for the all-success announcement (DESTRUCT-3).
+              Always mounted while the panel is open so the TEXT SWAP — not a node
+              insertion — is what a screen reader announces; conditional mounting drops
+              the announcement (project a11y rule, mirrors StagedReviewCard). Sighted
+              users see the rows self-heal on revalidate; this is the SR equivalent. */}
+          <p
+            role="status"
+            data-testid={`auto-applied-bulk-undo-status-${group.showId}`}
+            className="sr-only"
+          >
+            {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0
+              ? `Undid all ${bulkUndoOutcome.total} ${bulkUndoOutcome.total === 1 ? "change" : "changes"}.`
+              : ""}
+          </p>
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">
             {group.rows.map((row) => (

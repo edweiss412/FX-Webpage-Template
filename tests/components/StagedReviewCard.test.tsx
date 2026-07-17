@@ -158,7 +158,7 @@ describe("StagedReviewCard", () => {
   // handleDiscard("permanent_ignore") unchanged. aria-describedby is preserved
   // in both states.
   describe("G2 two-tap guard — Stop showing this sheet", () => {
-    const ARMED_LABEL = "Confirm: stop showing this sheet";
+    const ARMED_LABEL = "Confirm stop showing this sheet";
     const firstSeenRow = (): StagedRow => ({
       ...baseRow,
       triggeredReviewItems: [{ id: "first-seen", invariant: "FIRST_SEEN_REVIEW" }],

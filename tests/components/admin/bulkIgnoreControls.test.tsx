@@ -87,11 +87,11 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     // idle: accessible name mirrors the visible "Ignore all 2" AND carries the type context.
     expect(chip.getAttribute("aria-label")).toBe("Ignore all 2 · Unrecognized row in sheet");
     fireEvent.click(chip); // arm
-    // armed: the name must contain the NEW visible text "Confirm: ignore all 2" (not a stale
+    // armed: the name must contain the NEW visible text "Confirm ignore all 2" (not a stale
     // "Ignore all 2"); a fixed aria-label would fail Label-in-Name in this state.
-    expect(chip.textContent).toBe("Confirm: ignore all 2");
+    expect(chip.textContent).toBe("Confirm ignore all 2");
     expect(chip.getAttribute("aria-label")).toBe(
-      "Confirm: ignore all 2 · Unrecognized row in sheet",
+      "Confirm ignore all 2 · Unrecognized row in sheet",
     );
   });
 
@@ -215,7 +215,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       fireEvent.click(btn);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(btn.textContent).toBe(`Confirm: ignore all ${groupX.bulk!.items.length}`);
+      expect(btn.textContent).toBe(`Confirm ignore all ${groupX.bulk!.items.length}`);
       expectDestructiveRecipe(btn);
     });
 
@@ -239,7 +239,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       act(() => vi.advanceTimersByTime(2_000));
       fireEvent.click(btnY);
       expect(btnX.textContent).toBe(`Ignore all ${groupX.bulk!.items.length}`);
-      expect(btnY.textContent).toBe(`Confirm: ignore all ${groupY.bulk!.items.length}`);
+      expect(btnY.textContent).toBe(`Confirm ignore all ${groupY.bulk!.items.length}`);
       act(() => vi.advanceTimersByTime(2_500)); // past X's original window, only 2.5s from Y's arm
       expect(btnY.textContent).toContain("Confirm");
       act(() => vi.advanceTimersByTime(1_500)); // 4s from Y's arm → disarms Y
@@ -310,7 +310,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       await screen.findByRole("alert");
       expect(btn.textContent).not.toContain("Confirm");
       fireEvent.click(btn);
-      expect(btn.textContent).toBe(`Confirm: ignore all ${groupX.bulk!.items.length}`);
+      expect(btn.textContent).toBe(`Confirm ignore all ${groupX.bulk!.items.length}`);
       expect(fetchMock).toHaveBeenCalledTimes(groupX.bulk!.items.length);
     });
 

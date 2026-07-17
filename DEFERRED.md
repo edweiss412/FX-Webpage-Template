@@ -628,32 +628,26 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-
 - **Why deferred:** needs a real-browser 360px reflow measurement + a design decision (reserve max size vs fixed-height armed state); the auto-revert + label change are the shipped mitigations. Not demonstrable in jsdom.
 - **Trigger:** real-browser check in the next admin mobile pass, or a venue-floor mis-tap report. Backlog: `BL-DESTRUCT-ARMED-REFLOW`.
 
-### DESTRUCT-2 — [P3→deferred] Confirm-label grammar + auto-revert timing not harmonized
+### DESTRUCT-2 — [P3→deferred] Confirm-label grammar + auto-revert timing not harmonized — ✅ RESOLVED (2026-07-17, branch fix/destruct-harmonize)
 
 - **What:** morphs use "Confirm: X" / panels use bare "Confirm revoke|reset|rotate|dismiss"; panels auto-revert at 3s (`AUTO_REVERT_MS`), guards + Archive at 4s (`ARM_REVERT_MS`).
 - **Why deferred:** copy + timing harmonization is a coordinated pass across 11 surfaces with shipped per-surface tests; no user-facing defect, only consistency polish (critique H4 note).
-- **Trigger:** next destructive-surface polish pass. Backlog: `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE`.
+- **Resolution:** (1) **Timing** — every surface now auto-reverts at a single 4s window under one constant name (`ARM_REVERT_MS`); the five panels bumped 3s→4s and renamed off `AUTO_REVERT_MS`. More react time for a venue-floor operator, one idiom. (2) **Grammar** — 8/11 surfaces already read "Confirm <verb>[: <consequence>]"; the three deviating morphs dropped the colon-after-Confirm ("Confirm stop showing this sheet", "Confirm stop tracking this sheet permanently", "Confirm ignore all N"), so the colon only ever separates a verb from a consequence clause. Per-surface tests updated (timer advances cross 4s; morph label assertions). Backlog `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` closed.
 
-### DESTRUCT-3 — [P3→deferred] Bulk-undo full success is silent for screen readers
+### DESTRUCT-3 — [P3→deferred] Bulk-undo full success is silent for screen readers — ✅ RESOLVED (2026-07-17, branch fix/destruct-harmonize)
 
 - **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
 - **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
-- **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.
+- **Resolution:** `RecentAutoAppliedStrip` completion now always records the outcome; `failed > 0` keeps the visible `role="alert"`, `failed === 0` renders an `sr-only` `role="status"` ("Undid all N changes.") so assistive tech hears the undo landed. Open-clears lifecycle unchanged (reopen writes null). Count derives from the group. Backlog `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` closed.
 
 ## BLOCKRES — BlockedRowResolver (impeccable critique, 2026-07-17, spec 2026-07-16-wizard-blocker-inline-resolution)
 
 Critique score 32/40, AI-slop pass, contrast AA/AAA both themes, detector clean. P0 (escalated no live-region announce) + P1 (escalated not a warning-card) were FIXED in-diff (role="alert" + bg-warning-bg card). Deferred P2/Minor:
 
-- **BLOCKRES-1 (P2):** the escalated state offers no `<HelpAffordance>` disclosure for Doug to relay detail to the developer.
-  - **Why deferred:** adding a HelpAffordance toggle conflicts with the ratified "escalated state has NO clickable trigger" test contract (Task 11), and the escalation copy already says "Contact the developer to clear it." The forensic detail lives in `ONBOARDING_SHADOW_REBUILD_EXHAUSTED` telemetry (`pnpm observe events --code ...`), which is the dev's actual channel, not the operator's UI.
-  - **Trigger:** if operators need to self-relay a correlation id; backlog `BL-BLOCKRES-ESCALATED-HELP`.
-- **BLOCKRES-2 (P2):** `<HelpAffordance code={code}>` renders on ALL `errorCopy` branches (including code-less statuses like `wrong_action`), vs `RescanSheetButton` which gates it to `coded` results only — minor vocabulary drift.
-  - **Why deferred:** cosmetic; the code-less branches are rare stale-client cases and the disclosure is harmless (shows the row's own code help). Gating requires threading a coded/code-less flag through `errorCopy`.
-  - **Trigger:** next touch of the resolver's error-render path; backlog `BL-BLOCKRES-HELP-GATING`.
+- **BLOCKRES-1 (P2): RESOLVED 2026-07-17.** The escalated state now renders `<HelpAffordance code={code}>` (`BlockedRowResolver.tsx`), giving Doug the same "What does this mean?" / "Learn more →" context every other error branch carries while the developer clears it. The prior deferral rationale ("conflicts with the no-clickable-trigger contract") was inaccurate: the Task 11 test pins no `<button>` / no `[role="button"]` — a disclosure `<summary>`/`<a>` is neither, and the invariant-5 escalation test already strips the `help-affordance` subtree, so both pinned contracts hold. Backlog `BL-BLOCKRES-ESCALATED-HELP` closed.
+- **BLOCKRES-2 (P2): RESOLVED 2026-07-17.** `errorCopy: string|null` became a discriminated `{ kind: "coded"; copy; code } | { kind: "plain"; copy } | null`. `<HelpAffordance>` now renders ONLY on `coded` branches (`needs_attention`/`busy`), keyed to the RESPONSE `body.code` (same code as the dougFacing copy), matching `RescanSheetButton`'s info-vs-coded split (spec §3.6). Code-less statuses render a plain line with no disclosure. Also fixed a latent mismatch: help formerly used the row `code` while copy came from `body.code`. Backlog `BL-BLOCKRES-HELP-GATING` closed.
 - **BLOCKRES-3 (Minor, verified non-issue):** the `action===null` → `return null` branch (unknown `row.code`) is defensive-only. The panels render `BlockedRowResolver` exclusively for non-freshness `cas_per_row` codes (archived + the two corrupt), all of which map to a real action — so `null` is unreachable in production. No fix needed.
-- **BLOCKRES-4 (P3, from audit):** the `disabled` prop (freeze during an active publish/finalize run, spec §3.1) is implemented + tested but not passed by either panel call site — the resolver isn't visually frozen during the auto-retry finalize run.
-  - **Why deferred:** not a correctness gap — the resolve-blocker route's session-active + advisory-lock guards reject a stale/concurrent click server-side (superseded/not_currently_blocked), and the resolver's own `pending` disables during its fetch. Wiring `disabled` is UX polish that would re-touch both panels.
-  - **Trigger:** next panel-wiring touch; backlog `BL-BLOCKRES-DISABLED-WIRING`.
+- **BLOCKRES-4 (P3): CLOSED AS DESIGNED 2026-07-17.** The `disabled` prop (freeze during an active publish/finalize run, spec §3.1) stays implemented + tested but is intentionally NOT wired from the call sites. Both panels render `BlockedRowResolver` only in `cas_per_row` state, which is mutually exclusive with `running` in the state machine; the auto-retry (`onResolved` → `runLoop`/`handleClick`) flips state to `running` and unmounts the entire `cas_per_row` panel. The resolver therefore can never coexist with an active run — a stronger freeze than `disabled` — so `disabled={isRunning}` would always be `false` at the resolver's render point (dead wiring). The prop is retained for the standalone contract + a future architecture where the panel stays mounted during retry. Backlog `BL-BLOCKRES-DISABLED-WIRING` closed as designed.
 
 **Impeccable v3 dual-gate (invariant 8): PASS.** critique 32/40 (P0/P1 fixed in 51d773364, P2/Minor → BLOCKRES-1..3); audit 20/20 no P0/P1 (BLOCKRES-4 P3). Detector clean both runs.
 

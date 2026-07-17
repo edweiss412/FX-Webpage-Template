@@ -33,7 +33,8 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try again.";
 
-// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
+// Armed-state auto-revert window (spec §4: 4s) — harmonized naming across every
+// destructive surface (DESTRUCT-2): ARM_REVERT_MS.
 const ARM_REVERT_MS = 4_000;
 
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
@@ -128,7 +129,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           }
         >
           {armed
-            ? "Confirm: stop tracking this sheet permanently"
+            ? "Confirm stop tracking this sheet permanently"
             : state.kind === "running" && state.pendingKind === "permanent_ignore"
               ? "Ignoring…"
               : "Permanently ignore"}
