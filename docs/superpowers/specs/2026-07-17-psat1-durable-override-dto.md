@@ -119,7 +119,14 @@ const divergent = staged && !overrideSnapshotsEqual(durableSnapshot, previewSnap
 | 3 | S3 (included note) | `overrideActive && includedTab` | `ArchivedTabIncludedNote` (unchanged). |
 | 4 | S2 (offer) / S4 (re-confirm) | `!overrideActive` → `offers = tabs.filter(!included)` | `ArchivedTabOffer` per offer (unchanged; S4 = `contentChangedSinceAccept`). |
 
-Because S5 is row 1, its condition (`divergent`) is the guard on every later row. Concretely: S1's implemented gate MUST become `!divergent && !hasCases && archivedPullSheetTabs.length === 0` (so the durable-set/empty-preview case in §3.5 falls to S5, not the empty state — the P2 exclusivity fix). S3/S2/S4 already carry `!divergent` in their derivations below. **Totality:** every `(durableSnapshot, previewSnapshot, hasCases)` combination matches exactly one row — divergent → S5; else empty → S1; else durable-active-and-included → S3; else → S2/S4 offers (possibly empty list, which renders just the cases). Cases (`hasCases`) still render independently in every non-empty state.
+Because S5 is row 1, its condition (`divergent`) is the guard on every later row. Concretely: S1's implemented gate MUST become `!divergent && !hasCases && archivedPullSheetTabs.length === 0` (so the durable-set/empty-preview case in §3.5 falls to S5, not the empty state — the P2 exclusivity fix). S3/S2/S4 already carry `!divergent` in their derivations below. **Totality (over the full input tuple).** The distinguishing inputs are `(durableSnapshot, archivedPullSheetTabs, hasCases)` — NOT just `previewSnapshot`, which is derived only from the *included* tab and so cannot by itself separate S1/S2/S4 (all three can have `previewSnapshot === null`). The array's non-included/`contentChangedSinceAccept` dimension is what separates them. The precedence chain is total and exclusive when read in order:
+
+1. `divergent` → **S5** (regardless of the array — this is why S5 is row 1).
+2. else `!hasCases && archivedPullSheetTabs.length === 0` → **S1** (empty).
+3. else `overrideActive && includedTab` → **S3** (an included tab whose snapshot equals the durable one — else step 1 would have caught it).
+4. else → **S2/S4**: `offers = archivedPullSheetTabs.filter((t) => !t.included)`; each renders `ArchivedTabOffer` (S4 when `contentChangedSinceAccept`, else S2). If that filtered list is empty, only the cases render.
+
+Every `(durableSnapshot, archivedPullSheetTabs, hasCases)` triple matches exactly one of steps 1–4 (the `else` chain makes them disjoint and exhaustive). Cases (`hasCases`) render independently in every non-empty state.
 
 Updated internal derivations (the boolean `overrideActive` prop is gone):
 
@@ -166,6 +173,15 @@ Guard: S5 only renders when `dfid != null && wizardSessionId != null` (both are 
 - Durable `null` → `row.pullSheetOverride` absent (`exactOptionalPropertyTypes`; not `undefined`-valued).
 - Malformed jsonb (`{}`, `"x"`, number, missing `fingerprint`) → reduced to `null`/absent.
 - Non-pending row (`pending === null`) → `row.pullSheetOverride` absent.
+
+### 4.1b Integration — `fetchStep3Data` production wiring (MANDATORY — pins the actual root cause)
+
+The §4.1 tests exercise the PURE `buildStep3Row` in isolation; they can all pass while the production read never reads the durable column (the exact live bug). So this milestone MUST also add a `fetchStep3Data` wiring test — modeled directly on the existing `source_anchors` threading test at `tests/components/onboardingWizard.fetchStep3.test.ts:285` (the `describe("fetchStep3Data — source_anchors threading")` block; the SELECT-column assertion is at `:291`). Two assertions, both **fail-first on `origin/main`**:
+
+1. **SELECT column present:** after `fetchStep3Data(SESSION_ID)` with a seeded `pending_syncs` row, `expect(seed.selectByTable["pending_syncs"]).toContain("pull_sheet_override")`. This catches "coercion + threading added but the production SELECT column forgotten" (the mock passthrough would otherwise mask it) — the class the source_anchors test's own comment calls out at `:299-300`.
+2. **Durable value threaded onto the row:** seed `pending_syncs.pull_sheet_override = {tabName:'OLD A', fingerprint:'fp1', acceptedBy, acceptedAt}`; assert the returned row's `pullSheetOverride === {tabName:'OLD A', fingerprint:'fp1'}` (reduced, audit fields dropped) — proving the `rawPendingByDfid` assembly (`OnboardingWizard.tsx:519`) copies the column through to `buildStep3Row`. A `null` durable value → row field absent.
+
+Without §4.1b, an implementation can be green on §4.1/§4.2/§4.3 and still leave the production loop unfixed.
 
 ### 4.2 Unit — `coerceOverrideSnapshotFromRow`
 
