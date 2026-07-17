@@ -219,6 +219,7 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
       hotels: pr.hotelReservations,
       pullSheet: pr.pullSheet ?? [],
       archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      pullSheetOverride: null,
       ros: pr.runOfShow ?? {},
       warnings: pr.warnings,
       agendaBaseline: [],

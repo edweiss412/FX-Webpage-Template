@@ -14,6 +14,7 @@ import type {
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
 /**
@@ -40,6 +41,9 @@ export type SectionCore = {
   crewMembers: CrewMemberRow[];
   pullSheet: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
+  // PSAT-1 (spec §3.1): the durable override snapshot, mode-agnostic. Staged: from
+  // pending_syncs.pull_sheet_override. Published: null (no staged affordance).
+  pullSheetOverride: OverrideSnapshot;
   billing: {
     coiStatus: string | null;
     proposal: string | null;
@@ -99,6 +103,7 @@ export function buildStagedSectionData(input: {
   hotels: HotelReservationRow[];
   pullSheet: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
+  pullSheetOverride: OverrideSnapshot;
   ros: RunOfShow;
   warnings: ParseWarning[];
   agendaBaseline: AdminAgendaItem[];
@@ -114,6 +119,7 @@ export function buildStagedSectionData(input: {
     hotels,
     pullSheet,
     archivedPullSheetTabs,
+    pullSheetOverride,
     ros,
     warnings,
     agendaBaseline,
@@ -151,6 +157,7 @@ export function buildStagedSectionData(input: {
     hotels,
     pullSheet,
     archivedPullSheetTabs,
+    pullSheetOverride,
     ros,
     warnings,
     agendaBaseline,

@@ -79,6 +79,7 @@ export function buildPublishedSectionData(
     // Archived pull-sheet tabs are a staged-time accept/skip decision; published
     // rows carry the final pull sheet only (spec §3.2).
     archivedPullSheetTabs: [],
+    pullSheetOverride: null,
     billing: {
       coiStatus: str(show.coi_status) ?? null,
       proposal: str(financials?.proposal) ?? null,
