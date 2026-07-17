@@ -12,8 +12,9 @@
  *    silently kill the link while fixture-slug unit tests stay green.
  * 3. Target fidelity: the #share-access anchor and the /admin/onboarding
  *    route the internal links point at must exist on disk.
- * 4. Registry parity: exactly the spec's 10 codes (9 original + RESYNC_SHRINK_HELD,
- *    re-sync quality gate audit #3), all members of the ADMIN_ALERTS_CODES universe.
+ * 4. Registry parity: exactly the spec's 11 codes (9 original + RESYNC_SHRINK_HELD,
+ *    re-sync quality gate audit #3; + ONBOARDING_SHEET_UNREADABLE, setup-scan
+ *    folder link), all members of the ADMIN_ALERTS_CODES universe.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -124,6 +125,19 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
     expectedMatches: 1,
     pins: "show-scoped raise (per-show alert row; not a global showId:null collision)",
   },
+  {
+    code: "ONBOARDING_SHEET_UNREADABLE",
+    file: "app/api/admin/onboarding/scan/route.ts",
+    // The Drive-folder link builder consumes context.folder_id; pin it to THIS
+    // alert's own raise expression. The sibling logAdminOutcome extra a few lines
+    // above carries `folderId:` (camelCase) not `folder_id:`, so a whole-file
+    // grep would false-pass — the bounded regex anchors the code literal to the
+    // snake_case context field.
+    pattern:
+      /code: "ONBOARDING_SHEET_UNREADABLE",[\s\S]{0,120}?context: \{[\s\S]{0,120}?folder_id:/g,
+    expectedMatches: 1,
+    pins: "folder_id in the alert context (not the sibling logAdminOutcome folderId payload)",
+  },
 ];
 
 describe("alert-action registry ↔ raise-site fidelity", () => {
@@ -150,6 +164,7 @@ describe("alert-action registry parity (spec §6.3)", () => {
     "BRANCH_PROTECTION_DRIFT",
     "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
     "LIVE_ROW_CONFLICT",
+    "ONBOARDING_SHEET_UNREADABLE",
     "PICKER_EPOCH_RESET",
     "PICKER_SELECTION_RACE",
     "REPORT_ORPHANED_LOST_LEASE",
@@ -158,7 +173,7 @@ describe("alert-action registry parity (spec §6.3)", () => {
     "SHOW_FIRST_PUBLISHED",
     "WIZARD_SESSION_SUPERSEDED_RACE",
   ];
-  test("registry keys equal exactly the spec's 10 codes", () => {
+  test("registry keys equal exactly the spec's 11 codes", () => {
     expect(Object.keys(ALERT_ACTIONS).sort()).toEqual(SPEC_CODES);
     expect([...ALERT_ACTION_CODES].sort()).toEqual(SPEC_CODES);
   });

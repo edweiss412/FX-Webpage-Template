@@ -57,6 +57,15 @@ export function resolveAlertAction(
 
 ## 4. The 9 registry entries
 
+> **Post-ship amendments (registry grew past the original 9).** Two codes were
+> added after this spec shipped; the enforced source of truth is the parity
+> meta-test (`tests/messages/_metaAlertActionsContract.test.ts`), not this table:
+> `RESYNC_SHRINK_HELD` (re-sync quality gate audit #3 → `Review & re-sync`,
+> slug-dependent `#resync` fragment) and `ONBOARDING_SHEET_UNREADABLE`
+> (setup-scan hard-fail folder alert → `Open Drive folder`,
+> `driveFolderUrl(context.folder_id)`, fail-quiet; PR #414 hybrid-lifecycle
+> follow-up so the "sheets couldn't be read" card links to the folder to fix).
+
 | # | Code | Label | Href | External | Guards (all via `str`) |
 |---|------|-------|------|----------|------------------------|
 | 1 | `SHOW_FIRST_PUBLISHED` | `Go to Published toggle` | `/admin/show/${encodeURIComponent(slug)}#share-access` | no | `opts.slug` non-empty, else null |

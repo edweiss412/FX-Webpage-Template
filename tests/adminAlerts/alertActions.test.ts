@@ -195,6 +195,36 @@ describe("RESYNC_SHRINK_HELD (re-sync quality gate, audit #3)", () => {
   });
 });
 
+describe("ONBOARDING_SHEET_UNREADABLE (setup-scan hard-fail folder alert)", () => {
+  // Failure mode: an unregistered code → resolveAlertAction returns null → the "sheets
+  // couldn't be read" alert points only at re-running setup, with no way to jump to the
+  // folder where the offending sheets actually live.
+  it("builds the Drive-folder link from context.folder_id", () => {
+    const folder_id = "1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C";
+    expect(resolveAlertAction("ONBOARDING_SHEET_UNREADABLE", { folder_id }, noSlug)).toEqual({
+      label: "Open Drive folder",
+      href: `https://drive.google.com/drive/folders/${encodeURIComponent(folder_id)}`,
+      external: true,
+    });
+  });
+  it.each([
+    [undefined],
+    [null],
+    [{}],
+    [{ folder_id: "" }],
+    [{ folder_id: "   " }],
+    [{ folder_id: 7 }],
+  ])("→ null when folder_id absent/blank/non-string (%s)", (context) => {
+    expect(
+      resolveAlertAction(
+        "ONBOARDING_SHEET_UNREADABLE",
+        context as Record<string, unknown> | null,
+        noSlug,
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("resolveAlertAction dispatch", () => {
   it("unregistered codes → null", () => {
     expect(resolveAlertAction("SHOW_UNPUBLISHED", { drive_file_id: "x" }, slugOpts)).toBeNull();
