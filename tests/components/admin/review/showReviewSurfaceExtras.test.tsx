@@ -11,12 +11,17 @@
  * WITH-extras (page) path.
  */
 import { useRef } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Home, Clock } from "lucide-react";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import { buildParseResult, stagedRow } from "../wizard/_step3ReviewFixture";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
+
+// A staged WarningsBreakdown reads useRouter; keep RTL from throwing on the hook.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const SLUG = "surface-extras-show";
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
@@ -26,9 +31,19 @@ const DRIVE_FILE_ID = "drive-extras-1";
 // scroll assertions never fire. Stub it so nav-click scrolling is observable.
 const scrollToSpy = vi.fn();
 
+beforeEach(() => {
+  // Neutralize any staged mount POST (the report/warnings bodies never fetch on
+  // mount, but stub defensively so a staged surface render is network-silent).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response)),
+  );
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   window.location.hash = "";
 });
 
@@ -182,5 +197,52 @@ describe("ShowReviewSurface extras rail participation (spec §5 / §10)", () => 
     } finally {
       HTMLElement.prototype.scrollTo = original;
     }
+  });
+});
+
+/** Staged-mode host: the report ("Report an issue") section is staged-only, so it
+ *  is a full rail item + chip + content section here. `dfid` matches DRIVE_FILE_ID
+ *  so `railTid` addresses the same testid namespace as the published harness. */
+function StagedPageHarness() {
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const pr = buildParseResult();
+  const data = buildStagedSectionData({
+    pr,
+    row: stagedRow(pr, { driveFileId: DRIVE_FILE_ID }),
+    dfid: DRIVE_FILE_ID,
+    wizardSessionId: "88888888-4444-4444-8444-cccccccccccc",
+    crewMembers: pr.crewMembers,
+    rooms: pr.rooms,
+    hotels: pr.hotelReservations,
+    pullSheet: pr.pullSheet ?? [],
+    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+    ros: pr.runOfShow ?? {},
+    warnings: pr.warnings,
+    agendaBaseline: [],
+    useRawDecisions: [],
+  });
+  return <ShowReviewSurface data={data} scrollerRef={scrollerRef} layout="page" />;
+}
+
+describe("ShowReviewSurface report section mode-gating (staged-only rail entry)", () => {
+  it("published mode: no report rail item, chip, or content section (blank-panel regression guard)", () => {
+    render(<PageHarness />);
+    // The published PageHarness renders the real surface; the report section's
+    // published render is null, so its rail entry / chip / content container must
+    // NOT exist — otherwise the consolidated per-show page shows a nav item that
+    // scrolls to an empty panel (the P2 this gate fixes).
+    expect(screen.queryByTestId(railTid("rail-item-report"))).toBeNull();
+    expect(screen.queryByTestId(railTid("chip-item-report"))).toBeNull();
+    expect(screen.queryByTestId(railTid("section-report"))).toBeNull();
+    // Sanity: the surface DID render (a real registry section is present), so the
+    // null above is genuine exclusion, not a failed mount.
+    expect(screen.getByTestId(railTid("rail-item-venue"))).toBeTruthy();
+  });
+
+  it("staged mode: the report section renders a rail item, chip, and content section", () => {
+    render(<StagedPageHarness />);
+    expect(screen.getByTestId(railTid("rail-item-report"))).toBeTruthy();
+    expect(screen.getByTestId(railTid("chip-item-report"))).toBeTruthy();
+    expect(screen.getByTestId(railTid("section-report"))).toBeTruthy();
   });
 });

@@ -14,19 +14,23 @@
  *    is dropped when present) — the INCLUSION test fails.
  */
 import { describe, expect, it } from "vitest";
-import { includesAgenda, renderedSectionIds } from "@/components/admin/review/sectionInclusion";
+import {
+  includesAgenda,
+  includesReport,
+  renderedSectionIds,
+} from "@/components/admin/review/sectionInclusion";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import type { SectionData } from "@/components/admin/review/sectionData";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
 /**
- * Minimal SectionData: `step3Sections` and the pure module read ONLY
+ * Minimal SectionData: `step3Sections` and the pure module read ONLY `mode` and
  * `agendaBaseline` at registry-build time (every `render` is an uninvoked
- * closure). The cast keeps the fixture focused on the one data-dependent input.
+ * closure). The cast keeps the fixture focused on the two data-dependent inputs.
  */
-function sectionData(agendaCount: number): SectionData {
+function sectionData(agendaCount: number, mode: "staged" | "published" = "published"): SectionData {
   return {
-    mode: "published",
+    mode,
     agendaBaseline: Array.from({ length: agendaCount }, () => ({}) as unknown as AdminAgendaItem),
   } as unknown as SectionData;
 }
@@ -37,8 +41,13 @@ describe("section inclusion — pure server-safe logic", () => {
     expect(includesAgenda(sectionData(3))).toBe(true);
   });
 
-  it("omits agenda when the baseline is empty, in registry order", () => {
-    expect(renderedSectionIds(sectionData(0))).toEqual([
+  it("includesReport is true iff the source is staged", () => {
+    expect(includesReport(sectionData(0, "staged"))).toBe(true);
+    expect(includesReport(sectionData(0, "published"))).toBe(false);
+  });
+
+  it("omits agenda when the baseline is empty, in registry order (staged: report last)", () => {
+    expect(renderedSectionIds(sectionData(0, "staged"))).toEqual([
       "venue",
       "event",
       "crew",
@@ -54,6 +63,22 @@ describe("section inclusion — pure server-safe logic", () => {
     ]);
   });
 
+  it("omits the staged-only report section in published mode", () => {
+    expect(renderedSectionIds(sectionData(0, "published"))).toEqual([
+      "venue",
+      "event",
+      "crew",
+      "contacts",
+      "schedule",
+      "hotels",
+      "transport",
+      "rooms",
+      "packlist",
+      "billing",
+      "warnings",
+    ]);
+  });
+
   it("inserts agenda after schedule when a baseline exists", () => {
     const ids = renderedSectionIds(sectionData(2));
     expect(ids).toContain("agenda");
@@ -62,10 +87,12 @@ describe("section inclusion — pure server-safe logic", () => {
 });
 
 describe("section inclusion — lockstep with step3Sections", () => {
-  for (const agendaCount of [0, 2]) {
-    it(`renderedSectionIds equals step3Sections ids (agenda×${agendaCount})`, () => {
-      const d = sectionData(agendaCount);
-      expect(renderedSectionIds(d)).toEqual(step3Sections(d).map((s) => s.id));
-    });
+  for (const mode of ["staged", "published"] as const) {
+    for (const agendaCount of [0, 2]) {
+      it(`renderedSectionIds equals step3Sections ids (${mode}, agenda×${agendaCount})`, () => {
+        const d = sectionData(agendaCount, mode);
+        expect(renderedSectionIds(d)).toEqual(step3Sections(d).map((s) => s.id));
+      });
+    }
   }
 });

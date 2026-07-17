@@ -90,7 +90,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
-import { includesAgenda } from "@/components/admin/review/sectionInclusion";
+import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
@@ -3646,7 +3646,9 @@ export function hasDiagramSignal(
  * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
  * section (rendered below the rooms), so they are NOT a separate registry def.
  * Every other section always renders (empty states preserved); `warnings`
- * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
+ * always renders (§3.10); `report` is STAGED-ONLY and ALWAYS last (§D2) — its
+ * published render is null, so it is gated by `includesReport` to keep the
+ * published consolidated page from surfacing a blank "Report an issue" rail entry.
  */
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
@@ -3857,18 +3859,23 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
         />
       ),
     },
-    {
+  );
+  // `report` is STAGED-ONLY (spec §D2 + Task-2 gate): its render returns null in
+  // published mode, and `ShowReviewSurface` would still emit a rail item + chip +
+  // blank content section for it on the published consolidated per-show page. It
+  // stays ALWAYS last, gated by the single-source-of-truth `includesReport` so the
+  // lockstep with `renderedSectionIds` holds in both modes.
+  if (includesReport(d)) {
+    defs.push({
       id: "report",
       label: "Report an issue",
       group: "Checks",
       Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
       railCount: null,
       hideDot: true, // spec §D2 — the only section without a status dot
-      // Staged-only in Phase 1: the report form posts the staged session + row.
-      // Task 13 revisits published-page composition; null published branch until
-      // then (no published-mode consumers exist yet).
+      // Staged-only: the report form posts the staged session + row.
       render: (s) => (isStaged(s) ? <ReportIssueSection data={s} /> : null),
-    },
-  );
+    });
+  }
   return defs;
 }

@@ -29,13 +29,32 @@ export function includesAgenda(d: SectionData): boolean {
 }
 
 /**
+ * The `report` ("Report an issue") section is STAGED-ONLY: its published render
+ * branch returns `null` (Task-2 gate — the report form posts a staged wizard
+ * session + row, which no published-mode source carries). Because
+ * `ShowReviewSurface` turns every section def into a rail item + chip + measured
+ * content section, an unconditional `report` def would surface a "Report an
+ * issue" nav entry scrolling to a blank panel on the published consolidated
+ * per-show page. It is the ONE section whose published branch is entirely null
+ * (agenda/rooms-diagrams/packlist/warnings all have real published renders), so
+ * it is the only section excluded from published-mode inclusion. `report` is
+ * never a warning-routing target (no `KIND_TO_SECTION` entry, `SECTION_REGION_MAP.report`
+ * is null), so omitting it from `renderedSectionIds` cannot strand any warning.
+ */
+export function includesReport(d: SectionData): boolean {
+  return d.mode === "staged";
+}
+
+/**
  * The ordered list of `SectionId`s `step3Sections` renders for `d`. Mirrors the
  * registry order in `step3Sections` (pinned by the lockstep test): the fixed
- * spine with `agenda` inserted after `schedule` only when a baseline exists.
+ * spine with `agenda` inserted after `schedule` only when a baseline exists, and
+ * `report` appended last only in staged mode.
  */
 export function renderedSectionIds(d: SectionData): SectionId[] {
   const ids: SectionId[] = ["venue", "event", "crew", "contacts", "schedule"];
   if (includesAgenda(d)) ids.push("agenda");
-  ids.push("hotels", "transport", "rooms", "packlist", "billing", "warnings", "report");
+  ids.push("hotels", "transport", "rooms", "packlist", "billing", "warnings");
+  if (includesReport(d)) ids.push("report");
   return ids;
 }
