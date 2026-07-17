@@ -34,6 +34,22 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Shared rendered assertion (destructive-confirm plan): the C1 recipe signature.
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(
+    tokens
+      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
+      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
+  ).toEqual([]);
+}
+
 describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
   it("resting shows [Archive]; tap 1 morphs to the links-dead confirm copy WITHOUT dispatching", async () => {
     const action = vi.fn(async () => ({ ok: true }) as const);
@@ -97,6 +113,34 @@ describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
     expect((getByTestId("archive-show-button") as HTMLButtonElement).type).toBe("button");
     fireEvent.click(getByTestId("archive-show-button"));
     expect((getByTestId("archive-show-confirm-button") as HTMLButtonElement).type).toBe("submit");
+  });
+
+  // ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R7) ----
+  // Morph surfaces are C3/C5-exempt (no focus changes); only the fill changes:
+  // soft amber (border-status-warn bg-warning-bg) → the C1 recipe.
+
+  it("full variant: armed confirm carries the destructive recipe, not the soft-amber fill (R7)", () => {
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { getByTestId } = render(<ArchiveShowButton archiveAction={action} />);
+    fireEvent.click(getByTestId("archive-show-button"));
+    const confirm = getByTestId("archive-show-confirm-button");
+    expectDestructiveRecipe(confirm);
+    const tokens = confirm.className.split(/\s+/);
+    for (const t of ["border-status-warn", "bg-warning-bg", "hover:bg-warning-bg"]) {
+      expect(tokens).not.toContain(t);
+    }
+  });
+
+  it("compact variant: armed confirm carries the destructive recipe, not the soft-amber fill (R7)", () => {
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { getByTestId } = render(<ArchiveShowButton archiveAction={action} compact />);
+    fireEvent.click(getByTestId("archive-show-button"));
+    const confirm = getByTestId("archive-show-confirm-button");
+    expectDestructiveRecipe(confirm);
+    const tokens = confirm.className.split(/\s+/);
+    for (const t of ["border-status-warn", "bg-warning-bg", "hover:bg-warning-bg"]) {
+      expect(tokens).not.toContain(t);
+    }
   });
 
   // M12.5 — the compact footer variant must still honor the 44px tap-target

@@ -193,10 +193,12 @@ function ConfirmButton({
       onClick={onConfirmClick}
       disabled={pending}
       aria-busy={pending}
+      // Destructive-confirm recipe (spec R7): soft amber → inverted-amber C1
+      // fill on the armed morph. Each branch keeps its own sizing tokens.
       className={
         compact
-          ? "inline-flex min-h-tap-min min-w-tap-min max-w-88 items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-3 py-1.5 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-          : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-4 py-2 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          ? "inline-flex min-h-tap-min min-w-tap-min max-w-88 items-center justify-center rounded-sm bg-warning-text px-3 py-1.5 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       }
     >
       {pending

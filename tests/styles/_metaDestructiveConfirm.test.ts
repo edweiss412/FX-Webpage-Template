@@ -25,6 +25,18 @@ const R = (file: string, index: number, kind: Kind, note: string): Row => ({
 });
 
 const REGISTRY: Row[] = [
+  R(
+    "components/admin/ArchiveShowButton.tsx",
+    0,
+    "morph",
+    "archive-show-confirm-button (compact ternary branch)",
+  ),
+  R(
+    "components/admin/ArchiveShowButton.tsx",
+    1,
+    "morph",
+    "archive-show-confirm-button (full ternary branch)",
+  ),
   R("components/admin/MaintenanceResetButtons.tsx", 0, "panel", "validation-reset-confirm"),
   R(
     "components/admin/RecentAutoAppliedStrip.tsx",
