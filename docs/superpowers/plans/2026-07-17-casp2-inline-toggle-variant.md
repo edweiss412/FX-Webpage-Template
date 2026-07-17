@@ -71,8 +71,15 @@ const inlineRoot = () => screen.getByTestId("published-toggle-inline");
 const popover = () => screen.queryByTestId("published-toggle-popover");
 
 describe("PublishedToggle — inline variant", () => {
-  it("card is the default: omitting variant renders the card row", () => {
-    renderToggle({ published: true }); // existing helper, no variant
+  it("card is the default AND explicit variant='card' renders the card row (both)", () => {
+    renderToggle({ published: true }); // existing helper, no variant → default card
+    expect(screen.getByTestId("published-toggle-row")).toBeTruthy();
+    expect(screen.queryByTestId("published-toggle-inline")).toBeNull();
+    cleanup();
+    // explicit variant="card" (Task 3 consumes this for the baseline) — must match the default
+    render(
+      <PublishedToggle slug="s1" variant="card" published={true} finalizeOwned={false} setPublished={okAction()} />,
+    );
     expect(screen.getByTestId("published-toggle-row")).toBeTruthy();
     expect(screen.queryByTestId("published-toggle-inline")).toBeNull();
   });
@@ -143,7 +150,7 @@ describe("PublishedToggle — inline variant", () => {
     // translate-x-*, a max-w other than max-w-60) that would let the error popover overflow
     // while the measured finalize popover stays in-viewport.
     const POSITION = ["absolute", "left-0", "top-full", "z-40", "mt-1", "w-max", "max-w-60",
-      "rounded-sm", "p-2", "text-sm", "shadow-tile"]; // === POPOVER_POSITION tokens
+      "break-words", "rounded-sm", "p-2", "text-sm", "shadow-tile"]; // === POPOVER_POSITION tokens
     const ERROR_SKIN = new Set(["border", "border-border-strong", "bg-warning-bg", "text-warning-text"]);
     const FINALIZE_SKIN = new Set(["border", "border-border", "bg-surface", "text-text-subtle"]);
     const FORBIDDEN = /^(right-0|right-\d|translate-x-|max-w-(?!60\b))/; // any geometry that breaks the proxy
@@ -209,7 +216,10 @@ Expected: FAIL — `variant` prop unknown / `published-toggle-inline` not found.
   // Shared popover positioning — pinned equal across error+finalize skins (spec §8.11d). left-0
   // (not right-0) keeps a 240px popover on-screen when the toggle wraps left on a 390px phone.
   const POPOVER_POSITION =
-    "absolute left-0 top-full z-40 mt-1 w-max max-w-60 rounded-sm p-2 text-sm shadow-tile";
+    "absolute left-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
+  // break-words (overflow-wrap:break-word) hard-caps content within max-w-60 (240px) so the
+  // error popover's long ErrorExplainer/HelpAffordance content can never overflow horizontally
+  // — only grow vertically (out of flow). Load-bearing for the §8.10d error-content probe.
   ```
   4. Change the card's retry `<p>` text to `{RETRY_COPY}` (byte-identical — `&rsquo;` and `’` both render U+2019).
   5. Add the shared form action closure as a local `const formAction` (lift the existing `async () => {…}` currently inline on the card `<form action=>` so both branches share it).
@@ -344,7 +354,7 @@ git commit --no-verify -m "feat(admin): StatusStrip renders the inline Published
 
 **Interfaces:**
 - Consumes: `StatusStrip` (inline, Task 2) + `PublishedToggle variant="card"` for the baseline.
-- Produces: real-browser assertions (spec §8.10 a/b/c).
+- Produces: real-browser assertions (spec §8.10 a/b/c/d).
 
 **Approach:** replicate the static-harness scaffold from `tests/e2e/showPageLayout.spec.ts` (tsx subprocess renders `renderToStaticMarkup` → JSON of `{ idleHtml, finalizeHtml, cardHtml }`; compile `app/globals.css` via Tailwind CLI with `@source` at the rendered markup; serve over `node:http`; measure with Playwright at 390px). Runs under `tests/e2e/standalone.config.ts` (no webServer/Supabase). The harness wraps each strip in the real admin-layout shell width so wrapping is faithful, and renders inside `ShareTokenProvider` (token null → no copy-link, irrelevant to geometry).
 
@@ -352,8 +362,16 @@ git commit --no-verify -m "feat(admin): StatusStrip renders the inline Published
   - `idle`: `StatusStrip` with `published:true, finalizeOwned:false` (inline S1).
   - `finalize`: `StatusStrip` with `published:true, finalizeOwned:true` (inline S4 — popover renders from the prop, no test-only path).
   - `card`: a strip-like row that renders `<PublishedToggle variant="card" …>` in place of the inline toggle (the pre-CASP-2 baseline). Build this by rendering `StatusStrip` but with a `variant` seam is NOT available — instead render a minimal wrapper `<div className="... same strip classes ...">` containing `<PublishedToggle variant="card" .../>` plus the same title `<h1>`, to represent the old strip layout for the compaction delta. (Only its height is compared; exact chrome parity is not required — it just needs the card toggle in a strip-width row.)
+  - `errorProbe` (spec §8.10d, Codex plan-R3 F1): the REAL error-popover CONTENT in a box carrying the width-governing classes, to measure whether the actual `ErrorExplainer`/`HelpAffordance` output respects the 240px cap (the finalize hint's short copy would never reveal an error-content overflow). Render, inside the same 390px strip shell + `relative` container:
+    ```tsx
+    <div data-testid="error-content-probe" className="absolute left-0 top-full max-w-60 break-words rounded-sm p-2 text-sm">
+      <ErrorExplainer code="PUBLISH_BLOCKED_PENDING_REVIEW" surface="admin" />
+      <HelpAffordance code="PUBLISH_BLOCKED_PENDING_REVIEW" />
+    </div>
+    ```
+    (`max-w-60 break-words` are the load-bearing width classes — pinned on the real popover by the §8.11d class-equality test, so the probe faithfully reflects the real popover's width behavior. `PUBLISH_BLOCKED_PENDING_REVIEW` is the LONG catalog row — the worst case for width.)
 
-  Run each at both `SHOWPAGE_TITLE` (short) and `SHOWPAGE_LONG_TITLE` for the containment sub-check. Emit JSON `{ idleShort, idleLong, finalizeShort, finalizeLong, cardShort }` to stdout.
+  Run the strip states at both `SHOWPAGE_TITLE` (short) and `SHOWPAGE_LONG_TITLE` for the containment sub-check. Emit JSON `{ idleShort, idleLong, finalizeShort, finalizeLong, cardShort, errorProbe }` to stdout.
 
 - [ ] **Step 1b: Register the new spec in the standalone config.** `tests/e2e/standalone.config.ts:24-25` has an explicit `testMatch` regex allowlist (no glob) — a new spec NOT listed is silently never run (Codex plan-R1 finding 1). Add `statusStripToggleLayout` to the alternation:
 
@@ -384,6 +402,15 @@ for (const key of ["finalizeShort", "finalizeLong"]) {
     document.documentElement.scrollWidth <= document.documentElement.clientWidth);
   expect(overflow).toBe(true);
 }
+
+// (d) error-content probe: the REAL ErrorExplainer+HelpAffordance content respects the 240px cap
+const probe = await rectOf("errorProbe", "error-content-probe"); // load errorProbe markup, measure the probe testid
+expect(probe.width).toBeLessThanOrEqual(240.5);
+expect(probe.left).toBeGreaterThanOrEqual(0);
+expect(probe.right).toBeLessThanOrEqual(390);
+const probeOverflow = await page.evaluate(() =>
+  document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+expect(probeOverflow).toBe(true);
 ```
 where `stripHeight`/`popoverRect` load the given markup key into the served page and read the testid's rect (mirror the `measure` helper in `showPageLayout.spec.ts`).
 
@@ -468,7 +495,7 @@ git commit --no-verify -m "docs: mark CASP-2 resolved (inline StatusStrip toggle
 
 ## Self-Review
 
-**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, left-0, max-w-60, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 / §8.7 B1 → preserved + proven by the new inline dispatch test (T1) + existing suite (T5). §7/§8.10 dimensional → T3. §8.11 → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
+**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, left-0, max-w-60, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 / §8.7 B1 → preserved + proven by the new inline dispatch test (T1) + existing suite (T5). §7/§8.10 dimensional (a height-invariance, b compaction, c finalize-containment, d error-content probe) → T3. §8.11 (incl. d break-words class-equality) → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
 
 **Placeholder scan:** none — every step has concrete code/commands.
 
