@@ -614,6 +614,7 @@ function SectionFlagCallout({
                 driveFileId={dfid}
                 warning={warning}
                 decision={decisionFor(warning)}
+                site="callout"
               />
             ) : null}
             {/* spec 2026-07-15 §8.1: recognize-role control for
@@ -625,6 +626,7 @@ function SectionFlagCallout({
                 wizardSessionId={wizardSessionId}
                 driveFileId={dfid}
                 warning={warning}
+                site="callout"
               />
             ) : null}
           </div>
@@ -2432,6 +2434,7 @@ export function WarningsBreakdown({
                         driveFileId={dfid}
                         warning={w}
                         decision={findUseRawDecision(w, useRawDecisions)}
+                        site="list"
                       />
                     ) : null}
                     {wizardSessionId && dfid ? (
@@ -2440,6 +2443,7 @@ export function WarningsBreakdown({
                         wizardSessionId={wizardSessionId}
                         driveFileId={dfid}
                         warning={w}
+                        site="list"
                       />
                     ) : null}
                   </div>

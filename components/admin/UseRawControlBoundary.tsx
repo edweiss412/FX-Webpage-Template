@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import { UseRawControl } from "@/components/admin/UseRawControl";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { WarningControlSite } from "@/components/admin/warningControlSite";
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
 
@@ -45,6 +46,8 @@ export function UseRawControlBoundary(
     warning: ParseWarning;
     /** The persisted decision matching this warning's `(code, contentHash)`, or undefined. */
     decision: UseRawDecision | undefined;
+    /** spec 2026-07-17 §8: render site, forwarded to the control (conditional spread below). */
+    site?: WarningControlSite;
   } & SurfaceProps,
 ) {
   const { warning, decision } = props;
@@ -78,5 +81,12 @@ export function UseRawControlBoundary(
     router.refresh();
   };
 
-  return <UseRawControl warning={warning} decision={decision} onToggle={onToggle} />;
+  return (
+    <UseRawControl
+      warning={warning}
+      decision={decision}
+      onToggle={onToggle}
+      {...(props.site ? { site: props.site } : {})}
+    />
+  );
 }
