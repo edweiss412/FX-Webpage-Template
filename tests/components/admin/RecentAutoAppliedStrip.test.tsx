@@ -568,7 +568,7 @@ it("reopening the confirm clears a visible alert (open-clears lifecycle)", async
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
 });
 
-it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
+it("failure alert then a later all-success run: failure alert gone, sr-only success shown (completion writes {failed:0,total})", async () => {
   const actions = noopActions();
   actions.undoFromDashboardAction = vi
     .fn()
@@ -579,6 +579,74 @@ it("failure alert then a later all-success run: alert stays gone after settle (c
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+  // DESTRUCT-3: the all-success second run now announces an sr-only success status
+  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeInTheDocument();
+});
+
+// ── DESTRUCT-3: sr-only status on all-success bulk undo ────────────────────
+it("all-success bulk undo announces an sr-only status; no failure alert", async () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`);
+  expect(status).toHaveAttribute("role", "status");
+  expect(status.className).toContain("sr-only");
+  expect(status).toHaveTextContent("Undid all 2 changes");
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
+});
+
+it("partial-failure bulk undo shows the failure alert, no success status (precedence)", async () => {
+  const actions = noopActions();
+  actions.undoFromDashboardAction = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false })
+    .mockResolvedValue({ ok: true });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  await openConfirmAndRunUndoAll();
+  expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeNull();
+});
+
+it("all-success bulk undo with a single undoable row → singular 'change' copy", async () => {
+  const SID = "solo";
+  const data: RecentAutoApplied = {
+    kind: "ok",
+    renderedCount: 1,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: SID,
+        slug: "solo",
+        showName: "Solo",
+        acceptableIds: ["u1"],
+        undoableIds: ["u1"],
+        rows: [
+          {
+            id: "u1",
+            changeKind: "crew_added",
+            summary: "added",
+            occurredAt: "2026-07-07T00:00:00Z",
+            undoable: true,
+            diff: { kind: "single", caption: "Added", value: "X" },
+          },
+        ],
+      },
+    ],
+  };
+  render(
+    <RecentAutoAppliedStrip
+      data={data}
+      actions={{ ...noopActions(), undoFromDashboardAction: vi.fn().mockResolvedValue({ ok: true }) }}
+      defaultExpanded
+    />,
+  );
+  fireEvent.click(screen.getByTestId(`auto-applied-undo-all-${SID}`));
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`auto-applied-undo-all-confirm-go-${SID}`));
+  });
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-success-${SID}`);
+  expect(status.textContent).toContain("Undid all 1 change");
+  expect(status.textContent).not.toContain("1 changes"); // singular, not plural
 });
 
 it("alert persists across collapse → re-expand", async () => {

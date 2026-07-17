@@ -255,8 +255,10 @@ function GroupSection({
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
-  // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2).
-  // Lifecycle: open clears; completion writes ({failed,total} when failed>0, else null).
+  // Aggregate outcome of the last bulk undo (spec 2026-07-16-destructive-confirm-pass §6 F2;
+  // DESTRUCT-3 adds the all-success sr-only status). Lifecycle: open clears (null);
+  // completion ALWAYS writes {failed,total}. Render branches: failed>0 → visible
+  // role=alert; else total>0 → sr-only role=status; else null.
   const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(
     null,
   );
@@ -320,7 +322,10 @@ function GroupSection({
         (groupContainerRef.current?.contains(document.activeElement) ?? false);
       if (wasInsideAtClick && stillOurs) toggleRef.current?.focus();
       setConfirming(false);
-      setBulkUndoOutcome(failed > 0 ? { failed, total } : null);
+      // Always write the outcome (DESTRUCT-3): failed>0 → visible alert; all-success
+      // → sr-only status. (Previously wrote null on all-success → SR users got no
+      // completion signal.)
+      setBulkUndoOutcome({ failed, total });
     });
   }
 
@@ -452,6 +457,17 @@ function GroupSection({
             >
               Couldn&apos;t undo {bulkUndoOutcome.failed} of {bulkUndoOutcome.total} changes. The
               ones that failed stay in this list.
+            </p>
+          ) : bulkUndoOutcome && bulkUndoOutcome.total > 0 ? (
+            // DESTRUCT-3: all-success → sr-only completion status for SR parity
+            // (sighted users get the visual row-removal on revalidate).
+            <p
+              role="status"
+              data-testid={`auto-applied-bulk-undo-success-${group.showId}`}
+              className="sr-only"
+            >
+              Undid all {bulkUndoOutcome.total}{" "}
+              {bulkUndoOutcome.total === 1 ? "change" : "changes"}.
             </p>
           ) : null}
 
