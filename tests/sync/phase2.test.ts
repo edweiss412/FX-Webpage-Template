@@ -659,38 +659,38 @@ describe("runPhase2 destructive snapshot", () => {
       priorFlags: ["LEAD", "A1"] as CrewMemberRow["role_flags"],
       newFlags: ["A1"] as CrewMemberRow["role_flags"],
     },
-  ])("an auto-applied LEAD-bit change produces a ROLE_FLAGS_NOTICE: $label", async ({
-    priorFlags,
-    newFlags,
-  }) => {
-    const tx = new FakePhase2Tx();
-    tx.shows.set("file-1", {
-      id: "show-1",
-      driveFileId: "file-1",
-      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
-      lastSyncStatus: "ok",
-      lastSyncError: null,
-      crewNames: ["Alice"],
-      crewMembers: [crewWithFlags("Alice", priorFlags)],
-    });
+  ])(
+    "an auto-applied LEAD-bit change produces a ROLE_FLAGS_NOTICE: $label",
+    async ({ priorFlags, newFlags }) => {
+      const tx = new FakePhase2Tx();
+      tx.shows.set("file-1", {
+        id: "show-1",
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        crewNames: ["Alice"],
+        crewMembers: [crewWithFlags("Alice", priorFlags)],
+      });
 
-    const result = await runWith(tx, {
-      parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", newFlags)] }),
-    });
+      const result = await runWith(tx, {
+        parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", newFlags)] }),
+      });
 
-    expect(result).toMatchObject({
-      outcome: "applied",
-      showId: "show-1",
-      roleFlagsNotice: {
+      expect(result).toMatchObject({
+        outcome: "applied",
         showId: "show-1",
-        code: "ROLE_FLAGS_NOTICE",
-        context: {
-          drive_file_id: "file-1",
-          changes: [{ crew_name: "Alice", prior_flags: priorFlags, new_flags: newFlags }],
+        roleFlagsNotice: {
+          showId: "show-1",
+          code: "ROLE_FLAGS_NOTICE",
+          context: {
+            drive_file_id: "file-1",
+            changes: [{ crew_name: "Alice", prior_flags: priorFlags, new_flags: newFlags }],
+          },
         },
-      },
-    });
-  });
+      });
+    },
+  );
 
   test("a brand-new crew member with LEAD produces a ROLE_FLAGS_NOTICE (prior_flags: [])", async () => {
     const tx = new FakePhase2Tx();

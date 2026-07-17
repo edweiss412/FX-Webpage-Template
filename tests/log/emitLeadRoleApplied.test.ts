@@ -4,9 +4,12 @@ import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 
 // Spy on the failure-visible writer so we can (a) observe the durable event payload and (b) drive
 // the { ok: false } branch. The emitter imports persistAppEventStrict from this module.
-const persistAppEventStrict = vi.fn(async () => ({ ok: true }) as { ok: true });
+type StrictResult = { ok: true } | { ok: false; error: unknown };
+const persistAppEventStrict = vi.fn(
+  async (_record: Record<string, unknown>): Promise<StrictResult> => ({ ok: true }),
+);
 vi.mock("@/lib/log/persist", () => ({
-  persistAppEventStrict: (record: unknown) => persistAppEventStrict(record as never),
+  persistAppEventStrict: (record: Record<string, unknown>) => persistAppEventStrict(record),
 }));
 
 // Import AFTER the mock is registered.
@@ -20,9 +23,7 @@ function capture(): LogRecord[] {
   return records;
 }
 
-function notice(
-  changes: RoleFlagsNotice["context"]["changes"],
-): RoleFlagsNotice {
+function notice(changes: RoleFlagsNotice["context"]["changes"]): RoleFlagsNotice {
   return {
     showId: "show-1",
     code: "ROLE_FLAGS_NOTICE",
@@ -112,7 +113,10 @@ describe("emitLeadRoleApplied (spec §3.4)", () => {
   // best-effort emit that drops the authoritative audit under telemetry degradation.
   test("a { ok: false } strict-write failure is surfaced via log.error, not swallowed", async () => {
     const records = capture();
-    persistAppEventStrict.mockResolvedValueOnce({ ok: false, error: new Error("db down") } as never);
+    persistAppEventStrict.mockResolvedValueOnce({
+      ok: false,
+      error: new Error("db down"),
+    } as never);
     await emitLeadRoleApplied(
       notice([{ crew_name: "Alice", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }]),
       { source: "sync.roleFlags" },
