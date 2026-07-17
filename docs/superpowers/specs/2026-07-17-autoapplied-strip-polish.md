@@ -381,6 +381,15 @@ setBulkUndoOutcome({ failed, total });   // was: failed > 0 ? {…} : null
 ) : null}
 ```
 
+**DOM placement (unchanged, pinned):** this single conditional block replaces the
+existing failure-only block **in its current position** — after the
+`confirming ? (<div …confirm…>) : null` block (`:353-391`) and before the rows
+`<ul>` (`:404-408`). The success/failure node is thus always BELOW the confirm
+panel slot and ABOVE the row list, whether or not `confirming` is open. No JSX is
+reordered; only the ternary's `else` arm changes from `null` to the sr-only
+success `<p>`. A reopened confirm (`confirming` true again) renders its panel
+above this block as before.
+
 ### 4.2 Guard conditions & lifecycle
 
 - **Open clears:** the "Undo all" trigger sets `setBulkUndoOutcome(null)`
