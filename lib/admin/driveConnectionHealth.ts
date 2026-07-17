@@ -120,8 +120,9 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
     if (activeCount === null) return INFRA_ERROR;
     const syncingCount = activeCount;
 
-    // 3. lastReadAt (display only) = max last_synced_at over active shows.
-    const lastReadAt = await readMaxLastSyncedAt(supabase);
+    // 3. lastReadAt (display only) = max last_checked_at over active shows ("last read" =
+    //    last time we successfully read the folder = last check).
+    const lastReadAt = await readMaxLastCheckedAt(supabase);
     if (lastReadAt === undefined) return INFRA_ERROR;
 
     // Short-circuit: no folder configured → Warn/not_configured WITHOUT reading
@@ -244,20 +245,22 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
       return warn("sync_unknown", folderName, folderId, syncingCount, syncUnknownCount, lastReadAt);
     }
 
-    // tier 6: stale_severe — null/never-synced OR older than 6h OR pending_review >6h.
+    // tier 6: stale_severe — never-checked (null) OR last successful Drive check older than 6h.
+    // Based on last_checked_at (spec 2026-07-16-last-checked-at §5.1): an idle-but-healthy show
+    // (checked every 5 min, content unchanged) stays fresh. The former pending_review>6h age
+    // sub-clause is DROPPED — review-backlog is tracked via needsAttentionCount + the inbox, not
+    // this connection-health badge; and a pending_review pass now advances last_checked_at anyway.
     const staleSevereCount = await countActive(supabase, (q) =>
-      q.or(
-        `last_synced_at.is.null,last_synced_at.lt.${sixHoursAgo},and(last_sync_status.eq.pending_review,last_synced_at.lt.${sixHoursAgo})`,
-      ),
+      q.or(`last_checked_at.is.null,last_checked_at.lt.${sixHoursAgo}`),
     );
     if (staleSevereCount === null) return INFRA_ERROR;
     if (staleSevereCount > 0) {
       return warn("stale_severe", folderName, folderId, syncingCount, staleSevereCount, lastReadAt);
     }
 
-    // tier 7: stale_moderate — between 1h and 6h old.
+    // tier 7: stale_moderate — last successful Drive check between 1h and 6h ago.
     const staleModerateCount = await countActive(supabase, (q) =>
-      q.lt("last_synced_at", oneHourAgo).gte("last_synced_at", sixHoursAgo),
+      q.lt("last_checked_at", oneHourAgo).gte("last_checked_at", sixHoursAgo),
     );
     if (staleModerateCount === null) return INFRA_ERROR;
     if (staleModerateCount > 0) {
@@ -338,21 +341,22 @@ async function countActive(
   }
 }
 
-// max last_synced_at over active shows (display only). Returns undefined on
-// returned-error (caller → infra_error); null when never synced.
-async function readMaxLastSyncedAt(
+// max last_checked_at over active shows (display only) — "last read" = last time
+// we successfully read the folder. Returns undefined on returned-error (caller →
+// infra_error); null when never checked.
+async function readMaxLastCheckedAt(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
 ): Promise<string | null | undefined> {
   try {
     const { data, error } = await supabase
       .from("shows")
-      .select("last_synced_at")
+      .select("last_checked_at")
       .eq("archived", false)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
+      .order("last_checked_at", { ascending: false, nullsFirst: false })
       .limit(1);
     if (error) return undefined;
-    const rows = (data as Array<{ last_synced_at: string | null }> | null) ?? [];
-    return rows[0]?.last_synced_at ?? null;
+    const rows = (data as Array<{ last_checked_at: string | null }> | null) ?? [];
+    return rows[0]?.last_checked_at ?? null;
   } catch {
     return undefined;
   }
