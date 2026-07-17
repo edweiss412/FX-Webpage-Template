@@ -130,34 +130,74 @@ git commit --no-verify -m "feat(admin): showsEditedClause predicate for bucket-a
 - Modify: `lib/admin/showDisplay.ts` (add field to `ActiveShowRow`, after `lastSyncStatus` at `:29`)
 - Modify: `components/admin/Dashboard.tsx` (SELECT `:203`, map `:511`)
 - Modify (factories, for green typecheck): `tests/components/admin/ShowsTable.test.tsx:28-42`, `tests/components/admin/showsTableTransitionAudit.test.tsx:15-23`, `tests/components/admin/dataGapsTransitionAudit.test.tsx:65-75`, `tests/components/admin/Dashboard-archived.test.tsx` (inline row literals at `:236` and `:278`)
-- Test: `tests/components/admin/Dashboard-lastCheckedAt.test.ts` (new, loader assertion)
+- Test: `tests/admin/fetchDashboardData.test.ts` (extend: additive `selectCols` capture + one loader test)
 
 **Interfaces:**
 - Consumes: nothing.
 - Produces: `ActiveShowRow.lastCheckedAt: string | null` (required). Consumed by Task 3.
 
-- [ ] **Step 1: Write the failing loader test**
+- [ ] **Step 1a: Extend the recording mock to capture the shows SELECT columns**
 
-Create `tests/components/admin/Dashboard-lastCheckedAt.test.ts`. Read the file first to see how `fetchDashboardData` is exported/mocked (mirror the existing `Dashboard-archived.test.tsx` Supabase mock harness). The test asserts two things: (a) the shows SELECT string includes `last_checked_at`; (b) a mocked show row's `last_checked_at` maps onto the produced `ActiveShowRow.lastCheckedAt`.
+`fetchDashboardData` IS directly exported (`components/admin/Dashboard.tsx:143`) and `tests/admin/fetchDashboardData.test.ts` already has a recording Supabase mock whose `state.calls` logs `{ table, head, inCol, inArgs }` per resolved query — but it discards the `.select(cols)` argument. Add the column capture (additive — other tests ignore the new field). In `tests/admin/fetchDashboardData.test.ts`:
+
+1. In the `state = vi.hoisted(...)` `calls` type (around `:29-34`), add `selectCols` to the element type:
+```ts
+  calls: [] as Array<{
+    table: string;
+    head: boolean;
+    inCol: string | null;
+    inArgs: unknown[] | null;
+    selectCols: string | null;
+  }>,
+```
+2. In `makeClient`'s `from(table)`, add `selectCols: null as string | null` to the `ctx` object literal, capture it in `builder.select`, and push it in `resolve()`:
+```ts
+      builder.select = (cols?: unknown, opts?: { count?: string; head?: boolean }) => {
+        if (opts?.head) ctx.head = true;
+        else if (typeof cols === "string") ctx.selectCols = cols;
+        return builder;
+      };
+```
+```ts
+        state.calls.push({ table, head: ctx.head, inCol: ctx.inCol, inArgs: ctx.inArgs, selectCols: ctx.selectCols });
+```
+(Add `selectCols: null` to the `ctx` type + initializer alongside `head`/`inCol`.)
+
+- [ ] **Step 1b: Write the failing loader test**
+
+Append to `tests/admin/fetchDashboardData.test.ts` inside the `describe("fetchDashboardData", …)` block (reuse the file's `run()` helper + `FULL_DATES`):
 
 ```ts
-import { describe, expect, it } from "vitest";
-// Mirror the Supabase-builder mock in tests/components/admin/Dashboard-archived.test.tsx.
-// Feed one active show row with last_checked_at set, capture the .select() argument,
-// and read the produced row.
-//
-// Assertion A — column is fetched:
-//   expect(capturedSelectArg).toContain("last_checked_at");
-// Assertion B — value maps through:
-//   expect(producedRow.lastCheckedAt).toBe("2026-06-03T10:05:00.000Z");
+  it("selects last_checked_at and maps it onto ActiveShowRow.lastCheckedAt", async () => {
+    state.seed = {
+      showsList: [
+        {
+          id: "1", slug: "s1", title: "S1", drive_file_id: "d1",
+          dates: FULL_DATES, venue: null, published: true,
+          last_sync_status: "ok",
+          last_synced_at: "2026-06-03T08:00:00.000Z",
+          last_checked_at: "2026-06-03T11:58:00.000Z",
+        },
+      ],
+      showsActiveCount: 1,
+    };
+    const r = (await run()) as { rows: Array<{ slug: string; lastCheckedAt: string | null }> };
+    // Assertion A — the shows-LIST select (non-head, not the drive_file_id existence probe) includes the column
+    const listCall = state.calls.find(
+      (c) => c.table === "shows" && !c.head && c.inCol !== "drive_file_id",
+    );
+    expect(listCall?.selectCols).toContain("last_checked_at");
+    // Assertion B — the value maps through to the produced row
+    expect(r.rows.find((x) => x.slug === "s1")?.lastCheckedAt).toBe("2026-06-03T11:58:00.000Z");
+  });
 ```
 
-Concretely, extend/reuse the archived harness: stub the shows query to return `[{ ...baseShow, last_checked_at: "2026-06-03T10:05:00.000Z" }]`, spy on `.select`, run the loader, and assert both. (If `fetchDashboardData` is not directly importable, assert Assertion A against the SELECT constant and Assertion B against the mapping by rendering `Dashboard` with the mocked data and reading the produced `shows-sync-times` line — but prefer the direct loader assertion.)
+Both assertions are load-bearing: A fails if the SELECT string omits the column (the mock returns seeded rows regardless of columns, so B alone would pass even with an unselected column); B fails if the map is missing.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/components/admin/Dashboard-lastCheckedAt.test.ts`
-Expected: FAIL — SELECT lacks `last_checked_at` / produced row has no `lastCheckedAt`.
+Run: `cd /Users/ericweiss/fxav-worktrees/sync-cell-edited-checked && pnpm vitest run tests/admin/fetchDashboardData.test.ts -t "last_checked_at"`
+Expected: FAIL — Assertion A: SELECT lacks `last_checked_at`; Assertion B: produced row has no `lastCheckedAt`.
 
 - [ ] **Step 3a: Add the field to the type**
 
@@ -211,14 +251,12 @@ And in the row map (after `lastSyncStatus:` at `:512`):
           lastCheckedAt: null,
 ```
 
-Then re-grep for any other `ActiveShowRow` literal the list missed:
-
-Run: `grep -rln "lastSyncStatus" tests/ | xargs grep -L "lastCheckedAt"` — every file listed still constructs an `ActiveShowRow` without the new field; add it. (Files consuming the crew-viewer `lastSyncedAt`, a different type, won't reference `lastSyncStatus`, so this grep targets `ActiveShowRow` consumers.)
+Then catch any `ActiveShowRow` literal the list missed — **`pnpm typecheck` is the authority, not a text grep** (a `lastSyncStatus` grep false-positives on unrelated shapes, e.g. `tests/components/StaleFooter.test.tsx` and `tests/show/flow8Repick.test.tsx`, which carry `lastSyncStatus` on a different type). Run `pnpm typecheck` (Step 4); every `TS2739`/`TS2741` "missing property `lastCheckedAt`" it reports is an `ActiveShowRow` literal to update. Fix each until typecheck is clean. The four files above are the known set; typecheck is the exhaustive check.
 
 - [ ] **Step 4: Typecheck + loader test pass**
 
-Run: `pnpm typecheck && pnpm vitest run tests/components/admin/Dashboard-lastCheckedAt.test.ts`
-Expected: typecheck clean (all factories updated); loader test PASS. `vitest` strips types, so typecheck is the acceptance gate for the compile-break coverage.
+Run: `pnpm typecheck && pnpm vitest run tests/admin/fetchDashboardData.test.ts`
+Expected: typecheck clean (all `ActiveShowRow` factories updated); full `fetchDashboardData` suite PASS incl. the new loader test. `vitest` strips types, so typecheck is the acceptance gate for the compile-break coverage.
 
 - [ ] **Step 5: Commit**
 
@@ -391,24 +429,40 @@ it("mobile sub-line renders the same two-clause line 2", () => {
 });
 ```
 
-Test H — **transition audit: SyncCell markup is instant** (add near the file's other structural assertions):
+Test H — **transition audit: SyncCell is provably instant across all 3 line-2 states + source scan** (spec §7). Add `import { readFileSync } from "node:fs";` at the top of the test file if absent.
 
 ```tsx
-it("SyncCell introduces no animation (instant transitions)", () => {
-  const { container } = render(
+it.each([
+  // [slug, status, lastCheckedAt] — the three line-2 states
+  ["t_two", "ok", "2026-06-03T09:58:00.000Z"],       // two-clause
+  ["t_chk", "drive_error", "2026-06-03T09:58:00.000Z"], // checked-only
+  ["t_abs", "ok", null],                              // absent
+])("SyncCell renders %s with no animation markup", (slug, status, checked) => {
+  render(
     <ShowsTable
-      rows={[row({ slug: "t", lastSyncStatus: "ok",
-        lastCheckedAt: "2026-06-03T09:58:00.000Z" })]}
+      rows={[row({ slug, lastSyncStatus: status, lastCheckedAt: checked as string | null })]}
       now={new Date("2026-06-03T10:00:00.000Z")}
       activeCount={1} overflowCount={0}
     />,
   );
-  const l2 = within(screen.getByTestId("shows-sync-t")).getByTestId("shows-sync-times-t");
-  // no framer-motion markers, no transition/animation utility classes on line 2 or root
-  expect(l2.getAttribute("data-motion")).toBeNull();
-  expect(l2.className).not.toMatch(/transition|animate-/);
-  const root = screen.getByTestId("shows-sync-t").firstElementChild!;
+  const cell = screen.getByTestId(`shows-sync-${slug}`);
+  const root = cell.firstElementChild as HTMLElement; // SyncCell <span> root
   expect(root.className).not.toMatch(/transition|animate-/);
+  expect(root.getAttribute("data-motion")).toBeNull();
+  const l2 = within(cell).queryByTestId(`shows-sync-times-${slug}`);
+  if (l2) {
+    expect(l2.className).not.toMatch(/transition|animate-/);
+    expect(l2.getAttribute("data-motion")).toBeNull();
+  }
+});
+
+it("SyncCell source declares no framer-motion / exit / initial / animate", () => {
+  // Guard against an animated suppression toggle sneaking into the component source.
+  const src = readFileSync("components/admin/ShowsTable.tsx", "utf8");
+  // Scope to the SyncCell function body.
+  const start = src.indexOf("function SyncCell");
+  const body = src.slice(start, src.indexOf("\nfunction ", start + 1));
+  expect(body).not.toMatch(/AnimatePresence|framer-motion|motion\.|\bexit=|\binitial=|\banimate=/);
 });
 ```
 
@@ -501,6 +555,28 @@ git commit --no-verify -m "chore(admin): impeccable dual-gate + screenshot recon
 ```
 
 (Skip the commit if steps 2–4 produced no changes; record "no changes" in the handoff.)
+
+---
+
+### Task 5: Whole-diff cross-model adversarial review + merge
+
+**Files:** none (review + fix cycle; any fixes are their own TDD micro-commits).
+
+- [ ] **Step 1: Rebase check + full verification**
+
+Run: `git fetch origin && git rebase origin/main` (resolve any drift), then `pnpm typecheck && pnpm lint && pnpm format:check && pnpm vitest run`. All green before review.
+
+- [ ] **Step 2: Cross-model adversarial review of the whole diff**
+
+Invoke the cross-CLI reviewer (Codex, `codex exec`) with fresh-eyes posture, REVIEWER ONLY, on the full `origin/main…HEAD` diff. Iterate to APPROVE (no round budget).
+
+- [ ] **Step 3: Fix-round regression budget (per finding)**
+
+For every finding fixed: (a) re-grep the finding's bug SHAPE across the diff (not just the named line), (b) re-run the affected test file(s) + `pnpm typecheck`, (c) note both in the round closure. If three rounds hit the same vector, ship a structural defense (meta-test / grep guard) in that round's commit rather than waiting.
+
+- [ ] **Step 4: Push, real CI green, merge**
+
+Push the branch, open the PR, confirm CI is actually green on the GitHub Actions run (`gh pr checks <PR#> --watch`; confirm `mergeStateStatus` CLEAN — a DIRTY/behind-base PR blocks `pull_request` CI). Merge via `gh pr merge --merge` (merge commit — squash/rebase disabled). Fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` == `0  0`.
 
 ---
 
