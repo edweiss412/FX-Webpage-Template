@@ -96,7 +96,7 @@ Anti-tautology: assertions extract from within `[data-testid="auto-applied-kind-
 
 ## 8. DEFERRED.md drift correction (lands in this PR)
 
-Live-code verification found two entries stale on `origin/main`:
+Live-code verification found three entries stale on `origin/main` (plus KINDDOT-1, resolved by this PR):
 
 - **AUTOAPPLIED-COLLAPSE-1** ("collapsed header hides change kind") — resolved-in-code by `KindDotCluster` (`:143-189`, comment cites COLLAPSE-1). Mark ✅ RESOLVED-BY-SUPERSESSION.
 - **AUTOAPPLIED-COLLAPSE-2** ("panel mounts/unmounts instantly, no height-morph") — resolved-in-code: `CollapsePanel` now height-morphs (`RecentAutoAppliedStrip.tsx:357` comment; `CollapsePanel.tsx` always-mounted region). Mark ✅ RESOLVED-BY-SUPERSESSION.
