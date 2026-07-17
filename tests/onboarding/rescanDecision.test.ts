@@ -163,6 +163,44 @@ describe("computeRescanDecision", () => {
     expect(dirty).toBe(false);
   });
 
+  // Failure mode (false "Sheet changed" demote): a sheet carrying a STANDING non-ambiguity
+  // gap warning (e.g. PULL_SHEET_ON_ARCHIVED_TAB — a permanent property of the sheet's OLD
+  // tab, not a change) is re-scanned with NO prior baseline (priorParse/priorDataGaps null —
+  // the four capturePriorState null shapes A-D, e.g. a pending row consumed by finalize). A
+  // null baseline is NOT comparable, so the standing gap must NOT be counted as a
+  // regression-from-zero. Before the fix, `newGaps[cls] > (priorGaps?.[cls] ?? 0)` reads
+  // `1 > 0` → dirty → the row is demoted to RESCAN_REVIEW_REQUIRED ("Sheet changed").
+  const archivedTab = (): ParseWarning[] => [
+    { severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB", message: "pull sheet on OLD tab" },
+  ];
+
+  test("priorParse === null + a STANDING non-ambiguity gap → CLEAN (no regression-from-zero)", () => {
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], archivedTab());
+    const { dirty, decisionItems } = computeRescanDecision(null, refreshed, null);
+    expect(dirty).toBe(false);
+    expect(decisionItems).toEqual([]);
+  });
+
+  // Sibling control: the SAME standing gap WITH a non-null baseline that already counts it
+  // once must ALSO be clean — proving the fix gates on baseline PRESENCE (not comparable when
+  // absent), not by suppressing the PULL_SHEET_ON_ARCHIVED_TAB class outright. A genuine
+  // increase from that same baseline still regresses (pinned by the 0→1 tests above).
+  test("STANDING non-ambiguity gap WITH a matching non-null baseline (1 vs 1) → CLEAN", () => {
+    const priorGaps = mkDataGaps({ PULL_SHEET_ON_ARCHIVED_TAB: 1 });
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], archivedTab());
+    expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(false);
+  });
+
+  // Airtight anti-suppression control: the SAME class DOES regress when the baseline is
+  // PRESENT and lower (0 → 1). This proves the fix gates on baseline presence, not by
+  // exempting PULL_SHEET_ON_ARCHIVED_TAB from the gate — a null baseline is clean (above)
+  // BUT a real 0→1 increase off a present baseline is still dirty.
+  test("PULL_SHEET_ON_ARCHIVED_TAB 0 → 1 with a PRESENT baseline → DIRTY", () => {
+    const priorGaps = mkDataGaps({}); // present baseline, this class at 0
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], archivedTab());
+    expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(true);
+  });
+
   test("decision set is exactly the crew-change family", () => {
     expect([...DECISION_REQUIRING_INVARIANTS].sort()).toEqual(["MI-11", "MI-12", "MI-13", "MI-14"]);
   });

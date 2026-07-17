@@ -40,12 +40,26 @@ export function computeRescanDecision(
 
   const newGaps = summarizeDataGaps(refreshedParse.warnings ?? []).classes;
   const priorGaps = priorDataGaps?.classes;
+  // A NULL gap baseline (priorDataGaps === null ⇔ priorParse === null) is NOT
+  // comparable: with no prior parse — a first-seen row, or a pending row whose
+  // approved parse was consumed by finalize — a STANDING warning is a property of
+  // the sheet, not a regression. Counting it against an implicit 0 would falsely
+  // demote an unchanged sheet to RESCAN_REVIEW_REQUIRED ("Sheet changed"). Only a
+  // PRESENT baseline can surface a real gap regression. The "previously-ready but
+  // prior parse unreadable" case still demotes via the caller's SEPARATE
+  // `priorReady && priorParse === null` clause (applyRescanDecisionUnderLock.ts:288),
+  // so this gate never weakens the corrupt-prior protection.
+  //
   // Ambiguity-class gaps (spec §3.4) are judgment calls, not degradations — an
   // increase in one never marks a re-scan dirty (ambiguity never blocks publish).
-  // Only NON-ambiguity gap classes drive the dirty gate.
-  const gapRegressed = (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
-    (cls) => !isAmbiguityCode(cls) && newGaps[cls] > (priorGaps?.[cls] ?? 0),
-  );
+  // Only NON-ambiguity gap classes drive the dirty gate. Once priorGaps is non-null
+  // it is a full-shape all-keys record (summarizeDataGaps ⇐ zeroClasses), so every
+  // `priorGaps[cls]` is a number — no `?? 0` fallback needed.
+  const gapRegressed =
+    priorGaps != null &&
+    (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
+      (cls) => !isAmbiguityCode(cls) && newGaps[cls] > priorGaps[cls],
+    );
 
   return { dirty: decisionItems.length > 0 || gapRegressed, decisionItems };
 }
