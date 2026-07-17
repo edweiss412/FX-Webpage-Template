@@ -16,12 +16,13 @@ PR #408 shipped four two-tap destructive-confirm guards on previously-unguarded 
 The #408 guard-tier ladder (DESIGN.md §15, tier 2) is for **irreversible or work-destroying** ops. Re-scan is neither, because the apply path is already content-aware:
 
 - `computeRescanDecision` (`lib/onboarding/rescanDecision.ts:30-51`) diffs the prior parse against the refreshed parse. It marks the re-scan **DIRTY only** when the refresh surfaces a decision-requiring crew change (`DECISION_REQUIRING_INVARIANTS` = `MI-11`..`MI-14`, line 16-18) **or** a non-ambiguity data-gap count increase (line 46-48). Ambiguity-class gap increases never mark it dirty (line 43-45).
-- `applyRescanDecisionUnderLock` (`lib/onboarding/applyRescanDecisionUnderLock.ts:46-53`) has three non-failure outcomes:
-  - `clean_restamped` — previously-ready + clean diff → **approval re-stamped** (line 52). Nothing lost.
-  - `clean_unchecked` — was not ready → stays unapproved (line 53).
-  - `dirty_demoted` — only demotes `wizard_approved` when the diff is genuinely decision-requiring (line 51), which is exactly the case where re-review is **wanted**.
+- `applyRescanDecisionUnderLock` (`lib/onboarding/applyRescanDecisionUnderLock.ts`) has three non-failure outcomes (union at lines 46-53), selected by the `isDirty` gate at lines 286-289:
+  - `clean_restamped` — previously-ready + clean → **approval re-stamped** (lines 306-336). Nothing lost. (Reviewer choices are regenerated one-apply-per-item because the re-parse mints fresh item ids, lines 310-312 — a mechanical refresh, not a decision loss.)
+  - `clean_unchecked` — was not ready → stays unapproved (lines 339-350).
+  - `dirty_demoted` — demotes `wizard_approved` (lines 291-303).
+- **The `isDirty` gate (lines 286-289) is broader than the content diff** — it demotes a previously-ready sheet when `computeRescanDecision` says dirty **OR** in two corrupt/legacy-data safety clauses even on a clean diff: (i) `priorReady && priorParse === null` — a corrupt/unreadable prior shadow that cannot be verified clean (line 288); (ii) `priorReady && priorApprovedByEmail === null` — a Flow-B/legacy row with an unattributable approver that cannot be re-stamped without violating `pending_syncs_approved_requires_full_payload` (line 289, would 500 otherwise). These are not content-driven demotions; they are data-integrity fallbacks.
 
-So a re-scan with no change, or only an unrelated change, **preserves** the operator's ratified review decision. It discards it only when the sheet changed in a way that legitimately requires a fresh look. The two-tap guarded against a loss the apply path already prevents.
+So for the normal case — a re-scan with no change, or an unrelated change, on a healthy previously-approved row — the apply path **preserves** the ratified decision (`clean_restamped`). It demotes only when (a) the sheet genuinely changed in a decision-requiring way (re-review is wanted), or (b) the prior state is corrupt/unattributable (a safety fallback that must happen regardless). **Crucially for this withdrawal:** the two-tap guard never prevented ANY of these demotions — the confirm fires *into* the same apply path, so demotion behavior is identical whether the control is one-tap or two-tap. The guard added a tap; it never added protection. That is the core reason it is unjustified, and it holds even accounting for the two forced-demote clauses.
 
 Meanwhile **Re-sync**, whose blast radius is strictly larger (it can stage/apply against a LIVE published show — `components/admin/ReSyncButton.tsx`), carries no confirm at all. The friction asymmetry has no blast-radius basis. Doug/admin intent when tapping Re-scan is unambiguous ("refresh this sheet from Drive"); the guard taxes that intent with no protective payoff.
 
@@ -54,6 +55,18 @@ Change:
 - **Delete** the entire `describe("G3 two-tap guard — Re-scan this sheet")` block (~line 494 to its close), including its member tests: armed-morph className, overlay-placement armed morph, second-click-fires-once + timer clear, second-tap-disarms-before-fetch, unmount-while-armed clears timer, and the sr-only "Tap again to confirm." announcement.
 - **Convert** the eight non-G3 tests that currently arm-then-fire as setup (the "first click arms, second click fires" comment sites, ~lines 78, 101, 123, 154, 182, 205, 221, 326) to a **single** click. Their behavioral assertions (fetch fired with the right body, result copy, `router.refresh`, overlay behavior) are unchanged; only the interaction reduces from two taps to one.
 - **Add** a regression test: **one tap fires immediately.** A single click on the Re-scan button POSTs `/api/admin/onboarding/rescan-sheet`, and the armed label `"Confirm re-scan: replaces this staged review"` NEVER appears in the DOM at any point. Concrete failure mode caught: a re-introduced guard (any future edit that re-adds an armed intermediate state).
+
+### 2.2b Integration + e2e tests exercising the guard through the Step-3 modal
+
+`RescanSheetButton` is mounted inside the Step-3 review modal (its "first consumer"), so three more test files double-tap the rescan button to fire it and MUST convert to a single tap (else they hang on the now-nonexistent second-tap fire). Enumerated so the change is complete:
+
+- **`tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx`**
+  - **T8** (`§11 T8: rescanPending false ↔ true …`, ~lines 405-427): asserts the armed morph directly — `expect(btn.textContent).toBe("Re-scan this sheet")` → arm → `.toBe("Confirm re-scan: replaces this staged review")` (line 424) → `.toBe("Re-scanning…")`. **Remove the armed-label assertion**; the test becomes idle → (single tap) → pending, matching the post-withdrawal transition inventory (§3.2). This IS the rescan transition-audit surface — keep it as the idle↔pending audit.
+  - **§H N4** overlay pop-in (~lines 715-717) and **§H compound (d)** (~lines 1006-1007): double-tap-to-open-overlay setup → single tap. Overlay/dismiss assertions unchanged.
+- **`tests/components/admin/wizard/Step3ReviewModal.test.tsx`** — footer overlay result test (~lines 587-590): double-tap → single tap. The other rescan references in this file (lines 363/377/565/651/874/891 etc.) are dirty-rescan CHIP / footer presence assertions that do NOT tap the button — leave them untouched.
+- **`tests/e2e/step3-review-modal.interactions.spec.ts`** — §K14 footer no-shift (~lines 730-732) and §K14-at-390px (~lines 776-778): double-tap → single tap. (e2e is excluded from `pnpm test`; still must be corrected or the Playwright run breaks and the grep-removed-testids check flags stale interactions. Run the e2e spec explicitly as part of verification.)
+
+No armed-morph assertion survives anywhere after this change (grep `"Confirm re-scan: replaces this staged review"` returns zero hits outside the WITHDRAWN spec notes).
 
 ### 2.3 Meta-test — `tests/styles/_metaDestructiveConfirm.test.ts`
 
@@ -119,7 +132,7 @@ Removed transitions (were in #408, now gone): idle→armed (tap 1), armed→idle
 
 - **AC-1** A single tap on "Re-scan this sheet" issues the POST immediately; the armed label never renders. (Regression test, 2.2.)
 - **AC-2** No inverted-amber destructive-recipe literal remains in `RescanSheetButton.tsx`; `_metaDestructiveConfirm.test.ts` passes with the G3 row removed. (2.3.)
-- **AC-3** The eight converted tests pass with one click each; the G3 describe block is gone. (2.2.)
+- **AC-3** The eight converted tests in `RescanSheetButton.test.tsx` pass with one click each; the G3 describe block is gone; the three Step-3-modal surfaces (2.2b) convert to single-tap and pass; T8 no longer asserts the armed label; a repo-wide grep for `"Confirm re-scan: replaces this staged review"` returns zero hits outside WITHDRAWN spec notes. (2.2, 2.2b.)
 - **AC-4** DESIGN.md §15 no longer lists re-scan in tier 2 and carries the breadcrumb; the parent spec marks G3 WITHDRAWN with history intact. (2.4, 2.5.)
 - **AC-5** `impeccable critique` + `impeccable audit` pass on the diff (invariant 8); no P0/P1 unresolved.
 - **AC-6** Full `pnpm test`, typecheck, lint, format:check green; Codex whole-diff review APPROVE.
