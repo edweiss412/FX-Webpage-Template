@@ -422,7 +422,7 @@ Expected: FAIL first because the harness/spec are new (compile/scaffold), then â
 - [ ] **Step 4: Make it pass.** With Tasks 1â€“2 already implemented, the assertions pass against the real classes. Fix only harness/scaffold wiring (paths, Tailwind `@source`, server) until green. Do NOT weaken assertions to pass.
 
 Run: `pnpm exec playwright test tests/e2e/statusStripToggleLayout.spec.ts --config tests/e2e/standalone.config.ts`
-Expected: PASS (a, b, c).
+Expected: PASS (a height-invariance, b compaction, c finalize-containment, d error-content probe).
 
 - [ ] **Step 5: Commit**
 
