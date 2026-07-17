@@ -352,7 +352,7 @@ const infraRegistry = [
     helper: "undoChange",
     path: "lib/sync/holds/undoChange.ts",
     contract:
-      "feed Undo action (WM-F5): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a typed data.ok===false code (e.g. UNDO_SUPERSEDED) passes through unclobbered and data.ok===true → { ok:true }; never an uncaught throw / untyped admin 500 (invariant 9). Enforced by tests/sync/holds/undoChange.infra.test.ts",
+      "feed Undo action (WM-F5): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a typed data.ok===false code (e.g. UNDO_SUPERSEDED) passes through unclobbered and data.ok===true → { ok:true }; never an uncaught throw / untyped admin 500 (invariant 9). Additionally the POST-SUCCESS show_change_log cache-bust read destructures {data,error}; a returned {error} OR thrown fault resolves resolvedShowId=null and PRESERVES ok:true (best-effort — the undo already committed; NOT mapped to SYNC_INFRA_ERROR). Enforced by tests/sync/holds/undoChange.infra.test.ts",
   },
   {
     helper: "acknowledgeChanges",

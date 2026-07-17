@@ -112,6 +112,7 @@ async function importUndoChangeWithServiceRead(opts: {
   // post-success show_change_log.show_id read outcome:
   readReturns?: { show_id: string | null } | null;
   readThrows?: boolean;
+  readError?: { message?: string } | null;
   serviceReadSpy?: { called: boolean };
 }) {
   vi.resetModules();
@@ -127,7 +128,7 @@ async function importUndoChangeWithServiceRead(opts: {
             maybeSingle: async () => {
               if (opts.serviceReadSpy) opts.serviceReadSpy.called = true;
               if (opts.readThrows) throw new Error("META: post-success read fault");
-              return { data: opts.readReturns ?? null, error: null };
+              return { data: opts.readReturns ?? null, error: opts.readError ?? null };
             },
           }),
         }),
@@ -159,6 +160,19 @@ describe("undoChange post-success showId resolution (whole-diff R1 HIGH)", () =>
     const { undoChange } = await importUndoChangeWithServiceRead({
       rpc: { data: { ok: true }, error: null },
       readThrows: true,
+    });
+    await expect(undoChange("clog-1")).resolves.toEqual({ ok: true });
+  });
+
+  test("(B-returned-error) RPC ok but post-success read returns { data:{show_id}, error } → error WINS: { ok:true } WITHOUT showId", async () => {
+    // BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD (invariant 9): the read must destructure {data,error} and
+    // NOT silently trust `data` when `error` is present. Pre-fix ({data}-only) this returned
+    // { ok:true, showId:"show-9" }; post-fix the returned {error} resolves showId=null (undo already
+    // committed — best-effort cache bust; TTL backstop refreshes). This is the genuine failing case.
+    const { undoChange } = await importUndoChangeWithServiceRead({
+      rpc: { data: { ok: true }, error: null },
+      readReturns: { show_id: "show-9" },
+      readError: { message: "boom" },
     });
     await expect(undoChange("clog-1")).resolves.toEqual({ ok: true });
   });
