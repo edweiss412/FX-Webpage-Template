@@ -101,16 +101,21 @@ scheduled at all). DESIGN.md lists "accordion expand" at `duration-normal`
 
 - `open` toggles the row track and `inert`. No other state.
 - `id` MUST be unique per rendered panel (consumers already namespace by
-  `showId` / a literal); it is both the outer element id and the `-morph`
-  testid stem.
-- `children` empty → the morph wrapper renders an empty (height-0) box; benign.
+  `showId` / a literal). It is placed on the **region grid-item** (the
+  `overflow-hidden` element) as both its `id` and its `data-testid` — NOT on the
+  outer grid track (which carries no id/role). Tests query the region via
+  `getByTestId(id)`; `aria-controls` on the trigger points at the same `id`.
+- `children` empty → the region renders an empty (height-0) box; benign.
 
 ### 1.3 Consumer conversions
 
 Each consumer's trigger `<button>` changes `aria-controls={open ? ID : undefined}`
-→ `aria-controls={ID}` (unconditional — the target now always exists). The
-former conditionally-mounted panel body becomes `CollapsePanel`'s child, keeping
-its own `role`/`aria-label`/`data-testid`.
+→ `aria-controls={ID}` (unconditional — the target now always exists). In every
+consumer the former hand-rolled `<div id role="region" aria-label …>` wrapper is
+**removed**; its `id`/`role`/`aria-label`/`data-testid` are subsumed by
+`CollapsePanel` (passed via `id`+`label`). Only the wrapper's *inner* markup
+(the actual panel contents) becomes `CollapsePanel`'s `children` — do NOT nest a
+second region wrapper or re-declare the id/testid inside.
 
 **A. `RecentAutoAppliedStrip.tsx` `GroupSection`** (`:321-410`). Replace
 `{open ? (<div id={panelId} role="region" …>…</div>) : null}` with:
@@ -262,6 +267,18 @@ function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
   );
 }
 ```
+
+### 2.1b Header flex invariant (320px overflow guard)
+
+The collapsed header is a flex row: `chevron` (`shrink-0`) · **show-name span**
+(`min-w-0 flex-1 wrap-break-word`, `:308`) · **dot cluster** (`shrink-0`, added
+here) · **count badge** (`shrink-0`, `:314`). The dot cluster and count MUST
+stay `shrink-0` and the show-name span MUST keep `min-w-0 flex-1` — so at 320px
+the show name is the only element that shrinks/wraps and the dots+count never
+force horizontal overflow. This invariant is why the cluster is capped at
+`MAX_DOTS` (§2.2) and inserted between the flex-1 name and the shrink-0 count,
+not appended after the count. Verified by the impeccable real-browser pass at
+390px (invariant 8) and the header-order unit assertion (§6.3).
 
 ### 2.2 Guard conditions & caps
 
@@ -475,8 +492,14 @@ TDD per task. Unit (jsdom, Vitest + Testing Library) unless noted.
    esbuild+Playwright harness per the committed real-browser harness pattern):
    toggling a `CollapsePanel` consumer changes the **region grid-item's**
    (`#${id}`, the `overflow-hidden role="region"` element)
-   `getBoundingClientRect().height` from `0` (closed) to `>0` (open) at settled
-   state (assert exactly `=== 0` closed and `> 0` open). This is the jsdom-can't-verify assertion the
+   `getBoundingClientRect().height` from `0` (closed) to `>0` (open) **at settled
+   state**. **Wait mechanism (mandatory — avoids mid-transition flake):** run the
+   probe page under `page.emulateMedia({ reducedMotion: "reduce" })` so
+   `--duration-normal` collapses to `0ms` (`globals.css:400-410`) and the toggle
+   is instantaneous — the height read is deterministic (no interpolation window).
+   Assert `=== 0` closed, then click, then assert `> 0` open. (Do NOT sleep-and-hope
+   in animated mode; the animated `transition` *property* is asserted separately,
+   statically, in the transition-audit Task, §6.7.) This is the jsdom-can't-verify assertion the
    morph introduces; scoped to the mechanism, not per-consumer.
 7. **Transition-audit task** (per project writing-plans rule): enumerate the
    `CollapsePanel` states (collapsed/expanded — 1 pair), assert the single
