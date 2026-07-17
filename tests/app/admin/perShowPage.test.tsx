@@ -968,17 +968,59 @@ describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => 
       parse_warnings: [uf("Storage | dock"), uf("Floor Plan | link")],
     };
     await renderPage();
+    // Scope the label assertion to the EYEBROW subtree (its own testid), NOT the group
+    // wrapper — the cards render the same catalog title, so a whole-group assertion would
+    // pass even with a missing eyebrow (anti-tautology; spec test-scope rule).
+    const eyebrow = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
+    expect(eyebrow.textContent).toBe("Unrecognized row in sheet");
+    expect(eyebrow.textContent).not.toContain("UNKNOWN_FIELD"); // invariant 5
+    // the chip reads only the count now (label moved to the eyebrow)
     const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    expect(btn.textContent).toMatch(/Ignore all 2/);
-    // Plain-language type label (catalog title), never the raw §12.4 code (invariant 5).
-    expect(btn.textContent).toContain("Unrecognized row in sheet");
-    expect(btn.textContent).not.toContain("UNKNOWN_FIELD");
+    expect(btn.textContent).toBe("Ignore all 2");
   });
 
-  it("does NOT show a bulk control for a lone warning of a type", async () => {
+  it("does NOT show a bulk chip for a lone warning of a type", async () => {
     state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
     await renderPage();
-    expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
+    // the code still gets its own eyebrow group, but a lone warning is not bulk-eligible → no chip
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeNull();
+  });
+
+  it("renders active warnings grouped by code — eyebrow per code (incl. non-ignorable BLOCK_DISAPPEARED), chip only on bulk-eligible groups (DQIGNORE-6)", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [
+        uf("Storage | dock"), // UNKNOWN_FIELD #1
+        uf("Floor Plan | link"), // UNKNOWN_FIELD #2 (>=2 distinct → bulk-eligible)
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_SECTION_HEADER",
+          message: 'Unrecognized section "Rigging" — its rows were not parsed.',
+          rawSnippet: "Rigging", // lone UNKNOWN_SECTION_HEADER → singleton, no chip
+        },
+        {
+          severity: "warn" as const,
+          code: "BLOCK_DISAPPEARED",
+          message: "The Hotel section was present last time but is now empty — 3 entries dropped.",
+          blockRef: { kind: "hotel" }, // NO rawSnippet → non-ignorable, always active, never a chip
+        },
+      ],
+    };
+    await renderPage();
+    // three distinct active codes → three group wrappers → three active <ul>s
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_SECTION_HEADER")).toBeInTheDocument();
+    expect(screen.getByTestId("dq-active-group-BLOCK_DISAPPEARED")).toBeInTheDocument();
+    expect(screen.getAllByTestId("per-show-actionable-warnings")).toHaveLength(3);
+    // chip only on the bulk-eligible group
+    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_SECTION_HEADER")).toBeNull();
+    expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
+    // the non-ignorable group is labeled through the page's real bulkGroupLabel path:
+    // no catalog title → DATA_GAP_CLASS_LABELS → "removed section" (scoped to the eyebrow)
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe("removed section");
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain("BLOCK_DISAPPEARED");
   });
 });
 
