@@ -319,6 +319,24 @@ async function raceArchiveAgainst(
   showId: string,
   otherFn: AdminRpcFn,
 ): Promise<{ concurrentThrew: boolean }> {
+  // Single-`p_show_id` RPCs: B just calls public.<otherFn>(show_id). Poll matches the fn name.
+  return raceArchiveAgainstCall(showId, otherFn, (tx) =>
+    tx.unsafe(`select public.${otherFn}($1::uuid)`, [showId]),
+  );
+}
+
+/**
+ * Generalized core of the archive-race: A grabs the per-show advisory lock, B (via `bCall`) blocks on it,
+ * A archives + commits, then B proceeds and its post-lock guard must fire. `matchName` is the substring
+ * used to detect B's Lock-wait in pg_stat_activity (usually the RPC name). Returns concurrentThrew=true iff
+ * `bCall` rejected (the post-lock immutability guard fired); a stale pre-lock guard would let B mutate the
+ * now-archived show and resolve without throwing.
+ */
+async function raceArchiveAgainstCall(
+  showId: string,
+  matchName: string,
+  bCall: (tx: TransactionSql) => Promise<unknown>,
+): Promise<{ concurrentThrew: boolean }> {
   const { drive_file_id: drive } = (await readShow(showId)) as { drive_file_id: string };
   const a = newConn();
   const b = newConn();
@@ -338,21 +356,21 @@ async function raceArchiveAgainst(
     await aLocked;
 
     const bTxn = asAdminTx(b, async (tx) => {
-      await tx.unsafe(`select public.${otherFn}($1::uuid)`, [showId]); // blocks on A's lock
+      await bCall(tx); // blocks on A's lock
     }).catch(() => {
       concurrentThrew = true;
     });
 
-    // Wait until B is genuinely Lock-waiting on otherFn before releasing A (bounded; fail loud).
+    // Wait until B is genuinely Lock-waiting before releasing A (bounded; fail loud).
     const deadline = 5_000;
     for (let waited = 0; ; waited += 25) {
       const [row] = await sql`
         select count(*)::int n from pg_stat_activity
-         where wait_event_type = 'Lock' and state = 'active' and query ilike ${"%" + otherFn + "%"}`;
+         where wait_event_type = 'Lock' and state = 'active' and query ilike ${"%" + matchName + "%"}`;
       if (!row) throw new Error("raceArchiveAgainst: pg_stat_activity count query returned no row");
       if (row.n >= 1) break;
       if (waited >= deadline) {
-        throw new Error(`raceArchiveAgainst: B never reached Lock-wait on ${otherFn}`);
+        throw new Error(`raceArchiveAgainst: B never reached Lock-wait on ${matchName}`);
       }
       await new Promise((r) => setTimeout(r, 25));
     }
@@ -364,6 +382,19 @@ async function raceArchiveAgainst(
     await b.end({ timeout: 5 });
   }
   return { concurrentThrew };
+}
+
+/**
+ * reset_crew_member_selection (2-arg) racing a committing archive must REFUSE (DEF-1 guard, post-lock).
+ * Same topology as archivedImmutabilityRace but B calls reset with (show_id, crew_member_id).
+ */
+export async function archivedImmutabilityRaceReset(
+  showId: string,
+  crewId: string,
+): Promise<{ concurrentThrew: boolean }> {
+  return raceArchiveAgainstCall(showId, "reset_crew_member_selection", (tx) =>
+    tx.unsafe(`select public.reset_crew_member_selection($1::uuid, $2::uuid)`, [showId, crewId]),
+  );
 }
 
 /** A second archive_show racing a committing archive must no-op (token/epoch change exactly once). */

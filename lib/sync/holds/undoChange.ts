@@ -70,12 +70,17 @@ export async function undoChange(changeLogId: string): Promise<UndoChangeResult>
   if (rpcData && rpcData.ok === true) {
     try {
       const service = createSupabaseServiceRoleClient();
-      const { data } = await service
+      const { data, error } = await service
         .from("show_change_log")
         .select("show_id")
         .eq("id", changeLogId)
         .maybeSingle();
-      resolvedShowId = (data as { show_id?: string | null } | null)?.show_id ?? null;
+      // best-effort cache-bust read: a returned {error} OR a thrown fault both resolve to null
+      // (the undo already committed; the show's unstable_cache TTL backstop refreshes) — explicit,
+      // NOT a silent {data}-only swallow (invariant 9). NOT mapped to SYNC_INFRA_ERROR: undo succeeded.
+      resolvedShowId = error
+        ? null
+        : ((data as { show_id?: string | null } | null)?.show_id ?? null);
     } catch {
       resolvedShowId = null;
     }

@@ -982,6 +982,31 @@ export const MESSAGE_CATALOG = {
       "We couldn't find the change you tried to undo. It may have already been undone, or it's a notification-only change (like a section shrinking) that doesn't carry a saved 'before' value to restore. Refresh the feed and try again.",
     helpHref: "/help/errors#UNDO_NOT_FOUND",
   },
+  UNDO_SHOW_ARCHIVED: {
+    code: "UNDO_SHOW_ARCHIVED",
+    dougFacing:
+      "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
+    crewFacing: null,
+    followUp: "Doug → unarchive",
+    helpfulContext:
+      "You can't undo a change on an archived show — archived shows are read-only. Unarchive the show first, then undo the change; the crew list accepts edits again once it's live.",
+    title: "Can't undo — this show is archived",
+    longExplanation:
+      "You can't undo a change on an archived show — archived shows are read-only. Unarchive the show first, then undo the change; the crew list accepts edits again once it's live.",
+    helpHref: "/help/errors#UNDO_SHOW_ARCHIVED",
+  },
+  UNDO_FINALIZE_OWNED: {
+    code: "UNDO_FINALIZE_OWNED",
+    dougFacing: "This show is being finalized right now. Wait for that to finish, then undo.",
+    crewFacing: null,
+    followUp: "Doug → wait",
+    helpfulContext:
+      "This show is in the middle of being finalized (the publish wizard owns it right now), so undo is temporarily blocked. Wait for finalize to finish, then try the undo again.",
+    title: "Can't undo — this show is being finalized",
+    longExplanation:
+      "This show is in the middle of being finalized (the publish wizard owns it right now), so undo is temporarily blocked. Wait for finalize to finish, then try the undo again.",
+    helpHref: "/help/errors#UNDO_FINALIZE_OWNED",
+  },
   mi11_pending_email_change: {
     code: "mi11_pending_email_change",
     severity: "info",
