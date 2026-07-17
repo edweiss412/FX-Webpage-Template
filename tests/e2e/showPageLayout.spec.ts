@@ -71,6 +71,8 @@ function pageHtml(cssHref: string, body: string): string {
 let server: Server;
 let baseUrl: string;
 let workDir: string;
+// The pathological long title the harness rendered into harness-long.html (§8.5).
+let longTitleText: string;
 
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), "showpage-layout-"));
@@ -88,10 +90,20 @@ test.beforeAll(async () => {
       env: { ...process.env, HASH_FOR_LOG_PEPPER: "test-harness-pepper-000000000000000000" },
     },
   );
-  const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as { dfid: string; normal: string };
+  const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
+    dfid: string;
+    normal: string;
+    longTitle: string;
+    longTitleText: string;
+  };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(DFID);
+  longTitleText = pages.longTitleText;
 
   writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", pages.normal));
+  // §8.5 fixture: the SAME page with a pathological long strip title. It reuses
+  // out.css (identical class strings — only the h1 text differs), so no second
+  // Tailwind compile is needed.
+  writeFileSync(join(workDir, "harness-long.html"), pageHtml("out.css", pages.longTitle));
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
@@ -244,4 +256,80 @@ test.describe("Consolidated admin show page — dimensional invariants (spec §8
       expect(box.h, `${id} height`).toBeGreaterThan(0);
     }
   });
+
+  // §8.5: a pathological long strip title TRUNCATES and the strip does NOT
+  // overflow at any viewport. This is the successor to the deleted
+  // admin-lifecycle-layout `per-show long-title header` test (the rebuild dropped
+  // AdminPageHeader; the strip's <h1 data-testid="strip-title"> — min-w-0 truncate
+  // in a flex-wrap/sm:flex-nowrap strip — is now the page heading). jsdom can't
+  // verify truncation (it computes no layout) and Tailwind v4 does not default
+  // `.flex` to align-items/min-width behaviors — so this is measured end-to-end.
+  for (const [label, vp] of [
+    ["≥lg (flex-nowrap)", LG],
+    ["<sm (flex-wrap)", MOBILE],
+  ] as const) {
+    test(`§8.5 ${label}: a long strip title truncates and the strip does not overflow`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(vp);
+      await page.goto(`${baseUrl}harness-long.html`);
+
+      const strip = page.getByTestId("show-status-strip");
+      const title = page.getByTestId("strip-title");
+      await expect(strip).toBeVisible();
+      await expect(title).toBeVisible();
+
+      // Anti-tautology: the long fixture actually loaded (the h1 carries the long
+      // title text), so the truncation assertion below is exercising the real
+      // pathological case — not the short default fixture.
+      const titleText = (await title.textContent()) ?? "";
+      expect(titleText, "the long-title fixture is loaded").toBe(longTitleText);
+
+      const box = await title.evaluate((el) => ({
+        scrollWidth: (el as HTMLElement).scrollWidth,
+        clientWidth: (el as HTMLElement).clientWidth,
+      }));
+      // Truncation is real: the intrinsic text is wider than the rendered box.
+      // This only holds if `min-w-0` lets the h1 shrink below its content and
+      // `truncate` (overflow:hidden) clips it — the exact behavior jsdom misses.
+      expect(
+        box.scrollWidth,
+        `long title truncates (content wider than box) at ${label}`,
+      ).toBeGreaterThan(box.clientWidth);
+
+      // No horizontal overflow: neither the document nor the strip gains a
+      // horizontal scrollbar from the long title (the truncated h1 must not push
+      // the strip wider than its column).
+      const overflow = await strip.evaluate((el) => {
+        const root = document.documentElement;
+        const stripRect = el.getBoundingClientRect();
+        const offenders: number[] = [];
+        for (const child of Array.from(el.children)) {
+          const r = child.getBoundingClientRect();
+          if (r.right > stripRect.right + 0.5) offenders.push(r.right);
+        }
+        return {
+          docScrollW: root.scrollWidth,
+          docClientW: root.clientWidth,
+          stripScrollW: (el as HTMLElement).scrollWidth,
+          stripClientW: (el as HTMLElement).clientWidth,
+          offenders,
+        };
+      });
+      expect(
+        overflow.docScrollW,
+        `document has no horizontal overflow at ${label}`,
+      ).toBeLessThanOrEqual(overflow.docClientW + 0.5);
+      expect(
+        overflow.stripScrollW,
+        `strip content does not overflow its box at ${label}`,
+      ).toBeLessThanOrEqual(overflow.stripClientW + 0.5);
+      // No individual strip child (title, toggle, badges) spills past the strip's
+      // right edge.
+      expect(
+        overflow.offenders,
+        `no strip child overflows the strip right edge at ${label}`,
+      ).toEqual([]);
+    });
+  }
 });

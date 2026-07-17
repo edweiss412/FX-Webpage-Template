@@ -44,6 +44,15 @@ export const SHOWPAGE_DFID = "drive-showpage-1";
 export const SHOWPAGE_SLUG = "showpage-layout-show";
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
 
+/** The strip's default (short) title. */
+export const SHOWPAGE_TITLE = "Showpage Layout Fixture";
+/** A pathological long title for the §8.5 StatusStrip truncation/no-overflow
+ *  assertion (successor to the deleted admin-lifecycle-layout long-title-header
+ *  test). No spaces would be an unrealistic edge; this is a long, wrapping-prone
+ *  real title far wider than any strip content column. */
+export const SHOWPAGE_LONG_TITLE =
+  "Q3 Global Partner Enablement Summit & Annual Broadcast Operations Review — Grand Ballroom Main Stage Production, Downtown Convention Center, Extended Program";
+
 const stubRouter = {
   refresh() {},
   push() {},
@@ -179,7 +188,7 @@ const NOOP_OK = async () => ({ ok: true as const });
  *  React.createElement — see the modal harness header: Playwright's JSX
  *  transform would corrupt a spec-imported tree; createElement is untouched, so
  *  this stays renderable even if a future spec imports the module. */
-export function pageElement(): React.ReactElement {
+export function pageElement(title: string = SHOWPAGE_TITLE): React.ReactElement {
   const data = buildPublishedSectionData(snapshot(), { slug: SHOWPAGE_SLUG });
   const bySection: SectionWarningRecord = {};
   // children folded into props (not positional) — both providers type `children`
@@ -190,7 +199,9 @@ export function pageElement(): React.ReactElement {
     bySection,
     slug: SHOWPAGE_SLUG,
     showId: SHOW_ID,
-    title: "Showpage Layout Fixture",
+    // The StatusStrip renders THIS prop as its <h1> (not snapshot.show.title), so
+    // overriding it drives the §8.5 long-title truncation case.
+    title,
     archived: false,
     published: true,
     finalizeOwned: false,
@@ -229,7 +240,7 @@ export function pageElement(): React.ReactElement {
 
 /** The page inside the REAL admin-layout document-flow shell (non-onboarding
  *  branch of app/admin/layout.tsx) so the window is the scroll container. */
-export function renderPageHtml(): string {
+export function renderPageHtml(title: string = SHOWPAGE_TITLE): string {
   return renderToStaticMarkup(
     React.createElement(
       "div",
@@ -238,7 +249,7 @@ export function renderPageHtml(): string {
         className:
           "mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[720px]:pb-page-pad-desktop",
       },
-      pageElement(),
+      pageElement(title),
     ),
   );
 }
@@ -251,5 +262,13 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
   if (!outPath) throw new Error("usage: tsx _showPageLayoutHarness.tsx <out.json>");
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS main-guard CLI
   const { writeFileSync } = require("node:fs") as typeof import("node:fs");
-  writeFileSync(outPath, JSON.stringify({ dfid: SHOWPAGE_DFID, normal: renderPageHtml() }));
+  writeFileSync(
+    outPath,
+    JSON.stringify({
+      dfid: SHOWPAGE_DFID,
+      normal: renderPageHtml(),
+      longTitle: renderPageHtml(SHOWPAGE_LONG_TITLE),
+      longTitleText: SHOWPAGE_LONG_TITLE,
+    }),
+  );
 }
