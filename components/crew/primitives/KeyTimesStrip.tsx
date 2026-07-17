@@ -24,9 +24,10 @@
  * first 7 render and the remainder collapse into a native `<details>` overflow
  * disclosure (`data-testid="key-times-shows-overflow"`, no `data-anchor` so its
  * rows are not counted as show rows). The disclosure is recessive at rest and
- * expands the hidden days INLINE on tap (D2) — a `<summary>` is natively a
- * button with `aria-expanded`, so keyboard + SR work with zero client JS and
- * the component stays a Server Component.
+ * expands the hidden days INLINE on tap (D2) — a native `<summary>` toggles the
+ * `<details>` and assistive tech announces the expanded/collapsed state (via the
+ * details/summary a11y mapping, not a hand-written attribute), so keyboard + SR
+ * work with zero client JS and the component stays a Server Component.
  *
  * Props (binding contract): {anchors: KeyTimeAnchors} from
  * lib/crew/resolveKeyTimes ({ set?, shows?: ShowAnchor[], strike? }). Per-show

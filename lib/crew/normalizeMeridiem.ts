@@ -16,8 +16,11 @@
  * upstream) is returned unchanged. Idempotent.
  *
  * The `(\d)` anchor is load-bearing: it prevents a false match on ordinary
- * words that merely contain "am"/"pm" (e.g. "spam", "9am team") — only a
- * meridiem immediately following a digit (optional whitespace) is rewritten.
+ * words that merely contain "am"/"pm" with no preceding digit (e.g. "spam",
+ * "Ampitheater") — only a meridiem immediately following a digit (optional
+ * whitespace) is rewritten. A real digit-led time IS rewritten by design, so
+ * "9am" -> "9 AM" (and, yes, "9am team" -> "9 AM team"): the anchor is the
+ * digit, not a word boundary.
  */
 const MERIDIEM_RE = /(\d)\s*([ap])\.?\s*m\.?/gi;
 
