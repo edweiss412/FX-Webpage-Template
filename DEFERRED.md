@@ -629,17 +629,17 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-
 - **Why deferred:** needs a real-browser 360px reflow measurement + a design decision (reserve max size vs fixed-height armed state); the auto-revert + label change are the shipped mitigations. Not demonstrable in jsdom.
 - **Trigger:** real-browser check in the next admin mobile pass, or a venue-floor mis-tap report. Backlog: `BL-DESTRUCT-ARMED-REFLOW`.
 
-### DESTRUCT-2 — [P3→deferred] Confirm-label grammar + auto-revert timing not harmonized
+### DESTRUCT-2 — [P3→deferred] Confirm-label grammar + auto-revert timing not harmonized — ✅ RESOLVED (2026-07-17, branch fix/destruct-harmonize)
 
 - **What:** morphs use "Confirm: X" / panels use bare "Confirm revoke|reset|rotate|dismiss"; panels auto-revert at 3s (`AUTO_REVERT_MS`), guards + Archive at 4s (`ARM_REVERT_MS`).
 - **Why deferred:** copy + timing harmonization is a coordinated pass across 11 surfaces with shipped per-surface tests; no user-facing defect, only consistency polish (critique H4 note).
-- **Trigger:** next destructive-surface polish pass. Backlog: `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE`.
+- **Resolution:** (1) **Timing** — every surface now auto-reverts at a single 4s window under one constant name (`ARM_REVERT_MS`); the five panels bumped 3s→4s and renamed off `AUTO_REVERT_MS`. More react time for a venue-floor operator, one idiom. (2) **Grammar** — 8/11 surfaces already read "Confirm <verb>[: <consequence>]"; the three deviating morphs dropped the colon-after-Confirm ("Confirm stop showing this sheet", "Confirm stop tracking this sheet permanently", "Confirm ignore all N"), so the colon only ever separates a verb from a consequence clause. Per-surface tests updated (timer advances cross 4s; morph label assertions). Backlog `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` closed.
 
-### DESTRUCT-3 — [P3→deferred] Bulk-undo full success is silent for screen readers
+### DESTRUCT-3 — [P3→deferred] Bulk-undo full success is silent for screen readers — ✅ RESOLVED (2026-07-17, branch fix/destruct-harmonize)
 
 - **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
 - **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
-- **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.
+- **Resolution:** `RecentAutoAppliedStrip` completion now always records the outcome; `failed > 0` keeps the visible `role="alert"`, `failed === 0` renders an `sr-only` `role="status"` ("Undid all N changes.") so assistive tech hears the undo landed. Open-clears lifecycle unchanged (reopen writes null). Count derives from the group. Backlog `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` closed.
 
 ## BLOCKRES — BlockedRowResolver (impeccable critique, 2026-07-17, spec 2026-07-16-wizard-blocker-inline-resolution)
 
