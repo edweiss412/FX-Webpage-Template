@@ -14,7 +14,7 @@ On the admin dashboard's "Recently auto-applied" strip (`components/admin/Recent
 
 ## 2. Goal & option analysis
 
-**Goal:** the `field_changed` row names each auto-applied show-level field and shows its From→To, in one row, without new per-field rows and without touching undo/acknowledge semantics. The field-family invariant set is unchanged; the emission predicate is tightened only to stop writing a row for the held-only-MI-9 case that was never actually auto-applied (§3).
+**Goal:** the `field_changed` row names each auto-applied show-level field and shows its From→To, in one row, without new per-field rows and without touching undo/acknowledge semantics. The field-family invariant set and the set of syncs that emit a row are unchanged (§3); every field-family invariant (MI-8/8b/8c/9) auto-applies (§3.2), so the enrichment describes only genuinely-applied changes.
 
 Three options were mocked (approved comparison artifact: the Option-B card). Decision:
 
@@ -24,11 +24,11 @@ Three options were mocked (approved comparison artifact: the Option-B card). Dec
 | **B — From→To in row (CHOSEN)** | One row lists each field + old→new | Delivers the value; reuses the reader's existing `DiffBlock` machinery; no undo/count change |
 | C — per-field rows + stored before/after-image | One acknowledge row per field | **Rejected on the user's redundancy concern**: `field_changed` is non-undoable, so per-row granularity buys nothing actionable — it only multiplies dismissal taps for one sheet edit. The group's existing "Accept all" already clears the bucket. |
 
-## 3. What triggers the row (predicate tightened — held-only no longer emits)
+## 3. What triggers the row (predicate restated — behavior-preserving)
 
-Today `writeAutoApplyChanges.ts:143-160` emits one `field_changed` row when **any** of `MI-8 | MI-8b | MI-8c | MI-9` is present in `triggeredItems`, **ignoring `heldNames`**. This spec's field-family set (which invariants can contribute) is unchanged, but the **emission predicate is tightened**: the row is emitted **iff at least one genuinely-applied field-change entry survives the per-item guards** (§3.1) — i.e. the post-guard `fieldChanges` list is non-empty.
+Today `writeAutoApplyChanges.ts:143-160` emits one `field_changed` row when **any** of `MI-8 | MI-8b | MI-8c | MI-9` is present in `triggeredItems`. **All four of these auto-apply** — per the live routing contract `phase1.ts:504-507`, "MI-11 is the ONLY gated invariant … Every other invariant (MI-6..MI-14 except MI-11) AND asset drift … auto-apply and become Phase-2/Phase-5 feed rows." So every field-family item represents a genuinely-applied change (see §3.2 for MI-9 specifically).
 
-The only case this flips: a sync whose sole field-family item(s) are **held MI-9** (§3.2). Today that writes a generic "A field changed on this sync" acknowledge row for a change that was **not** auto-applied (it is pending LEAD review); after this change, **no `field_changed` row is written** — the held change is surfaced through its own review/notify path (`sync_holds`, Phase 5), not the auto-applied acknowledge feed. MI-8/MI-8b/MI-8c always produce an entry (they are genuinely applied), so their row behavior is unchanged. This is a deliberate, spec-documented correctness fix (not a silent routing change; invariant 7 honored), and it directly serves the feature's goal: the auto-applied feed should not show a row for something that was not auto-applied.
+The implementation shape is: build the per-item `fieldChanges` entries (§3.1), then **emit the row iff `fieldChanges` is non-empty**. Because each of MI-8/8b/8c/9 always yields exactly one entry, this is **behavior-preserving vs. today** — the row fires in exactly the same syncs. The `iff non-empty` form is a **defensive invariant** (never write an empty structured row), not a routing change: given live routing there is no field-family item that produces zero entries, so no sync that fires today stops firing. (Invariant 7 honored — no silent routing change.)
 
 ### 3.1 Per-invariant enrichment matrix
 
@@ -39,7 +39,7 @@ For each triggering item present, the writer produces a structured **field-chang
 | **MI-8** financial clear (`:537`) | `{ field: "po"\|"proposal"\|"invoice"\|"invoiceNotes" }` — **widened** to also carry `prior: string\|null; next: string\|null` | From→To: `label` = display name (see §3.3), `from` = prior value or `"(unknown)"` for legacy/absent (see §3.5), `to` = `"(cleared)"` sentinel (MI-8 only fires had-value→now-empty, `invariants.ts:447-451`) | none |
 | **MI-8b** COI status (`:538`) | `{ prior: string\|null; next: string\|null }` (already carried) | From→To: `label` = `"COI status"`, `from` = prior or `"(none)"`, `to` = next or `"(none)"` | none |
 | **MI-8c** pull-sheet regression (`:539`) | `{ mode: "collapse"\|"ambiguous_format"\|"halved"\|"case_dropped"; details? }` | Note-only: `label` = `"Pull sheet"`, `note` = the mode's descriptive sentence (§3.4). No clean from/to — established (AUTOAPPLIED-REDESIGN-3 "MI-8c stays a sentence"). | none |
-| **MI-9** LEAD-bit role delta (`:545`) | `{ crew_name; prior_flags: RoleFlag[]; new_flags: RoleFlag[] }` | Note-only: `label` = crew name, `note` = `"role updated on this sync"` | **Skip if `crew_name ∈ heldNames`** (§3.2) |
+| **MI-9** LEAD-bit role delta (`:545`) | `{ crew_name; prior_flags: RoleFlag[]; new_flags: RoleFlag[] }` | Note-only: `label` = crew name, `note` = `"role updated on this sync"` | none — MI-9 auto-applies (§3.2); **no `heldNames` gate** |
 
 **Ordering:** entries appended in the writer's evaluation order: all MI-8 (financial) first (in the `financialFields` array order — po, proposal, invoice, invoiceNotes), then MI-8b, then MI-8c entries, then MI-9. Deterministic, fixture-stable.
 
@@ -47,11 +47,11 @@ For each triggering item present, the writer produces a structured **field-chang
 
 `writeAutoApplyChanges` runs on two paths: the fresh cron/push parse (in-memory items — new shape) **and** the staged-apply path, where `notableItems` derive from `pending_syncs.triggered_review_items` — JSON staged possibly **before this deploy**. A pre-deploy MI-8 item is `{ id, invariant: "MI-8", field }` with **no `prior`/`next`**, and the staging guard `isStructurallyValidReviewItem` (`lib/staging/reviewPayloadGuards.ts:69`) does **not** require them (MI-8 is absent from `REVIEW_ITEM_REQUIRED_STRING_FIELDS`, `:53`), so such a row is valid and reaches the new writer. **Compatibility rule:** the MI-8 entry builder reads `from = typeof item.prior === "string" ? item.prior : "(unknown)"` — handling both `null` and **absent** — and always sets `to = "(cleared)"` (from `field`, which legacy carries). A legacy MI-8 therefore renders `"{field name}: (unknown) → (cleared)"` — informative and **never crashes, never emits `undefined`**. **Non-tightening rule:** MI-8 MUST NOT be added to `REVIEW_ITEM_REQUIRED_STRING_FIELDS` (requiring `prior`/`next` there would reject otherwise-valid staged rows and brick pending work). This is verified by a dedicated legacy-shape test (§9).
 
-### 3.2 MI-9 held-vs-applied guard (correctness, adversarial-review preempt)
+### 3.2 MI-9 is APPLIED, not held (corrected — live-routing verified)
 
-MI-9 fires on a **LEAD-bit set-membership delta** (`invariants.ts:530-544`). A LEAD change is **held for review** (catalog `MI-9_ROLE_FLAGS_DELTA` at `lib/messages/catalog.ts:866`: "we hold every LEAD toggle for review"); its feed entry comes from the review/notify path, not the auto-applied strip. Non-LEAD role_flags changes auto-apply via `ROLE_FLAGS_NOTICE` (`lib/sync/phase2.ts:522`), a **separate mechanism that does not emit an MI-9 item** and is out of scope here.
+MI-9 fires on a **LEAD-bit set-membership delta** (`invariants.ts:530-544`). **It auto-applies.** The live decision rule (`phase1.ts:504-507`) partitions **MI-11 as the ONLY hold-gated invariant** — it alone routes to per-crew `sync_holds`; "Every other invariant (MI-6..MI-14 except MI-11) … auto-apply and become Phase-2/Phase-5 feed rows." So the LEAD-bit change **is written to the DB on this sync**. (The catalog copy `MI-9_ROLE_FLAGS_DELTA` "we hold every LEAD toggle for review" describes the **admin-alert/notify** surface that additionally flags the LEAD change for a human to eyeball — it is **not** a `sync_holds` stage; the row still auto-applies. Do not conflate the alert with a hold.)
 
-Today the writer's `field_changed` boolean check ignores `heldNames`, so a held MI-9 still contributes to the generic "A field changed" row. Enriching that to a specific role line would describe a **pending-review** change as applied — misleading. **Guard:** the MI-9 entry is emitted only when `crew_name ∉ args.heldNames` (already passed into the writer, `phase2.ts:464-480`). Combined with the tightened emission predicate (§3): if every field-family item in a sync is a held MI-9, `fieldChanges` is empty and **no `field_changed` row is written at all** (not a generic fallback) — the held change reaches Doug through its own review/notify path. The MI-9 entry deliberately does **not** print specific LEAD/flag values (avoids asserting a specific applied role state for a change that may be a hold artifact) — note-only.
+**Consequence for this feature:** naming an applied MI-9 change is **correct, not misleading** — the prior spec draft's `heldNames` suppression guarded a state that cannot occur (`heldNames` is populated only from `sync_holds`, `phase2.ts:464-468`, which only ever holds MI-11) and asserted a false "held" property. **The `heldNames` gate is removed for MI-9.** MI-9 produces a **note-only** entry: `label` = crew name, `note` = `"role updated on this sync"`. It deliberately does not format specific `RoleFlag[]` values (YAGNI — a note conveys the applied fact without a role-vocabulary formatter; the exact LEAD/flag detail lives on the companion admin alert). A crew member whose **identity** is concurrently MI-11-held still gets this note: `phase1.ts:580-584` — "MI-11 present → the rest of the parse still auto-applies; only the flagged crew's identity (email) holds" — so the role_flags change applied regardless of the email hold. (`ROLE_FLAGS_NOTICE`, `phase2.ts:522`, is the separate non-LEAD path and emits no MI-9 item — out of scope.)
 
 ### 3.3 Field display names (single source of truth)
 
@@ -96,7 +96,7 @@ Rejected alternatives: (a) a new dedicated column — needs a migration + valida
 - An entry with `note` set → render the note line; with `from`/`to` set → render the From→To line. An entry may not have both (writer invariant); reader renders `note` if present else From→To.
 - `from`/`to`/`note`/`label` are always strings when their branch is taken (never null in that branch); the `"(cleared)"` / `"(none)"` sentinels cover empty source values so no blank cell renders.
 
-**Cap/truncation:** a single sync realistically trips ≤ ~6 field entries (4 financial + COI + pull-sheet; MI-9 held-gated). Cap the rendered entry list at **8**; beyond 8, render the first 8 then a `"+N more"` note line. The `summary` sentence is capped at naming the first **3** fields then `"and N more"`.
+**Cap/truncation:** a single sync realistically trips a handful of field entries (≤4 financial + COI + pull-sheet + per-crew MI-9). MI-9 is per-crew, so in a pathological large-roster LEAD sweep the list could be longer. Cap the rendered entry list at **8**; beyond 8, render the first 8 then a `"+N more"` note line. The `summary` sentence is capped at naming the first **3** fields then `"and N more"`. Both caps apply to the same ordered `fieldChanges` (§3.1).
 
 **Transition inventory:** the `field_changed` row is static content inside the strip's existing group disclosure. The row's own content has **one visual state** (no intra-row toggles/animation) → no new transitions. The enclosing group expand/collapse and Accept/Undo button transitions are **unchanged** by this spec (no edits to `GroupSection` state machine). No `AnimatePresence` / ternary-render is added.
 
@@ -106,22 +106,23 @@ Rejected alternatives: (a) a new dedicated column — needs a migration + valida
 
 - **MI-8 `prior` null / absent (legacy):** MI-8 only fires when prior had a value (`invariants.ts:447`), so `prior` is a non-empty string on the fresh path; if it is `null` OR absent (legacy staged row, §3.5), `from` renders `"(unknown)"` (never a blank cell, never `undefined`).
 - **MI-8b both null:** cannot fire (fires only on `priorCoi !== nextCoi` after normalize, `invariants.ts:460`); if `prior`/`next` null, sentinels `"(none)"` apply.
-- **Empty `fieldChanges` (e.g. held-only MI-9):** the writer writes **no `field_changed` row at all** (§3 tightened predicate) — never an empty structured row, never a generic fallback row. The held change is surfaced via its own review/notify path.
+- **Empty `fieldChanges`:** the writer writes **no `field_changed` row at all** (§3 defensive predicate) — never an empty structured row. Given live routing every field-family item (MI-8/8b/8c/9) yields an entry, so this branch does not fire for any sync that fires today (behavior-preserving); it is a guard against a future item type that produces no entry.
 - **Malformed stored data / old rows:** reader falls through to `{ kind: "none" }` + summary sentence.
 
 ## 8. Non-goals
 
 - No new per-field acknowledge rows (Option C rejected).
 - No change to undo/acknowledge semantics, `individually_undoable`, `UNDOABLE_KINDS`, or the group count (still one row per sync).
-- No change to the field-family invariant set; the emission *predicate* is tightened only to drop the held-only-MI-9 case (§3) — no other routing change.
+- No change to the field-family invariant set and **no routing change** — the emission predicate is behavior-preserving (§3); MI-9 auto-applies (§3.2), so no sync that fires today stops firing.
 - No migration, no new column, no new advisory-lock surface (rides the existing locked sync txn in `phase2.ts`), no new admin route/table, no new §12.4 error code.
 - No enrichment of `crew_email_changed` (separate kind, out of scope; stays summary-sentence).
-- MI-9 specific LEAD/flag values are not printed (§3.2).
+- MI-9 specific LEAD/`RoleFlag[]` values are not formatted/printed — note-only (§3.2).
 
 ## 9. Test surface (TDD)
 
 - **`lib/parser/types.ts` + `invariants.ts`** — MI-8 widened to carry `prior`/`next`; existing MI-8 emit test updated to assert the new fields; `runInvariants` fixtures still green.
-- **`lib/sync/changeLog/writeAutoApplyChanges.ts`** (new test file `tests/sync/changeLog/writeAutoApplyChanges.test.ts`) — for each MI variant: correct entry shape, ordering, sentinels; **held-only MI-9 → NO `field_changed` row written at all** (assert zero inserts — not a generic fallback; guards the §3 tightened predicate; failure mode: a pending-review LEAD change appearing in the auto-applied acknowledge feed); MI-8/8b/8c present alongside a held MI-9 → row written with the applied entries, MI-9 entry absent; mixed-invariant sync → ordered `fieldChanges` + capped summary. Assert `after_image.fieldChanges` structure against the **fixture-derived** expected (anti-tautology: derive from the input item values, not a hardcoded blob).
+- **`lib/sync/changeLog/writeAutoApplyChanges.ts`** (new test file `tests/sync/changeLog/writeAutoApplyChanges.test.ts`) — for each MI variant: correct entry shape, ordering, sentinels; **MI-9 is applied → always produces a note-only entry `{ label: crew_name, note:"role updated on this sync", from:null, to:null }`** (no `heldNames` dependency — the writer must not suppress MI-9 based on `heldNames`; failure mode caught: re-introducing a held-suppression that hides an applied LEAD change from the feed); mixed-invariant sync → ordered `fieldChanges` + capped summary; a sync with an MI-9 for a crew that is **also** MI-11-held → the MI-9 note **still** appears (grounded in `phase1.ts:580-584`). Assert `after_image.fieldChanges` structure against the **fixture-derived** expected (anti-tautology: derive from the input item values, not a hardcoded blob).
+- **Real-path routing assertion (Codex R3):** a phase1/phase2-level test (extend `tests/sync/phase1.test.ts` or a phase2 apply test) proving an **MI-9 LEAD delta auto-applies** (reaches `writeAutoApplyChanges` as an applied item and lands a `field_changed` row) rather than routing to `sync_holds` — pins the `phase1.ts:504-507` contract this feature's MI-9 treatment relies on, so the writer unit test is not the only evidence. Failure mode caught: a future change routing MI-9 into holds would silently make the note describe a non-applied change.
   - **Legacy MI-8 compat (§3.5):** an MI-8 item `{ id, invariant:"MI-8", field:"po" }` with **no `prior`/`next`** → entry `{ label:"PO number", from:"(unknown)", to:"(cleared)", note:null }`; no `undefined` in the stored JSON, no throw. Failure mode caught: a staged-before-deploy row bricking apply or emitting `undefined → (cleared)`.
 - **`tests/staging/reviewPayloadGuards.test.ts`** — assert MI-8 stays **absent** from `REVIEW_ITEM_REQUIRED_STRING_FIELDS` (a legacy `{id, invariant:"MI-8", field}` item passes `isStructurallyValidReviewItem`). Failure mode caught: someone "fixing" the widen by requiring `prior`/`next` there, which would reject valid staged rows.
 - **`tests/admin/loadRecentAutoApplied.test.ts`** — `deriveDiff` field_changed branch: well-formed → `{kind:"fields"}`; absent/`[]`/malformed → `{kind:"none"}`; pre-existing null-after_image row → `{kind:"none"}`.
@@ -132,11 +133,11 @@ Rejected alternatives: (a) a new dedicated column — needs a migration + valida
 ## 10. Do-not-relitigate (reviewer preempts)
 
 1. **MI-8c stays a sentence** — no clean field/from-to exists; ratified in AUTOAPPLIED-REDESIGN-3.
-2. **MI-9 note-only + held-gated, no LEAD values printed** — §3.2; deliberate, more correct than status quo.
+2. **MI-9 is APPLIED (not held), note-only, no LEAD values printed, no `heldNames` gate** — §3.2; verified against `phase1.ts:504-507` (MI-11 is the only hold-gated invariant). The catalog "hold every LEAD" copy is the alert/notify surface, not a `sync_holds` stage.
 3. **after_image jsonb storage, no migration** — §4; freeform column already read by the loader; telemetry never selects images.
 4. **One aggregate row, no per-field rows** — Option C rejected on the non-undoable-redundancy argument (§2); user-approved.
 5. **`summary` upgraded but not the structured source** — §5; structured truth is `fieldChanges`, summary is graceful-degradation fallback.
 6. **`crew_email_changed` untouched** — separate kind, out of scope (§8).
 7. **Legacy staged MI-8 → `"(unknown)"` fallback, guard NOT tightened** — §3.5; transitional-window compat, `REVIEW_ITEM_REQUIRED_STRING_FIELDS` deliberately unchanged.
 8. **`isCrew` narrowed to `fromTo`/`single`** — §6; the live guard is diff-kind-based and MUST change so `fields` rows don't render "Crew member".
-9. **Held-only MI-9 writes no row (predicate tightened)** — §3/§3.2; a not-auto-applied held LEAD change must not appear in the auto-applied acknowledge feed; the generic writer summary is retired (survives only on pre-existing DB rows).
+9. **Emission predicate is behavior-preserving; generic writer summary retired** — §3/§5; the row fires in exactly the same syncs as today (every field-family item yields an entry), and the generic "A field changed" string survives only as reader fallback on pre-existing DB rows.
