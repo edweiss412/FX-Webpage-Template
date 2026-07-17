@@ -19,6 +19,7 @@ import { buildPublishedSectionData } from "@/components/admin/review/publishedAd
 import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "../wizard/_step3ReviewFixture";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
+import type { ParseWarning } from "@/lib/parser/types";
 
 // A staged WarningsBreakdown reads useRouter; keep RTL from throwing on the hook.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -244,5 +245,47 @@ describe("ShowReviewSurface report section mode-gating (staged-only rail entry)"
     expect(screen.getByTestId(railTid("rail-item-report"))).toBeTruthy();
     expect(screen.getByTestId(railTid("chip-item-report"))).toBeTruthy();
     expect(screen.getByTestId(railTid("section-report"))).toBeTruthy();
+  });
+});
+
+/** A warn-severity crew warning → the `crew` section flags; `venue` (no warning)
+ *  stays clean. Mirrors the sibling wizard fixture (Step3ReviewModal.test.tsx:86). */
+function warning(kind: string): ParseWarning {
+  return { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind } };
+}
+
+function FlaggedStagedHarness() {
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const pr = buildParseResult({ warnings: [warning("crew")] });
+  const data = buildStagedSectionData({
+    pr,
+    row: stagedRow(pr, { driveFileId: DRIVE_FILE_ID }),
+    dfid: DRIVE_FILE_ID,
+    wizardSessionId: "88888888-4444-4444-8444-cccccccccccc",
+    crewMembers: pr.crewMembers,
+    rooms: pr.rooms,
+    hotels: pr.hotelReservations,
+    pullSheet: pr.pullSheet ?? [],
+    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+    ros: pr.runOfShow ?? {},
+    warnings: pr.warnings,
+    agendaBaseline: [],
+    useRawDecisions: [],
+  });
+  return <ShowReviewSurface data={data} scrollerRef={scrollerRef} layout="page" />;
+}
+
+describe("ShowReviewSurface — S3C-1 dual-channel status dots (WCAG 1.4.1)", () => {
+  it("flagged section dot is a filled amber disc; clean section dot is a hollow teal ring", () => {
+    render(<FlaggedStagedHarness />);
+    // crew carries a warn → flagged → filled amber disc (bg-status-review, no border)
+    const flaggedDot = screen.getByTestId(railTid("rail-dot-crew"));
+    expect(flaggedDot.className).toContain("bg-status-review");
+    expect(flaggedDot.className).not.toContain("border-");
+    // venue has no warning → clean → hollow teal ring (border + transparent, NOT a fill)
+    const cleanDot = screen.getByTestId(railTid("rail-dot-venue"));
+    expect(cleanDot.className).toContain("border-status-positive");
+    expect(cleanDot.className).toContain("bg-transparent");
+    expect(cleanDot.className).not.toContain("bg-status-positive");
   });
 });

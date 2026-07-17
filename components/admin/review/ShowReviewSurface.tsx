@@ -224,10 +224,15 @@ export function ShowReviewSurface({
   // section, so the cast is sound at every call site.
   const getActiveSection = useCallback((): SectionId => activeRef.current as SectionId, []);
 
-  /** Rail/chip status-dot tone (§6.2/§6.3). */
-  function dotToneClass(id: SectionId): string {
+  /** Rail/chip status-dot appearance (§6.2/§6.3; §S3C-1 WCAG 1.4.1). Carries
+   *  BOTH hue and fill/shape so "needs review" is never signalled by color
+   *  alone: flagged = filled amber disc (higher salience); clean = hollow teal
+   *  ring. Both occupy an identical 8px box (border-box) — no layout shift. */
+  function dotClass(id: SectionId): string {
     const review = id === "warnings" ? hasWarnRow : flagged.has(id);
-    return review ? "bg-status-review" : "bg-status-positive";
+    return review
+      ? "size-2 shrink-0 rounded-pill bg-status-review"
+      : "size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent";
   }
 
   // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
@@ -683,7 +688,8 @@ export function ShowReviewSurface({
                       {!s.hideDot ? (
                         <span
                           aria-hidden="true"
-                          className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                          data-testid={`wizard-step3-card-${dfid}-review-rail-dot-${s.id}`}
+                          className={dotClass(s.id)}
                         />
                       ) : null}
                     </button>
@@ -746,7 +752,8 @@ export function ShowReviewSurface({
               {!s.hideDot ? (
                 <span
                   aria-hidden="true"
-                  className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                  data-testid={`wizard-step3-card-${dfid}-review-chip-dot-${s.id}`}
+                  className={dotClass(s.id)}
                 />
               ) : null}
             </button>

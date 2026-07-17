@@ -1065,7 +1065,7 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     const { q } = renderModal({ d });
     for (const s of step3Sections(d)) {
       const item = q.getByTestId(tid(`rail-item-${s.id}`));
-      const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+      const dot = item.querySelector(".bg-status-review, .border-status-positive");
       if (s.hideDot) {
         // §D2: report is the only def with hideDot — its rail item has NO dot.
         expect(dot).toBeNull();
@@ -1073,7 +1073,7 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
       }
       expect(dot).not.toBeNull();
       const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
-      expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bbg-status-positive\b/);
+      expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bborder-status-positive\b/);
       expect(dot!.className).toMatch(/\bsize-2\b/);
       expect(dot!.className).toMatch(/\brounded-pill\b/);
     }
@@ -1101,13 +1101,13 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     const { q } = renderModal({ d });
     const item = q.getByTestId(tid("rail-item-warnings"));
     expect(item.querySelector(".tabular-nums")?.textContent).toBe("1");
-    const dot = item.querySelector(".bg-status-review, .bg-status-positive");
-    expect(dot!.className).toMatch(/\bbg-status-positive\b/);
+    const dot = item.querySelector(".bg-status-review, .border-status-positive");
+    expect(dot!.className).toMatch(/\bborder-status-positive\b/);
     // Same rule on the chip twin.
     const chipDot = q
       .getByTestId(tid("chip-item-warnings"))
-      .querySelector(".bg-status-review, .bg-status-positive");
-    expect(chipDot!.className).toMatch(/\bbg-status-positive\b/);
+      .querySelector(".bg-status-review, .border-status-positive");
+    expect(chipDot!.className).toMatch(/\bborder-status-positive\b/);
   });
 });
 
@@ -1130,9 +1130,9 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
       expect(chip.querySelector(".tabular-nums")).toBeNull(); // chips never show counts
       if (s.hideDot) {
         // §D2: report is the only def with hideDot — its chip has NO dot.
-        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).toBeNull();
+        expect(chip.querySelector(".bg-status-review, .border-status-positive")).toBeNull();
       } else {
-        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+        expect(chip.querySelector(".bg-status-review, .border-status-positive")).not.toBeNull();
       }
       // Label ONLY — a stray count/extra text would change textContent.
       expect(chip.textContent).toBe(s.label);
