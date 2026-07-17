@@ -221,6 +221,99 @@ it("shows a per-group count badge = rendered rows", () => {
   ).toHaveTextContent("1");
 });
 
+// ── COLLAPSE-1: collapsed-header kind-dot cluster ──────────────────────────
+// helper to build a single-group fixture with the given change kinds
+function groupData(kinds: string[]): RecentAutoApplied {
+  return {
+    kind: "ok",
+    renderedCount: kinds.length,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: "g",
+        slug: "g",
+        showName: "G",
+        acceptableIds: kinds.map((_, i) => `k${i}`),
+        undoableIds: [],
+        rows: kinds.map((k, i) => ({
+          id: `k${i}`,
+          changeKind: k,
+          summary: "s",
+          occurredAt: "2026-07-07T00:00:00Z",
+          undoable: false,
+          diff: { kind: "none" as const },
+        })),
+      },
+    ],
+  };
+}
+
+it("collapsed header shows a kind-dot cluster: one dot per distinct kind, labeled", () => {
+  // FIN group has crew_added + crew_renamed + field_changed (3 distinct kinds)
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const cluster = within(screen.getByTestId(`auto-applied-group-${FIN_ID}`)).getByTestId(
+    "auto-applied-kind-dots",
+  );
+  // aria-label names each kind (data source = group.rows, not per-row pills)
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Renamed"));
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Added"));
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Field"));
+  // one dot per distinct kind (3), no +N (≤4)
+  expect(cluster.querySelectorAll("span[aria-hidden='true']").length).toBe(3);
+  // header flex invariant: cluster is shrink-0, precedes the shrink-0 count badge
+  expect(cluster.className).toContain("shrink-0");
+  const count = screen.getByTestId(`auto-applied-count-${FIN_ID}`);
+  expect(cluster.compareDocumentPosition(count) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it("kind-dot cluster: destructive crew_removed renders and is ordered first (safety hint)", () => {
+  render(
+    <RecentAutoAppliedStrip data={groupData(["crew_added", "crew_removed"])} actions={noopActions()} />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const label = cluster.getAttribute("aria-label") ?? "";
+  expect(label).toContain("Removed");
+  expect(label).toContain("Added");
+  // KIND_ORDER puts crew_removed before crew_added → "Removed" precedes "Added"
+  expect(label.indexOf("Removed")).toBeLessThan(label.indexOf("Added"));
+});
+
+it("kind-dot cluster with an unknown kind → single fallback dot, label 'Change', raw enum absent", () => {
+  render(<RecentAutoAppliedStrip data={groupData(["weird_new_kind"])} actions={noopActions()} />);
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Change"));
+  expect(cluster.textContent ?? "").not.toContain("weird_new_kind");
+});
+
+it("kind-dot cluster: >4 distinct kinds → 4 dots + a +N overflow marker", () => {
+  // 5 known + 1 unknown = 6 distinct → 4 dots + "+2"
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData([
+        "crew_removed",
+        "crew_renamed",
+        "crew_added",
+        "field_changed",
+        "crew_email_changed",
+        "weird",
+      ])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const dotEls = [...cluster.querySelectorAll("span[aria-hidden='true']")].filter((el) =>
+    el.className.includes("rounded-full"),
+  );
+  expect(dotEls.length).toBe(4);
+  expect(cluster.textContent ?? "").toContain("+2");
+});
+
+it("kind-dot cluster: empty rows → renders nothing", () => {
+  render(<RecentAutoAppliedStrip data={groupData([])} actions={noopActions()} />);
+  expect(screen.queryByTestId("auto-applied-kind-dots")).toBeNull();
+});
+
 it("maps EVERY kind to its status-token pill (label + token classes, incl. removed/email/fallback)", () => {
   // Local fixture: one group, one row per kind (incl. crew_removed + an unknown
   // fallback kind) so no path can be broken/unmapped while tests pass.
