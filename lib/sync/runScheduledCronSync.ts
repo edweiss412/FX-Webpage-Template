@@ -3781,12 +3781,18 @@ export async function runScheduledCronSync(
         // drive_file_id, published=true, never in Drive) can never resolve —
         // reconciling it just re-marks SHEET_UNAVAILABLE every tick forever.
         // Guard on the CONJUNCTION of (a) synthetic shape AND (b) never synced
-        // (lastSeenModifiedTime === null): the seed helpers insert with no
-        // last_seen, so a leak is always null; a genuine show that LEFT the
-        // folder synced at least once (non-null watermark). So even a real Drive
-        // id that coincidentally matched the synthetic shape (hyphens/hex are
-        // valid Drive-id chars) is still reconciled once it has synced — shape
-        // alone is not treated as proof of syntheticness. (Codex R1 MEDIUM.)
+        // (lastSeenModifiedTime === null). This is airtight, not heuristic:
+        // EVERY production show-insert stamps last_seen_modified_time in the SAME
+        // statement — the cron first-seen INSERT (see the `insert into
+        // public.shows (... last_seen_modified_time ...)` a few hundred lines
+        // below) and the shared applyStaged upsert used by onboarding finalize
+        // (lib/sync/applyStaged.ts — `last_seen_modified_time = excluded...`).
+        // So a `shows` row with a NULL watermark can only come from a non-apply
+        // test seeder (tests/db/_mi11Helpers.ts seedShow, tests/db/_b2Helpers.ts,
+        // tests/e2e seedShowWithCrew). A genuine show that LEFT the folder synced
+        // at least once → non-null watermark → still reconciled here, even in the
+        // (Google-Drive-impossible) event its id coincidentally matched the
+        // synthetic shape. Shape alone is never treated as proof. (Codex R1/R2.)
         !(isSyntheticDriveFileId(show.driveFileId) && show.lastSeenModifiedTime === null),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
