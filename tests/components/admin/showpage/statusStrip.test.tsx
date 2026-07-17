@@ -246,29 +246,58 @@ describe("StatusStrip", () => {
     });
 
     it("shows 'Synced <relative>' using last_CHECKED_at (not last_synced_at) for the ok bucket", () => {
-      // The badge time is the last successful Drive reach (2 min ago), NOT the last content
-      // edit (12 min ago) — that moved to the Edited clause. Distinct fixtures isolate which
-      // field feeds the badge; a regression to last_synced_at would render "12 min ago".
+      // The Synced line time is the last successful Drive reach (2 min ago), NOT the last
+      // content edit (12 min ago) — that is the stacked Edited line. Scope to the synced
+      // line so the sibling Edited line (which holds 12 min ago) can't satisfy the assertion.
       renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
-      const age = screen.getByTestId("strip-sync-age");
-      expect(age.textContent).toMatch(/synced/i);
-      expect(age.textContent).toMatch(/2 min ago/i);
-      expect(age.textContent).not.toMatch(/12 min ago/i);
+      const synced = screen.getByTestId("strip-synced-line");
+      expect(synced.textContent).toMatch(/synced/i);
+      expect(synced.textContent).toMatch(/2 min ago/i);
+      expect(synced.textContent).not.toMatch(/12 min ago/i);
     });
 
-    it("falls back to last_synced_at for the badge time when last_checked_at is null", () => {
+    it("falls back to last_synced_at for the synced-line time when last_checked_at is null", () => {
       renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: null, lastSyncStatus: "ok" });
-      const age = screen.getByTestId("strip-sync-age");
-      expect(age.textContent).toMatch(/synced/i);
-      expect(age.textContent).toMatch(/12 min ago/i);
-      expect(age.textContent).not.toMatch(/never/i);
+      const synced = screen.getByTestId("strip-synced-line");
+      expect(synced.textContent).toMatch(/synced/i);
+      expect(synced.textContent).toMatch(/12 min ago/i);
+      expect(synced.textContent).not.toMatch(/never/i);
     });
 
     it("shows the health-bucket label (not 'Synced') when the last sync failed", () => {
       renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: "parse_error" });
-      const age = screen.getByTestId("strip-sync-age");
-      expect(age.textContent).toMatch(/couldn.t read the sheet/i);
-      expect(age.textContent).not.toMatch(/synced/i);
+      const synced = screen.getByTestId("strip-synced-line");
+      expect(synced.textContent).toMatch(/couldn.t read the sheet/i);
+      expect(synced.textContent).not.toMatch(/synced/i);
+    });
+
+    it("colors the single health dot by sync health (bucket), not the edit time", () => {
+      // ok → positive dot; a failing bucket → warn dot. The dot must track last_sync_status,
+      // never last_synced_at/last_checked_at.
+      const { rerender } = renderStrip({ lastSyncStatus: "ok" });
+      expect(
+        within(screen.getByTestId("strip-sync-age")).getByTestId("status-dot-positive"),
+      ).toBeTruthy();
+      rerender(
+        <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
+          <StatusStrip {...baseProps({ lastSyncStatus: "parse_error" })} />
+        </ShareTokenProvider>,
+      );
+      expect(
+        within(screen.getByTestId("strip-sync-age")).getByTestId("status-dot-warn"),
+      ).toBeTruthy();
+    });
+
+    it("stacks Synced over Edited as two equally-weighted lines (same class, neither primary)", () => {
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
+      const synced = screen.getByTestId("strip-synced-line");
+      const edited = screen.getByTestId("strip-edited-age");
+      // Equal weight = same typography; they share the parent column's class, not per-line
+      // size/weight overrides. Assert neither line sets its own font-size/weight.
+      expect(synced.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
+      expect(edited.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
+      // Both lines share one parent (the stacked column) → same rendered weight.
+      expect(synced.parentElement).toBe(edited.parentElement);
     });
   });
 

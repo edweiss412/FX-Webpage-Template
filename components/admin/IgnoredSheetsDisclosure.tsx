@@ -52,9 +52,11 @@ export function IgnoredSheetsDisclosure({
       <div className="flex min-w-0 items-center gap-2">
         {/* WAI accordion pattern: the heading wraps the interactive button so the
             heading role survives (a <button> only accepts phrasing content, so an
-            <h3> may not nest inside it — the label is a <span>). The button is the
-            full width of the heading for a large, phone-friendly tap target. */}
-        <h3 className="min-w-0 flex-1">
+            <h3> may not nest inside it — the label is a <span>). The button sizes to
+            its content (chevron + label + count) so the sibling help affordance sits
+            right after the count chip instead of being pushed to the far right; the
+            44px tap floor is kept via min-h-tap-min. */}
+        <h3 className="min-w-0">
           <button
             type="button"
             data-testid="ignored-sheets-toggle"
@@ -63,7 +65,7 @@ export function IgnoredSheetsDisclosure({
             // aria-controls resolves unconditionally.
             aria-controls="ignored-sheets-panel"
             onClick={() => setOpen((v) => !v)}
-            className="group flex min-h-tap-min w-full min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="group flex min-h-tap-min min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
             <ChevronRight
               aria-hidden="true"

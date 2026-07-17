@@ -720,6 +720,80 @@ export async function Dashboard(
               }
             />
           )}
+
+          {/* Ignored sheets — collapsed-by-default disclosure kept INSIDE the shows
+              column so it sits directly beneath the table. Previously it rendered
+              below the whole two-column split, where the taller inbox column left a
+              large empty gap above it. ALWAYS rendered (collapsed) as a stable,
+              discoverable "▸ Ignored sheets (N)" row; the list + per-row Un-ignore
+              mount only once expanded. */}
+          <IgnoredSheetsDisclosure
+            count={result.ignoredSheets.length}
+            degraded={result.ignoredDegraded}
+            help={
+              <HoverHelp
+                label="Help: Ignored sheets"
+                testId="ignored-sheets-help"
+                rootTestId="help-affordance--ignored-sheets-page--tooltip"
+                learnMore={{ href: "/help/admin/onboarding-wizard#ignored-sheets" }}
+              >
+                <p>
+                  Sheets you ignored during setup or review. The sync skips them entirely. Un-ignore
+                  one to let it back in on the next scan.
+                </p>
+              </HoverHelp>
+            }
+          >
+            {result.ignoredDegraded ? (
+              <p
+                data-testid="admin-ignored-sheets-degraded"
+                className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+              >
+                We could not load this list right now. This is usually temporary. Refresh in a
+                moment. If it keeps happening, contact the developer.
+              </p>
+            ) : result.ignoredSheets.length === 0 ? (
+              <div
+                data-testid="admin-ignored-sheets-empty"
+                className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+              >
+                <p className="font-semibold text-text-strong">No ignored sheets.</p>
+                <p>Sheets you ignore during setup or review will appear here.</p>
+              </div>
+            ) : (
+              <ul
+                data-testid="ignored-sheets-list"
+                className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface"
+              >
+                {result.ignoredSheets.map((row) => {
+                  const name = row.driveFileName ?? row.driveFileId;
+                  return (
+                    <li
+                      key={row.driveFileId}
+                      data-testid={`ignored-sheet-row-${row.driveFileId}`}
+                      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          data-testid={`ignored-sheet-name-${row.driveFileId}`}
+                          className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong"
+                        >
+                          {name}
+                        </span>
+                        <span className="wrap-break-word text-sm text-text-subtle">
+                          Ignored {formatRelative(row.deferredAt, now)}
+                          {row.deferredByEmail ? ` by ${row.deferredByEmail}` : null}
+                        </span>
+                      </div>
+                      <div className="shrink-0">
+                        <UnignoreButton driveFileId={row.driveFileId} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </IgnoredSheetsDisclosure>
         </section>
         <section
           data-testid="dashboard-inbox-col"
@@ -781,80 +855,6 @@ export async function Dashboard(
           </div>
         </section>
       </div>
-
-      {/* Ignored sheets — a collapsed-by-default disclosure table below the main
-          shows table (replaces the former standalone /admin/ignored-sheets page
-          + nav item). ALWAYS rendered (collapsed), so the header + its help
-          affordance stay a stable, discoverable surface on /admin; the list +
-          per-row Un-ignore are server-rendered and mounted only once expanded.
-          Collapsed it is a single calm row: "▸ Ignored sheets (N)". */}
-      <IgnoredSheetsDisclosure
-        count={result.ignoredSheets.length}
-        degraded={result.ignoredDegraded}
-        help={
-          <HoverHelp
-            label="Help: Ignored sheets"
-            testId="ignored-sheets-help"
-            rootTestId="help-affordance--ignored-sheets-page--tooltip"
-            learnMore={{ href: "/help/admin/onboarding-wizard#ignored-sheets" }}
-          >
-            <p>
-              Sheets you ignored during setup or review. The sync skips them entirely. Un-ignore one
-              to let it back in on the next scan.
-            </p>
-          </HoverHelp>
-        }
-      >
-        {result.ignoredDegraded ? (
-          <p
-            data-testid="admin-ignored-sheets-degraded"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
-          >
-            We could not load this list right now. This is usually temporary. Refresh in a moment.
-            If it keeps happening, contact the developer.
-          </p>
-        ) : result.ignoredSheets.length === 0 ? (
-          <div
-            data-testid="admin-ignored-sheets-empty"
-            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
-          >
-            <p className="font-semibold text-text-strong">No ignored sheets.</p>
-            <p>Sheets you ignore during setup or review will appear here.</p>
-          </div>
-        ) : (
-          <ul
-            data-testid="ignored-sheets-list"
-            className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface"
-          >
-            {result.ignoredSheets.map((row) => {
-              const name = row.driveFileName ?? row.driveFileId;
-              return (
-                <li
-                  key={row.driveFileId}
-                  data-testid={`ignored-sheet-row-${row.driveFileId}`}
-                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span
-                      data-testid={`ignored-sheet-name-${row.driveFileId}`}
-                      className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong"
-                    >
-                      {name}
-                    </span>
-                    <span className="wrap-break-word text-sm text-text-subtle">
-                      Ignored {formatRelative(row.deferredAt, now)}
-                      {row.deferredByEmail ? ` by ${row.deferredByEmail}` : null}
-                    </span>
-                  </div>
-                  <div className="shrink-0">
-                    <UnignoreButton driveFileId={row.driveFileId} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </IgnoredSheetsDisclosure>
 
       <DashboardFooter />
     </main>
