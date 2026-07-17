@@ -314,6 +314,15 @@ it("kind-dot cluster: empty rows → renders nothing", () => {
   expect(screen.queryByTestId("auto-applied-kind-dots")).toBeNull();
 });
 
+// ── REDESIGN-2: singleton group flatten (no card-in-card) ──────────────────
+it("singleton group flattens the inner row card; multi-row keeps per-row cards", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  // RIA = one row (r4) → flattened (no border card chrome)
+  expect(screen.getByTestId("auto-applied-row-r4").className).not.toContain("border");
+  // FIN = three rows → each keeps its card border
+  expect(screen.getByTestId("auto-applied-row-r1").className).toContain("border");
+});
+
 it("maps EVERY kind to its status-token pill (label + token classes, incl. removed/email/fallback)", () => {
   // Local fixture: one group, one row per kind (incl. crew_removed + an unknown
   // fallback kind) so no path can be broken/unmapped while tests pass.

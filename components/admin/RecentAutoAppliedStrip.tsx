@@ -191,10 +191,14 @@ function StripRow({
   row,
   group,
   actions,
+  flatten = false,
 }: {
   row: AutoAppliedRow;
   group: AutoAppliedGroup;
   actions: RecentAutoAppliedStripActions;
+  // REDESIGN-2: for a singleton group, drop the inner card chrome so the one row
+  // is not a card-in-card inside the group card. Multi-row keeps per-row cards.
+  flatten?: boolean;
 }) {
   // Crew kinds carry a structured diff → show a "Crew member" entity label; the
   // none-kinds (field/email/unknown) render their summary sentence instead.
@@ -202,7 +206,11 @@ function StripRow({
   return (
     <li
       data-testid={`auto-applied-row-${row.id}`}
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+      className={
+        flatten
+          ? "flex flex-col gap-2"
+          : "flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+      }
     >
       <div className="flex items-center gap-2">
         <KindPill changeKind={row.changeKind} />
@@ -449,7 +457,13 @@ function GroupSection({
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">
             {group.rows.map((row) => (
-              <StripRow key={row.id} row={row} group={group} actions={actions} />
+              <StripRow
+                key={row.id}
+                row={row}
+                group={group}
+                actions={actions}
+                flatten={group.rows.length === 1}
+              />
             ))}
           </ul>
         </div>
