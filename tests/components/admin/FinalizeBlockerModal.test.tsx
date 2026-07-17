@@ -344,3 +344,72 @@ describe("FinalizeBlockerModal — row recovery", () => {
     expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
   });
 });
+
+// ── Task 5: focus trap + background-inert + compound stacking ─────────────────
+describe("FinalizeBlockerModal — focus + inert + compound", () => {
+  // jsdom computes no layout; useDialogFocus filters focusables by offsetParent.
+  // Stub it to the parent node so the Tab trap can enumerate them; SAVE + RESTORE
+  // so it cannot mask focusability bugs elsewhere (Step3ReviewModal.test.tsx:403-432).
+  let offsetParentDesc: PropertyDescriptor | undefined;
+  beforeAll(() => {
+    offsetParentDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
+    Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+      configurable: true,
+      get() {
+        return this.parentNode;
+      },
+    });
+  });
+  afterAll(() => {
+    if (offsetParentDesc) Object.defineProperty(HTMLElement.prototype, "offsetParent", offsetParentDesc);
+    else delete (HTMLElement.prototype as unknown as { offsetParent?: unknown }).offsetParent;
+  });
+
+  test("focus lands on the dismiss control; Tab cycles within the modal", async () => {
+    const q = await driveToRaceRow(); // multi-control: re-apply link(s) + Back
+    await waitFor(() =>
+      expect(document.activeElement).toBe(q.getByTestId("wizard-finalize-blocker-dismiss")),
+    );
+    const panel = q.getByTestId("wizard-finalize-blocker-panel");
+    const focusables = Array.from(
+      panel.querySelectorAll<HTMLElement>("a[href],button:not([disabled])"),
+    );
+    expect(focusables.length).toBeGreaterThanOrEqual(2);
+    const first = focusables[0]!;
+    const last = focusables[focusables.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(panel, { key: "Tab" });
+    expect(document.activeElement).toBe(first); // last → wraps to first
+    first.focus();
+    fireEvent.keyDown(panel, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last); // first → wraps to last
+  });
+
+  test("compound BLOCKING (cas_per_row): single root; Escape inert; Back closes; focus restores; scroll-lock held", async () => {
+    const { q, reviewModal } = await driveCompound("cas_per_row");
+    expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument();
+    const inertedAncestor = [...document.body.children].find((el) => el.contains(reviewModal))!;
+    expect(inertedAncestor).toHaveAttribute("inert");
+    expect(inertedAncestor).toHaveAttribute("aria-hidden", "true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(reviewModal).toBeInTheDocument();
+    expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // Escape inert for blocking
+    fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back
+    await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+    expect(inertedAncestor).not.toHaveAttribute("inert");
+    expect(reviewModal.contains(document.activeElement)).toBe(true); // focus continuity
+    expect(document.body.style.overflow).toBe("hidden"); // review modal still holds the lock
+  });
+
+  test("compound ERROR: single root; Escape dismisses the blocker but NOT the review; focus restores; scroll-lock held", async () => {
+    const { q, reviewModal } = await driveCompound("error");
+    const inertedAncestor = [...document.body.children].find((el) => el.contains(reviewModal))!;
+    expect(inertedAncestor).toHaveAttribute("inert");
+    fireEvent.keyDown(document, { key: "Escape" }); // error → dismisses the blocker only
+    await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+    expect(reviewModal).toBeInTheDocument(); // review NOT closed (capture + stopImmediatePropagation)
+    expect(inertedAncestor).not.toHaveAttribute("inert");
+    expect(reviewModal.contains(document.activeElement)).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+  });
+});

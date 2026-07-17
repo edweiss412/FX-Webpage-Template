@@ -697,6 +697,35 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+  // Background inert (spec §7a): make every OTHER direct child of document.body
+  // `inert` + `aria-hidden` so exactly ONE modal root is exposed — even when a
+  // Step3ReviewModal is open underneath (its own aria-modal falls inside an inert
+  // subtree). Also hard-blocks background focus/pointer. Declared AFTER
+  // useDialogFocus so React's reverse-order cleanup un-inerts the background
+  // BEFORE useDialogFocus restores focus into it (else the restore target is
+  // inert and focus drops to <body>).
+  useEffect(() => {
+    const portalEl = portalRef.current;
+    const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === portalEl) continue;
+      changed.push({
+        el,
+        hadInert: el.hasAttribute("inert"),
+        priorAriaHidden: el.getAttribute("aria-hidden"),
+      });
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, hadInert, priorAriaHidden } of changed) {
+        if (!hadInert) el.removeAttribute("inert");
+        if (priorAriaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", priorAriaHidden);
+      }
+    };
+  }, []);
+
   if (portalRef.current === null) return null;
 
   return createPortal(
