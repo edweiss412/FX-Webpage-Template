@@ -22,6 +22,8 @@ function fakeSql(handler: (text: string, values: unknown[]) => Array<Record<stri
 
 const isOpenSelect = (t: string) =>
   /select\s+id,\s*context,\s*last_seen_at[\s\S]*from\s+public\.admin_alerts/i.test(t);
+const isCleanSelect = (t: string) =>
+  /select\s+id,\s*last_seen_at[\s\S]*from\s+public\.admin_alerts/i.test(t) && !/context/i.test(t);
 const isSettings = (t: string) =>
   /pending_wizard_session_id\s+from\s+public\.app_settings/i.test(t);
 const isRegistered = (t: string) => /from\s+public\.shows\s+where\s+drive_file_id/i.test(t);
@@ -35,27 +37,49 @@ function healInput(over: Partial<HealInput> = {}): HealInput {
 }
 
 describe("resolveOpenUnreadableAlertUnconditionally", () => {
-  it("issues a code+global+unresolved-guarded UPDATE and resolves when a row returns", async () => {
-    const { sql, calls } = fakeSql((t) => (isUpdate(t) ? [{ id: "a-1" }] : []));
+  it("reads the open row then issues a last_seen_at-CAS'd UPDATE and resolves", async () => {
+    const { sql, calls } = fakeSql((t) => {
+      if (isCleanSelect(t)) return [{ id: "a-1", last_seen_at: "2026-07-16 00:00:00.123456+00" }];
+      if (isUpdate(t)) return [{ id: "a-1" }];
+      return [];
+    });
     await expect(resolveOpenUnreadableAlertUnconditionally(sql)).resolves.toEqual({
       kind: "ok",
       resolved: true,
     });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.text).toMatch(
-      /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i,
-    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.text).toMatch(/select\s+id,\s*last_seen_at/i);
     expect(calls[0]!.text).toMatch(/code\s*=\s*'ONBOARDING_SHEET_UNREADABLE'/i);
     expect(calls[0]!.text).toMatch(/show_id\s+is\s+null/i);
-    expect(calls[0]!.text).toMatch(/resolved_at\s+is\s+null/i);
+    expect(calls[1]!.text).toMatch(
+      /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i,
+    );
+    // CAS: the UPDATE binds the observed last_seen_at and guards on it.
+    expect(calls[1]!.text).toMatch(/last_seen_at::text\s*=\s*\$/i);
+    expect(calls[1]!.values).toContain("2026-07-16 00:00:00.123456+00");
   });
 
-  it("resolves=false when no open row matched", async () => {
-    const { sql } = fakeSql(() => []);
+  it("resolves=false when no open row matched (no UPDATE issued)", async () => {
+    const { sql, calls } = fakeSql(() => []);
     await expect(resolveOpenUnreadableAlertUnconditionally(sql)).resolves.toEqual({
       kind: "ok",
       resolved: false,
     });
+    expect(calls).toHaveLength(1); // select only; no UPDATE
+    expect(calls.some((c) => isUpdate(c.text))).toBe(false);
+  });
+
+  it("resolves=false when a concurrent re-emit bumped last_seen_at between read and UPDATE (CAS race, whole-diff R1)", async () => {
+    const { sql, calls } = fakeSql((t) => {
+      if (isCleanSelect(t)) return [{ id: "a-1", last_seen_at: "2026-07-16 00:00:00.111111+00" }];
+      if (isUpdate(t)) return []; // CAS guard matched nothing — row was replaced/bumped
+      return [];
+    });
+    await expect(resolveOpenUnreadableAlertUnconditionally(sql)).resolves.toEqual({
+      kind: "ok",
+      resolved: false,
+    });
+    expect(calls).toHaveLength(2); // select + attempted (no-op) UPDATE
   });
 
   it("returns infra_error (never throws) when the query throws", async () => {
@@ -146,6 +170,31 @@ describe("resolveUnreadableAlertIfHealed", () => {
       resolved: false,
     });
     expect(calls.some((c) => isUpdate(c.text))).toBe(false);
+  });
+
+  it("malformed failed_drive_file_ids element (non-string) -> keep open, no heal/UPDATE (whole-diff R2)", async () => {
+    // A malformed element (e.g. a number) must NOT be treated as absent-from-folder
+    // (which would read as 'healed') and must NOT auto-resolve a still-failing alert.
+    const { sql, calls } = fakeSql((t) => {
+      if (isOpenSelect(t))
+        return [
+          {
+            id: "a-1",
+            context: { folder_id: FOLDER, failed_drive_file_ids: ["d-a", 123] },
+            last_seen_at: "T0",
+          },
+        ];
+      if (isSettings(t)) return [{ pending_wizard_session_id: null }];
+      throw new Error(`unexpected query on malformed ids: ${t}`);
+    });
+    await expect(resolveUnreadableAlertIfHealed(healInput(), sql)).resolves.toEqual({
+      kind: "ok",
+      resolved: false,
+    });
+    // No per-id healing queries, no UPDATE — we bail before inspecting ids.
+    expect(calls.some((c) => isRegistered(c.text) || isStaged(c.text) || isUpdate(c.text))).toBe(
+      false,
+    );
   });
 
   it("all ids healed (removed / registered / current-revision-staged) -> resolve", async () => {

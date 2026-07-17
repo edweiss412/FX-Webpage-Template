@@ -44,7 +44,12 @@ function connect(): ResolveSql {
 /**
  * Clean-scan observer path (spec §3.4): a completed scan with ZERO hard-failed
  * files means the condition is healed, so resolve the one open global
- * ONBOARDING_SHEET_UNREADABLE row unconditionally.
+ * ONBOARDING_SHEET_UNREADABLE row. The resolve is unconditional-by-CONTENT (no
+ * folder/id inspection — the ratified global-dedup-key semantics: "one open row
+ * always describes the latest scan"), but it is CAS-guarded on `last_seen_at`
+ * exactly like the cron heal path: a concurrent scan that upserts a FRESH
+ * unreadable row between our read and our UPDATE bumps `last_seen_at`, so the CAS
+ * cancels and we never clear an alert that was just re-raised (whole-diff R1).
  */
 export async function resolveOpenUnreadableAlertUnconditionally(
   sql?: ResolveSql,
@@ -52,12 +57,21 @@ export async function resolveOpenUnreadableAlertUnconditionally(
   const db = sql ?? connect();
   const owns = !sql;
   try {
-    const rows = await db<{ id: string }>`
-      update public.admin_alerts
-         set resolved_at = now()
+    const open = await db<{ id: string; last_seen_at: string }>`
+      select id, last_seen_at::text as last_seen_at
+        from public.admin_alerts
        where code = 'ONBOARDING_SHEET_UNREADABLE'
          and show_id is null
          and resolved_at is null
+       limit 1`;
+    if (open.length === 0) return { kind: "ok", resolved: false };
+    const row = open[0]!;
+    const rows = await db<{ id: string }>`
+      update public.admin_alerts
+         set resolved_at = now()
+       where id = ${row.id}::uuid
+         and resolved_at is null
+         and last_seen_at::text = ${row.last_seen_at}
       returning id`;
     return { kind: "ok", resolved: rows.length > 0 };
   } catch {
@@ -103,15 +117,19 @@ export async function resolveUnreadableAlertIfHealed(
 
     const row = open[0]!;
     const ctx = row.context ?? {};
-    const ids = Array.isArray(ctx.failed_drive_file_ids)
-      ? (ctx.failed_drive_file_ids as string[])
-      : null;
+    const rawIds = Array.isArray(ctx.failed_drive_file_ids) ? ctx.failed_drive_file_ids : null;
     // Folder mismatch / malformed folder_id => the alert is stale => resolve.
     const folderMismatch =
       typeof ctx.folder_id !== "string" || ctx.folder_id !== input.activeFolderId;
     let shouldResolve = folderMismatch;
     if (!shouldResolve) {
-      if (!ids || ids.length === 0) return { kind: "ok", resolved: false }; // keep open
+      if (!rawIds || rawIds.length === 0) return { kind: "ok", resolved: false }; // keep open
+      // Defensive validation (whole-diff R2): every id MUST be a non-empty string.
+      // A malformed element (e.g. a number) would `listedFiles.get()` as absent and
+      // read as "healed", falsely resolving a still-failing alert. Any malformed
+      // element => keep the row open (fail-visible), never auto-resolve on bad data.
+      const ids = rawIds.filter((x): x is string => typeof x === "string" && x.length > 0);
+      if (ids.length !== rawIds.length) return { kind: "ok", resolved: false }; // keep open
       const healed = await Promise.all(ids.map((id) => isIdHealed(db, id, input.listedFiles)));
       shouldResolve = healed.every(Boolean);
     }
