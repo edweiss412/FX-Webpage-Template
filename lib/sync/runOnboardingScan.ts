@@ -128,6 +128,7 @@ export type OnboardingScanResult =
       outcome: "completed";
       processed: Array<{
         driveFileId: string;
+        name: string;
         outcome: "staged" | "hard_failed" | "skipped_non_sheet" | "live_row_conflict";
       }>;
     }
@@ -141,6 +142,7 @@ export type OnboardingScanResult =
       code: typeof WIZARD_SESSION_SUPERSEDED_DURING_SCAN;
       processed: Array<{
         driveFileId: string;
+        name: string;
         outcome: "staged" | "hard_failed" | "skipped_non_sheet" | "live_row_conflict";
       }>;
     };
@@ -734,7 +736,7 @@ async function scanPreparedFileWithTx(
         result: { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed },
       };
     }
-    processed.push({ driveFileId: file.driveFileId, outcome: "skipped_non_sheet" });
+    processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "skipped_non_sheet" });
     return { kind: "continue" };
   }
 
@@ -820,7 +822,7 @@ async function scanPreparedFileWithTx(
           },
         };
       }
-      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "hard_failed" });
       return { kind: "continue" };
     }
 
@@ -857,7 +859,7 @@ async function scanPreparedFileWithTx(
           },
         };
       }
-      processed.push({ driveFileId: file.driveFileId, outcome: "staged" });
+      processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "staged" });
       return { kind: "continue" };
     }
 
@@ -890,7 +892,7 @@ async function scanPreparedFileWithTx(
           },
         };
       }
-      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "hard_failed" });
       return { kind: "continue" };
     }
 
@@ -916,7 +918,7 @@ async function scanPreparedFileWithTx(
           },
         };
       }
-      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "hard_failed" });
       return { kind: "continue" };
     }
   } catch (error) {
@@ -1097,7 +1099,11 @@ async function scanPreparedFiles(
         // paths' superseded stop — no recovery artifacts were emitted.
         return { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed };
       }
-      processed.push({ driveFileId: prepared.file.driveFileId, outcome: "live_row_conflict" });
+      processed.push({
+        driveFileId: prepared.file.driveFileId,
+        name: prepared.file.name,
+        outcome: "live_row_conflict",
+      });
       continue;
     }
     if (step.kind === "stop") return step.result;

@@ -31,7 +31,7 @@ function pending(overrides: Partial<PendingRow> = {}): PendingRow {
 }
 
 function scan(outcome: "staged" | "hard_failed" | "live_row_conflict"): OnboardingScanResult {
-  return { outcome: "completed", processed: [{ driveFileId: "file-1", outcome }] };
+  return { outcome: "completed", processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome }] };
 }
 
 class FakeRetrySingleFileTx implements RetrySingleFileTx {

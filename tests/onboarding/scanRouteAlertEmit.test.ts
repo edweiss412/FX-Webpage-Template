@@ -119,9 +119,9 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     const result: OnboardingScanResult = {
       outcome: "completed",
       processed: [
-        { driveFileId: "d-b", outcome: "hard_failed" },
-        { driveFileId: "d-a", outcome: "hard_failed" },
-        { driveFileId: "d-ok", outcome: "staged" },
+        { driveFileId: "d-b", name: "d-b.xlsx", outcome: "hard_failed" },
+        { driveFileId: "d-a", name: "d-a.xlsx", outcome: "hard_failed" },
+        { driveFileId: "d-ok", name: "d-ok.xlsx", outcome: "staged" },
       ],
     };
     await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
@@ -142,8 +142,8 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     const result: OnboardingScanResult = {
       outcome: "completed",
       processed: [
-        { driveFileId: "d-ok", outcome: "staged" },
-        { driveFileId: "d-lrc", outcome: "live_row_conflict" },
+        { driveFileId: "d-ok", name: "d-ok.xlsx", outcome: "staged" },
+        { driveFileId: "d-lrc", name: "d-lrc.xlsx", outcome: "live_row_conflict" },
       ],
     };
     await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
@@ -156,7 +156,7 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     const result: OnboardingScanResult = {
       outcome: "superseded",
       code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
-      processed: [{ driveFileId: "d-a", outcome: "hard_failed" }],
+      processed: [{ driveFileId: "d-a", name: "d-a.xlsx", outcome: "hard_failed" }],
     };
     await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
     expect(vi.mocked(upsertAdminAlert)).not.toHaveBeenCalledWith(
@@ -168,7 +168,7 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     vi.mocked(logAdminOutcome).mockRejectedValue(new Error("log boom"));
     const result: OnboardingScanResult = {
       outcome: "completed",
-      processed: [{ driveFileId: "d-a", outcome: "hard_failed" }],
+      processed: [{ driveFileId: "d-a", name: "d-a.xlsx", outcome: "hard_failed" }],
     };
     await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
     expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledWith(
@@ -180,7 +180,7 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     vi.mocked(upsertAdminAlert).mockRejectedValue(new Error("alert boom"));
     const result: OnboardingScanResult = {
       outcome: "completed",
-      processed: [{ driveFileId: "d-a", outcome: "hard_failed" }],
+      processed: [{ driveFileId: "d-a", name: "d-a.xlsx", outcome: "hard_failed" }],
     };
     const messages = await readNdjson(
       await handleOnboardingScan(request(FOLDER_URL), driveResult(result)),

@@ -396,6 +396,39 @@ describe("runOnboardingScan", () => {
     expect(tx.manifest).toMatchObject([{ driveFileId: "file-1", status: "hard_failed" }]);
   });
 
+  test("processed entries carry the Drive sheet name for each outcome", async () => {
+    const tx = new FakeOnboardingTx();
+    // Derive expected names from fixture inputs (anti-tautology).
+    const failFile = file("d-fail", "Bad Sheet");
+    const okFile = file("d-ok", "Good Sheet");
+
+    const { result } = await runWith(tx, [failFile, okFile], {
+      "d-fail": parseResult({
+        hardErrors: [{ code: "MI-1_VERSION_DETECTION_FAILED", message: "missing version" }],
+      }),
+      "d-ok": parseResult(),
+    });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    const processed = (result as Extract<typeof result, { outcome: "completed" }>).processed;
+    expect(processed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          driveFileId: "d-fail",
+          name: failFile.name,
+          outcome: "hard_failed",
+        }),
+        expect.objectContaining({
+          driveFileId: "d-ok",
+          name: okFile.name,
+          outcome: "staged",
+        }),
+      ]),
+    );
+    // Every processed entry has a non-empty name.
+    expect(processed.every((p) => typeof p.name === "string" && p.name.length > 0)).toBe(true);
+  });
+
   test("missing wizard-isolation indexes abort before onboarding upserts", async () => {
     const tx = new FakeOnboardingTx();
     tx.indexesPresent = false;
