@@ -101,7 +101,13 @@ export function BlockedRowResolver({
         : null;
   const [armed, setArmed] = useState(false);
   const [pending, setPending] = useState(false);
-  const [errorCopy, setErrorCopy] = useState<string | null>(null);
+  // Coded branches (needs_attention/busy) carry the response's cataloged code so the
+  // <HelpAffordance> disclosure keys off the SAME code as the dougFacing copy (spec §3.6,
+  // BLOCKRES-2). Code-less statuses render a plain self-explanatory line with NO disclosure,
+  // mirroring RescanSheetButton's info-vs-coded split.
+  const [errorState, setErrorState] = useState<
+    { kind: "coded"; copy: string; code: string } | { kind: "plain"; copy: string } | null
+  >(null);
   // Local escalated flag: a route-returned { status: "escalated" } (a stale client that
   // still showed the button after the cap was hit) must render the escalation copy
   // IMMEDIATELY, not silently return to idle (Codex plan-R2 F1). Renders the same
@@ -146,6 +152,10 @@ export function BlockedRowResolver({
             `We could not automatically rebuild ${name} after one attempt. Contact the developer to clear it.`,
           )}
         </p>
+        {/* BLOCKRES-1: give Doug the same "What does this mean?" / "Learn more" context every
+            other error branch carries while the developer clears it. A disclosure <summary>/<a>
+            is not an action <button>, so the escalated "no clickable trigger" contract holds. */}
+        <HelpAffordance code={code} />
       </div>
     );
   }
@@ -153,7 +163,7 @@ export function BlockedRowResolver({
   async function handleClick() {
     if (pending) return;
     setPending(true);
-    setErrorCopy(null);
+    setErrorState(null);
     try {
       const response = await fetch("/api/admin/onboarding/resolve-blocker", {
         method: "POST",
@@ -170,12 +180,16 @@ export function BlockedRowResolver({
         return;
       }
       if (body.status === "needs_attention" || body.status === "busy") {
-        setErrorCopy(lookupDougFacing(body.code) ?? GENERIC_ERROR);
+        setErrorState({
+          kind: "coded",
+          copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
+          code: body.code,
+        });
       } else {
-        setErrorCopy(PLAIN_COPY[body.status]); // code-less statuses get plain lines (F2)
+        setErrorState({ kind: "plain", copy: PLAIN_COPY[body.status] }); // code-less → plain, no disclosure (F2)
       }
     } catch {
-      setErrorCopy(GENERIC_ERROR);
+      setErrorState({ kind: "plain", copy: GENERIC_ERROR });
     } finally {
       setPending(false);
     }
@@ -228,14 +242,14 @@ export function BlockedRowResolver({
       <span role="status" className="sr-only">
         {armed ? "Tap again to confirm." : ""}
       </span>
-      {errorCopy ? (
+      {errorState ? (
         <div
           role="status"
           aria-live="polite"
           className="rounded-sm border border-border bg-warning-bg px-3 py-2 text-sm text-warning-text"
         >
-          <p>{renderEmphasis(errorCopy)}</p>
-          <HelpAffordance code={code} />
+          <p>{renderEmphasis(errorState.copy)}</p>
+          {errorState.kind === "coded" ? <HelpAffordance code={errorState.code} /> : null}
         </div>
       ) : null}
     </div>
