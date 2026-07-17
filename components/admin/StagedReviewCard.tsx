@@ -370,6 +370,11 @@ export function StagedReviewCard({
 
   const handleDiscard = async (variant: DiscardVariant) => {
     if (pending) return;
+    // Any discard starting (including the one-tap Retry/Wait siblings) disarms a
+    // pending stop-showing confirm — an armed state must never survive into or
+    // past another mutation (whole-diff review; mirrors PendingPanelDiscardButtons).
+    clearIgnoreArmTimer();
+    setIgnoreArmed(false);
     setErrorCode(null);
     setPending(true);
     try {

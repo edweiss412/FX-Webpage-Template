@@ -217,6 +217,26 @@ describe("StagedReviewCard", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    test("clicking a sibling discard while stop-showing is armed disarms it (whole-diff advisory)", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const ignoreBtn = getByTestId("staged-review-discard-ignore");
+      fireEvent.click(ignoreBtn); // arm stop-showing
+      expect(ignoreBtn.textContent).toBe(ARMED_LABEL);
+      await act(async () => {
+        fireEvent.click(getByTestId("staged-review-discard-try-again")); // sibling one-tap mutation
+      });
+      // The armed state must not survive into/past another mutation.
+      expect(getByTestId("staged-review-discard-ignore").textContent).not.toBe(ARMED_LABEL);
+      expect(vi.getTimerCount()).toBe(0);
+      // Only the sibling's discard fired — the armed guard did not.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string).variant).toBe(
+        "try_again",
+      );
+    });
+
     test("4s auto-revert restores the recessive link without firing; aria-describedby kept", () => {
       vi.useFakeTimers();
       const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
