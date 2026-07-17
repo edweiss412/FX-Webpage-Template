@@ -52,6 +52,7 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
       needsReview: false,
       changed: true,
       demoted: false,
+      reviewCodes: [],
     });
 
     await expect(
@@ -75,6 +76,7 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
       needsReview: false,
       changed: true,
       demoted: false,
+      reviewCodes: [],
     });
     const res = await handleRescanSheet(req(body), { rescanWizardSheet: rescan });
     expect(res.status).toBe(400);
@@ -97,6 +99,7 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
       needsReview: false,
       changed: true,
       demoted: false,
+      reviewCodes: [],
     });
     const res = await handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: badSession }), {
       rescanWizardSheet: rescan,
@@ -114,6 +117,7 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
       needsReview: true,
       changed: false,
       demoted: true,
+      reviewCodes: ["MI-11"],
     });
     const rescanDeps = { afterDriveRead: () => undefined };
     await handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: SESSION }), {
@@ -126,11 +130,13 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
 
   test.each<[RescanResult, Record<string, unknown>]>([
     [
-      { status: "updated", needsReview: false, changed: true, demoted: false },
+      { status: "updated", needsReview: false, changed: true, demoted: false, reviewCodes: [] },
+      // mapResult does NOT surface reviewCodes — the client JSON stays decision-only,
+      // proving the cause is telemetry-only (spec §4.4). A leaked key would fail this toEqual.
       { ok: true, status: "updated", needsReview: false, changed: true, demoted: false },
     ],
     [
-      { status: "updated", needsReview: true, changed: false, demoted: true },
+      { status: "updated", needsReview: true, changed: false, demoted: true, reviewCodes: ["MI-11"] },
       { ok: true, status: "updated", needsReview: true, changed: false, demoted: true },
     ],
     [

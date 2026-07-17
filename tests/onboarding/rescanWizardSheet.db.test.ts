@@ -6,7 +6,7 @@ import { runPhase1 } from "@/lib/sync/phase1";
 import type { ParseResult, ParseWarning, TriggeredReviewItem } from "@/lib/parser/types";
 import { FIELD_UNREADABLE } from "@/lib/parser/warnings";
 import { STAGED_PARSE_SOURCE_OUT_OF_SCOPE } from "@/lib/sync/applyStaged";
-import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
+import { PRIOR_PARSE_UNREADABLE, RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import {
   rescanWizardSheet,
   type RescanDeps,
@@ -362,6 +362,7 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         needsReview: false,
         changed: true,
         demoted: false,
+        reviewCodes: [],
       });
 
       const row = await readPending();
@@ -408,6 +409,7 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         needsReview: true,
         changed: true,
         demoted: true,
+        reviewCodes: ["MI-11"],
       });
 
       const row = await readPending();
@@ -440,6 +442,7 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         needsReview: true,
         changed: true,
         demoted: true,
+        reviewCodes: [FIELD_UNREADABLE],
       });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
@@ -586,6 +589,7 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         needsReview: true,
         changed: true,
         demoted: false,
+        reviewCodes: [],
       });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
@@ -641,6 +645,7 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         needsReview: true,
         changed: true,
         demoted: true,
+        reviewCodes: [PRIOR_PARSE_UNREADABLE],
       });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
