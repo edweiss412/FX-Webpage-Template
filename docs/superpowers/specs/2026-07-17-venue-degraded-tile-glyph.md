@@ -33,9 +33,9 @@ name/address still shows a (degraded) Directions tile instead of collapsing.
 On the **terminal degraded tile only** (`query === ""`), replace the transient `map` corner
 label with a **centered muted map-pin glyph empty-state** (`lucide-react` `MapPin` + a
 `no preview` caption). The loading / standard tile (`query !== ""`) is **unchanged** — it keeps
-the `map` corner label. The two treatments are mutually exclusive on a **render-fixed**
-predicate (a venue is geocodable or link-only for the life of the mount; the states never swap
-live), so no state, no motion, no transition is introduced.
+the `map` corner label. The two treatments are mutually exclusive on the `query` value: a plain
+conditional render, no state, no motion, no transition. (If a row's venue data is edited live the
+`query` value can flip on a mounted tile — see §7; the swap is instant by construction.)
 
 ### 2.1 Terminal predicate (exact, render-time)
 
@@ -107,13 +107,12 @@ the `MapPin` icon is a graphical object → **3:1** (WCAG 1.4.11). Token values 
 
 | Theme | `text-subtle` | Darkest stripe band (`surface-sunken`) | Ratio | Caption ≥4.5 | Icon ≥3 |
 | ----- | ------------- | -------------------------------------- | ----- | ------------ | ------- |
-| Light | `#5a5b62`     | `#f4f3f1`                              | ~6.3:1 | ✓            | ✓       |
-| Light | `#5a5b62`     | `#ffffff` (lighter band)               | ~7.0:1 | ✓            | ✓       |
-| Dark  | `#9c9a93`     | `#0b0c10`                              | ~9.9:1 | ✓            | ✓       |
-| Dark  | `#9c9a93`     | `#16171c` (lighter band)               | ~8.9:1 | ✓            | ✓       |
+| Light | `#5a5b62`     | `#f4f3f1`                              | 6.09:1 | ✓            | ✓       |
+| Light | `#5a5b62`     | `#ffffff` (lighter band)               | 6.76:1 | ✓            | ✓       |
+| Dark  | `#9c9a93`     | `#0b0c10`                              | 6.94:1 | ✓            | ✓       |
+| Dark  | `#9c9a93`     | `#16171c` (lighter band)               | 6.36:1 | ✓            | ✓       |
 
-Both themes clear the body threshold on the worst-case (darkest, in light / lightest-vs-text in
-dark) band with margin. No opacity reduction is applied (which would erode the ratio); the muted
+All four cells clear the body threshold with margin (worst case 6.09:1 vs the 4.5:1 requirement). No opacity reduction is applied (which would erode the ratio); the muted
 read comes from the `text-subtle` token itself. Ratios to be re-verified at implementation with the
 project's luminance check and the impeccable real-browser render.
 
@@ -158,7 +157,7 @@ geometry is unchanged and already covered by `tests/e2e/step3-review-modal.layou
 | State pair | Treatment |
 | ---------- | --------- |
 | stripe ↔ glyph (terminal mount) | **Instant** — both static layers, no animation. |
-| corner-label ↔ glyph | **No runtime transition** — `query` is render-fixed per venue; the loading tile and the terminal tile are distinct mounts, never a live swap. Enumerated for completeness; there is no A→B animation because A and B never coexist on one mounted tile. |
+| corner-label ↔ glyph | **Instant by construction.** A live swap *is* possible: `VenueMapTile` has no local remount `key` (it renders under `ShowReviewSurface`'s stable `key={s.id}`, `ShowReviewSurface.tsx:797-843`, via the section registry `step3ReviewSections.tsx:3523`), so editing a row's venue data while the modal stays mounted could flip `query` `"" ↔ non-empty` on the same tile. That swap is a plain conditional render between two static layers — no `AnimatePresence`, no `transition-*`, no opacity/transform — so it is instant, exactly what `venueTransitionAudit.test.ts:35-50` pins. |
 | map-image ↔ fallback | **Instant** (unchanged; `2026-07-06-venue-card-redesign-design.md:207`). |
 
 No `AnimatePresence`, `exit`, `initial`, or `transition-*` class is introduced. Pinned by
