@@ -18,6 +18,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { AccentButton } from "@/components/shared/AccentButton";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import { BlockedRowResolver } from "@/components/admin/BlockedRowResolver";
 
 // The per-row codes a re-scan can heal: an outdated Phase-D shadow, and a role-mapping
 // stamp gone stale at publish (spec 2026-07-16-role-vocab-staging-overlay §3.5 heal
@@ -32,7 +33,14 @@ const RESCANNABLE_CAS_CODES = new Set([
 // for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
 // errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
 // OK rows ride along in the array and are filtered before rendering.
-type CasPerRowEntry = { drive_file_id: string; code: string; display_name?: string };
+// `rebuild_exhausted` marks a corrupt-code row that already used its one
+// auto-rebuild attempt (Task 10.5 rebuild-cap wiring).
+type CasPerRowEntry = {
+  drive_file_id: string;
+  code: string;
+  display_name?: string;
+  rebuild_exhausted?: boolean;
+};
 
 type FinalizeCasResponse =
   | {
@@ -131,7 +139,18 @@ export function RunFinalCASButton({ sessionId }: Props) {
                 {/* A re-scannable refusal self-heals via a re-scan; offer it inline. */}
                 {RESCANNABLE_CAS_CODES.has(row.code) ? (
                   <RescanSheetButton driveFileId={row.drive_file_id} wizardSessionId={sessionId} />
-                ) : null}
+                ) : (
+                  <BlockedRowResolver
+                    driveFileId={row.drive_file_id}
+                    wizardSessionId={sessionId}
+                    code={row.code}
+                    {...(row.display_name !== undefined ? { displayName: row.display_name } : {})}
+                    {...(row.rebuild_exhausted !== undefined
+                      ? { rebuildExhausted: row.rebuild_exhausted }
+                      : {})}
+                    onResolved={() => void handleClick()}
+                  />
+                )}
               </li>
             ))}
           </ul>

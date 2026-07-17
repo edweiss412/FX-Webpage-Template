@@ -228,6 +228,81 @@ describe("RunFinalCASButton", () => {
     expect(getByText(FALLBACK_ID)).toBeTruthy();
   });
 
+  test("Task 12: per_row SHOW_ARCHIVED_IMMUTABLE renders BlockedRowResolver; STAGED_PARSE_OUTDATED_AT_PHASE_D STILL renders RescanSheetButton (freshness byte-parity)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse(
+        {
+          ok: false,
+          code: "SHOW_ARCHIVED_IMMUTABLE",
+          per_row: [
+            { drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" },
+            { drive_file_id: "drive-outdated-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+          ],
+        },
+        { status: 409 },
+      ),
+    );
+    const { getByTestId, queryByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
+    await act(async () => {
+      fireEvent.click(getByTestId("run-final-cas-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("run-final-cas-per-row")).not.toBeNull();
+    });
+    expect(queryByTestId("blocked-row-resolver-drive-archived-1")).not.toBeNull();
+    expect(queryByTestId("rescan-sheet-button-drive-outdated-1")).not.toBeNull();
+    expect(queryByTestId("rescan-sheet-button-drive-archived-1")).toBeNull();
+  });
+
+  test("Task 12: resolving a blocked per_row row auto-retries via handleClick (re-POST to finalize-cas)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            per_row: [{ drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" }],
+          },
+          { status: 409 },
+        ),
+      )
+      .mockResolvedValueOnce(mockJsonResponse({ ok: true, status: "resolved" }))
+      // Auto-retry re-POST to /finalize-cas via handleClick().
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "finalize_complete",
+          wizard_session_id: SESSION_ID,
+          watched_folder_id: "folder-xyz",
+        }),
+      );
+    const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
+    await act(async () => {
+      fireEvent.click(getByTestId("run-final-cas-button"));
+    });
+    await waitFor(() => {
+      expect(getByTestId("blocked-row-resolver-drive-archived-1")).toBeTruthy();
+    });
+    const resolverButton = getByTestId("blocked-row-resolver-drive-archived-1");
+    await act(async () => {
+      fireEvent.click(resolverButton);
+    });
+    await act(async () => {
+      fireEvent.click(resolverButton);
+    });
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((c) => c[0] === "/api/admin/onboarding/resolve-blocker"),
+      ).toBe(true);
+    });
+    await waitFor(() => {
+      const casCalls = fetchMock.mock.calls.filter(
+        (c) => c[0] === "/api/admin/onboarding/finalize-cas",
+      );
+      expect(casCalls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+  });
+
   test("WM-R3: 409 WITHOUT per_row keeps the existing top-level copy path", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" }, { status: 409 }),

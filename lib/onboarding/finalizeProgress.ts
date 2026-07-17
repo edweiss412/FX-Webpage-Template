@@ -37,7 +37,15 @@ export type FinalizeBatchResponse = {
 };
 
 // finalize-cas 409s carry per_row entries ({ drive_file_id, code }) for retained shadow rows.
-export type CasPerRowEntry = { drive_file_id: string; code: string; display_name?: string };
+// `rebuild_exhausted` (Task 10.5/rebuild-cap wiring) marks a corrupt-code row that has
+// already used its one auto-rebuild attempt — BlockedRowResolver renders the escalation
+// copy immediately instead of offering another two-tap rebuild.
+export type CasPerRowEntry = {
+  drive_file_id: string;
+  code: string;
+  display_name?: string;
+  rebuild_exhausted?: boolean;
+};
 export type FinalizeErrorResponse = { ok: false; code: string; per_row?: CasPerRowEntry[] };
 export type FinalizeResponse = FinalizeBatchResponse | FinalizeErrorResponse;
 

@@ -15,12 +15,14 @@ import { defineConfig, devices } from "@playwright/test";
  * grid stays aligned with a synthetic badge), step3-review-modal.layout
  * (review-modal redesign Task 10 — §5.1 dimensional invariants + §15 tap targets
  * on the REAL component tree), step3-review-modal.interactions (Task 11 — LIVE
- * esbuild-bundled tree: §10 drag, §6.3a scroll-spy, §16 Tab audit).
+ * esbuild-bundled tree: §10 drag, §6.3a scroll-spy, §16 Tab audit),
+ * blocked-row-resolver-transitions (Task 12 — LIVE esbuild-bundled
+ * BlockedRowResolver tree: idle -> armed -> pending -> resolved transition audit).
  */
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|blocked-row-resolver-transitions)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,
