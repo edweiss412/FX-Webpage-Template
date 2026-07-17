@@ -1134,8 +1134,15 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
       } else {
         expect(chip.querySelector(".bg-status-review, .border-status-positive")).not.toBeNull();
       }
-      // Label ONLY — a stray count/extra text would change textContent.
-      expect(chip.textContent).toBe(s.label);
+      // Visible label ONLY (no counts) + the §S3C-1 sr-only status suffix on
+      // dotted sections. Strip the sr-only status and assert the remainder is
+      // exactly the label — a stray count/extra text would still break this.
+      if (s.hideDot) {
+        expect(chip.textContent).toBe(s.label);
+      } else {
+        expect(chip.textContent).toMatch(/ — (needs review|no issues)$/);
+        expect(chip.textContent?.replace(/ — (needs review|no issues)$/, "")).toBe(s.label);
+      }
     }
   });
 

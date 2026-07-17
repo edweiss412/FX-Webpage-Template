@@ -235,6 +235,14 @@ export function ShowReviewSurface({
       : "size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent";
   }
 
+  /** §S3C-1 text channel: the aria-hidden dot's SR/text equivalent, appended to
+   *  the nav control's accessible name so review state is conveyed to AT and to
+   *  sighted users who don't perceive the hue. Rendered only where a dot is. */
+  function dotStatusText(id: SectionId): string {
+    const review = id === "warnings" ? hasWarnRow : flagged.has(id);
+    return review ? " — needs review" : " — no issues";
+  }
+
   // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
   // While a programmatic glide is in flight the rAF spy must NOT re-derive
   // `active` from intermediate positions (§H N1 — the indicator hopped across
@@ -678,6 +686,8 @@ export function ShowReviewSurface({
                       >
                         {s.label}
                       </span>
+                      {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
+                      {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
                       {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                       {s.railCount !== null ? (
                         <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
@@ -748,6 +758,8 @@ export function ShowReviewSurface({
             >
               <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
               {s.label}
+              {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
+              {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
               {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
               {!s.hideDot ? (
                 <span

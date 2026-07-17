@@ -288,4 +288,19 @@ describe("ShowReviewSurface — S3C-1 dual-channel status dots (WCAG 1.4.1)", ()
     expect(cleanDot.className).toContain("bg-transparent");
     expect(cleanDot.className).not.toContain("bg-status-positive");
   });
+
+  it("each dotted nav control carries an sr-only text status (flagged → 'needs review'; clean → 'no issues')", () => {
+    render(<FlaggedStagedHarness />);
+    // Scope to each specific button by testid so a stray label elsewhere can't
+    // satisfy the match. sr-only text is present in textContent (visually hidden).
+    const crewRail = screen.getByTestId(railTid("rail-item-crew"));
+    expect(crewRail.textContent).toMatch(/needs review/i);
+    expect(crewRail.textContent).not.toMatch(/no issues/i);
+    const venueRail = screen.getByTestId(railTid("rail-item-venue"));
+    expect(venueRail.textContent).toMatch(/no issues/i);
+    expect(venueRail.textContent).not.toMatch(/needs review/i);
+    // Chip twins carry the same status text.
+    expect(screen.getByTestId(railTid("chip-item-crew")).textContent).toMatch(/needs review/i);
+    expect(screen.getByTestId(railTid("chip-item-venue")).textContent).toMatch(/no issues/i);
+  });
 });
