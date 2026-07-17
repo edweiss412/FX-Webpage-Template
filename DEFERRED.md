@@ -607,12 +607,14 @@ Dual-gate on the `feat/use-raw-wizard-full-list` diff (`components/admin/wizard/
 - **What:** Both instances of a flagged warning's controls emit the same `data-testid` values (`use-raw-control`, `role-recognize-control`, toggle ids) and identical radiogroup `aria-label`s, so screen-reader users hear the same group twice per warning with no disambiguation, and unscoped `getByTestId` queries would multi-match (impeccable critique P2).
 - **Why deferred:** The fix lives inside the shared `UseRawControl` / `RoleRecognizeControl` components (site-scoped testids, warning-title-qualified aria-labels) — blast radius across the live page and every existing control test, well beyond this diff. All in-repo queries are container-scoped, so no test breakage exists today.
 - **Trigger:** the next accessibility pass over the wizard modal, or any diff already touching the shared controls. Backlog: `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y`.
+- **Resolution (2026-07-17):** RESOLVED — an optional `WarningControlSite` (`"callout"|"list"|"showpage"`) threaded mount→boundary→control site-scopes EVERY leaf testid (`components/admin/warningControlSite.ts`, `UseRawControl.tsx`, `RoleRecognizeControl.tsx`); the use-raw radiogroup accessible name is kind-qualified (rooms/hotels/dates) and the recognize-role trigger is token-qualified (WCAG 2.5.3 label-in-name). Absent `site` = bare testids (unit mounts unchanged). Spec `docs/superpowers/specs/2026-07-17-use-raw-control-site-a11y-copy.md`; branch `fix/use-raw-control-site-a11y-copy`.
 
 ### USE-RAW-FULL-LIST-3 — [P2→noted] "These are informational and don't block publishing" now headlines consequential controls
 
 - **What:** The §3.10-pinned non-blocking line sits above rows that can now grant financial access (recognize-role) or rewrite crew-visible values (use-raw) (impeccable critique P2).
 - **Why deferred:** The line remains factually true — warnings never block publishing, and the controls are optional refinements, not required actions. Copy is §3.10-pinned; qualifying it is a copy-pass decision, not a this-diff fix.
 - **Trigger:** the next wizard copy pass. Backlog: `BL-WIZARD-WARNINGS-COPY-QUALIFIER`.
+- **Resolution (2026-07-17):** RESOLVED — the line is requalified to "These warnings don't block publishing. Some include an optional fix you can apply below." (`step3ReviewSections.tsx`): drops "informational," keeps the non-blocking clause, and names the optional fixes. Non-blocking publish contract unchanged. Same spec/branch as USE-RAW-FULL-LIST-2 above.
 
 ## Accent-contrast token pass — impeccable dual-gate (2026-07-16)
 

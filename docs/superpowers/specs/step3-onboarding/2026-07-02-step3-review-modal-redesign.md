@@ -91,7 +91,7 @@ Canonical region ids: `lib/sheet-links/buildSheetDeepLink.ts:29-44` (`client, cr
 4. **Drag-to-dismiss is real** on the phone sheet: translateY-only transform, release past `DRAG_DISMISS_THRESHOLD_PX` dismisses, otherwise springs back (§10).
 5. **Full-fidelity body restyle** per the mock's grammar, but every existing cap, disclosure, empty state, and edge-case behavior is preserved verbatim (§8).
 6. **Close button stays visible in ALL modes** (deviation from the mock, which hides it on phone): drag/Esc/scrim-only dismissal is not acceptable for AT users.
-7. **publishPolicy is nonblocking only.** The mock's optional `confirm` policy (publish-anyway interstitial) is NOT ported. Warnings never block publishing (matches the existing panel copy "These are informational and don't block publishing.", `Step3SheetCard.tsx:818-823`).
+7. **publishPolicy is nonblocking only.** The mock's optional `confirm` policy (publish-anyway interstitial) is NOT ported. Warnings never block publishing (matches the existing panel copy "These are informational and don't block publishing.", `Step3SheetCard.tsx:818-823`; requalified 2026-07-17 → "…optional fix you can apply below."; non-blocking contract unchanged).
 8. **No page-level toast.** The mock's post-publish toast belongs to the deferred page redesign. Feedback = the card checkbox visibly ticks + an `aria-live` polite announcement inside the page (see §9.3).
 9. **`Step3DetailsDialog.tsx` is superseded and deleted** in the same change (its focus/scroll-lock/Esc/animation patterns move into the new shell). Its test file is replaced.
 10. **Both severities render in the Parse warnings panel; the panel and rail entry always render**, including the zero-warning case ("No parse warnings for this sheet." + positive dot) so the all-clean state is affirmative, not absent.
@@ -419,7 +419,7 @@ Project-checklist declarations: **Tier × domain completeness matrix — N/A** (
 
 ## 19. Review preempts (do not relitigate)
 
-- **Non-blocking publish posture** is the shipped contract, not a gap: `Step3SheetCard.tsx:818-823` renders "These are informational and don't block publishing." The modal keeps it (§3.7).
+- **Non-blocking publish posture** is the shipped contract, not a gap: `Step3SheetCard.tsx:818-823` renders "These are informational and don't block publishing." The modal keeps it (§3.7). (Requalified 2026-07-17 → "These warnings don't block publishing. Some include an optional fix you can apply below."; non-blocking contract unchanged.)
 - **"No modals as a first thought" (`DESIGN.md:295`)** — this surface IS already a modal (`Step3DetailsDialog`, shipped); the spec redesigns it, it does not introduce one.
 - **Deleting `Step3DetailsDialog.tsx`** is intentional supersession (§3.9), not scope creep: keeping both would leave a dead component with a live test.
 - **`lg` (not a new 720/768px token) as the two-pane threshold** — §5 rationale; DESIGN.md §6 names only `sm`/`lg`/`xl` and adding a breakpoint token for one component is not justified.
