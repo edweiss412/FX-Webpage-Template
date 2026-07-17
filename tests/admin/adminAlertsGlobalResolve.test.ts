@@ -15,9 +15,13 @@ class FakeGlobalAlertTx implements AdminAlertGlobalResolveTx {
     resolved_at: string | null;
   } | null = { id: A1, show_id: null, slug: null, resolved_at: null };
   updated = false;
+  selectSql: string | null = null;
   async queryOne<T>(sql: string, params: unknown[]) {
     const normalized = sql.replace(/\s+/g, " ").trim();
-    if (normalized.startsWith("select")) return this.row as T;
+    if (normalized.startsWith("select")) {
+      this.selectSql = normalized;
+      return this.row as T;
+    }
     if (normalized.startsWith("update public.admin_alerts")) {
       if (this.row?.show_id !== null) return null as T;
       this.updated = true;
@@ -58,6 +62,27 @@ describe("global admin alert resolve route", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "resolved", id: A1, resolved_at: "DB_NOW" });
     expect(tx.updated).toBe(true);
+  });
+
+  // Regression (ADMIN_ALERT_RESOLVE_FAILED, 2026-07-17): the locking SELECT joins
+  // `shows` via LEFT JOIN (nullable side) to backfill slug. A BARE `for update`
+  // locks every table in the query, so Postgres rejects it with "FOR UPDATE cannot
+  // be applied to the nullable side of an outer join" → the route threw a 500 on
+  // EVERY global resolve. The lock must be scoped to the base alias (`for update of
+  // a`). The mocked tx here never executes SQL, so this asserts the SQL shape; the
+  // real-DB behavioral proof is the psql round-trip in the PR description.
+  test("locking select scopes FOR UPDATE to the alert alias (not the outer-joined shows)", async () => {
+    const tx = new FakeGlobalAlertTx();
+    await handleAdminAlertGlobalResolve(
+      new Request("https://crew.fxav.test"),
+      { params: Promise.resolve({ id: A1 }) },
+      deps(tx),
+    );
+    expect(tx.selectSql).toContain("left join public.shows");
+    // Scoped lock present …
+    expect(tx.selectSql).toMatch(/for update of a\b/);
+    // … and NOT a bare, unscoped `for update` (which would lock the nullable side).
+    expect(tx.selectSql).not.toMatch(/for update(?!\s+of\b)/);
   });
 
   test("returns 400 ALERT_REQUIRES_SHOW_SCOPED_RESOLVE for per-show alerts", async () => {
