@@ -318,7 +318,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             // tick). Visual feedback stays keyed on isResolving below.
             disabled={isPending}
             aria-busy={isResolving}
-            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isResolving ? "Revoking…" : "Confirm revoke"}
           </button>

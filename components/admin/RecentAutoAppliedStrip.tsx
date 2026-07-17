@@ -212,7 +212,14 @@ function GroupSection({
 
   // FLOW4-6: closing the confirm unmounts whichever of its buttons holds focus,
   // so both close paths move focus to the always-mounted disclosure toggle first —
-  // guarded so a completion landing while the user works elsewhere never steals focus.
+  // guarded so a completion landing while the user works elsewhere never steals
+  // focus. The cancel path checks containment synchronously (still correct); the
+  // completion path can't — clicking confirm-go sets pending → disabled={pending}
+  // → Chrome/Firefox eject focus from the disabled button to <body>, so at
+  // completion time containment is false even though the user never left. It
+  // instead captures "focus was inside at click" up front and treats
+  // ejected-to-body as still ours, while a real element focused OUTSIDE the
+  // group (user actively moved) is never robbed (WCAG 2.4.3).
   const groupContainerRef = useRef<HTMLLIElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   function restoreFocusToToggle() {
@@ -221,6 +228,9 @@ function GroupSection({
   }
 
   function confirmUndoAll() {
+    // Captured synchronously at click time, BEFORE startTransition flips pending
+    // and the browser's disabled-focus ejection moves focus to <body>.
+    const wasInsideAtClick = groupContainerRef.current?.contains(document.activeElement) ?? false;
     // Dispatch undoFromDashboardAction once per undoableId. Each undo self-resolves
     // its show server-side (reads ONLY changeLogId from FormData), so we carry just
     // that field — mirrors UndoChangeButton's single hidden input.
@@ -239,7 +249,12 @@ function GroupSection({
       }
       const total = results.length;
       const failed = results.filter((r) => r && !r.ok).length;
-      restoreFocusToToggle();
+      // Ejected-to-body counts as "still ours"; a real element focused outside
+      // the group means the user actively moved — never rob them.
+      const stillOurs =
+        document.activeElement === document.body ||
+        (groupContainerRef.current?.contains(document.activeElement) ?? false);
+      if (wasInsideAtClick && stillOurs) toggleRef.current?.focus();
       setConfirming(false);
       setBulkUndoOutcome(failed > 0 ? { failed, total } : null);
     });
@@ -359,7 +374,7 @@ function GroupSection({
                   disabled={pending}
                   aria-busy={pending}
                   data-testid={`auto-applied-undo-all-confirm-go-${group.showId}`}
-                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {pending
                     ? "Undoing…"

@@ -109,9 +109,18 @@ describe("BulkIgnoreControls", () => {
     };
     const twoGroups = [groupX, groupY];
 
+    // Armed morph compensates the idle `border border-border-strong` with
+    // `border border-transparent` — no 2px layout shift on arm/auto-revert.
     function expectDestructiveRecipe(el: HTMLElement) {
       const tokens = el.className.split(/\s+/);
-      for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+      for (const t of [
+        "bg-warning-text",
+        "text-warning-bg",
+        "font-semibold",
+        "hover:opacity-90",
+        "border",
+        "border-transparent",
+      ]) {
         expect(tokens).toContain(t);
       }
       for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {

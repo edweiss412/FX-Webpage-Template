@@ -25,9 +25,18 @@ import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDisca
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 
 // Shared destructive-recipe assertion (spec §3 C1; plan "Shared rendered assertion").
+// This surface's idle skin carries `border border-border-strong`, so the armed
+// morph compensates with `border border-transparent` — no 2px layout shift.
 function expectDestructiveRecipe(el: HTMLElement) {
   const tokens = el.className.split(/\s+/);
-  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+  for (const t of [
+    "bg-warning-text",
+    "text-warning-bg",
+    "font-semibold",
+    "hover:opacity-90",
+    "border",
+    "border-transparent",
+  ]) {
     expect(tokens).toContain(t);
   }
   for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {

@@ -492,6 +492,38 @@ it("keep-changes cancel moves focus to the group toggle", async () => {
   await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveFocus());
 });
 
+it("completion restores focus to the toggle after disabled-focus ejection to body (WCAG 2.4.3)", async () => {
+  // Real-browser behavior: clicking confirm-go sets pending → disabled={pending}
+  // → Chrome/Firefox eject focus to <body>. The ejected-to-body state must still
+  // count as "focus was ours" so completion restores the toggle.
+  const actions = noopActions();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  actions.undoFromDashboardAction = vi.fn().mockImplementation(async () => {
+    await gate;
+    return { ok: true };
+  });
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+  const confirmGo = within(fin).getByTestId(`auto-applied-undo-all-confirm-go-${FIN_ID}`);
+  confirmGo.focus();
+  fireEvent.click(confirmGo);
+  // Simulate the browser's disabled-focus ejection: focus falls to <body>.
+  // jsdom's blur() is a no-op on a disabled element (real browsers eject
+  // automatically on disable), so lift the attribute for the manual ejection.
+  (document.activeElement as HTMLElement).removeAttribute("disabled");
+  (document.activeElement as HTMLElement).blur();
+  expect(document.activeElement).toBe(document.body);
+  await act(async () => {
+    release();
+  });
+  await waitFor(() =>
+    expect(within(fin).queryByTestId(`auto-applied-undo-all-confirm-${FIN_ID}`)).toBeNull(),
+  );
+  expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveFocus();
+});
+
 it("completion with focus planted outside the group does NOT move focus", async () => {
   const actions = noopActions();
   let release!: () => void;
