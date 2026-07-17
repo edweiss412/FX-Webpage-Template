@@ -466,9 +466,9 @@ Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWal
 
 ### BL-AUTOAPPLIED-CARD-LAYOUT-E2E — real-browser width-distribution assertion for the auto-applied card button grid
 
-**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI LAYOUT COVERAGE
+**Status:** ✅ SHIPPED (2026-07-17) · **Severity:** low · **Class:** UI LAYOUT COVERAGE
 
-The redesigned "Recently auto-applied" change card distributes Accept/Undo via CSS grid (`grid-cols-2` 1fr/1fr, or `grid-cols-1`) + `w-full` buttons. The jsdom suite pins the mechanism (grid template + `w-full`); a real-browser Playwright assertion of the actual pixel widths (each button ≈ half / full card content width) is deferred because 1fr columns split equally by CSS-grid spec (not the flex-stretch failure mode). Trigger to promote: an auto-applied-strip e2e harness lands, or the button layout moves off CSS-grid `1fr`.
+The redesigned "Recently auto-applied" change card distributes Accept/Undo via CSS grid (`grid-cols-2` 1fr/1fr, or `grid-cols-1`) + `w-full` buttons. ~~The jsdom suite pins the mechanism; a real-browser pixel-width assertion is deferred.~~ **Shipped:** `tests/e2e/autoAppliedCardGrid.layout.spec.ts` (+ harness `_autoAppliedCardGridHarness.tsx`, in `standalone.config.ts`) renders the real `RecentAutoAppliedStrip` and asserts the 1fr/1fr split and the single==double+gap full-width invariant from measured button boxes only (no hardcoded pixel, no grid-class selector); negative-regression verified. See `DEFERRED.md` AUTOAPPLIED-REDESIGN-1.
 
 ### BL-AUTOAPPLIED-SINGLETON-FLATTEN — flatten card-in-card for single-change groups
 

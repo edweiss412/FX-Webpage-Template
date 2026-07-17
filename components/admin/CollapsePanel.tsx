@@ -8,10 +8,12 @@ import { type ReactNode } from "react";
  * (RecentAutoAppliedStrip groups, IgnoredSheetsDisclosure, AddAdminDisclosure).
  * The outer grid is the morph TRACK — its single row track transitions
  * grid-template-rows 0fr -> 1fr over --duration-normal; the inner overflow-hidden
- * element IS the labeled region (always mounted, so aria-controls always
- * resolves), `inert` when closed so its subtree leaves BOTH the tab order and
- * the AT tree (React 19 boolean `inert`), matching the WAI accordion `hidden`
- * behavior while still permitting the height morph.
+ * element is the labeled region by default (always mounted, so aria-controls
+ * always resolves; callers rendering many panels pass `region={false}` to drop
+ * the landmark — see the `region` prop). It is `inert` when closed so its
+ * subtree leaves BOTH the tab order and the AT tree (React 19 boolean `inert`),
+ * matching the WAI accordion `hidden` behavior while still permitting the height
+ * morph.
  *
  * Reduced motion: --duration-normal collapses to 0ms under
  * prefers-reduced-motion (app/globals.css), and motion-reduce:transition-none
@@ -26,13 +28,25 @@ export function CollapsePanel({
   open,
   id,
   label,
+  region = true,
   children,
 }: {
   open: boolean;
   /** Stable id on the region grid-item (the aria-controls target + testid). */
   id: string;
-  /** Accessible name for the disclosed region. */
+  /** Accessible name for the disclosed region (only used when `region`). */
   label: string;
+  /**
+   * When true (default), the disclosed body is a `role="region"` landmark named
+   * by `label`. Set false for callers that render many panels (e.g. the
+   * per-show RecentAutoAppliedStrip groups) to avoid proliferating region
+   * landmarks — WAI-APG cautions against more than a handful. Opting out drops
+   * `role` + `aria-label` (a bare `aria-label` is not surfaced on a generic
+   * element); the id/testid, overflow-hidden clip, and inert-when-closed
+   * behavior are unchanged, so the toggle's `aria-controls` still resolves and
+   * the visible trigger remains the disclosure's accessible name.
+   */
+  region?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -44,8 +58,8 @@ export function CollapsePanel({
       <div
         id={id}
         data-testid={id}
-        role="region"
-        aria-label={label}
+        role={region ? "region" : undefined}
+        aria-label={region ? label : undefined}
         className="overflow-hidden"
         inert={open ? undefined : true}
       >
