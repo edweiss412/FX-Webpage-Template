@@ -269,12 +269,13 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
     const rooms = within(sectionEl("rooms"));
 
     // Recognize-role lives in crew (its UNKNOWN_ROLE_TOKEN warning), NOT in rooms.
-    expect(crew.getAllByTestId("role-recognize-control").length).toBeGreaterThan(0);
-    expect(rooms.queryByTestId("role-recognize-control")).toBeNull();
+    // Live per-show controls carry site="showpage" (spec 2026-07-17 §5).
+    expect(crew.getAllByTestId("role-recognize-control-showpage").length).toBeGreaterThan(0);
+    expect(rooms.queryByTestId("role-recognize-control-showpage")).toBeNull();
 
     // Use-raw lives in rooms (its structural-transform warning), NOT in crew.
-    expect(rooms.getAllByTestId("use-raw-control").length).toBeGreaterThan(0);
-    expect(crew.queryByTestId("use-raw-control")).toBeNull();
+    expect(rooms.getAllByTestId("use-raw-control-showpage").length).toBeGreaterThan(0);
+    expect(crew.queryByTestId("use-raw-control-showpage")).toBeNull();
 
     // Report/Ignore controls attach to every rendered warning in both sections.
     expect(crew.getAllByTestId("dq-controls").length).toBeGreaterThan(0);
