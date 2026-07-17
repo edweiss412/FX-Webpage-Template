@@ -42,7 +42,7 @@
 - Consumes: nothing new.
 - Produces: `VenueMapTile` renders the `<img>` (testid `venue-map-img`) **only when `theme !== null`**; `theme` state type `"light" | "dark" | null`, init `null`, resolved once in the existing mount `useEffect`. Guard `if (!query) return null` UNCHANGED in this task (VCR-3 changes it in Task 2).
 
-**Layout-harness consequence (important):** the standalone layout harness renders via `renderToStaticMarkup` (no hydration, no effects — `step3-review-modal.layout.spec.ts:82-121`, comment at `:411`). After the mount-gate, `theme` stays `null` in a static render → **no `<img>` in the served HTML**. The existing `§DI-2` test (`:601`) locates `[data-testid="venue-map-img"]` and will therefore FAIL. It is reframed in Step 5 to assert the always-painted **stripe base** (`venue-map-fallback`, `absolute inset-0`) fills the region — the identical `absolute inset-0 size-full` fill classes the `<img>` uses, so the no-letterbox invariant is preserved and now theme-independent (works in the static harness). Spec §5 is amended to match.
+**Layout-harness consequence (important):** the standalone layout harness renders via `renderToStaticMarkup` (no hydration, no effects — `step3-review-modal.layout.spec.ts:82-121`, comment at `:411`). After the mount-gate, `theme` stays `null` in a static render → **no `<img>` in the served HTML**. The existing `§DI-2` test (`:601`) locates `[data-testid="venue-map-img"]` and will therefore FAIL. It is reframed in Step 5 to assert the always-painted **stripe base** (`venue-map-fallback`, `absolute inset-0` at `VenueMapTile.tsx:46` — `inset-0` pins all four edges, so it fills the region box) fills the region content box. This is the same no-letterbox fill result the `<img>` achieves (`absolute inset-0 size-full object-cover`), now theme-independent (works in the static harness). Spec §5 is amended to match.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -96,13 +96,18 @@ Expected: the SSR test FAILS — current code (`useState("light")`, `:29`) rende
 
 In `components/admin/wizard/VenueMapTile.tsx`:
 
-Change the state init (`:29`):
+Change the state init (`:29`) AND update the now-stale comment above it (`:26-28`, currently "SSR/first-render is 'light' to match the server …"):
 
 ```tsx
+  // SSR + first client render are `null` (no <img>) until the post-hydration
+  // effect resolves the applied theme (stamped on <html> by the NO_FOUC_SCRIPT
+  // before hydration; same dataset.theme read as ThemeToggle.tsx:69). Gating the
+  // <img> on a resolved theme means no wrong-theme raster is fetched at first
+  // paint (VCR-2), with no hydration mismatch (server and first render agree).
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
 ```
 
-Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly as they are. **Delete the unconditional `const src = …` line (`:36`)** — a nullable `theme` in a template literal does NOT raise a TS error (it stringifies to `"theme=null"`), so the URL must be built only where `theme` is guaranteed non-null. Compute `src` **inside** the render branch and gate the `<img>` on a resolved theme — replace the layer-2 `<img>` block (`:63-78`) with:
+Also update the component-doc comment (`:16-18`, currently "… never mounts this with an empty query; the empty-query guard here is defensive") — Task 2 changes this contract, so soften it now or in Task 2; the precise new wording lands in Task 2 Step 3. Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly as they are in THIS task. **Delete the unconditional `const src = …` line (`:36`)** — a nullable `theme` in a template literal does NOT raise a TS error (it stringifies to `"theme=null"`), so the URL must be built only where `theme` is guaranteed non-null. Compute `src` **inside** the render branch and gate the `<img>` on a resolved theme — replace the layer-2 `<img>` block (`:63-78`) with:
 
 ```tsx
       {/* (2) real map overlay — mounted only once the post-hydration effect
@@ -328,7 +333,15 @@ Expected FAIL: `rect(page, '[data-testid="venue-map-region"]')` times out — th
 
 - [ ] **Step 3: Write the minimal implementation**
 
-In `components/admin/wizard/VenueMapTile.tsx`, change the guard (`:34`):
+In `components/admin/wizard/VenueMapTile.tsx`, change the guard (`:34`) and update the component-doc comment (`:16-18`) to reflect the new contract:
+
+```tsx
+  // The parent (VenueBreakdown) mounts this whenever there is a map query OR a
+  // valid mapHref (VCR-3). With an empty query + valid mapHref we render a
+  // degraded tile: stripe base + Directions, no <img> (nothing to geocode). The
+  // guard below returns null only when there is neither (defensive; the parent
+  // already collapses that case).
+```
 
 ```tsx
   if (!query && !mapHref) return null;
@@ -351,7 +364,15 @@ And change the `<img>` mount predicate (from Task 1) so an empty query never fet
       ) : null}
 ```
 
-In `components/admin/wizard/step3ReviewSections.tsx`, change the region-mount gate (`:973`) from `{query ? (` to:
+In `components/admin/wizard/step3ReviewSections.tsx`, change the region-mount gate (`:973`) from `{query ? (` to `{query || mapHref ? (`, and update the now-stale `query` comment (`:938-939`, currently "Empty → the parent collapses the map region (never mounts VenueMapTile)"):
+
+```tsx
+  // Geocodable query mirrors geocodeQuery (lib/geocoding/client.ts:44). The
+  // parent mounts the map region when `query || mapHref` (VCR-3): a link-only
+  // venue (empty query, valid mapHref) still shows a degraded Directions tile.
+  // The region collapses only when BOTH are absent.
+  const query = [name, address].filter(Boolean).join(", ");
+```
 
 ```tsx
             {query || mapHref ? (
