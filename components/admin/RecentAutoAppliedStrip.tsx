@@ -168,6 +168,11 @@ function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
   return (
     <span
       data-testid="auto-applied-kind-dots"
+      // role="img" gives the aria-hidden dot cluster a single reliable text
+      // alternative — aria-label on a role-less generic span is inconsistently
+      // exposed to AT; role="img"+aria-label is the canonical named-graphic
+      // pattern, and still folds the kind names into the toggle's accessible name.
+      role="img"
       className="flex shrink-0 items-center gap-1"
       aria-label={`Change kinds: ${kinds.map(labelFor).join(", ")}`}
     >

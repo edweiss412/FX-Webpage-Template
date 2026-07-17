@@ -255,6 +255,9 @@ it("collapsed header shows a kind-dot cluster: one dot per distinct kind, labele
   const cluster = within(screen.getByTestId(`auto-applied-group-${FIN_ID}`)).getByTestId(
     "auto-applied-kind-dots",
   );
+  // role="img" gives the aria-hidden dot cluster a reliable AT-exposed text
+  // alternative (aria-label on a role-less span is inconsistently announced)
+  expect(cluster).toHaveAttribute("role", "img");
   // aria-label names each kind (data source = group.rows, not per-row pills)
   expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Renamed"));
   expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Added"));

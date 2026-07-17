@@ -57,14 +57,17 @@ export function AddAdminDisclosure({
         <AddAdminTrigger open={open} onToggle={() => setOpen((v) => !v)} />
       </header>
 
-      {/* gap-3 dropped from the card: the always-mounted 0-height CollapsePanel
-          would otherwise incur a phantom ~12px gap below the list when closed.
-          Open-state separation moves inside the panel via the pt-3 wrapper. */}
+      {/* gap-3 dropped from the CARD (the always-mounted 0-height CollapsePanel
+          would otherwise incur a phantom ~12px gap below the list when closed).
+          The `list` slot is a multi-child fragment (active list + optional revoked
+          list), so its internal spacing is preserved by its OWN gap-3 wrapper —
+          NOT the card's — keeping the developer view consistent with the
+          non-developer branch. Form open-state separation is the panel's pt-3. */}
       <div
         data-testid="admin-settings-admins-card"
         className="flex flex-col rounded-md border border-border bg-surface p-4"
       >
-        {list}
+        <div className="flex flex-col gap-3">{list}</div>
         <CollapsePanel open={open} id="admin-settings-add-admin" label="Add administrator form">
           <div className="flex flex-col gap-3 pt-3">
             <AddAdminForm />

@@ -200,12 +200,17 @@ second region wrapper or re-declare the id/testid inside.
   always exists, closing a latent dangling-idref-when-closed nit.
 - **Parent-gap fix:** remove `gap-3` from the card (`:61`,
   `flex flex-col gap-3 rounded-md border border-border bg-surface p-4` →
-  `flex flex-col rounded-md border border-border bg-surface p-4`). The card's two
-  children are `{list}` and the panel; the `pt-3` inside the CollapsePanel child
-  provides the open-state separation from the list and is clipped by
+  `flex flex-col rounded-md border border-border bg-surface p-4`). **The `list`
+  slot is a MULTI-child fragment** (active-list div + optional revoked-list
+  details), so dropping the card `gap-3` would also collapse the active↔revoked
+  spacing — wrap `{list}` in its own `<div className="flex flex-col gap-3">` to
+  preserve that spacing independent of the card (keeping the developer view
+  consistent with the non-developer branch that keeps `gap-3`). The card then has
+  two flex children — the list wrapper and the panel; the `pt-3` inside the
+  CollapsePanel child provides the open-state separation and is clipped by
   `overflow-hidden` when closed (no phantom gap). Correction to the earlier
   claim: a 0-height morph child DOES still incur a flex `gap` from its sibling —
-  that is exactly why the card `gap-3` is removed rather than kept.
+  that is exactly why the card `gap-3` is removed (and the list re-wrapped).
   `AddAdminForm`'s inputs are `inert` when closed.
 
 ### 1.4 Dimensional invariants
