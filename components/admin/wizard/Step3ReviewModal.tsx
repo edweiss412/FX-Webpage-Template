@@ -300,6 +300,32 @@ export function Step3ReviewModal({
     };
   }, []);
 
+  // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
+  // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
+  // beyond `aria-modal`, which browse-mode readers honor inconsistently). The
+  // modal is portaled to <body> (above), a SIBLING of `[data-inert-root]`, so
+  // inerting the shell never inerts the dialog. Restore prior state on unmount
+  // (== close). Runs client-only (effects never fire on the server).
+  useEffect(() => {
+    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-inert-root]"));
+    const prev = roots.map((el) => ({
+      el,
+      hadInert: el.hasAttribute("inert"),
+      ariaHidden: el.getAttribute("aria-hidden"),
+    }));
+    for (const el of roots) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, hadInert, ariaHidden } of prev) {
+        if (!hadInert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
+    };
+  }, []);
+
   // Escape closes. The focus hook traps Tab but defers Esc to the dialog
   // (lib/a11y/dialogFocus.ts contract). Listen on document so the key is
   // caught wherever focus currently sits inside the trap.

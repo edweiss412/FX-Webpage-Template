@@ -2641,3 +2641,41 @@ describe("Step3ReviewModal — §S3C-2 portal to document.body", () => {
     expect(document.body.contains(q.getByRole("dialog"))).toBe(true);
   });
 });
+
+describe("Step3ReviewModal — §S3C-2 background inert", () => {
+  test("inerts every [data-inert-root] while open; restores prior state on unmount", () => {
+    const shell = document.createElement("div");
+    shell.setAttribute("data-inert-root", "");
+    document.body.appendChild(shell);
+    try {
+      const { q } = renderModal();
+      // While the modal is mounted (== open) the background shell is inert + hidden from AT.
+      expect(shell.hasAttribute("inert")).toBe(true);
+      expect(shell.getAttribute("aria-hidden")).toBe("true");
+      // The portaled dialog itself is a body sibling of the shell, never inerted.
+      expect(q.getByRole("dialog").closest("[data-inert-root]")).toBeNull();
+      q.unmount();
+      // Closing (unmount) restores the shell's prior state — no stuck inert/aria-hidden.
+      expect(shell.hasAttribute("inert")).toBe(false);
+      expect(shell.hasAttribute("aria-hidden")).toBe(false);
+    } finally {
+      shell.remove();
+    }
+  });
+
+  test("preserves a pre-existing aria-hidden on the shell across open/close", () => {
+    const shell = document.createElement("div");
+    shell.setAttribute("data-inert-root", "");
+    shell.setAttribute("aria-hidden", "false");
+    document.body.appendChild(shell);
+    try {
+      const { q } = renderModal();
+      expect(shell.getAttribute("aria-hidden")).toBe("true"); // overridden while open
+      q.unmount();
+      expect(shell.getAttribute("aria-hidden")).toBe("false"); // restored, not removed
+      expect(shell.hasAttribute("inert")).toBe(false);
+    } finally {
+      shell.remove();
+    }
+  });
+});
