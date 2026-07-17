@@ -132,6 +132,7 @@ test.beforeAll(async () => {
     normal: string;
     long: string;
     resolution: string;
+    linkOnly: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
   // §K15 anti-tautology: expected tile/overflow numbers derive from the
@@ -148,6 +149,8 @@ test.beforeAll(async () => {
   writeFileSync(join(workDir, "harness-long.html"), pageHtml("out.css", pages.long));
   // Step-3 consolidation (spec §9): the folded RESOLUTION footer variant.
   writeFileSync(join(workDir, "harness-resolution.html"), pageHtml("out.css", pages.resolution));
+  // VCR-3 link-only venue (spec 2026-07-17 §5, §DI-1 anti-tautology).
+  writeFileSync(join(workDir, "harness-linkonly.html"), pageHtml("out.css", pages.linkOnly));
 
   // Compile the real token CSS (template mechanics: prepend @source lines for
   // the harness pages to a copy of app/globals.css so Tailwind v4 generates
@@ -156,7 +159,7 @@ test.beforeAll(async () => {
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
   writeFileSync(
     entryCss,
-    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n@source "${join(workDir, "harness-resolution.html")}";\n${globals}`,
+    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n@source "${join(workDir, "harness-resolution.html")}";\n@source "${join(workDir, "harness-linkonly.html")}";\n${globals}`,
   );
   execFileSync(
     "pnpm",
@@ -598,25 +601,28 @@ test("§DI-1 venue map region height === text column height @ popup 800px", asyn
   ).toBeLessThanOrEqual(TOL);
 });
 
-test("§DI-2 venue map img fills its region box (no letterbox) @ popup 800px", async ({ page }) => {
+test("§DI-2 venue map fill layer (stripe base) fills its region box (no letterbox) @ popup 800px", async ({
+  page,
+}) => {
   await openHarness(page, { width: 800, height: 900 });
-  const img = await rect(page, '[data-testid="venue-map-img"]');
-  // The img is `absolute inset-0` inside the map region, so it fills the region's
-  // CONTENT box (inside the 1px border-l divider). Compare to the region's client
-  // box (excludes borders) — h-full w-full object-cover means an exact fill, so a
-  // collapsed/auto-sized/letterboxed img is caught, while the divider is not a
-  // false failure.
+  // The <img> is client-only post-VCR-2 (mount-gated on the resolved theme) and
+  // absent from this static (renderToStaticMarkup) harness. The stripe base
+  // (venue-map-fallback) is `absolute inset-0` — it pins all four edges, so it
+  // fills the region's CONTENT box (inside the 1px border-l divider) exactly,
+  // carrying the same no-letterbox invariant theme-independently. Compare to the
+  // region's client box (excludes borders) so the divider is not a false failure.
+  const base = await rect(page, '[data-testid="venue-map-fallback"]');
   const contentBox = await page
     .locator('[data-testid="venue-map-region"]')
     .evaluate((el) => ({ w: el.clientWidth, h: el.clientHeight }));
   expect(contentBox.w, "map region content box rendered").toBeGreaterThan(0);
   expect(
-    Math.abs(img.width - contentBox.w),
-    `img w ${img.width} === region content w ${contentBox.w}`,
+    Math.abs(base.width - contentBox.w),
+    `base w ${base.width} === region content w ${contentBox.w}`,
   ).toBeLessThanOrEqual(TOL);
   expect(
-    Math.abs(img.height - contentBox.h),
-    `img h ${img.height} === region content h ${contentBox.h}`,
+    Math.abs(base.height - contentBox.h),
+    `base h ${base.height} === region content h ${contentBox.h}`,
   ).toBeLessThanOrEqual(TOL);
 });
 
@@ -680,4 +686,28 @@ test("§DI-6 venue Directions target ≥ 44px tall @ popup 800px", async ({ page
   expect(dir.height, `venue map anchor height ${dir.height} ≥ 44`).toBeGreaterThanOrEqual(
     TAP_MIN - TOL,
   );
+});
+
+test("§DI-1 link-only venue: map region fills text column height AND is ≥ tile-min-h (anti-tautology) @ popup 800px", async ({
+  page,
+}) => {
+  await openHarness(page, { width: 800, height: 900 }, "harness-linkonly.html");
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  const textCol = await rect(page, '[data-testid="venue-text-col"]');
+  const tile = await rect(page, '[data-testid="venue-map-tile"]');
+  // (a) DI-1: equal heights (Tailwind v4 items-stretch collapse catcher).
+  expect(
+    Math.abs(region.height - textCol.height),
+    `region ${region.height} === text col ${textCol.height}`,
+  ).toBeLessThanOrEqual(TOL);
+  // (b) anti-tautology: cannot pass by BOTH columns collapsing to the short
+  // eyebrow-only height — the tile's min-h-tile-min-h (96px) floors the region.
+  expect(region.height, `link-only region height ${region.height} ≥ 96`).toBeGreaterThanOrEqual(
+    96 - TOL,
+  );
+  // (c) the imageless tile fills its region box.
+  expect(
+    Math.abs(tile.height - region.height),
+    `tile ${tile.height} fills region ${region.height}`,
+  ).toBeLessThanOrEqual(TOL);
 });

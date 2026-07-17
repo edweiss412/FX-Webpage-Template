@@ -935,8 +935,10 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
   const city = venue?.city?.trim() ?? "";
   const dock = venue?.loadingDock?.trim() ?? "";
   const mapHref = isParseableUrl(venue?.googleLink) ? venue!.googleLink!.trim() : null;
-  // Geocodable query mirrors geocodeQuery (lib/geocoding/client.ts:44). Empty →
-  // the parent collapses the map region (never mounts VenueMapTile).
+  // Geocodable query mirrors geocodeQuery (lib/geocoding/client.ts:44). The
+  // parent mounts the map region when `query || mapHref` (VCR-3): a link-only
+  // venue (empty query, valid mapHref) still shows a degraded Directions tile.
+  // The region collapses only when BOTH are absent.
   const query = [name, address].filter(Boolean).join(", ");
 
   return (
@@ -970,7 +972,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: Sh
                 </span>
               ) : null}
             </div>
-            {query ? (
+            {query || mapHref ? (
               <div
                 data-testid="venue-map-region"
                 className="h-40 w-full self-stretch border-t border-border sm:h-auto sm:w-[172px] sm:shrink-0 sm:border-t-0 sm:border-l"

@@ -35,6 +35,14 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
   test("tile: no AnimatePresence / exit / initial props (card is static)", () => {
     expect(tile).not.toMatch(/AnimatePresence|(?:^|\s)exit=|(?:^|\s)initial=/);
   });
+  test("VCR-2: the map <img> is conditionally mounted on the resolved theme (no first-paint fetch), still instant", () => {
+    // The <img> must render inside a `theme !== null` gate so SSR/first paint
+    // has no <img> (no wrong-theme raster fetched) — §8 row is a mount, not a
+    // fade. Assert the gate exists AND no opacity/transition animates it.
+    expect(tile).toContain("theme !== null");
+    expect(tile).not.toMatch(/\btransition(-\w+)?\b/);
+  });
+
   test("tile: no transition classes at all — fully instant (§8)", () => {
     // §8 declares every state pair instant, incl. image load (no fade) and the
     // onError visibility swap. A `transition-*` class would be inert (the
@@ -51,8 +59,11 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
   // or AnimatePresence wrapping the state change).
   test("VenueBreakdown: enumerated conditional renders exist and are instant", () => {
     const src = venueBreakdownSource();
-    // (a) map region rendered only when the geocode query is non-empty.
+    // (a) map region rendered when query OR a valid mapHref (VCR-3 link-only).
     expect(src, "map-region conditional").toContain("venue-map-region");
+    // VCR-3: the region mounts on `query || mapHref` (not query alone), so a
+    // link-only venue still shows a (degraded) tile. Pin the predicate.
+    expect(src, "region gated on query || mapHref").toContain("query || mapHref");
     // (b) dock footer rendered only when loadingDock has content.
     expect(src, "dock-footer conditional").toContain("venue-dock");
     // (c) directions target: anchor when mapHref, decorative element otherwise —

@@ -25,6 +25,14 @@ Promotion is a real decision — same gate as any other milestone (brainstorming
 
 ## Open backlog (not yet promoted)
 
+### BL-VENUE-MAP-DARK-DOUBLE-FETCH — Dark-mode venue-card first paint fetches the light static map, then re-fetches dark — ✅ SHIPPED (2026-07-17, fix/venue-card-vcr2-vcr3)
+
+**Resolution:** `VenueMapTile` now initializes `theme` to `null` and mounts the `<img>` only after the post-hydration effect resolves the applied theme, so SSR/first paint render only the always-painted stripe base (no `<img>`, no proxy fetch) and the image mounts once with the correct theme — no light→dark double-fetch, no hydration mismatch. Prospective row (never separately filed); tracked via DEFERRED.md VCR-2, now RESOLVED.
+
+### BL-VENUE-LINK-ONLY-EMPTY-CARD — A venue whose only field is a valid Maps link renders a visually empty card — ✅ SHIPPED (2026-07-17, fix/venue-card-vcr2-vcr3)
+
+**Resolution:** `VenueBreakdown` now mounts the map region on `query || mapHref` (was `query` alone) and `VenueMapTile` renders a degraded stripe + Directions tile (anchored to the Maps link, no `<img>`) when the query is empty but `mapHref` is valid. A non-empty-but-non-parseable `googleLink` (e.g. `"TBD"`) remains an accepted degenerate (count ≥ 1, region collapses, no dead anchor). Prospective row (never separately filed); tracked via DEFERRED.md VCR-3, now RESOLVED.
+
 ### BL-HOTEL-DASH-STREET-NUMBER-CLIPPED — A dash-prefixed street number is deleted as a conf# and the address is lost — ✅ RESOLVED (2026-07-03)
 
 **Resolution (2026-07-03):** Fixed in `stripConfTokens` (`lib/parser/blocks/hotels.ts`). The dash-conf# replacer now threads the street-vs-conf discriminator: a `dash + 4–5-digit` run whose number BEGINS a street phrase (`looksLikeStreetStart` — suffixed street OR `…, ST ZIP` tail, the same discriminator the Hotel-Stays path uses) is preserved, keeping the number but dropping the separator dash so the flattened `name number street` form is exactly what `splitHotelNameAddress` expects. A `#`-marked run (`- #1515`) or a non-street dash-number (a real conf#) is still stripped. A suffixed dash-street now splits into name+address; a suffixless one stays glued but the number is no longer lost (the #3 safe fallback, no data loss). TDD: 5 cases in `tests/parser/blocks/hotels.test.ts` (suffixed split, suffixless glued-but-preserved, dash-conf# still stripped, 4-digit non-street conf# stripped, ZIP+4 idx4 not regressed); full parser suite (1412) + typecheck green; Codex-reviewed.
