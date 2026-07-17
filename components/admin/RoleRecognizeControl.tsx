@@ -29,6 +29,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { GRANTABLE_FLAGS, type GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 import * as COPY from "@/components/admin/roleRecognizeCopy";
+import type { WarningControlSite } from "@/components/admin/warningControlSite";
 
 export type RoleRecognizeSaveMode = "create" | "revise";
 
@@ -84,6 +85,7 @@ const popIn =
 export function RoleRecognizeControl({
   roleToken,
   onSave,
+  site,
 }: {
   /** The raw unrecognized role word; absent/blank → the control does not render. */
   roleToken: string | undefined;
@@ -92,6 +94,8 @@ export function RoleRecognizeControl({
     grants: GrantableFlag[],
     mode: RoleRecognizeSaveMode,
   ) => Promise<RoleRecognizeSaveOutcome>;
+  /** spec 2026-07-17 §4: the render site; absent → bare (unsuffixed) testids. */
+  site?: WarningControlSite;
 }) {
   const uid = useId();
   const [phase, setPhase] = useState<Phase>("collapsed");
@@ -116,6 +120,10 @@ export function RoleRecognizeControl({
 
   const token = (roleToken ?? "").trim();
   if (token.length === 0) return null;
+
+  // spec 2026-07-17 §7.1: leaf testids gain a `-${site}` suffix when a site is
+  // declared (absent → bare, byte-identical to the pre-2026-07-17 output).
+  const tid = (base: string) => (site ? `${base}-${site}` : base);
 
   const selectedGrants = (): GrantableFlag[] => GRANTABLE_FLAGS.filter((f) => checks[f]);
   const noneChecked = GRANTABLE_FLAGS.every((f) => !checks[f]);
@@ -167,10 +175,11 @@ export function RoleRecognizeControl({
   // ── Collapsed: trigger only ──────────────────────────────────────────────
   if (phase === "collapsed") {
     return (
-      <div data-testid="role-recognize-control" data-phase="collapsed" className="mt-1">
+      <div data-testid={tid("role-recognize-control")} data-phase="collapsed" className="mt-1">
         <button
           type="button"
-          data-testid="role-recognize-trigger"
+          data-testid={tid("role-recognize-trigger")}
+          aria-label={COPY.triggerAriaLabel(token)}
           onClick={expand}
           className={outlineBtn}
         >
@@ -187,7 +196,7 @@ export function RoleRecognizeControl({
   if (phase === "saved" && saved) {
     return (
       <div
-        data-testid="role-recognize-control"
+        data-testid={tid("role-recognize-control")}
         data-phase="saved"
         role="status"
         className={`mt-2 flex items-start gap-2.5 rounded-md border border-border bg-surface px-3.5 py-3 ${popIn}`}
@@ -199,7 +208,7 @@ export function RoleRecognizeControl({
           ✓
         </span>
         <div
-          data-testid="role-recognize-saved"
+          data-testid={tid("role-recognize-saved")}
           data-state={saved.state}
           className="flex flex-col gap-0.5"
         >
@@ -218,7 +227,7 @@ export function RoleRecognizeControl({
                 : COPY.APPLY_PENDING_SUMMARY}{" "}
             <button
               type="button"
-              data-testid="role-recognize-change"
+              data-testid={tid("role-recognize-change")}
               onClick={() => reviseFrom(saved.grants)}
               className="font-medium text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
@@ -234,9 +243,9 @@ export function RoleRecognizeControl({
   if (phase === "stale" || phase === "conflict") {
     const isStale = phase === "stale";
     return (
-      <div data-testid="role-recognize-control" data-phase={phase} className="mt-2">
+      <div data-testid={tid("role-recognize-control")} data-phase={phase} className="mt-2">
         <p
-          data-testid={isStale ? "role-recognize-stale" : "role-recognize-conflict"}
+          data-testid={tid(isStale ? "role-recognize-stale" : "role-recognize-conflict")}
           role="status"
           className="rounded-md border border-border bg-info-bg px-3 py-2 text-xs text-text-subtle"
         >
@@ -248,9 +257,9 @@ export function RoleRecognizeControl({
 
   // ── Expanded panel (idle / saving) ───────────────────────────────────────
   return (
-    <div data-testid="role-recognize-control" data-phase={phase} className="mt-1">
+    <div data-testid={tid("role-recognize-control")} data-phase={phase} className="mt-1">
       <div
-        data-testid="role-recognize-panel"
+        data-testid={tid("role-recognize-panel")}
         className={`flex flex-col gap-3 rounded-md border border-border bg-surface p-3.5 ${popIn}`}
       >
         <div className="flex flex-col gap-0.5">
@@ -269,7 +278,7 @@ export function RoleRecognizeControl({
             <label key={flag} className="flex min-h-tap-min cursor-pointer items-center gap-2.5">
               <input
                 type="checkbox"
-                data-testid={`role-recognize-check-${flag}`}
+                data-testid={tid(`role-recognize-check-${flag}`)}
                 checked={checks[flag]}
                 disabled={saving}
                 onChange={() => toggle(flag)}
@@ -286,7 +295,7 @@ export function RoleRecognizeControl({
             <input
               type="checkbox"
               id={`${uid}-fin`}
-              data-testid="role-recognize-check-FINANCIALS"
+              data-testid={tid("role-recognize-check-FINANCIALS")}
               aria-describedby={`${uid}-fin-cap`}
               checked={checks.FINANCIALS}
               disabled={saving}
@@ -306,7 +315,7 @@ export function RoleRecognizeControl({
 
         {noneChecked && !errored ? (
           <p
-            data-testid="role-recognize-none-helper"
+            data-testid={tid("role-recognize-none-helper")}
             className="self-start rounded-md bg-surface-sunken px-2.5 py-2 text-xs text-text-subtle"
           >
             {COPY.NONE_CHECKED_HELPER}
@@ -315,7 +324,7 @@ export function RoleRecognizeControl({
 
         {errored ? (
           <p
-            data-testid="role-recognize-error"
+            data-testid={tid("role-recognize-error")}
             role="alert"
             className="rounded-md border border-border-strong bg-warning-bg px-2.5 py-2 text-xs text-warning-text"
           >
@@ -326,7 +335,7 @@ export function RoleRecognizeControl({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            data-testid="role-recognize-save"
+            data-testid={tid("role-recognize-save")}
             disabled={saving}
             onClick={save}
             className={accentBtn}
@@ -336,7 +345,7 @@ export function RoleRecognizeControl({
           </button>
           <button
             type="button"
-            data-testid="role-recognize-cancel"
+            data-testid={tid("role-recognize-cancel")}
             disabled={saving}
             onClick={cancel}
             className={ghostBtn}

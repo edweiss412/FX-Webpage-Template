@@ -22,6 +22,9 @@ import type { GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 
 // ── Inline warning control ────────────────────────────────────────────────
 export const TRIGGER_LABEL = "Recognize this role";
+/** Trigger accessible name: qualifies the visible label with the role token
+ *  (spec 2026-07-17 §7.2). Contains TRIGGER_LABEL verbatim (WCAG 2.5.3). */
+export const triggerAriaLabel = (token: string) => `${TRIGGER_LABEL}: “${token}”`;
 export const PANEL_HEADING = "What should people with this role see?";
 export const SCOPE_LINE =
   "Applies to anyone whose role says <TOKEN> — this show and every show after.";

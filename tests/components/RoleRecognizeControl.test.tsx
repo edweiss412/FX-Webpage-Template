@@ -393,3 +393,67 @@ describe("RoleRecognizeControlBoundary — action selection", () => {
     expect(screen.queryByText(COPY.savedSummary(TOKEN, ["A1", "FINANCIALS"]))).toBeNull();
   });
 });
+
+// ── site scoping + token-qualified trigger accessible name (spec 2026-07-17) ──
+function allTestidsSuffixed(root: ParentNode, suffix: string) {
+  const nodes = Array.from(root.querySelectorAll("[data-testid]"));
+  expect(nodes.length).toBeGreaterThan(0);
+  for (const n of nodes) expect(n.getAttribute("data-testid")!.endsWith(`-${suffix}`)).toBe(true);
+}
+
+describe("RoleRecognizeControl — site scoping (spec 2026-07-17 §7.1)", () => {
+  // Drive collapsed → save with a given onSave outcome, sweeping the suffix at
+  // every phase the outcome exposes (terminal leaf differs per outcome).
+  async function driveAndSweep(outcome: RoleRecognizeSaveOutcome) {
+    const onSave = vi.fn().mockResolvedValue(outcome);
+    const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" site="showpage" onSave={onSave} />);
+    allTestidsSuffixed(q.container, "showpage"); // collapsed
+    fireEvent.click(q.getByTestId("role-recognize-trigger-showpage"));
+    allTestidsSuffixed(q.container, "showpage"); // panel/idle (none-helper, checks, save, cancel)
+    fireEvent.click(q.getByTestId("role-recognize-check-A1-showpage"));
+    fireEvent.click(q.getByTestId("role-recognize-save-showpage"));
+    const terminal =
+      outcome.kind === "saved"
+        ? "role-recognize-saved-showpage"
+        : outcome.kind === "stale"
+          ? "role-recognize-stale-showpage"
+          : outcome.kind === "conflict"
+            ? "role-recognize-conflict-showpage"
+            : "role-recognize-error-showpage";
+    await waitFor(() => expect(q.getByTestId(terminal)).toBeTruthy());
+    allTestidsSuffixed(q.container, "showpage"); // terminal phase
+    cleanup();
+  }
+
+  it("every leaf suffixed across saved / stale / conflict / error phases", async () => {
+    await driveAndSweep({ kind: "saved", state: "applied", grants: ["A1"] });
+    await driveAndSweep({ kind: "stale" });
+    await driveAndSweep({ kind: "conflict" });
+    await driveAndSweep({ kind: "error" });
+  });
+
+  it("site absent: bare testids (byte-identical)", () => {
+    const onSave = vi.fn();
+    const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" onSave={onSave} />);
+    expect(q.getByTestId("role-recognize-control")).toBeTruthy();
+    expect(q.getByTestId("role-recognize-trigger")).toBeTruthy();
+  });
+});
+
+describe("RoleRecognizeControl — trigger accessible name (spec §7.2, WCAG 2.5.3)", () => {
+  it("aria-label contains the token AND the rendered visible label", () => {
+    const onSave = vi.fn();
+    const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" onSave={onSave} />);
+    const trigger = q.getByTestId("role-recognize-trigger");
+    // Rendered visible text with the aria-hidden chevron removed — derived from the
+    // DOM (NOT COPY.TRIGGER_LABEL) so a future visible-text change without an
+    // aria-label change is caught (label-in-name).
+    const clone = trigger.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[aria-hidden='true']").forEach((el) => el.remove());
+    const visible = clone.textContent!.trim();
+    const aria = trigger.getAttribute("aria-label")!;
+    expect(visible.length).toBeGreaterThan(0);
+    expect(aria).toContain(visible);
+    expect(aria).toContain("SLED DRIVER");
+  });
+});
