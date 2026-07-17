@@ -348,23 +348,17 @@ Source: invariant-8 dual-gate on `feat/bell-notification-center` (critique 28/40
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/step3-review-consolidation`. Verdict: critique 35/40 PASS, audit 19/20 PASS, deterministic detector `[]`, zero CRITICAL, zero unaddressed HIGH. FIXED in-branch: em-dash in the pre-finalize summary (comma), the post-finalize summary contradiction (suppressed like the Select-all header), the modal resolution-footer note ("Removed from this setup." → "Approve to re-apply, or set this sheet aside."), and the resolution-error live region (`role="status"` → `role="alert"`). The entries below are the P2/P3 items on the PRE-EXISTING modal chrome (the consolidation only added the resolution footer; these predate it) — deferred, not introduced by this diff.
 
-### S3C-1 — [P2] Per-section nav dots signal "needs a look" by color only (WCAG 1.4.1)
+### S3C-1 — [P2] Per-section nav dots signal "needs a look" by color only (WCAG 1.4.1) — ✅ RESOLVED 2026-07-17 (branch `fix/s3c-review-a11y`)
 
-- **What:** `components/admin/wizard/Step3ReviewModal.tsx:322` — the rail/chip section dots use `dotToneClass` (`bg-status-review` red vs `bg-status-positive` green), size-2, `aria-hidden`. The only per-section "flagged" cue is red-vs-green on shape-identical dots, invisible to AT and to color-blind sighted users.
-- **Why deferred:** pre-existing modal navigation (not part of the consolidation surface); mitigated — the section header carries a text "N need a look" count and the section chrome differs, so no user is fully blocked. A correct fix (distinct glyph on flagged dots, or sr-adjacent text) touches the modal's shared section-nav, out of consolidation scope.
-- **Trigger:** the next a11y pass on Step3ReviewModal section nav, or any SR/color-blind audit that flags it.
+- **Resolution:** dual-channel dots in `components/admin/review/ShowReviewSurface.tsx` (the dots migrated into the CASP-consolidated surface, rendered on BOTH the standalone show page and the wizard modal — one fix, two surfaces). `dotClass` gives needs-review a **filled amber disc** (`bg-status-review`) and no-issues a **hollow teal ring** (`border-[1.5px] border-status-positive bg-transparent`) — a fill/shape channel on top of hue, both in an identical 8px box (border-box, no reflow). Dots stay `aria-hidden`; a paired `sr-only` " — needs review" / " — no issues" suffix (`dotStatusText`) lands on each nav control's accessible name. jsdom pins the class + accessible-name contract; a real-browser 8px dimensional pin (both forms, rail + chip) rides `tests/e2e/step3-review-modal.layout.spec.ts` (standalone config). DESIGN.md §1.3 documents the channel.
 
-### S3C-2 — [P2] Modal background not `inert` while open
+### S3C-2 — [P2] Modal background not `inert` while open — ✅ RESOLVED 2026-07-17 (branch `fix/s3c-review-a11y`)
 
-- **What:** `Step3ReviewModal.tsx:844` — `role="dialog" aria-modal` + `useDialogFocus` trap + body-scroll-lock are present, but the modal renders inline (not portaled) and background siblings are not `inert`/`aria-hidden`, so a virtual-cursor SR user can browse behind the open dialog.
-- **Why deferred:** pre-existing modal architecture; the focus trap + Esc/scrim/drag exits keep keyboard users contained. Adding `inert` to siblings is a modal-shell change beyond the consolidation's resolution-footer scope.
-- **Trigger:** the next modal-a11y pass, or a portal migration of Step3ReviewModal.
+- **Resolution:** `Step3ReviewModal` now portals to `document.body` (`useHasMounted` + `createPortal`; un-confines the fixed overlay from the PageTransition transform), and while open sets `inert` + `aria-hidden` on every `[data-inert-root]` (a new hook on both `app/admin/layout.tsx` shell roots), restoring prior state on unmount (close). The portal makes the dialog a body sibling of the shell, so inerting the shell never inerts the dialog. jsdom asserts the effect set/restore + prior-state preservation; focus containment is already guaranteed by `useDialogFocus`.
 
-### S3C-3 — [P3] Heading hierarchy skip (h1 → h3) on the review surface
+### S3C-3 — [P3] Heading hierarchy skip (h1 → h3) on the review surface — ✅ STALE 2026-07-17 (premise dissolved post-#415)
 
-- **What:** `Step3Review.tsx:1155` page `h1` is followed by section `h3`s (needs-attention / set-aside) with no `h2` (WCAG 1.3.1 best-practice).
-- **Why deferred:** pre-existing structure; visual hierarchy is correct and no content is unreachable. Renumbering headings is a low-impact polish spanning the whole review surface.
-- **Trigger:** the next heading/landmark pass on the admin wizard.
+- **Resolution (no code):** the h1→h3 skip site no longer exists. `components/admin/wizard/Step3Review.tsx` has **zero** headings; the modal is a clean `<h2>` → `<h3>`; `ShowReviewSurface` sections are intentional `<button>` nav (rail/chip), not document headings. No heading-hierarchy defect remains on the review surface (the button-nav pattern is deliberate, not a skip). Marked stale rather than "fixed" — nothing to change.
 
 ## Pull-sheet archived-tab override — whole-diff R2 deferral (2026-07-06)
 
