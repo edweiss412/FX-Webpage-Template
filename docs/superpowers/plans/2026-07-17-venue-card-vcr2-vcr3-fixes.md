@@ -72,10 +72,22 @@ test("VCR-2 post-hydration: exactly one <img>, correct theme; dark never precede
 });
 ```
 
+Also pin the VCR-2 mount-gate in the transition audit (regression guard for the new §8 "theme unresolved → resolved (`<img>` overlays)" row). Add to `tests/components/admin/wizard/venueTransitionAudit.test.ts`, inside the `describe(…)` block (the `tile` const already holds the comment-stripped tile source):
+
+```ts
+test("VCR-2: the map <img> is conditionally mounted on the resolved theme (no first-paint fetch), still instant", () => {
+  // The <img> must render inside a `theme !== null` gate so SSR/first paint
+  // has no <img> (no wrong-theme raster fetched) — §8 row is a mount, not a
+  // fade. Assert the gate exists AND no opacity/transition animates it.
+  expect(tile).toContain("theme !== null");
+  expect(tile).not.toMatch(/\btransition(-\w+)?\b/); // (already covered; kept local + explicit)
+});
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx`
-Expected: the SSR test FAILS — current code (`useState("light")`, `:29`) renders the `<img>` with `theme=light` at server render, so `html` contains `venue-map-img` and `/api/admin/venue-map`.
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
+Expected: the SSR test FAILS — current code (`useState("light")`, `:29`) renders the `<img>` with `theme=light` at server render, so `html` contains `venue-map-img` and `/api/admin/venue-map`. The new audit test FAILS — current source has no `theme !== null` gate.
 
 - [ ] **Step 3: Write the minimal implementation**
 
@@ -87,7 +99,7 @@ Change the state init (`:29`):
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
 ```
 
-Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly as they are. Gate the `<img>` on a resolved theme — replace the layer-2 `<img>` block (`:63-78`) with:
+Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly as they are. **Delete the unconditional `const src = …` line (`:36`)** — a nullable `theme` in a template literal does NOT raise a TS error (it stringifies to `"theme=null"`), so the URL must be built only where `theme` is guaranteed non-null. Compute `src` **inside** the render branch and gate the `<img>` on a resolved theme — replace the layer-2 `<img>` block (`:63-78`) with:
 
 ```tsx
       {/* (2) real map overlay — mounted only once the post-hydration effect
@@ -99,7 +111,7 @@ Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly 
         // eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback
         <img
           data-testid="venue-map-img"
-          src={src}
+          src={`/api/admin/venue-map?q=${encodeURIComponent(query)}&theme=${theme}`}
           alt=""
           loading="lazy"
           onError={(e) => {
@@ -113,12 +125,12 @@ Leave the `useEffect` (`:30-33`) and `if (!query) return null;` (`:34`) exactly 
       ) : null}
 ```
 
-Note `const src = …` (`:36`) is only read inside the `theme !== null` branch, so `theme` is non-null there and no `theme=null` string reaches the URL. (TypeScript: `theme` is narrowed to `"light" | "dark"` inside the branch; if the `src` declaration precedes the guard and trips a type error, move `const src = …` inside the branch.)
+The `src` is now built inline only inside `theme !== null` (narrowed to `"light" | "dark"`), so no `theme=null` string can ever reach the URL — this is the structural guarantee behind the SSR proof test.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx`
-Expected: PASS — the two new tests plus every pre-existing test (the existing "query + mapHref → theme=light" and "dark theme after hydration → theme=dark" still pass because RTL `render()` flushes the effect, resolving `theme` before assertions).
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
+Expected: PASS — the new SSR + post-hydration + audit tests, plus every pre-existing test (the existing "query + mapHref → theme=light" and "dark theme after hydration → theme=dark" still pass because RTL `render()` flushes the effect, resolving `theme` before assertions).
 
 - [ ] **Step 5: Typecheck the changed file**
 
@@ -129,26 +141,29 @@ Expected: no errors. (If `theme` narrowing fails at the `src` declaration, move 
 
 ```bash
 cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add components/admin/wizard/VenueMapTile.tsx tests/components/admin/wizard/venueMapTile.test.tsx
+git add components/admin/wizard/VenueMapTile.tsx tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts
 git commit --no-verify -m "fix(crew-page): mount venue map <img> only after theme resolves (VCR-2)"
 ```
 
 ---
 
-## Task 2: VCR-3 — degraded tile + parent region gate
+
+## Task 2: VCR-3 — degraded tile + parent gate + link-only layout assertion
 
 **Files:**
 - Modify: `components/admin/wizard/VenueMapTile.tsx:34` (guard) + the `<img>` predicate from Task 1
 - Modify: `components/admin/wizard/step3ReviewSections.tsx:973` (region-mount gate)
-- Test: `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`
+- Modify (tests): `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/components/admin/wizard/venueTransitionAudit.test.ts`, `tests/e2e/_step3ReviewModalHarness.tsx`, `tests/e2e/step3-review-modal.layout.spec.ts`
 
 **Interfaces:**
 - Consumes: Task 1's `theme !== null` img gate.
 - Produces: `VenueMapTile` returns `null` only when `!query && !mapHref`; renders the `<img>` only when `query !== "" && theme !== null`. `VenueBreakdown` mounts `venue-map-region` when `query || mapHref`.
 
-- [ ] **Step 1: Write / amend the failing tests**
+**Harness mechanics (verified live):** `tests/e2e/_step3ReviewModalHarness.tsx` (run via `tsx` in `beforeAll`) emits a JSON of pre-rendered HTML strings (`normal`/`long`/`resolution`, `:254`). The spec `beforeAll` writes each to `harness*.html` (`:147-150`), types them in the `pages` cast (`:129-135`), registers each as a Tailwind `@source` (`:159`), and serves them from a static `createServer`. `openHarness(page, viewport, path)` (`:189`) navigates; `rect(page, selector)` (`:202`) returns the box; `TOL = 0.5` (`:77`). This layout spec MUST run under `tests/e2e/standalone.config.ts` (it boots its own server; the default `playwright.config.ts` starts dev servers + seeded Supabase it does not need — `standalone.config.ts:4-10`).
 
-In `tests/components/admin/wizard/venueMapTile.test.tsx`, **replace** the existing `test("empty query → renders nothing (parent owns collapse)", …)` (it uses a valid `mapHref` and now describes the opposite behavior) with two tests:
+- [ ] **Step 1: Write / amend the failing tests (unit + audit + real-browser layout)**
+
+**(1a)** In `tests/components/admin/wizard/venueMapTile.test.tsx`, **replace** the existing `test("empty query → renders nothing (parent owns collapse)", …)` (uses a valid `mapHref`, now describes the opposite) with:
 
 ```tsx
 test("VCR-3: empty query + valid mapHref → stripe + Directions anchor, NO <img>", () => {
@@ -167,11 +182,11 @@ test("guard: empty query + null mapHref → renders nothing", () => {
 });
 ```
 
-In `tests/components/admin/wizard/venueBreakdown.test.tsx`, **replace** the existing `test("name+address both empty → map region collapses (parent owns), no map tile mounted", …)` (uses valid `https://m.co`) with three tests:
+**(1b)** In `tests/components/admin/wizard/venueBreakdown.test.tsx`, **replace** the existing `test("name+address both empty → map region collapses (parent owns), no map tile mounted", …)` (uses valid `https://m.co`) with three tests. `getByText("(N)")` matches the legacy-path count span (`step3ReviewSections.tsx:793`, `{count !== null ? <span …>({count})</span> …}`; `VenueBreakdown` renders WITHOUT the chrome context provider in this test, so the count parenthetical is present):
 
 ```tsx
-test("VCR-3: link-only venue (valid googleLink) → map region MOUNTS with Directions, no <img>, count 1, no empty copy", () => {
-  const { container } = render(
+test("VCR-3: link-only venue (valid googleLink) → region MOUNTS with Directions, no <img>, count (1), no empty copy", () => {
+  const { container, getByText } = render(
     <VenueBreakdown
       dfid={DFID}
       venue={venue({ name: "", address: "", city: "", loadingDock: null, googleLink: "https://maps.google.com/?q=x" })}
@@ -182,11 +197,12 @@ test("VCR-3: link-only venue (valid googleLink) → map region MOUNTS with Direc
   expect(tile.tagName).toBe("A");
   expect(container.querySelector('[data-testid="venue-directions"]')).not.toBeNull();
   expect(container.querySelector('[data-testid="venue-map-img"]')).toBeNull();
+  getByText("(1)"); // count = 1 (googleLink), asserted against the rendered heading
   expect(container.textContent).not.toContain("No venue details parsed.");
 });
 
-test("accepted degenerate: non-parseable googleLink only → region collapses, no tile, count 1 (no empty copy)", () => {
-  const { container } = render(
+test("accepted degenerate: non-parseable googleLink only → region collapses, no tile, count (1), no empty copy", () => {
+  const { container, getByText } = render(
     <VenueBreakdown
       dfid={DFID}
       venue={venue({ name: "", address: "", city: "", loadingDock: null, googleLink: "TBD" })}
@@ -194,84 +210,32 @@ test("accepted degenerate: non-parseable googleLink only → region collapses, n
   );
   expect(container.querySelector('[data-testid="venue-map-region"]')).toBeNull();
   expect(container.querySelector('[data-testid="venue-map-tile"]')).toBeNull();
-  expect(container.textContent).not.toContain("No venue details parsed."); // TBD counts → count 1
+  getByText("(1)"); // "TBD" is counted by contentRows → count 1, so no empty state
+  expect(container.textContent).not.toContain("No venue details parsed.");
 });
 
-test("true empty: all five fields empty → count 0, empty copy, no region", () => {
+test("true empty: all five fields empty → count (0), empty copy, no region", () => {
   const { container, getByText } = render(
     <VenueBreakdown
       dfid={DFID}
       venue={venue({ name: "", address: "", city: "", loadingDock: null, googleLink: null })}
     />,
   );
+  getByText("(0)");
   getByText("No venue details parsed.");
   expect(container.querySelector('[data-testid="venue-map-region"]')).toBeNull();
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+**(1c)** In `tests/components/admin/wizard/venueTransitionAudit.test.ts`, pin the VCR-3 parent region-mount predicate (regression guard for the new §8 "query-backed ↔ mapHref-only" row) and correct the now-stale comment. Inside the `test("VenueBreakdown: enumerated conditional renders exist and are instant", …)`, change the comment line `// (a) map region rendered only when the geocode query is non-empty.` to `// (a) map region rendered when query OR a valid mapHref (VCR-3 link-only).`, and add after the `venue-map-region` assertion:
 
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx`
-Expected: the VCR-3 tile test and the venueBreakdown link-only test FAIL — current guard `if (!query) return null` makes the empty-query tile render nothing, and the parent (`step3ReviewSections.tsx:973`) gates the region on `query` alone so it does not mount for a link-only venue.
-
-- [ ] **Step 3: Write the minimal implementation**
-
-In `components/admin/wizard/VenueMapTile.tsx`, change the guard (`:34`):
-
-```tsx
-  if (!query && !mapHref) return null;
+```ts
+    // VCR-3: the region mounts on `query || mapHref` (not query alone), so a
+    // link-only venue still shows a (degraded) tile. Pin the predicate.
+    expect(src, "region gated on query || mapHref").toContain("query || mapHref");
 ```
 
-And change the `<img>` mount predicate (from Task 1) so an empty query never fetches — the condition becomes `query !== "" && theme !== null`:
-
-```tsx
-      {query !== "" && theme !== null ? (
-        // eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback
-        <img
-          data-testid="venue-map-img"
-          src={src}
-          /* …unchanged attrs from Task 1… */
-        />
-      ) : null}
-```
-
-In `components/admin/wizard/step3ReviewSections.tsx`, change the region-mount gate (`:973`) from `{query ? (` to:
-
-```tsx
-            {query || mapHref ? (
-```
-
-(The wrapper `<div data-testid="venue-map-region" …>` and `<VenueMapTile query={query} mapHref={mapHref} />` below it are UNCHANGED — `query` may now be `""`, which the tile handles.)
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx`
-Expected: PASS — all tests in both files, including the pre-existing `non-URL googleLink → map region present but no Directions anchor` (full venue with `googleLink:"TBD"` → `query` non-empty → region mounts, `mapHref` null → no Directions) and `null venue → empty copy` tests.
-
-- [ ] **Step 5: Commit**
-
-```bash
-cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add components/admin/wizard/VenueMapTile.tsx components/admin/wizard/step3ReviewSections.tsx tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx
-git commit --no-verify -m "fix(crew-page): mount venue map region + degraded Directions tile for link-only venues (VCR-3)"
-```
-
----
-
-## Task 3: Link-only DI-1 real-browser layout assertion
-
-**Files:**
-- Modify: `tests/e2e/_step3ReviewModalHarness.tsx:254` (add a `linkOnly` page variant to the emitted JSON)
-- Modify: `tests/e2e/step3-review-modal.layout.spec.ts` (`beforeAll` `:147-160` write + `@source`; new test after DI-6 `~:681`)
-
-**Harness mechanics (verified live):** `_step3ReviewModalHarness.tsx` (run via `tsx` in `beforeAll`) emits a JSON of pre-rendered HTML strings (`normal`/`long`/`resolution`). The spec `beforeAll` writes each to `harness*.html` (`:147-150`), registers each as a Tailwind `@source` (`:159`), and serves them from a static `createServer`. `openHarness(page, viewport, path)` (`:189`) navigates to a given `harness*.html`. `rect(page, selector)` (`:202`) returns the bounding box. Add a `linkOnly` variant the same way `long`/`resolution` were added.
-
-**Interfaces:**
-- Consumes: the degraded tile from Task 2; the `harnessVenue()` fixture (`tests/components/admin/wizard/_step3ReviewFixture.ts:137`).
-
-- [ ] **Step 1: Add the `linkOnly` page variant to the harness emitter**
-
-In `tests/e2e/_step3ReviewModalHarness.tsx`, inside the `writeFileSync(outPath, JSON.stringify({ … }))` object (`:254`), add after the `normal:` line:
+**(1d)** Add the `linkOnly` page variant. In `tests/e2e/_step3ReviewModalHarness.tsx`, inside the `writeFileSync(outPath, JSON.stringify({ … }))` object (`:254`), add after the `normal:` line:
 
 ```tsx
       linkOnly: renderModalHtml({
@@ -287,21 +251,7 @@ In `tests/e2e/_step3ReviewModalHarness.tsx`, inside the `writeFileSync(outPath, 
       }),
 ```
 
-- [ ] **Step 2: Write the failing test (write the harness file + `@source`, then the assertion)**
-
-In `tests/e2e/step3-review-modal.layout.spec.ts`, first add `linkOnly: string;` to the `pages` cast type (`:129-135`, alongside `normal`/`long`/`resolution`) so `pages.linkOnly` typechecks. Then, in `beforeAll`, after the `harness-resolution.html` write (`:150`), add:
-
-```ts
-  writeFileSync(join(workDir, "harness-linkonly.html"), pageHtml("out.css", pages.linkOnly));
-```
-
-and extend the `entryCss` `@source` string (`:159`) to include it:
-
-```ts
-    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n@source "${join(workDir, "harness-resolution.html")}";\n@source "${join(workDir, "harness-linkonly.html")}";\n${globals}`,
-```
-
-Then add the test after the DI-6 test (`~:681`):
+**(1e)** In `tests/e2e/step3-review-modal.layout.spec.ts`: add `linkOnly: string;` to the `pages` cast type (`:129-135`); after the `harness-resolution.html` write (`:150`) add `writeFileSync(join(workDir, "harness-linkonly.html"), pageHtml("out.css", pages.linkOnly));`; extend the `entryCss` `@source` string (`:159`) with `@source "${join(workDir, "harness-linkonly.html")}";\n`. Then add after the DI-6 test (`~:681`):
 
 ```ts
 test("§DI-1 link-only venue: map region fills text column height AND is ≥ tile-min-h (anti-tautology) @ popup 800px", async ({ page }) => {
@@ -325,39 +275,78 @@ test("§DI-1 link-only venue: map region fills text column height AND is ≥ til
 });
 ```
 
-(`TOL` is the existing tolerance constant used by the sibling DI tests — confirm its value at the top of the file; it is `0.5` per the spec. `openHarness`, `rect`, `pageHtml`, `pages`, `workDir` are all already in scope.)
+- [ ] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Run to verify it passes (and fails for the right reason without Task 2)**
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
+Expected FAIL: the VCR-3 tile test (current guard `if (!query) return null` → empty-query tile renders nothing), the venueBreakdown link-only test (parent gates region on `query` alone → not mounted), and the audit `query || mapHref` pin (string absent from current source). (The `guard: empty query + null mapHref` and `true empty` tests already pass — behavior unchanged for those.)
 
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test tests/e2e/step3-review-modal.layout.spec.ts -g "link-only"`
-Expected: with Task 2 applied, PASS. Sanity (optional): stash Task 2's parent-gate change and the region selector times out (region not mounted) — proving the test exercises the fix.
+Then the real-browser layout test:
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts -g "link-only"`
+Expected FAIL: `rect(page, '[data-testid="venue-map-region"]')` times out — the link-only region is not mounted pre-implementation.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Write the minimal implementation**
+
+In `components/admin/wizard/VenueMapTile.tsx`, change the guard (`:34`):
+
+```tsx
+  if (!query && !mapHref) return null;
+```
+
+And change the `<img>` mount predicate (from Task 1) so an empty query never fetches — `theme !== null` becomes `query !== "" && theme !== null` (the inline `src` from Task 1 is unchanged; `query` is non-empty inside the branch):
+
+```tsx
+      {query !== "" && theme !== null ? (
+        // eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback
+        <img
+          data-testid="venue-map-img"
+          src={`/api/admin/venue-map?q=${encodeURIComponent(query)}&theme=${theme}`}
+          alt=""
+          loading="lazy"
+          onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+          onLoad={(e) => { e.currentTarget.style.visibility = "visible"; }}
+          className="absolute inset-0 size-full object-cover"
+        />
+      ) : null}
+```
+
+In `components/admin/wizard/step3ReviewSections.tsx`, change the region-mount gate (`:973`) from `{query ? (` to:
+
+```tsx
+            {query || mapHref ? (
+```
+
+(The wrapper `<div data-testid="venue-map-region" …>` and `<VenueMapTile query={query} mapHref={mapHref} />` are UNCHANGED — `query` may now be `""`, which the tile handles.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run (unit + audit): `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
+Expected PASS — all tests in all three files, including pre-existing `non-URL googleLink → map region present but no Directions anchor` (full venue, `googleLink:"TBD"` → `query` non-empty → region mounts, `mapHref` null → no Directions) and `null venue → empty copy`.
+
+Run (real browser): `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts -g "link-only"`
+Expected PASS — region mounts, heights equal, region ≥ 96px, tile fills region.
+
+- [ ] **Step 5: Typecheck**
+
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm tsc --noEmit`
+Expected: no errors (the `pages` cast now includes `linkOnly`).
+
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/_step3ReviewModalHarness.tsx
-git commit --no-verify -m "test(crew-page): real-browser DI-1 assertion for link-only venue tile (VCR-3)"
+git add components/admin/wizard/VenueMapTile.tsx components/admin/wizard/step3ReviewSections.tsx tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts tests/e2e/_step3ReviewModalHarness.tsx tests/e2e/step3-review-modal.layout.spec.ts
+git commit --no-verify -m "fix(crew-page): mount venue map region + degraded Directions tile for link-only venues (VCR-3)"
 ```
 
 ---
 
-## Task 4: Transition audit + close-out docs
+## Task 3: Close-out docs (DEFERRED + BACKLOG)
 
-**Files:**
-- Test: `tests/components/admin/wizard/venueTransitionAudit.test.ts` (verify still green; extend comment if needed)
-- Modify: `DEFERRED.md` (VCR-2 `:376`, VCR-3 `:382`), `docs/superpowers/plans/BACKLOG.md`
+**Files:** `DEFERRED.md` (VCR-2 `:376`, VCR-3 `:382`), `docs/superpowers/plans/BACKLOG.md`. Docs-only — no TDD cycle.
 
-**Interfaces:** none.
+- [ ] **Step 1: Mark DEFERRED.md entries resolved**
 
-- [ ] **Step 1: Run the transition audit to confirm no new animation slipped in**
-
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueTransitionAudit.test.ts`
-Expected: PASS unchanged — the mount-gate + guard changes add no `transition-*` class, no `AnimatePresence`, no `exit`/`initial` prop (the `<img>` is conditionally mounted, not animated). The audit already scans both `VenueMapTile` and the `VenueBreakdown` slice. No edit expected; if the conditional-mount phrasing needs a comment tweak for honesty, make the minimal edit only.
-
-- [ ] **Step 2: Mark DEFERRED.md entries resolved**
-
-In `DEFERRED.md`, prepend to the VCR-2 heading (`:376`) and VCR-3 heading (`:382`), keeping the original body text:
+In `DEFERRED.md`, append `— ✅ RESOLVED …` to the VCR-2 (`:376`) and VCR-3 (`:382`) headings, keeping the original body text:
 
 ```
 ### VCR-2 — [P2] Dark-mode first paint fetches the light map, then re-fetches dark — ✅ RESOLVED 2026-07-17 (venue-card VCR fixes, fix/venue-card-vcr2-vcr3: <img> mount-gated on post-hydration-resolved theme; no wrong-theme raster at first paint)
@@ -367,40 +356,42 @@ In `DEFERRED.md`, prepend to the VCR-2 heading (`:376`) and VCR-3 heading (`:382
 ### VCR-3 — [MEDIUM] Link-only venue (maps link but no name/address/city/dock) renders an empty card — ✅ RESOLVED 2026-07-17 (venue-card VCR fixes, fix/venue-card-vcr2-vcr3: parent mounts map region on query||mapHref; degraded stripe+Directions tile for a valid link-only venue; non-parseable-placeholder degenerate documented)
 ```
 
-- [ ] **Step 3: Mark BACKLOG.md entries shipped**
+- [ ] **Step 2: Mark BACKLOG.md entries shipped**
 
 Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && grep -n "BL-VENUE-MAP-DARK-DOUBLE-FETCH\|BL-VENUE-LINK-ONLY-EMPTY-CARD" docs/superpowers/plans/BACKLOG.md`
 Then mark each matched entry `✅ SHIPPED (2026-07-17, fix/venue-card-vcr2-vcr3)` with a one-line reference, keeping the original text (mirror the existing `✅ SHIPPED` formatting in BACKLOG.md). If either id is absent, add a one-line `✅ SHIPPED` note in the appropriate section rather than inventing a new backlog row.
 
-- [ ] **Step 4: Verify prettier + full venue-suite green**
+- [ ] **Step 3: Verify prettier + full venue-suite green**
 
 Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm format:check && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
 Expected: format clean (docs edits can trip prettier — run `pnpm format` if so), all venue vitest suites green.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add DEFERRED.md docs/superpowers/plans/BACKLOG.md tests/components/admin/wizard/venueTransitionAudit.test.ts
+git add DEFERRED.md docs/superpowers/plans/BACKLOG.md
 git commit --no-verify -m "docs(crew-page): mark VCR-2/VCR-3 resolved + backlog shipped"
 ```
 
 ---
 
-## Task 5: Invariant-8 impeccable dual-gate
+## Task 4: Invariant-8 impeccable dual-gate
 
-**Files:** none (evaluation gate on the Task 1–2 diff).
+**Files:** none (evaluation gate on the Task 1–2 source diff).
 
-- [ ] **Step 1: `/impeccable critique`** on the diff (setup gates: `context.mjs` PRODUCT.md+DESIGN.md load → register reference read). Scope: `VenueMapTile.tsx` + `VenueBreakdown` region.
+- [ ] **Step 1: `/impeccable critique`** on the diff (setup gates: `context.mjs` PRODUCT.md+DESIGN.md load → register reference read). Scope: `VenueMapTile.tsx` + the `VenueBreakdown` map region in `step3ReviewSections.tsx`.
 - [ ] **Step 2: `/impeccable audit`** on the same diff.
-- [ ] **Step 3:** Record findings + dispositions. P0/P1 → fix in-branch (new commit) or defer via a `DEFERRED.md` entry with rationale. P2/P3 → fix or defer. This runs BEFORE the Stage-4 whole-diff Codex review.
+- [ ] **Step 3:** Record findings + dispositions in the handoff/close-out notes. P0/P1 → fix in-branch (new commit) or defer via a `DEFERRED.md` entry with rationale. P2/P3 → fix or defer. This runs BEFORE the Stage-4 whole-diff Codex review.
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** VCR-2 → Task 1 (§2, §4 §6-amendment, §6-test-1). VCR-3 → Task 2 (§3, §4 §5-amendment, §6-test-2). DI-1 link-only → Task 3 (§5, §6-test-3). Transition inventory → Task 4 Step 1 (§4 §8-amendment, §6-test-4). Close-out (§8 checklist) → Task 4 Steps 2-3. Impeccable dual-gate → Task 5. Count contract / accepted degenerate → Task 2 Step 1 (degenerate + true-empty tests). No gaps.
+**Spec coverage:** VCR-2 mount-gate → Task 1 (§2, §4 §6-amendment, §6-test-1 SSR proof + post-hydration + audit theme-gate pin). VCR-3 degraded tile + parent gate → Task 2 (§3, §4 §5-amendment, §6-test-2 unit incl. count assertions + §6-test-3 real-browser DI-1 + audit query||mapHref pin). Count contract / accepted degenerate / true-empty → Task 2 (1b). Transition inventory (§4 §8-amendment) → audit pins in Task 1 (1) + Task 2 (1c). Close-out (§8 checklist) → Task 3. Impeccable dual-gate → Task 4. No gaps.
 
-**Placeholder scan:** none — every code step shows the exact code; the only deferred detail (Task 3 harness-open form) is explicitly bounded to "copy the sibling DI-1 test's setup" with a Step-1 inspection, because the harness fixture-injection API must be read from live code, not invented.
+**Placeholder scan:** none — every code step shows exact code and exact file:line anchors; harness plumbing (pages cast, beforeAll write, @source, standalone config) is spelled out against verified live line numbers.
 
-**Type consistency:** `theme: "light" | "dark" | null` used consistently across Task 1 (init `null`) and Task 2 (predicate `theme !== null`). `query`/`mapHref` names match `step3ReviewSections.tsx:937,940`. Testids (`venue-map-region`, `venue-map-tile`, `venue-map-img`, `venue-directions`, `venue-map-fallback`, `venue-text-col`) match live source.
+**Type consistency:** `theme: "light" | "dark" | null` consistent across Task 1 (init `null`, gate `theme !== null`) and Task 2 (gate `query !== "" && theme !== null`). `query`/`mapHref` match `step3ReviewSections.tsx:937,940`. `pages.linkOnly` typed at `:129`. Testids (`venue-map-region`, `venue-map-tile`, `venue-map-img`, `venue-directions`, `venue-map-fallback`, `venue-text-col`) match live source. Count span text `(N)` matches `step3ReviewSections.tsx:793`.
+
+**TDD honesty:** every test task authors a test that fails against current code for the stated reason BEFORE the minimal implementation (SSR proof + audit theme-gate red before Task 1 impl; VCR-3 unit + real-browser layout + audit query||mapHref red before Task 2 impl). Task 3 is docs-only (no red needed); Task 4 is an evaluation gate.
