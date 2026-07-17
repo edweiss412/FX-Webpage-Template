@@ -107,7 +107,7 @@ The component has no `data-testid` on the dividers today. Add `data-testid="stri
 jsdom does not evaluate `hidden sm:block` responsive visibility or real layout. Add a §8.10 assertion:
 
 - At **≥ sm width** (e.g. 800px), a published + live show renders `strip-control-divider` with a non-zero rendered width (`getBoundingClientRect().width > 0`) positioned between the toggle cluster's right edge and the live badge's left edge (`toggle.right <= divider.left` and `divider.right <= liveBadge.left`, within a 0.5px tolerance). This is the assertion that proves the divider actually separates control from signal in real layout, not merely that it exists in the DOM.
-- At **390px**, `strip-control-divider` has `getBoundingClientRect().width === 0` (Tailwind `hidden` → `display:none`), confirming the mobile geometry is unchanged (no new element intrudes on the CASP-2 §8.10 390px invariants).
+- At **390px**, `strip-control-divider` has no layout box — Playwright `boundingBox()` returns `null` (Tailwind `hidden` → `display:none`), confirming the mobile geometry is unchanged (no new element intrudes on the CASP-2 §8.10 390px invariants).
 
 ## 10. Numeric sweep
 
@@ -116,6 +116,8 @@ jsdom does not evaluate `hidden sm:block` responsive visibility or real layout. 
 - `ring-offset-2` — the single numeric literal added to item 3; matches `PublishedToggle.tsx:228` (`ring-offset-2`). No other magic numbers introduced.
 
 ## 11. Existing-code citations
+
+> Line numbers are **as-of spec authoring** (pre-implementation, against `origin/main`'s `StatusStrip.tsx`). The Task-2 divider insertion shifts every element below it down by ~11 lines in the shipped file (e.g. the live badge moves from `:139` to `:156`); the symbol/testid names remain the anchor of record.
 
 | Claim | Cite |
 |---|---|
