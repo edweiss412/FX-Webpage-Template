@@ -37,6 +37,18 @@ const KNOWN_REFUSAL_CODES = new Set([
   "FINALIZE_OWNED_SHOW",
 ]);
 
+// Generic-retry copy — reused verbatim by the card (published-toggle-retry) and the inline
+// popover so the string is byte-identical (curly apostrophe = U+2019, same as the card's &rsquo;).
+const RETRY_COPY = "That didn’t go through. Refresh and try again.";
+
+// Inline popover positioning — one source, carried identically by BOTH the error and finalize
+// skins (pinned equal by tests). left-0 (not right-0) keeps a 240px popover on-screen when the
+// toggle wraps to the left on a 390px phone; break-words + max-w-60 hard-cap ANY content width
+// so the long ErrorExplainer/HelpAffordance copy can only grow vertically (out of flow), never
+// overflow horizontally (CASP-2 spec §4.4 / §8.10).
+const POPOVER_POSITION =
+  "absolute left-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
+
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */
   slug: string;
@@ -46,6 +58,9 @@ export type PublishedToggleProps = {
   finalizeOwned: boolean;
   /** Pre-bound (to this show's slug) setShowPublishedAction. */
   setPublished: (next: boolean) => Promise<LifecycleResult>;
+  /** Presentation. "card" (default) = full bordered box w/ h3 + subline + in-flow error.
+   *  "inline" = compact switch + "Published" label; refusal/finalize copy → anchored popover. */
+  variant?: "card" | "inline";
 };
 
 export function PublishedToggle({
@@ -53,6 +68,7 @@ export function PublishedToggle({
   published,
   finalizeOwned,
   setPublished,
+  variant = "card",
 }: PublishedToggleProps) {
   const router = useRouter();
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -65,6 +81,67 @@ export function PublishedToggle({
     : published
       ? "Crew link is active."
       : "Crew link is off — nobody can open this show.";
+
+  // Shared by both variants — the switch is the form SUBMITTER; refusals render locally WITHOUT
+  // router.refresh() (remount would wipe the inline popover / card copy, plan R10). B1 dispatch
+  // safety is variant-agnostic: only the RENDERING of errorCode/genericError differs below.
+  const formAction = async () => {
+    setErrorCode(null);
+    setGenericError(false);
+    const result = await setPublished(!published);
+    if (result.ok) {
+      router.refresh();
+      return;
+    }
+    if (KNOWN_REFUSAL_CODES.has(result.code)) setErrorCode(result.code);
+    else setGenericError(true);
+  };
+
+  if (variant === "inline") {
+    const popoverId = `published-toggle-popover-${_slug}`;
+    const showError = errorCode != null || genericError;
+    const showFinalize = !showError && finalizeOwned;
+    return (
+      <div
+        data-testid="published-toggle-inline"
+        className="relative inline-flex items-center gap-2"
+      >
+        <span className="text-sm font-medium text-text-strong">Published</span>
+        <form action={formAction} className="contents">
+          <SwitchButton
+            on={published}
+            disabled={finalizeOwned}
+            describedBy={showFinalize ? popoverId : undefined}
+          />
+        </form>
+        {showError ? (
+          <div
+            id={popoverId}
+            data-testid="published-toggle-popover"
+            role="alert"
+            className={`${POPOVER_POSITION} border border-border-strong bg-warning-bg text-warning-text`}
+          >
+            {errorCode ? (
+              <>
+                <ErrorExplainer code={errorCode} surface="admin" />
+                <HelpAffordance code={errorCode} />
+              </>
+            ) : (
+              RETRY_COPY
+            )}
+          </div>
+        ) : showFinalize ? (
+          <div
+            id={popoverId}
+            data-testid="published-toggle-popover"
+            className={`${POPOVER_POSITION} border border-border bg-surface text-text-subtle`}
+          >
+            {subline}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -95,27 +172,12 @@ export function PublishedToggle({
             data-testid="published-toggle-retry"
             className="mt-2 rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
-            That didn&rsquo;t go through. Refresh and try again.
+            {RETRY_COPY}
           </p>
         ) : null}
       </div>
 
-      <form
-        action={async () => {
-          setErrorCode(null);
-          setGenericError(false);
-          const result = await setPublished(!published);
-          if (result.ok) {
-            router.refresh();
-            return;
-          }
-          // Refusals render locally WITHOUT router.refresh() — refreshing here
-          // remounts the island and can wipe the inline copy the user needs (plan R10).
-          if (KNOWN_REFUSAL_CODES.has(result.code)) setErrorCode(result.code);
-          else setGenericError(true);
-        }}
-        className="shrink-0 self-center"
-      >
+      <form action={formAction} className="shrink-0 self-center">
         <SwitchButton on={published} disabled={finalizeOwned} />
       </form>
     </div>
@@ -127,7 +189,17 @@ export function PublishedToggle({
  * requirement — AutoPublishToggle.tsx:106-111 precedent). ARIA switch reflecting `on`;
  * disables on form-pending or finalizeOwned, never synchronously in its own onClick.
  */
-function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
+function SwitchButton({
+  on,
+  disabled,
+  describedBy,
+}: {
+  on: boolean;
+  disabled: boolean;
+  /** Inline-only: id of the finalize-hint popover so a reading-cursor SR user hears why the
+   *  disabled switch is locked (card mode passes nothing → attribute absent, byte-identical). */
+  describedBy?: string | undefined;
+}) {
   const { pending } = useFormStatus();
   const isDisabled = disabled || pending;
   return (
@@ -137,6 +209,7 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       aria-checked={on}
       aria-busy={pending}
       aria-label="Published"
+      aria-describedby={describedBy}
       data-testid="published-toggle"
       disabled={isDisabled}
       className={[
