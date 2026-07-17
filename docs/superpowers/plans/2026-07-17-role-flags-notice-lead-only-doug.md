@@ -214,7 +214,7 @@ Read spec §7 last two bullets before starting.
 **Files:**
 - Modify: `lib/messages/catalog.ts` (`ROLE_FLAGS_NOTICE` `:866-883`)
 - Modify: `tests/messages/_metaAlertAudienceContract.test.ts` (`:52` NOTICE→DOUG; `:71-76` counts)
-- Modify (master spec, NEVER prettier): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §6.8 MI-9 `:1624`, MI-10 `:1629`, §6.8.2 `:1713`, §12.4 `:2863`, help `:3157`
+- Modify (master spec, NEVER prettier): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §6.8 MI-9 `:1624`, MI-10 `:1629`, §6.8.2 `:1713`, §12.4 `:2863`, help `:3157`, PLUS the stale LEAD-only financials-gate claims `:23`, `:220`, `:651`, `:1484` (see §4 items 7-10)
 - Modify: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` amendment 8 `:163,:170`
 - Modify: `docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md` — add a dated one-line amendment note at §3.2 (spec §2.2): "2026-07-17: `ROLE_FLAGS_NOTICE` moved `audience: health → doug` (dismissible operator nudge; see `2026-07-17-role-flags-notice-lead-only-doug.md`)". Do NOT reconcile the doc's stale `42` count (already stale vs the live meta-test; not CI-enforced).
 - Regen: `lib/messages/__generated__/spec-codes.ts` via `pnpm gen:spec-codes`
@@ -234,6 +234,11 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
   - `lib/messages/catalog.ts` ROLE_FLAGS_NOTICE: `audience: "doug"`; **remove** `healthWeight: "notice"` and `dougSummary`; keep `severity: "info"`, `resolution: "manual"`. Tighten `helpfulContext` to drop the "department swap (A1 → V1) / additive flag like BO" enumeration and frame as a **capability** change (LEAD or financial-data access) without asserting the specific row is LEAD (§2.3). `dougFacing` stays as-is (conditional/truthful).
   - Master spec + 00-overview: apply §4 items 1-6 (capability → alert+event, scope-tile → change-log row; CORRECT the false "LEAD is the only capability element" sentence in §6.8 MI-9 to name **LEAD and FINANCIALS**; de-example the help string). Edit the master spec by hand (NEVER prettier).
   - `docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md`: add the dated §3.2 amendment note (spec §2.2) recording the `health → doug` move; do NOT touch its stale `42` count.
+  - **§4 items 7-10 — reconcile the stale LEAD-only financials-gate claims** (pre-existing `2026-07-15-extend-role-scope-vocab` debt; corrected here so the master spec is internally consistent with §6.8's LEAD ∪ FINANCIALS capability model — invariant 7). Match live `scopeTiles.ts:141` `financialsVisible = isAdmin || LEAD || FINANCIALS`:
+    - **`:23`** "…filtered out of non-LEAD views" → "…filtered out of views without a financials capability (LEAD or FINANCIALS)".
+    - **`:220`** role_flags column comment — ADD `"FINANCIALS"` to the permitted-values list, and change "Authorization is 'LEAD' = ANY(…)" to note financials access = `LEAD` OR `FINANCIALS` in `role_flags` (or admin).
+    - **`:651`** getShowForViewer — "joins only when the freshly-derived role is LEAD (or admin)" → "…when the derived role includes a financials capability (LEAD or FINANCIALS) or `viewer.kind==='admin'`"; "For non-LEAD viewers" → "For viewers without a financials capability".
+    - **`:1484`** "`role_flags` contains `LEAD` ⇒ user sees `shows_internal.financials`" → "`role_flags` contains `LEAD` OR `FINANCIALS` ⇒ user sees `shows_internal.financials`".
   - `pnpm gen:spec-codes` → regen `lib/messages/__generated__/spec-codes.ts`.
   - `_metaAlertAudienceContract.test.ts`: apply the NOTICE→DOUG move + count updates from Step 1.
 
@@ -243,9 +248,9 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
       docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md \
       docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md
     ```
-    Manually inspect each hit: ZERO may assert that a scope-tile/department/non-capability change emits `ROLE_FLAGS_NOTICE`. Every §6.8/§6.8.2/§12.4/help dept-swap example must read "change-log row, no bell alert" (a mention of "department" NEAR ROLE_FLAGS_NOTICE is only OK if it explicitly says the dept change gets a change-log row, NOT the alert). (Historical docs 06-drive-sync.md / handoffs / doug-validation-questions.md / html-plans are NOT edited — §4 classifies them historical.)
+    Manually inspect each hit: ZERO may assert that a scope-tile/department/non-capability change emits `ROLE_FLAGS_NOTICE`. Every §6.8/§6.8.2/§12.4/help dept-swap example must read "change-log row, no bell alert" (a mention of "department" NEAR ROLE_FLAGS_NOTICE is only OK if it explicitly says the dept change gets a change-log row, NOT the alert). Also grep the **financials-gate** staleness (§4 items 7-10): `rg -nE "financ" docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md | rg -i "LEAD" | rg -vi "FINANCIALS"` → every hit must have been reconciled to name LEAD **∪ FINANCIALS** (or admin); ZERO surviving "LEAD-only ⇒ financials" claims. (Historical docs 06-drive-sync.md / handoffs / doug-validation-questions.md / html-plans are NOT edited — §4 classifies them historical.)
 
-- [ ] **Step 5: Commit** — `git add lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts tests/messages/_metaAlertAudienceContract.test.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md && git commit --no-verify -m "feat(admin): reclassify ROLE_FLAGS_NOTICE audience health→doug + capability master-spec reconciliation (§12.4 lockstep)"`
+- [ ] **Step 5: Commit** — stage ALL of this task's changes including the Step-1 test files (resolve-route, BellPanel render, legacy-copy). Use `git add -A` OR the explicit list: `git add lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts tests/messages/ tests/components/admin/ tests/api/ docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md docs/superpowers/plans/2026-07-17-role-flags-notice-lead-only-doug.md` (whichever dirs the Step-1 tests actually live in — `git status` first to confirm nothing is left unstaged), then `git commit --no-verify -m "feat(admin): reclassify ROLE_FLAGS_NOTICE audience health→doug + capability master-spec reconciliation (§12.4 lockstep)"`. Verify `git status` is clean after the commit.
 
 ---
 
