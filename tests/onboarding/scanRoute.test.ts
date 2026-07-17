@@ -396,7 +396,13 @@ describe("POST /api/admin/onboarding/scan", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "clean-first-seen", name: "clean-first-seen.xlsx", outcome: "staged" as const }],
+          processed: [
+            {
+              driveFileId: "clean-first-seen",
+              name: "clean-first-seen.xlsx",
+              outcome: "staged" as const,
+            },
+          ],
         };
       }),
     });
@@ -441,7 +447,13 @@ describe("POST /api/admin/onboarding/scan", () => {
         });
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "mi-trip-first-seen", name: "mi-trip-first-seen.xlsx", outcome: "staged" as const }],
+          processed: [
+            {
+              driveFileId: "mi-trip-first-seen",
+              name: "mi-trip-first-seen.xlsx",
+              outcome: "staged" as const,
+            },
+          ],
         };
       }),
     });

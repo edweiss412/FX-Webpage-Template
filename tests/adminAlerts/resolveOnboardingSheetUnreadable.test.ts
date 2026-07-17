@@ -22,10 +22,12 @@ function fakeSql(handler: (text: string, values: unknown[]) => Array<Record<stri
 
 const isOpenSelect = (t: string) =>
   /select\s+id,\s*context,\s*last_seen_at[\s\S]*from\s+public\.admin_alerts/i.test(t);
-const isSettings = (t: string) => /pending_wizard_session_id\s+from\s+public\.app_settings/i.test(t);
+const isSettings = (t: string) =>
+  /pending_wizard_session_id\s+from\s+public\.app_settings/i.test(t);
 const isRegistered = (t: string) => /from\s+public\.shows\s+where\s+drive_file_id/i.test(t);
 const isStaged = (t: string) => /from\s+public\.pending_syncs/i.test(t);
-const isUpdate = (t: string) => /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i.test(t);
+const isUpdate = (t: string) =>
+  /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i.test(t);
 
 const FOLDER = "folder-x";
 function healInput(over: Partial<HealInput> = {}): HealInput {
@@ -40,7 +42,9 @@ describe("resolveOpenUnreadableAlertUnconditionally", () => {
       resolved: true,
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.text).toMatch(/update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i);
+    expect(calls[0]!.text).toMatch(
+      /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i,
+    );
     expect(calls[0]!.text).toMatch(/code\s*=\s*'ONBOARDING_SHEET_UNREADABLE'/i);
     expect(calls[0]!.text).toMatch(/show_id\s+is\s+null/i);
     expect(calls[0]!.text).toMatch(/resolved_at\s+is\s+null/i);
@@ -81,7 +85,13 @@ describe("resolveUnreadableAlertIfHealed", () => {
   it("pending wizard session -> no UPDATE, resolved:false (open precedes settings)", async () => {
     const { sql, calls } = fakeSql((t) => {
       if (isOpenSelect(t))
-        return [{ id: "a-1", context: { folder_id: FOLDER, failed_drive_file_ids: ["d-a"] }, last_seen_at: "T0" }];
+        return [
+          {
+            id: "a-1",
+            context: { folder_id: FOLDER, failed_drive_file_ids: ["d-a"] },
+            last_seen_at: "T0",
+          },
+        ];
       if (isSettings(t)) return [{ pending_wizard_session_id: "wiz-1" }];
       throw new Error("no query expected after settings when wizard pending");
     });
@@ -99,7 +109,11 @@ describe("resolveUnreadableAlertIfHealed", () => {
     const { sql, calls } = fakeSql((t) => {
       if (isOpenSelect(t))
         return [
-          { id: "a-1", context: { folder_id: "other-folder", failed_drive_file_ids: ["d-a"] }, last_seen_at: "T0" },
+          {
+            id: "a-1",
+            context: { folder_id: "other-folder", failed_drive_file_ids: ["d-a"] },
+            last_seen_at: "T0",
+          },
         ];
       if (isSettings(t)) return [{ pending_wizard_session_id: null }];
       if (isUpdate(t)) return [{ id: "a-1" }];
@@ -117,7 +131,13 @@ describe("resolveUnreadableAlertIfHealed", () => {
   it("empty failed_drive_file_ids -> keep open (resolved:false), no UPDATE", async () => {
     const { sql, calls } = fakeSql((t) => {
       if (isOpenSelect(t))
-        return [{ id: "a-1", context: { folder_id: FOLDER, failed_drive_file_ids: [] }, last_seen_at: "T0" }];
+        return [
+          {
+            id: "a-1",
+            context: { folder_id: FOLDER, failed_drive_file_ids: [] },
+            last_seen_at: "T0",
+          },
+        ];
       if (isSettings(t)) return [{ pending_wizard_session_id: null }];
       throw new Error(`unexpected query: ${t}`);
     });
@@ -140,7 +160,10 @@ describe("resolveUnreadableAlertIfHealed", () => {
         return [
           {
             id: "a-1",
-            context: { folder_id: FOLDER, failed_drive_file_ids: ["d-removed", "d-reg", "d-staged"] },
+            context: {
+              folder_id: FOLDER,
+              failed_drive_file_ids: ["d-removed", "d-reg", "d-staged"],
+            },
             last_seen_at: "T0",
           },
         ];
@@ -168,7 +191,11 @@ describe("resolveUnreadableAlertIfHealed", () => {
     const { sql, calls } = fakeSql((t, values) => {
       if (isOpenSelect(t))
         return [
-          { id: "a-1", context: { folder_id: FOLDER, failed_drive_file_ids: ["d-fail"] }, last_seen_at: "T0" },
+          {
+            id: "a-1",
+            context: { folder_id: FOLDER, failed_drive_file_ids: ["d-fail"] },
+            last_seen_at: "T0",
+          },
         ];
       if (isSettings(t)) return [{ pending_wizard_session_id: null }];
       if (isRegistered(t)) return [];
@@ -178,7 +205,9 @@ describe("resolveUnreadableAlertIfHealed", () => {
       }
       return [];
     });
-    await expect(resolveUnreadableAlertIfHealed(healInput({ listedFiles: listed }), sql)).resolves.toEqual({
+    await expect(
+      resolveUnreadableAlertIfHealed(healInput({ listedFiles: listed }), sql),
+    ).resolves.toEqual({
       kind: "ok",
       resolved: false,
     });
@@ -189,12 +218,20 @@ describe("resolveUnreadableAlertIfHealed", () => {
     const listed = new Map<string, string>(); // no ids listed -> all healed
     const { sql, calls } = fakeSql((t) => {
       if (isOpenSelect(t))
-        return [{ id: "a-1", context: { folder_id: FOLDER, failed_drive_file_ids: ["d-a"] }, last_seen_at: "T0" }];
+        return [
+          {
+            id: "a-1",
+            context: { folder_id: FOLDER, failed_drive_file_ids: ["d-a"] },
+            last_seen_at: "T0",
+          },
+        ];
       if (isSettings(t)) return [{ pending_wizard_session_id: null }];
       if (isUpdate(t)) return []; // guarded on last_seen_at = T0, but row moved -> 0 rows
       return [];
     });
-    await expect(resolveUnreadableAlertIfHealed(healInput({ listedFiles: listed }), sql)).resolves.toEqual({
+    await expect(
+      resolveUnreadableAlertIfHealed(healInput({ listedFiles: listed }), sql),
+    ).resolves.toEqual({
       kind: "ok",
       resolved: false,
     });

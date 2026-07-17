@@ -736,7 +736,11 @@ async function scanPreparedFileWithTx(
         result: { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed },
       };
     }
-    processed.push({ driveFileId: file.driveFileId, name: file.name, outcome: "skipped_non_sheet" });
+    processed.push({
+      driveFileId: file.driveFileId,
+      name: file.name,
+      outcome: "skipped_non_sheet",
+    });
     return { kind: "continue" };
   }
 

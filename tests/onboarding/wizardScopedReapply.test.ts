@@ -538,7 +538,9 @@ describe("wizard-scoped staged apply/discard routes", () => {
         currentPending = null;
         return {
           outcome: "completed" as const,
-          processed: [{ driveFileId: "file-1", name: "file-1.xlsx", outcome: "hard_failed" as const }],
+          processed: [
+            { driveFileId: "file-1", name: "file-1.xlsx", outcome: "hard_failed" as const },
+          ],
         };
       }),
     });

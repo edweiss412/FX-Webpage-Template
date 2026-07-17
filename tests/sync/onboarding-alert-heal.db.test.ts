@@ -58,10 +58,7 @@ const FOLDER = "folder-heal-x";
 const MODIFIED = "2026-06-21T12:00:00.000Z";
 const OLDER = "2026-06-20T00:00:00.000Z";
 
-async function seedOpenAlert(
-  tx: Sql,
-  context: Record<string, unknown>,
-): Promise<string> {
+async function seedOpenAlert(tx: Sql, context: Record<string, unknown>): Promise<string> {
   // Clear any pre-existing open global row (seed data / other tests) so the
   // one-unresolved unique index does not collide and our row is THE open one.
   await tx`
@@ -143,28 +140,34 @@ describe("resolveUnreadableAlertIfHealed — real DB matrix (hybrid §3.4)", () 
     });
   });
 
-  it.skipIf(!dbUp)("one still-failing id (listed, unregistered, unstaged) -> stays open", async () => {
-    await inRollback(async (tx) => {
-      await setWizardPending(tx, null);
-      const driveId = `d-fail-${randomUUID()}`;
-      const id = await seedOpenAlert(tx, { folder_id: FOLDER, failed_drive_file_ids: [driveId] });
-      const r = await call(tx, FOLDER, new Map([[driveId, MODIFIED]]));
-      expect(r).toEqual({ kind: "ok", resolved: false });
-      expect(await readResolvedAt(tx, id)).toBeNull();
-    });
-  });
+  it.skipIf(!dbUp)(
+    "one still-failing id (listed, unregistered, unstaged) -> stays open",
+    async () => {
+      await inRollback(async (tx) => {
+        await setWizardPending(tx, null);
+        const driveId = `d-fail-${randomUUID()}`;
+        const id = await seedOpenAlert(tx, { folder_id: FOLDER, failed_drive_file_ids: [driveId] });
+        const r = await call(tx, FOLDER, new Map([[driveId, MODIFIED]]));
+        expect(r).toEqual({ kind: "ok", resolved: false });
+        expect(await readResolvedAt(tx, id)).toBeNull();
+      });
+    },
+  );
 
-  it.skipIf(!dbUp)("stale-staged (older staged_modified_time than listing) -> stays open (R1-1)", async () => {
-    await inRollback(async (tx) => {
-      await setWizardPending(tx, null);
-      const driveId = `d-stale-${randomUUID()}`;
-      await seedStaged(tx, driveId, OLDER); // staged at an OLDER revision than the listing
-      const id = await seedOpenAlert(tx, { folder_id: FOLDER, failed_drive_file_ids: [driveId] });
-      const r = await call(tx, FOLDER, new Map([[driveId, MODIFIED]]));
-      expect(r).toEqual({ kind: "ok", resolved: false });
-      expect(await readResolvedAt(tx, id)).toBeNull();
-    });
-  });
+  it.skipIf(!dbUp)(
+    "stale-staged (older staged_modified_time than listing) -> stays open (R1-1)",
+    async () => {
+      await inRollback(async (tx) => {
+        await setWizardPending(tx, null);
+        const driveId = `d-stale-${randomUUID()}`;
+        await seedStaged(tx, driveId, OLDER); // staged at an OLDER revision than the listing
+        const id = await seedOpenAlert(tx, { folder_id: FOLDER, failed_drive_file_ids: [driveId] });
+        const r = await call(tx, FOLDER, new Map([[driveId, MODIFIED]]));
+        expect(r).toEqual({ kind: "ok", resolved: false });
+        expect(await readResolvedAt(tx, id)).toBeNull();
+      });
+    },
+  );
 
   it.skipIf(!dbUp)("folder mismatch -> resolves without inspecting ids", async () => {
     await inRollback(async (tx) => {
