@@ -602,3 +602,9 @@ Push the branch, open the PR, confirm CI is actually green on the GitHub Actions
 - **Placeholder scan:** the loader test (Task 2 Step 1) describes the harness rather than pasting full mock code — intentional: the exact Supabase-builder mock must mirror `Dashboard-archived.test.tsx`, which the implementer reads in-place; both concrete assertions (A: SELECT contains column, B: value maps) are given verbatim. Not a vague placeholder.
 - **Type consistency:** `lastCheckedAt: string | null` used identically in `ActiveShowRow`, Dashboard map, every factory, and `SyncCell`. `showsEditedClause(status: string | null | undefined): boolean` signature matches its call site.
 - **Anti-tautology:** Test A derives Edited≠Checked from distinct fixture offsets; Test B uses distinct offsets so a both-clauses regression is visible; all line-2 queries are mode-scoped; no hardcoded wall-clock (offsets from a fixed `now`).
+
+---
+
+## Handoff notes (execution log)
+
+**Pre-existing test failures (NOT this diff):** the full local `pnpm vitest run` shows 9 failing tests across DB lifecycle-guard files — `tests/db/undo_change_lifecycle_guard.test.ts`, `tests/db/reset_crew_member_selection_lifecycle_guard.test.ts`, `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (+1 sibling). Each fails because the local shared Postgres is missing the recently-merged lifecycle-guard RPC migrations (PR #426 `feat/rpc-reset-selection-lifecycle-guard`); the RPCs return `ok:true` instead of the guard code. **Confirmed pre-existing**: the same tests fail identically on the clean `main` checkout (zero of this diff's changes). This diff is read-only display (predicate + `ActiveShowRow` field + `SyncCell` render + one SELECT column) and touches no RPC/migration/DB — real CI (fresh Supabase, all migrations) is the arbiter and runs these green. All new tests (Tasks 1–3) and the 14,148 non-DB tests pass.
