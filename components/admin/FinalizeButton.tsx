@@ -773,12 +773,29 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         data-testid="wizard-finalize-blocker-panel"
         className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
       >
+        {/* Dismiss control — a muted corner ✕ (spec §4.3 exit). Same handleDismiss
+            wiring as before; aria-label carries the Close/Back semantics. Absolutely
+            positioned so it never claims its own row; headings reserve `pr-8` so a
+            wrapped title's first line clears it. */}
+        <button
+          ref={dismissRef}
+          type="button"
+          data-testid="wizard-finalize-blocker-dismiss"
+          aria-label={dismissLabel}
+          onClick={handleDismiss}
+          className="absolute right-1 top-1 z-10 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          <span aria-hidden="true" className="text-xl leading-none">
+            ×
+          </span>
+        </button>
+
         {state.kind === "race_row" ? (
           <div
             data-testid="wizard-finalize-race-row"
             className="flex flex-col gap-3 text-warning-text"
           >
-            <h2 id={titleId} className="text-sm font-semibold">
+            <h2 id={titleId} className="pr-8 text-sm font-semibold">
               Some sheets need another look before we can publish.
             </h2>
             <ul className="flex flex-col gap-2">
@@ -810,7 +827,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
             data-testid="wizard-finalize-cas-per-row"
             className="flex flex-col gap-3 text-warning-text"
           >
-            <h2 id={titleId} className="text-sm font-semibold">
+            <h2 id={titleId} className="pr-8 text-sm font-semibold">
               Some sheets are blocking the final publish step.
             </h2>
             <ul className="flex flex-col gap-2">
@@ -853,22 +870,12 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
             data-testid="wizard-finalize-error"
             className="flex flex-col gap-1 text-sm text-warning-text"
           >
-            <p id={titleId}>{renderEmphasis(state.copy)}</p>
+            <p id={titleId} className="pr-8">
+              {renderEmphasis(state.copy)}
+            </p>
             <HelpAffordance code={state.code} />
           </div>
         ) : null}
-
-        <div className="flex justify-end">
-          <button
-            ref={dismissRef}
-            type="button"
-            data-testid="wizard-finalize-blocker-dismiss"
-            onClick={handleDismiss}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            {dismissLabel}
-          </button>
-        </div>
       </div>
     </div>,
     portalEl,
