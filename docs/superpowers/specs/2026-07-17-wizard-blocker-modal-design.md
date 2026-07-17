@@ -39,10 +39,10 @@ The screenshot Doug sent is the `cas_per_row` panel (archived-show blocker → `
 - `useDialogFocus(containerRef, initialFocusRef?)` — saves previously-focused element, sets initial focus (prefers `initialFocusRef`, else first focusable), traps Tab, restores focus on unmount (`lib/a11y/dialogFocus.ts:42-83`). Esc is the dialog's responsibility.
 - `useHasMounted()` exists (`lib/a11y/useHasMounted.ts`) and is the established gate for portaling fixed overlays out of the `PageTransition` transformed subtree (`WizardFooter.tsx:12-23` portals its fixed tab bar to `document.body` for exactly this reason).
 - Tokens: `--color-overlay-scrim` (`globals.css:77,291,340,359`), `sheet-rise` keyframe (`globals.css:708-714`), `--duration-normal` 220ms.
-- Recovery-affordance component props (unchanged, cited for the modal body):
-  - `BlockedRowResolver` — `{ driveFileId, wizardSessionId, code, displayName?, rebuildExhausted?, onResolved }` (`FinalizeButton.tsx:643-652`).
-  - `RescanSheetButton` — `{ driveFileId, wizardSessionId, resultPlacement?, disabled? }` (`FinalizeButton.tsx:638-641`).
-  - `HelpAffordance` — `{ code }`.
+- Recovery-affordance component props (unchanged; this spec passes NO new props to any of them — cited from the type definitions for accuracy):
+  - `BlockedRowResolver` — full prop type `{ driveFileId, wizardSessionId, code, displayName?, rebuildExhausted?, disabled?, onResolved }` (`components/admin/BlockedRowResolver.tsx:40-48`); current callsite passes all but `disabled` (`FinalizeButton.tsx:643-652`). The modal preserves the callsite verbatim.
+  - `RescanSheetButton` — `{ driveFileId, wizardSessionId, resultPlacement?, disabled? }` (callsite `FinalizeButton.tsx:638-641`).
+  - `HelpAffordance` — full prop type `{ code, params?, route? }` (`components/admin/HelpAffordance.tsx:45-64`); the finalize callsites pass only `code`. `HelpAffordance` returns `null` for a null/empty/unknown code (`HelpAffordance.tsx:72-73`) — the error-state guard relies on this.
   - `RESCANNABLE_CAS_CODES` gate unchanged (`FinalizeButton.tsx:69-72`).
 
 ---
@@ -116,18 +116,31 @@ Row-resolution affordances continue to call `run.runLoop()` (`BlockedRowResolver
 
 ## 7. Transition inventory
 
-States that can mount/unmount the modal: `{running, race_row, cas_per_row, error, idle, complete}`. Modal is present iff state ∈ {race_row, cas_per_row, error}.
+The 6 `ButtonState` kinds are `{idle, running, race_row, cas_per_row, error, complete}`. The modal is mounted **iff** state ∈ {race_row, cas_per_row, error} (the "blocker set"). Only transitions that CROSS the modal-mounted boundary (or change modal content) carry a motion treatment; all others are no-modal, unchanged, and instant. Full pair matrix (from → to), 6×5 = 30 ordered pairs; grouped:
 
-| Transition | Treatment |
-| --- | --- |
-| running → race_row / cas_per_row / error | modal **enters**: scrim fades in, panel rises (`motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)]`; desktop centered variant may pop — tuned under impeccable). Reduced-motion: `motion-reduce:animate-none` — instant, at-rest. |
-| race_row/cas_per_row/error → idle (dismiss/Back) | modal **unmounts**: instant removal (no exit animation — matches `Step3ReviewModal` which has no exit keyframe; the D5/Report modals are instant-exit too). |
-| cas_per_row → running (resolve → runLoop) | modal unmounts instant; `Step3CompactTracking` mounts in footer center (unchanged). |
-| any blocker/error → complete | not reachable directly (complete only follows `running` success); N/A. |
-| idle ↔ idle, running progress updates | no modal; unchanged. |
-| error → error (copy change) | not reachable (one terminal per run). |
+| From \ To | idle | running | race_row | cas_per_row | error | complete |
+| --- | --- | --- | --- | --- | --- | --- |
+| **idle** | — | no modal (trigger→tracking, unchanged) | modal ENTERS¹ | modal ENTERS¹ | modal ENTERS¹ | inline note (no modal) |
+| **running** | n/a² | progress update, no modal | modal ENTERS¹ | modal ENTERS¹ | modal ENTERS¹ | inline note (no modal) |
+| **race_row** | modal EXITS³ (Back) | modal EXITS³ (re-apply link = route change) | — | n/a⁴ | n/a⁴ | n/a⁴ |
+| **cas_per_row** | modal EXITS³ (Back) | modal EXITS³ (resolve→runLoop) | n/a⁴ | — | n/a⁴ | n/a⁴ |
+| **error** | modal EXITS³ (dismiss) | modal EXITS³ (retry via trigger→runLoop) | n/a⁴ | n/a⁴ | — | n/a⁴ |
+| **complete** | n/a² | n/a² | n/a⁴ | n/a⁴ | n/a⁴ | — (terminal; router.refresh) |
 
-Compound: dismissing `error` while the scrim is still mid-fade-in — unmount wins (React removes the node; the running animation is discarded). No compound animation state to manage (no exit transition).
+- ¹ **ENTERS:** scrim fades in (`motion-safe:animate-[scrim-fade_…]`/opacity transition), panel rises on mobile / pops on desktop (`motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)]`). `motion-reduce:animate-none` on BOTH scrim and panel → instant, at-rest (reduced-motion).
+- ² **n/a²:** the machine never transitions a terminal `complete`/idle back into `running` without a fresh user click that first re-enters `running` from `idle`; `idle→running` and `running→idle(dismiss)` are the only crossings and are covered.
+- ³ **EXITS:** instant unmount, NO exit animation — matches every modal in the repo (`Step3ReviewModal`, `ReportModal`, D5 soft-confirm all lack exit keyframes). React removes the portal node; any in-flight enter animation is discarded (the only compound-animation case, and unmount-wins needs no coordination).
+- ⁴ **n/a⁴:** one terminal per finalize run — the machine never moves blocker→blocker or blocker→error/complete without passing through `running` (resolve) or `idle` (dismiss) first. Not reachable.
+
+### 7a. Compound: review modal open while a blocker fires
+
+`Step3ReviewModal` (a separate `aria-modal` dialog opened per sheet card) is reachable WHILE a publish run is in flight (`tests/components/admin/wizard/step3Page.transitions.test.tsx:183-209`, T8-b). If finalize then reaches a blocker/error terminal, `FinalizeBlockerModal` mounts on top of the open review modal. Defined behavior (no suppression — the two are independent surfaces owned by different components):
+
+- **Z-order:** the blocker modal portals to `document.body` and therefore appends AFTER the review modal in DOM order; both use `z-50`, so equal z-index + later-in-DOM ⇒ the blocker paints on top. Its own `bg-overlay-scrim` layers over the review modal's scrim (acceptable — the topmost actionable surface wins).
+- **Focus:** `useDialogFocus` moves focus INTO the blocker panel on mount; the review modal's Tab-trap listener is bound to the review modal's own container, and focus now lives in the blocker's separate portal subtree, so the review trap does not fire while the blocker owns focus. On blocker unmount, `useDialogFocus` restores focus to the element focused before the blocker mounted (which is inside the still-open review modal) — the review modal regains focus ownership cleanly.
+- **Escape:** the blocker's Escape handler always calls `event.stopPropagation()` (and `preventDefault()`), so `Step3ReviewModal`'s document-level Escape listener (`Step3ReviewModal.tsx:299-308`) does NOT also fire and close the review modal underneath. For the `error` state Escape additionally calls `dismiss`; for blocking states it is inert but still stops propagation.
+- **Scroll lock:** each modal saves `document.body.style.overflow` at its own mount and restores it at unmount (`Step3ReviewModal.tsx:288-294` pattern). Blocker mounts second: it captures `'hidden'` (set by the review modal) and restores `'hidden'` on unmount; the review modal later restores the true original. No lock leak.
+- This compound is exercised by a component test (§10.11).
 
 ---
 
@@ -150,7 +163,11 @@ Every existing testid stays on the same content, now inside the dialog: `wizard-
 
 **New testids:** `wizard-finalize-blocker-modal` (dialog container), `wizard-finalize-blocker-backdrop` (scrim), `wizard-finalize-blocker-dismiss` (Close/Back control).
 
-**Focus-assertion updates (the only test breakages, intentional):** `FinalizeButton.test.tsx:1298` asserts `document.activeElement === getByTestId('wizard-finalize-error')`. With the dialog, initial focus lands on the dismiss control (`useDialogFocus`), so this becomes `document.activeElement === getByTestId('wizard-finalize-blocker-dismiss')`. Any analogous race_row/cas_per_row focus assertion updates the same way.
+**Intentional test breakages (two classes — both are strict improvements, enumerated so the plan tasks them, not silent):**
+
+1. **Focus assertions.** `FinalizeButton.test.tsx:1298` asserts `document.activeElement === getByTestId('wizard-finalize-error')`. With the dialog, initial focus lands on the dismiss control (`useDialogFocus`), so this becomes `document.activeElement === getByTestId('wizard-finalize-blocker-dismiss')`. Any analogous race_row/cas_per_row focus assertion updates the same way.
+
+2. **Invariant-5 `container.textContent` negatives (the portal consequence).** Because the modal portals to `document.body`, it leaves the RTL `render` `container` subtree. Assertions that read `container.textContent` (positive OR negative) about the moved panels must be **rescoped to the panel's own element** (`getByTestId('wizard-finalize-<state>').textContent`), NOT to `baseElement`. This KEEPS the teeth: a raw-§12.4-code negative (`…not.toContain('STAGED_PARSE_RESULT_CORRUPT')`) still inspects the actual rendered modal content, and is now MORE precise than the container scope (which also swept the trigger). Rescoping to `baseElement`/`document.body` would be acceptable but weaker; the panel element is the anti-tautology-correct scope. Affected `container.textContent` sites (verified): `FinalizeButton.test.tsx:478, 570-571` and the analogous negatives at `607-620, 649-662, 1109-1118, 1126-1140, 1153-1167, 1211-1218`. `getByTestId(...).textContent` positive assertions (e.g. `:474, 490, 518`) already query `baseElement` and keep passing unchanged. This rescope is a dedicated TDD task (§10.12).
 
 ---
 
@@ -163,9 +180,11 @@ Every existing testid stays on the same content, now inside the dialog: `wizard-
 5. **dialog semantics** (component): `role="dialog"`, `aria-modal="true"`, `aria-labelledby` resolves to the heading text; body `overflow:hidden` while open, restored on close. Failure mode: non-modal dialog / scroll-lock leak.
 6. **focus** (component): on open, `document.activeElement === dismiss control`; on close, focus restored (or body). Update `FinalizeButton.test.tsx:1298` et al.
 7. **layout-dimensions** (Playwright, real browser): §8 viewport-pinned assertion under a transformed ancestor. Derive expected bounds from `window.innerHeight`, never hardcode.
-8. **transition-audit** (component): assert the panel carries `motion-safe:animate-[sheet-rise…]` + `motion-reduce:animate-none`; no exit animation expected (instant unmount).
-9. **`complete` stays inline** (component): reach `complete`; assert `wizard-finalize-publish-complete` is NOT inside `wizard-finalize-blocker-modal` and no dialog is mounted.
-10. **testid regression**: existing race_row/cas_per_row/error/reapply testid + copy assertions (`FinalizeButton.test.tsx` §Phase B/D lists) still pass unchanged.
+8. **transition-audit** (component): assert the panel carries `motion-safe:animate-[sheet-rise…]` + `motion-reduce:animate-none`; assert the SCRIM element carries its fade animation class + `motion-reduce:animate-none`; assert no exit animation (instant unmount — the panel has no exit keyframe class). Extends `Step3TransitionAudit.test.tsx`.
+9. **`complete` stays inline** (component): reach `complete`; assert `wizard-finalize-publish-complete` is NOT inside `wizard-finalize-blocker-modal` and no `role="dialog"` from this component is mounted.
+10. **testid regression**: existing race_row/cas_per_row/error/reapply testid + copy assertions (`FinalizeButton.test.tsx` §Phase B/D lists) still pass (content now queried via `getByTestId`, which resolves the portal).
+11. **compound: review modal open** (component, §7a): open `Step3ReviewModal` while a run is in flight, drive the run to `cas_per_row`; assert BOTH dialogs are in the DOM, focus is inside the blocker panel, Escape does NOT close the review modal (its testid still present) and (for `error`) DOES dismiss the blocker, and body `overflow` is still `hidden` after the blocker unmounts. Failure mode caught: dual-focus-trap fight, Escape closing the wrong surface, scroll-lock leak.
+12. **invariant-5 negative rescope** (test-refactor, §9.2): rescope every `container.textContent` assertion about the moved panels to `getByTestId('wizard-finalize-<state>').textContent`. Verify each rescoped negative still FAILS if a raw code were injected (assert the negative is non-vacuous by also asserting the panel textContent is non-empty). Failure mode caught: a portal silently voiding invariant-5 coverage.
 
 ---
 
@@ -194,5 +213,3 @@ Every existing testid stays on the same content, now inside the dialog: `wizard-
 - Portaling to `document.body` (vs. `Step3ReviewModal`/`ReportModal` which don't portal) is deliberate: those modals mount from surfaces that may not sit under the wizard's `PageTransition` transform; this one provably does (§4.2). Do not "simplify" by removing the portal — the Playwright assertion (§8) pins it.
 - The D5 soft-confirm remains an anchored popover, NOT this modal — separate surface, separate owner decision (`Step3ReviewWithFinalize.tsx:162`).
 - No exit animation is intentional (matches every existing modal in the repo).
-</content>
-</invoke>
