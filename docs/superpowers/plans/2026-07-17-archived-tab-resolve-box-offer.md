@@ -432,7 +432,7 @@ The Pack-list regression is the pre-existing `packListBreakdownStates.test.tsx` 
 Run: `pnpm vitest run tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx`
 Expected: PASS (Pack-list behavior identical; "Keep skipped" still present).
 
-Run: `pnpm tsc --noEmit 2>&1 | head -20`
+Run: `pnpm tsc --noEmit  # unpiped: exit status is the compiler's, not head's`
 Expected: no errors in the two touched files.
 
 Run: `pnpm eslint components/admin/wizard/archivedTabOffer.tsx components/admin/wizard/step3ReviewSections.tsx`
@@ -597,6 +597,21 @@ it("renders the corrupt-review copy and the archived offer together", () => {
   expect(within(box).getByTestId(`wizard-step3-card-${DFID}-review-resolution-corrupt`)).toBeInTheDocument();
   expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
 });
+
+// 9. Coexistence (REQUIRED, spec §9.6): the accept offer renders in BOTH the box
+//    and the Pack-list section (renderModalWith renders the full modal, so the
+//    ShowReviewSurface Pack-list section is present from `data`). This test is
+//    written HERE with the other box tests so it fails BEFORE the box wiring exists.
+it("renders the accept offer in BOTH the Resolve box and the Pack-list section", () => {
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  expect(
+    screen.getByTestId(`wizard-step3-card-${DFID}-review-resolution-archived-${archivedTab.tabName}`),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByTestId(`pack-list-archived-offer-${DFID}-${archivedTab.tabName}`),
+  ).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Use this show’s gear" })).toHaveLength(2);
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -617,9 +632,15 @@ After `const { dfid, wizardSessionId } = data;` (line 152), add:
 ```tsx
 // Archived-tab pending offers (spec §4.2/§4.3) — the box appears for these even
 // when there is no blocked re-apply resolution. Same derivation as Pack-list.
-const archivedOffers = deriveArchivedOffers(data.archivedPullSheetTabs, wizardSessionId != null).offers;
+// StagedSectionData.wizardSessionId is `string` (non-null, sectionData.ts:63) and
+// the review modal only ever renders staged data, so `staged` is definitionally
+// true here — passing `true` (not `wizardSessionId != null`, which would trip
+// @typescript-eslint/no-unnecessary-condition on a non-nullable string).
+const archivedOffers = deriveArchivedOffers(data.archivedPullSheetTabs, true).offers;
 const hasPendingArchivedOffer = archivedOffers.length > 0;
 ```
+
+Type note (F2): `data.wizardSessionId` is `string` and `data.driveFileId` is `string | null` (`sectionData.ts:55,63`). `ArchivedTabOffer` requires `wizardSessionId: string` and accepts `dfid: string | null` — both pass directly, no narrowing/guard needed.
 
 Change the box section gate. Locate the resolution `<section>` (currently `{resolution ? ( <section ...> ... </section> ) : null}` around line 725) and change the guard to `resolution || hasPendingArchivedOffer`. Inside the section, gate the re-apply body on `resolution` and append the archived offers. The section becomes:
 
@@ -676,7 +697,7 @@ Expected: prints the "no animation props" line.
 
 - [ ] **Step 6: Typecheck + lint**
 
-Run: `pnpm tsc --noEmit 2>&1 | head -20`
+Run: `pnpm tsc --noEmit  # unpiped: exit status is the compiler's, not head's`
 Run: `pnpm eslint components/admin/wizard/Step3ReviewModal.tsx`
 Expected: clean.
 
@@ -693,32 +714,16 @@ git commit --no-verify -m "feat(admin): surface archived-tab accept offer in the
 
 **Files:** none by default (fixes only if a gate fails).
 
-- [ ] **Step 1: Coexistence test (REQUIRED — both entry points present, spec §9.6)**
+- [ ] **Step 1: Confirm the coexistence test (written in Task 3 Step 1) passes**
 
-This is a ratified requirement, not optional. `renderModalWith` already renders the full modal (the `ShowReviewSurface` sections, including Pack-list, render from `data`), so a single archived tab surfaces the offer in BOTH regions. Add to `Step3ReviewModalResolution.test.tsx`:
-
-```tsx
-it("renders the accept offer in BOTH the Resolve box and the Pack-list section (coexistence)", () => {
-  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
-  // Box instance — resolution-scoped testid.
-  expect(
-    screen.getByTestId(`wizard-step3-card-${DFID}-review-resolution-archived-${archivedTab.tabName}`),
-  ).toBeInTheDocument();
-  // Pack-list instance — its own default testid.
-  expect(
-    screen.getByTestId(`pack-list-archived-offer-${DFID}-${archivedTab.tabName}`),
-  ).toBeInTheDocument();
-  // Two distinct "Use this show’s gear" buttons (one per region).
-  expect(screen.getAllByRole("button", { name: "Use this show’s gear" })).toHaveLength(2);
-});
-```
+The REQUIRED coexistence assertion (spec §9.6 — offer present in BOTH box and Pack-list) is test 9 in Task 3 Step 1, written fail-first with the other box tests. Here, just confirm it is green in the full run:
 
 Run: `pnpm vitest run tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx`
-Expected: PASS. If the Pack-list offer does not render in this harness (e.g. the section is lazily gated), fix the fixture so the full modal renders the Pack-list section — do NOT downgrade this to a structural note. Commit any test addition with `git commit --no-verify -m "test(admin): assert archived offer coexists in box + pack-list"`.
+Expected: PASS (all box tests incl. coexistence). If the Pack-list offer does not render in this harness (e.g. the section is lazily gated), that is a Task 3 defect — fix the fixture/wiring so the full modal renders the Pack-list section; do NOT downgrade the assertion.
 
 - [ ] **Step 2: Run the full unit suite**
 
-Run: `pnpm test 2>&1 | tail -30`
+Run: `set -o pipefail; pnpm test 2>&1 | tail -30`
 Expected: green. NOTE: pre-existing stale-shared-local-DB failures (lifecycle-guard / admin-alert / dashboard DB tests) may appear and are environmental, not from this diff — confirm any failure is DB-env by checking it fails identically on `origin/main`, and rely on CI's fresh DB as arbiter. This diff touches no DB.
 
 - [ ] **Step 3: impeccable dual-gate (invariant 8)**
@@ -727,7 +732,7 @@ Run `/impeccable critique` then `/impeccable audit` on the diff (`git diff origi
 
 - [ ] **Step 4: format:check**
 
-Run: `pnpm format:check 2>&1 | tail -5`
+Run: `set -o pipefail; pnpm format:check 2>&1 | tail -5`
 Expected: clean (run `pnpm format` + amend the relevant task commit if not).
 
 ---
