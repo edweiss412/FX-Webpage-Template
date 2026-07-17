@@ -2318,10 +2318,13 @@ async function emitDeferredRoleFlagsNotice(
 ): Promise<void> {
   if ("skipped" in result || result.outcome !== "applied" || !result.roleFlagsNotice) return;
   const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-  await upsertAdminAlert(result.roleFlagsNotice);
-  // §3.4: co-emit the durable, non-coalescing LEAD audit event for this site's LEAD-bit subset.
+  // §3.4 (F1): emit the durable, non-coalescing LEAD audit event FIRST — BEFORE the alert upsert.
+  // `upsertAdminAlert` THROWS on RPC failure; ordering the authoritative audit ahead of it means a
+  // transient feed-write failure (post-commit, after the LEAD mutation already landed) can never
+  // skip the durable record. The audit is failure-visible internally ({ok,error}); it never throws.
   // Rides the SAME site as the feed nudge so no apply path is missed (cross-caller topology).
   await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
+  await upsertAdminAlert(result.roleFlagsNotice);
 }
 
 function addHours(date: Date, hours: number): Date {

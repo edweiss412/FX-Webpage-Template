@@ -875,6 +875,44 @@ describe("processOneFile", () => {
     expect(vi.mocked(mockEmitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
   });
 
+  // F1 (whole-diff review, HIGH): the durable LEAD audit must be attempted post-commit INDEPENDENTLY
+  // of the coalescing alert. upsertAdminAlert throws on RPC failure; if it runs BEFORE
+  // emitLeadRoleApplied, a transient feed-write failure (after the LEAD mutation already committed)
+  // skips the authoritative audit precisely when the feed is degraded. Assert the audit still runs.
+  test("a throwing upsertAdminAlert does NOT skip the durable LEAD_ROLE_APPLIED event (cron)", async () => {
+    vi.mocked(mockEmitLeadRoleApplied).mockClear();
+    const fakeTx = tx();
+    const withShowLock = vi.fn(async (driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>));
+    const leadNotice = {
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE" as const,
+      context: {
+        drive_file_id: "file-1",
+        changes: [{ crew_name: "Alice", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      },
+    };
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert: vi.fn(async () => {
+        throw new Error("admin_alerts RPC down");
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          roleFlagsNotice: leadNotice,
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps).catch(() => undefined);
+
+    expect(mockEmitLeadRoleApplied).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(mockEmitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
+  });
+
   test("first-seen auto-publish stamps 24h unpublish token, alerts, and invalidates under the show lock", async () => {
     const fakeTx = tx();
     const events: string[] = [];
