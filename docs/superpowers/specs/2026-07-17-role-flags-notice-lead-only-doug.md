@@ -165,8 +165,10 @@ function rowTone(entry: BellEntry): RowTone {
 ## 6. Guard conditions
 
 - `prior_flags`/`new_flags` are always arrays (existing invariant, `phase2.ts` guards). The new LEAD-toggle guard reads `hasLead(...)` on both — a pure array membership check, safe on `[]`.
-- Identical applied role set → `roleFlagsEqual` skip (`:287`) stays first, so no-op changes still emit nothing.
-- Held-identity crew (MI-11 rename/fold) whose role_flags applied to the retained row: the applied-list diff (`applyOutcome.appliedCrewMembers`, `:549`) still catches a **LEAD** change on the retained row; a folded **non-LEAD** change now correctly emits nothing. F2 identity-link rename mapping (`:263-265`) unchanged.
+- Identical applied role set → the `roleFlagsEqual`/`roleFlagsSetEqual` skip fires first on BOTH the notice producer (`:287`) and the change-log writer, so a true no-op emits nothing on any surface. This is the ONLY "emits nothing" case for role changes.
+- **Held-identity crew (MI-11 fold) — per-surface (Codex F5, self-consistency):** for a role_flags change folded onto the retained row (applied-list diff, `applyOutcome.appliedCrewMembers`, `:549`), the surfaces DIVERGE and MUST NOT be conflated:
+  - **Bell alert (`ROLE_FLAGS_NOTICE`) + durable event (`LEAD_ROLE_APPLIED`):** emitted for a **LEAD** fold only; a **non-LEAD** fold emits NEITHER (that is the narrowing + LEAD-only event, correct).
+  - **Change-log row (`field_changed`):** emitted for **BOTH** LEAD and non-LEAD folds — the change-log writer has no held-skip (§2.4). A non-LEAD held fold therefore emits **no bell/event but DOES emit an identifiable change-log row**. It is NEVER the case that a committed held-fold role change emits nothing on every surface (that would be the audit gap this spec closes). F2 identity-link rename mapping (`:263-265`) unchanged.
 - New crew with LEAD → still emits (prior `[]` → LEAD); new crew without LEAD → still no notice (covered by `crew_added`).
 - Reclassify guard: `severity: "info"` MUST remain to keep the code in `DOUG_EXCLUDED_CODES` — otherwise a `doug` + non-info code would re-enter the amber banner. Pinned by the unchanged severity test (`_metaAdminAlertCatalog.test.ts:618-623`).
 
