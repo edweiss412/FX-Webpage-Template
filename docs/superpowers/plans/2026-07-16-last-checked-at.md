@@ -140,10 +140,37 @@ describe("last_checked_at cron writes (in-lock)", () => {
   it("applied (updateShow / applyShowSnapshot) bumps both", async () => {
     // Drive the applied UPDATE path; assert both timestamps < 60s old.
   });
+
+  // Spec §9 regression guard: error writers keep their existing last_synced_at bump
+  // and must NOT gain a last_checked_at bump. One case per error status.
+  it("drive_error bumps last_synced_at (existing) but NOT last_checked_at", async () => {
+    const frozenChecked = hoursAgo(3);
+    const { showId, writer } = await seedShow({ lastSyncedAt: hoursAgo(3), lastCheckedAt: frozenChecked });
+    await writer.markShowDriveError(driveFileId, "DRIVE_FETCH_FAILED");
+    const row = await readShow(showId);
+    expect(msAgo(row.last_synced_at)).toBeLessThan(60_000);                                  // existing bump preserved
+    expect(new Date(row.last_checked_at).getTime()).toBe(new Date(frozenChecked).getTime());  // NOT bumped
+  });
+  it("sheet_unavailable bumps last_synced_at but NOT last_checked_at", async () => {
+    const frozenChecked = hoursAgo(3);
+    const { showId, writer } = await seedShow({ lastSyncedAt: hoursAgo(3), lastCheckedAt: frozenChecked });
+    await writer.markShowSheetUnavailable(driveFileId, "SHEET_UNAVAILABLE");
+    const row = await readShow(showId);
+    expect(msAgo(row.last_synced_at)).toBeLessThan(60_000);
+    expect(new Date(row.last_checked_at).getTime()).toBe(new Date(frozenChecked).getTime());
+  });
+  it("parse_error bumps last_synced_at but NOT last_checked_at", async () => {
+    const frozenChecked = hoursAgo(3);
+    const { showId, writer } = await seedShow({ lastSyncedAt: hoursAgo(3), lastCheckedAt: frozenChecked });
+    await writer.updateShowParseError(driveFileId, { code: "PARSE_ERROR", message: "bad" });
+    const row = await readShow(showId);
+    expect(msAgo(row.last_synced_at)).toBeLessThan(60_000);
+    expect(new Date(row.last_checked_at).getTime()).toBe(new Date(frozenChecked).getTime());
+  });
 });
 ```
 
-(Implementer: reuse the exact seed/tx helpers the neighboring `tests/sync/*.db.test.ts` use — do NOT hand-roll a Supabase mock. Derive `hoursAgo`/`msAgo` locally; never hardcode wall-clock.)
+(Implementer: reuse the exact seed/tx helpers the neighboring `tests/sync/*.db.test.ts` use — do NOT hand-roll a Supabase mock. Derive `hoursAgo`/`msAgo` locally; never hardcode wall-clock. Match `updateShowParseError`'s real signature at `runScheduledCronSync.ts:1075` — adjust the payload arg to the live shape. These three error cases are RED before Step 3 only in that the seed must carry `last_checked_at`; they must still PASS after Step 3 since Step 3 does NOT touch the error writers — they are the regression guard that the error writers stay `last_checked_at`-free.)
 
 - [ ] **Step 2: Run — expect FAIL**
 
@@ -338,6 +365,29 @@ git commit --no-verify -m "feat(admin): driveConnectionHealth age tiers use last
 - Consumes: `getShowForViewer` row (already `select("*")`).
 - Produces: `StaleFooter` prop `lastCheckedAt`; `Footer` prop `lastCheckedAt`; `getShowForViewer` return gains `lastCheckedAt: string | null` (keeps `lastSyncedAt`).
 
+- [ ] **Step 0: Write the failing `getShowForViewer` projection test (spec §9)**
+
+New `tests/data/getShowForViewer.lastCheckedAt.test.ts` (model the row-mock + call on the sibling `tests/data/getShowForViewer.test.ts` / `getShowForViewer-rooms-projection.test.ts`):
+
+```ts
+import { describe, it, expect } from "vitest";
+// ... reuse the sibling test's row-mock + getShowForViewer invocation harness ...
+
+describe("getShowForViewer — last_checked_at projection", () => {
+  it("projects lastCheckedAt from the shows row (independent of lastSyncedAt)", async () => {
+    const row = await getShowForViewerWith({ last_checked_at: "2026-07-16T20:00:00Z", last_synced_at: "2026-07-16T17:00:00Z" });
+    expect(row.lastCheckedAt).toBe("2026-07-16T20:00:00Z");
+    expect(row.lastSyncedAt).toBe("2026-07-16T17:00:00Z"); // still returned — version token depends on it
+  });
+  it("null last_checked_at → lastCheckedAt null", async () => {
+    const row = await getShowForViewerWith({ last_checked_at: null, last_synced_at: "2026-07-16T17:00:00Z" });
+    expect(row.lastCheckedAt).toBeNull();
+  });
+});
+```
+
+Run: `pnpm vitest run tests/data/getShowForViewer.lastCheckedAt.test.ts` → FAIL (`lastCheckedAt` undefined on the return type).
+
 - [ ] **Step 1: Adjust failing StaleFooter tests**
 
 Rename prop in the tests to `lastCheckedAt`; add the tier + copy assertions:
@@ -371,13 +421,14 @@ Run: `pnpm vitest run tests/components/StaleFooter.test.tsx tests/components/sha
 
 - [ ] **Step 4: Run — expect PASS** (+ getShowForViewer test still returns `lastSyncedAt` for the version token)
 
-Run: `pnpm vitest run tests/components/StaleFooter.test.tsx tests/components/shared/staleFooter-now-prop.test.ts tests/data/getShowForViewer.parallel.test.ts`
+Run: `pnpm vitest run tests/data/getShowForViewer.lastCheckedAt.test.ts tests/components/StaleFooter.test.tsx tests/components/shared/staleFooter-now-prop.test.ts tests/data/getShowForViewer.parallel.test.ts`
+(the last one — the version-token contract — must STILL pass unchanged, proving `last_checked_at` did not leak into the token.)
 
 - [ ] **Step 5: Typecheck (RSC boundary + prop chain) + commit**
 
 Run: `pnpm typecheck`
 ```bash
-git add components/shared/StaleFooter.tsx components/layout/Footer.tsx "app/show/[slug]/[shareToken]/_CrewShell.tsx" lib/data/getShowForViewer.ts tests/components/StaleFooter.test.tsx tests/components/shared/staleFooter-now-prop.test.ts
+git add components/shared/StaleFooter.tsx components/layout/Footer.tsx "app/show/[slug]/[shareToken]/_CrewShell.tsx" lib/data/getShowForViewer.ts tests/data/getShowForViewer.lastCheckedAt.test.ts tests/components/StaleFooter.test.tsx tests/components/shared/staleFooter-now-prop.test.ts
 git commit --no-verify -m "feat(crew-page): StaleFooter/Footer chain uses last_checked_at; copy synced→checked"
 ```
 
