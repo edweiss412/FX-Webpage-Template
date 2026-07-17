@@ -100,6 +100,15 @@ export function StatusStrip({
   const copyUrl =
     published && !archived && token != null ? `${resolveOrigin()}/show/${slug}/${token}` : null;
 
+  // CASP2-4 (item 2, approach A): a control/signal divider so the ON switch (bg-accent) and the
+  // Live-now dot (bg-status-live = accent, SAME hue — globals.css:89) stop reading as one orange
+  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The three
+  // disjuncts are exactly the render conditions of the live/sync/alert elements below, so the
+  // divider appears iff a signal renders beside the toggle. `hidden sm:block` matches the title
+  // divider — no vertical divider on the wrapped 390px mobile row.
+  const hasSignal = isLive || (syncLabel != null && sync != null) || alertCount > 0;
+  const showControlDivider = !archived && hasSignal;
+
   return (
     <div
       data-testid="show-status-strip"
@@ -136,6 +145,14 @@ export function StatusStrip({
         </>
       )}
 
+      {showControlDivider ? (
+        <span
+          aria-hidden="true"
+          data-testid="strip-control-divider"
+          className="hidden h-5 w-px shrink-0 bg-border sm:block"
+        />
+      ) : null}
+
       {!archived && isLive ? (
         <span data-testid="strip-live-badge" className="shrink-0">
           <StatusIndicator status="live" label="Live now" />
@@ -156,7 +173,7 @@ export function StatusStrip({
           // 44px tap-min floor (PRODUCT a11y — no tiny click targets on the venue floor) without
           // growing the pill, the same idiom the publish switch uses (PublishedToggle.tsx:143-145).
           // Vertical-only extension keeps it from overlapping the strip's horizontal neighbours.
-          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
           {alertCount} {alertCount === 1 ? "alert" : "alerts"}

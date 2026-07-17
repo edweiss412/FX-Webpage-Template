@@ -4,6 +4,12 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-CASP2-STRIP-POLISH — StatusStrip finalize-popover persistent overlay
+
+**Filed:** 2026-07-17 (CASP2-4 residual, `DEFERRED.md` CASP2-4) · **Class:** UI polish (transient-state overlay) · **Effort:** S (bundle on a future strip pass)
+
+The calm finalize banner in the inline `PublishedToggle` (`components/admin/PublishedToggle.tsx`, `POPOVER_POSITION` finalize skin) persists as an absolute overlay for the whole finalize window — a transient server state — and deliberately shares the `POPOVER_POSITION` mechanism with the error skin (one source, pinned equal by tests). WAI, not a defect; revisit only if the finalize UX is reworked. Items 2 (two-orange → control divider) and 3 (alert-badge focus-ring offset) of CASP2-4 shipped on `feat/casp2-strip-polish` (2026-07-17); this row is the sole open residual.
+
 ## BL-ROLE-VOCAB-STAGING-OVERLAY — run the role-mapping overlay in the wizard staging/rescan pipeline
 
 **Filed:** 2026-07-16 (extend-role-scope-vocab whole-diff R1, `DEFERRED.md` ROLE-VOCAB-2) · **Class:** UX completeness (staged preview parity) · **Effort:** M (staging-core change + step-3 preview semantics + tests)

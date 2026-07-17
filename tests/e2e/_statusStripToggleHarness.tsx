@@ -114,6 +114,13 @@ export function finalizeHtml(title: string = TOGGLE_TITLE): string {
   return shell(wrap(React.createElement(StatusStrip, stripProps({ title, finalizeOwned: true }))));
 }
 
+/** A published + LIVE strip (CASP2-4 item 2): renders the toggle, the control divider,
+ *  and the live badge — the geometry that proves the divider separates control from signal
+ *  at ≥sm and is `display:none` at 390px. */
+export function liveHtml(title: string = TOGGLE_TITLE): string {
+  return shell(wrap(React.createElement(StatusStrip, stripProps({ title, isLive: true }))));
+}
+
 /** A strip-width row that swaps the inline toggle for the full card toggle — the
  *  pre-CASP-2 layout, for the compaction height delta. Same strip container
  *  classes + title <h1> as StatusStrip so the only height difference is the
@@ -189,6 +196,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       finalizeLong: finalizeHtml(TOGGLE_LONG_TITLE),
       cardShort: cardHtml(),
       errorProbe: errorProbeHtml(),
+      liveShort: liveHtml(),
     }),
   );
 }
