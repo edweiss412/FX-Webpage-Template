@@ -65,11 +65,11 @@ const ROWS: Array<[string, RegExp, number]> = [
     /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/,
     contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime")),
   ],
-  [
-    "accent-tint icon (L47)",
-    /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/,
-    contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime")),
-  ],
+  // (The "accent-tint icon (graphical, 4.91:1)" PROSE figure was removed with
+  // the §16 Quiet-rail restyle — the info icon no longer sits on `accent-tint`
+  // (it is now an on-surface stroke glyph). The contrast PAIR is still pinned by
+  // the §1.2 TABLE_ROWS row "L70 accent-on-bg icon on tint" below, so the figure
+  // stays under test; only the duplicate prose claim is gone.)
   // Anchored to the exact accent-edge §1.1 row phrase — one regex per capture,
   // cannot match neighboring prose.
   [

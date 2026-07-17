@@ -140,7 +140,7 @@ describe("BellPanel — sections (spec §7.3)", () => {
     expect(history.className).toContain("text-text-subtle");
   });
 
-  it('occurrences>1 renders a "Detected N×" chip; occurrences===1 renders none', async () => {
+  it('occurrences>1 renders a repeat-chip (visible count + "Detected N times" name); occurrences===1 renders none', async () => {
     const entries = [
       makeEntry({ alertId: "many", state: "active", occurrences: 3 }),
       makeEntry({ alertId: "one", state: "active", occurrences: 1 }),
@@ -149,8 +149,13 @@ describe("BellPanel — sections (spec §7.3)", () => {
     const { getByTestId } = renderPanel();
 
     await within(getByTestId("bell-panel")).findByTestId("bell-section-active");
-    expect(within(getByTestId("bell-entry-many")).getByText(/Detected 3×/)).toBeTruthy();
-    expect(within(getByTestId("bell-entry-one")).queryByText(/Detected/)).toBeNull();
+    // Quiet-rail redesign: the occurrence count is a compact repeat-chip near the
+    // timestamp — a visible tabular count plus a "Detected N times" tooltip/name.
+    const chip = within(getByTestId("bell-entry-many")).getByTestId("bell-occurrence-many");
+    expect(chip.getAttribute("aria-label")).toBe("Detected 3 times");
+    expect(chip.textContent).toContain("Detected 3 times");
+    expect(chip.textContent).toContain("3"); // the visible count
+    expect(within(getByTestId("bell-entry-one")).queryByTestId("bell-occurrence-one")).toBeNull();
     // "Seen" was ambiguous (read as "seen by N people"); the copy is gone.
     expect(within(getByTestId("bell-entry-many")).queryByText(/Seen/)).toBeNull();
   });
