@@ -24,7 +24,7 @@
 active ? "bg-accent-on-bg" : "bg-border",   // :559
 ```
 
-The 2026-07-16 accent-contrast pass changed the active fill `bg-accent` → `bg-accent-on-bg` (`#a65000` light) because raw `#ff8c1a` measured **1.46:1 vs the inactive `bg-border` segments** and **2.23:1 vs bg** — both below the WCAG 1.4.11 3:1 floor for a load-bearing graphical object (accent-contrast spec §4.1b, class **B4**; `docs/superpowers/specs/2026-07-16-accent-contrast-token-pass.md:110`).
+The 2026-07-16 accent-contrast pass changed the active fill `bg-accent` → `bg-accent-on-bg` (`#a65000` light) because raw `#ff8c1a` is **2.23:1 vs bg** and **1.83:1 vs the inactive `bg-border` segments** (`#e5e4e0`) — both below the WCAG 1.4.11 3:1 floor for a load-bearing graphical object (accent-contrast spec §4.1b, class **B4**; `docs/superpowers/specs/2026-07-16-accent-contrast-token-pass.md:110`). (The B4 row's `1.46:1` figure is raw accent vs `border-strong` `#cfcdc7`, a different token than the segment's actual `bg-border` inactive — the failing-premise holds under either.)
 
 The darkened fill clears contrast but is muted. This is the **one surface PRODUCT.md reserves for expressive orange** (the crew's "you are here in the run" glance, read on a sunlit venue floor). Critique P2 flagged the loss of brand vibrancy; the fix was deferred as `ACCENT-PASS-1` because restoring `#ff8c1a` needs its own contrast math + a registry/treatment change + a brand judgment (not a token swap). Deferral trigger: "a crew-page brand/vibrancy pass." This spec is that pass.
 
@@ -44,29 +44,34 @@ Inactive segments (`bg-border`) are **unchanged** — they were never the sub-co
 
 ## 3. Contrast tables (WCAG 1.4.11, ≥3:1 for graphical objects)
 
-The load-bearing boundary is the **edge** (`--color-accent-edge`). All values are the ratified DESIGN.md §1.2 pairs (`DESIGN.md:35,62`), which govern this identical token pairing on the toggles.
+The load-bearing graphical information is **which segments are filled**. Each segment sits on the hero surface with a `gap-1.5` (6px) surface gutter between segments (`RightNowHero.tsx:542`) — so under WCAG 1.4.11 the required adjacency is **each active segment's boundary vs the surface behind it**, NOT active-fill vs inactive-fill (those are not adjacent colors — surface separates them). The boundary is the `border-accent-edge` stroke.
 
-### Light mode (edge `#7a3d00`, fill `#ff8c1a`, inactive `#e5e4e0`)
+**Surface caveat — the segment can render on `bg-stale-tint`, not only `bg-surface`.** Progress normally renders on `bg-surface` (`#ffffff` light / `#16171c` dark). But during a `morph-to-last-good` transition the hero holds the last-good `show_day_n` body — progress bar included — while `isStale` paints the section `bg-stale-tint` (`#f4ece0` / `#26221b`): `showProgress` gates on `!isHeroDegraded(renderState.kind)` (`RightNowHero.tsx:440`), which stays false while `surfaceClass` is `bg-stale-tint` (`:431,:432`) during the stale morph (`:410`). So the edge must clear 3:1 on BOTH surfaces; the tables cover both.
 
-The progress bar renders only in non-degraded states, so its background is the hero's `bg-surface` (`#ffffff`), not `--color-bg` (`#fafaf9`). Both are cited; the `#fafaf9` value is the conservative DESIGN.md-ratified one.
+### Light mode (edge `#7a3d00`, fill `#ff8c1a`)
 
-| Adjacency (required relation) | Pair | Ratio | Floor | Pass |
+| Required adjacency | Pair | Ratio | Floor | Pass |
 |---|---|---|---|---|
-| Edge vs the hero surface (segment boundary is perceivable) | `#7a3d00` / `#ffffff` surface | **8.42:1** (8.06:1 vs `#fafaf9`, DESIGN.md:35) | 3.0 | ✅ |
+| Edge vs `bg-surface` (segment boundary perceivable) | `#7a3d00` / `#ffffff` | **8.42:1** (8.06:1 vs `#fafaf9`, DESIGN.md:35) | 3.0 | ✅ |
+| Edge vs `bg-stale-tint` (morph-to-last-good path) | `#7a3d00` / `#f4ece0` | **7.18:1** | 3.0 | ✅ |
 | Edge vs its own orange fill (edge readable on the fill) | `#7a3d00` / `#ff8c1a` | **3.61:1** (DESIGN.md:35,62) | 3.0 | ✅ |
-| Edge vs inactive fill (active segment distinguished from inactive across the 6px gap) | `#7a3d00` / `#e5e4e0` | **6.62:1** | 3.0 | ✅ |
 
-The active segment is a bounded object whose 8.42:1 edge is perceivable against the surface and whose edge is 6.62:1 against the inactive segments — so "which segments are filled" (the load-bearing info) clears 3:1 by the edge alone, independent of the fill's 2.23:1. The vibrant `#ff8c1a` fill is restored without carrying any contrast burden.
+Each active segment is a bounded object whose edge clears 3:1 against whichever surface it renders on — so "which segments are filled" clears 3:1 by the edge alone, independent of the fill's 2.23:1-vs-surface. The vibrant `#ff8c1a` fill carries no contrast burden.
 
-### Dark mode (edge `#ffa047`, fill `#ff8c1a`, surface `#16171c`, inactive `#2a2b30`)
+### Dark mode (edge `#ffa047`, fill `#ff8c1a`)
 
-| Adjacency | Pair | Ratio | Floor | Pass |
+| Required adjacency | Pair | Ratio | Floor | Pass |
 |---|---|---|---|---|
-| Active fill vs hero surface (fill already clears) | `#ff8c1a` / `#16171c` | **7.69:1** | 3.0 | ✅ |
-| Active fill vs inactive segment | `#ff8c1a` / `#2a2b30` | **6.07:1** | 3.0 | ✅ |
-| Edge vs hero surface | `#ffa047` / `#16171c` | **8.84:1** (8.16:1 vs `#0f1014`, DESIGN.md:35) | 3.0 | ✅ |
+| Edge vs `bg-surface` | `#ffa047` / `#16171c` | **8.84:1** (8.16:1 vs `#0f1014`, DESIGN.md:35) | 3.0 | ✅ |
+| Edge vs `bg-stale-tint` (morph path) | `#ffa047` / `#26221b` | **7.82:1** | 3.0 | ✅ |
+| Active fill vs `bg-surface` (fill itself already clears) | `#ff8c1a` / `#16171c` | **7.69:1** | 3.0 | ✅ |
+| Active fill vs `bg-stale-tint` | `#ff8c1a` / `#26221b` | **6.80:1** | 3.0 | ✅ |
 
-In dark mode the vibrant fill itself already clears 3:1 on both relations (dark `#ff8c1a` was never the sub-contrast case — only light was). The dark edge `#ffa047` is decorative-consistency with the toggles (DESIGN.md §1.2 already documents the dark edge as decorative: "the track itself is the boundary"). No dark regression.
+In dark mode the vibrant fill itself already clears 3:1 on every surface (dark `#ff8c1a` was never the sub-contrast case — only light was). The dark edge `#ffa047` is decorative-consistency with the toggles (DESIGN.md §1.2 documents the dark edge as decorative: "the track itself is the boundary"). No dark regression.
+
+### Inactive "track" segments — unchanged, sub-3:1 by ratified design (not introduced here)
+
+Inactive (unfilled) segments stay `bg-border` (`#e5e4e0` / `#2a2b30`) — the empty-track ground. Their own contrast vs the surface is low by design (light `#e5e4e0` = 1.27:1 vs `#ffffff`, 1.09:1 vs `#f4ece0`) and is the **pre-existing ratified contract** carried unchanged from the 2026-07-16 accent-contrast pass, which kept inactive = `bg-border` (`RightNowHero.tsx:559`, accent-contrast spec §4.1b B4). This spec does NOT touch the track and introduces NO new sub-3:1 relation. An unfilled slot conveying "not yet done" is the absence-of-fill ground, not a graphical object that must carry a 3:1 boundary; all load-bearing information (which slots ARE filled) is carried entirely by the 3:1-edge-bounded active segments. (Earlier draft mis-labeled an "edge vs inactive across the 6px gap" row as a required adjacency — corrected: it is not a direct 1.4.11 adjacency.)
 
 ## 4. Dimensional invariants / real-browser assertion — DEFERRED-AS-N/A
 
@@ -89,7 +94,7 @@ The one genuinely visual question (does a 1px stroke on a 6px pill read as a cri
 
 ### 6.1 `tests/components/crew/rightNowHero.test.tsx` (existing test, `:489-496`)
 
-The existing day-1 test asserts the active segment carries `bg-accent-on-bg` and NOT `bg-accent`. Flip both, and add an edge assertion. Anti-tautology: assert on the `[data-segment-active="true"]` node's own class token set (not a container).
+The active-segment class assertion lives in the `mount in show_day_1 … re-derives to show_day_2` test (`rightNowHero.test.tsx:478`, assertion block `:488-496`), which currently asserts the active segment carries `bg-accent-on-bg` and NOT `bg-accent`. Flip both, and add an edge assertion. Anti-tautology: assert on the `[data-segment-active="true"]` node's own class token set (not a container).
 
 ```tsx
 // progress lives in a role="img" indicator — NOT decorative. The ACTIVE segment
@@ -140,4 +145,4 @@ Append "active show-day progress segment" to the accent-edge row's consumer list
 
 ## 10. Numeric sweep (self-consistency)
 
-Every literal in this spec: `#ff8c1a` (fill, both themes), `#7a3d00` (light edge), `#ffa047` (dark edge), `#a65000` (the OLD darkened fill being replaced), `#e5e4e0` (inactive light), `#16171c`/`#2a2b30` (dark surface/inactive), `6px`/`h-1.5`, `1px`/`border`, `gap-1.5`. Contrast literals `8.42`/`8.06`, `3.61`, `8.84`/`8.16`, `2.23`, `6.62`, `7.69`, `6.07` — the DESIGN.md-anchored ones (`8.06`, `3.61`, `8.16`, `2.23`) are cited verbatim from DESIGN.md:35,62; the surface-specific ones (`8.42`, `8.84`, `6.62`, `7.69`, `6.07`) are same-token derivations against the hero's actual `bg-surface`, all ≥3.0. Occurrence index `1` (active segment), `0` (live-dot). All consistent across §2/§3/§5/§6.
+Every literal in this spec: `#ff8c1a` (fill, both themes), `#7a3d00` (light edge), `#ffa047` (dark edge), `#a65000` (the OLD darkened fill being replaced), `#e5e4e0`/`#2a2b30` (inactive track light/dark), `#ffffff`/`#16171c` (surface light/dark), `#f4ece0`/`#26221b` (stale-tint light/dark), `#cfcdc7` (border-strong, only in §1's mis-cite note), `6px`/`h-1.5`, `1px`/`border`, `gap-1.5`. Contrast literals — DESIGN.md-anchored (`8.06`, `3.61`, `8.16`, `2.23`) cited verbatim from DESIGN.md:35,62; edge-vs-surface derivations `8.42`/`7.18` (light: surface/stale-tint), `8.84`/`7.82` (dark), fill-vs-surface `7.69`/`6.80` (dark), raw-fill fails `2.23` (vs bg) / `1.83` (vs bg-border) / `1.46` (vs border-strong, §1 note), track-vs-surface `1.27`/`1.09` (ratified sub-3:1, unchanged). Every edge/fill boundary value ≥3.0 on every surface it can render on. Occurrence index `1` (active segment), `0` (live-dot). All consistent across §2/§3/§5/§6.
