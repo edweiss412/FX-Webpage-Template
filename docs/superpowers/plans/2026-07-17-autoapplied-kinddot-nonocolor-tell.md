@@ -25,7 +25,7 @@
 - Consumes: `KIND_PILL`, `KIND_ORDER`, `MAX_DOTS`, `FALLBACK_PILL` (unchanged).
 - Produces: each shown marker span carries `data-testid="auto-applied-kind-marker"`; `crew_removed` renders a minus-bar wrapper instead of a disc.
 
-- [ ] **Step 1: Write/adjust the tests (red)**
+- [x] **Step 1: Write/adjust the tests (red)**
 
 Add to `tests/components/admin/RecentAutoAppliedStrip.test.tsx` (near the existing kind-dot block ~:252-320):
 
@@ -85,12 +85,12 @@ Update the **existing** overflow test (`kind-dot cluster: >4 distinct kinds → 
   expect(cluster.textContent ?? "").toContain("+2");
 ```
 
-- [ ] **Step 2: Run — verify fail**
+- [x] **Step 2: Run — verify fail**
 
 Run: `npx vitest run tests/components/admin/RecentAutoAppliedStrip.test.tsx -t "kind-dot cluster"`
 Expected: new 3 tests FAIL (no marker testid / no minus-bar); updated overflow test FAIL (no marker testid).
 
-- [ ] **Step 3: Implement the marker refactor**
+- [x] **Step 3: Implement the marker refactor**
 
 Replace the `shown.map` body (`components/admin/RecentAutoAppliedStrip.tsx` ~:179-184):
 
@@ -121,12 +121,12 @@ Replace the `shown.map` body (`components/admin/RecentAutoAppliedStrip.tsx` ~:17
       )}
 ```
 
-- [ ] **Step 4: Run — verify pass**
+- [x] **Step 4: Run — verify pass**
 
 Run: `npx vitest run tests/components/admin/RecentAutoAppliedStrip.test.tsx`
 Expected: all kind-dot tests PASS (incl. the pre-existing #1 "3 distinct kinds" and the updated overflow test).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add components/admin/RecentAutoAppliedStrip.tsx tests/components/admin/RecentAutoAppliedStrip.test.tsx
@@ -158,7 +158,7 @@ git commit --no-verify -m "docs(plan): mark KINDDOT-1 shipped; COLLAPSE-1/2 + RE
 
 - [x] **Step 1:** `/impeccable critique` + `/impeccable audit` on the `KindDotCluster` diff (setup gates: `context.mjs` → register `product`). **Recorded results (§12 below).**
 - [x] **Step 2:** `pnpm test` (full suite), `pnpm typecheck`, `pnpm lint`, `pnpm format:check` before push. typecheck/lint (0 errors, pre-existing warnings only)/format all clean; component suite 55/55; full suite green except the 2 pre-existing `tests/cross-cutting/pg-cron-coverage.test.ts` local-DB-pollution failures (orphan `fxav_cron_%` job in the shared local DB from concurrent worktrees — identical on `origin/main`'s own test version; zero relation to this view+docs diff; real CI fresh-DB is the arbiter).
-- [x] **Step 3:** whole-diff cross-model review (Codex) → push → real CI green → `gh pr merge --merge`.
+- [ ] **Step 3 (pending release):** whole-diff cross-model review (Codex) — 3 rounds run, all code-clean (55/55, diff clean); R1/R2 doc-consistency fixes reconciled, R3 flagged only checklist bookkeeping (fixed here) → then push → real CI green → `gh pr merge --merge`. Not yet done at time of writing.
 
 ## 12. Invariant-8 impeccable dual-gate — results + dispositions
 
