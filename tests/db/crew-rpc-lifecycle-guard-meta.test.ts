@@ -37,11 +37,13 @@ const DIRECT_MUTATOR = `(pg_get_functiondef(p.oid) ~* '(insert into|update|delet
 const REACHABLE = `(has_function_privilege('authenticated',p.oid,'EXECUTE') or has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('service_role',p.oid,'EXECUTE'))`;
 const IS_TRIGGER = `p.prorettype = 'pg_catalog.trigger'::regtype`;
 const FROM = `from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'`;
-// Helper-delegation arm: an authed/svc definer calling one of the private target-mutating helpers.
-const HELPER_CALL = `pg_get_functiondef(p.oid) ~* '\\m(_archive_show_core|_unarchive_show_apply|_undo_tombstone)[[:space:]]*\\('`;
 
 // --- Registries (authoritative, from the validation catalog; see spec §4 table). ---
 const PRIVATE_HELPERS = new Set(["_archive_show_core", "_unarchive_show_apply", "_undo_tombstone"]);
+// Helper-delegation arm: an authed/svc definer calling one of the private target-mutating helpers.
+// DERIVED from PRIVATE_HELPERS (single source of truth) — a newly-registered helper is automatically
+// covered by the delegation arm, so a wrapper delegating to it can't silently escape the universe.
+const HELPER_CALL = `pg_get_functiondef(p.oid) ~* '\\m(${[...PRIVATE_HELPERS].join("|")})[[:space:]]*\\('`;
 const TRIGGER_MUTATORS = new Set(["create_share_token_for_show"]);
 const GUARDED = new Set([
   "reset_crew_member_selection",
@@ -113,7 +115,10 @@ describe("crew/share RPC lifecycle-guard meta (whole-class, fails-by-default)", 
     expect(withDelegation.has("unarchive_show")).toBe(true);
   });
 
-  test("GUARDED fns carry their lifecycle-guard tokens", () => {
+  test("every GUARDED fn has a GUARD_TOKENS entry (no silent skip) AND carries those tokens", () => {
+    // GUARD_TOKENS keys MUST equal GUARDED — otherwise a fn could be added to GUARDED (passing the
+    // universe parity) while its guard-presence check is silently skipped (Codex whole-diff F1).
+    expect(new Set(Object.keys(GUARD_TOKENS))).toEqual(GUARDED);
     for (const [fn, toks] of Object.entries(GUARD_TOKENS)) {
       const def = q(`select pg_get_functiondef('public.${fn}'::regproc)`).join("\n");
       for (const t of toks) expect(def, `${fn} missing guard token ${t}`).toContain(t);
