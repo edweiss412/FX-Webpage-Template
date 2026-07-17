@@ -242,7 +242,12 @@ function hasLead(flags: readonly string[]): boolean {
   return flags.includes("LEAD");
 }
 
-function nonLeadRoleFlagChanges(
+// MI-9 / MI-10 (owner option B, 2026-07-17): a LEAD-bit change is a deliberate sheet edit that
+// AUTO-APPLIES (no auth-floor bump, no stage). This producer emits the audit FYI for EVERY applied
+// role_flags change — the LEAD bit is no longer skipped (the old `nonLeadRoleFlagChanges` name +
+// LEAD-skip left a LEAD grant/loss silent). Diff the ACTUALLY-APPLIED crew list (post-hold /
+// post-fold, §3.1) so a LEAD change folded onto a retained row under a held MI-11 rename is caught.
+function roleFlagChangesForNotice(
   previousCrewMembers: ParseResult["crewMembers"] | undefined,
   nextCrewMembers: ParseResult["crewMembers"],
 ): Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> {
@@ -253,8 +258,20 @@ function nonLeadRoleFlagChanges(
 
   for (const nextMember of nextCrewMembers) {
     const priorMember = previousByName.get(nextMember.name);
-    if (!priorMember) continue;
-    if (hasLead(priorMember.role_flags) !== hasLead(nextMember.role_flags)) continue;
+    if (!priorMember) {
+      // New crew member: the crew_added change-log image is only {name,email} (no role_flags), so a
+      // brand-new crew member WHOSE APPLIED role_flags include LEAD would grant ops/financial access
+      // silently. Emit a notice entry (prior_flags: []) only for the LEAD case; non-LEAD new crew
+      // stay covered by crew_added alone (§3.1 new-crew-with-LEAD, Codex R2 F1).
+      if (hasLead(nextMember.role_flags)) {
+        changes.push({
+          crew_name: nextMember.name,
+          prior_flags: [],
+          new_flags: [...nextMember.role_flags],
+        });
+      }
+      continue;
+    }
     if (roleFlagsEqual(priorMember.role_flags, nextMember.role_flags)) continue;
     changes.push({
       crew_name: nextMember.name,
@@ -511,9 +528,13 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     );
   }
 
-  const roleFlagChanges = nonLeadRoleFlagChanges(
+  // §3.1: diff the ACTUALLY-APPLIED crew list (applyOutcome.appliedCrewMembers), NOT the raw parse —
+  // a held MI-11 rename/fold suppresses the renamed row and applies its role_flags onto the retained
+  // old-name row; diffing the raw parse by name would see no priorMember and emit nothing, leaving a
+  // folded LEAD change silent. This is the same list writeAutoApplyChanges uses (:478, P2-F2).
+  const roleFlagChanges = roleFlagChangesForNotice(
     snapshot.previousCrewMembers,
-    parseResult.crewMembers,
+    applyOutcome.appliedCrewMembers,
   );
   const roleFlagsNotice =
     roleFlagChanges.length > 0
@@ -528,7 +549,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       : undefined;
 
   // §10 point 2/4: gate the applied role mappings against PRIOR-PERSISTED state only — the same
-  // prior-crew source nonLeadRoleFlagChanges diffs (snapshot.previousCrewMembers, :468) plus the
+  // prior-crew source roleFlagChangesForNotice diffs (snapshot.previousCrewMembers) plus the
   // prior persisted parse_warnings threaded via args.priorParseWarnings.
   const appliedRoleMappings = gateAppliedRoleMappings(
     roleMappingOutcome.applied,
