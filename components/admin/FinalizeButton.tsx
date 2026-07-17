@@ -645,7 +645,43 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
     };
   }, [portalEl]);
 
-  // Initial focus → the Close/Back control; Tab trap; restore focus on unmount.
+  // Background inert + OUTER-focus continuity (spec §7a). Declared BEFORE
+  // useDialogFocus on purpose. React runs effect cleanups in DECLARATION order
+  // (verified), so on unmount this cleanup un-inerts the background and restores
+  // the previously-focused element BEFORE useDialogFocus's own restore runs. This
+  // effect OWNS the outer restore because applying `inert` to an ancestor BLURS
+  // the focused element — any activeElement snapshot taken AFTER inert (including
+  // useDialogFocus's, declared next) captures <body>. We snapshot HERE, before
+  // inerting. useDialogFocus's later restore then targets <body> (a no-op — body
+  // is not focusable) and never disturbs the focus we put back.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === portalEl) continue;
+      changed.push({
+        el,
+        hadInert: el.hasAttribute("inert"),
+        priorAriaHidden: el.getAttribute("aria-hidden"),
+      });
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, hadInert, priorAriaHidden } of changed) {
+        if (!hadInert) el.removeAttribute("inert");
+        if (priorAriaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", priorAriaHidden);
+      }
+      // Restore the outer focus AFTER un-inerting (the target is focusable again).
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus?.();
+      }
+    };
+  }, [portalEl]);
+
+  // Initial focus → the Close/Back control; Tab trap. (Its own restore now targets
+  // <body> in the compound case and is a harmless no-op — see the inert effect.)
   useDialogFocus(panelRef, dismissRef);
 
   // Body scroll lock while open; restore prior value on unmount (composes with a
@@ -699,34 +735,6 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, []);
-
-  // Background inert (spec §7a): make every OTHER direct child of document.body
-  // `inert` + `aria-hidden` so exactly ONE modal root is exposed — even when a
-  // Step3ReviewModal is open underneath (its own aria-modal falls inside an inert
-  // subtree). Also hard-blocks background focus/pointer. Declared AFTER
-  // useDialogFocus so React's reverse-order cleanup un-inerts the background
-  // BEFORE useDialogFocus restores focus into it (else the restore target is
-  // inert and focus drops to <body>).
-  useEffect(() => {
-    const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
-    for (const el of Array.from(document.body.children)) {
-      if (el === portalEl) continue;
-      changed.push({
-        el,
-        hadInert: el.hasAttribute("inert"),
-        priorAriaHidden: el.getAttribute("aria-hidden"),
-      });
-      el.setAttribute("inert", "");
-      el.setAttribute("aria-hidden", "true");
-    }
-    return () => {
-      for (const { el, hadInert, priorAriaHidden } of changed) {
-        if (!hadInert) el.removeAttribute("inert");
-        if (priorAriaHidden === null) el.removeAttribute("aria-hidden");
-        else el.setAttribute("aria-hidden", priorAriaHidden);
-      }
-    };
-  }, [portalEl]);
 
   if (portalEl === null) return null;
 

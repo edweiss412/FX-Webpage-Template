@@ -167,4 +167,23 @@ test.describe("finalize blocker modal — real-browser layout (spec §8)", () =>
     // Top-of-stack over the app-root z-50 review stand-in.
     expect(metrics.hitInsideModal).toBe(true);
   });
+
+  test("focus continuity: on dismiss, focus returns to the element focused before the blocker (real inert)", async ({
+    page,
+  }) => {
+    await openLive(page);
+    // Focus an element in the app-root subtree, then open the blocker WITHOUT a
+    // click (via the state hook) so this element stays the previously-focused one.
+    await page.locator('[data-testid="review-focusable"]').focus();
+    await expect(page.locator('[data-testid="review-focusable"]')).toBeFocused();
+    await page.evaluate(() => window.__setKind?.("cas_per_row"));
+    await expect(page.locator(PANEL)).toBeVisible();
+    // While the blocker is open the background is inert, so the underlying button
+    // no longer holds focus (real browsers blur inert descendants).
+    await expect(page.locator('[data-testid="review-focusable"]')).not.toBeFocused();
+    // Dismiss (Back) → the inert effect un-inerts THEN restores focus to it.
+    await page.locator('[data-testid="wizard-finalize-blocker-dismiss"]').click();
+    await expect(page.locator(MODAL)).toHaveCount(0);
+    await expect(page.locator('[data-testid="review-focusable"]')).toBeFocused();
+  });
 });
