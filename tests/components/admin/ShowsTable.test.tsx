@@ -82,14 +82,14 @@ describe("ShowsTable", () => {
     );
   }
 
-  it("ok: line 1 is bare 'Synced'; line 2 shows Edited·Checked from distinct fields", () => {
+  it("ok: line 1 is bare 'Synced'; line 2 is Checked-only (Edited moved to the show-page header)", () => {
     render(
       <ShowsTable
         rows={[
           row({
             slug: "ok1",
             lastSyncStatus: "ok",
-            lastSyncedAt: "2026-06-03T08:00:00.000Z", // Edited: 2h ago
+            lastSyncedAt: "2026-06-03T08:00:00.000Z", // Edited: 2h ago — NOT shown here anymore
             lastCheckedAt: "2026-06-03T09:58:00.000Z", // Checked: 2 min ago
           }),
         ]}
@@ -103,8 +103,35 @@ describe("ShowsTable", () => {
     const line1 = cell.textContent!.replace(l2.textContent!, "");
     expect(line1).toContain("Synced");
     expect(line1).not.toMatch(/ago|Edited|Checked/);
-    expect(l2.textContent).toMatch(/Edited\s+2h ago/);
+    // Line 2 = Checked only; no Edited clause, no middot separator.
     expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
+    expect(l2.textContent).not.toMatch(/Edited|·/);
+  });
+
+  it("Checked line collapses by default and reveals on row hover / keyboard focus (group-driven)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({
+            slug: "hov",
+            lastSyncStatus: "ok",
+            lastSyncedAt: "2026-06-03T08:00:00.000Z",
+            lastCheckedAt: "2026-06-03T09:58:00.000Z",
+          }),
+        ]}
+        now={NOW_10}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    // The reveal is CSS-only (jsdom can't compute it) — assert the recipe: collapsed
+    // (`hidden`) by default, expanded on the row Link's group hover/focus.
+    const l2 = within(screen.getByTestId("shows-sync-hov")).getByTestId("shows-sync-times-hov");
+    expect(l2.className).toContain("hidden");
+    expect(l2.className).toContain("group-hover:block");
+    expect(l2.className).toContain("group-focus-visible:block");
+    // The row Link carries the `group` marker that drives the reveal.
+    expect(screen.getByTestId("shows-table-row-hov").className).toContain("group");
   });
 
   it.each(["drive_error", "sheet_unavailable", "parse_error"])(
@@ -131,27 +158,6 @@ describe("ShowsTable", () => {
     },
   );
 
-  it("shrink_held: line 2 keeps the Edited clause (warn bucket, not in deny-set)", () => {
-    render(
-      <ShowsTable
-        rows={[
-          row({
-            slug: "sh",
-            lastSyncStatus: "shrink_held",
-            lastSyncedAt: "2026-06-03T08:00:00.000Z",
-            lastCheckedAt: "2026-06-03T09:58:00.000Z",
-          }),
-        ]}
-        now={NOW_10}
-        activeCount={1}
-        overflowCount={0}
-      />,
-    );
-    const l2 = within(screen.getByTestId("shows-sync-sh")).getByTestId("shows-sync-times-sh");
-    expect(l2.textContent).toMatch(/Edited/);
-    expect(l2.textContent).toMatch(/Checked/);
-  });
-
   it.each([null, undefined, ""])("line 2 suppressed when lastCheckedAt is %p", (v) => {
     render(
       <ShowsTable
@@ -167,7 +173,7 @@ describe("ShowsTable", () => {
     expect(line2("s")).toBeNull();
   });
 
-  it("null lastSyncedAt but present lastCheckedAt (non-error) → Edited never · Checked", () => {
+  it("null lastSyncedAt but present lastCheckedAt (non-error) → Checked only, no Edited", () => {
     render(
       <ShowsTable
         rows={[
@@ -184,33 +190,11 @@ describe("ShowsTable", () => {
       />,
     );
     const l2 = within(screen.getByTestId("shows-sync-n")).getByTestId("shows-sync-times-n");
-    expect(l2.textContent).toMatch(/Edited\s+never/);
     expect(l2.textContent).toMatch(/Checked\s+2 min ago/);
+    expect(l2.textContent).not.toMatch(/Edited/);
   });
 
-  it("two-clause line 2 separator is a single aria-hidden element", () => {
-    render(
-      <ShowsTable
-        rows={[
-          row({
-            slug: "m",
-            lastSyncStatus: "ok",
-            lastSyncedAt: "2026-06-03T08:00:00.000Z",
-            lastCheckedAt: "2026-06-03T09:58:00.000Z",
-          }),
-        ]}
-        now={NOW_10}
-        activeCount={1}
-        overflowCount={0}
-      />,
-    );
-    const l2 = within(screen.getByTestId("shows-sync-m")).getByTestId("shows-sync-times-m");
-    const seps = within(l2).getAllByText("·");
-    expect(seps).toHaveLength(1);
-    expect(seps[0]).toHaveAttribute("aria-hidden", "true");
-  });
-
-  it("mobile sub-line renders the same two-clause line 2", () => {
+  it("mobile sub-line omits the Checked line entirely (no hover surface on touch)", () => {
     render(
       <ShowsTable
         rows={[
@@ -226,10 +210,11 @@ describe("ShowsTable", () => {
         overflowCount={0}
       />,
     );
+    // Mobile SyncCell (place="mobile") renders line 1 only; the Checked line is not in the DOM.
     const mobile = screen.getByTestId("shows-meta-mobile-mb");
-    const l2 = within(mobile).getByTestId("shows-sync-times-mb");
-    expect(l2.textContent).toMatch(/Edited/);
-    expect(l2.textContent).toMatch(/Checked/);
+    expect(within(mobile).queryByTestId("shows-sync-times-mb")).toBeNull();
+    expect(mobile.textContent).toMatch(/Synced/);
+    expect(mobile.textContent).not.toMatch(/Checked|Edited/);
   });
 
   it.each([

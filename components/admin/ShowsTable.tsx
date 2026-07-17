@@ -29,7 +29,7 @@ import {
 } from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
-import { syncStatusBucket, showsEditedClause, type SyncBucket } from "@/lib/admin/syncStatus";
+import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
@@ -220,31 +220,34 @@ function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
   );
 }
 
-// Two-line bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked).
-// Line 1 = health (bare bucket label). Line 2 (only when lastCheckedAt is truthy)
-// = muted relative times: "Edited {rel} · Checked {rel}" for non-error buckets,
-// "Checked {rel}" only for the three error buckets (showsEditedClause === false),
-// where lastSyncedAt is an error-attempt stamp not a content edit.
-// Every element is a <span> (block/flex) — this mounts inside a <span> desktop
-// wrapper (below) and StatusIndicator's root is a <span>; a <div> would be invalid.
-function SyncCell({ row, now }: { row: ActiveShowRow; now: Date }) {
+// Bucket-aware Sync cell (spec 2026-07-17-sync-cell-edited-checked; 2026-07-17 revision).
+// Line 1 = health (bare bucket label). The former "Edited {rel}" clause moved to the
+// show-page header (StatusStrip); the "Checked {rel}" clause is now a secondary signal
+// shown ONLY on the desktop Sync column (place="desktop"), collapsed by default and
+// revealed on row hover / keyboard focus via the `group` on the row Link (below). Mobile
+// stacked rows (place="mobile") omit it entirely — no hover surface, and the sub-line
+// stays lean. Every element is a <span> (block/flex): this mounts inside a <span> wrapper
+// and StatusIndicator's root is a <span>; a <div> would be invalid.
+function SyncCell({
+  row,
+  now,
+  place = "desktop",
+}: {
+  row: ActiveShowRow;
+  now: Date;
+  place?: "mobile" | "desktop";
+}) {
   const { bucket, label } = syncStatusBucket(row.lastSyncStatus);
-  const showTimes = Boolean(row.lastCheckedAt); // falsy null/undefined/"" → suppress line 2
-  const showEdited = showsEditedClause(row.lastSyncStatus);
+  // Checked line: desktop only, and only when a check stamp exists (falsy null/""/undefined).
+  const showChecked = place === "desktop" && Boolean(row.lastCheckedAt);
   return (
     <span className="flex flex-col">
       <StatusIndicator status={bucket} label={label} />
-      {showTimes ? (
+      {showChecked ? (
         <span
           data-testid={`shows-sync-times-${row.slug}`}
-          className="mt-0.5 block text-xs text-text-subtle tabular-nums"
+          className="mt-0.5 hidden text-xs text-text-subtle tabular-nums group-hover:block group-focus-visible:block"
         >
-          {showEdited ? (
-            <>
-              Edited {formatRelative(row.lastSyncedAt, now)}
-              <span aria-hidden="true"> · </span>
-            </>
-          ) : null}
           Checked {formatRelative(row.lastCheckedAt, now)}
         </span>
       ) : null}
@@ -477,7 +480,7 @@ export function ShowsTable({
                   <Link
                     href={`/admin/show/${encodeURIComponent(row.slug)}`}
                     data-testid={`shows-table-row-${row.slug}`}
-                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
+                    className={`group flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
                   >
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">
@@ -512,7 +515,7 @@ export function ShowsTable({
                       >
                         {dates ? <span className="tabular-nums">{dates}</span> : null}
                         <span className="tabular-nums">{crewLabel}</span>
-                        <SyncCell row={row} now={now} />
+                        <SyncCell row={row} now={now} place="mobile" />
                       </div>
                     </div>
 
@@ -541,7 +544,7 @@ export function ShowsTable({
                       data-testid={`shows-sync-${row.slug}`}
                       className="hidden text-sm min-[768px]:block"
                     >
-                      <SyncCell row={row} now={now} />
+                      <SyncCell row={row} now={now} place="desktop" />
                     </span>
                     {/* Status column (§4). Gated at min-[960px]: hidden below (the inline
                         pill shows the state there), the 6th grid track appears at ≥960. */}

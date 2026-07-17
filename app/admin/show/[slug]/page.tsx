@@ -149,6 +149,11 @@ export default async function AdminShowPage({
   const { archived, published, dates, venue, driveFileId } = publishedData;
   const title = publishedData.title || null;
   const lastSyncedAt = str(show.last_synced_at);
+  // shows.last_checked_at — last time the cron SUCCESSFULLY reached Drive and
+  // evaluated this show (distinct from last_synced_at, the last content apply /
+  // error stamp). Drives the StatusStrip sync-age badge time (2026-07-17
+  // sync-cell). `show` is `to_jsonb(shows)` so the column is present.
+  const lastCheckedAt = str(show.last_checked_at);
   const lastSyncStatus = str(show.last_sync_status);
   const pickerEpoch = typeof show.picker_epoch === "number" ? show.picker_epoch : 1;
   const isShowEligibleForCrewLink = published && !archived;
@@ -356,6 +361,7 @@ export default async function AdminShowPage({
         setPublished={setShowPublishedAction.bind(null, slug)}
         isLive={isLive}
         lastSyncedAt={lastSyncedAt}
+        lastCheckedAt={lastCheckedAt}
         lastSyncStatus={lastSyncStatus}
         now={now}
         alertCount={alertCount}
