@@ -340,6 +340,7 @@ git commit --no-verify -m "feat(admin): StatusStrip renders the inline Published
 **Files:**
 - Create: `tests/e2e/_statusStripToggleHarness.tsx`
 - Create: `tests/e2e/statusStripToggleLayout.spec.ts`
+- Modify: `tests/e2e/standalone.config.ts:24-25` (add the new spec to the `testMatch` allowlist — Step 1b)
 
 **Interfaces:**
 - Consumes: `StatusStrip` (inline, Task 2) + `PublishedToggle variant="card"` for the baseline.
@@ -399,7 +400,7 @@ Expected: PASS (a, b, c).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/e2e/_statusStripToggleHarness.tsx tests/e2e/statusStripToggleLayout.spec.ts
+git add tests/e2e/_statusStripToggleHarness.tsx tests/e2e/statusStripToggleLayout.spec.ts tests/e2e/standalone.config.ts
 git commit --no-verify -m "test(admin): real-browser 390px geometry for inline toggle strip (CASP-2)"
 ```
 
