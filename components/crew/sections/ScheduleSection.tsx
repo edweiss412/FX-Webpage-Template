@@ -52,6 +52,7 @@ import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
+import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import {
   aggregateDays,
   scheduleEntriesForViewer,
@@ -279,8 +280,14 @@ export function ScheduleSection({
                       // already present for other fields), so THIS per-value guard + the
                       // behavioral tests are the real enforcement for showStart/window/
                       // setupTime (plan-review R5 finding).
-                      const guardMeta = (v: string | null | undefined): string | undefined =>
-                        resolveOptionalField(v ?? undefined) ?? undefined;
+                      // D3: normalize meridiem casing/spacing on the schedule meta
+                      // (setup / window / showStart / showEnd) so it matches the
+                      // KeyTimesStrip anchors — one shape across the card. Applied
+                      // AFTER the URL/sentinel guard so a hidden value stays hidden.
+                      const guardMeta = (v: string | null | undefined): string | undefined => {
+                        const resolved = resolveOptionalField(v ?? undefined);
+                        return resolved != null ? normalizeMeridiem(resolved) : undefined;
+                      };
                       // Per-viewer schedule entries (§9.6): displayable minus a
                       // gated-out load-out. Drives BOTH the SET-meta suppression
                       // and the per-day run-of-show gate/render below, so a day

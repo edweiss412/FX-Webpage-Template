@@ -1436,11 +1436,23 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix sheet",
     "helpfulContext": "Undoing this would restore an email address that now belongs to a different crew member, and two people can't share an email. Rather than undo, fix the email in the sheet — the next sync will reconcile it safely.",
   },
+  "UNDO_FINALIZE_OWNED": {
+    "crewFacing": null,
+    "dougFacing": "This show is being finalized right now. Wait for that to finish, then undo.",
+    "followUp": "Doug → wait",
+    "helpfulContext": "This show is in the middle of being finalized (the publish wizard owns it right now), so undo is temporarily blocked. Wait for finalize to finish, then try the undo again.",
+  },
   "UNDO_NOT_FOUND": {
     "crewFacing": null,
     "dougFacing": "We couldn't find that change to undo. Refresh and try again.",
     "followUp": "Doug → refresh",
     "helpfulContext": "We couldn't find the change you tried to undo. It may have already been undone, or it's a notification-only change (like a section shrinking) that doesn't carry a saved 'before' value to restore. Refresh the feed and try again.",
+  },
+  "UNDO_SHOW_ARCHIVED": {
+    "crewFacing": null,
+    "dougFacing": "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
+    "followUp": "Doug → unarchive",
+    "helpfulContext": "You can't undo a change on an archived show — archived shows are read-only. Unarchive the show first, then undo the change; the crew list accepts edits again once it's live.",
   },
   "UNDO_SUPERSEDED": {
     "crewFacing": null,

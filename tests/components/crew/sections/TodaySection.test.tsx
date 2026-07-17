@@ -21,6 +21,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { StageRestriction } from "@/lib/parser/types";
 
@@ -335,7 +336,9 @@ test.each(matrix)(
       expect(showRows.length).toBe(1);
       expect(showRows[0]!.getAttribute("data-anchor-date")).toBe(showAnchorDate);
       const expectedTime = data.runOfShow![showAnchorDate]!.showStart;
-      expect(showRows[0]!.textContent).toContain(expectedTime);
+      expect(expectedTime).not.toBeNull();
+      // Rendered time is meridiem-normalized (D3); derive expected via the same helper.
+      expect(showRows[0]!.textContent).toContain(normalizeMeridiem(expectedTime!));
     }
   },
 );
