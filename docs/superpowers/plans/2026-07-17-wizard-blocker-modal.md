@@ -16,6 +16,7 @@
 - **Invariant 8 (impeccable dual-gate):** `/impeccable critique` + `/impeccable audit` on the diff; P0/P1 fixed or `DEFERRED.md` before cross-model review (Task 8).
 - **Invariant 6 + green-per-commit:** conventional commits, one task per commit, `--no-verify`. **Every commit's tree is green** — a task that breaks legacy tests updates them to the new contract IN THE SAME COMMIT (Task 2 is the atomic refactor; that is why it is the largest).
 - **DESIGN.md token rule:** entrance uses `var(--duration-normal)` + `var(--ease-out-quart)`, never a hardcoded ms literal. Reduced-motion: `motion-reduce:animate-none`.
+- **No framer-motion in `FinalizeButton.tsx`:** the six-shell-files guard (`step3Page.transitions.test.tsx:49-68`) asserts `FinalizeButton.tsx` never imports `framer-motion`/`AnimatePresence`. The modal entrance is CSS keyframes only (`animate-[…]`) — do NOT reach for framer. Instant unmount (no exit animation) keeps this clean.
 - **Testids preserved:** `wizard-finalize-race-row`, `wizard-finalize-cas-per-row`, `wizard-finalize-error`, `wizard-finalize-reapply-<dfid>`, `wizard-finalize-publish-complete`. New: `wizard-finalize-blocker-modal`, `wizard-finalize-blocker-backdrop`, `wizard-finalize-blocker-dismiss`.
 - **Meta-test inventory:** creates NONE. Extends `Step3TransitionAudit.test.tsx`; updates `FinalizeButton.test.tsx` (focus + invariant-5 rescope + error-retry path). No `pg_advisory*`/Supabase/admin-alert/migration → no advisory-lock topology, no DB parity.
 - **Commands:** `pnpm vitest run <path>`; Playwright `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts <spec>`; close-out `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`.
@@ -67,23 +68,27 @@ Entering `cas_per_row`/`error`/`race_row` ALREADY consumes finalize calls (`/fin
 
 **Produces:** `FinalizeRun.dismiss: () => void` → `setState({ kind: "idle" })`.
 
-- [ ] **Step 1 — failing test** (include the next/navigation mock from Shared recipes; a probe component reads the returned kind + dismiss):
+- [ ] **Step 1 — failing test** (NON-tautological — drive to a real terminal FIRST, then dismiss; include the next/navigation + fetch mocks from Shared recipes):
 
 ```tsx
 function DismissProbe() {
   const run = useFinalizeRun({ wizardSessionId: WSID });
-  return <div data-kind={run.state.kind} data-has-dismiss={typeof run.dismiss === "function" ? "yes" : "no"}>
-    <button data-testid="do-dismiss" onClick={() => run.dismiss()}>x</button></div>;
+  return <div data-kind={run.state.kind}>
+    <button data-testid="pub" onClick={run.onPrimaryClick}>publish</button>
+    <button data-testid="dismiss" onClick={() => run.dismiss()}>dismiss</button>
+  </div>;
 }
-test("useFinalizeRun exposes dismiss() that resets to idle", () => {
+test("dismiss() resets a TERMINAL state (error) back to idle", async () => {
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }));
   const { getByTestId, container } = render(<DismissProbe />);
-  expect(container.firstChild).toHaveAttribute("data-has-dismiss", "yes");
-  act(() => { getByTestId("do-dismiss").click(); });
-  expect(container.firstChild).toHaveAttribute("data-kind", "idle");
+  await act(async () => { fireEvent.click(getByTestId("pub")); });
+  await waitFor(() => expect(container.firstChild).toHaveAttribute("data-kind", "error")); // reached a real terminal
+  act(() => { fireEvent.click(getByTestId("dismiss")); });
+  expect(container.firstChild).toHaveAttribute("data-kind", "idle"); // a no-op dismiss would leave it 'error' → non-tautological
 });
 ```
 
-- [ ] **Step 2 — run, expect FAIL** (`dismiss` undefined): `pnpm vitest run tests/components/admin/FinalizeBlockerModal.test.tsx`
+- [ ] **Step 2 — run, expect FAIL** (`dismiss` undefined → left on `error`): `pnpm vitest run tests/components/admin/FinalizeBlockerModal.test.tsx`
 - [ ] **Step 3 — implement:** add to the `useFinalizeRun` return object: `dismiss: () => setState({ kind: "idle" }),`
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:** `git commit --no-verify -am "feat(admin): add dismiss() reset-to-idle to useFinalizeRun"`
@@ -224,20 +229,40 @@ test("focus lands on the dismiss control; Tab cycles within the modal", async ()
   const focusables = within(screen.getByTestId("wizard-finalize-blocker-modal")).getAllByRole("link").concat(screen.getByTestId("wizard-finalize-blocker-dismiss"));
   // Tab from last → first and Shift+Tab from first → last (fireEvent.keyDown on the panel; assert activeElement wraps)
 });
-test.each(["cas_per_row", "error"])("compound (%s): review modal open + blocker → single root; blocker Escape does NOT close review; focus restores into review", async (kind) => {
-  // render Step3ReviewWithFinalize with one card; open Step3ReviewModal via the card's More button; drive finalize to <kind>
-  const reviewModal = screen.getByTestId(/wizard-step3-card-.*-review-modal/);
+// Compound harness (template: step3Page.transitions.test.tsx:33-41 fixtures + :190-208 T8-b flow):
+//   const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[stagedRow("a","applied")]} finishable initialPublishCount={1} initialUncheckedCleanCount={0}/>);
+//   fireEvent.click(q.getByTestId("wizard-finalize-button"));                    // start the run
+//   fireEvent.click(q.getByTestId("wizard-step3-card-a-more"));                  // open Step3ReviewModal (still enabled mid-run)
+//   const reviewModal = q.getByTestId("wizard-step3-card-a-review-modal");
+//   ...then queue the finalize responses to reach the target terminal (recipes above) and await the blocker.
+// stagedRow/WSID come from the fixture; `wizard-step3-card-a-more` is the card's Review/View button.
+
+test("compound BLOCKING (cas_per_row): single root; Escape is INERT (review stays); Back closes blocker; focus restores into review", async () => {
+  // reach cas_per_row with the review modal open (harness above)
+  const reviewModal = screen.getByTestId("wizard-step3-card-a-review-modal");
   expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument();
-  // inert lands on the body-child ANCESTOR that contains the review modal (RTL container), not the dialog node:
-  const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!;
+  const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!; // inert lands on the body-child ancestor, not the dialog node
   expect(inertedAncestor).toHaveAttribute("inert");
   expect(inertedAncestor).toHaveAttribute("aria-hidden", "true");
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(reviewModal).toBeInTheDocument(); // review NOT closed (blocking → swallow; error → dismisses blocker only)
-  fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss"));
+  expect(reviewModal).toBeInTheDocument();
+  expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // Escape inert for blocking
+  fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss")); // Back
   await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
   expect(inertedAncestor).not.toHaveAttribute("inert");
-  expect(reviewModal.contains(document.activeElement)).toBe(true); // focus continuity
+  expect(reviewModal.contains(document.activeElement)).toBe(true); // focus continuity (inert lifted before restore)
+});
+
+test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the review; focus restores into review", async () => {
+  // reach error with the review modal open (harness above)
+  const reviewModal = screen.getByTestId("wizard-step3-card-a-review-modal");
+  const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!;
+  expect(inertedAncestor).toHaveAttribute("inert");
+  fireEvent.keyDown(document, { key: "Escape" }); // error → Escape dismisses the blocker only
+  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+  expect(reviewModal).toBeInTheDocument(); // review NOT closed (capture + stopImmediatePropagation)
+  expect(inertedAncestor).not.toHaveAttribute("inert");
+  expect(reviewModal.contains(document.activeElement)).toBe(true);
 });
 ```
 
@@ -264,9 +289,13 @@ test.each(["cas_per_row", "error"])("compound (%s): review modal open + blocker 
 
 **Spec:** §8, §10.7. **Files:** Create `tests/e2e/wizard-blocker-modal.layout.spec.ts`; Modify `tests/e2e/standalone.config.ts` (add `wizard-blocker-modal\.layout` to the `testMatch` regex allowlist).
 
-**Template:** `tests/e2e/blocked-row-resolver-transitions.spec.ts` (LIVE esbuild-bundled single admin component) — NOT the static `renderToStaticMarkup` harness (it cannot drive state). The harness bundles a small React tree: a `WizardFooter`-shaped container (`data-testid="wizard-footer-inner"`) plus `<FinalizeBlockerModal run={stubRun}/>`, where `stubRun` is a hand-built `FinalizeRun` literal whose `state` a page button flips `idle → { kind: "cas_per_row", rows: [{ drive_file_id:"d1", code:"SHOW_ARCHIVED_IMMUTABLE" }] }`. `dismiss`/`runLoop` are `() => {}` no-ops; `wizardSessionId` a constant. Compile token CSS via the Tailwind CLI as the template does. Emulate `prefers-reduced-motion: reduce` (stable geometry on load, matching `step3-review-modal.layout.spec.ts`).
+**Template:** `tests/e2e/blocked-row-resolver-transitions.spec.ts` (LIVE esbuild-bundled admin tree) — NOT the static `renderToStaticMarkup` harness (it cannot drive state). Mount through the EXPORTED `FinalizeStatusRegion` (single-lever contract — `FinalizeBlockerModal` stays module-private and is exercised through `FinalizeStatusRegion`, per the exports at `FinalizeButton.tsx:498,572`). Harness page:
+- a REAL `<WizardFooter primary={<span/>} center={<FinalizeStatusRegion run={stubRun}/>} />` (WizardFooter is light — `createPortal` + flex, no heavy deps), so the modal mounts through the actual footer-center slot and the footer's `z-40` body portal — the production composition the spec §8 requires.
+- `stubRun`: a hand-built `FinalizeRun` literal (`dismiss`/`runLoop` = `() => {}`, constant `wizardSessionId`); a page button flips `state` `idle → { kind: "cas_per_row", rows: [{ drive_file_id: "d1", code: "SHOW_ARCHIVED_IMMUTABLE" }] }`.
+- a top-of-stack STAND-IN for `Step3ReviewModal`: a plain `<div data-testid="review-standin" className="fixed inset-0 z-50">` mounted in the app-root subtree (NOT portaled). This replicates `Step3ReviewModal`'s exact stacking shell (`fixed inset-0 z-50`, `Step3ReviewModal.tsx:563`) — bundling the full `Step3ReviewModal` (ShowReviewSurface + a full staged fixture) is disproportionate; the z-context/paint-order behavior under test is identical to the one-line shell.
+- Compile token CSS via the Tailwind CLI as the template does; emulate `prefers-reduced-motion: reduce` (stable geometry on load, matching `step3-review-modal.layout.spec.ts`).
 
-- [ ] **Step 1 — failing test:** at 390px: measure `wizard-footer-inner` height with `stubRun` idle; flip to `cas_per_row`; assert (a) footer height unchanged ±0.5px (no layout shift); (b) `wizard-finalize-blocker-modal` panel rect within `[0, innerHeight + 0.5]`; (c) `document.elementFromPoint(panelCX, panelCY)` is inside `wizard-finalize-blocker-modal`. Bounds from `window.innerHeight`.
+- [ ] **Step 1 — failing test:** at 390px: (a) measure `wizard-footer-inner` height with `stubRun` idle, flip to `cas_per_row`, assert height unchanged ±0.5px (the no-layout-shift regression proof — the primary acceptance test); (b) `wizard-finalize-blocker-modal` panel rect within `[0, innerHeight + 0.5]`; (c) with the `review-standin` present, `document.elementFromPoint(panelCX, panelCY)` resolves to a node INSIDE `wizard-finalize-blocker-modal` (portal-to-body z-50 beats an app-root z-50 stand-in — top-of-stack). Bounds from `window.innerHeight`.
 - [ ] **Step 2 — run, expect FAIL** (harness/spec not built / not in allowlist): `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-blocker-modal.layout.spec.ts`
 - [ ] **Step 3 — implement** the harness + spec; add the allowlist regex entry.
 - [ ] **Step 4 — run, expect PASS.**
