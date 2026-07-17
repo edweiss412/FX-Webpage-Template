@@ -55,9 +55,9 @@ All 3 actions in `app/admin/_actions/autoApplied.ts` add `revalidatePath("/admin
 
 `RecentAutoAppliedStrip` gains `headingLevel?: 2 | 4` (default `4` — dashboard behavior unchanged without edits at the call site).
 
-- Strip heading tag = `h{headingLevel}` at BOTH `<h4>` sites (`:427` infra_error branch and `:448` populated branch — same level in both branches).
-- Group heading tag = `h{headingLevel + 1}` (`GroupSection` `:278` `<h5>` becomes dynamic; `GroupSection` receives the computed group level as a prop). So: dashboard `4/5` (unchanged), page `2/3` (no `h1 → h4` skip; WCAG 1.3.1 — do not reintroduce the S3C-3 class).
-- Implementation shape: `const HeadingTag = \`h${headingLevel}\` as const;` — heading levels are from a closed union, never string-interpolated from data.
+- Strip section heading tag: `const SectionHeading = headingLevel === 2 ? "h2" : "h4";` (type `"h2" | "h4"`), rendered `<SectionHeading className="text-sm font-semibold text-text-strong">` at BOTH sites (`:427` infra_error branch and `:448` populated branch — same level in both).
+- Group heading tag: the strip computes `const groupHeadingTag = headingLevel === 2 ? "h3" : "h5";` (type `"h3" | "h5"`) and passes it to `GroupSection` as a `groupHeadingTag` prop; `GroupSection` renders `<GroupHeadingTag …>` in place of the hardcoded `<h5>` (`:278`). So: dashboard `4/5` (unchanged), page `2/3` (no `h1 → h4` skip; WCAG 1.3.1 — do not reintroduce the S3C-3 class).
+- **Type-safety (mandatory):** derive tags by ternary yielding a string-literal union — NOT `` `h${headingLevel}` `` template interpolation (produces `string`, unassignable to a JSX tag under strict TS), NOT `as const` on a computed expression, NOT `headingLevel + 1` arithmetic (widens to `number`). The ternary's `"h2" | "h4"` / `"h3" | "h5"` are `keyof JSX.IntrinsicElements`, assignable to a Capitalized JSX tag variable. Under `exactOptionalPropertyTypes` this is the only shape that typechecks.
 - Visual classes on the headings are UNCHANGED (`text-sm font-semibold text-text-strong`) at both levels; the prop changes semantics only. Mode boundary: `headingLevel` affects heading tags only — no other element differs between the two levels.
 
 ### D4 — FLOW4-7 ride-along: `aria-labelledby`
