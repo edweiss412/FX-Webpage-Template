@@ -454,7 +454,9 @@ describe("loadRecentAutoApplied", () => {
           show_id: "show-1",
           occurred_at: iso(50),
           change_kind: "field_changed",
-          after_image: { fieldChanges: [{ label: "COI status", from: "(none)", to: "received", note: null }] },
+          after_image: {
+            fieldChanges: [{ label: "COI status", from: "(none)", to: "received", note: null }],
+          },
         }),
         clRow({
           id: "f2",

@@ -215,7 +215,13 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       const { showId, driveFileId } = await seedShow(tx);
       const items = [
         { id: "i1", invariant: "MI-8b", prior: "pending", next: "received" },
-        { id: "i2", invariant: "MI-9", crew_name: "Jordan Lee", prior_flags: ["LEAD", "A1"], new_flags: ["A1"] },
+        {
+          id: "i2",
+          invariant: "MI-9",
+          crew_name: "Jordan Lee",
+          prior_flags: ["LEAD", "A1"],
+          new_flags: ["A1"],
+        },
       ] as TriggeredReviewItem[];
       await writeAutoApplyChanges({
         port: holdPort(tx),
@@ -226,7 +232,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         triggeredItems: items,
         heldNames: new Set(),
       });
-      const fieldRow = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
+      const fieldRow = (await readChangeLog(tx, showId)).find(
+        (r) => r.change_kind === "field_changed",
+      )!;
       expect(fieldRow.after_image).toEqual({
         fieldChanges: [
           { label: "COI status", from: "pending", to: "received", note: null },
@@ -254,7 +262,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
       expect(row.after_image).not.toBeNull();
       expect((row.after_image as { fieldChanges: unknown[] }).fieldChanges[0]).toMatchObject({
-        label: "Role — Sam", from: "(none)", to: "LEAD",
+        label: "Role — Sam",
+        from: "(none)",
+        to: "LEAD",
       });
     });
   });
@@ -268,14 +278,16 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         driveFileId,
         previousCrewMembers: [],
         nextCrewMembers: [],
-        triggeredItems: [{ id: "b", invariant: "MI-8", field: "bogus" }] as unknown as TriggeredReviewItem[],
+        triggeredItems: [
+          { id: "b", invariant: "MI-8", field: "bogus" },
+        ] as unknown as TriggeredReviewItem[],
         heldNames: new Set(),
       });
       const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
       expect(row.after_image).not.toBeNull();
-      expect((row.after_image as { fieldChanges: Array<{ label: string }> }).fieldChanges[0]!.label).toBe(
-        "Unavailable",
-      );
+      expect(
+        (row.after_image as { fieldChanges: Array<{ label: string }> }).fieldChanges[0]!.label,
+      ).toBe("Unavailable");
     });
   });
 
@@ -293,11 +305,19 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         nextCrewMembers: [],
         triggeredItems: [
           { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
-          { id: "b", invariant: "MI-9", crew_name: "Alex", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] },
+          {
+            id: "b",
+            invariant: "MI-9",
+            crew_name: "Alex",
+            prior_flags: ["A1"],
+            new_flags: ["A1", "LEAD"],
+          },
         ] as TriggeredReviewItem[],
         heldNames: new Set(),
       });
-      const summary = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!.summary;
+      const summary = (await readChangeLog(tx, showId)).find(
+        (r) => r.change_kind === "field_changed",
+      )!.summary;
       const item = groupAutoApplied([
         { show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" },
       ])[0]!.items[0]!;
@@ -322,7 +342,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         ] as unknown as TriggeredReviewItem[],
         heldNames: new Set(),
       });
-      const summary = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!.summary;
+      const summary = (await readChangeLog(tx, showId)).find(
+        (r) => r.change_kind === "field_changed",
+      )!.summary;
       const item = groupAutoApplied([
         { show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" },
       ])[0]!.items[0]!;
