@@ -450,6 +450,7 @@ function GroupSection({
           ) : null}
 
           {bulkUndoOutcome && bulkUndoOutcome.failed > 0 ? (
+            // Failure: role=alert (assertive) announces reliably on insertion.
             <p
               role="alert"
               data-testid={`auto-applied-bulk-undo-alert-${group.showId}`}
@@ -458,18 +459,24 @@ function GroupSection({
               Couldn&apos;t undo {bulkUndoOutcome.failed} of {bulkUndoOutcome.total} changes. The
               ones that failed stay in this list.
             </p>
-          ) : bulkUndoOutcome && bulkUndoOutcome.total > 0 ? (
-            // DESTRUCT-3: all-success → sr-only completion status for SR parity
-            // (sighted users get the visual row-removal on revalidate).
-            <p
-              role="status"
-              data-testid={`auto-applied-bulk-undo-success-${group.showId}`}
-              className="sr-only"
-            >
-              Undid all {bulkUndoOutcome.total} {bulkUndoOutcome.total === 1 ? "change" : "changes"}
-              .
-            </p>
           ) : null}
+
+          {/* DESTRUCT-3: all-success → sr-only completion status for SR parity
+              (sighted users get the visual row-removal on revalidate). The
+              role=status region is ALWAYS mounted (empty until completion) so
+              assistive tech registers it up front; the sentence is written INTO
+              the existing region on completion. A role=status node that first
+              appears already-populated is skipped by some SR/browser combos
+              (impeccable dual-gate P2). */}
+          <p
+            role="status"
+            data-testid={`auto-applied-bulk-undo-success-${group.showId}`}
+            className="sr-only"
+          >
+            {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0
+              ? `Undid all ${bulkUndoOutcome.total} ${bulkUndoOutcome.total === 1 ? "change" : "changes"}.`
+              : ""}
+          </p>
 
           <ul className="flex flex-col gap-2.5 p-tile-pad">
             {group.rows.map((row) => (

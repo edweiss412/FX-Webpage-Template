@@ -35,12 +35,15 @@ function renderDisclosure(count = 2, degraded = false) {
 }
 
 describe("IgnoredSheetsDisclosure", () => {
-  it("is collapsed by default: panel + children not mounted, aria-expanded=false", () => {
+  it("is collapsed by default: panel + children present-but-inert, aria-expanded=false", () => {
     renderDisclosure();
     const toggle = screen.getByTestId("ignored-sheets-toggle");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByTestId("ignored-sheets-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("ignored-sheets-list")).not.toBeInTheDocument();
+    // aria-controls is now unconditional (region always mounted, height-morph)
+    expect(toggle).toHaveAttribute("aria-controls", "ignored-sheets-panel");
+    // panel region + children are always mounted but inert while collapsed
+    expect(screen.getByTestId("ignored-sheets-panel")).toHaveAttribute("inert");
+    expect(screen.getByTestId("ignored-sheets-list")).toBeInTheDocument();
   });
 
   it("renders the count chip and the help affordance as a sibling of the toggle", () => {
@@ -67,23 +70,23 @@ describe("IgnoredSheetsDisclosure", () => {
     expect(heading).toContainElement(screen.getByTestId("ignored-sheets-toggle"));
   });
 
-  it("expands on click to mount the panel + children, then collapses on a second click", () => {
+  it("expands on click to activate the panel, then collapses (inert) on a second click", () => {
     renderDisclosure();
     const toggle = screen.getByTestId("ignored-sheets-toggle");
+    const panel = screen.getByTestId("ignored-sheets-panel");
+    // always mounted; inert before expand
+    expect(panel).toHaveAttribute("inert");
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByTestId("ignored-sheets-panel")).toBeInTheDocument();
+    expect(panel).not.toHaveAttribute("inert");
     expect(screen.getByTestId("ignored-sheets-list")).toBeInTheDocument();
     // aria-controls points at the disclosed panel.
     expect(toggle).toHaveAttribute("aria-controls", "ignored-sheets-panel");
-    expect(screen.getByTestId("ignored-sheets-panel")).toHaveAttribute(
-      "id",
-      "ignored-sheets-panel",
-    );
+    expect(panel).toHaveAttribute("id", "ignored-sheets-panel");
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByTestId("ignored-sheets-panel")).not.toBeInTheDocument();
+    expect(panel).toHaveAttribute("inert");
   });
 });

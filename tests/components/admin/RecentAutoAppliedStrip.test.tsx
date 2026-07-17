@@ -582,8 +582,11 @@ it("failure alert then a later all-success run: failure alert gone, sr-only succ
   await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`);
   await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeNull();
-  // DESTRUCT-3: the all-success second run now announces an sr-only success status
-  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeInTheDocument();
+  // DESTRUCT-3: the all-success second run writes the sentence into the persistent
+  // sr-only status region (text present, not merely the always-mounted empty node)
+  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toHaveTextContent(
+    "Undid all 2 changes",
+  );
 });
 
 // ── Transition-audit: compound collapse-while-confirm-open ─────────────────
@@ -625,7 +628,9 @@ it("partial-failure bulk undo shows the failure alert, no success status (preced
   render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
   await openConfirmAndRunUndoAll();
   expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
-  expect(screen.queryByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeNull();
+  // The sr-only status region is always mounted (robust-announce pattern) but
+  // carries NO text on a partial failure — the failure alert is the announcement.
+  expect(screen.getByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`).textContent).toBe("");
 });
 
 it("all-success bulk undo with a single undoable row → singular 'change' copy", async () => {
