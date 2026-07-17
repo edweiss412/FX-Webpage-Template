@@ -193,6 +193,13 @@ describe("StatusStrip", () => {
       expect(badge.querySelector("svg")).not.toBeNull();
       expect(badge.textContent).not.toContain("▲");
     });
+
+    it("completes the focus ring with an offset, matching the publish switch (CASP2-4 item 3)", () => {
+      renderStrip({ alertCount: 2 });
+      const badge = screen.getByTestId("strip-alert-badge");
+      expect(badge.className).toContain("focus-visible:ring-offset-2");
+      expect(badge.className).toContain("focus-visible:ring-offset-surface");
+    });
   });
 
   describe("sync age", () => {

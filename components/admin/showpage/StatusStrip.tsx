@@ -156,7 +156,7 @@ export function StatusStrip({
           // 44px tap-min floor (PRODUCT a11y — no tiny click targets on the venue floor) without
           // growing the pill, the same idiom the publish switch uses (PublishedToggle.tsx:143-145).
           // Vertical-only extension keeps it from overlapping the strip's horizontal neighbours.
-          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
           {alertCount} {alertCount === 1 ? "alert" : "alerts"}
