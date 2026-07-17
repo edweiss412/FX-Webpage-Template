@@ -562,6 +562,12 @@ function seedSql(seeds: FixtureSeed[]): string {
      where drive_file_id in (select drive_file_id from _locked_seed_ids);
     delete from public.sync_audit
      where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
+    -- Walker-fixture auto-applied change rows (seeded by seedWalkerFixtures.ts on
+    -- the base RPAS show, so NOT covered by the _locked_seed_ids show cascade).
+    -- show_change_log is not a locked table (invariant 2), so a plain prefix
+    -- delete is safe. Keeps a base-seed-only run (screenshot capture) strip-free.
+    delete from public.show_change_log
+     where created_by like ${sqlString(`${seedDrivePrefix}%`)};
     delete from public.shows
      where drive_file_id in (select drive_file_id from _locked_seed_ids);
 

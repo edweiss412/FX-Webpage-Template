@@ -58,6 +58,16 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
+    sourceSurface: "Dashboard - Recently auto-applied strip header (desktop inbox)",
+    sourceRoute: "/admin",
+    affordance: "? tooltip",
+    testid: "help-affordance--dashboard-recently-auto-applied--tooltip",
+    target: "/help/admin/review-queues#re-stage",
+    visibleAt: "desktop",
+    owningMilestone: "Auto-applied header parity (2026-07-17)",
+  },
+  {
+    kind: "concrete",
     sourceSurface: "Needs attention page header (/admin/needs-attention)",
     sourceRoute: "/admin/needs-attention",
     affordance: "? tooltip",

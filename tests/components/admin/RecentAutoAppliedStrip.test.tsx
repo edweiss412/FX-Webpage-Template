@@ -942,3 +942,45 @@ it("FLOW4-7: infra_error section is also a named region via aria-labelledby, no 
   expect(region).not.toHaveAttribute("aria-label");
   expect(region).toHaveAttribute("aria-labelledby");
 });
+
+// ── Header parity: count chip + ? help (dashboard-only) ───────────────────────
+// The dashboard strip header gains a section count chip + a HoverHelp "?" icon,
+// mirroring the "Needs attention" header. Both are gated on headingLevel===4 so
+// the shared /admin/needs-attention page (headingLevel 2) keeps its bare heading.
+
+it("HEADERPARITY: dashboard header shows a count chip = renderedCount + overflowCount", () => {
+  const data = okData();
+  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} />);
+  const chip = screen.getByTestId("recent-auto-applied-count-chip");
+  // Derived from the fixture, not a bare literal: 4 + 3 = 7.
+  expect(chip).toHaveTextContent(String(data.renderedCount + data.overflowCount));
+});
+
+it("HEADERPARITY: dashboard header renders the ? help affordance linking review-queues#re-stage", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const root = screen.getByTestId("help-affordance--dashboard-recently-auto-applied--tooltip");
+  const learnMore = within(root).getByRole("link", { name: /learn more/i });
+  expect(learnMore).toHaveAttribute("href", "/help/admin/review-queues#re-stage");
+});
+
+it("HEADERPARITY: dashboard infra_error branch keeps the help but shows NO count chip", () => {
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
+  expect(
+    screen.getByTestId("help-affordance--dashboard-recently-auto-applied--tooltip"),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId("recent-auto-applied-count-chip")).toBeNull();
+});
+
+it("HEADERPARITY: needs-attention page (headingLevel 2) renders neither chip nor help, bare heading DOM", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} headingLevel={2} />);
+  expect(screen.queryByTestId("recent-auto-applied-count-chip")).toBeNull();
+  expect(
+    screen.queryByTestId("help-affordance--dashboard-recently-auto-applied--tooltip"),
+  ).toBeNull();
+  // Bare-DOM contract: the heading is a direct child of the strip <section>, NOT
+  // wrapped in a flex chrome div (Codex R4 finding 2).
+  const heading = screen.getByRole("heading", { level: 2, name: "Recently auto-applied" });
+  expect(heading.parentElement).toHaveAttribute("data-testid", "recent-auto-applied-strip");
+});
