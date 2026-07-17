@@ -46,27 +46,41 @@ import { type ReactNode } from "react";
 export function CollapsePanel({
   open,
   id,
+  label,
   children,
 }: {
   open: boolean;
-  // Stable DOM id — the trigger's aria-controls target. Always resolvable now
-  // that the panel is always mounted (no more conditional idref).
+  // Stable DOM id — the trigger's aria-controls target. Placed on the REGION
+  // element itself (the overflow-hidden grid item), which is always mounted, so
+  // aria-controls resolves directly to the labeled region (not a generic
+  // wrapper) in both states.
   id: string;
+  // Accessible name for the disclosed region.
+  label: string;
   children: ReactNode;
 }) {
   return (
+    // Outer grid = the height-morph TRACK only (no id, no role): its single row
+    // track animates 0fr → 1fr, sizing the region grid-item's box height.
     <div
-      id={id}
-      data-testid={`${id}-morph`}
       className={`grid transition-[grid-template-rows] duration-normal ease-out motion-reduce:transition-none ${
         open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
       }`}
     >
-      {/* overflow-hidden clips the content while the row track is 0fr; inert
-          removes the collapsed subtree from BOTH the tab order and the AT tree
-          (React 19 boolean `inert`), so collapsed form controls are never
-          focusable or announced. */}
-      <div className="overflow-hidden" inert={open ? undefined : true}>
+      {/* The region IS the grid item. In the 0fr track its border-box height is
+          clamped to 0 and overflow-hidden clips the (natural-height) children —
+          so getBoundingClientRect() on THIS element reports 0 closed / >0 open.
+          inert removes the collapsed region from BOTH tab order and the AT tree
+          (React 19 boolean `inert`), matching the WAI accordion `hidden`
+          behavior while still permitting the morph. */}
+      <div
+        id={id}
+        data-testid={id}
+        role="region"
+        aria-label={label}
+        className="overflow-hidden"
+        inert={open ? undefined : true}
+      >
         {children}
       </div>
     </div>
@@ -99,21 +113,20 @@ former conditionally-mounted panel body becomes `CollapsePanel`'s child, keeping
 its own `role`/`aria-label`/`data-testid`.
 
 **A. `RecentAutoAppliedStrip.tsx` `GroupSection`** (`:321-410`). Replace
-`{open ? (<div id={panelId} …>…</div>) : null}` with:
+`{open ? (<div id={panelId} role="region" …>…</div>) : null}` with:
 
 ```tsx
-<CollapsePanel open={open} id={panelId}>
-  <div role="region" aria-label={`Auto-applied changes for ${group.showName}`}>
-    {/* bulk-actions row, confirm sub-panel, bulk-undo alert, rows <ul> — unchanged */}
-  </div>
+<CollapsePanel open={open} id={panelId} label={`Auto-applied changes for ${group.showName}`}>
+  {/* bulk-actions row, confirm sub-panel, bulk-undo alert, rows <ul> — unchanged */}
 </CollapsePanel>
 ```
 
-- `panelId` (`auto-applied-panel-${group.showId}`, `:207`) moves to
-  `CollapsePanel`'s outer id; the inner region keeps `data-testid={panelId}` but
-  drops its own `id` (id is now on the morph wrapper, the aria-controls target).
+- `panelId` (`auto-applied-panel-${group.showId}`, `:207`) + the existing
+  `role="region"` + `aria-label` now live on `CollapsePanel`'s region grid-item
+  (via `id` + `label`); the former hand-rolled `<div id={panelId} role="region"
+  aria-label=…>` wrapper is removed (its role/label/id/testid are subsumed).
 - Trigger `aria-controls={open ? panelId : undefined}` (`:292`) →
-  `aria-controls={panelId}`.
+  `aria-controls={panelId}` (unconditional; the region id is always mounted).
 - **State persistence across collapse (deliberate):** because the panel is now
   always mounted, `confirming` / `bulkUndoOutcome` state persists if the group
   is collapsed mid-confirm and re-expanded. This is consistent with the
@@ -131,13 +144,14 @@ its own `role`/`aria-label`/`data-testid`.
 `{open ? (<div id="ignored-sheets-panel" …>{children}</div>) : null}` with:
 
 ```tsx
-<CollapsePanel open={open} id="ignored-sheets-panel">
-  <div role="region" aria-label="Ignored sheets list">{children}</div>
+<CollapsePanel open={open} id="ignored-sheets-panel" label="Ignored sheets list">
+  {children}
 </CollapsePanel>
 ```
 
-- Panel `id="ignored-sheets-panel"` → moves to the morph wrapper; inner region
-  keeps `data-testid="ignored-sheets-panel"`.
+- The former `<div id="ignored-sheets-panel" role="region" aria-label="Ignored
+  sheets list">` wrapper is removed; `id`/`role`/`aria-label`/`data-testid`
+  are subsumed by `CollapsePanel`'s region grid-item.
 - Trigger `aria-controls={open ? "ignored-sheets-panel" : undefined}` (`:63`) →
   `aria-controls="ignored-sheets-panel"`.
 
@@ -145,7 +159,7 @@ its own `role`/`aria-label`/`data-testid`.
 `{open ? (<div id="admin-settings-add-admin" …><AddAdminForm/></div>) : null}` with:
 
 ```tsx
-<CollapsePanel open={open} id="admin-settings-add-admin">
+<CollapsePanel open={open} id="admin-settings-add-admin" label="Add administrator form">
   <div className="flex flex-col gap-3 pt-3">
     <AddAdminForm />
   </div>
@@ -164,9 +178,13 @@ its own `role`/`aria-label`/`data-testid`.
 
 The morph introduces no fixed-height parent with flex/grid children requiring a
 `getBoundingClientRect` parity assertion (Tailwind-v4 `align-items` rule). The
-one dimensional contract is behavioral: **the inner content's rendered height
-must be >0 when open and 0 when closed** — verified by a real-browser toggle
-assertion (see §6 Testing), not jsdom (jsdom computes no layout).
+one dimensional contract is behavioral: **the region grid-item `#${id}` (the
+`overflow-hidden` element carrying `role="region"`) must report
+`getBoundingClientRect().height === 0` when closed and `> 0` when open.** This
+is the correct assertion target — it is the grid item sized by the `0fr`/`1fr`
+track, not the natural-height children it clips (which retain their own height
+inside the clip). Verified by a real-browser toggle assertion (see §6 Testing),
+not jsdom (jsdom computes no layout).
 
 ### 1.5 Transition Inventory
 
@@ -207,7 +225,9 @@ a screen reader hears "Added, Removed" rather than decorative dots.
 
 ```tsx
 // Distinct kinds in the group, in KIND_ORDER, each a colored dot. Non-interactive.
-const KIND_ORDER = ["crew_removed", "crew_renamed", "crew_added", "field_changed", "crew_email_changed"];
+// Typed string[] (not an inferred literal tuple) so `.includes(r.changeKind)`
+// with the plain `string` changeKind is type-clean under strict TS.
+const KIND_ORDER: string[] = ["crew_removed", "crew_renamed", "crew_added", "field_changed", "crew_email_changed"];
 const MAX_DOTS = 4;
 
 function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
@@ -254,9 +274,21 @@ function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
 - **Unknown kind** — any `changeKind` outside `KIND_ORDER` maps to the single
   neutral fallback dot (never leaks the raw enum — invariant 5), deduped to one
   regardless of how many unknown rows exist.
-- **Color is not the only channel** — the `aria-label` names every kind; the
-  dots are a sighted-glance accelerant, not the sole signal (the count badge
-  and, on expand, the per-row `KindPill` carry the full information).
+- **The dots are a non-authoritative triage preview, not a safety mechanism.**
+  A sighted color-vision-limited operator may not distinguish the dots' hues,
+  so the collapsed cluster is NOT claimed to convey per-kind identity to that
+  user by color alone — it degrades gracefully to "this group has N distinct
+  kinds" (the dot *count* is still visible) plus the full names via `aria-label`
+  for AT. The claim is deliberately scoped: dots accelerate sighted triage; they
+  are not the authoritative kind signal. **Safety is carried by the interaction
+  model, not the dots:** every disposition control (Accept, Accept-all, Undo,
+  Undo-all) lives inside the disclosed panel (`:328-408`), so an operator
+  physically cannot Accept/Undo a change — destructive `crew_removed` included —
+  without first expanding the group and seeing the per-row `KindPill` "Removed"
+  (color + uppercase text + line-through diff, §DiffBlock `:123-135`). The dots
+  never gate an action; they only hint which group to open first. This closes
+  the COLLAPSE-1 deferral's stated concern (a destructive change is invisible
+  *until expand*) without overstating colorblind parity for the preview.
 
 ### 2.3 Mode boundary
 
@@ -364,6 +396,17 @@ setBulkUndoOutcome({ failed, total });   // was: failed > 0 ? {…} : null
   §6 F2). This adds only the missing SR-parity announcement.
 - `role="status"` (polite live region) is correct for a non-error completion;
   the failure path keeps `role="alert"` (assertive).
+- **Post-revalidate lifecycle (one-shot, accepted):** `role="status"` announces
+  on content *change*, so the announcement fires once when the node appears.
+  After `undoFromDashboardAction`'s revalidate re-renders the strip: if the
+  group's undone rows were its only rows, the whole `GroupSection` unmounts and
+  the sr-only node goes with it; if the group also holds non-undoable rows
+  (`field_changed`/`crew_email_changed`), the group persists and the identical
+  sr-only node lingers — but an unchanged live-region node does NOT re-announce,
+  and the next "Undo all" open clears it (`:343`). No re-announcement, no visible
+  artifact. We deliberately do NOT add a rows-changed `useEffect` reset (an extra
+  hook for a silent, already-announced node is unwarranted). Named here per the
+  lifecycle-completeness rule.
 
 ---
 
@@ -384,11 +427,12 @@ No new persisted/config flags; nothing crosses a server boundary. No zombie flag
 TDD per task. Unit (jsdom, Vitest + Testing Library) unless noted.
 
 1. **CollapsePanel unit** (`tests/components/admin/CollapsePanel.test.tsx`, new):
-   - `open` → outer has `grid-rows-[1fr]`, inner NOT `inert`.
-   - closed → outer has `grid-rows-[0fr]`, inner `inert` (assert the attribute
-     present; jsdom reflects the boolean `inert` prop).
-   - outer carries `id` + `${id}-morph` testid; children render in both states
-     (always mounted — assert a child testid is in the DOM when closed).
+   - `open` → outer track has `grid-rows-[1fr]`; region grid-item (`getByTestId(id)`)
+     NOT `inert`, carries `id` + `role="region"` + `aria-label={label}`.
+   - closed → outer track has `grid-rows-[0fr]`; region grid-item `inert` (assert
+     the attribute present; jsdom reflects the boolean `inert` prop).
+   - children render in both states (always mounted — assert a child testid is in
+     the DOM when closed, inside the inert region).
 2. **Disclosure conversions** (extend existing tests):
    - `RecentAutoAppliedStrip.test.tsx`: collapsed group → panel content is
      present in DOM but `inert`; toggle `aria-controls` is unconditional; the
@@ -420,9 +464,10 @@ TDD per task. Unit (jsdom, Vitest + Testing Library) unless noted.
    - `total === 1` → "change" (singular) copy.
 6. **Real-browser morph** (`tests/e2e/collapsePanelMorph.spec.ts` OR a standalone
    esbuild+Playwright harness per the committed real-browser harness pattern):
-   toggling a `CollapsePanel` consumer changes the inner content's
-   `getBoundingClientRect().height` from `0` (closed) to `>0` (open) within
-   0.5px tolerance at settled state. This is the jsdom-can't-verify assertion the
+   toggling a `CollapsePanel` consumer changes the **region grid-item's**
+   (`#${id}`, the `overflow-hidden role="region"` element)
+   `getBoundingClientRect().height` from `0` (closed) to `>0` (open) at settled
+   state (assert exactly `=== 0` closed and `> 0` open). This is the jsdom-can't-verify assertion the
    morph introduces; scoped to the mechanism, not per-consumer.
 7. **Transition-audit task** (per project writing-plans rule): enumerate the
    `CollapsePanel` states (collapsed/expanded — 1 pair), assert the single
@@ -479,6 +524,18 @@ Cite these to preempt round-N churn:
 7. **Impeccable dual-gate (invariant 8) runs at Stage 4** on the UI diff
    (`RecentAutoAppliedStrip`, `IgnoredSheetsDisclosure`, `AddAdminDisclosure`,
    `CollapsePanel`, any `globals.css` touch). P0/P1 fixed or DEFERRED-logged.
+8. **The region IS the morph grid-item** (§1.1, R1 fix). `id` + `role="region"`
+   + `aria-label` sit on the `overflow-hidden` grid item (always mounted, `inert`
+   when closed), so `aria-controls` resolves directly to the labeled region and
+   the real-browser height assertion targets `#${id}` (0 closed / >0 open). The
+   outer `grid` div is a bare morph track (no id/role). Do not relitigate
+   "button controls a generic wrapper" — resolved.
+9. **Kind dots are non-authoritative triage sugar** (§2.2, R1 fix). Safety is
+   the interaction model (all disposition controls live in the disclosed panel;
+   you must expand to Accept/Undo, seeing the per-row "Removed" pill). The dots
+   are NOT claimed to convey per-kind identity to colorblind sighted users by
+   hue; the spec scopes the claim. Do not relitigate the color channel — the
+   dots gate no action.
 
 ---
 
