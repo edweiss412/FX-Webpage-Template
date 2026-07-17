@@ -179,7 +179,7 @@ export function NeedsAttentionInbox({ items, overflowCount, now }: NeedsAttentio
   }
 
   return (
-    <div data-testid="needs-attention-inbox" className="flex h-full flex-col gap-2">
+    <div data-testid="needs-attention-inbox" className="flex flex-col gap-2">
       <ul className="flex flex-col gap-2">
         {items.map((item) => (
           <ItemCard key={item.key} item={item} now={now} />
