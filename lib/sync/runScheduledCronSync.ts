@@ -108,6 +108,7 @@ import {
   SyncInfraError,
   type SyncMode,
 } from "@/lib/sync/perFileProcessor";
+import { isSyntheticDriveFileId } from "@/lib/sync/syntheticDriveFileId";
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
@@ -3773,7 +3774,26 @@ export async function runScheduledCronSync(
         ? []
         : await listPostgresLiveShows();
     const missingShows = liveShows.filter(
-      (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
+      (show) =>
+        show.wizardSessionId === null &&
+        !listedDriveFileIds.has(show.driveFileId) &&
+        // BL-CRON-SYNTHETIC-SHOW-SKIP: a leaked test-seed show (synthetic
+        // drive_file_id, published=true, never in Drive) can never resolve —
+        // reconciling it just re-marks SHEET_UNAVAILABLE every tick forever.
+        // Guard on the CONJUNCTION of (a) synthetic shape AND (b) never synced
+        // (lastSeenModifiedTime === null). This is airtight, not heuristic:
+        // EVERY production show-insert stamps last_seen_modified_time in the SAME
+        // statement — the cron first-seen INSERT (see the `insert into
+        // public.shows (... last_seen_modified_time ...)` a few hundred lines
+        // below) and the shared applyStaged upsert used by onboarding finalize
+        // (lib/sync/applyStaged.ts — `last_seen_modified_time = excluded...`).
+        // So a `shows` row with a NULL watermark can only come from a non-apply
+        // test seeder (tests/db/_mi11Helpers.ts seedShow, tests/db/_b2Helpers.ts,
+        // tests/e2e seedShowWithCrew). A genuine show that LEFT the folder synced
+        // at least once → non-null watermark → still reconciled here, even in the
+        // (Google-Drive-impossible) event its id coincidentally matched the
+        // synthetic shape. Shape alone is never treated as proof. (Codex R1/R2.)
+        !(isSyntheticDriveFileId(show.driveFileId) && show.lastSeenModifiedTime === null),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
