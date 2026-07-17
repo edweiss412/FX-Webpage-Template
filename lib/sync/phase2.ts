@@ -250,14 +250,26 @@ function hasLead(flags: readonly string[]): boolean {
 function roleFlagChangesForNotice(
   previousCrewMembers: ParseResult["crewMembers"] | undefined,
   nextCrewMembers: ParseResult["crewMembers"],
+  identityLinkRenames: readonly IdentityLinkRename[] = [],
 ): Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> {
   const previousByName = new Map(
     (previousCrewMembers ?? []).map((member) => [member.name, member]),
   );
+  // F2: an MI-12/13/14 identity-linked rename applies the SAME person under a NEW name (the applied
+  // crew list carries the added name). Map the added name back to its linked prior (removed-name)
+  // row so a rename BEFORE the new-crew-with-LEAD branch resolves to the real prior — otherwise a
+  // LEAD crew member renamed with UNCHANGED flags is falsely reported as a fresh LEAD grant, and a
+  // rename that DOES flip LEAD would carry the wrong prior_flags.
+  const priorNameForAdded = new Map(
+    identityLinkRenames.map((rename) => [rename.addedName, rename.removedName]),
+  );
   const changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> = [];
 
   for (const nextMember of nextCrewMembers) {
-    const priorMember = previousByName.get(nextMember.name);
+    const linkedPriorName = priorNameForAdded.get(nextMember.name);
+    const priorMember =
+      previousByName.get(nextMember.name) ??
+      (linkedPriorName !== undefined ? previousByName.get(linkedPriorName) : undefined);
     if (!priorMember) {
       // New crew member: the crew_added change-log image is only {name,email} (no role_flags), so a
       // brand-new crew member WHOSE APPLIED role_flags include LEAD would grant ops/financial access
@@ -535,6 +547,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   const roleFlagChanges = roleFlagChangesForNotice(
     snapshot.previousCrewMembers,
     applyOutcome.appliedCrewMembers,
+    args.identityLinkRenames ?? [],
   );
   const roleFlagsNotice =
     roleFlagChanges.length > 0

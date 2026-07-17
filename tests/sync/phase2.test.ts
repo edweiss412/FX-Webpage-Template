@@ -763,6 +763,62 @@ describe("runPhase2 destructive snapshot", () => {
     expect(result).not.toHaveProperty("roleFlagsNotice");
   });
 
+  // F2 (whole-diff review, MEDIUM): an MI-12 identity-linked rename applies the SAME person under a
+  // NEW name. The name-keyed diff would find no prior for the new name → the new-crew-with-LEAD
+  // branch would falsely emit a fresh LEAD grant. Thread identityLinkRenames so the added name maps
+  // back to its linked prior row: an unchanged-LEAD rename emits NOTHING.
+  test("an identity-linked rename with UNCHANGED LEAD produces no ROLE_FLAGS_NOTICE (F2)", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["John"],
+      crewMembers: [crewWithFlags("John", ["LEAD", "A1"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Jon", ["LEAD", "A1"])] }),
+      identityLinkRenames: [{ removedName: "John", addedName: "Jon" }],
+    });
+
+    expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
+
+  // Positive: an identity-linked rename that ALSO flips LEAD still emits — mapped to the correct
+  // prior (the linked removed-name row), reporting the new name with the true prior/new flags.
+  test("an identity-linked rename that also changes LEAD emits a notice mapped to the linked prior (F2)", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["John"],
+      crewMembers: [crewWithFlags("John", ["LEAD", "A1"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Jon", ["A1"])] }),
+      identityLinkRenames: [{ removedName: "John", addedName: "Jon" }],
+    });
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      roleFlagsNotice: {
+        showId: "show-1",
+        code: "ROLE_FLAGS_NOTICE",
+        context: {
+          drive_file_id: "file-1",
+          changes: [{ crew_name: "Jon", prior_flags: ["LEAD", "A1"], new_flags: ["A1"] }],
+        },
+      },
+    });
+  });
+
   test("removed crew auth floors are lifted to current_token_version", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {
