@@ -753,7 +753,10 @@ describe("META admin_alerts catalog contract", () => {
   // free to say "clears automatically"; manual codes must not.
   test("no resolution:manual code promises auto-clear in its copy", () => {
     const BANNED = /clears? automatically|clear on the next sync|auto-?clear/i;
-    const EXEMPT = new Set<string>([]); // none
+    // ONBOARDING_SHEET_UNREADABLE is the hybrid-lifecycle class (spec 2026-07-16):
+    // its copy truthfully promises self-clear (two pinned resolve sites in the
+    // lifecycle registry) while the manual Resolve button legitimately stays.
+    const EXEMPT = new Set<string>(["ONBOARDING_SHEET_UNREADABLE"]);
     for (const code of ADMIN_ALERTS_CODES) {
       const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
         | { resolution?: "auto" | "manual"; [k: string]: unknown }

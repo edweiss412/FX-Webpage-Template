@@ -6,8 +6,8 @@
 // `{kind:"ok";resolved}|{kind:"infra_error"}` union — it NEVER throws.
 //
 // SILENT by contract (invariant 9 + plan): this module imports NO `lib/log`.
-// The only durable emit for auto-resolve is a `log.info`
-// code:"ONBOARDING_ALERT_AUTO_RESOLVED" at the CALLERS (scan route / cron
+// The only durable emit for auto-resolve is a `log.info` carrying the forensic
+// code ONBOARDING_ALERT_AUTO_RESOLVED at the CALLERS (scan route / cron
 // epilogue), never here. Not subject to tests/auth/_metaInfraContract.test.ts
 // (same class as recoveryResolution — direct postgres, no Supabase boundary).
 import postgres from "postgres";
