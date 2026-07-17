@@ -18,11 +18,15 @@
  *   (b) compaction: inline idle strip height < card-variant strip height by
  *       > 20px (one text-line) — proves real compaction, baseline from the card
  *       render in the same harness (never a hardcoded pixel).
- *   (c) containment: the finalize popover stays within [0, 390] with no document
- *       horizontal scroll, at BOTH the short and long title (different wrap x).
- *   (d) error-content probe: the REAL ErrorExplainer+HelpAffordance content in a
- *       max-w-60 break-words box measures ≤240px wide and in-viewport — the error
- *       popover's content (unlike the short finalize hint) can't overflow.
+ *   (c) full-strip-width banner (CASP2-2): the finalize popover spans the strip's
+ *       content box (its left/right hug the strip padding-box edges, width > 300px —
+ *       NOT the pre-fix right-anchored max-w-60 box), stays within [0, 390] with no
+ *       document h-scroll, and its x-position is IDENTICAL at the short and long
+ *       title (strip-anchored → toggle wrap-x can't disconnect it). The banner-belongs-
+ *       to-strip geometry is what restores Gestalt proximity.
+ *   (d) error-content banner: the REAL ErrorExplainer+HelpAffordance content in the
+ *       full-width break-words banner stays in-viewport with no h-scroll — the long
+ *       error copy (unlike the short finalize hint) grows only vertically.
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
@@ -159,22 +163,60 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     expect(card.height - inline.height).toBeGreaterThan(20);
   });
 
-  test("(c) the finalize popover stays in the viewport with no horizontal page scroll", async ({
+  test("(c) the finalize popover is a full-strip-width banner: in-viewport, hugs the strip padding box, stable across title length", async ({
     page,
   }) => {
+    const measured: Record<string, { left: number; right: number; width: number }> = {};
     for (const key of ["finalizeShort", "finalizeLong"]) {
-      const pop = await rectOf(page, key, "published-toggle-popover");
-      expect(pop.left, `${key}: popover left edge`).toBeGreaterThanOrEqual(0);
-      expect(pop.right, `${key}: popover right edge`).toBeLessThanOrEqual(390);
+      await page.setViewportSize(MOBILE);
+      await page.goto(`${baseUrl}${key}.html`);
+      const strip = await page
+        .getByTestId("show-status-strip")
+        .evaluate((n): { left: number; right: number; width: number } => {
+          const r = n.getBoundingClientRect();
+          return { left: r.left, right: r.right, width: r.width };
+        });
+      const pop = page.getByTestId("published-toggle-popover");
+      await expect(pop).toBeVisible();
+      const box = await pop.evaluate((n) => {
+        const r = n.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width };
+      });
+      measured[key] = box;
+
+      // in-viewport, no page h-scroll
+      expect(box.left, `${key}: popover left edge`).toBeGreaterThanOrEqual(0);
+      expect(box.right, `${key}: popover right edge`).toBeLessThanOrEqual(390);
       expect(await noHorizontalOverflow(page), `${key}: no document h-scroll`).toBe(true);
+
+      // full-strip-width banner — inset-x-0 anchors to the strip's padding box (the strip has
+      // no left/right border), so the banner hugs the strip's own left/right edges, NOT the
+      // pre-fix right-anchored max-w-60 (240px) box.
+      expect(Math.abs(box.left - strip.left), `${key}: banner left hugs strip`).toBeLessThanOrEqual(
+        1,
+      );
+      expect(
+        Math.abs(box.right - strip.right),
+        `${key}: banner right hugs strip`,
+      ).toBeLessThanOrEqual(1);
+      expect(box.width, `${key}: banner spans the strip (not a 240px right box)`).toBeGreaterThan(
+        300,
+      );
     }
+
+    // Strip-anchored → the banner x-position is IDENTICAL regardless of where the toggle
+    // flex-wraps (the CASP2-2 proximity fix: it can never disconnect to a phantom edge).
+    const short = measured.finalizeShort;
+    const long = measured.finalizeLong;
+    if (!short || !long) throw new Error("both finalize states must be measured");
+    expect(Math.abs(short.left - long.left)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(short.right - long.right)).toBeLessThanOrEqual(0.5);
   });
 
-  test("(d) the real error-popover content respects the 240px cap and stays in viewport", async ({
+  test("(d) the real error-popover content stays in the viewport as a full-width banner", async ({
     page,
   }) => {
     const probe = await rectOf(page, "errorProbe", "error-content-probe-box");
-    expect(probe.width, "error content wraps within max-w-60 (240px)").toBeLessThanOrEqual(240.5);
     expect(probe.left).toBeGreaterThanOrEqual(0);
     expect(probe.right).toBeLessThanOrEqual(390);
     expect(await noHorizontalOverflow(page)).toBe(true);
