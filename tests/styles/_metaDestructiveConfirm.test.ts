@@ -51,12 +51,6 @@ const REGISTRY: Row[] = [
     "staged-review-discard-ignore armed branch (G2 two-tap guard)",
   ),
   R(
-    "components/admin/RescanSheetButton.tsx",
-    0,
-    "morph",
-    "rescan-sheet-button-* armed branch (G3 two-tap guard)",
-  ),
-  R(
     "components/admin/BulkIgnoreControls.tsx",
     0,
     "morph",

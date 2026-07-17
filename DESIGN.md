@@ -409,7 +409,7 @@ Contract established by spec `docs/superpowers/specs/2026-07-16-destructive-conf
 
 **Guard-tier ladder** (which destructive ops get which guard):
 1. **Typed-confirm modal** — environment wipes only (validation-data reset: type `RESET`).
-2. **Two-tap confirm (morph or panel) + 3–4s auto-revert** — irreversible or work-destroying ops: permanent ignore, stop-showing-sheet, re-scan over staged work, bulk ignore/undo, archive, token rotate, picker resets, admin revoke, alert dismiss, shrink acceptance.
+2. **Two-tap confirm (morph or panel) + 3–4s auto-revert** — irreversible or work-destroying ops: permanent ignore, stop-showing-sheet, bulk ignore/undo, archive, token rotate, picker resets, admin revoke, alert dismiss, shrink acceptance. _(Re-scan was withdrawn from this tier — it is content-aware and preserves ratified decisions on a clean refresh; see `docs/superpowers/specs/2026-07-16-withdraw-rescan-guard.md`.)_
 3. **Unguarded one-tap** — reversible ops with a real recovery path (single undo, ignore with un-ignore, defer-discards that re-stage on the next edit). Do not add friction here.
 
 New destructive surfaces pick a tier by recoverability, adopt the recipe on the confirm-go, and add their registry row in the same commit.
