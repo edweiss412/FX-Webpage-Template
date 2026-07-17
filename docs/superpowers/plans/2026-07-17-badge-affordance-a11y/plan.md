@@ -26,11 +26,12 @@
 
 | File | Responsibility | Task |
 |------|----------------|------|
-| `components/admin/DataQualityBadge.tsx` (modify) | Two-chip render + hardened gate + `Users` import | 1 |
+| `components/admin/DataQualityBadge.tsx` (modify) | Two-chip render + hardened gate + `Users` import (Task 1); `leading-none` (Task 2, its dimensional TDD) | 1, 2 |
 | `tests/components/admin/DataQualityBadge.chips.test.tsx` (create) | jsdom behavioral matrix (chips, counts, guards, order, glyph identity, aria-label preserved) | 1 |
 | `tests/components/admin/dataGapsTransitionAudit.test.tsx` (modify `:146`) | Gate-literal grep lockstep update | 1 |
-| `tests/e2e/_dataQualityBadgeHarness.tsx` (create) | `renderToStaticMarkup` harness rendering the badge in 4 states | 2 |
-| `tests/e2e/dataQualityBadge-dimensional.spec.ts` (create) | Real-browser height==glyph + no-wrap assertions | 2 |
+| `tests/e2e/_dataQualityBadgeHarness.tsx` (create) | `renderToStaticMarkup` + main-guard JSON writer (run via `tsx`, never imported) | 2 |
+| `tests/e2e/dataQualityBadge.layout.spec.ts` (create) | Real-browser height==glyph + no-wrap assertions (standalone Tailwind harness) | 2 |
+| `tests/e2e/standalone.config.ts` (modify `:23`) | Add `dataQualityBadge.layout` to the `testMatch` allowlist | 2 |
 | `DESIGN.md` (modify) | Two-glyph data-quality convention note (invariant-8) | 3 |
 
 ---
@@ -174,25 +175,27 @@ Leave the `rosterLabel` / `gapLabel` / `label` builders (`:29-46`) BYTE-IDENTICA
         <span
           data-testid="dq-chip-roster"
           aria-hidden="true"
-          className="inline-flex items-center gap-0.5 leading-none"
+          className="inline-flex items-center gap-0.5"
         >
           <Users className="size-3.5" />
-          <span className="text-xs font-medium tabular-nums leading-none">{rosterTotal}</span>
+          <span className="text-xs font-medium tabular-nums">{rosterTotal}</span>
         </span>
       ) : null}
       {hasGap ? (
         <span
           data-testid="dq-chip-gap"
           aria-hidden="true"
-          className="inline-flex items-center gap-0.5 leading-none"
+          className="inline-flex items-center gap-0.5"
         >
           <TriangleAlert className="size-3.5" />
-          <span className="text-xs font-medium tabular-nums leading-none">{gapTotal}</span>
+          <span className="text-xs font-medium tabular-nums">{gapTotal}</span>
         </span>
       ) : null}
     </span>
   );
 ```
+
+> **TDD note:** `leading-none` (spec §5.2, load-bearing for the height invariant) is deliberately NOT added here. It is added in **Task 2** as the minimal implementation that turns the real-browser dimensional test from red→green — without it the count's 16.8px line box grows the badge above the 14px glyph, which is exactly what Task 2's failing test must first observe. The jsdom unit tests in this task do not measure height, so they pass with or without `leading-none`.
 
 - [ ] **Step 4: Run the chips test to verify it passes**
 
@@ -237,29 +240,47 @@ lockstep."
 
 ---
 
-### Task 2: Real-browser dimensional gate (standalone Tailwind harness)
+### Task 2: Real-browser dimensional gate — proves `leading-none` (standalone Tailwind harness)
+
+This task is the TDD home of the `leading-none` implementation (deferred from Task 1). It mirrors the `_step3ReviewModalHarness.tsx` / `step3-review-modal.layout.spec.ts` precedent EXACTLY: the harness `.tsx` is **run via `tsx`** (a main-guard writes rendered HTML as JSON) and is **NOT imported** by the spec — Playwright's test transform rewrites JSX in every `.tsx` it loads into component-testing payloads that `react-dom/server` cannot render (`step3-review-modal.layout.spec.ts:80-82`). The spec compiles real Tailwind from `app/globals.css` via the pinned CLI and serves over `node:http`. NO Next route → no dev-route registry fan-out.
 
 **Files:**
-- Create: `tests/e2e/_dataQualityBadgeHarness.tsx` (server-rendered markup, mirrors `tests/e2e/_step3ReviewModalHarness.tsx`)
-- Create: `tests/e2e/dataQualityBadge-dimensional.spec.ts` (mirrors the setup of `tests/e2e/step3-review-modal.layout.spec.ts`: Tailwind-CLI-compiled `app/globals.css` served over a `node:http` server; NO Next route → no dev-route registry fan-out)
+- Create: `tests/e2e/_dataQualityBadgeHarness.tsx` (renderToStaticMarkup + main-guard JSON writer)
+- Create: `tests/e2e/dataQualityBadge.layout.spec.ts` (name ends `.layout.spec.ts` to match the standalone allowlist convention)
+- Modify: `tests/e2e/standalone.config.ts:23` (add `dataQualityBadge.layout` to the `testMatch` regex)
+- Modify: `components/admin/DataQualityBadge.tsx` (add `leading-none` — the minimal impl this task's test drives)
 
 **Interfaces:**
-- Consumes: `DataQualityBadge` (default rendering); `renderToStaticMarkup` from `react-dom/server`; the same Tailwind-compile + `createServer` harness scaffolding as `_step3ReviewModalHarness.tsx` / `step3-review-modal.layout.spec.ts`.
-- Produces: a served page exposing four badges under stable ids — `badge-gap` (gap-only), `badge-roster` (roster-only), `badge-both` (both chips) — each measurable via `getBoundingClientRect()`, with each glyph reachable via its lucide svg class.
+- Consumes: `DataQualityBadge`; `mkDataGaps` (`tests/helpers/dataGapsFixture.ts:9`) for a valid `DataGapsSummary`; `renderToStaticMarkup`; the Tailwind-CLI + `createServer` scaffolding copied from `step3-review-modal.layout.spec.ts`.
+- Produces: a served page exposing three badges under ids `badge-gap` / `badge-roster` / `badge-both`, each with an inner `[role="img"]` and lucide `svg`.
 
-**Dimensional invariant (spec §5.4):** `badge.height ≈ glyph.height` (the 14px `size-3.5` box) — the `leading-none` on the counts keeps their 16.8px (`0.75rem × 1.4`) line box from growing the badge; and `badge-both.height ≈ badge-roster.height` (adding the second chip must not wrap to a second line). Both within 0.5px.
+**Dimensional invariant (spec §5.4):** `badge.height ≈ glyph.height` (14px `size-3.5`) and `badge-both.height ≈ badge-roster.height` (no wrap). Both within 0.5px.
 
-- [ ] **Step 1: Write the harness component**
+- [ ] **Step 1: Write the harness `.tsx` with a main-guard JSON writer**
 
-Create `tests/e2e/_dataQualityBadgeHarness.tsx`. Mirror the top-of-file structure of `_step3ReviewModalHarness.tsx` (it exports a function returning an HTML string built with `renderToStaticMarkup`, wrapping the subject in `<div id=...>` probes and linking `/globals.css`). Render the badge in three states inside a normal inline flex row (to reproduce the shows-table context), plus a bare-glyph reference:
+Create `tests/e2e/_dataQualityBadgeHarness.tsx` (mirrors `_step3ReviewModalHarness.tsx`'s main-guard tail):
 
 ```tsx
+/**
+ * tests/e2e/_dataQualityBadgeHarness.tsx — renderToStaticMarkup harness for the
+ * DataQualityBadge dimensional gate (spec §5.4). Run via `tsx` from the layout
+ * spec (NOT imported — Playwright's transform rewrites JSX into non-renderable
+ * payloads; same boundary as _step3ReviewModalHarness.tsx). The main-guard writes
+ * { gap, roster, both } rendered-HTML strings to argv[2].
+ */
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
+import type { RosterShiftSummary } from "@/lib/admin/showDisplay";
+import { mkDataGaps } from "./../helpers/dataGapsFixture";
 
-// Each badge sits in an inline row beside a title span, matching the shows-table
-// header context (ShowsTable.tsx:468) so the measured layout is representative.
-function Row({ id, node }: { id: string; node: React.ReactNode }) {
+const ROSTER: RosterShiftSummary = { added: 2, removed: 0, renamed: 0, total: 2 };
+const GAPS = mkDataGaps({ UNKNOWN_FIELD: 3 }); // total 3, full valid classes record
+
+// Each badge sits in an inline flex row beside a title span, reproducing the
+// shows-table header context (ShowsTable.tsx:468) so the measured layout is
+// representative. The `#badge-*` id wraps the badge for measurement.
+function Row({ id, node }: { id: string; node: ReactNode }): ReactNode {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem" }}>
       <span>East Coast Tour</span>
@@ -268,80 +289,151 @@ function Row({ id, node }: { id: string; node: React.ReactNode }) {
   );
 }
 
-export function dataQualityBadgeHarnessHtml(): string {
-  const body = renderToStaticMarkup(
+export function renderBadgeHarnessBody(): string {
+  return renderToStaticMarkup(
     <main style={{ padding: "2rem", maxWidth: "480px" }}>
-      <Row id="badge-gap" node={<DataQualityBadge slug="gap" dataGaps={{ total: 3, classes: {} as never }} />} />
-      <Row
-        id="badge-roster"
-        node={
-          <DataQualityBadge
-            slug="roster"
-            dataGaps={undefined}
-            rosterShift={{ added: 2, removed: 0, renamed: 0, total: 2 }}
-          />
-        }
-      />
-      <Row
-        id="badge-both"
-        node={
-          <DataQualityBadge
-            slug="both"
-            dataGaps={{ total: 3, classes: {} as never }}
-            rosterShift={{ added: 2, removed: 0, renamed: 0, total: 2 }}
-          />
-        }
-      />
+      <Row id="badge-gap" node={<DataQualityBadge slug="gap" dataGaps={GAPS} />} />
+      <Row id="badge-roster" node={<DataQualityBadge slug="roster" dataGaps={undefined} rosterShift={ROSTER} />} />
+      <Row id="badge-both" node={<DataQualityBadge slug="both" dataGaps={GAPS} rosterShift={ROSTER} />} />
     </main>,
   );
-  // The `<link rel="stylesheet" href="/globals.css">` + <html> shell is added by the
-  // spec's server (identical to _step3ReviewModalHarness's served-page wrapper).
-  return body;
+}
+
+// Direct-execution entry: `tsx _dataQualityBadgeHarness.tsx <out.json>` writes the
+// rendered body so the layout spec never imports this .tsx (see file header).
+if (typeof require !== "undefined" && typeof module !== "undefined" && require.main === module) {
+  const outPath = process.argv[2];
+  if (!outPath) throw new Error("usage: tsx _dataQualityBadgeHarness.tsx <out.json>");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS main-guard CLI
+  const { writeFileSync } = require("node:fs") as typeof import("node:fs");
+  writeFileSync(outPath, JSON.stringify({ body: renderBadgeHarnessBody() }));
 }
 ```
 
-Note: the gap-only/both badges pass `classes: {}` — `formatDataGapBreakdown` returns `""` for an empty class map at `total>0`, which is harmless for a LAYOUT harness (the aria-label/breakdown text is not what's measured; height is). If the harness's compiled build rejects the `{} as never` cast, pass a real all-zero-but-one class map via the same shape `mkDataGaps` produces (`{ UNKNOWN_FIELD: 3, ...zeros }`).
+- [ ] **Step 2: Register the spec in the standalone config allowlist**
 
-- [ ] **Step 2: Write the failing Playwright spec**
-
-Create `tests/e2e/dataQualityBadge-dimensional.spec.ts`. Copy the harness scaffolding (Tailwind compile of `app/globals.css`, `node:http` server serving the harness HTML + compiled CSS at `/globals.css`, `beforeAll`/`afterAll`) verbatim from `tests/e2e/step3-review-modal.layout.spec.ts`, then:
+In `tests/e2e/standalone.config.ts:23`, add `dataQualityBadge\.layout` to the `testMatch` alternation (insert before the closing `)\.spec\.ts/`):
 
 ```ts
-test("badge height equals its glyph height (leading-none holds the line box)", async ({ page }) => {
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout)\.spec\.ts/,
+```
+
+- [ ] **Step 3: Write the failing Playwright spec**
+
+Create `tests/e2e/dataQualityBadge.layout.spec.ts`. Copy the `beforeAll`/`afterAll` scaffolding from `tests/e2e/step3-review-modal.layout.spec.ts` — `execFileSync` shell-out to `node_modules/.bin/tsx` running the harness to a temp JSON, the `pageHtml(cssHref, body)` shell (`<!doctype html><html><head><link rel="stylesheet" href="/${cssHref}"></head><body>${body}</body></html>`), the `@tailwindcss/cli@4.2.4` compile of `app/globals.css` with an `@source` line for the written `harness.html`, and the `node:http` `createServer` — then:
+
+```ts
+import { test, expect, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createServer, type Server } from "node:http";
+
+const REPO_ROOT = join(__dirname, "..", "..");
+let server: Server;
+let baseUrl: string;
+
+function pageHtml(cssHref: string, body: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/${cssHref}"></head><body>${body}</body></html>`;
+}
+
+test.beforeAll(async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dq-badge-dim-"));
+  const outJson = join(workDir, "pages.json");
+  execFileSync(
+    join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+    [join(REPO_ROOT, "tests", "e2e", "_dataQualityBadgeHarness.tsx"), outJson],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
+  );
+  const { body } = JSON.parse(readFileSync(outJson, "utf8")) as { body: string };
+  writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", body));
+
+  const entryCss = join(workDir, "entry.css");
+  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  writeFileSync(entryCss, `@source "${join(workDir, "harness.html")}";\n${globals}`);
+  execFileSync(
+    "pnpm",
+    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
+  );
+
+  server = createServer((req, res) => {
+    const url = (req.url ?? "/").split("?")[0] ?? "/";
+    const file = url === "/" || url === "" ? "harness.html" : url.replace(/^\//, "");
+    try {
+      const buf = readFileSync(join(workDir, file));
+      res.setHeader("content-type", file.endsWith(".css") ? "text/css" : "text/html");
+      res.end(buf);
+    } catch {
+      res.statusCode = 404;
+      res.end("not found");
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  if (addr && typeof addr === "object") baseUrl = `http://127.0.0.1:${addr.port}/`;
+});
+
+test.afterAll(async () => {
+  if (server) await new Promise<void>((r) => server.close(() => r()));
+});
+
+async function boxHeight(page: Page, selector: string): Promise<number> {
+  const box = await page.locator(selector).first().boundingBox();
+  expect(box, `bounding box for ${selector}`).not.toBeNull();
+  return box!.height;
+}
+
+test("badge height equals its glyph height (leading-none holds the count line box)", async ({ page }) => {
   await page.goto(baseUrl);
   for (const id of ["badge-gap", "badge-roster", "badge-both"]) {
-    const badge = await page.locator(`#${id} [role="img"]`).boundingBox();
-    const glyph = await page.locator(`#${id} [role="img"] svg`).first().boundingBox();
-    expect(badge).not.toBeNull();
-    expect(glyph).not.toBeNull();
-    expect(Math.abs(badge!.height - glyph!.height)).toBeLessThanOrEqual(0.5);
+    const badge = await boxHeight(page, `#${id} [role="img"]`);
+    const glyph = await boxHeight(page, `#${id} [role="img"] svg`);
+    expect(Math.abs(badge - glyph), `${id}: badge vs glyph height`).toBeLessThanOrEqual(0.5);
   }
 });
 
 test("adding the second chip does not wrap (both ≈ single-chip height)", async ({ page }) => {
   await page.goto(baseUrl);
-  const roster = await page.locator(`#badge-roster [role="img"]`).boundingBox();
-  const both = await page.locator(`#badge-both [role="img"]`).boundingBox();
-  expect(Math.abs(both!.height - roster!.height)).toBeLessThanOrEqual(0.5);
+  const roster = await boxHeight(page, `#badge-roster [role="img"]`);
+  const both = await boxHeight(page, `#badge-both [role="img"]`);
+  expect(Math.abs(both - roster), "both vs roster-only height").toBeLessThanOrEqual(0.5);
 });
 ```
 
-- [ ] **Step 3: Run the spec to verify it passes (real browser)**
+- [ ] **Step 4: Run the spec to verify it FAILS (red — leading-none not yet added)**
 
-Run: `cd /Users/ericweiss/fxav-wt-badge-a11y && pnpm exec playwright test tests/e2e/dataQualityBadge-dimensional.spec.ts`
-Expected: PASS. If `badge.height` exceeds `glyph.height` by >0.5px, the `leading-none` on a count span is missing — fix Task 1's markup, do NOT loosen the tolerance.
+Run: `cd /Users/ericweiss/fxav-wt-badge-a11y && pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/dataQualityBadge.layout.spec.ts`
+Expected: FAIL — with no `leading-none`, each count's `0.75rem × 1.4 = 16.8px` line box makes the badge ~16.8px vs the 14px glyph, so `|badge − glyph|` ≈ 2.8px > 0.5px. (If it does not fail, the invariant is not being measured — investigate before proceeding; do NOT skip the red phase.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Add `leading-none` (minimal impl) to make it pass**
+
+In `components/admin/DataQualityBadge.tsx`, add `leading-none` to BOTH chip spans and BOTH count spans (spec §5.2):
+- chip span className: `inline-flex items-center gap-0.5` → `inline-flex items-center gap-0.5 leading-none`
+- count span className: `text-xs font-medium tabular-nums` → `text-xs font-medium tabular-nums leading-none`
+
+(Apply to the roster chip and the gap chip identically.)
+
+- [ ] **Step 6: Run the spec + Task-1 unit tests to verify green**
+
+Run: `cd /Users/ericweiss/fxav-wt-badge-a11y && pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/dataQualityBadge.layout.spec.ts`
+Expected: PASS (badge height == glyph within 0.5px; both ≈ roster).
+Run: `cd /Users/ericweiss/fxav-wt-badge-a11y && pnpm exec vitest run tests/components/admin/DataQualityBadge.chips.test.tsx`
+Expected: PASS (unaffected — jsdom does not measure height).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/ericweiss/fxav-wt-badge-a11y
-git add tests/e2e/_dataQualityBadgeHarness.tsx tests/e2e/dataQualityBadge-dimensional.spec.ts
-git commit --no-verify -m "test(admin): real-browser dimensional gate for DataQualityBadge chips
+git add tests/e2e/_dataQualityBadgeHarness.tsx tests/e2e/dataQualityBadge.layout.spec.ts tests/e2e/standalone.config.ts components/admin/DataQualityBadge.tsx
+git commit --no-verify -m "test(admin): real-browser dimensional gate for DataQualityBadge chips + leading-none
 
-Standalone Tailwind-compiled harness (no Next route): badge height ==
-glyph height (leading-none holds the 16.8px count line box), and the
-second chip does not wrap. jsdom cannot compute this (Tailwind v4 no
-default align-items:stretch)."
+Standalone Tailwind-compiled harness (tsx main-guard shell-out, no Next
+route, no dev-route registries): red without leading-none (count 16.8px
+line box grows the badge), green after — badge height == 14px glyph, and
+the second chip does not wrap. Registered in standalone.config.ts. jsdom
+cannot compute this (Tailwind v4 no default align-items:stretch)."
 ```
 
 ---
@@ -390,7 +482,7 @@ For each P0/P1: fix in the relevant file (re-run the Task 1/2 tests after any co
 - FLOW4-2 (touch/keyboard reach) → Task 1 (visible chips) + Task 2 (height holds). ✔
 - FLOW4-3 (distinguish signals) → Task 1 (distinct `Users`/`TriangleAlert` glyphs + counts) + Task 3 (DESIGN.md decision). ✔
 - §5.3 hardened gate + guards (NaN/-1/+Inf) → Task 1 Step 1 `it.each` + Step 3 gate. ✔
-- §5.4 dimensional invariant → Task 2. ✔
+- §5.4 dimensional invariant → Task 2 (real-browser, genuine red→green: `leading-none` deferred from Task 1 so the layout test observes a true failure first; runs under `standalone.config.ts` via `--config`; harness run via `tsx` main-guard, never imported — avoids the Playwright JSX-transform trap). ✔
 - §5.5 transition inventory (all instant; audit lockstep) → Task 1 Step 5. ✔
 - §6 DESIGN.md amendment + invariant 8 → Task 3. ✔
 - §7 meta-test inventory (EXTENDS dataGapsTransitionAudit only) → Task 1 Step 5. ✔
