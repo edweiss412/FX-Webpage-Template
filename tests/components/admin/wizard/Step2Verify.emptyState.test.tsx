@@ -21,7 +21,11 @@ function completedScanBody(
   folderId: string,
   folderName = "Folder",
 ) {
-  const processed = outcomes.map((outcome, i) => ({ driveFileId: `file-${i}`, outcome }));
+  const processed = outcomes.map((outcome, i) => ({
+    driveFileId: `file-${i}`,
+    name: `file-${i}.xlsx`,
+    outcome,
+  }));
   return toScanResponseBody(
     { outcome: "completed", processed },
     { wizardSessionId: "wsid", folderId, folderName },

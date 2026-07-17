@@ -73,6 +73,14 @@ const EMAIL_FIELD_BY_CODE: Record<string, "user_email" | "email"> = {
 
 const ROLE_CHANGE_NAMES_CAP = 3;
 
+// For each capped-array contextField, the counts key holding the UNCAPPED total
+// used to derive the "+N more" disclosure. A field absent here falls back to the
+// capped array's own length (no overflow shown).
+const COUNT_KEY_FOR_FIELD: Record<string, keyof IdentityContext["counts"]> = {
+  role_change_crew_names: "role_change_count",
+  failed_sheet_names: "failed_sheet_names_count",
+};
+
 function effectiveShowId(row: ResolverRow): string | undefined {
   return row.show_id ?? row.identityContext.resolution.show_id;
 }
@@ -90,14 +98,16 @@ function formatContextFieldValue(
   const raw = row.identityContext.display[spec.key as keyof IdentityContext["display"]];
   if (raw === undefined) return undefined;
   if (Array.isArray(raw)) {
-    // `role_change_crew_names` — already capped to 3 by projectIdentityContext,
-    // but the resolver enforces the cap defensively and appends a "+N more"
-    // disclosure derived from the UNCAPPED `role_change_count` (Codex/spec
-    // rule 5 — the array case must be handled explicitly here, not by the
-    // map's optional string->string `format`).
+    // Capped-array contextField (`role_change_crew_names`, `failed_sheet_names`)
+    // — already capped to 3 by projectIdentityContext, but the resolver enforces
+    // the cap defensively and appends a "+N more" disclosure derived from the
+    // UNCAPPED count for this field (Codex/spec rule 5 — the array case must be
+    // handled explicitly here, not by the map's optional string->string
+    // `format`).
     const names = raw.slice(0, ROLE_CHANGE_NAMES_CAP);
     const joined = names.join(", ");
-    const total = row.identityContext.counts.role_change_count ?? names.length;
+    const countKey = COUNT_KEY_FOR_FIELD[spec.key];
+    const total = (countKey ? row.identityContext.counts[countKey] : undefined) ?? names.length;
     const extra = total - names.length;
     return extra > 0 ? `${joined} +${extra} more` : joined;
   }

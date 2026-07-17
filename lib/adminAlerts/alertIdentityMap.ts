@@ -132,9 +132,12 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
     segments: [{ kind: "contextField", key: "file_name", label: "Sheet" }],
   },
 
-  // ONBOARDING_SHEET_UNREADABLE — global (folder-level setup-scan alert; context
-  // carries folder_id + failed_drive_file_ids, no per-entity identity).
-  ONBOARDING_SHEET_UNREADABLE: { kind: "global" },
+  // ONBOARDING_SHEET_UNREADABLE — Sheet name(s) (cap 3, "+N more") from
+  // context.failed_sheet_names (folder-level setup-scan alert; names the failed
+  // sheets on the card).
+  ONBOARDING_SHEET_UNREADABLE: {
+    segments: [{ kind: "contextField", key: "failed_sheet_names", label: "Sheet" }],
+  },
 
   // 15. ROLE_FLAGS_NOTICE — Sheet · crew name(s) (cap 3, "+N more") ·
   //     "N role change(s)" — info-severity: per-show + CLI only, NOT
