@@ -12,6 +12,17 @@ disclosure family. All four were dispositioned in `DEFERRED.md`; this batch
 picks them up deliberately (user-ratified 2026-07-17). **UI-only — no DB, no
 advisory-lock surface, no `§12.4` error-code catalog change.**
 
+> **Reconciliation note (2026-07-17):** during this branch's build, sibling PR
+> #422 (`fix/destruct-harmonize`) merged to `main` and shipped **DESTRUCT-3**
+> (the all-success bulk-undo sr-only `role=status`) with the identical
+> persistent-region pattern this spec's §4 describes, plus **MOBILEPARITY-1**
+> (strip heading `text-sm`→`text-base`). On merging `origin/main`, this branch
+> adopted #422's canonical DESTRUCT-3 (testid `auto-applied-bulk-undo-status-*`)
+> and dropped its own duplicate; **the delivered scope of THIS branch is
+> COLLAPSE-2 (§1), COLLAPSE-1 (§2), and REDESIGN-2 (§3)**. §4 (DESTRUCT-3) is
+> retained below for the design record but is satisfied upstream; this branch
+> only adds a singular-copy test not present in #422.
+
 | ID | Prio | One line |
 |----|------|----------|
 | COLLAPSE-2 | P2 | Disclosure panels mount/unmount instantly; chevron animates but content does not. Introduce a shared height-morph primitive and converge the cited disclosure family. |
