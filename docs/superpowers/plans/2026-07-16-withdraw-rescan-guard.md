@@ -186,9 +186,9 @@ git commit --no-verify -m "feat(admin): withdraw G3 re-scan two-tap guard — Re
   - Line ~45 (the G3 table row): prefix the row's first cell with `WITHDRAWN (2026-07-16) —` and keep the rest for history.
   - Line ~50 (the "G3 applies in both placement variants" note): prefix `WITHDRAWN (2026-07-16): `.
 
-- [ ] **Step 3: Verify no runtime coupling** — these are prose docs; run the catalog/spec parity check to confirm nothing regenerates off them:
+- [ ] **Step 3: Verify no runtime coupling** — both edits are prose. Task 2 touches NO §12.4 catalog rows, so the x1 catalog-parity gate (`tests/cross-cutting/codes.test.ts`) is not in play; the destructive-confirm meta-test (`tests/styles/_metaDestructiveConfirm.test.ts`) scans `components/**` + `app/**`, not `DESIGN.md` prose. Confirm nothing regenerates off these docs:
 
-Run: `pnpm vitest run tests/messages/codes.test.ts` (should be unaffected — no §12.4 rows touched). Expected: PASS.
+Run: `rg -rn "2026-07-16-destructive-confirm-pass.md" --glob '!docs/**' --glob '!*.md'` (source/test references to the parent spec — expect none that parse its ladder line text) and, as the real gate, rely on the whole-diff `pnpm test` in the Verification section below. Expected: no source/test file parses DESIGN.md §15 prose or the parent spec's G3 row text (a grep returning only doc-to-doc references is fine).
 
 - [ ] **Step 4: Commit**
 
@@ -207,7 +207,12 @@ git commit --no-verify -m "docs(admin): record G3 re-scan guard withdrawal in la
 - [ ] `pnpm test` — full suite green (scoped runs miss cross-file regressions; a page/component rebuild fans out to source-scanning registries).
 - [ ] e2e: run the converted spec if the harness is available — `pnpm test:e2e tests/e2e/step3-review-modal.interactions.spec.ts` (or the repo's e2e command). If the e2e harness cannot run locally, static-verify no doubled `.click()` remains on the rescan testid and note it in the handoff.
 - [ ] Invariant 8: `/impeccable critique` + `/impeccable audit` on the diff; P0/P1 fixed or `DEFERRED.md`.
-- [ ] `rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'` → zero hits. No doubled clicks remain (multiline-enabled `-U`; default ripgrep does NOT match `\n`): `rg -U -n 'click\([^\n]*rescan-sheet-button[^\n]*\);\s*\n\s*[^\n]*click\([^\n]*rescan-sheet-button' tests/` → zero hits.
+- [ ] `rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'` → zero hits.
+- [ ] **No doubled taps on the rescan testid remain — all three forms present in the tree** (multiline `-U`; default ripgrep does NOT match `\n`; each pattern was verified to match the pre-change doubles, so each MUST return zero post-conversion):
+  - `act`-wrapped pair (the 8 `RescanSheetButton.test.tsx` sites + `Step3ReviewModal.test.tsx` footer): `rg -U -n 'fireEvent\.click\([^\n]*rescan-sheet-button[^\n]*\);\n\s*await act\(async \(\) => \{\n\s*fireEvent\.click\([^\n]*rescan-sheet-button' tests/` → zero.
+  - Adjacent `fireEvent.click` pair (`step3ReviewModal.transitions.test.tsx` §H N4 + compound(d)): `rg -U -n 'fireEvent\.click\([^\n]*rescan-sheet-button[^\n]*\);\s*\n\s*fireEvent\.click\([^\n]*rescan-sheet-button' tests/` → zero.
+  - e2e consecutive locator-chain pair: `rg -U -n 'rescan-sheet-button-\$\{HARNESS_DFID\}[^\n]*\n\s*await page\.locator\(`\[data-testid="rescan-sheet-button-\$\{HARNESS_DFID\}' tests/e2e/step3-review-modal.interactions.spec.ts` → zero.
+  - Because a leftover second tap lands on a now-`disabled={pending}` button and silently no-ops (the suite would still pass), these static checks — not the passing suite — are the proof that every double was converted.
 
 ## Self-Review (against the spec)
 
