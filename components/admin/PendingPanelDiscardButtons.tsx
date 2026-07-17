@@ -129,7 +129,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           }
         >
           {armed
-            ? "Confirm: stop tracking this sheet permanently"
+            ? "Confirm stop tracking this sheet permanently"
             : state.kind === "running" && state.pendingKind === "permanent_ignore"
               ? "Ignoring…"
               : "Permanently ignore"}

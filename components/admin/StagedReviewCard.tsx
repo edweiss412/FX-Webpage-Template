@@ -668,7 +668,7 @@ export function StagedReviewCard({
                 : "min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
             }
           >
-            {ignoreArmed ? "Confirm: stop showing this sheet" : "Stop showing this sheet"}
+            {ignoreArmed ? "Confirm stop showing this sheet" : "Stop showing this sheet"}
           </button>
           {/* Persistent sr-only live region: announces the silent label morph to
               screen readers (impeccable P2). Always mounted — conditional
