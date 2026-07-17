@@ -236,7 +236,8 @@ git commit --no-verify -m "feat(admin): render failed sheet names on unreadable-
 
 - [ ] **Step 1: Write failing unit tests (fakeSql).** Mirror `tests/notify/recovery-resolution.test.ts`'s `fakeSql` (a `vi.fn` implementing the tagged-template signature, returning seeded rows per-query and capturing `calls[].text`/`.values`). Cover:
   - `resolveOpenUnconditionally`: issues an UPDATE with `code = 'ONBOARDING_SHEET_UNREADABLE' AND show_id IS NULL AND resolved_at IS NULL`; returns `{kind:"ok",resolved:true}` when a row returns, `false` when none.
-  - `resolveIfHealed` **pending wizard**: fakeSql returns a non-null `pending_wizard_session_id` on the first (app_settings) query → NO further query, returns `{kind:"ok",resolved:false}` (helper self-reads; assert the app_settings select fired and no UPDATE followed).
+  - `resolveIfHealed` **no open row**: fakeSql returns `[]` for the FIRST (open-alert select) query → helper returns `{kind:"ok",resolved:false}` and issues NO further query (assert the app_settings select never fired — spec §3.4a "no open row → no queries beyond the fetch").
+  - `resolveIfHealed` **pending wizard**: open-alert select returns a row, THEN the app_settings select returns a non-null `pending_wizard_session_id` → NO update, returns `{kind:"ok",resolved:false}` (assert order: open-alert query precedes app_settings query, and no UPDATE followed).
   - folder mismatch (`context.folder_id !== activeFolderId`) → UPDATE issued (resolve).
   - all ids removed / registered / current-revision-staged → resolve; one id still failing → no resolve.
   - **CAS-race (review R2 finding 2 — deterministic, at THIS layer)**: fakeSql returns an open row with `last_seen_at = T0` for the select, then the UPDATE (guarded `last_seen_at = T0`) returns ZERO rows (simulating an intervening upsert that bumped `last_seen_at`) → `{kind:"ok",resolved:false}`. Assert the UPDATE's captured `values` include the observed `last_seen_at` and the row was NOT resolved.
@@ -281,17 +282,18 @@ export async function resolveUnreadableAlertIfHealed(input: HealInput, sql?: Res
   const db = sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ResolveSql);
   const owns = !sql;
   try {
-    // Wizard-owned skip — helper self-reads (spec §3.4b); no caller can bypass it.
-    const settings = await db<{ pending_wizard_session_id: string | null }>`
-      select pending_wizard_session_id from public.app_settings limit 1`;
-    if ((settings[0]?.pending_wizard_session_id ?? null) !== null) {
-      return { kind: "ok", resolved: false };
-    }
+    // (a) Fetch the open row FIRST — no open row ⇒ no further queries (spec §3.4a).
     const open = await db<{ id: string; context: Record<string, unknown>; last_seen_at: string }>`
       select id, context, last_seen_at from public.admin_alerts
        where code = 'ONBOARDING_SHEET_UNREADABLE' and show_id is null and resolved_at is null
        limit 1`;
     if (open.length === 0) return { kind: "ok", resolved: false };
+    // (b) Wizard-owned skip — helper self-reads (spec §3.4b); no caller can bypass it.
+    const settings = await db<{ pending_wizard_session_id: string | null }>`
+      select pending_wizard_session_id from public.app_settings limit 1`;
+    if ((settings[0]?.pending_wizard_session_id ?? null) !== null) {
+      return { kind: "ok", resolved: false };
+    }
     const row = open[0]!;
     const ctx = row.context ?? {};
     const ids = Array.isArray(ctx.failed_drive_file_ids) ? (ctx.failed_drive_file_ids as string[]) : null;
@@ -389,7 +391,7 @@ git commit --no-verify -m "feat(onboarding): auto-resolve unreadable-sheet alert
 - Consumes: `resolveUnreadableAlertIfHealed(input, sql?)` (Task 4) — the helper self-reads `app_settings.pending_wizard_session_id`, so the cron caller passes ONLY `{ activeFolderId, listedFiles }` (no `wizardSessionPending`, no `getPendingWizardSessionId` dep — review R2 finding 3).
 
 - [ ] **Step 1: Write failing tests.**
-  - Pure-DI (`runScheduledCronSync.test.ts`): inject a `resolveUnreadableAlertIfHealed` spy; assert it's called once per tick in the epilogue with `{ activeFolderId, listedFiles }` (id→modifiedTime map) derived from the injected `listFolder`; assert it is NOT called on the folder-resolve early-return paths (`no_folder_configured` / infra fault). The wizard-pending skip is NOT asserted here (it lives inside the real helper, exercised in the DB test).
+  - Pure-DI (`runScheduledCronSync.test.ts`): (i) inject a `resolveUnreadableAlertIfHealed` spy → assert it's called once per tick in the epilogue with `{ activeFolderId, listedFiles }` (id→modifiedTime map) derived from the injected `listFolder`; assert it is NOT called on the folder-resolve early-return paths (`no_folder_configured` / infra fault). (ii) **Ambient-DB guard regression**: run a tick with `listFolder` injected but NO `resolveUnreadableAlertIfHealed` dep → assert the real helper is NOT invoked (no ambient Postgres call). The wizard-pending skip is NOT asserted here (it lives inside the real helper, exercised in the DB test).
   - DB-backed (`onboarding-alert-heal.db.test.ts`, mirror `def1-cron-resync-clear.db.test.ts`: module-top probe, `it.skipIf(!dbUp)`, `inRollback`): drive the REAL helper via the cron path (or call it directly with the ambient `sql`) and seed rows to exercise the matrix — all-removed / all-registered / all-current-revision-staged → `resolved_at` set; one-still-failing → NULL; **stale-staged** (live pending row with OLDER `staged_modified_time` than listing) → NULL (R1-1); folder-mismatch → set; **wizard-pending** (seed `app_settings.pending_wizard_session_id` non-null) → NULL even when all ids satisfied; empty ids → NULL. Assert on `resolved_at` in the row, never on "helper called". (The deterministic CAS-race is covered at the helper's fakeSql layer in Task 4; add ONE optional DB smoke here only if convenient.)
 
 - [ ] **Step 2: Run → FAIL.**
@@ -402,24 +404,28 @@ resolveUnreadableAlertIfHealed?: typeof import("@/lib/adminAlerts/resolveOnboard
 ```
 (No pending-wizard dep — the helper owns that read.)
 
-- [ ] **Step 5: Call in the epilogue (fail-open).** Immediately before `return await finishCompletedRun({ processed })` (`:3882`), inside a try/catch that swallows all faults (never fail the tick):
+- [ ] **Step 5: Call in the epilogue (fail-open, ambient-DB guarded).** Immediately before `return await finishCompletedRun({ processed })` (`:3882`), inside a try/catch that swallows all faults (never fail the tick). Gate the default helper behind the SAME injected-`listFolder` guard used by `listLiveShows`/`listRoleVocabDriftEligible` (`:3735-3739`, `:3753-3757`) so pure-DI tests that inject `listFolder` without the observer dep never hit ambient Postgres:
 ```ts
 try {
-  const r = await (deps.resolveUnreadableAlertIfHealed ?? resolveUnreadableAlertIfHealed)({
-    activeFolderId: resolvedFolderId,
-    listedFiles,
-  });
-  if (r.kind === "ok" && r.resolved) {
-    await log.info("onboarding unreadable-sheet alert auto-resolved (cron heal)", {
-      source: "cron/sync",
-      code: "ONBOARDING_ALERT_AUTO_RESOLVED",
-    });
+  const resolveHealed = deps.resolveUnreadableAlertIfHealed
+    ? deps.resolveUnreadableAlertIfHealed
+    : deps.listFolder
+      ? null // test-injected folder listing ⇒ inert (mirrors the listLiveShows/driftEligible guard)
+      : resolveUnreadableAlertIfHealed;
+  if (resolveHealed) {
+    const r = await resolveHealed({ activeFolderId: resolvedFolderId, listedFiles });
+    if (r.kind === "ok" && r.resolved) {
+      await log.info("onboarding unreadable-sheet alert auto-resolved (cron heal)", {
+        source: "cron/sync",
+        code: "ONBOARDING_ALERT_AUTO_RESOLVED",
+      });
+    }
   }
 } catch {
   /* fail-open: never fail the tick */
 }
 ```
-The helper self-reads the ambient DB via its default `postgres` client; in pure-DI tests the injected spy replaces it entirely (no ambient DB hit). No extra `listFolder`-injection guard needed since the real helper only runs on the un-injected path.
+(An explicitly-injected `resolveUnreadableAlertIfHealed` spy always runs — that's how the DB/integration tests drive it; only the DEFAULT is suppressed under an injected `listFolder`.)
 
 - [ ] **Step 6: Run → PASS.** `pnpm vitest run tests/sync/runScheduledCronSync.test.ts tests/sync/onboarding-alert-heal.db.test.ts`.
 
