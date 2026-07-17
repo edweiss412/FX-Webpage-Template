@@ -618,14 +618,23 @@ export async function Dashboard(
           layout test (TITLE_BANDS incl. 1240/1400/1520) pins this; do NOT lower the
           split or widen the inbox earlier without re-running it — either re-collapses
           the title. */}
+      {/* Desktop (≥1240) is a 2-col GRID, not flex-row: the Ignored-sheets
+          disclosure lives in the LEFT column's SECOND row (directly beneath the
+          table, no gap) while the taller Needs-attention inbox spans both rows on
+          the right. `grid-rows-[min-content_1fr]` pins row 1 to the table's
+          content height and lets the inbox's overflow fall into row 2 BELOW the
+          disclosure — so ignored stays tight under the table regardless of which
+          column is taller (a flex-row split couldn't do this without a gap). The
+          disclosure is the LAST DOM child, so the mobile flex-col stack renders it
+          at the very bottom (after the inbox), per the small-screen order. */}
       <div
         data-testid="dashboard-split"
-        className="flex flex-col gap-tile-gap min-[1240px]:flex-row min-[1240px]:items-stretch"
+        className="flex flex-col gap-tile-gap min-[1240px]:grid min-[1240px]:grid-cols-[minmax(0,1fr)_20rem] min-[1240px]:grid-rows-[min-content_1fr] min-[1240px]:items-start min-[1240px]:gap-x-tile-gap min-[1240px]:gap-y-3 min-[1400px]:grid-cols-[minmax(0,1fr)_30rem]"
       >
         <section
           data-testid="dashboard-shows-col"
           aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
-          className="flex min-w-0 flex-col gap-3 min-[1240px]:flex-1"
+          className="flex min-w-0 flex-col gap-3 min-[1240px]:col-start-1 min-[1240px]:row-start-1"
         >
           {/* parse-data-quality-warnings badge (spec §3.5) — visible degraded-read
               notice, rendered once for BOTH buckets when the shows_internal
@@ -720,13 +729,79 @@ export async function Dashboard(
               }
             />
           )}
+        </section>
+        <section
+          data-testid="dashboard-inbox-col"
+          aria-label="Needs attention"
+          className="flex flex-col gap-3 min-[1240px]:col-start-2 min-[1240px]:row-start-1 min-[1240px]:row-span-2 min-[1240px]:w-80 min-[1240px]:shrink-0 min-[1400px]:w-panel-max"
+        >
+          <NeedsAttentionSummaryCard
+            totalCount={result.needsAttention.totalCount}
+            ingestionTotal={result.needsAttention.ingestionTotal}
+            syncTotal={result.needsAttention.syncTotal}
+            syncProblemTotal={result.needsAttention.syncProblemTotal}
+            autoAppliedCount={result.autoAppliedCount}
+            className="min-[720px]:hidden"
+          />
+          <div
+            data-testid="dashboard-inbox-desktop"
+            className="hidden min-[720px]:flex min-[720px]:h-full min-[720px]:min-h-0 min-[720px]:flex-col min-[720px]:gap-3"
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
+              <span
+                data-testid="needs-attention-count-chip"
+                className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+              >
+                {result.needsAttention.totalCount}
+              </span>
+              <HoverHelp
+                label="Help: Needs attention"
+                testId="needs-attention-help"
+                rootTestId="help-affordance--dashboard-needs-attention--tooltip"
+                // Right-column header: the w-72 popover must open leftward or it
+                // pokes off the viewport's right edge (pre-existing document
+                // horizontal overflow at ≥1240; HoverHelp §"Pass align='right'
+                // near a right edge").
+                align="right"
+                learnMore={{ href: "/help/admin/review-queues#first-seen" }}
+              >
+                <p>
+                  Sheets and changes waiting on you: new shows to review, staged edits to approve,
+                  or sheets that couldn&apos;t be processed.
+                </p>
+              </HoverHelp>
+            </div>
+            <NeedsAttentionInbox
+              items={result.needsAttention.items}
+              totalCount={result.needsAttention.totalCount}
+              renderedCount={result.needsAttention.renderedCount}
+              overflowCount={result.needsAttention.overflowCount}
+              now={now}
+            />
+            {/* Flow-4 (spec §8) — the recently-auto-applied strip renders directly
+                after the needs-attention inbox (both are review surfaces). It
+                returns null when there is nothing un-dispositioned, so it is a calm
+                no-op in the common case. The three server actions are passed as
+                DIRECT "use server" references — never wrapped in an inline closure,
+                which (as a non-"use server" function created in this Server
+                Component) could not cross the boundary into the client strip. The
+                strip's action-prop types are structurally identical to the domain
+                results, so no adapter is needed. */}
+            <RecentAutoAppliedStrip
+              data={result.recentAutoApplied}
+              actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
+            />
+          </div>
+        </section>
 
-          {/* Ignored sheets — collapsed-by-default disclosure kept INSIDE the shows
-              column so it sits directly beneath the table. Previously it rendered
-              below the whole two-column split, where the taller inbox column left a
-              large empty gap above it. ALWAYS rendered (collapsed) as a stable,
-              discoverable "▸ Ignored sheets (N)" row; the list + per-row Un-ignore
-              mount only once expanded. */}
+        {/* Ignored sheets — collapsed-by-default disclosure. On desktop the grid
+            places it in the LEFT column's row 2 (directly beneath the table); on
+            mobile it is the last flex-col child, so it sits at the very bottom
+            (after the inbox). ALWAYS rendered (collapsed) as a stable, discoverable
+            "▸ Ignored sheets (N)" row; the list + per-row Un-ignore mount only once
+            expanded. */}
+        <div className="min-w-0 min-[1240px]:col-start-1 min-[1240px]:row-start-2 min-[1240px]:self-start">
           <IgnoredSheetsDisclosure
             count={result.ignoredSheets.length}
             degraded={result.ignoredDegraded}
@@ -794,66 +869,7 @@ export async function Dashboard(
               </ul>
             )}
           </IgnoredSheetsDisclosure>
-        </section>
-        <section
-          data-testid="dashboard-inbox-col"
-          aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1240px]:w-80 min-[1240px]:shrink-0 min-[1400px]:w-panel-max"
-        >
-          <NeedsAttentionSummaryCard
-            totalCount={result.needsAttention.totalCount}
-            ingestionTotal={result.needsAttention.ingestionTotal}
-            syncTotal={result.needsAttention.syncTotal}
-            syncProblemTotal={result.needsAttention.syncProblemTotal}
-            autoAppliedCount={result.autoAppliedCount}
-            className="min-[720px]:hidden"
-          />
-          <div
-            data-testid="dashboard-inbox-desktop"
-            className="hidden min-[720px]:flex min-[720px]:h-full min-[720px]:min-h-0 min-[720px]:flex-col min-[720px]:gap-3"
-          >
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
-              <span
-                data-testid="needs-attention-count-chip"
-                className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
-              >
-                {result.needsAttention.totalCount}
-              </span>
-              <HoverHelp
-                label="Help: Needs attention"
-                testId="needs-attention-help"
-                rootTestId="help-affordance--dashboard-needs-attention--tooltip"
-                learnMore={{ href: "/help/admin/review-queues#first-seen" }}
-              >
-                <p>
-                  Sheets and changes waiting on you: new shows to review, staged edits to approve,
-                  or sheets that couldn&apos;t be processed.
-                </p>
-              </HoverHelp>
-            </div>
-            <NeedsAttentionInbox
-              items={result.needsAttention.items}
-              totalCount={result.needsAttention.totalCount}
-              renderedCount={result.needsAttention.renderedCount}
-              overflowCount={result.needsAttention.overflowCount}
-              now={now}
-            />
-            {/* Flow-4 (spec §8) — the recently-auto-applied strip renders directly
-                after the needs-attention inbox (both are review surfaces). It
-                returns null when there is nothing un-dispositioned, so it is a calm
-                no-op in the common case. The three server actions are passed as
-                DIRECT "use server" references — never wrapped in an inline closure,
-                which (as a non-"use server" function created in this Server
-                Component) could not cross the boundary into the client strip. The
-                strip's action-prop types are structurally identical to the domain
-                results, so no adapter is needed. */}
-            <RecentAutoAppliedStrip
-              data={result.recentAutoApplied}
-              actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
-            />
-          </div>
-        </section>
+        </div>
       </div>
 
       <DashboardFooter />

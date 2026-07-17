@@ -58,9 +58,12 @@ const TOL = 0.5;
 const NAV_BREAKPOINT = 720;
 // Tap-target floor (min-h-tap-min token) for the summary card, spec §4.8 inv 3.
 const TAP_MIN = 44;
-// The two-col dashboard split (and its items-stretch equal-height contract)
-// activates at min-[1080px] (Dashboard.tsx dashboard-split).
-const SPLIT_BREAKPOINT = 1080;
+// The two-col dashboard split activates at min-[1240px] (Dashboard.tsx
+// dashboard-split — raised from 1080 when the Status column added a 6th
+// ShowsTable grid track). At ≥1240 the split is a CSS grid: the Needs-attention
+// inbox spans BOTH rows of the right column, running full-height alongside the
+// left column (shows table in row 1 + Ignored-sheets disclosure in row 2).
+const SPLIT_BREAKPOINT = 1240;
 
 // Sweep the 720px boundary band: two below (600, 719), the breakpoint itself
 // (720), and the desktop range (860, 1024, 1280). 1080 added by Task 8: the
@@ -436,17 +439,31 @@ test.describe("admin nav + settings layout dimensions (real browser, §6)", () =
           `${content.testid} non-zero height inside dashboard-inbox-desktop @ ${width}px`,
         ).toBeGreaterThan(0);
 
-        // ── §4.8 inv 4: at ≥1080px the two-col split is active with
-        // items-stretch — the inbox column matches the shows column height
-        // within tolerance (Tailwind v4 does NOT default .flex to stretch;
-        // this is the real-browser pin for the equal-height contract). ──
+        // ── §4.8 inv 4: at ≥1240px the two-col grid split is active
+        // (grid-rows-[min-content_1fr], items-start). The shows table (left row
+        // 1) and the inbox (right, spanning both rows) are top-aligned and
+        // side-by-side, and the Ignored-sheets disclosure (left row 2) sits TIGHT
+        // beneath the table — separated only by the grid row gap (gap-y-3 = 12px),
+        // never pushed down by the taller inbox column. That "no gap under the
+        // table" relationship is the real-browser pin (Tailwind v4 does NOT
+        // default grid tracks to any implicit sizing). ──
         if (width >= SPLIT_BREAKPOINT) {
+          const GRID_ROW_GAP = 12; // gap-y-3 = 0.75rem
           const showsCol = await rect(page, "dashboard-shows-col");
           const inboxCol = await rect(page, "dashboard-inbox-col");
+          const ignored = await rect(page, "admin-ignored-sheets");
           expect(
-            Math.abs(inboxCol.height - showsCol.height),
-            `inbox col height vs shows col height (items-stretch parity) @ ${width}px`,
+            Math.abs(inboxCol.top - showsCol.top),
+            `inbox col top vs shows col top (grid row 1 alignment) @ ${width}px`,
           ).toBeLessThanOrEqual(TOL);
+          expect(
+            Math.abs(ignored.top - (showsCol.bottom + GRID_ROW_GAP)),
+            `ignored disclosure tight under the shows table (row gap only) @ ${width}px`,
+          ).toBeLessThanOrEqual(TOL);
+          expect(
+            inboxCol.left,
+            `inbox col is side-by-side (right of) shows col @ ${width}px`,
+          ).toBeGreaterThan(showsCol.left + 1);
         }
       }
     });

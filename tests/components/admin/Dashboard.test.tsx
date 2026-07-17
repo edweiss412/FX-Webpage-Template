@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 // M12.2 Phase A Task 7 — Dashboard composition (spec §5/§9). Composes StatStrip
 // + (ShowsTable ⟷ NeedsAttentionInbox two-col) + DashboardFooter from the new
-// data layer. The two-col split carries items-stretch (Tailwind v4 default is
-// NOT stretch — DESIGN §7). The infra_error path renders the existing error main.
+// data layer. At ≥1240 the two-col split is a CSS grid (grid-cols + grid-rows
+// [min-content_1fr]) so the Ignored-sheets disclosure sits in the left column's
+// row 2 (tight under the table) while the inbox spans both rows on the right —
+// and, being the LAST DOM child, the disclosure stacks at the very bottom on
+// mobile. The infra_error path renders the existing error main.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -148,7 +151,7 @@ describe("Dashboard composition", () => {
     expect(within(fallback).queryByTestId("shows-heading-eyebrow")).toBeNull();
   });
 
-  it("renders the ignored-sheets disclosure (collapsed) below the split, with its help affordance", async () => {
+  it("renders the ignored-sheets disclosure (collapsed) as the split's last child, with its help affordance", async () => {
     await renderDashboard();
     // Collapsed by default: the toggle + help are present; the panel region is
     // always mounted (CollapsePanel height-morph) but inert while collapsed.
@@ -157,17 +160,39 @@ describe("Dashboard composition", () => {
     expect(screen.getByTestId("help-affordance--ignored-sheets-page--tooltip")).toBeInTheDocument();
   });
 
-  it("the two-col split container carries items-stretch (DESIGN §7)", async () => {
+  it("the two-col split is a grid with grid-rows-[min-content_1fr] (DESIGN §7)", async () => {
     await renderDashboard();
     const split = screen.getByTestId("dashboard-split");
-    expect(split.className).toMatch(/items-stretch/);
+    // Grid (not flex-row) so the Ignored-sheets disclosure can live in the left
+    // column's row 2 while the inbox spans both rows; the min-content/1fr rows
+    // keep the disclosure tight under the table regardless of which column is
+    // taller (a flex-row split gapped the disclosure below the taller inbox).
+    expect(split.className).toContain("min-[1240px]:grid");
+    expect(split.className).toContain("min-[1240px]:grid-rows-[min-content_1fr]");
   });
 
-  it("two-col split + inbox use the bumped breakpoints (1240 split, 1400 inbox-widen) — §6.3", async () => {
+  it("ignored-sheets disclosure is the LAST split child (mobile bottom order)", async () => {
     await renderDashboard();
     const split = screen.getByTestId("dashboard-split");
-    expect(split.className).toContain("min-[1240px]:flex-row");
-    expect(split.className).toContain("min-[1240px]:items-stretch");
+    const ignored = screen.getByTestId("admin-ignored-sheets");
+    const inbox = screen.getByTestId("dashboard-inbox-col");
+    // On mobile the split is a flex-col, so DOM order == visual order: the
+    // disclosure must come AFTER the inbox column to render at the very bottom.
+    const pos = inbox.compareDocumentPosition(ignored);
+    expect(pos & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And it is the split's final child.
+    expect(split.lastElementChild).toContainElement(ignored);
+  });
+
+  it("two-col grid + inbox use the bumped breakpoints (1240 split, 1400 inbox-widen) — §6.3", async () => {
+    await renderDashboard();
+    const split = screen.getByTestId("dashboard-split");
+    expect(split.className).toContain("min-[1240px]:grid");
+    // Fixed 20rem inbox track (== w-80) at ≥1240, widening to 30rem (== w-panel-max)
+    // at ≥1400 — mirrors the former flex `w-80`/`w-panel-max` inbox so the shows
+    // column can't be starved and the inbox can't grow to its cards' max-content.
+    expect(split.className).toContain("min-[1240px]:grid-cols-[minmax(0,1fr)_20rem]");
+    expect(split.className).toContain("min-[1400px]:grid-cols-[minmax(0,1fr)_30rem]");
     const inbox = screen.getByTestId("dashboard-inbox-col");
     expect(inbox.className).toContain("min-[1240px]:w-80");
     // 480px is now the shared `--spacing-panel-max` token (canonicalized from the
