@@ -244,7 +244,8 @@ function SyncCell({
       : undefined;
   return (
     <span className="flex flex-col" title={checkedTitle}>
-      <StatusIndicator status={bucket} label={label} />
+      {/* pulse: subtle heartbeat on the healthy/synced dot (no-op on non-positive). */}
+      <StatusIndicator status={bucket} label={label} pulse />
     </span>
   );
 }
