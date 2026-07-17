@@ -121,12 +121,12 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     expect(rotateShareToken).not.toHaveBeenCalled();
   });
 
-  test("confirm → 3s auto-revert: returns to idle without invoking the action", () => {
+  test("confirm → 4s auto-revert: returns to idle without invoking the action", () => {
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     expect(confirmBtn()).toBeTruthy();
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(idleBtn()).toBeTruthy();
     expect(rotateShareToken).not.toHaveBeenCalled();
@@ -271,7 +271,7 @@ describe("RotateShareTokenButton — destructive recipe + focus-safe open/close 
     fireEvent.click(idleBtn());
     await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
   });
@@ -290,7 +290,7 @@ describe("RotateShareTokenButton — destructive recipe + focus-safe open/close 
     const external = screen.getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(external).toHaveFocus();
     expect(idleBtn()).not.toHaveFocus();

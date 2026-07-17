@@ -5,7 +5,7 @@
  *
  * Pins the contract from shape brief 2026-05-14-alert-banner.md §5.4:
  *   idle → confirm    (single tap)
- *   confirm → idle    (Cancel tap; OR 3s auto-revert)
+ *   confirm → idle    (Cancel tap; OR 4s auto-revert)
  *   confirm → resolving (Confirm tap; submit type=submit)
  *   resolving stays disabled (cannot double-fire)
  *
@@ -80,14 +80,14 @@ describe("ResolveAlertButton state machine", () => {
     expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Dismiss");
   });
 
-  it("confirm → idle on 3s auto-revert (timer fires)", () => {
+  it("confirm → idle on 4s auto-revert (timer fires)", () => {
     const { getByTestId, queryByTestId } = render(<ResolveAlertButton />);
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
     expect(getByTestId("admin-alert-confirm-row")).not.toBeNull();
-    // Brief §5.4: 3s of inaction → auto-revert. act() so React flushes
+    // Brief §5.4: 4s of inaction → auto-revert. act() so React flushes
     // the setState fired from inside the timer callback.
     act(() => {
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(4_000);
     });
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
     expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Dismiss");
@@ -97,7 +97,7 @@ describe("ResolveAlertButton state machine", () => {
     const { getByTestId } = render(<ResolveAlertButton />);
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
     fireEvent.click(getByTestId("admin-alert-cancel-button"));
-    // Idle now. If the timer leaks, advancing past 3s would attempt
+    // Idle now. If the timer leaks, advancing past 4s would attempt
     // to set state on an unrelated render and would not flip back to
     // confirm. Verify the idle render is stable across the timer
     // boundary — the Dismiss button stays visible AND nothing extra
@@ -238,12 +238,12 @@ describe("ResolveAlertButton state machine", () => {
     await vi.waitFor(() => expect(getByTestId("admin-alert-resolve-button")).toHaveFocus());
   });
 
-  it("close focus (C5): 3s auto-revert with focus inside the confirm row restores the trigger", async () => {
+  it("close focus (C5): 4s auto-revert with focus inside the confirm row restores the trigger", async () => {
     const { getByTestId } = render(<ResolveAlertButton />);
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
     await vi.waitFor(() => expect(getByTestId("admin-alert-cancel-button")).toHaveFocus());
     act(() => {
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(4_000);
     });
     await vi.waitFor(() => expect(getByTestId("admin-alert-resolve-button")).toHaveFocus());
   });
@@ -262,7 +262,7 @@ describe("ResolveAlertButton state machine", () => {
     const external = screen.getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
-      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(4_000);
     });
     expect(external).toHaveFocus();
     expect(screen.getByTestId("admin-alert-resolve-button")).not.toHaveFocus();

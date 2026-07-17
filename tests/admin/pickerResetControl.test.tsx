@@ -308,7 +308,7 @@ describe("PickerResetControl — destructive recipe + focus-safe open/close (R4,
     fireEvent.click(memberBtn());
     await vi.waitFor(() => expect(cancel()).toHaveFocus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     await vi.waitFor(() => expect(memberBtn()).toHaveFocus());
   });
@@ -327,7 +327,7 @@ describe("PickerResetControl — destructive recipe + focus-safe open/close (R4,
     const external = screen.getByTestId("external-btn");
     act(() => external.focus());
     act(() => {
-      vi.advanceTimersByTime(3_001);
+      vi.advanceTimersByTime(4_001);
     });
     expect(external).toHaveFocus();
     expect(memberBtn()).not.toHaveFocus();

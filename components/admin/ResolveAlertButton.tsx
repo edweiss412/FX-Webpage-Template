@@ -55,7 +55,9 @@ import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { AccentButton } from "@/components/shared/AccentButton";
 
-const AUTO_REVERT_MS = 3_000;
+// Armed-state auto-revert window — harmonized to 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
 
 type UiState = "idle" | "confirm";
 
@@ -117,7 +119,7 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
       closeConfirm();
-    }, AUTO_REVERT_MS);
+    }, ARM_REVERT_MS);
   };
 
   const onCancelClick = () => {
