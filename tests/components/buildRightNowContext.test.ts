@@ -177,7 +177,7 @@ describe("buildRightNowContext — showAnchors carry (D6/§5.1)", () => {
     });
     // assert against the data source (runOfShow), not a rendered container:
     expect(ctx.showAnchors.map((a) => a.date)).toEqual(showDays);
-    expect(ctx.showAnchors.map((a) => a.time)).toEqual(["7:15am", "8:30am"]);
+    expect(ctx.showAnchors.map((a) => a.time)).toEqual(["7:15 AM", "8:30 AM"]); // meridiem normalized (D3)
   });
 });
 
@@ -244,7 +244,7 @@ describe("buildRightNowContext — stage-gated Set/Strike anchors (#248)", () =>
       stageRestriction: { kind: "explicit", stages: ["Load Out", "Strike"] },
     });
     expect(ctx.loadInTime).toBeNull();
-    expect(ctx.strikeTime).toBe("10/9 @ 4:30pm");
+    expect(ctx.strikeTime).toBe("10/9 @ 4:30 PM"); // meridiem normalized (D3)
   });
 
   it("stageRestriction omitted → both anchors present (backward-compat)", () => {
@@ -256,6 +256,6 @@ describe("buildRightNowContext — stage-gated Set/Strike anchors (#248)", () =>
       runOfShow: null,
     });
     expect(ctx.loadInTime).toBe("9:00 AM");
-    expect(ctx.strikeTime).toBe("10/9 @ 4:30pm");
+    expect(ctx.strikeTime).toBe("10/9 @ 4:30 PM"); // meridiem normalized (D3)
   });
 });

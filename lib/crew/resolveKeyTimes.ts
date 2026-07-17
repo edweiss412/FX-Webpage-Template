@@ -7,6 +7,7 @@ import type {
 } from "@/lib/parser/types";
 import type { RoomRow } from "@/lib/parser/types";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
+import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { TERMINAL_RE } from "@/lib/parser/blocks/scheduleTimes";
 
 /** ShowForViewer.rooms element type: a parsed RoomRow plus its DB PK. */
@@ -190,6 +191,17 @@ export function resolveKeyTimes(
     }
   }
   if (out.length > 0) anchors.shows = out;
+
+  // D3: normalize the meridiem casing/spacing on every present anchor so a
+  // strip never stacks "9:00PM" beside "7:30am" (un-curated sheet passthrough).
+  // Applied here, at the single exit, so Set / Show / Strike are covered
+  // uniformly. Window/showStart meta are normalized at their own render funnel
+  // (ScheduleSection.guardMeta).
+  if (anchors.set != null) anchors.set = normalizeMeridiem(anchors.set);
+  if (anchors.strike != null) anchors.strike = normalizeMeridiem(anchors.strike);
+  if (anchors.shows != null) {
+    anchors.shows = anchors.shows.map((s) => ({ ...s, time: normalizeMeridiem(s.time) }));
+  }
 
   return anchors;
 }

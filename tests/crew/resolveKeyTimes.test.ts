@@ -166,7 +166,7 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
     const anchors = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // assert against the RETURNED anchors (data source), not a render container:
     expect(anchors.shows?.map((a) => a.date)).toEqual(showDays); // ASC, one per visible day
-    expect(anchors.shows?.map((a) => a.time)).toEqual(["7:15am", "7:30am", "8:00am"]);
+    expect(anchors.shows?.map((a) => a.time)).toEqual(["7:15 AM", "7:30 AM", "8:00 AM"]); // meridiem normalized (D3)
   });
 
   it("bare-showStart day still yields its showStart anchor (Show Start render is renderer-only)", () => {
@@ -185,12 +185,12 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
 describe("resolveKeyTimes — Set compose (D3)", () => {
   it("composes dates.set (M/D) + dates.loadIn → '10/7 @ 9:00PM' with rooms null", () => {
     const a = resolveKeyTimes(dates({ set: "2026-10-07", loadIn: "9:00PM" }), null, null, NONE);
-    expect(a.set).toBe("10/7 @ 9:00PM"); // composed; rooms-INDEPENDENT (rooms null)
+    expect(a.set).toBe("10/7 @ 9:00 PM"); // composed; rooms-INDEPENDENT (rooms null); meridiem normalized (D3)
   });
   it("loadIn precedence: dates.loadIn wins over GS room set_time even when room present", () => {
     const gs = room({ set_time: "5:00 AM" });
     const a = resolveKeyTimes(dates({ set: "2026-10-07", loadIn: "9:00PM" }), [gs], null, NONE);
-    expect(a.set).toBe("10/7 @ 9:00PM"); // NOT "5:00 AM"
+    expect(a.set).toBe("10/7 @ 9:00 PM"); // NOT "5:00 AM"; meridiem normalized (D3)
   });
   it("sentinel-guards the clock portion: '10/7 @ TBD' resolves absent, falls back to room set_time", () => {
     const gs = room({ set_time: "5:00 AM" });
@@ -199,7 +199,7 @@ describe("resolveKeyTimes — Set compose (D3)", () => {
   });
   it("dates.set absent → bare loadIn (no '@' compose)", () => {
     const a = resolveKeyTimes(dates({ set: null, loadIn: "9:00PM" }), null, null, NONE);
-    expect(a.set).toBe("9:00PM");
+    expect(a.set).toBe("9:00 PM"); // meridiem normalized (D3)
   });
 });
 
@@ -208,7 +208,7 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
     const gs = room({ show_time: "10/8 @ 8:45am" });
     const a = resolveKeyTimes(dates({ showDays: ["2026-10-08"] }), [gs], null, NONE);
     expect(a.shows).toEqual([
-      { date: "2026-10-08", label: expect.any(String), time: "10/8 @ 8:45am" },
+      { date: "2026-10-08", label: expect.any(String), time: "10/8 @ 8:45 AM" }, // meridiem normalized (D3)
     ]);
   });
   it("all anchors absent → {} (no set/shows/strike)", () => {
@@ -225,7 +225,7 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
       },
     };
     const a = resolveKeyTimes(dates({ showDays: ["2026-10-08"] }), null, runOfShow, NONE);
-    expect(a.shows?.[0]?.time).toBe("7:15am");
+    expect(a.shows?.[0]?.time).toBe("7:15 AM"); // meridiem normalized (D3)
   });
   it("unknown_asterisk → {} (entire strip suppressed, even with rooms + set)", () => {
     const gs = room({ show_time: "10/8 @ 8:45am", strike_time: "10/9 @ 4:30pm" });
@@ -250,8 +250,8 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
       { kind: "explicit", days: ["2026-10-08"] },
     );
     expect(a.shows?.map((s) => s.date)).toEqual(["2026-10-08"]); // ONLY visible Day 1
-    expect(a.set).toBe("10/7 @ 9:00PM"); // show-wide Set renders for explicit viewer
-    expect(a.strike).toBe("10/9 @ 4:30pm"); // show-wide Strike renders
+    expect(a.set).toBe("10/7 @ 9:00 PM"); // show-wide Set renders for explicit viewer; normalized (D3)
+    expect(a.strike).toBe("10/9 @ 4:30 PM"); // show-wide Strike renders; normalized (D3)
   });
   it("date-safe fallback: Redefining-FI Day-2 (5/14) absent from runOfShow, room dated 5/13 → NO 5/14 anchor", () => {
     const gs = room({ show_time: "5/13 @ 8:00 AM" });
@@ -300,7 +300,7 @@ describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source"
     const a = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // No anchor.time may equal a sentinel.
     expect((a.shows ?? []).every((s) => !/\b(TBD|TBA|N\/A)\b/i.test(s.time))).toBe(true);
-    expect(a.shows?.find((s) => s.date === "2026-10-08")?.time).toBe("7:30am"); // fell through to window.start
+    expect(a.shows?.find((s) => s.date === "2026-10-08")?.time).toBe("7:30 AM"); // fell through to window.start; normalized (D3)
     expect(a.shows?.some((s) => s.date === "2026-10-09")).toBe(false); // sentinel entry → omitted
     expect(a.shows?.some((s) => s.date === "2026-10-10")).toBe(false); // all sentinel → omitted
   });
