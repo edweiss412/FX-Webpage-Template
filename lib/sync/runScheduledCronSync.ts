@@ -108,6 +108,7 @@ import {
   SyncInfraError,
   type SyncMode,
 } from "@/lib/sync/perFileProcessor";
+import { isSyntheticDriveFileId } from "@/lib/sync/syntheticDriveFileId";
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
@@ -3773,7 +3774,14 @@ export async function runScheduledCronSync(
         ? []
         : await listPostgresLiveShows();
     const missingShows = liveShows.filter(
-      (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
+      (show) =>
+        show.wizardSessionId === null &&
+        !listedDriveFileIds.has(show.driveFileId) &&
+        // BL-CRON-SYNTHETIC-SHOW-SKIP: a leaked test-seed show (synthetic
+        // drive_file_id, published=true, never in Drive) can never resolve —
+        // reconciling it just re-marks SHEET_UNAVAILABLE every tick forever.
+        // Excluding it here closes that class regardless of test hygiene.
+        !isSyntheticDriveFileId(show.driveFileId),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
