@@ -86,10 +86,9 @@ import {
   isAllowedDiagramMime,
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
-import { overrideSnapshotsEqual, type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
+import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
@@ -130,6 +129,11 @@ import { Avatar } from "@/components/atoms/Avatar";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
+import {
+  ArchivedTabOffer,
+  ArchivedTabIncludedNote,
+  deriveArchivedOffers,
+} from "@/components/admin/wizard/archivedTabOffer";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
@@ -1951,21 +1955,16 @@ export function PackListBreakdown({
   pullSheetOverride: OverrideSnapshot;
 }) {
   const staged = wizardSessionId != null;
-  // §5.6 state machine. The included tab (override applied) carries the revoke
-  // note (S3); every non-included archived tab is an offer/re-confirm card (S2/S4,
-  // §6 renders all, no cap). When an override is active we suppress the offers —
-  // only one override at a time (the RPC enforces it). The affordance is staged-
-  // only, so both derivations gate on `staged`.
-  const includedTab = staged ? (archivedPullSheetTabs.find((t) => t.included) ?? null) : null;
-  const previewSnapshot: OverrideSnapshot = includedTab
-    ? { tabName: includedTab.tabName, fingerprint: includedTab.fingerprint }
-    : null;
-  const overrideActive = pullSheetOverride !== null;
-  // S5 (spec §3.2): the durable override and the parse preview disagree. Only a
-  // re-scan heals it, so it preempts the S2/S3 affordances that would loop.
-  const divergent = staged && !overrideSnapshotsEqual(pullSheetOverride, previewSnapshot);
-  const offers =
-    staged && !divergent && !overrideActive ? archivedPullSheetTabs.filter((t) => !t.included) : [];
+  // §5.6/§3.2 state machine, derived by the shared single source (spec
+  // 2026-07-17 §4.2). The included tab (override applied) carries the revoke note
+  // (S3); every non-included archived tab is an offer/re-confirm card (S2/S4);
+  // an active durable override or an S5 divergence suppresses the offers. The
+  // Step-3 Resolve box calls the same helper so both surfaces agree (parity).
+  const { includedTab, overrideActive, divergent, offers } = deriveArchivedOffers(
+    archivedPullSheetTabs,
+    staged,
+    pullSheetOverride,
+  );
   const hasCases = cases.length > 0;
   // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
   // override (S3) suppresses the empty state. Must also require !divergent so a
@@ -2103,202 +2102,6 @@ function PackListCases({ dfid, cases }: { dfid: string | null; cases: PullSheetC
       </ul>
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </>
-  );
-}
-
-// The archived-tab CTA grammar. The load-bearing action (accept / revoke) is the
-// bordered button that mirrors RescanSheetButton; the dismiss ("Keep skipped") is
-// a quieter ghost so a glancing operator reads the primary action first (impeccable
-// critique P2 — hierarchy WITHIN the neutral palette, never spending the ≤10% orange).
-const ARCHIVED_TAB_BTN =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
-// Resting color is text-text (NOT text-subtle — DESIGN.md:27 bars subtle on action
-// targets); the border-transparent + no-fill is what makes it read as secondary.
-const ARCHIVED_TAB_GHOST_BTN =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-4 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
-
-async function postPullSheetOverride(body: unknown): Promise<{ ok: boolean; refresh: boolean }> {
-  const response = await fetch("/api/admin/onboarding/pull-sheet-override", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  // On success OR a 409 stale-review (the server re-scanned to the new
-  // fingerprint), re-fetch the preview so the re-rendered card carries the fresh
-  // state instead of a bespoke error (plan-R1-3). Any other status is a real
-  // failure surfaced as an inline line (no raw code — invariant 5).
-  return { ok: response.ok, refresh: response.ok || response.status === 409 };
-}
-
-// Generic client-side transport-failure chrome (accept/revoke POST failed with no server code to
-// route through messageFor(); success + 409 both re-fetch the preview). No raw code (invariant 5).
-// not-subject:M5-D8 — friendly fallback copy, not a §12.4-coded message.
-const ARCHIVED_TAB_ERROR =
-  "That didn’t go through. Refresh and try again, or contact the developer if it keeps happening.";
-
-/** S2 offer / S4 re-confirm: a warning card offering to fold one archived-tab
- *  pull sheet into this show's gear. Accept POSTs the row-state-CAS body (no
- *  active override → expectedOverrideSnapshot null). "Keep skipped" is a local
- *  dismiss — the default state is already skipped, so nothing is written. */
-function ArchivedTabOffer({
-  dfid,
-  wizardSessionId,
-  tab,
-  onDismissFocus,
-}: {
-  dfid: string | null;
-  wizardSessionId: string;
-  tab: ArchivedPullSheetTab;
-  /** Focus a persistent sibling before this card unmounts on dismiss (WCAG 2.4.3). */
-  onDismissFocus: () => void;
-}) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (dismissed) return null;
-
-  async function accept() {
-    if (pending) return;
-    setError(null);
-    setPending(true);
-    try {
-      const { refresh } = await postPullSheetOverride({
-        driveFileId: dfid,
-        wizardSessionId,
-        tabName: tab.tabName,
-        expectedFingerprint: tab.fingerprint,
-        expectedOverrideSnapshot: null,
-      });
-      if (refresh) {
-        router.refresh();
-        return;
-      }
-      setError(ARCHIVED_TAB_ERROR);
-    } catch {
-      setError(ARCHIVED_TAB_ERROR);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  // S4 (content changed after acceptance) is a genuine "act before it publishes"
-  // state → warm warning tone. S2 (first discovery) is neutral information, not a
-  // problem → the quieter info tone (impeccable critique P3).
-  const changed = tab.contentChangedSinceAccept;
-  const cardTone = changed
-    ? "border-border-strong bg-warning-bg text-warning-text"
-    : "border-border bg-info-bg text-text-strong";
-
-  return (
-    <div
-      data-testid={`pack-list-archived-offer-${dfid}-${tab.tabName}`}
-      className={`flex flex-col gap-2 rounded-sm border p-3 text-sm ${cardTone}`}
-    >
-      <p className="font-medium">
-        {changed
-          ? `The archived tab ‘${tab.tabName}’ changed. Re-confirm before it publishes.`
-          : `Found a pull sheet on archived tab ‘${tab.tabName}’.`}
-      </p>
-      <ul className="flex flex-col gap-0.5 text-xs">
-        {tab.headerPreviews.map((preview, i) => (
-          <li key={`${tab.tabName}-preview-${i}`} className="wrap-break-word">
-            Case {i + 1} header reads ‘{preview.trim() ? preview : "(no header text)"}’.
-          </li>
-        ))}
-      </ul>
-      <p>If this is this show’s gear, include it; otherwise leave it skipped.</p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={accept}
-          disabled={pending}
-          aria-busy={pending}
-          className={ARCHIVED_TAB_BTN}
-        >
-          {pending ? "Including…" : "Use this show’s gear"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            // Move focus to the persistent section BEFORE the card (and this
-            // button) unmount, so focus never drops to <body> in the trapped modal.
-            onDismissFocus();
-            setDismissed(true);
-          }}
-          disabled={pending}
-          className={ARCHIVED_TAB_GHOST_BTN}
-        >
-          Keep skipped
-        </button>
-      </div>
-      {error ? (
-        <p role="status" aria-live="polite">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/** S3: the subtle "this pack list came from an archived tab" note + Revoke.
- *  Revoke POSTs tabName:null with the active override's snapshot as the row-state
- *  CAS baseline (spec §5.4). */
-function ArchivedTabIncludedNote({
-  dfid,
-  wizardSessionId,
-  tab,
-}: {
-  dfid: string | null;
-  wizardSessionId: string;
-  tab: ArchivedPullSheetTab;
-}) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function revoke() {
-    if (pending) return;
-    setError(null);
-    setPending(true);
-    try {
-      const { refresh } = await postPullSheetOverride({
-        driveFileId: dfid,
-        wizardSessionId,
-        tabName: null,
-        expectedOverrideSnapshot: { tabName: tab.tabName, fingerprint: tab.fingerprint },
-      });
-      if (refresh) {
-        router.refresh();
-        return;
-      }
-      setError(ARCHIVED_TAB_ERROR);
-    } catch {
-      setError(ARCHIVED_TAB_ERROR);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong">
-      <p className="wrap-break-word min-w-0 flex-1">Included from archived tab ‘{tab.tabName}’.</p>
-      <button
-        type="button"
-        onClick={revoke}
-        disabled={pending}
-        aria-busy={pending}
-        className={ARCHIVED_TAB_BTN}
-      >
-        {pending ? "Revoking…" : "Revoke"}
-      </button>
-      {error ? (
-        <p role="status" aria-live="polite" className="basis-full">
-          {error}
-        </p>
-      ) : null}
-    </div>
   );
 }
 
