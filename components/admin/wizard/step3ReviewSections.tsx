@@ -2319,7 +2319,7 @@ function ArchivedTabRescanNeeded({
       data-testid={`pack-list-rescan-needed-${dfid}`}
       className="flex flex-col gap-2 rounded-sm border border-border bg-info-bg p-3 text-sm text-text-strong"
     >
-      <p className="font-medium">Gear saved. The preview is out of date.</p>
+      <p className="font-medium">Your change was saved, but this preview is out of date.</p>
       <p>Re-scan to refresh it.</p>
       <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} disabled={isPublishRunActive} />
     </div>

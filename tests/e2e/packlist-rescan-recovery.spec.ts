@@ -5,8 +5,8 @@
  * (spec §3.4). Renders the REAL <PackListBreakdown> in the S5 accept-stale case
  * (durable override set + preview tab present-but-not-included) and verifies, in
  * a real DOM, that:
- *   - the recovery note copy renders ("Gear saved. The preview is out of date." +
- *     "Re-scan to refresh it.");
+ *   - the recovery note copy renders ("Your change was saved, but this preview is
+ *     out of date." + "Re-scan to refresh it.");
  *   - the RescanSheetButton renders and is keyboard-focusable;
  *   - no raw §12.4 code substring leaks into the visible copy;
  *   - the rendered copy carries no em dash (DESIGN.md §UI-copy).
@@ -106,7 +106,7 @@ test.describe("PackListBreakdown S5 re-scan recovery (real browser)", () => {
 
     // Note copy (spec §3.4).
     const text = (await recovery.innerText()).trim();
-    expect(text).toContain("Gear saved. The preview is out of date.");
+    expect(text).toContain("Your change was saved, but this preview is out of date.");
     expect(text).toContain("Re-scan to refresh it.");
 
     // The RescanSheetButton renders and is keyboard-focusable.
