@@ -274,6 +274,13 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
     await waitFor(() => screen.getByTestId("report-modal-retry"));
 
     // sessionStorage should hold { idempotencyKey, draft, status, surfaceId }.
+    // The persistence effect can flush a tick after the retry button renders, so
+    // wait for the persisted status to settle before asserting (avoids a load-only
+    // race where the read catches the transient 'submitting' — CI shard 2 flake).
+    await waitFor(() => {
+      const p = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "{}");
+      expect(p.status).toBe("failed-retryable");
+    });
     const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
     expect(persisted.idempotencyKey).toBe(uuids[0]);
     expect(persisted.draft).toBe("first draft");
