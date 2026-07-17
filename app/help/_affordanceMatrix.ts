@@ -286,4 +286,15 @@ export const DEFERRED_TESTIDS: ReadonlySet<string> = new Set([
   // staged-review card it pointed at was retired by the Phase 6 ChangesFeed; see
   // DEFERRED.md D9 and the removed matrix row above.)
   "help-affordance--preview-banner--tooltip",
+  // Consolidated-admin-show-page rebuild (spec 2026-07-16, Task 13): the old
+  // per-show page's Crew / Sync-footer / Data-quality HoverHelp affordances were
+  // removed with their sections — crew now renders inside the shared review
+  // surface, sync is a StatusStrip badge, and data-quality warnings moved
+  // per-section. The help TARGETS still exist; these affordances are DEFERRED
+  // pending Task 16 (impeccable) deciding whether/where to re-home each tooltip
+  // on the consolidated surface (un-defer on build, or drop the row + help page
+  // if the affordance is genuinely retired).
+  "help-affordance--per-show-crew--tooltip",
+  "help-affordance--per-show-sync-footer--tooltip",
+  "help-affordance--per-show-data-quality--tooltip",
 ]);

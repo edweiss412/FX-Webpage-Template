@@ -1,42 +1,56 @@
 // @vitest-environment jsdom
 /**
- * tests/components/admin/per-show-lifecycle.test.tsx (M12.2 Phase B2 Task 7.3)
+ * tests/components/admin/per-show-lifecycle.test.tsx
+ * (consolidated-admin-show-page spec §4/§6 — Task 13 rebuild)
  *
- * Per-show page lifecycle presentation (spec §2.2–§2.4):
- *   - Archived show: persistent disclosure ("This show is archived. Crew links
- *     are dead. Unarchive and re-publish to bring it back.") + a one-tap
- *     Unarchive button; ParsePanel read-only; NO Archive/Publish.
- *   - Held show (!published && !archived && !finalize-owned): disclosure
- *     ("Held — not published. Publish to make it live, then issue a crew
- *     link.") + a one-tap Publish button + the Archive button.
- *   - Publishing… (finalize-owned): no Held disclosure, no Publish/Unarchive,
- *     no Archive (mid-publish).
+ * Lifecycle presentation on the consolidated page. The old page's standalone
+ * "lifecycle" section (archived-disclosure / held-disclosure banners + inline
+ * Publish button) is gone by design (spec §6): the StatusStrip conveys the state
+ * (archived badge / publish toggle) and the Overview rail section owns the
+ * Archive / Unarchive controls + the inactive-share notice. This suite preserves
+ * the load-bearing behaviors the old lifecycle test pinned that STILL exist:
+ *   - the PublishedToggle enable/disable states across finalize-ownership (spec
+ *     §3.2 / R3): held → OFF-enabled, publishing → OFF-disabled, live+finalize →
+ *     ON-disabled, live → ON-enabled;
+ *   - archived → Unarchive present, toggle absent; held/live → Archive present.
  *
- * Full async-page render with the data layer + finalize-owned RPC mocked,
- * mirroring perShowPage.test.tsx.
+ * NOTE (whole-diff watchpoint): the old page suppressed the Archive button during
+ * the finalize-owned "Publishing…" window (its lifecycle section only rendered
+ * for archived||held). The consolidated OverviewSection renders Archive whenever
+ * !archived; the strip toggle is still frozen (finalizeOwned), and the archive
+ * server action carries its own finalize-ownership refusal. Flagged for review.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 
 const state = vi.hoisted(() => ({
-  show: {} as Record<string, unknown>,
+  snapshot: null as ShowReviewSnapshot | null,
   finalizeOwned: false as boolean,
 }));
 
-vi.mock("@/components/admin/PerShowAlertSection", () => ({ PerShowAlertSection: () => null }));
+vi.mock("@/components/admin/PerShowAlertSection", () => ({
+  PerShowAlertSection: () => null,
+  fetchPerShowAlerts: async () => [],
+}));
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
   const React = await import("react");
   return {
     CurrentShareLinkPanel: () =>
       React.createElement("div", { "data-testid": "admin-current-share-link-panel" }),
-    resolveOrigin: () => "https://crew.example.com",
   };
 });
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => ({ token: "tok-123", epoch: 7 }),
+}));
+vi.mock("@/lib/sync/feed/readShowChangeFeed", () => ({
+  readShowChangeFeed: async () => ({ entries: [], truncated: false, totalShown: 0 }),
+}));
+vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
+  loadIgnoredWarnings: async () => ({ kind: "ok", fingerprints: new Set<string>() }),
 }));
 vi.mock("next/navigation", () => ({
   notFound: () => {
@@ -45,32 +59,30 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/show/x",
 }));
-// The server actions are bound in the page; stub them so the bind() target exists.
 vi.mock("@/app/admin/show/[slug]/_actions", () => ({
   archiveShowAction: async () => ({ ok: true }),
   unarchiveShowAction: async () => undefined,
-  // Published toggle — the page binds setShowPublishedAction for the Share & access switch.
   setShowPublishedAction: async () => ({ ok: true }),
+  mi11ApproveAction: async () => undefined,
+  mi11RejectAction: async () => undefined,
+  undoChangeAction: async () => undefined,
+  acceptChangeAction: async () => undefined,
+  acceptAllAction: async () => undefined,
+}));
+
+vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
+  readShowReviewSnapshot: async () => ({ kind: "ok", snapshot: state.snapshot }),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
-    from(table: string) {
+    from() {
       const builder: Record<string, unknown> = {};
       const pass = () => builder;
-      builder.select = () => builder;
+      builder.select = pass;
       builder.eq = pass;
-      builder.is = pass;
-      builder.not = pass;
-      builder.order = pass;
       builder.limit = pass;
-      builder.returns = pass;
-      builder.maybeSingle = async () => ({
-        data: table === "shows" ? state.show : null,
-        error: null,
-      });
-      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) =>
-        onf({ data: [], error: null });
+      builder.maybeSingle = async () => ({ data: { id: "s1" }, error: null });
       return builder;
     },
     rpc: async (fn: string) =>
@@ -80,16 +92,50 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-const baseShow = {
-  id: "s1",
-  slug: "rpas",
-  title: "RPAS Central",
-  drive_file_id: "d1",
-  published: true,
-  archived: false,
-  last_synced_at: "2026-06-03T10:00:00.000Z",
-  last_sync_status: "ok",
-};
+function snapshotFor(show: Partial<Record<string, unknown>>): ShowReviewSnapshot {
+  return {
+    show: {
+      id: "s1",
+      slug: "rpas",
+      title: "RPAS Central",
+      client_label: "Acme",
+      client_contact: null,
+      dates: {
+        travelIn: "2026-06-14",
+        set: null,
+        showDays: ["2026-06-14"],
+        travelOut: "2026-06-15",
+      },
+      venue: { name: "Hall A", address: "1 Main St" },
+      event_details: null,
+      agenda_links: [],
+      coi_status: "received",
+      diagrams: null,
+      pull_sheet: [],
+      source_anchors: {},
+      drive_file_id: "d1",
+      published: true,
+      archived: false,
+      picker_epoch: 7,
+      last_synced_at: "2026-06-03T10:00:00.000Z",
+      last_sync_status: "ok",
+      ...show,
+    },
+    internal: {
+      financials: null,
+      parse_warnings: [],
+      raw_unrecognized: null,
+      run_of_show: {},
+      use_raw_decisions: [],
+      show_id: "s1",
+    },
+    crew_members: [],
+    rooms: [],
+    hotel_reservations: [],
+    transportation: [],
+    contacts: [],
+  };
+}
 
 async function renderPage() {
   const mod = await import("@/app/admin/show/[slug]/page");
@@ -101,7 +147,7 @@ async function renderPage() {
 }
 
 beforeEach(() => {
-  state.show = { ...baseShow };
+  state.snapshot = snapshotFor({});
   state.finalizeOwned = false;
 });
 afterEach(() => {
@@ -109,50 +155,38 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("per-show lifecycle presentation (§2.2–§2.4)", () => {
-  it("Archived: persistent disclosure + one-tap Unarchive; NO Archive/Publish", async () => {
-    state.show = { ...baseShow, published: false, archived: true };
+describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
+  it("Archived: Unarchive present, strip archived badge, NO toggle, NO Archive", async () => {
+    state.snapshot = snapshotFor({ published: false, archived: true });
     await renderPage();
-    const disclosure = screen.getByTestId("archived-disclosure");
-    expect(disclosure.textContent).toContain(
-      "This show is archived. Crew links are dead. Unarchive and re-publish to bring it back.",
-    );
     expect(screen.getByTestId("unarchive-show-button-s1")).toBeInTheDocument();
+    expect(screen.getByTestId("strip-archived-badge")).toBeInTheDocument();
+    expect(screen.queryByTestId("published-toggle")).toBeNull();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
-    expect(screen.queryByTestId("publish-show-button")).toBeNull();
   });
 
-  it("Held: disclosure points at the Published toggle; Archive stays; toggle renders OFF-enabled", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
+  it("Held (!published, !finalize): toggle OFF-enabled + Archive present, no Unarchive", async () => {
+    state.snapshot = snapshotFor({ published: false, archived: false });
     state.finalizeOwned = false;
     await renderPage();
-    const disclosure = screen.getByTestId("held-disclosure");
-    expect(disclosure.textContent).toContain(
-      "Held — not published. Turn on Published in Share & access to make it live.",
-    );
-    expect(screen.queryByTestId("publish-show-button")).toBeNull(); // toggle replaced it (D2)
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(false);
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
-    expect(screen.queryByTestId("archived-disclosure")).toBeNull();
+    expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
   });
 
-  it("Publishing… (finalize-owned): no Held disclosure, no Publish/Unarchive/Archive; toggle OFF-disabled", async () => {
-    state.show = { ...baseShow, published: false, archived: false };
+  it("Publishing… (!published + finalize-owned): toggle OFF-DISABLED (frozen mid-publish)", async () => {
+    state.snapshot = snapshotFor({ published: false, archived: false });
     state.finalizeOwned = true;
     await renderPage();
-    expect(screen.queryByTestId("held-disclosure")).toBeNull();
-    expect(screen.queryByTestId("publish-show-button")).toBeNull();
-    expect(screen.queryByTestId("archive-show-button")).toBeNull();
-    expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(true);
   });
 
-  it("Live + finalize-owned (pending-changes finalize): toggle renders ON-DISABLED before any click (spec R3)", async () => {
-    state.show = { ...baseShow, published: true, archived: false };
+  it("Live + finalize-owned (pending-changes finalize, spec R3): toggle ON-DISABLED before any click", async () => {
+    state.snapshot = snapshotFor({ published: true, archived: false });
     state.finalizeOwned = true;
     await renderPage();
     const toggle = screen.getByTestId("published-toggle");
@@ -160,18 +194,9 @@ describe("per-show lifecycle presentation (§2.2–§2.4)", () => {
     expect(toggle.hasAttribute("disabled")).toBe(true);
   });
 
-  it("Archived: the Published toggle is NOT mounted at all", async () => {
-    state.show = { ...baseShow, published: false, archived: true };
-    await renderPage();
-    expect(screen.queryByTestId("published-toggle")).toBeNull();
-  });
-
-  it("Live: Archive button present, no Held/Archived disclosures, no Publish; toggle ON-enabled", async () => {
+  it("Live: Archive present, toggle ON-enabled", async () => {
     await renderPage();
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
-    expect(screen.queryByTestId("held-disclosure")).toBeNull();
-    expect(screen.queryByTestId("archived-disclosure")).toBeNull();
-    expect(screen.queryByTestId("publish-show-button")).toBeNull();
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(toggle.hasAttribute("disabled")).toBe(false);

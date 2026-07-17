@@ -73,11 +73,9 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
     file: "app/help/errors/page.tsx",
     reason: "Renders title/longExplanation only — those fields are pinned marker-free below.",
   },
-  {
-    file: "app/admin/show/[slug]/page.tsx",
-    reason:
-      "bulkGroupLabel reads only messageFor(code).title (pinned marker-free below) as the DQIGNORE-2 bulk-ignore group label; passed as a plain button label, never rendered as marked prose.",
-  },
+  // (Task 13: the consolidated page's `messageFor`-based bulk-ignore labelling
+  // moved into lib/admin/sectionWarningModel.ts, so app/admin/show/[slug]/page.tsx
+  // no longer touches catalog copy — its stale registry row was removed.)
   {
     file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",
     reason: "PICKER_* crew copy; marker-free.",

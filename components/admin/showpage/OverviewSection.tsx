@@ -51,7 +51,7 @@ export type OverviewSectionProps = {
   archived: boolean;
   /** Publish state: an unpublished (held) show shows the inactive-share notice. */
   published: boolean;
-  /** Google Sheet deep link (`docs.google.com/spreadsheets/...`); null → link omitted. */
+  /** Google Sheet deep link (built by `buildSheetDeepLink`); null → link omitted. */
   openSheetHref: string | null;
   /** ≥1 active actionable parse warning → Re-sync is framed by the correction-loop callout. */
   hasActionableWarnings: boolean;
@@ -92,18 +92,23 @@ export function OverviewSection({
       {alertSlot}
 
       {/* Share & access — the server-rendered panel when the link is live, else the inactive
-          notice (an unpublished/archived show keeps its token but the crew link is paused). */}
-      {isCrewLinkActive ? (
-        shareSlot
-      ) : (
-        <p
-          data-testid="admin-share-link-inactive"
-          className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-        >
-          The crew link is inactive while this show is {archived ? "archived" : "unpublished"}. It
-          will be available once the show is published.
-        </p>
-      )}
+          notice (an unpublished/archived show keeps its token but the crew link is paused).
+          `#share-access` is the always-present deep-link target for the share-access alert
+          action (lib/adminAlerts/alertActions.ts) — it wraps BOTH states so a held-show nudge
+          still resolves. (The publish toggle itself lives in the StatusStrip.) */}
+      <div id="share-access" className="scroll-mt-4">
+        {isCrewLinkActive ? (
+          shareSlot
+        ) : (
+          <p
+            data-testid="admin-share-link-inactive"
+            className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+          >
+            The crew link is inactive while this show is {archived ? "archived" : "unpublished"}. It
+            will be available once the show is published.
+          </p>
+        )}
+      </div>
 
       {/* Sheet & sync — Re-sync forces a fresh read; the correction-loop callout frames it when
           there are actionable warnings. Archived is read-only: the button is replaced by the

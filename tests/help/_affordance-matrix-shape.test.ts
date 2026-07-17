@@ -71,12 +71,20 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     ).toBe(false);
   });
 
-  it("exports DEFERRED_TESTIDS containing exactly the one still-deferred row", () => {
-    // per-show-restage-card (M11-G-D-2) was REMOVED, not just un-deferred: the
-    // Phase 6 ChangesFeed retired the per-show staged-review card it pointed at,
-    // so the affordance will never be built. Only the preview-banner tooltip
-    // (M11-G-D-3) remains genuinely deferred-pending-build. (DEFERRED.md D9.)
-    expect([...DEFERRED_TESTIDS].sort()).toEqual(["help-affordance--preview-banner--tooltip"]);
+  it("exports DEFERRED_TESTIDS containing the still-deferred rows", () => {
+    // preview-banner (M11-G-D-3) remains deferred-pending-build. Task 13
+    // (consolidated-admin-show-page) additionally deferred the old per-show
+    // Crew / Sync-footer / Data-quality tooltips: their sections were removed in
+    // the page rebuild, so the affordances no longer render — pending Task 16
+    // (impeccable) re-homing them on the consolidated surface or retiring them.
+    expect([...DEFERRED_TESTIDS].sort()).toEqual(
+      [
+        "help-affordance--per-show-crew--tooltip",
+        "help-affordance--per-show-data-quality--tooltip",
+        "help-affordance--per-show-sync-footer--tooltip",
+        "help-affordance--preview-banner--tooltip",
+      ].sort(),
+    );
     for (const id of DEFERRED_TESTIDS) {
       expect(
         AFFORDANCE_MATRIX.some((r) => r.kind === "concrete" && r.testid === id),

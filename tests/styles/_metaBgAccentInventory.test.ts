@@ -60,8 +60,12 @@ const REGISTRY: Row[] = [
   L("components/admin/wizard/Step1Share.tsx", 0),
   L("components/admin/wizard/Step2Verify.tsx", 0),
   L("components/admin/wizard/Step3Review.tsx", 0, "bg-accent text-accent-text"), // tone-pill helper (labeled pill)
+  // Phase-1 extraction re-indexed the modal's exact bg-accent occurrences: the
+  // decorative rail INDICATOR (formerly occurrence 0) moved to ShowReviewSurface
+  // (registered below), so the two labeled approve/publish footer buttons shift
+  // from occurrences 1,2 → 0,1.
+  L("components/admin/wizard/Step3ReviewModal.tsx", 0),
   L("components/admin/wizard/Step3ReviewModal.tsx", 1),
-  L("components/admin/wizard/Step3ReviewModal.tsx", 2),
   L("components/shared/AccentButton.tsx", 0),
   L("components/shared/ReportButton.tsx", 0),
   L("components/shared/ReportModal.tsx", 0),
@@ -103,7 +107,8 @@ const REGISTRY: Row[] = [
   D("components/admin/telemetry/AutoRefreshControl.tsx", 0, "telemetry-ping"),
   D("components/admin/telemetry/AutoRefreshControl.tsx", 1, "size-2 rounded-full"),
   D("components/admin/telemetry/EventVolumeSparkline.tsx", 0),
-  D("components/admin/wizard/Step3ReviewModal.tsx", 0, "rounded-r-pill bg-accent"),
+  // Phase-1 extraction: the §A3 sliding rail indicator moved here from the modal.
+  D("components/admin/review/ShowReviewSurface.tsx", 0, "rounded-r-pill bg-accent"),
   D("components/crew/RightNowHero.tsx", 0),
   D("components/crew/primitives/DayCard.tsx", 0),
   D("components/right-now/RightNowCard.tsx", 0),
