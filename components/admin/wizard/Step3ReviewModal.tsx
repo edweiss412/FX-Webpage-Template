@@ -152,11 +152,15 @@ export function Step3ReviewModal({
 }) {
   const { dfid, wizardSessionId } = data;
   // Archived-tab pending offers (spec §4.2/§4.3) — the box appears for these even
-  // when there is no blocked re-apply resolution. Same `staged` predicate + shared
-  // derivation as Pack-list (parity invariant).
+  // when there is no blocked re-apply resolution. Same shared derivation as
+  // Pack-list (parity invariant), incl. PSAT-1's durable-snapshot + S5 gating:
+  // a divergent (S5) or override-active row yields no offers, so the box shows an
+  // archived offer only in the true pending-S2/S4 case; S5 recovery + S3 revoke
+  // stay in the Pack-list section.
   const archivedOffers = deriveArchivedOffers(
     data.archivedPullSheetTabs,
     wizardSessionId != null,
+    data.pullSheetOverride,
   ).offers;
   const hasPendingArchivedOffer = archivedOffers.length > 0;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -723,6 +727,7 @@ export function Step3ReviewModal({
             → the rail model is byte-identical to the pre-extraction modal. */}
         <ShowReviewSurface
           data={data}
+          isPublishRunActive={isPublishRunActive}
           scrollerRef={scrollerRef}
           layout="modal"
           bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
