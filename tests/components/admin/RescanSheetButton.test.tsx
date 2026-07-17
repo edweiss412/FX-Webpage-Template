@@ -579,6 +579,29 @@ describe("G3 two-tap guard — Re-scan this sheet", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("second tap disarms before the fetch: pending shows 'Re-scanning…', never the armed label (whole-diff advisory)", async () => {
+    let release!: (v: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (release = r)));
+    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
+    const btn = getByTestId(`rescan-sheet-button-${DFID}`);
+    fireEvent.click(btn); // arm
+    fireEvent.click(btn); // confirm — fetch now in flight
+    // Armed state cleared before the handler ran: the pending label owns the button.
+    expect(btn.textContent).toBe("Re-scanning…");
+    expect(btn.className.split(/\s+/)).not.toContain("bg-warning-text");
+    await act(async () => {
+      release(
+        mockJsonResponse({
+          ok: true,
+          status: "updated",
+          needsReview: false,
+          changed: [],
+          demoted: [],
+        }),
+      );
+    });
+  });
+
   test("4s auto-revert restores the idle branch without firing", () => {
     vi.useFakeTimers();
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);

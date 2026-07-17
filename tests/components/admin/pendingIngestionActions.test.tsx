@@ -229,6 +229,28 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("clicking the Defer sibling while permanent-ignore is armed disarms it (whole-diff R2)", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ status: "discarded", kind: "defer_until_modified" }),
+    );
+    const { getByTestId } = renderButtons();
+    const ignoreBtn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.click(ignoreBtn); // arm permanent-ignore
+    expect(ignoreBtn.textContent).toBe(ARMED_LABEL);
+    await act(async () => {
+      fireEvent.click(getByTestId(`admin-pending-defer-${ID}`)); // sibling one-tap mutation
+    });
+    // The armed state must not survive into/past another mutation.
+    expect(getByTestId(`admin-pending-ignore-${ID}`).textContent).not.toBe(ARMED_LABEL);
+    expect(vi.getTimerCount()).toBe(0);
+    // Only the defer POST fired — the armed guard did not.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toMatchObject({
+      kind: "defer_until_modified",
+    });
+  });
+
   test("4s auto-revert restores the idle branch without firing", () => {
     vi.useFakeTimers();
     const { getByTestId } = renderButtons();

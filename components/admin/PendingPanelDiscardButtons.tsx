@@ -69,6 +69,11 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
 
   async function handleClick(kind: DiscardKind) {
     if (state.kind === "running") return;
+    // Any discard starting (including the one-tap "Defer until modified" sibling)
+    // disarms a pending permanent-ignore confirm — an armed state must never
+    // survive into or past another mutation (whole-diff review R2).
+    clearArmTimer();
+    setArmed(false);
     setState({ kind: "running", pendingKind: kind });
     try {
       const response = await fetch(
