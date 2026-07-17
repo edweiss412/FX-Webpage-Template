@@ -8,8 +8,9 @@
 
 The per-row Developer toggle (`components/admin/settings/DeveloperToggleButton.tsx`) renders only a bare "Developer" label (`:146` interactive arm / `:112` locked arm). Granting the developer bit unlocks:
 
-- **Developer-only nav items** (Activity, etc.) — hidden for non-developers by `components/admin/nav/AdminNav.tsx:62` (`NAV.filter((item) => !item.developerOnly || viewerIsDeveloper)`; safe-default `viewerIsDeveloper = false` at `:38`).
-- **The Dev-tools row** (Maintenance / Diagnostics entry) — `components/admin/settings/DevToolsRow.tsx:30` (`if (!DEV_PANEL_PRESENT || !isDeveloper) return null;`).
+- **The developer-only "Telemetry" nav item** — hidden for non-developers by `components/admin/nav/AdminNav.tsx:62` (`NAV.filter((item) => !item.developerOnly || viewerIsDeveloper)`; the item is labeled "Telemetry" at `components/admin/nav/navConfig.ts:42`; safe-default `viewerIsDeveloper = false` at `AdminNav.tsx:38`).
+- **The developer-only "Maintenance" and "Diagnostics" settings sections** — `app/admin/settings/page.tsx:237` and `:292` (both gated on the developer bit).
+- **The "Developer tools" row** — `components/admin/settings/DevToolsRow.tsx:43` (`<h3>Developer tools</h3>`), runtime-gated at `:30` (`if (!DEV_PANEL_PRESENT || !isDeveloper) return null;`).
 - **The power to promote/demote other admins' developer bit** — `setDeveloperAction` gated by `requireDeveloperIdentity()` (`app/admin/settings/admins/developerActions.ts:22`).
 
 …with **no inline explanation of that blast radius**. The sibling privilege help on the same heading — the Administrators `HoverHelp` (`components/admin/settings/AdministratorsSection.tsx:86-97`) — says nothing about the Developer toggle. Surfaced as impeccable **critique P2** on branch `feat/developer-tier` (`DEFERRED.md` DEVTIER-1).
@@ -28,8 +29,9 @@ Before (developer arm, `:94`):
 
 After:
 
-> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants full developer access: Activity, Maintenance, and Diagnostics, plus making other admins developers.
+> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers.
 
+- The four surface names are the **actual UI labels** the developer sees: nav item "Telemetry" (`components/admin/nav/navConfig.ts:42`), settings sections "Maintenance" (`app/admin/settings/page.tsx:237`) and "Diagnostics" (`:292`), and the "Developer tools" row (`components/admin/settings/DevToolsRow.tsx:43`). "…making other admins developers" is the `setDeveloperAction` promote/demote power.
 - Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses `:` and `,` only.
 - Non-developer arm (`:95`) unchanged: "…Roster changes are managed by a developer."
 
@@ -66,8 +68,8 @@ Define one shared constant in the test module:
 
 ```
 const GRANT_COPY =
-  "The Developer toggle grants full developer access: Activity, Maintenance, and Diagnostics, plus making other admins developers.";
-const GRANT_CLAUSES = ["Activity", "Maintenance", "Diagnostics", "making other admins developers"];
+  "The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers.";
+const GRANT_CLAUSES = ["Telemetry", "Maintenance", "Diagnostics", "Developer tools", "making other admins developers"];
 ```
 
 **Scope target:** `HoverHelp` renders its body as `${testId}-body` (`components/admin/HoverHelp.tsx:182`); with `testId="admins-help"` (`AdministratorsSection.tsx:88`) the copy `<p>` lives in `data-testid="admins-help-body"` (the wrapper is `rootTestId="help-affordance--settings-administrators--tooltip"` at `:89` / `HoverHelp.tsx:154`). There is NO bare `admins-help` node — all assertions read `screen.getByTestId("admins-help-body")`. The body stays in the DOM when closed (`HoverHelp.tsx` SR contract), so no interaction is needed.
