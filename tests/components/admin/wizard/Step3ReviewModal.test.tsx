@@ -1073,7 +1073,9 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
       }
       expect(dot).not.toBeNull();
       const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
-      expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bborder-status-positive\b/);
+      expect(dot!.className).toMatch(
+        expectRed ? /\bbg-status-review\b/ : /\bborder-status-positive\b/,
+      );
       expect(dot!.className).toMatch(/\bsize-2\b/);
       expect(dot!.className).toMatch(/\brounded-pill\b/);
     }

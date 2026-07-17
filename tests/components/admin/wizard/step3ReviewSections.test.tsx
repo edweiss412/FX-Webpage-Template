@@ -486,7 +486,9 @@ describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip-item-diagrams`)).toBeNull();
     // The warn lands in warnings (red); rooms stays positive.
     expect(railItem(q, "warnings").querySelector(DOT)!.className).toMatch(/\bbg-status-review\b/);
-    expect(railItem(q, "rooms").querySelector(DOT)!.className).toMatch(/\bborder-status-positive\b/);
+    expect(railItem(q, "rooms").querySelector(DOT)!.className).toMatch(
+      /\bborder-status-positive\b/,
+    );
   });
 });
 
