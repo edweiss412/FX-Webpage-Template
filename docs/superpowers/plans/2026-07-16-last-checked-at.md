@@ -56,8 +56,46 @@ For hashkey `show:<drive_file_id>`, the sole holder is the JS-side wrapper
 
 **Interfaces:**
 - Produces: `shows.last_checked_at timestamptz` (nullable), backfilled to `last_synced_at`.
+- Test: `tests/db/showsLastCheckedAt.schema.test.ts`
 
-- [ ] **Step 1: Write the migration**
+- [ ] **Step 1: Write the failing schema test (red-first, per invariant 1)**
+
+Model on `tests/db/agendaExtractLeases.schema.test.ts` (postgres.js vs `TEST_DATABASE_URL`, defaults to local `54322`). New `tests/db/showsLastCheckedAt.schema.test.ts`:
+
+```ts
+import { afterAll, describe, expect, it } from "vitest";
+import postgres from "postgres";
+
+const sql = postgres(
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
+afterAll(async () => { await sql.end(); });
+
+describe("shows.last_checked_at column", () => {
+  it("exists as a nullable timestamptz", async () => {
+    const rows = await sql`
+      select data_type, is_nullable
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'shows' and column_name = 'last_checked_at'`;
+    expect(rows.length).toBe(1);
+    expect(rows[0].data_type).toBe("timestamp with time zone");
+    expect(rows[0].is_nullable).toBe("YES");
+  });
+  it("is backfilled: no active row has null last_checked_at where last_synced_at is set", async () => {
+    const [{ orphans }] = await sql`
+      select count(*)::int as orphans from public.shows
+      where archived = false and last_synced_at is not null and last_checked_at is null`;
+    expect(orphans).toBe(0);
+  });
+});
+```
+
+- [ ] **Step 2: Run — expect FAIL**
+
+Run: `pnpm vitest run tests/db/showsLastCheckedAt.schema.test.ts`
+Expected: FAIL — `rows.length` is 0 (column absent).
+
+- [ ] **Step 3: Write the migration**
 
 ```sql
 -- supabase/migrations/20260717000000_shows_last_checked_at.sql
@@ -70,19 +108,19 @@ alter table public.shows add column if not exists last_checked_at timestamptz;
 update public.shows set last_checked_at = last_synced_at where last_checked_at is null;
 ```
 
-- [ ] **Step 2: Apply locally + verify column**
+- [ ] **Step 4: Apply locally + run the schema test — expect PASS**
 
-Run: `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260717000000_shows_last_checked_at.sql` (or `supabase db query --linked` for the local stack) then
-`psql "$TEST_DATABASE_URL" -c "\d public.shows" | grep last_checked_at`
-Expected: `last_checked_at | timestamp with time zone`
+Run: `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260717000000_shows_last_checked_at.sql` (or `supabase db query --linked` for the local stack), then
+`pnpm vitest run tests/db/showsLastCheckedAt.schema.test.ts`
+Expected: PASS (column exists, nullable timestamptz, backfill complete).
 
-- [ ] **Step 3: Regenerate schema-manifest**
+- [ ] **Step 5: Regenerate schema-manifest**
 
 Run: `pnpm gen:schema-manifest`
 Then confirm: `grep -n last_checked_at supabase/__generated__/schema-manifest.json`
 Expected: the shows table block (≈`:328-363`) now lists `last_checked_at`.
 
-- [ ] **Step 4: Apply to the validation project (parity gate)**
+- [ ] **Step 6: Apply to the validation project (parity gate)**
 
 Run:
 ```bash
@@ -90,10 +128,10 @@ supabase db query --linked "alter table public.shows add column if not exists la
 ```
 Expected: success (idempotent). This satisfies `validation-schema-parity`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/20260717000000_shows_last_checked_at.sql supabase/__generated__/schema-manifest.json
+git add supabase/migrations/20260717000000_shows_last_checked_at.sql supabase/__generated__/schema-manifest.json tests/db/showsLastCheckedAt.schema.test.ts
 git commit --no-verify -m "feat(db): add shows.last_checked_at + backfill; regen schema-manifest"
 ```
 
