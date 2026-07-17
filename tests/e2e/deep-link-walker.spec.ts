@@ -251,13 +251,19 @@ for (const row of allWalkableRows) {
 }
 
 // Gap fix (2026-07-17): the "Recently auto-applied" strip must sit directly
-// beneath the Needs-attention inbox — NeedsAttentionInbox previously carried an
-// `h-full` that ballooned it in the stretched sidebar column and pushed the strip
-// far below (detached band). Real-browser only (jsdom can't compute layout).
-// Reuses the help-docs locked seeds: walker-first-seen pending_syncs populates
-// the inbox, the sentinel auto_apply show_change_log renders the strip — NO new
-// DB write here. Desktop-only (the inbox column is hidden below 720px; this spec
-// also runs the mobile help-docs project).
+// beneath the Needs-attention inbox (no detached band). Originally this guarded
+// an `h-full` inbox root that ballooned inside the items-stretch-stretched
+// sidebar column. The two-col split is now a grid with `items-start` (2026-07-17
+// ignored-sheets order fix): the inbox column is content-sized, NEVER stretched
+// to a taller shows column, so the ballooning condition can no longer arise — the
+// strip follows the inbox by content flow. The assertion is therefore now a
+// direct adjacency check (strip top ≈ inbox bottom + the wrapper's gap-3), which
+// still fails loudly on any future layout that detaches the strip. Real-browser
+// only (jsdom can't compute layout). Reuses the help-docs locked seeds:
+// walker-first-seen pending_syncs populates the inbox, the sentinel auto_apply
+// show_change_log renders the strip — NO new DB write here. Desktop-only (the
+// inbox column is hidden below 720px; this spec also runs the mobile help-docs
+// project).
 test("recently-auto-applied strip sits directly beneath the needs-attention inbox (no gap)", async ({
   page,
 }) => {
@@ -278,49 +284,38 @@ test("recently-auto-applied strip sits directly beneath the needs-attention inbo
   await expect(page.getByTestId("recent-auto-applied-count-chip")).toBeVisible();
   await expect(page.getByTestId("auto-applied-error")).toHaveCount(0);
 
-  // Force the shows column tall so the two-col `items-stretch` contract stretches
-  // the sidebar column well beyond its content — the exact real-world condition
-  // (a long Active-shows list) under which the OLD `h-full` inbox balloons and
-  // detaches the strip. The seed's short shows list can't reach it on its own, so
-  // we induce it deterministically (Codex-safe: DOM-only, no DB write). With the
-  // fix the strip stays adjacent; with `h-full` back it drops ~1500px below.
+  // Also force the shows column tall (DOM-only, no DB write) to reproduce the
+  // real-world long-Active-shows condition that used to stretch the sidebar and
+  // detach the strip. Under the grid+items-start split this must NOT propagate to
+  // the inbox column (it stays content-sized) — so the strip stays adjacent to the
+  // inbox regardless. Fail loud if the target is missing (future testid rename).
   const forced = await page.evaluate(() => {
     const col = document.querySelector('[data-testid="dashboard-shows-col"]');
     if (!(col instanceof HTMLElement)) return false;
     col.style.minHeight = "2000px";
     return true;
   });
-  // Fail loud if the force-tall target is missing (e.g. a future testid rename):
-  // a silent no-op would let the ratio assertion below false-pass without ever
-  // creating the stretched-column condition it depends on.
-  expect(forced, "dashboard-shows-col must exist to induce the stretched-column condition").toBe(
+  expect(forced, "dashboard-shows-col must exist to induce the tall-shows-column condition").toBe(
     true,
   );
   await expect(strip).toBeVisible();
 
   const inboxBox = await inbox.boundingBox();
-  const colBox = await page.getByTestId("dashboard-inbox-col").boundingBox();
+  const stripBox = await strip.boundingBox();
   expect(inboxBox, "inbox has a box").not.toBeNull();
-  expect(colBox, "inbox column has a box").not.toBeNull();
-  // Precondition guard: the ratio test is only meaningful when the sidebar column
-  // is genuinely stretched well beyond the inbox's content. If this ever fails,
-  // the two-col items-stretch contract changed and the regression test below would
-  // be vacuous — surface that instead of silently passing.
+  expect(stripBox, "strip has a box").not.toBeNull();
+  // THE FIX (adjacency): the strip sits DIRECTLY beneath the inbox — its top is at
+  // the inbox bottom plus only the wrapper's gap-3 (12px). The detached-band
+  // regression (an h-full inbox ballooning in a stretched column, or any layout
+  // that re-parents/strands the strip) would push this to hundreds/~1500px. A
+  // small band tolerates sub-pixel rounding + the 12px flex gap without admitting
+  // a real gap. Even with the shows column forced to 2000px, items-start keeps the
+  // inbox column content-sized so this stays tight.
+  const gap = stripBox!.y - (inboxBox!.y + inboxBox!.height);
   expect(
-    colBox!.height,
-    "sidebar column must be stretched tall for the content-sized-inbox assertion to bite",
-  ).toBeGreaterThan(1500);
-  // THE FIX: the inbox is sized to its content, NOT stretched to fill the (now
-  // force-tall) sidebar column. The detached-band bug was the OLD `h-full` on the
-  // populated inbox root ballooning it to the full column height — its short
-  // content ("+N more") stranded at the top and everything below it empty, which
-  // is the visible gap above the strip. Fixed → the inbox stays compact and the
-  // strip follows its CONTENT. This assertion fails if `h-full`/`flex-1` returns:
-  // the inbox height jumps from ~content (a few hundred px) to ≈ the column height.
-  expect(
-    inboxBox!.height,
-    `inbox height ${Math.round(inboxBox!.height)} vs column ${Math.round(colBox!.height)} — ` +
-      `a content-sized inbox is a small fraction of the stretched column; an h-full ` +
-      `inbox balloons to ≈ the column height (the detached-band regression)`,
-  ).toBeLessThan(colBox!.height * 0.5);
+    gap,
+    `strip top - inbox bottom = ${Math.round(gap)}px — the strip must follow the inbox ` +
+      `content (≈ gap-3 = 12px), not detach into a band below a stretched column`,
+  ).toBeLessThanOrEqual(20);
+  expect(gap, "strip must not overlap the inbox").toBeGreaterThanOrEqual(-2);
 });
