@@ -14,7 +14,7 @@
 
 - **UI surface (invariant 8):** touches `components/**` → Opus-only; `/impeccable critique` + `/impeccable audit` on the diff before cross-model review; P0/P1 fixed or `DEFERRED.md`-deferred (Task 7).
 - **No raw error codes in UI (invariant 5):** unchanged — every added string is static English; no `code` renders.
-- **`exactOptionalPropertyTypes`:** `site?:` is present-or-ABSENT, never `undefined`. Forward with a spread guard or a value that is genuinely `WarningControlSite | undefined` at a param typed `site?: WarningControlSite` (a passed `undefined` is allowed for a `?:` FUNCTION parameter; only object-literal properties must be omitted). Boundaries forward `site={props.site}` (param position — fine).
+- **`exactOptionalPropertyTypes` (`tsconfig.json:9`):** `site?:` is present-or-ABSENT, never `undefined`. A JSX attribute is treated like an object-literal property, so `site={props.site}` (where `props.site: WarningControlSite | undefined`) is a TYPE ERROR — it passes a present prop whose value may be `undefined` to a `site?:` child. **Boundaries MUST forward with a conditional spread**, never a bare `site={props.site}`: `{...(props.site ? { site: props.site } : {})}`. Mounts pass a literal (`site="callout"`) — never undefined — so mount→boundary is fine. Inside the control, `site` is a destructured param (`WarningControlSite | undefined`) consumed only by `tid(...)`'s `site ?` guard — fine.
 - **Commit per task**, conventional-commits (`<type>(<scope>): <summary>`), `--no-verify` (shared hooks live in the main checkout).
 - **WCAG 2.5.3 label-in-name:** any `aria-label` on an element with visible text contains that visible text as a substring.
 - **Meta-test inventory:** none created or extended (no Supabase boundary, admin-alert code, advisory lock, sentinel-hiding, or email-normalization surface). Declared: none applies.
@@ -104,9 +104,19 @@ describe("UseRawControl — site scoping (spec 2026-07-17 §6.1)", () => {
     expect(q.getByTestId("use-raw-toggle-off")).toBeTruthy();
   });
 
-  it("guard-state <p> also carries the suffix (legacy-unavailable)", () => {
-    const q = render(<UseRawControl warning={legacyWarning()} decision={undefined} site="callout" onToggle={noop} />);
-    expect(q.getByTestId("use-raw-control-callout")).toBeTruthy();
+  it("guard-state <p> also carries the suffix — legacy-unavailable AND disabled", () => {
+    const legacy = render(<UseRawControl warning={legacyWarning()} decision={undefined} site="callout" onToggle={noop} />);
+    expect(legacy.getByTestId("use-raw-control-callout")).toBeTruthy();
+    assertAllTestidsSuffixed(legacy.container, "callout");
+    cleanup();
+    // disabled state: in-scope code with a NON-resolvable resolution (§4 guard).
+    const disabledWarning: Pick<ParseWarning, "code" | "resolution"> = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      resolution: { resolvable: false, reason: "empty-raw" },
+    };
+    const dis = render(<UseRawControl warning={disabledWarning} decision={undefined} site="callout" onToggle={noop} />);
+    expect(dis.getByTestId("use-raw-control-callout")).toBeTruthy();
+    assertAllTestidsSuffixed(dis.container, "callout");
   });
 });
 
@@ -212,10 +222,9 @@ git commit --no-verify -m "feat(admin): site-scope UseRawControl testids + kind-
 - Consumes: `WarningControlSite` (Task 1).
 - Produces: `RoleRecognizeControl` gains `site?: WarningControlSite`; `roleRecognizeCopy` gains `export const triggerAriaLabel: (token: string) => string`.
 
-- [ ] **Step 1: Write the failing tests** — append to `tests/components/RoleRecognizeControl.test.tsx`.
+- [ ] **Step 1: Write the failing tests** — append to `tests/components/RoleRecognizeControl.test.tsx`. Ensure the file imports the outcome type used by `driveAndSweep`: `import { RoleRecognizeControl, type RoleRecognizeSaveOutcome } from "@/components/admin/RoleRecognizeControl";` (extend the existing import if `RoleRecognizeSaveOutcome` isn't already pulled in).
 
 ```tsx
-import { WarningControlSite } from "@/components/admin/warningControlSite"; // type-only use in casts if needed
 
 function allTestidsSuffixed(root: ParentNode, suffix: string) {
   const nodes = Array.from(root.querySelectorAll("[data-testid]"));
@@ -224,18 +233,33 @@ function allTestidsSuffixed(root: ParentNode, suffix: string) {
 }
 
 describe("RoleRecognizeControl — site scoping (spec 2026-07-17 §7.1)", () => {
-  const onSave = vi.fn().mockResolvedValue({ kind: "saved", state: "applied", grants: ["A1"] });
-  it("site present: every leaf testid suffixed across phases", async () => {
+  // Drive collapsed → save with a given onSave outcome, sweeping the suffix at
+  // every phase the outcome exposes (terminal leaf differs per outcome).
+  async function driveAndSweep(outcome: RoleRecognizeSaveOutcome) {
+    const onSave = vi.fn().mockResolvedValue(outcome);
     const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" site="showpage" onSave={onSave} />);
     allTestidsSuffixed(q.container, "showpage");                 // collapsed
     fireEvent.click(q.getByTestId("role-recognize-trigger-showpage"));
-    allTestidsSuffixed(q.container, "showpage");                 // panel/idle
+    allTestidsSuffixed(q.container, "showpage");                 // panel/idle (none-helper, checks, save, cancel)
     fireEvent.click(q.getByTestId("role-recognize-check-A1-showpage"));
     fireEvent.click(q.getByTestId("role-recognize-save-showpage"));
-    await waitFor(() => expect(q.getByTestId("role-recognize-saved-showpage")).toBeTruthy());
-    allTestidsSuffixed(q.container, "showpage");                 // saved
+    const terminal =
+      outcome.kind === "saved" ? "role-recognize-saved-showpage"
+      : outcome.kind === "stale" ? "role-recognize-stale-showpage"
+      : outcome.kind === "conflict" ? "role-recognize-conflict-showpage"
+      : "role-recognize-error-showpage";
+    await waitFor(() => expect(q.getByTestId(terminal)).toBeTruthy());
+    allTestidsSuffixed(q.container, "showpage");                 // terminal phase
+    cleanup();
+  }
+  it("every leaf suffixed across saved / stale / conflict / error phases", async () => {
+    await driveAndSweep({ kind: "saved", state: "applied", grants: ["A1"] });
+    await driveAndSweep({ kind: "stale" });
+    await driveAndSweep({ kind: "conflict" });
+    await driveAndSweep({ kind: "error" });
   });
   it("site absent: bare testids (byte-identical)", () => {
+    const onSave = vi.fn();
     const q = render(<RoleRecognizeControl roleToken="SLED DRIVER" onSave={onSave} />);
     expect(q.getByTestId("role-recognize-control")).toBeTruthy();
     expect(q.getByTestId("role-recognize-trigger")).toBeTruthy();
@@ -368,14 +392,15 @@ const panels = within(calloutAfter).getAllByTestId("role-recognize-panel-callout
 ```tsx
 describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
   test("one warning rendered at callout + list yields distinct, non-colliding control testids", () => {
-    const w = roomsUseRawWarning(); // an in-scope ROOM_HEADER_SPLIT_AMBIGUOUS fixture used elsewhere in this file
+    const w = roomSplitWarning(0); // existing in-scope ROOM_HEADER_SPLIT_AMBIGUOUS fixture (file :59)
     // list host
     const list = renderBreakdown([w], { decisions: [] });
     const row = list.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
     expect(within(row).getByTestId("use-raw-control-list")).toBeTruthy();
     expect(within(row).queryByTestId("use-raw-control-callout")).toBeNull();
     cleanup();
-    // callout host
+    // callout host — chromeValue already passes useRawDecisions: [] so the use-raw
+    // boundary mounts; calloutEntries carry the same warning.
     const callout = render(calloutHost([{ warning: w, index: 0 }]));
     const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
     expect(within(box).getByTestId("use-raw-control-callout")).toBeTruthy();
@@ -383,7 +408,7 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
   });
 });
 ```
-(If a `roomsUseRawWarning` fixture does not already exist in the file, add one mirroring the existing `roleWarning` helper but with `code: "ROOM_HEADER_SPLIT_AMBIGUOUS"` and a resolvable `resolution`; `chromeValue` already passes `useRawDecisions: []`.)
+Uses the existing `roomSplitWarning(n)` fixture (`tests/components/admin/wizard/warningsBreakdownControls.test.tsx:59`) — no new fixture needed.
 
 - [ ] **Step 2: Run — verify FAIL**
 
@@ -400,8 +425,15 @@ import type { WarningControlSite } from "@/components/admin/warningControlSite";
     decision: UseRawDecision | undefined;
     /** spec 2026-07-17 §8: render site, forwarded to the control. */
     site?: WarningControlSite;
-// render:
-  return <UseRawControl warning={warning} decision={decision} onToggle={onToggle} site={props.site} />;
+// render (conditional spread — exactOptionalPropertyTypes; NEVER a bare site={props.site}):
+  return (
+    <UseRawControl
+      warning={warning}
+      decision={decision}
+      onToggle={onToggle}
+      {...(props.site ? { site: props.site } : {})}
+    />
+  );
 ```
 `components/admin/RoleRecognizeControlBoundary.tsx` — same:
 ```ts
@@ -409,7 +441,7 @@ import type { WarningControlSite } from "@/components/admin/warningControlSite";
     warning: ParseWarning;
     /** spec 2026-07-17 §8: render site, forwarded to the control. */
     site?: WarningControlSite;
-  return <RoleRecognizeControl roleToken={token} onSave={onSave} site={props.site} />;
+  return <RoleRecognizeControl roleToken={token} onSave={onSave} {...(props.site ? { site: props.site } : {})} />;
 ```
 
 - [ ] **Step 4: Pass `site` at the wizard mounts**
