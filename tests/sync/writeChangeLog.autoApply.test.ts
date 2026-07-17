@@ -7,6 +7,7 @@ import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 import type { TriggeredReviewItem } from "@/lib/parser/types";
+import { groupAutoApplied } from "@/lib/notify/monitorDigest";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 
 import { crew, holdPort, prevMember, readChangeLog, seedCrew, seedShow } from "./_holdAwareTestkit";
@@ -205,6 +206,127 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       const shrunk = log.filter((r) => r.change_kind === "section_shrunk");
       expect(shrunk.length).toBe(1);
       expect(log.some((r) => r.change_kind === "section_emptied")).toBe(false);
+    });
+  });
+
+  // ── Structured field_changed rows (spec 2026-07-17-autoapplied-field-structured-diff §3-§5) ──
+  it("field_changed row carries structured fieldChanges + a typed summary", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      const items = [
+        { id: "i1", invariant: "MI-8b", prior: "pending", next: "received" },
+        { id: "i2", invariant: "MI-9", crew_name: "Jordan Lee", prior_flags: ["LEAD", "A1"], new_flags: ["A1"] },
+      ] as TriggeredReviewItem[];
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: items,
+        heldNames: new Set(),
+      });
+      const fieldRow = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
+      expect(fieldRow.after_image).toEqual({
+        fieldChanges: [
+          { label: "COI status", from: "pending", to: "received", note: null },
+          { label: "Role — Jordan Lee", from: "A1, LEAD", to: "A1", note: null },
+        ],
+      });
+      expect(fieldRow.summary).toBe("COI status, Role changed on this sync");
+    });
+  });
+
+  it("MI-9-only sync writes a STRUCTURED row (not the generic fallback)", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: [
+          { id: "i", invariant: "MI-9", crew_name: "Sam", prior_flags: [], new_flags: ["LEAD"] },
+        ] as TriggeredReviewItem[],
+        heldNames: new Set(),
+      });
+      const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
+      expect(row.after_image).not.toBeNull();
+      expect((row.after_image as { fieldChanges: unknown[] }).fieldChanges[0]).toMatchObject({
+        label: "Role — Sam", from: "(none)", to: "LEAD",
+      });
+    });
+  });
+
+  it("all-malformed field-family sync writes a visible Unavailable marker, not null", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: [{ id: "b", invariant: "MI-8", field: "bogus" }] as unknown as TriggeredReviewItem[],
+        heldNames: new Set(),
+      });
+      const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
+      expect(row.after_image).not.toBeNull();
+      expect((row.after_image as { fieldChanges: Array<{ label: string }> }).fieldChanges[0]!.label).toBe(
+        "Unavailable",
+      );
+    });
+  });
+
+  // Digest-boundary parity (folded here — real red→green: this task changes the PERSISTED
+  // summary from the generic literal to the structured summary). groupAutoApplied
+  // (@/lib/notify/monitorDigest) is what the digest uses; it pushes r.summary verbatim.
+  it("the PERSISTED field_changed summary surfaces in the digest: names Role/COI, no crew name", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: [
+          { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
+          { id: "b", invariant: "MI-9", crew_name: "Alex", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] },
+        ] as TriggeredReviewItem[],
+        heldNames: new Set(),
+      });
+      const summary = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!.summary;
+      const item = groupAutoApplied([
+        { show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" },
+      ])[0]!.items[0]!;
+      expect(item).toContain("Role");
+      expect(item).toContain("COI status");
+      expect(item).not.toContain("Alex");
+    });
+  });
+
+  it("the PERSISTED summary carries the omission clause for a valid+malformed sync (digest never hides a drop)", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: [
+          { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
+          { id: "b", invariant: "MI-8", field: "bogus" },
+        ] as unknown as TriggeredReviewItem[],
+        heldNames: new Set(),
+      });
+      const summary = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!.summary;
+      const item = groupAutoApplied([
+        { show_id: "s1", slug: "e", title: "E", summary, occurred_at: "t" },
+      ])[0]!.items[0]!;
+      expect(item).toMatch(/\d+ more field change/);
     });
   });
 });

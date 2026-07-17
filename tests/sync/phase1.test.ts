@@ -663,6 +663,35 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.operations).toEqual(["readShow:file-1"]);
   });
 
+  test("behavior-preservation: unstable-modifiedTime MI-8b-only sync still routes to `defer` (debounce intact after structured field_changed)", async () => {
+    // The structured field_changed enrichment (spec 2026-07-17) changes ONLY the Phase-2
+    // change-log writer, never Phase-1 routing. This pins that an MI-8b-only sync with a young
+    // Drive modifiedTime still DEFERS → Phase-2 (writer) is architecturally skipped, so no
+    // field_changed row is written for that pass. Behavior-preservation guard (green from the
+    // start), not red from this change.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+      priorParseWarningsRaw: null,
+      published: true,
+    });
+
+    const result = await runWith(
+      tx,
+      parseResult({ show: { ...parseResult().show, coi_status: "Approved" } }),
+      { fileMeta: fileMeta(), mode: "cron" },
+    );
+
+    expect(result).toEqual({ outcome: "defer", reason: "mi8b_modtime_unstable" });
+    expect(tx.pendingSyncs).toEqual([]);
+  });
+
   test("cron MI-8b COI delta auto-applies after Drive modifiedTime is stable (Phase 2: notification-only)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-08T12:05:00.000Z"));
