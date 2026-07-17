@@ -55,13 +55,22 @@ Today the box `<section>` renders inside `resolution ? (…) : null` (`Step3Revi
 
 Inside the section:
 - **Re-apply items** (`resolutionItems.map(...)`, the corrupt branch) render **only when `resolution` is present** — unchanged.
-- **Archived-tab offers** render below the items when pending: `offers.map(tab => <ArchivedTabOffer dfid={data.driveFileId} wizardSessionId={data.wizardSessionId} tab={tab} disabled={isPublishRunActive} onDismissFocus={focusHeading} />)`. `dfid` is fed from `data.driveFileId` to match the Pack-list callsite (`step3ReviewSections.tsx:3826` passes `s.driveFileId`); `data.driveFileId === data.dfid` by construction (`sectionData.ts:147`), but matching the existing callsite keeps the reused component's contract identical.
+- **Archived-tab offers** render below the items when pending: `offers.map(tab => <ArchivedTabOffer dfid={data.driveFileId} wizardSessionId={data.wizardSessionId} tab={tab} onDismissFocus={focusHeading} />)`. `dfid` is fed from `data.driveFileId` to match the Pack-list callsite (`step3ReviewSections.tsx:3826` passes `s.driveFileId`); `data.driveFileId === data.dfid` by construction (`sectionData.ts:147`), but matching the existing callsite keeps the reused component's contract identical. The box instance is **byte-identical** to the Pack-list instance — no extra props.
 
 ### 4.4 Footer stays `resolution`-gated
 The modal footer's re-apply branch (`resolution ? <Approve/Re-scan/Ignore> : <normal footer>`, `Step3ReviewModal.tsx:805`) is **unchanged**. An archived-only row has `resolution === undefined`, so it shows the **normal** footer — never Approve/Ignore. This is the load-bearing decoupling: making the box visible must not make the re-apply footer visible.
 
-### 4.5 `disabled` prop on `ArchivedTabOffer`
-Add an **optional** `disabled?: boolean`. When true, the accept button and the "Keep skipped" dismiss are disabled (`disabled` attr; no visual-only). The box passes `isPublishRunActive` (`Step3ReviewModal.tsx:167`) so the offer freezes during an active publish run, consistent with the re-apply radios. Pack-list omits the prop (`undefined` → falsy → enabled), so its behavior is unchanged.
+### 4.5 Publish-run behavior — no disable (deliberate)
+The box offer is **not** frozen during an active publish run, and **no `disabled` prop is added** to `ArchivedTabOffer`. Rationale: the re-apply radios freeze on `isPublishRunActive` because *apply/discard* is the mutation the publish run is executing. The archived-tab **override** is a different, independently server-guarded mutation — the existing Pack-list `ArchivedTabOffer` does **not** freeze during a publish run today. Adding a `disabled` prop to only the box instance would produce the exact asymmetry hazard of one frozen and one live control for the same decision (Codex spec-R1-1). Keeping the box instance byte-identical to the Pack-list instance is both the tighter change and the consistent behavior. Server-side correctness is guaranteed by §4.7, not by a client freeze.
+
+### 4.7 Concurrency safety (two live entry points)
+Two mounted `ArchivedTabOffer` instances (box + Pack-list) can each fire an accept `POST` before `router.refresh()`. This is **safe by the route's existing compare-and-set contract**, no shared client pending-state required:
+
+- Accept passes `p_expected_override_snapshot` to the RPC (`app/api/admin/onboarding/pull-sheet-override/route.ts:207`). `set_pull_sheet_override` is the **sole `show:` advisory-lock holder** (route comment `:34`; invariant 2). The first accept commits `null → A`; the second accept still carries `expectedOverrideSnapshot: null`, which no longer matches the committed `A`, so the RPC returns `40001` (row-state CAS mismatch) → the route maps it to `409 { status: "stale_review" }` (`route.ts:225,231`). No double-write; the loser is a safe no-op that re-fetches the preview.
+- The route also re-detects the server fingerprint (content CAS, `route.ts:192-200`) — a stale accept 409s and re-persists.
+- After the winning accept's `router.refresh()`, the modal re-renders: `overrideActive` becomes true → `offers = []` → **both** offer instances unmount. The double-fire window is the sub-refresh interval only, and the CAS closes it.
+
+So coexistence introduces no new server contract; it relies entirely on the CAS the route already enforces (verified against `route.ts`, not assumed).
 
 ### 4.6 Focus management
 `ArchivedTabOffer`'s local "Keep skipped" dismiss unmounts the card and calls `onDismissFocus()` (WCAG 2.4.3) to move focus to a persistent sibling. In the box, `onDismissFocus` focuses the box heading (`<h3>Resolve before publishing</h3>`, given a ref/`tabIndex={-1}`). In an archived-only row where the offer is the sole content, focusing the heading keeps focus inside the dialog.
@@ -86,7 +95,9 @@ Add an **optional** `disabled?: boolean`. When true, the accept button and the "
 | multiple non-included tabs | `offers.map(...)` renders each (mirror Pack-list; no cap — matches existing unbounded map). |
 | `reviewItemsCorrupt === true` | corrupt copy renders (unchanged) **and** archived offer renders below if pending (independent branches). |
 | `tab.contentChangedSinceAccept === true` (S4) | `ArchivedTabOffer` renders its own S4 re-confirm tone (unchanged component behavior). |
-| `isPublishRunActive === true` | offer `disabled` → accept + keep-skipped disabled. |
+| `isPublishRunActive === true` | offer stays live (no freeze — §4.5); server CAS + finalize override-gate guard correctness. Same as the existing Pack-list offer. |
+| `data.driveFileId` value | non-null at the box callsite by construction (`driveFileId === dfid`, `dfid: string` — `sectionData.ts:62,147`). `ArchivedTabOffer` types `dfid: string \| null` and the route 400s a missing/empty `driveFileId` (`route.ts:126-133`), so a hypothetical null degrades to a plain 400, never a silent write. |
+| `data.wizardSessionId` empty/`null` | `staged = wizardSessionId != null` (mirrors the existing Pack-list gate `step3ReviewSections.tsx:1946`). Empty string cannot occur: `SectionCore.wizardSessionId` is a non-optional UUID string in staged data (`sectionData.ts:63`), and the route rejects any non-UUID with 400 (`route.ts:130`). |
 | `resolution === undefined` **and** no pending offer | box `null` (unchanged). |
 
 ## 7. Dimensional invariants
@@ -100,9 +111,9 @@ Two visual states for the box's archived region: **absent** ↔ **offer present*
 | box absent → box with offer (data/props change on load or refresh) | instant — deliberate, matches existing box (`Step3ReviewModal.tsx:724` "§11: instant"). Box presence follows server truth after `router.refresh()`; no animation. |
 | offer present → offer removed (accept success → refresh → `overrideActive` true → `offers=[]`) | instant — server-truth reconciliation, no animation. |
 | offer present → dismissed ("Keep skipped", local `dismissed` state) | instant — component already unmounts on dismiss (`step3ReviewSections.tsx:2137` `if (dismissed) return null;`), unchanged. |
-| offer present, publish run starts (`isPublishRunActive` false→true) | instant disable (attribute toggle), no animation. |
+| accept fails (409 stale_review / network) → error note | instant — the component's preexisting `error` state renders inline; unchanged behavior. |
 
-No compound transition beyond disable-during-publish, which is a pure attribute toggle on an already-mounted control.
+`ArchivedTabOffer`'s internal `pending`/`error`/`dismissed` states are preexisting and unchanged by this spec (no new prop alters them). No `disabled`/publish-run compound transition exists — the offer is never frozen (§4.5).
 
 ## 9. Testing (failure mode per test)
 
@@ -111,10 +122,12 @@ Component/render tests (jsdom + Testing Library), against a real `Step3ReviewMod
 1. **Box appears on a clean staged row with a pending offer, no re-apply block.** Fixture: `resolution` undefined, `data.archivedPullSheetTabs = [{included:false,...}]`, `wizardSessionId` set. Assert the `Resolve before publishing` section renders and contains the offer's accept affordance. *Catches:* the render-gate decoupling regressing to `resolution`-only.
 2. **Accept POSTs the correct override payload.** Mock `fetch`/route; click "Use this show's gear"; assert POST to `/api/admin/onboarding/pull-sheet-override` with `{ driveFileId, wizardSessionId, tabName, expectedFingerprint, expectedOverrideSnapshot: null }`. *Catches:* wrong wiring of the reused component in the new mount.
 3. **No box offer when override already accepted.** Fixture: one tab `included:true`. Assert no accept affordance in the box (and no box at all when `resolution` undefined). *Catches:* `overrideActive` suppression not applied in the box derivation.
-4. **Offer disabled during an active publish run.** `isPublishRunActive` (or `resolution.isPublishRunActive`) true; assert accept button `disabled`. *Catches:* missing `disabled` plumb.
+4. **Box offer is not frozen during a publish run (parity with Pack-list).** `isPublishRunActive`/`resolution.isPublishRunActive` true, pending offer present; assert the box's accept button is **enabled** (no `disabled` attribute). *Catches:* a regression that re-introduces the asymmetric-freeze hazard (§4.5) by disabling only the box instance.
 5. **Re-apply footer absent on an archived-only row.** Fixture: pending offer, `resolution` undefined; assert the box renders but the Approve/Ignore re-apply footer controls are absent (normal footer present). *Catches:* the footer-decoupling invariant (§4.4) — the highest-value assertion.
 6. **Coexistence.** Same fixture as (1) with the Pack-list section rendered; assert the offer's accept affordance appears in **both** the resolution section and the pack-list section (scoped by `data-testid`). *Catches:* accidental de-duplication that would violate the confirmed two-entry-point decision.
 7. **PackListBreakdown unchanged after extraction.** Existing PackListBreakdown tests must stay green with the components imported from the new module. *Catches:* extraction altering behavior.
+
+Concurrency safety (§4.7) is a route/RPC contract (CAS on `expectedOverrideSnapshot`), covered by the existing `pull-sheet-override` route tests — not re-tested at the component layer, where two independent POSTs cannot be meaningfully asserted. Noted here so a reviewer does not read the omission as a gap.
 
 Anti-tautology: every assertion scopes extraction by `data-testid` (resolution section vs pack-list section) so a control rendered in one region cannot satisfy an assertion about the other; expected payload fields derive from the fixture tab, not hardcoded.
 
