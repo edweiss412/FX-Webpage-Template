@@ -693,9 +693,28 @@ git commit --no-verify -m "feat(admin): surface archived-tab accept offer in the
 
 **Files:** none by default (fixes only if a gate fails).
 
-- [ ] **Step 1: Coexistence sanity (both entry points present)**
+- [ ] **Step 1: Coexistence test (REQUIRED — both entry points present, spec §9.6)**
 
-Confirm a fixture where both the Resolve box and the Pack-list section render shows the accept affordance in both (box via `wizard-step3-card-…-review-resolution-archived-…`, Pack-list via `pack-list-archived-offer-…`). Add this assertion to `Step3ReviewModalResolution.test.tsx` if the file renders the full modal (Pack-list section included); otherwise note it is covered structurally by Tasks 2+3 sharing one component. Do not force a brittle full-modal render if the existing harness does not support it — the parity invariant (one derivation) already guarantees identical offer sets.
+This is a ratified requirement, not optional. `renderModalWith` already renders the full modal (the `ShowReviewSurface` sections, including Pack-list, render from `data`), so a single archived tab surfaces the offer in BOTH regions. Add to `Step3ReviewModalResolution.test.tsx`:
+
+```tsx
+it("renders the accept offer in BOTH the Resolve box and the Pack-list section (coexistence)", () => {
+  renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
+  // Box instance — resolution-scoped testid.
+  expect(
+    screen.getByTestId(`wizard-step3-card-${DFID}-review-resolution-archived-${archivedTab.tabName}`),
+  ).toBeInTheDocument();
+  // Pack-list instance — its own default testid.
+  expect(
+    screen.getByTestId(`pack-list-archived-offer-${DFID}-${archivedTab.tabName}`),
+  ).toBeInTheDocument();
+  // Two distinct "Use this show’s gear" buttons (one per region).
+  expect(screen.getAllByRole("button", { name: "Use this show’s gear" })).toHaveLength(2);
+});
+```
+
+Run: `pnpm vitest run tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx`
+Expected: PASS. If the Pack-list offer does not render in this harness (e.g. the section is lazily gated), fix the fixture so the full modal renders the Pack-list section — do NOT downgrade this to a structural note. Commit any test addition with `git commit --no-verify -m "test(admin): assert archived offer coexists in box + pack-list"`.
 
 - [ ] **Step 2: Run the full unit suite**
 
