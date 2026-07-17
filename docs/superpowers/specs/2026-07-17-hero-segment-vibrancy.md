@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-17
 **Status:** spec (autonomous-ship pipeline; both user-review gates WAIVED per AGENTS.md autonomous-ship gate)
-**Deferral source:** `DEFERRED.md` → `ACCENT-PASS-1` (P2, deferred from the 2026-07-16 accent-contrast token pass). Backlog: `BL-HERO-SEGMENT-VIBRANCY`.
+**Deferral source:** `DEFERRED.md` → `ACCENT-PASS-1` (P2, deferred from the 2026-07-16 accent-contrast token pass). The deferral referenced a `BL-HERO-SEGMENT-VIBRANCY` backlog name, but that row was aspirational and was never filed in `BACKLOG.md` (grep-confirmed) — this work closes ACCENT-PASS-1 directly in `DEFERRED.md`, no BACKLOG twin.
 
 ---
 
