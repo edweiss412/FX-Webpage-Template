@@ -90,6 +90,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
+import { includesAgenda } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
@@ -3717,7 +3718,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       ),
     },
   ];
-  if (d.agendaBaseline.length > 0) {
+  if (includesAgenda(d)) {
     defs.push({
       id: "agenda",
       label: "Agenda",

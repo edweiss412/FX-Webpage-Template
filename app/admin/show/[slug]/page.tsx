@@ -42,7 +42,7 @@ import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import { fetchPerShowAlerts, PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
-import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ParseWarning } from "@/lib/parser/types";
 import {
@@ -234,12 +234,17 @@ export default async function AdminShowPage({
   // §5.3 per-section warning model (SERVER, crypto): routed by the SAME
   // `warningsBySection` the surface uses for its rail chips, partitioned by
   // ignored fingerprint, each warning stamped with its report surface id.
-  const renderedSectionIds = new Set<SectionId>(step3Sections(publishedData).map((s) => s.id));
+  // Section inclusion via the PURE server-safe module (§5.3). The registry
+  // proper — `step3Sections` — lives in a `"use client"` module; invoking it
+  // here (a Server Component) throws (client exports are opaque server
+  // references). `renderedSectionIds` carries the same inclusion logic with no
+  // client dependency (lockstep-pinned to `step3Sections`).
+  const sectionIds = new Set<SectionId>(renderedSectionIds(publishedData));
   const bySection = buildSectionWarningModel({
     slug,
     warnings: publishedData.warnings,
     ignoredFingerprints,
-    renderedSectionIds,
+    renderedSectionIds: sectionIds,
   });
 
   // §5.1 correction-loop gate — mirrors the prior page's actionable-warnings
