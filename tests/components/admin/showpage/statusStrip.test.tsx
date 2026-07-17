@@ -38,9 +38,12 @@ afterEach(() => {
   routerRefresh.mockClear();
 });
 
-// Fixed clock so formatRelative is deterministic. last_synced_at 12 min before.
+// Fixed clock so formatRelative is deterministic. last_synced_at (Edited) 12 min before;
+// last_checked_at (the badge time for `ok`) 2 min before — distinct so assertions can tell
+// which field feeds which element.
 const NOW = new Date("2026-07-16T12:00:00.000Z");
 const SYNCED_12M = "2026-07-16T11:48:00.000Z";
+const CHECKED_2M = "2026-07-16T11:58:00.000Z";
 
 function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
@@ -52,6 +55,7 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     setPublished: vi.fn(async () => ({ ok: true }) as const),
     isLive: false,
     lastSyncedAt: SYNCED_12M,
+    lastCheckedAt: CHECKED_2M,
     lastSyncStatus: "ok",
     now: NOW,
     alertCount: 0,
@@ -241,11 +245,23 @@ describe("StatusStrip", () => {
       expect(screen.queryByText(/never/i)).toBeNull();
     });
 
-    it("shows 'Synced <relative>' when last sync succeeded", () => {
-      renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: "ok" });
+    it("shows 'Synced <relative>' using last_CHECKED_at (not last_synced_at) for the ok bucket", () => {
+      // The badge time is the last successful Drive reach (2 min ago), NOT the last content
+      // edit (12 min ago) — that moved to the Edited clause. Distinct fixtures isolate which
+      // field feeds the badge; a regression to last_synced_at would render "12 min ago".
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
+      const age = screen.getByTestId("strip-sync-age");
+      expect(age.textContent).toMatch(/synced/i);
+      expect(age.textContent).toMatch(/2 min ago/i);
+      expect(age.textContent).not.toMatch(/12 min ago/i);
+    });
+
+    it("falls back to last_synced_at for the badge time when last_checked_at is null", () => {
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: null, lastSyncStatus: "ok" });
       const age = screen.getByTestId("strip-sync-age");
       expect(age.textContent).toMatch(/synced/i);
       expect(age.textContent).toMatch(/12 min ago/i);
+      expect(age.textContent).not.toMatch(/never/i);
     });
 
     it("shows the health-bucket label (not 'Synced') when the last sync failed", () => {
@@ -253,6 +269,33 @@ describe("StatusStrip", () => {
       const age = screen.getByTestId("strip-sync-age");
       expect(age.textContent).toMatch(/couldn.t read the sheet/i);
       expect(age.textContent).not.toMatch(/synced/i);
+    });
+  });
+
+  describe("edited age", () => {
+    it("shows 'Edited <relative>' from last_synced_at, alongside the checked-time badge", () => {
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
+      const edited = screen.getByTestId("strip-edited-age");
+      expect(edited.textContent).toMatch(/edited/i);
+      expect(edited.textContent).toMatch(/12 min ago/i);
+    });
+
+    it("omits the edited element when last_synced_at is null (never edited)", () => {
+      renderStrip({ lastSyncedAt: null });
+      expect(screen.queryByTestId("strip-edited-age")).toBeNull();
+    });
+
+    it.each(["parse_error", "drive_error", "sheet_unavailable"])(
+      "omits the edited element for the %s bucket (last_synced_at is an error stamp, not a content edit)",
+      (status) => {
+        renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: status });
+        expect(screen.queryByTestId("strip-edited-age")).toBeNull();
+      },
+    );
+
+    it("keeps the edited element for a non-error warn bucket (shrink_held, not in the deny-set)", () => {
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: "shrink_held" });
+      expect(screen.getByTestId("strip-edited-age").textContent).toMatch(/edited/i);
     });
   });
 });

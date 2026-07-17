@@ -15,10 +15,15 @@
  *
  * Mode boundaries (spec §6):
  *   - Not archived            → title · [divider] · PublishedToggle · live badge (if live)
- *                               · sync age (if synced) · alert badge (if any) · copy-link
- *                               (published + token only).
- *   - Archived (read-only)    → title · archived badge · sync age. No toggle, no copy-link,
- *                               no live badge — the strip exposes zero mutating affordances.
+ *                               · sync age (if synced) · edited age (if content-edited)
+ *                               · alert badge (if any) · copy-link (published + token only).
+ *   - Archived (read-only)    → title · archived badge · sync age · edited age. No toggle,
+ *                               no copy-link, no live badge — zero mutating affordances.
+ *
+ * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
+ * (last successful Drive reach) for `ok`; the muted "Edited {rel}" shows the last-EDITED
+ * time (last content apply). Both moved off the dashboard Sync cell, which now shows the
+ * bucket + a hover-revealed "Checked" line only.
  *
  * Guard conditions (spec §11):
  *   - `title` null            → fall back to the slug (never an empty label).
@@ -39,7 +44,7 @@ import { TriangleAlert } from "lucide-react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
-import { syncStatusBucket } from "@/lib/admin/syncStatus";
+import { syncStatusBucket, showsEditedClause } from "@/lib/admin/syncStatus";
 import { ShareLinkCopyButton } from "@/app/admin/show/[slug]/ShareLinkCopyButton";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
 import { useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -61,8 +66,12 @@ export type StatusStripProps = {
   setPublished: (next: boolean) => Promise<LifecycleResult>;
   /** Page-computed `published && isShowLiveOnDate(...)`; badge renders only when true. */
   isLive: boolean;
-  /** `shows.last_synced_at` (ISO) or null. Null → the sync-age element is not rendered. */
+  /** `shows.last_synced_at` (ISO) or null. Null → the sync-age element is not rendered.
+   *  This is the "Edited" timestamp (last content apply); it feeds the muted Edited clause. */
   lastSyncedAt: string | null;
+  /** `shows.last_checked_at` (ISO) or null — last successful Drive reach/evaluate. Drives the
+   *  sync-age badge TIME for the `ok` bucket ("Synced {rel}"); falls back to lastSyncedAt when null. */
+  lastCheckedAt: string | null;
   /** `shows.last_sync_status` → health bucket + label via `syncStatusBucket`. */
   lastSyncStatus: string | null;
   /** Server "now" for deterministic relative formatting. */
@@ -80,6 +89,7 @@ export function StatusStrip({
   setPublished,
   isLive,
   lastSyncedAt,
+  lastCheckedAt,
   lastSyncStatus,
   now,
   alertCount,
@@ -87,14 +97,26 @@ export function StatusStrip({
   const { token } = useShareToken();
 
   // Sync age: guard null BEFORE formatRelative so the "never" sentinel never renders
-  // (spec §11 omit contract). Mirrors the dashboard SyncCell (ShowsTable.tsx:223-227).
+  // (spec §11 omit contract). Element existence is gated on lastSyncedAt (a show that
+  // never synced shows nothing). For the `ok` bucket the displayed TIME is
+  // last_checked_at ("Synced {rel}" = last successful Drive reach), falling back to
+  // last_synced_at when the check stamp is absent; non-ok buckets show the health label.
   const sync = lastSyncedAt == null ? null : syncStatusBucket(lastSyncStatus);
   const syncLabel =
     sync == null
       ? null
       : lastSyncStatus === "ok"
-        ? `Synced ${formatRelative(lastSyncedAt, now)}`
+        ? `Synced ${formatRelative(lastCheckedAt ?? lastSyncedAt, now)}`
         : sync.label;
+
+  // "Edited {rel}" (last_synced_at = last content apply), moved here from the dashboard
+  // Sync cell. Suppressed for the three error buckets where last_synced_at is an
+  // error-attempt stamp, not a content edit (showsEditedClause === false) — the same
+  // deny-set the dashboard used — and when the show never synced.
+  const editedRel =
+    lastSyncedAt != null && showsEditedClause(lastSyncStatus)
+      ? formatRelative(lastSyncedAt, now)
+      : null;
 
   // Copy-link renders only for an active crew link: published, not archived, token present.
   const copyUrl =
@@ -162,6 +184,15 @@ export function StatusStrip({
       {syncLabel != null && sync != null ? (
         <span data-testid="strip-sync-age" className="shrink-0">
           <StatusIndicator status={sync.bucket} label={syncLabel} />
+        </span>
+      ) : null}
+
+      {editedRel != null ? (
+        <span
+          data-testid="strip-edited-age"
+          className="shrink-0 text-xs text-text-subtle tabular-nums"
+        >
+          Edited {editedRel}
         </span>
       ) : null}
 
