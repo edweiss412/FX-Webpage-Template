@@ -85,6 +85,7 @@ if (!hasGap && !hasRoster) return null;
 - **`Number.isFinite` + `> 0`** hardens against the pre-existing gap in `:24`'s strict `=== 0` gate: a `NaN` or negative total (`NaN === 0` is `false`, `-1 === 0` is `false`) would previously slip past the gate and render an outer `role="img"` span with an **empty `aria-label`** and no chips. The new predicate treats any non-positive/non-finite total as "no signal" → `null`. Chips render iff their predicate is true, so no count is ever rendered as `0`, negative, or `NaN`.
 - **`slug`** (`string`): interpolated only into `data-testid={`shows-data-quality-${slug}`}`. An empty/whitespace slug yields an empty-suffixed but still-valid testid; it never renders as visible content and never affects the gate or chips. No behavior change from today (`:49`).
 - The chip **count** is always the finite positive `.total` integer that made its predicate true.
+- **Roster subcounts + gap classes (label builder — unchanged, `components/admin/DataQualityBadge.tsx:29-46`).** This pass does NOT touch the label builder; its malformed-input behavior is pre-existing and specified here for completeness. `rosterLabel` filters `[added, removed, renamed]` by `n > 0` (`:37`) — a malformed roster where `total > 0` but every subcount is `0`/missing/`NaN` degrades gracefully to the bare prefix `"Roster changed since last review: "` (empty enumeration) while the chip still shows `total`; this is bounded, plain-language, and carries no raw code (invariant 5 held). No crash, no `NaN`/`undefined` leaking into the label (the `.filter` drops non-positive subcounts). `gapLabel` routes `dataGaps.classes` through `formatDataGapBreakdown` (`lib/parser/dataGaps.ts:349`, capped at 4 classes + "+N more") — also unchanged and inherently bounded. The RPC (`roster_shift_counts`) guarantees `total === added + removed + renamed`, so the degraded path is defensive, not an expected state.
 
 ### 5.4 Dimensional invariants
 
@@ -112,7 +113,7 @@ The badge sits inline beside the show title in a shows-table row (`ShowsTable.ts
 | 5 | gap-only ↔ both | INSTANT — roster chip appears/disappears beside the persisting gap chip |
 | 6 | roster-only ↔ both | INSTANT — gap chip appears/disappears beside the persisting roster chip |
 
-**Compound transitions:** none. The badge holds no client state and shares none with any sibling; every state is a pure re-render given props, so there is no "state A animates while state B mid-transition" hazard — nothing animates, nothing to interrupt. The existing `dataGapsTransitionAudit.test.tsx` (greps `components/admin/DataQualityBadge.tsx` for motion imports) continues to pass because the two-chip markup adds none.
+**Compound transitions:** none. The badge holds no client state and shares none with any sibling; every state is a pure re-render given props, so there is no "state A animates while state B mid-transition" hazard — nothing animates, nothing to interrupt. The existing `dataGapsTransitionAudit.test.tsx` asserts no motion imports (still true — the two-chip markup adds none) BUT it ALSO pins the exact old gate literal `if (gapTotal === 0 && rosterTotal === 0) return null;` at `tests/components/admin/dataGapsTransitionAudit.test.tsx:146` as its "instant early-return" proof. The hardened gate (§5.3) changes that literal, so **this audit's expected regex MUST be updated in lockstep** to `/if \(!hasGap && !hasRoster\) return null;/` (a TDD task, §8) — it is not a "passes unchanged" file. The motion-absence assertion is unaffected.
 
 ## 6. DESIGN.md amendment (the FLOW4-3 "DESIGN.md decision")
 
@@ -123,7 +124,7 @@ FLOW4-3's deferral trigger is explicitly "a DESIGN.md decision to split data-qua
 - **Invariant 5** (no raw codes in UI): preserved — `aria-label`/`title` are plain-language, byte-identical to today; counts are integers, never codes.
 - **Invariant 8** (impeccable dual-gate): `/impeccable critique` + `/impeccable audit` on the badge + DESIGN.md diff; P0/P1 fixed or `DEFERRED.md`-deferred BEFORE cross-model review.
 - **Invariants 2, 3, 4, 9, 10**: N/A — no DB/lock/email/Supabase-call/mutation surface touched.
-- **Meta-test inventory:** CREATES none. EXTENDS none. Relies on the existing `tests/components/admin/dataGapsTransitionAudit.test.tsx` (source-grep motion audit — continues to pass unchanged) and `tests/components/admin/DataQualityBadge.rosterShift.test.tsx` (aria-label contract — continues to pass unchanged). New assertions land in a NEW behavioral test file (§8), not a new meta-test. Declared explicitly: no new structural registry is warranted (no new call boundary, no new §12.4 code, no new advisory-lock surface).
+- **Meta-test inventory:** CREATES none. **EXTENDS one:** `tests/components/admin/dataGapsTransitionAudit.test.tsx:146` — its "instant early-return" grep pins the exact gate literal, which the §5.3 hardening changes; the regex is updated to the new gate in lockstep (the motion-absence assertions in that file are untouched). `tests/components/admin/DataQualityBadge.rosterShift.test.tsx` (aria-label contract) passes unchanged (label builder byte-identical). New behavioral assertions land in a NEW test file (§8), not a new meta-test. No new structural registry is warranted (no new call boundary, no new §12.4 code, no new advisory-lock surface).
 
 ## 8. Test plan (TDD)
 
@@ -139,7 +140,9 @@ New file `tests/components/admin/DataQualityBadge.chips.test.tsx` (jsdom), anti-
 
 Real-browser layout task (Playwright) per §5.4 — badge height parity + no-wrap, both-chips vs gap-only.
 
-Regression: `DataQualityBadge.rosterShift.test.tsx`, `dataQualityBadgeArchivedTab.test.tsx`, `dataGapsTransitionAudit.test.tsx`, `ShowsTable.test.tsx`, `step3SheetCard.test.tsx` all query by `aria-label`/`data-testid`/`role="img"` (verified) → expected to pass unchanged. Run the FULL suite before push (a page-adjacent component rebuild can fan out to source-scanning meta-tests).
+**Lockstep meta-test update (§5.5/§7):** update the gate-literal grep at `tests/components/admin/dataGapsTransitionAudit.test.tsx:146` from `/if \(gapTotal === 0 && rosterTotal === 0\) return null;/` to `/if \(!hasGap && !hasRoster\) return null;/`. It still proves the badge is an instant early-return (not an animated presence); its motion-absence assertions are untouched. This lands in the SAME task/commit as the gate change (a source-grep audit fails immediately otherwise).
+
+Regression (verified query mechanism per file): `DataQualityBadge.rosterShift.test.tsx` (queries `role="img"` + `aria-label`), `dataQualityBadgeArchivedTab.test.tsx` (`data-testid` + `aria-label`), `ShowsTable.test.tsx` (`data-testid` + `aria-label`), `step3SheetCard.test.tsx` (`data-testid`) → pass unchanged (contract preserved). `dataGapsTransitionAudit.test.tsx` is NOT in this "unchanged" set — it is a **source-grep audit** updated in lockstep above. Run the FULL suite before push (a page-adjacent component rebuild can fan out to source-scanning meta-tests).
 
 ## 9. Watchpoints (§6-style, pre-load the reviewer)
 
