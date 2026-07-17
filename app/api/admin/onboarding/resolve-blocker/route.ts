@@ -349,7 +349,7 @@ export async function handleResolveBlocker(
     // multi-second network round-trip). The authoritative session/authz re-checks run
     // again UNDER the lock below. Unarchive has no Drive step → skips this phase.
     let prepared: Awaited<ReturnType<typeof defaultPrepareOnboardingFiles>>[number] | undefined;
-    let preFolderId: string | undefined;
+    let pendingFolderId: string | undefined;
     if (action === "rebuild") {
       const pre = await sql.begin(async (t) => {
         const rows = (await t.unsafe(
@@ -369,8 +369,8 @@ export async function handleResolveBlocker(
         return { folderId: rows[0]?.pending_folder_id ?? null };
       });
       if ("early" in pre) return NextResponse.json(pre.early);
-      preFolderId = pre.folderId ?? undefined;
-      if (!preFolderId) return NextResponse.json({ ok: false, status: "no_active_session" });
+      pendingFolderId = pre.folderId ?? undefined;
+      if (!pendingFolderId) return NextResponse.json({ ok: false, status: "no_active_session" });
       // Drive fetch + parse — NO lock held (side-effect-free reads). Fail-closed on a
       // Drive error, and enforce the folder-scope guard (a sheet moved out of the pending
       // folder → not this session's gear), mirroring finalize inline (`finalize/route.ts:800`).
@@ -384,7 +384,7 @@ export async function handleResolveBlocker(
           code: "DRIVE_FETCH_FAILED",
         });
       }
-      if (!metadata.parents.includes(preFolderId)) {
+      if (!metadata.parents.includes(pendingFolderId)) {
         return NextResponse.json({
           ok: false,
           status: "needs_attention",
@@ -392,7 +392,7 @@ export async function handleResolveBlocker(
         });
       }
       const preparedFiles = await (deps?.prepareOnboardingFiles ?? defaultPrepareOnboardingFiles)(
-        preFolderId,
+        pendingFolderId,
         {
           listFolder: async () => [metadata],
         },
@@ -434,7 +434,7 @@ export async function handleResolveBlocker(
         code,
         admin,
         prepared,
-        pendingFolderId: preFolderId!,
+        pendingFolderId: pendingFolderId!,
         deps,
       });
     });
