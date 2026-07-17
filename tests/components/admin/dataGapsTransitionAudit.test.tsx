@@ -143,7 +143,7 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
 
   it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
     const s = src("components/admin/DataQualityBadge.tsx");
-    expect(s).toMatch(/if \(gapTotal === 0 && rosterTotal === 0\) return null;/); // instant unmount
+    expect(s).toMatch(/if \(!hasGap && !hasRoster\) return null;/); // instant unmount (hardened gate, FLOW4-2/3)
     expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 
