@@ -662,6 +662,17 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   const dismissible = state.kind === "error";
   const dismissLabel = dismissible ? "Close" : "Back";
 
+  // Guard against a late row-resolution success after the operator dismissed:
+  // BlockedRowResolver calls onResolved AFTER its await, so a Back mid-request
+  // would otherwise let the late success re-fire runLoop and restart publish
+  // (spec §4.3). Set the (per-mount) flag BEFORE dismissing; the resolver's
+  // captured onResolved reads it and no-ops.
+  const dismissedRef = useRef(false);
+  const handleDismiss = () => {
+    dismissedRef.current = true;
+    run.dismiss();
+  };
+
   // Escape handling. A `Step3ReviewModal` open UNDERNEATH also listens for Escape
   // on `document` (bubble phase); a bubble-phase stopPropagation from here would
   // NOT preempt it (same target, review modal registered first). So listen in the
@@ -672,9 +683,9 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   // current `dismissible`/`dismiss`.
   const escRef = useRef<{ dismissible: boolean; dismiss: () => void }>({
     dismissible,
-    dismiss: run.dismiss,
+    dismiss: handleDismiss,
   });
-  escRef.current = { dismissible, dismiss: run.dismiss };
+  escRef.current = { dismissible, dismiss: handleDismiss };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -707,7 +718,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
           aria-label="Close"
           tabIndex={-1}
           data-testid="wizard-finalize-blocker-backdrop"
-          onClick={() => run.dismiss()}
+          onClick={handleDismiss}
           className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"
         />
       ) : (
@@ -780,7 +791,10 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
                       {...(row.rebuild_exhausted !== undefined
                         ? { rebuildExhausted: row.rebuild_exhausted }
                         : {})}
-                      onResolved={() => void run.runLoop()}
+                      onResolved={() => {
+                        // Suppress a resolve that lands AFTER a dismiss (§4.3).
+                        if (!dismissedRef.current) void run.runLoop();
+                      }}
                     />
                   )}
                 </li>
@@ -801,7 +815,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
             ref={dismissRef}
             type="button"
             data-testid="wizard-finalize-blocker-dismiss"
-            onClick={() => run.dismiss()}
+            onClick={handleDismiss}
             className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
             {dismissLabel}

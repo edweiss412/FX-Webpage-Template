@@ -284,3 +284,63 @@ describe("FinalizeBlockerModal — dismiss matrix", () => {
     },
   );
 });
+
+// ── Task 4: resolver / rescan paths + late-resolve guard ─────────────────────
+const finalizeCount = () =>
+  fetchMock.mock.calls.filter((c) => c[0] === "/api/admin/onboarding/finalize").length;
+
+describe("FinalizeBlockerModal — row recovery", () => {
+  test("BlockedRowResolver resolve continues the loop (re-POSTs /finalize)", async () => {
+    const q = await driveToCasPerRow(); // SHOW_ARCHIVED_IMMUTABLE, drive-archived-1
+    fetchMock
+      .mockResolvedValueOnce(mockJsonResponse({ ok: true, status: "resolved" }))
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WSID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({ status: "finalize_complete", wizard_session_id: WSID, watched_folder_id: "f" }),
+      );
+    const btn = q.getByTestId("blocked-row-resolver-drive-archived-1");
+    await act(async () => {
+      fireEvent.click(btn); // arm
+    });
+    await act(async () => {
+      fireEvent.click(btn); // confirm → /resolve-blocker → onResolved → runLoop
+    });
+    await waitFor(() => expect(finalizeCount()).toBeGreaterThanOrEqual(2));
+  });
+
+  test("RescanSheetButton success leaves the blocker modal mounted (router.refresh only, no runLoop)", async () => {
+    const q = await driveToCasPerRow("STAGED_PARSE_OUTDATED_AT_PHASE_D", "drive-outdated-1");
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: true }));
+    fireEvent.click(q.getByTestId("rescan-sheet-button-drive-outdated-1"));
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // STILL open
+  });
+
+  test("Back during a PENDING resolver request suppresses the late runLoop", async () => {
+    const q = await driveToCasPerRow();
+    let resolveFetch!: (v: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolveFetch = r))); // next /resolve-blocker hangs
+    const btn = q.getByTestId("blocked-row-resolver-drive-archived-1");
+    await act(async () => {
+      fireEvent.click(btn); // arm
+    });
+    await act(async () => {
+      fireEvent.click(btn); // confirm → resolver fetch pending
+    });
+    const before = finalizeCount();
+    fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back → idle → unmount
+    await act(async () => {
+      resolveFetch(mockJsonResponse({ ok: true, status: "resolved" })); // late success
+    });
+    expect(finalizeCount()).toBe(before); // NO restart
+    expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
+  });
+});
