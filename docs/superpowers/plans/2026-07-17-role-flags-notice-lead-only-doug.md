@@ -170,20 +170,22 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
   }
   ```
   (Add a `// not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client)` comment on the `port.unsafe`, mirroring `writeAutoApplyChanges.ts:182`.)
-  - In `lib/sync/phase2.ts` `runPhase2`, after `roleFlagChanges` is computed (`~:547`), call — **omitting the `occurredAt` argument** (there is NO `occurredAt` binding in `runPhase2`; passing it would fail typecheck — the `writeAutoApplyChanges` call at `:498-511` likewise omits it):
+  - In `lib/sync/phase2.ts` `runPhase2`, after `roleFlagChanges` is computed (`~:547`), add the call **guarded on `if (port)`** (port is `tx.holdPort?.()` — typed optional, `:440`; the writer's `port` param is a required `HoldPort`, so the guard narrows it) and NOT gated by `feedPolicy`, and **omitting `occurredAt`** (there is no `occurredAt` binding in `runPhase2`; the writer defaults it internally, exactly as the `writeAutoApplyChanges` call at `:491-511` omits it):
     ```ts
-    await callTx("writeRoleChangeLogRows", () =>
-      writeRoleChangeLogRows(
-        port,
-        snapshot.showId,
-        args.driveFileId,
-        snapshot.previousCrewMembers ?? [],
-        applyOutcome.appliedCrewMembers,
-        args.identityLinkRenames ?? [],
-      ),
-    );
+    if (port) {
+      await callTx("writeRoleChangeLogRows", () =>
+        writeRoleChangeLogRows(
+          port,
+          snapshot.showId,
+          args.driveFileId,
+          snapshot.previousCrewMembers ?? [],
+          applyOutcome.appliedCrewMembers,
+          args.identityLinkRenames ?? [],
+        ),
+      );
+    }
     ```
-    UNCONDITIONALLY (not gated by feedPolicy). The writer's optional `occurredAt` defaults to `new Date().toISOString()` (mirrors `writeAutoApplyChanges.ts:177`); unit tests pass an explicit value for determinism.
+    **Port availability (verified, load-bearing):** both real apply paths wire `holdPort` — cron (`runScheduledCronSync.ts:735`) and the staged/dashboard path (the locked `applyStaged` tx, `applyStaged.ts:1751`) — so `port` is DEFINED on every real apply path; the `if (port)` guard only no-ops for port-less test doubles / legacy raw txs. Critically, the capability AUDIT (notice + durable `LEAD_ROLE_APPLIED` event) is produced by `capabilityRoleChangesForNotice` (arms a/b/c, in-memory, returned to the tail callers and emitted post-commit) and does **NOT** depend on `port` — so a missing port drops only the Doug-visible change-log ROW, never the security-critical capability audit. The change-log row is Doug-visible sugar for role changes; the durable event is the audit of record. The writer's optional `occurredAt` defaults to `new Date().toISOString()` (mirrors `writeAutoApplyChanges.ts:177`); unit tests pass an explicit value for determinism.
   - In `lib/sync/changeLog/writeAutoApplyChanges.ts:142-152`, remove `|| i.invariant === "MI-9"` from the field_changed `hasInvariant` predicate (keep MI-8/8b/8c).
 
 - [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts` → PASS. Run the topology meta-test: `pnpm vitest run tests/sync/_metaLeadRoleAppliedTopology.test.ts` → PASS (unchanged). `pnpm tsc --noEmit`.
