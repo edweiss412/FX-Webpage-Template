@@ -92,6 +92,30 @@ async function driveToComplete() {
   return q;
 }
 // Rescannable cas_per_row (RescanSheetButton path): driveToCasPerRow("STAGED_PARSE_OUTDATED_AT_PHASE_D", "drive-outdated-1").
+
+// Compound fixture — replicate the tiny stagedRow fixture (step3Page.transitions.test.tsx:36-40) locally:
+function pr(title = "Txn Show") { return { show: { title }, warnings: [] } as unknown as ParseResult; }
+function stagedRow(dfid: string, status: "staged" | "applied" = "staged") {
+  return { driveFileId: dfid, driveFileName: `${dfid}.gsheet`, status, parseResult: pr(dfid) } as Step3Row;
+}
+// driveCompound — open Step3ReviewModal mid-run (deferred first /finalize), THEN resolve to the terminal:
+async function driveCompound(kind: "cas_per_row" | "error") {
+  let resolveFinalize!: (r: Response) => void;
+  fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolveFinalize = r; })); // 1st /finalize hangs
+  const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[stagedRow("a", "applied")]} finishable initialPublishCount={1} initialUncheckedCleanCount={0} />);
+  await act(async () => { fireEvent.click(q.getByTestId("wizard-finalize-button")); });
+  await waitFor(() => expect(q.getByTestId("wizard-step3-tracking")).toBeTruthy());
+  fireEvent.click(q.getByTestId("wizard-step3-card-a-more"));                 // open Step3ReviewModal mid-run
+  const reviewModal = q.getByTestId("wizard-step3-card-a-review-modal");
+  if (kind === "cas_per_row") {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "SHOW_ARCHIVED_IMMUTABLE", per_row: [{ drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" }] }, { status: 409 }));
+    await act(async () => { resolveFinalize(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 0, per_row: [] })); });
+  } else {
+    await act(async () => { resolveFinalize(mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 })); });
+  }
+  await q.findByTestId("wizard-finalize-blocker-modal");
+  return { q, reviewModal };
+}
 ```
 
 Entering `cas_per_row`/`error`/`race_row` ALREADY consumes finalize calls (`/finalize` and, for cas, `/finalize-cas`) — assertions about "no restart" must SNAPSHOT the `/finalize` call count and assert it is UNCHANGED after the late event, never assert zero.
@@ -153,7 +177,7 @@ export? function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // NOT 
 - `const portalEl = useRef<HTMLDivElement | null>(null); if (portalEl.current === null) portalEl.current = document.createElement("div");` then `useEffect(() => { document.body.appendChild(portalEl.current!); return () => { portalEl.current!.remove(); }; }, []);` and `createPortal(<overlay/>, portalEl.current)`. (A dedicated portal node the inert effect can exclude by identity.)
 - Overlay: `<div role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="wizard-finalize-blocker-modal" className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">`.
 - Backdrop (state-conditional — §6): `error` → `<button aria-label="Close" tabIndex={-1} data-testid="wizard-finalize-blocker-backdrop" onClick={() => run.dismiss()} className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"/>`; blocking → `<div aria-hidden="true" data-testid="wizard-finalize-blocker-backdrop" className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"/>`.
-- Panel: `<div ref={panelRef} data-testid="wizard-finalize-blocker-panel" className="relative flex w-full max-w-md flex-col items-stretch gap-3 rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none">`. **Distinct `wizard-finalize-blocker-panel` testid on the PANEL** (the overlay root carries `wizard-finalize-blocker-modal`) so the Playwright task (Task 7) measures the bottom-sheet panel, not the full-screen scrim overlay.
+- Panel: `<div ref={panelRef} data-testid="wizard-finalize-blocker-panel" className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none">`. **`max-h-[85vh]` cap + `overflow-y-auto`** (spec §8 dimensional invariant — a multi-row blocker list scrolls WITHIN the capped panel, never overflows the viewport). **Distinct `wizard-finalize-blocker-panel` testid on the PANEL** (overlay root carries `wizard-finalize-blocker-modal`) so Task 7 measures the sheet, not the full-screen scrim overlay.
 - Bodies: move the EXACT markup + testids from `FinalizeStatusRegion` (`FinalizeButton.tsx:586-671`) — race_row `<ul>` of re-apply `<Link>`s + `HelpAffordance`; cas_per_row `<ul>` with `RESCANNABLE_CAS_CODES.has(code) ? <RescanSheetButton driveFileId wizardSessionId/> : <BlockedRowResolver … onResolved={…}/>` + `HelpAffordance`; error `<p>{renderEmphasis(state.copy)}</p>` + `HelpAffordance`. Promote the primary line of each to `<h2 id={titleId} …>` (race/cas headings) or set `id={titleId}` on the error `<p>`.
 - Dismiss control: `state.kind === "error"` → `<button data-testid="wizard-finalize-blocker-dismiss" ref={dismissRef} onClick={() => run.dismiss()}>Close</button>`; blocking → same testid, label `Back`, same handler. (Backdrop-inert-for-blocking, capture-Escape, dismissedRef guard, focus/inert are Tasks 3–5 — Task 2 wires `useDialogFocus(panelRef, dismissRef)` + body-scroll-lock so the shell is a real modal, and a plain `run.dismiss()` on the control.)
 - `FinalizeStatusRegion` becomes: `return (<>{state.kind === "complete" ? <inline-complete-note/> : null}<FinalizeBlockerModal run={run} /></>);` — delete the inline race/cas/error branches and the `alertRef`/`isAlert` effect.
@@ -161,14 +185,20 @@ export? function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // NOT 
 - [ ] **Step 1 — failing tests** (new, in `FinalizeBlockerModal.test.tsx`) + legacy updates (in `FinalizeButton.test.tsx`):
 
 ```tsx
-// NEW — dialog semantics
-test("error renders role=dialog + aria-modal with a resolved accessible name", async () => {
-  const q = await driveToError();
+// NEW — dialog semantics + accessible name for EVERY moved state (§6: exactly one labelling element each)
+test.each([
+  ["error", driveToError, "wizard-finalize-error"],
+  ["race_row", driveToRaceRow, "wizard-finalize-race-row"],
+  ["cas_per_row", () => driveToCasPerRow(), "wizard-finalize-cas-per-row"],
+] as const)("%s renders role=dialog + aria-modal with a non-empty accessible name", async (_kind, drive, panelTestid) => {
+  const q = await drive();
   const dialog = q.getByTestId("wizard-finalize-blocker-modal");
   expect(dialog).toHaveAttribute("role", "dialog");
   expect(dialog).toHaveAttribute("aria-modal", "true");
-  expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)!.textContent).toBeTruthy();
-  expect(q.getByTestId("wizard-finalize-error")).toBeInTheDocument();
+  const labelEl = document.getElementById(dialog.getAttribute("aria-labelledby")!);
+  expect(labelEl).not.toBeNull();
+  expect(labelEl!.textContent!.trim().length).toBeGreaterThan(0); // exactly one labelling element, non-empty
+  expect(q.getByTestId(panelTestid)).toBeInTheDocument();
 });
 // §10.5 — body scroll lock while open, restored on close
 test("body overflow is hidden while the modal is open and restored on close", async () => {
@@ -317,32 +347,32 @@ test("focus lands on the dismiss control; Tab cycles within the modal", async ()
 //   await waitFor(() => expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument());
 // stagedRow/WSID from the fixture; `wizard-step3-card-a-more` is the card's Review/View button.
 
-test("compound BLOCKING (cas_per_row): single root; Escape is INERT (review stays); Back closes blocker; focus restores into review", async () => {
-  // reach cas_per_row with the review modal open (harness above)
-  const reviewModal = screen.getByTestId("wizard-step3-card-a-review-modal");
-  expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument();
-  const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!; // inert lands on the body-child ancestor, not the dialog node
+test("compound BLOCKING (cas_per_row): single root; Escape INERT (review stays); Back closes blocker; focus restores; nested scroll-lock held", async () => {
+  const { q, reviewModal } = await driveCompound("cas_per_row");
+  expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument();
+  const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!; // inert on the body-child ancestor, not the dialog node
   expect(inertedAncestor).toHaveAttribute("inert");
   expect(inertedAncestor).toHaveAttribute("aria-hidden", "true");
   fireEvent.keyDown(document, { key: "Escape" });
   expect(reviewModal).toBeInTheDocument();
-  expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // Escape inert for blocking
-  fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss")); // Back
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+  expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // Escape inert for blocking
+  fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back
+  await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
   expect(inertedAncestor).not.toHaveAttribute("inert");
-  expect(reviewModal.contains(document.activeElement)).toBe(true); // focus continuity (inert lifted before restore)
+  expect(reviewModal.contains(document.activeElement)).toBe(true);           // focus continuity (inert lifted before restore)
+  expect(document.body.style.overflow).toBe("hidden");                        // §10.11: review modal still holds the lock
 });
 
-test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the review; focus restores into review", async () => {
-  // reach error with the review modal open (harness above)
-  const reviewModal = screen.getByTestId("wizard-step3-card-a-review-modal");
+test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the review; focus restores; nested scroll-lock held", async () => {
+  const { q, reviewModal } = await driveCompound("error");
   const inertedAncestor = [...document.body.children].find(el => el.contains(reviewModal))!;
   expect(inertedAncestor).toHaveAttribute("inert");
   fireEvent.keyDown(document, { key: "Escape" }); // error → Escape dismisses the blocker only
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
-  expect(reviewModal).toBeInTheDocument(); // review NOT closed (capture + stopImmediatePropagation)
+  await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+  expect(reviewModal).toBeInTheDocument();                                    // review NOT closed (capture + stopImmediatePropagation)
   expect(inertedAncestor).not.toHaveAttribute("inert");
   expect(reviewModal.contains(document.activeElement)).toBe(true);
+  expect(document.body.style.overflow).toBe("hidden");                        // §10.11: review modal still holds the lock
 });
 ```
 
@@ -371,11 +401,11 @@ test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the revi
 
 **Template:** `tests/e2e/blocked-row-resolver-transitions.spec.ts` (LIVE esbuild-bundled admin tree) — NOT the static `renderToStaticMarkup` harness (it cannot drive state). Mount through the EXPORTED `FinalizeStatusRegion` (single-lever contract — `FinalizeBlockerModal` stays module-private and is exercised through `FinalizeStatusRegion`, per the exports at `FinalizeButton.tsx:498,572`). Harness page:
 - a REAL `<WizardFooter primary={<span/>} center={<FinalizeStatusRegion run={stubRun}/>} />` (WizardFooter is light — `createPortal` + flex, no heavy deps), so the modal mounts through the actual footer-center slot and the footer's `z-40` body portal — the production composition the spec §8 requires.
-- `stubRun`: a hand-built `FinalizeRun` literal (`dismiss`/`runLoop` = `() => {}`, constant `wizardSessionId`); a page button flips `state` `idle → { kind: "cas_per_row", rows: [{ drive_file_id: "d1", code: "SHOW_ARCHIVED_IMMUTABLE" }] }`.
+- `stubRun`: a PARTIAL literal cast `as unknown as FinalizeRun` (the exported `FinalizeRun` is the full hook return — `isRunning`, `buttonDisabled`, `confirmOpen`, labels, counts, setters, `FinalizeButton.tsx:481-495`; the blocker path reads only `state`, `dismiss`, `runLoop`, `wizardSessionId`, so a narrowed stub + cast is correct and documented). `dismiss`/`runLoop` = `() => {}`, constant `wizardSessionId`; a page button flips `state` `{ kind: "idle" } → { kind: "cas_per_row", rows: [{ drive_file_id: "d1", code: "SHOW_ARCHIVED_IMMUTABLE" }, … cap+ rows to exercise the max-height cap … ] }`.
 - a top-of-stack STAND-IN for `Step3ReviewModal`: a plain `<div data-testid="review-standin" className="fixed inset-0 z-50">` mounted in the app-root subtree (NOT portaled). This replicates `Step3ReviewModal`'s exact stacking shell (`fixed inset-0 z-50`, `Step3ReviewModal.tsx:563`) — bundling the full `Step3ReviewModal` (ShowReviewSurface + a full staged fixture) is disproportionate; the z-context/paint-order behavior under test is identical to the one-line shell.
 - Compile token CSS via the Tailwind CLI as the template does; emulate `prefers-reduced-motion: reduce` (stable geometry on load, matching `step3-review-modal.layout.spec.ts`).
 
-- [ ] **Step 1 — failing test:** at 390px: (a) measure `wizard-footer-inner` height with `stubRun` idle, flip to `cas_per_row`, assert height unchanged ±0.5px (the no-layout-shift regression proof — the primary acceptance test); (b) measure the PANEL element `wizard-finalize-blocker-panel` (NOT the full-screen overlay `wizard-finalize-blocker-modal`) — assert its rect is within `[0, innerHeight + 0.5]`; (c) with the `review-standin` present, `document.elementFromPoint(panelRect.x + panelRect.width/2, panelRect.y + panelRect.height/2)` (the PANEL's center, which is real panel content, not scrim) resolves to a node INSIDE `wizard-finalize-blocker-modal` (portal-to-body z-50 beats an app-root z-50 stand-in — top-of-stack). Bounds from `window.innerHeight`.
+- [ ] **Step 1 — failing test:** at 390px, with a MANY-row `cas_per_row` stub (enough rows to exceed 85vh unclamped): (a) measure `wizard-footer-inner` height with `stubRun` idle, flip to `cas_per_row`, assert height unchanged ±0.5px (the no-layout-shift regression proof — primary acceptance test); (b) measure the PANEL `wizard-finalize-blocker-panel` (NOT the full-screen overlay) — assert its rect is within `[0, innerHeight + 0.5]` AND `panelRect.height <= 0.85 * window.innerHeight + 0.5` (the §8 `max-h-[85vh]` cap — this is why the many-row stub matters); (c) with the `review-standin` present, `document.elementFromPoint(panelRect.x + panelRect.width/2, panelRect.y + panelRect.height/2)` resolves to a node INSIDE `wizard-finalize-blocker-modal` (portal-to-body z-50 beats an app-root z-50 stand-in — top-of-stack). Bounds from `window.innerHeight`.
 - [ ] **Step 2 — run, expect FAIL** (harness/spec not built / not in allowlist): `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-blocker-modal.layout.spec.ts`
 - [ ] **Step 3 — implement** the harness + spec; add the allowlist regex entry.
 - [ ] **Step 4 — run, expect PASS.**
