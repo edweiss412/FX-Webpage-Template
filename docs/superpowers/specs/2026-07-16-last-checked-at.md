@@ -87,7 +87,7 @@ tx. No new lock is acquired anywhere; topology is unchanged.
 | applied (full) | `applyShowSnapshot` `:1511` | append `last_checked_at = now()` |
 | pending_review (stage) | `updateShowPendingReview` `:1130` | append `last_checked_at = now()` |
 | shrink_held | `updateShowShrinkHeld` `~:1100` | append `last_checked_at = now()` (note: `last_synced_at` stays UNchanged here per audit #3, `:1104-1110`; only `last_checked_at` advances) |
-| watermark-skip / deferred_modtime | non-archived skip already opens a lock tx to `logSync` at `:2688-2694` | add `update shows set last_checked_at = now() where id = $show` INSIDE that same tx |
+| watermark-skip / deferred_modtime | non-archived skip already runs inside `lock(driveFileId, async (lockedTx) => {…})` (`:2688`, `deps.withShowLock ?? withPostgresSyncPipelineLock` — the SAME single-holder wrapper as the apply path at `:2698`) | inside that callback, **after** the `readShowArchived_unlocked` guard (`:2689`) and alongside `logSync` (`:2692`), add `update shows set last_checked_at = now() where drive_file_id = $1` using `lockedTx`. Archived-in-the-gap shows return at `:2690` before the write (correct — archived get no write); a contended lock (`ConcurrentSyncSkipped`, `:2695`) returns without writing (another holder writes). Single holder; no second acquisition. |
 | parse_error `:1087` / sheet_unavailable `:1150` / drive_error `:1176` | — | **no write** (error outcomes) |
 
 The outside-lock skip early-return at `:2810-2811` is **not** a write site (no tx
