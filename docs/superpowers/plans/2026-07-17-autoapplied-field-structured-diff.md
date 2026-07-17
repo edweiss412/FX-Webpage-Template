@@ -108,7 +108,8 @@ describe("buildFieldChangesRow", () => {
     const row = buildFieldChangesRow(items)!;
     const entries = row.afterImage.fieldChanges;
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({ label: "Pull sheet", from: null, to: null, note: "200 cases removed" });
+    // Spec §3.4 copy is the literal "{N} case(s) removed" (compact, no plural logic).
+    expect(entries[0]).toEqual({ label: "Pull sheet", from: null, to: null, note: "200 case(s) removed" });
   });
 
   it("MI-8c with an invalid mode (incl. a prototype key like 'toString') is skipped + counted", () => {
@@ -472,19 +473,20 @@ it("the PERSISTED summary carries the omission clause for a valid+malformed sync
 
 Import `groupAutoApplied` from `@/lib/notify/monitorDigest` in the writer test file.
 
-**Behavior-preservation: the Phase-1 debounce still writes no row** (spec §9). The writer-enrichment must NOT weaken the pre-Phase-2 unstable-`modifiedTime` debounce (`mi8DebounceReason`, `phase1.ts:278-292`): a sync whose only field-family items are MI-8/MI-8b with an unstable Drive `modifiedTime` returns `defer`, so `writeAutoApplyChanges` is never reached and NO `field_changed` row is written. Add/extend in `tests/sync/phase1.test.ts`:
+**Behavior-preservation: the Phase-1 debounce still routes to `defer`** (spec §9). This feature changes ONLY the writer's `field_changed` block, NOT the Phase-1 routing — so the pre-Phase-2 unstable-`modifiedTime` debounce (`mi8DebounceReason`, `phase1.ts:278-292`) must still return `defer` for an MI-8/MI-8b-only sync. Because `defer` architecturally skips Phase-2, `writeAutoApplyChanges` is never reached and no `field_changed` row is written for that pass. Add/extend in `tests/sync/phase1.test.ts`:
 
 ```ts
-it("unstable-modifiedTime MI-8/MI-8b sync defers → writes NO field_changed row", async () => {
-  // reuse the suite's phase-1 harness; assert the outcome is `defer` (mi8DebounceReason)
-  // AND that the change-log writer captured zero field_changed rows for this pass.
+it("unstable-modifiedTime MI-8/MI-8b-only sync still routes to `defer` (debounce preserved)", async () => {
+  // Non-tautological pin: assert the DEFER OUTCOME. phase1 unit tests do NOT run
+  // Phase-2 / the change-log writer, so a "zero field_changed rows" assertion HERE
+  // would be tautological (the writer never runs in this harness). The behavior-
+  // preservation claim is: the debounce still fires → defer → Phase-2 (writer) skipped.
   const out = await runPhase1(/* MI-8b item + unstable modifiedTime fixture */);
   expect(out.outcome).toBe("defer");
-  expect(capturedChangeLogRows().filter((r) => r.change_kind === "field_changed")).toHaveLength(0);
 });
 ```
 
-> **Note for the implementer:** reuse the suite's existing arg-builder + `port` capture mechanism (the file already asserts on inserted rows — mirror how the crew_renamed/crew_added cases read `after_image`). `capturedRows()`/`runPhase1()`/`capturedChangeLogRows()` are stand-ins for the two suites' existing helpers; wire to the real ones. If `tests/sync/phase1.test.ts` already covers the `defer` outcome, add only the "no field_changed row" assertion.
+> **Note for the implementer:** reuse the suite's existing arg-builder + `port` capture mechanism (the file already asserts on inserted rows — mirror how the crew_renamed/crew_added cases read `after_image`). `capturedRows()`/`runPhase1()` are stand-ins for the two suites' existing helpers; wire to the real ones. If `tests/sync/phase1.test.ts` already covers this `defer` case, no new test is needed — cite it as the behavior-preservation pin. If an integration harness that actually runs Phase-2 exists (e.g. `perFileProcessor`/`applyStaged`), additionally assert zero `field_changed` rows THERE (where the writer really runs), which is the only non-tautological place for a row-count assertion.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -836,10 +838,38 @@ it("crew_renamed row STILL renders the 'Crew member' label", () => {
   expect(screen.getByText("Crew member")).toBeInTheDocument();
 });
 
-it("long unbroken value renders with wrap-break-word (no overflow)", () => {
-  const long = "x".repeat(120);
-  render(/* a fields row whose entry.to === long */);
-  expect(screen.getByText(long)).toHaveClass("wrap-break-word");
+it("long unbroken values wrap on EVERY rendered string — label, from, to, note (R6 F2)", () => {
+  // Distinct long strings per field so getByText is unambiguous; each ~120 chars.
+  const lname = "Role — " + "N".repeat(110);
+  const lfrom = "F".repeat(120);
+  const lto = "T".repeat(120);
+  const lnote = "P".repeat(120);
+  render(<RecentAutoAppliedStrip data={okData([groupWith({
+    id: "r1", changeKind: "field_changed", summary: "x", undoable: false,
+    diff: { kind: "fields", entries: [
+      { label: lname, from: lfrom, to: lto, note: null },      // label/from/to wrap
+      { label: "Pull sheet", from: null, to: null, note: lnote }, // note wraps
+    ] },
+  })])])} actions={stubActions} defaultExpanded />);
+  for (const s of [lname, lfrom, lto, lnote]) {
+    expect(screen.getByText(s)).toHaveClass("wrap-break-word");
+  }
+});
+
+it("renders ALL entries — no slice/collapse (a whole-row Accept must not hide a change) (R6 F1)", () => {
+  // Many entries (a whole-roster role reshuffle). Spec §6: render all — no "+N more".
+  const entries = Array.from({ length: 14 }, (_, i) => ({
+    label: `Role — Person ${i}`, from: "A1", to: "A1, LEAD", note: null,
+  }));
+  render(<RecentAutoAppliedStrip data={okData([groupWith({
+    id: "r1", changeKind: "field_changed", summary: "Role changed on this sync", undoable: false,
+    diff: { kind: "fields", entries },
+  })])])} actions={stubActions} defaultExpanded />);
+  for (let i = 0; i < 14; i++) {
+    expect(screen.getByText(`Role — Person ${i}`)).toBeInTheDocument();
+  }
+  // No truncation affordance introduced (no "+N more" / "show more" control).
+  expect(screen.queryByText(/\+\d+ more|show more/i)).toBeNull();
 });
 
 it("Unavailable marker entry renders as a distinct warning-textured row", () => {
