@@ -372,7 +372,15 @@ export function Step3SheetCard({
     // recovery, which does not apply once publishing has begun. (Blocked
     // re-apply rows retain their pending_syncs, so they never reach here with a
     // missing preview.) Codex whole-diff R3.
-    if (checkpointStatus !== null && row.displayState) {
+    // Enter the badge-backfill branch when EITHER we're at a non-null checkpoint
+    // OR a linked live show exists. A `linkedShowSummary` is proof the sheet read
+    // & published fine, so during the finalize race — where the batch has already
+    // deleted this row's preview (pr → null) but the client still holds the
+    // PRE-finalize snapshot (checkpointStatus === null) — a healthy show must show
+    // its backfilled badge, never the generic "couldn't read the details" error.
+    // The genuine null-parse case (no preview AND no linked show) still falls
+    // through to the Re-scan/Ignore recovery below. (Bug 2026-07-17.)
+    if ((checkpointStatus !== null || row.linkedShowSummary) && row.displayState) {
       // Owner decision 2026-07-06: backfill the client · dates · venue line from
       // the linked LIVE show (the finalize batch deleted this row's parse preview,
       // so the published show is the only source left) — otherwise every applied

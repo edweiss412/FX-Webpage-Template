@@ -68,4 +68,37 @@ describe("Step3SheetCard post-finalize live-summary backfill", () => {
       "rfi-pc-chicago.sheet",
     );
   });
+
+  // ── Finalize race (bug 2026-07-17): during "Applying your edits…" the finalize
+  // batch has already DELETED the row's pending_syncs preview (pr → null) but the
+  // client still holds the PRE-finalize checkpoint snapshot (checkpointStatus ===
+  // null). A linked live show is proof the sheet read fine, so the card MUST show
+  // the backfilled badge, NOT the generic "couldn't read the details" error which
+  // healthy shows were wrongly rendering. ──
+  describe("checkpointStatus === null race with a linked live show", () => {
+    test("linkedShowSummary present → backfill card, NOT the couldn't-read error", () => {
+      const row = appliedRow({
+        linkedShowSummary: {
+          title: "RFI & PC Chicago",
+          clientLabel: "Institutional Investor",
+          venue: { name: "Four Seasons Hotel" },
+          dates: { travelIn: "May 11", set: "May 12", showDays: ["May 13"], travelOut: "May 15" },
+        },
+      });
+      const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} checkpointStatus={null} />);
+      // Not the generic no-details error.
+      expect(q.queryByText(/couldn.t read the details/i)).toBeNull();
+      // The live summary backfill renders instead.
+      const summary = q.getByTestId(`wizard-step3-card-${DFID}-live-summary`).textContent ?? "";
+      expect(summary).toContain("Institutional Investor");
+      expect(summary).toContain("Four Seasons Hotel");
+    });
+
+    test("no linkedShowSummary AND checkpoint null → genuine couldn't-read error preserved", () => {
+      const row = appliedRow(); // pr null, no linked show, no checkpoint
+      const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} checkpointStatus={null} />);
+      // The genuine null-parse case still shows the error + recovery affordance.
+      expect(q.getByText(/couldn.t read the details/i)).toBeTruthy();
+    });
+  });
 });
