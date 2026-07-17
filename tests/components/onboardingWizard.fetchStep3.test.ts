@@ -286,8 +286,17 @@ describe("fetchStep3Data — pull_sheet_override threading (PSAT-1)", () => {
   test("the pending_syncs SELECT requests the pull_sheet_override column", async () => {
     seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE,
-        pull_sheet_override: { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "t" } },
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        pull_sheet_override: {
+          tabName: "OLD A",
+          fingerprint: "fp1",
+          acceptedBy: "u@x.co",
+          acceptedAt: "t",
+        },
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     await fetchStep3Data(SESSION_ID);
@@ -297,13 +306,23 @@ describe("fetchStep3Data — pull_sheet_override threading (PSAT-1)", () => {
   test("durable override is reduced onto the row (audit dropped)", async () => {
     seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE,
-        pull_sheet_override: { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "t" } },
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        pull_sheet_override: {
+          tabName: "OLD A",
+          fingerprint: "fp1",
+          acceptedBy: "u@x.co",
+          acceptedAt: "t",
+        },
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     const result = await fetchStep3Data(SESSION_ID);
-    const row = (result as { rows: { driveFileId: string; pullSheetOverride?: unknown }[] })
-      .rows.find((r) => r.driveFileId === "dfid-1");
+    const row = (
+      result as { rows: { driveFileId: string; pullSheetOverride?: unknown }[] }
+    ).rows.find((r) => r.driveFileId === "dfid-1");
     expect(row?.pullSheetOverride).toEqual({ tabName: "OLD A", fingerprint: "fp1" });
   });
 });

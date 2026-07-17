@@ -33,7 +33,10 @@ import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
-import { coercePullSheetOverride, evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
+import {
+  coercePullSheetOverride,
+  evaluateFinalizeOverrideGate,
+} from "@/lib/sync/pullSheetOverride";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;

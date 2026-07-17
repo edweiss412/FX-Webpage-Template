@@ -5,7 +5,12 @@ import {
   overrideSnapshot,
 } from "@/lib/sync/pullSheetOverride";
 
-const FULL = { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "2026-07-17T00:00:00Z" };
+const FULL = {
+  tabName: "OLD A",
+  fingerprint: "fp1",
+  acceptedBy: "u@x.co",
+  acceptedAt: "2026-07-17T00:00:00Z",
+};
 
 describe("coercePullSheetOverride (full audit shape)", () => {
   test("accepts the full 4-string shape", () => {
@@ -51,7 +56,9 @@ describe("coerceOverrideSnapshotFromRow (durable -> snapshot, finalize-parity)",
       {},
     ];
     for (const v of cases) {
-      expect(coerceOverrideSnapshotFromRow(v)).toEqual(overrideSnapshot(coercePullSheetOverride(v)));
+      expect(coerceOverrideSnapshotFromRow(v)).toEqual(
+        overrideSnapshot(coercePullSheetOverride(v)),
+      );
     }
   });
 });

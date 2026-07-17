@@ -368,7 +368,9 @@ export function buildStep3Row(
   if (pending) row.stagedId = pending.staged_id;
   if (triggeredReviewItems) row.triggeredReviewItems = triggeredReviewItems;
   if (lastFinalizeFailureCode !== null) row.lastFinalizeFailureCode = lastFinalizeFailureCode;
-  const pullSheetOverride = pending ? coerceOverrideSnapshotFromRow(pending.pull_sheet_override) : null;
+  const pullSheetOverride = pending
+    ? coerceOverrideSnapshotFromRow(pending.pull_sheet_override)
+    : null;
   if (pullSheetOverride) row.pullSheetOverride = pullSheetOverride;
   // Backfill summary from the linked live show (owner decision 2026-07-06). Only
   // attach when at least one summary field is present, so a pure buildStep3Row

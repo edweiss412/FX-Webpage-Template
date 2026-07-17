@@ -2321,7 +2321,11 @@ function ArchivedTabRescanNeeded({
     >
       <p className="font-medium">Your change was saved, but this preview is out of date.</p>
       <p>Re-scan to refresh it.</p>
-      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} disabled={isPublishRunActive} />
+      <RescanSheetButton
+        driveFileId={dfid}
+        wizardSessionId={wizardSessionId}
+        disabled={isPublishRunActive}
+      />
     </div>
   );
 }

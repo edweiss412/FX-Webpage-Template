@@ -23,7 +23,10 @@ import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
-import { PackListBreakdown, Step3RunStateContext } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  PackListBreakdown,
+  Step3RunStateContext,
+} from "@/components/admin/wizard/step3ReviewSections";
 
 const DFID = "drive-abc-123";
 const WSID = "00000000-1111-4222-8333-444444444444";
@@ -268,7 +271,9 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         pullSheetOverride={{ tabName: "OLD B", fingerprint: "fp2" }}
       />,
     );
-    expect(within(packSection(container)).getByTestId(`pack-list-rescan-needed-${DFID}`)).toBeTruthy();
+    expect(
+      within(packSection(container)).getByTestId(`pack-list-rescan-needed-${DFID}`),
+    ).toBeTruthy();
   });
 
   test("S4 non-collision: durable null + not-included content-changed tab => S4, NOT S5", () => {
@@ -277,7 +282,14 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         dfid={DFID}
         wizardSessionId={WSID}
         cases={[]}
-        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp2", included: false, contentChangedSinceAccept: true })]}
+        archivedPullSheetTabs={[
+          tab({
+            tabName: "OLD A",
+            fingerprint: "fp2",
+            included: false,
+            contentChangedSinceAccept: true,
+          }),
+        ]}
         pullSheetOverride={null}
       />,
     );
@@ -303,9 +315,13 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
   test("S5 Re-scan freezes when the context flag is true (context consumption)", () => {
     const { container } = render(
       <Step3RunStateContext.Provider value={{ isPublishRunActive: true }}>
-        <PackListBreakdown dfid={DFID} wizardSessionId={WSID} cases={[]}
+        <PackListBreakdown
+          dfid={DFID}
+          wizardSessionId={WSID}
+          cases={[]}
           archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
-          pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }} />
+          pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }}
+        />
       </Step3RunStateContext.Provider>,
     );
     expect(within(packSection(container)).getByRole("button", { name: /re-scan/i })).toBeDisabled();
@@ -313,10 +329,16 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
 
   test("S5 Re-scan enabled with no publish run (default context)", () => {
     const { container } = render(
-      <PackListBreakdown dfid={DFID} wizardSessionId={WSID} cases={[]}
+      <PackListBreakdown
+        dfid={DFID}
+        wizardSessionId={WSID}
+        cases={[]}
         archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
-        pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }} />,
+        pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }}
+      />,
     );
-    expect(within(packSection(container)).getByRole("button", { name: /re-scan/i })).not.toBeDisabled();
+    expect(
+      within(packSection(container)).getByRole("button", { name: /re-scan/i }),
+    ).not.toBeDisabled();
   });
 });

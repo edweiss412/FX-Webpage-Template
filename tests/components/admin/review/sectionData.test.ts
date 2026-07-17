@@ -103,7 +103,10 @@ function publishedInput(): ShowReviewSnapshot {
 }
 
 test("buildStagedSectionData carries pullSheetOverride through", () => {
-  const data = buildStagedSectionData({ ...baseInput(), pullSheetOverride: { tabName: "OLD A", fingerprint: "fp1" } });
+  const data = buildStagedSectionData({
+    ...baseInput(),
+    pullSheetOverride: { tabName: "OLD A", fingerprint: "fp1" },
+  });
   expect(data.pullSheetOverride).toEqual({ tabName: "OLD A", fingerprint: "fp1" });
 });
 test("buildStagedSectionData accepts null override", () => {

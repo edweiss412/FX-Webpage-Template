@@ -20,23 +20,36 @@ describe("buildStep3Row durable pull_sheet_override reduce (PSAT-1)", () => {
   it("full audit shape reduces onto row.pullSheetOverride (audit dropped)", () => {
     const row = buildStep3Row(
       { ...manifest, status: "staged" },
-      { ...pending, pull_sheet_override: {
-        tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "2026-07-17T00:00:00Z",
-      } },
+      {
+        ...pending,
+        pull_sheet_override: {
+          tabName: "OLD A",
+          fingerprint: "fp1",
+          acceptedBy: "u@x.co",
+          acceptedAt: "2026-07-17T00:00:00Z",
+        },
+      },
       [],
     );
     expect(row.pullSheetOverride).toEqual({ tabName: "OLD A", fingerprint: "fp1" });
   });
 
   it("null durable override -> row.pullSheetOverride absent", () => {
-    const row = buildStep3Row({ ...manifest, status: "staged" }, { ...pending, pull_sheet_override: null }, []);
+    const row = buildStep3Row(
+      { ...manifest, status: "staged" },
+      { ...pending, pull_sheet_override: null },
+      [],
+    );
     expect("pullSheetOverride" in row).toBe(false);
   });
 
   it("partial audit shape (missing acceptedAt) -> absent (finalize parity)", () => {
     const row = buildStep3Row(
       { ...manifest, status: "staged" },
-      { ...pending, pull_sheet_override: { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u" } },
+      {
+        ...pending,
+        pull_sheet_override: { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u" },
+      },
       [],
     );
     expect("pullSheetOverride" in row).toBe(false);

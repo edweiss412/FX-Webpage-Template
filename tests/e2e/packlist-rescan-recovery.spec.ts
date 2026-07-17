@@ -75,10 +75,7 @@ test.beforeAll(async () => {
     const file = url === "/" || url === "" ? "live.html" : url.replace(/^\//, "");
     try {
       const body = readFileSync(join(workDir, file));
-      res.setHeader(
-        "content-type",
-        file.endsWith(".js") ? "text/javascript" : "text/html",
-      );
+      res.setHeader("content-type", file.endsWith(".js") ? "text/javascript" : "text/html");
       res.end(body);
     } catch {
       res.statusCode = 404;
