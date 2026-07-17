@@ -633,3 +633,8 @@ Critique score 32/40, AI-slop pass, contrast AA/AAA both themes, detector clean.
   - **Why deferred:** cosmetic; the code-less branches are rare stale-client cases and the disclosure is harmless (shows the row's own code help). Gating requires threading a coded/code-less flag through `errorCopy`.
   - **Trigger:** next touch of the resolver's error-render path; backlog `BL-BLOCKRES-HELP-GATING`.
 - **BLOCKRES-3 (Minor, verified non-issue):** the `action===null` → `return null` branch (unknown `row.code`) is defensive-only. The panels render `BlockedRowResolver` exclusively for non-freshness `cas_per_row` codes (archived + the two corrupt), all of which map to a real action — so `null` is unreachable in production. No fix needed.
+- **BLOCKRES-4 (P3, from audit):** the `disabled` prop (freeze during an active publish/finalize run, spec §3.1) is implemented + tested but not passed by either panel call site — the resolver isn't visually frozen during the auto-retry finalize run.
+  - **Why deferred:** not a correctness gap — the resolve-blocker route's session-active + advisory-lock guards reject a stale/concurrent click server-side (superseded/not_currently_blocked), and the resolver's own `pending` disables during its fetch. Wiring `disabled` is UX polish that would re-touch both panels.
+  - **Trigger:** next panel-wiring touch; backlog `BL-BLOCKRES-DISABLED-WIRING`.
+
+**Impeccable v3 dual-gate (invariant 8): PASS.** critique 32/40 (P0/P1 fixed in 51d773364, P2/Minor → BLOCKRES-1..3); audit 20/20 no P0/P1 (BLOCKRES-4 P3). Detector clean both runs.
