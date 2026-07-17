@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-17
 **Status:** design artifact for an amendment to the ratified `docs/superpowers/specs/2026-07-17-badge-affordance-a11y.md` (shipped #413). **This document does not itself resolve the finding or supersede the parent spec** — resolution is effected only when the lockstep implementation commits enumerated in §6 (component + parent-spec prose + Playwright doc-comment + `DEFERRED.md`) land on this same branch. Once they do, this amendment supersedes ONLY the glyph-size and inter-chip-gap values in the parent's §5.1/§5.2/§5.4; everything else in the parent spec stands. Until then this is a proposal, not a claim of done.
-**Finding resolved:** `FLOW4-2/3-POLISH` (`DEFERRED.md:482`). Backlog context: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH` (closed by parent), this is the deferred glance-legibility follow-up.
+**Finding targeted (addressed by the proposed amendment, NOT resolved until the §6 lockstep implementation lands):** `FLOW4-2/3-POLISH` (`DEFERRED.md:482`). Backlog context: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH` (closed by parent), this is the deferred glance-legibility follow-up.
 
 ## 1. Problem
 
