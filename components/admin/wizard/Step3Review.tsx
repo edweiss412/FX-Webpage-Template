@@ -49,6 +49,7 @@ import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { deriveStep3Buckets } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { Step3DisplayState } from "@/lib/admin/step3DisplayState";
@@ -111,6 +112,9 @@ export type Step3Row = {
   // Threaded into the modal's SectionData so the judgment callout renders the
   // per-warning use-raw toggle. Absent → the callout falls back to no decisions.
   useRawDecisions?: UseRawDecision[];
+  // PSAT-1: the durable pull_sheet_override reduced to a snapshot (finalize-parity,
+  // spec §3.1). Absent for non-staged / no-override rows (exactOptionalPropertyTypes).
+  pullSheetOverride?: OverrideSnapshot;
   // ── Step-3 consolidation (spec §4.3.1) — the unified read threads these so the
   // folded modal can resolve a re-apply row + the derivation can classify it. ──
   // The staged_id of this row's pending_syncs row (clean rows only), needed for
