@@ -684,41 +684,75 @@ cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreCon
 
 **Files:**
 - Modify: `app/admin/show/[slug]/page.tsx` (import at `:75`; derivations `:459-469`; render `:927-963`)
-- Modify: `tests/app/admin/perShowPage.test.tsx` (active-area assertions `:828`, `:856`, `:882`)
+- Modify: `tests/app/admin/perShowPage.test.tsx` (the DQIGNORE-2 describe block `:953-983`: existing chip-label assertion `:974` + lone-warning guard `:981`; plus a new grouped-render test)
 
 **Interfaces:**
 - Consumes: `groupActiveByCode` (Task 1), `BulkIgnoreControls` + `ActiveWarningGroup` (Task 2).
 
-- [ ] **Step 1: Write/adjust the failing test** — add a grouped-render assertion to `tests/app/admin/perShowPage.test.tsx` and fix the now-multiplied active-list queries.
+**Real test harness (verified — do NOT invent a helper):** sibling tests seed `state.showsInternal = { show_id: "s1", parse_warnings: [...] }` then `await renderPage()` (`tests/app/admin/perShowPage.test.tsx:824-826`, `:965-970`). The DQIGNORE-2 block (`:955-983`) has a `uf(raw)` builder for distinct-content `UNKNOWN_FIELD` warnings (`:958-963`). `screen`, `within`, `renderPage`, `state` are already imported in that file.
 
-Add this test inside the existing `describe("per-show Data quality: Report + Ignore (Task 13)", …)` block (fixture helpers already exist there — mirror the neighboring tests' `renderPage`/fixture setup; seed TWO distinct active codes, one bulk-eligible with ≥2 distinct contents):
+**Which existing assertions actually break (verified against `:815-983`):** the single-code fixtures at `:828`/`:856`/`:882` seed ONE code → ONE group → ONE `per-show-actionable-warnings` `<ul>`, so their singular `getByTestId` STILL resolves — leave them unchanged. Only two edits are needed, both in the DQIGNORE-2 block, because the plain-language label moves from the chip to the eyebrow:
+- `:974` `expect(btn.textContent).toContain("Unrecognized row in sheet")` → the chip no longer carries the label. Re-target it to the eyebrow (the group wrapper), and assert the chip text is exactly `Ignore all 2`.
+- `:981` `expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull()` → the old container testid `dq-bulk-ignore` is gone (the widened root is `dq-active-groups`), so this would pass trivially/tautologically. Strengthen it to assert the per-code CHIP is absent for a lone warning.
+
+- [ ] **Step 1: Write/adjust the failing tests** in `tests/app/admin/perShowPage.test.tsx`.
+
+(a) Replace the body assertions of the existing `it("shows an 'Ignore all N' control …")` (`:971-975`) with eyebrow-vs-chip scoping:
 
 ```tsx
-test("active warnings render grouped by code with an eyebrow per code (DQIGNORE-6)", async () => {
-  // Seed: 2 distinct-content UNKNOWN_FIELD (bulk-eligible) + 1 UNKNOWN_SECTION_HEADER (singleton).
-  // (Use the block's existing fixture builder; see sibling tests for the exact seam.)
-  await renderActiveWarnings([
-    { code: "UNKNOWN_FIELD", rawSnippet: "Storage | dock" },
-    { code: "UNKNOWN_FIELD", rawSnippet: "Floor Plan | link" },
-    { code: "UNKNOWN_SECTION_HEADER", rawSnippet: "Rigging" },
-  ]);
-  // one chip on the bulk-eligible group; none on the singleton
-  expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
-  expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_SECTION_HEADER")).toBeNull();
-  // each code is its own group wrapper
-  expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
-  expect(screen.getByTestId("dq-active-group-UNKNOWN_SECTION_HEADER")).toBeInTheDocument();
-  // active cards now render one <ul> per group (no single flat active list)
-  expect(screen.getAllByTestId("per-show-actionable-warnings").length).toBeGreaterThanOrEqual(2);
-});
+    const group = screen.getByTestId("dq-active-group-UNKNOWN_FIELD");
+    // the plain-language type label now lives on the group's eyebrow, never the raw code (invariant 5)
+    expect(group.textContent).toContain("Unrecognized row in sheet");
+    expect(group.textContent).not.toContain("UNKNOWN_FIELD");
+    // the chip reads only the count now (label moved to the eyebrow)
+    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(btn.textContent).toBe("Ignore all 2");
 ```
 
-> **Implementer note:** the exact fixture seam (`renderActiveWarnings` above is illustrative) must match the sibling tests in that block — read `:815-860` and reuse their setup verbatim rather than inventing a helper. Then fix the pre-existing singular queries that now match multiple nodes: `:828` and `:856` `getByTestId("per-show-actionable-warnings")` → scope to a group (`within(screen.getByTestId("dq-active-group-<code>"))`) or `getAllByTestId(...)[0]`; `:882` (legacy UNKNOWN_FIELD 2-item case) likewise scopes to `dq-active-group-UNKNOWN_FIELD`. The IGNORED-subsection assertions (within `per-show-ignored-warnings`) are unchanged — that list stays flat.
+(b) Strengthen the lone-warning guard (`:978-982`) to assert the CHIP (not the removed container) is absent:
 
-- [ ] **Step 2: Run test to verify it fails**
+```tsx
+  it("does NOT show a bulk chip for a lone warning of a type", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
+    await renderPage();
+    // the code still gets its own eyebrow group, but a lone warning is not bulk-eligible → no chip
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeNull();
+  });
+```
+
+(c) Add a new multi-code grouped-render test at the end of the DQIGNORE-2 describe block (self-contained fixtures; a bulk-eligible code + a singleton non-`UNKNOWN_FIELD` code, proving grouping generalizes):
+
+```tsx
+  it("renders active warnings grouped by code — one eyebrow group per code, chip only on bulk-eligible groups (DQIGNORE-6)", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [
+        uf("Storage | dock"), // UNKNOWN_FIELD #1
+        uf("Floor Plan | link"), // UNKNOWN_FIELD #2 (>=2 distinct → bulk-eligible)
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_SECTION_HEADER",
+          message: 'Unrecognized section "Rigging" — its rows were not parsed.',
+          rawSnippet: "Rigging", // lone UNKNOWN_SECTION_HEADER → singleton, no chip
+        },
+      ],
+    };
+    await renderPage();
+    // two distinct codes → two group wrappers → two active <ul>s
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.getByTestId("dq-active-group-UNKNOWN_SECTION_HEADER")).toBeInTheDocument();
+    expect(screen.getAllByTestId("per-show-actionable-warnings")).toHaveLength(2);
+    // chip only on the bulk-eligible group
+    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
+    expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_SECTION_HEADER")).toBeNull();
+  });
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/ericweiss/FX-dq-group-active && pnpm vitest run tests/app/admin/perShowPage.test.tsx`
-Expected: FAIL — `dq-active-group-*` testids absent (page still renders the old flat list + stacked control); and the singular `getByTestId("per-show-actionable-warnings")` calls throw "multiple elements" once grouping lands.
+Expected: FAIL — `dq-active-group-*` testids absent (page still renders the old stacked control + flat active list); the DQIGNORE-6 test's two-`<ul>` + per-group assertions fail; the re-targeted `:974` eyebrow scope fails (label still on the chip pre-change).
 
 - [ ] **Step 3: Implement the page change**
 
@@ -865,5 +899,5 @@ This task is executed by the ship-feature pipeline, not a sub-implementer:
 ## Self-Review (author, against the spec)
 
 - **Spec coverage:** §2 layout → Tasks 2+3; §3 behavior-preserved → Task 2 (all G4 tests); §4 guards → Task 2 (empty/null-label/singleton/non-ignorable/partial) + Task 3 (page-level); §5.1 data boundary → Task 3; §5.2 client component → Task 2; §5.3 no layout-dims task → honored (none); §5.4 transition inventory → Task 2 (Step 1b transition-audit test, red-first); §6 tests + meta-inventory → Tasks 1-4; §7 invariants → Global Constraints + Tasks 4/5; §8 do-not-relitigate → carried into commit messages + DEFERRED note. No gaps.
-- **Placeholder scan:** the only non-literal is Task 3's `renderActiveWarnings` fixture seam, explicitly flagged as "match the sibling tests' setup" (the block's fixture builder is pre-existing; inventing one would be wrong). All code steps carry real code.
+- **Placeholder scan:** none. Task 3's tests use the verified real harness (`state.showsInternal` + `renderPage()`, the `uf()` builder), not an invented helper. All code steps carry runnable code.
 - **Type consistency:** `ActiveWarningGroup` / `BulkIgnoreGroupWithLabel` / `groupActiveByCode` signatures match across Tasks 1-3; `State.error` gains `code` consistently used by the notice render.
