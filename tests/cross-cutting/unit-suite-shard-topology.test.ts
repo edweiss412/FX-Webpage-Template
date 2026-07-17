@@ -19,24 +19,24 @@ describe("unit-suite matrix-shard topology", () => {
     expect(YAML.length).toBeGreaterThan(500);
   });
 
-  it("defines a unit-suite-shard matrix job with fail-fast:false and shard:[1, 2]", () => {
+  it("defines a unit-suite-shard matrix job with fail-fast:false and shard:[1, 2, 3]", () => {
     const m =
-      /\n {2}unit-suite-shard:\n[\s\S]*?strategy:\n\s+fail-fast:\s*false\n\s+matrix:\n\s+shard:\s*\[\s*1\s*,\s*2\s*\]/.exec(
+      /\n {2}unit-suite-shard:\n[\s\S]*?strategy:\n\s+fail-fast:\s*false\n\s+matrix:\n\s+shard:\s*\[\s*1\s*,\s*2\s*,\s*3\s*\]/.exec(
         YAML,
       );
     expect(
       m,
-      "unit-suite.yml must declare a `unit-suite-shard` job with strategy.fail-fast:false and matrix.shard:[1, 2]",
+      "unit-suite.yml must declare a `unit-suite-shard` job with strategy.fail-fast:false and matrix.shard:[1, 2, 3]",
     ).not.toBeNull();
   });
 
-  it("runs vitest with --shard=${{ matrix.shard }}/N where N equals the matrix length (2)", () => {
+  it("runs vitest with --shard=${{ matrix.shard }}/N where N equals the matrix length (3)", () => {
     const m = /--shard=\$\{\{\s*matrix\.shard\s*\}\}\/(\d+)/.exec(YAML);
     expect(m, "shard step must run `vitest run --shard=${{ matrix.shard }}/N`").not.toBeNull();
     expect(
       Number(m![1]),
-      "the --shard denominator must equal the matrix length (2); a mismatch drops or double-runs files",
-    ).toBe(2);
+      "the --shard denominator must equal the matrix length (3); a mismatch drops or double-runs files",
+    ).toBe(3);
   });
 
   it("the shard job sets VITEST_EXCLUDE_ENV_BOUND=1 and boots local Supabase", () => {
