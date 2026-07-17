@@ -464,7 +464,7 @@ describe("FinalizeButton", () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
     );
-    const { getByTestId, container } = render(
+    const { getByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
     );
     await act(async () => {
@@ -475,7 +475,7 @@ describe("FinalizeButton", () => {
         MESSAGE_CATALOG.ONBOARDING_NOT_RESOLVED.dougFacing!,
       );
     });
-    expect(container.textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
+    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
   });
 
   test("on 409 CONCURRENT_FINALIZE_IN_FLIGHT renders Doug-facing copy", async () => {
@@ -547,7 +547,7 @@ describe("FinalizeButton", () => {
           { status: 409 },
         ),
       );
-    const { getByTestId, queryByTestId, container } = render(
+    const { getByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
     );
     await act(async () => {
@@ -572,8 +572,8 @@ describe("FinalizeButton", () => {
     // OK rows are filtered out.
     expect(text).not.toContain("drive-ok-1");
     // No raw §12.4 code leaks (invariant 5).
-    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_RESULT_CORRUPT");
-    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_RESULT_CORRUPT");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
     // Renders INSTEAD OF (not in addition to) the generic error line.
     expect(queryByTestId("wizard-finalize-error")).toBeNull();
   });
@@ -604,7 +604,7 @@ describe("FinalizeButton", () => {
           { status: 409 },
         ),
       );
-    const { getByTestId, queryByTestId, container } = render(
+    const { getByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
     );
     await act(async () => {
@@ -616,7 +616,7 @@ describe("FinalizeButton", () => {
     const text = getByTestId("wizard-finalize-cas-per-row").textContent ?? "";
     expect(text).toContain("drive-outdated-1");
     expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_OUTDATED_AT_PHASE_D.dougFacing!);
-    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
     expect(queryByTestId("wizard-finalize-error")).toBeNull();
   });
 
@@ -646,7 +646,7 @@ describe("FinalizeButton", () => {
           { status: 409 },
         ),
       );
-    const { getByTestId, queryByTestId, container } = render(
+    const { getByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
     );
     await act(async () => {
@@ -659,7 +659,7 @@ describe("FinalizeButton", () => {
     expect(text).toContain(MESSAGE_CATALOG.ROLE_MAPPINGS_OUTDATED_AT_PUBLISH.dougFacing!);
     // The heal is the re-scan; without this button the refusal is a dead end at this stage.
     expect(queryByTestId("rescan-sheet-button-drive-stale-roles-1")).not.toBeNull();
-    expect(container.textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
   });
 
   test("Task 12: cas_per_row SHOW_ARCHIVED_IMMUTABLE renders BlockedRowResolver; STAGED_PARSE_OUTDATED_AT_PHASE_D STILL renders RescanSheetButton (freshness byte-parity)", async () => {
@@ -1106,7 +1106,7 @@ describe("FinalizeButton — streaming progress panel", () => {
         { type: "row", done: 1, total: 1, name: "A", driveFileId: "a" },
       ]),
     );
-    const { getByTestId, findByTestId, container } = render(
+    const { getByTestId, findByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
     );
     await act(async () => {
@@ -1114,7 +1114,7 @@ describe("FinalizeButton — streaming progress panel", () => {
     });
     const err = await findByTestId("wizard-finalize-error");
     expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
-    expect(container.textContent ?? "").not.toContain("undefined");
+    expect(err.textContent ?? "").not.toContain("undefined");
   });
 
   test("mid-stream reader rejection (connection drop) surfaces the generic error, not a frozen bar", async () => {
@@ -1123,7 +1123,7 @@ describe("FinalizeButton — streaming progress panel", () => {
     // `void runLoop()` as an unhandled rejection leaving the panel on kind:'running'.
     const batch = controllableNdjson();
     fetchMock.mockResolvedValueOnce(batch.response);
-    const { getByTestId, findByTestId, queryByTestId, container } = render(
+    const { getByTestId, findByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
     );
     await act(async () => {
@@ -1137,7 +1137,7 @@ describe("FinalizeButton — streaming progress panel", () => {
     expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
     // The frozen-bar symptom: the running panel must be gone.
     expect(queryByTestId("wizard-finalize-progress")).toBeNull();
-    expect(container.textContent ?? "").not.toContain("undefined");
+    expect(err.textContent ?? "").not.toContain("undefined");
   });
 
   test("mid-stream reader rejection during /finalize-cas surfaces the generic error, not a frozen Finishing-setup bar", async () => {
@@ -1150,7 +1150,7 @@ describe("FinalizeButton — streaming progress panel", () => {
         ]),
       )
       .mockResolvedValueOnce(cas.response);
-    const { getByTestId, findByTestId, queryByTestId, container } = render(
+    const { getByTestId, findByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
     );
     await act(async () => {
@@ -1164,7 +1164,7 @@ describe("FinalizeButton — streaming progress panel", () => {
     const err = await findByTestId("wizard-finalize-error");
     expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
     expect(queryByTestId("wizard-finalize-progress")).toBeNull();
-    expect(container.textContent ?? "").not.toContain("undefined");
+    expect(err.textContent ?? "").not.toContain("undefined");
   });
 
   test("race-row terminal on a streamed batch renders the re-apply links and does NOT call /finalize-cas", async () => {
@@ -1208,14 +1208,14 @@ describe("FinalizeButton — streaming progress panel", () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
     );
-    const { getByTestId, findByTestId, container } = render(
+    const { getByTestId, findByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
     );
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await findByTestId("wizard-finalize-error");
-    expect(container.textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
+    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
   });
 
   test("retry after an error starts the bar fresh (no stale accumulator inflating the denominator)", async () => {
@@ -1225,13 +1225,18 @@ describe("FinalizeButton — streaming progress panel", () => {
         { type: "row", done: 1, total: 2, name: "A", driveFileId: "a" },
       ]),
     );
-    const { getByTestId, findByTestId } = render(
+    const { getByTestId, findByTestId, queryByTestId } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
     );
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await findByTestId("wizard-finalize-error");
+
+    // Dismiss the error modal (Close → idle) — the real recovery path, since the
+    // trigger sits behind the modal's inert background while it is open.
+    fireEvent.click(getByTestId("wizard-finalize-blocker-dismiss"));
+    await waitFor(() => expect(queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
 
     // Retry: the button is back; a fresh single-row stream must show 1 of 1, NOT 3 of 3.
     const batch = controllableNdjson();
@@ -1295,7 +1300,8 @@ describe("FinalizeButton — streaming progress panel", () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await findByTestId("wizard-finalize-error");
-    expect(document.activeElement).toBe(getByTestId("wizard-finalize-error"));
+    // Focus lands on the modal dismiss control (useDialogFocus), not the alert region.
+    expect(document.activeElement).toBe(getByTestId("wizard-finalize-blocker-dismiss"));
   });
 });
 

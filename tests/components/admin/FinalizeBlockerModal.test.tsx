@@ -11,8 +11,8 @@
  * modal component.
  */
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { FinalizeButton, useFinalizeRun } from "@/components/admin/FinalizeButton";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
@@ -29,6 +29,9 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
   refreshMock.mockReset();
+});
+afterEach(() => {
+  cleanup(); // unmount portaled dialogs so document.body doesn't accumulate across tests
 });
 
 function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
@@ -208,5 +211,44 @@ describe("useFinalizeRun.dismiss()", () => {
       fireEvent.click(getByTestId("dismiss"));
     });
     expect(container.firstChild).toHaveAttribute("data-kind", "idle");
+  });
+});
+
+// ── Task 2: dialog semantics + scroll lock + complete-inline ─────────────────
+describe("FinalizeBlockerModal — shell", () => {
+  test.each([
+    ["error", driveToError, "wizard-finalize-error"],
+    ["race_row", driveToRaceRow, "wizard-finalize-race-row"],
+    ["cas_per_row", () => driveToCasPerRow(), "wizard-finalize-cas-per-row"],
+  ] as const)(
+    "%s renders role=dialog + aria-modal with a non-empty single-labelled accessible name",
+    async (_kind, drive, panelTestid) => {
+      const q = await drive();
+      const dialog = q.getByTestId("wizard-finalize-blocker-modal");
+      expect(dialog).toHaveAttribute("role", "dialog");
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      const labelledby = dialog.getAttribute("aria-labelledby")!;
+      expect(labelledby.trim().split(/\s+/)).toHaveLength(1);
+      expect(dialog).not.toHaveAttribute("aria-label");
+      const labelEl = document.getElementById(labelledby);
+      expect(labelEl).not.toBeNull();
+      expect(labelEl!.textContent!.trim().length).toBeGreaterThan(0);
+      expect(q.getByTestId(panelTestid)).toBeInTheDocument();
+    },
+  );
+
+  test("body overflow is hidden while the modal is open and restored on close", async () => {
+    expect(document.body.style.overflow).not.toBe("hidden");
+    const q = await driveToError();
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss"));
+    await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+    expect(document.body.style.overflow).not.toBe("hidden");
+  });
+
+  test("complete stays inline (no dialog)", async () => {
+    const q = await driveToComplete();
+    expect(q.getByTestId("wizard-finalize-publish-complete")).toBeInTheDocument();
+    expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
   });
 });

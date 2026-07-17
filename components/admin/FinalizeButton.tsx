@@ -40,10 +40,13 @@
  * keeps the button from spinning the request count unnecessarily).
  */
 import Link from "next/link";
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { useDialogFocus } from "@/lib/a11y/dialogFocus";
+import { useHasMounted } from "@/lib/a11y/useHasMounted";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -574,106 +577,15 @@ export function FinalizeConfirm({ run }: { run: FinalizeRun }) {
  * owns the running display and shares these terminal panels.
  */
 export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
-  const { state, wizardSessionId } = run;
-  // A11y (WCAG 2.4.3): on entering a terminal alert state the trigger/panel is
-  // gone, so move focus onto the alert region (a local ref + focus-on-entry
-  // effect — the hook holds no DOM refs). Only one terminal panel renders at a
-  // time, so the single ref lands on whichever is mounted.
-  const alertRef = useRef<HTMLDivElement>(null);
-  const isAlert =
-    state.kind === "race_row" || state.kind === "cas_per_row" || state.kind === "error";
-  useEffect(() => {
-    if (isAlert) alertRef.current?.focus();
-  }, [isAlert]);
+  const { state } = run;
+  // `complete` stays INLINE (a success announcement immediately followed by
+  // router.refresh — not a blocker, does not grow the footer). The three
+  // blocker/error terminals (race_row / cas_per_row / error) render in the
+  // portaled <FinalizeBlockerModal> instead of inline, so they no longer grow
+  // the sticky footer (spec 2026-07-17 §4.1). The modal self-gates on state, so
+  // it is safe to mount unconditionally here.
   return (
     <>
-      {state.kind === "race_row" ? (
-        <div
-          ref={alertRef}
-          tabIndex={-1}
-          role="alert"
-          data-testid="wizard-finalize-race-row"
-          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          <p className="text-sm font-semibold">
-            Some sheets need another look before we can publish.
-          </p>
-          <ul className="flex flex-col gap-2">
-            {state.failures.map((failure) => (
-              <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{failure.display_name ?? failure.drive_file_id}</span>
-                <span className="text-text-subtle">
-                  {lookupDougFacing(failure.code) ??
-                    "This sheet could not be published in the current batch."}
-                </span>
-                <HelpAffordance code={failure.code} />
-                <Link
-                  data-testid={`wizard-finalize-reapply-${failure.drive_file_id}`}
-                  href={failure.re_apply_url}
-                  className="inline-flex min-h-tap-min items-center self-start text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                >
-                  Review and re-apply
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {state.kind === "cas_per_row" ? (
-        <div
-          ref={alertRef}
-          tabIndex={-1}
-          role="alert"
-          data-testid="wizard-finalize-cas-per-row"
-          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          <p className="text-sm font-semibold">Some sheets are blocking the final publish step.</p>
-          <ul className="flex flex-col gap-2">
-            {state.rows.map((row) => (
-              <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{row.display_name ?? row.drive_file_id}</span>
-                <span className="text-text-subtle">
-                  {lookupDougFacing(row.code) ?? GENERIC_ERROR}
-                </span>
-                <HelpAffordance code={row.code} />
-                {/* A re-scannable refusal self-heals via a re-scan; offer it inline. */}
-                {RESCANNABLE_CAS_CODES.has(row.code) ? (
-                  <RescanSheetButton
-                    driveFileId={row.drive_file_id}
-                    wizardSessionId={wizardSessionId}
-                  />
-                ) : (
-                  <BlockedRowResolver
-                    driveFileId={row.drive_file_id}
-                    wizardSessionId={wizardSessionId}
-                    code={row.code}
-                    {...(row.display_name !== undefined ? { displayName: row.display_name } : {})}
-                    {...(row.rebuild_exhausted !== undefined
-                      ? { rebuildExhausted: row.rebuild_exhausted }
-                      : {})}
-                    onResolved={() => void run.runLoop()}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {state.kind === "error" ? (
-        <div
-          ref={alertRef}
-          tabIndex={-1}
-          role="alert"
-          data-testid="wizard-finalize-error"
-          className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          <p>{renderEmphasis(state.copy)}</p>
-          <HelpAffordance code={state.code} />
-        </div>
-      ) : null}
-
       {state.kind === "complete" ? (
         <p
           role="status"
@@ -684,7 +596,185 @@ export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
           Setup is complete. Your shows are live for crew now.
         </p>
       ) : null}
+      <FinalizeBlockerModal run={run} />
     </>
+  );
+}
+
+// The terminal states that render in the blocker modal (spec 2026-07-17 §4.1).
+const BLOCKER_KINDS = new Set(["race_row", "cas_per_row", "error"]);
+
+/**
+ * Outer gate for the blocker modal (spec 2026-07-17 §4.2). Calls ONLY
+ * `useHasMounted()` (unconditionally), then gates — so the inner dialog's hooks
+ * (useDialogFocus, scroll-lock, Escape, inert) run unconditionally only while the
+ * dialog is mounted, never during an idle/running render (Rules of Hooks).
+ * `useHasMounted` is false until mount → SSR-safe (no `document` touch pre-mount,
+ * no hydration mismatch).
+ */
+function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {
+  const mounted = useHasMounted();
+  if (!mounted || !BLOCKER_KINDS.has(run.state.kind)) return null;
+  return <FinalizeBlockerDialog run={run} />;
+}
+
+/**
+ * The blocker/error dialog. Mounted ONLY while `run.state.kind` is a blocker
+ * terminal, so every hook runs on mount / cleans up on unmount. Portaled to
+ * `document.body` so it paints above the WizardFooter's own `z-40` portal and any
+ * open per-card <Step3ReviewModal> (spec §4.2 / §7a). `role="dialog" aria-modal`;
+ * the primary line of each state is the `aria-labelledby` target (§6).
+ */
+function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
+  const { state, wizardSessionId } = run;
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dismissRef = useRef<HTMLButtonElement>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
+  if (portalRef.current === null && typeof document !== "undefined") {
+    portalRef.current = document.createElement("div");
+  }
+
+  // Own portal node (appended/removed with the dialog's lifetime) so the
+  // background-inert effect (Task 5) can exclude it by identity.
+  useEffect(() => {
+    const el = portalRef.current;
+    if (!el) return;
+    document.body.appendChild(el);
+    return () => {
+      el.remove();
+    };
+  }, []);
+
+  // Initial focus → the Close/Back control; Tab trap; restore focus on unmount.
+  useDialogFocus(panelRef, dismissRef);
+
+  // Body scroll lock while open; restore prior value on unmount (composes with a
+  // Step3ReviewModal already-open underneath — each captures its own prior value).
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  const dismissible = state.kind === "error";
+  const dismissLabel = dismissible ? "Close" : "Back";
+
+  if (portalRef.current === null) return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      data-testid="wizard-finalize-blocker-modal"
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+    >
+      {/* Backdrop. Task 2 renders the interactive Close form for all states;
+          Task 3 makes the blocking states' backdrop a non-interactive scrim. */}
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        data-testid="wizard-finalize-blocker-backdrop"
+        onClick={() => run.dismiss()}
+        className="absolute inset-0 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] motion-reduce:animate-none"
+      />
+
+      <div
+        ref={panelRef}
+        data-testid="wizard-finalize-blocker-panel"
+        className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
+      >
+        {state.kind === "race_row" ? (
+          <div data-testid="wizard-finalize-race-row" className="flex flex-col gap-3 text-warning-text">
+            <h2 id={titleId} className="text-sm font-semibold">
+              Some sheets need another look before we can publish.
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {state.failures.map((failure) => (
+                <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">
+                    {failure.display_name ?? failure.drive_file_id}
+                  </span>
+                  <span className="text-text-subtle">
+                    {lookupDougFacing(failure.code) ??
+                      "This sheet could not be published in the current batch."}
+                  </span>
+                  <HelpAffordance code={failure.code} />
+                  <Link
+                    data-testid={`wizard-finalize-reapply-${failure.drive_file_id}`}
+                    href={failure.re_apply_url}
+                    className="inline-flex min-h-tap-min items-center self-start text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  >
+                    Review and re-apply
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {state.kind === "cas_per_row" ? (
+          <div data-testid="wizard-finalize-cas-per-row" className="flex flex-col gap-3 text-warning-text">
+            <h2 id={titleId} className="text-sm font-semibold">
+              Some sheets are blocking the final publish step.
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {state.rows.map((row) => (
+                <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">{row.display_name ?? row.drive_file_id}</span>
+                  <span className="text-text-subtle">
+                    {lookupDougFacing(row.code) ?? GENERIC_ERROR}
+                  </span>
+                  <HelpAffordance code={row.code} />
+                  {/* A re-scannable refusal self-heals via a re-scan; offer it inline. */}
+                  {RESCANNABLE_CAS_CODES.has(row.code) ? (
+                    <RescanSheetButton
+                      driveFileId={row.drive_file_id}
+                      wizardSessionId={wizardSessionId}
+                    />
+                  ) : (
+                    <BlockedRowResolver
+                      driveFileId={row.drive_file_id}
+                      wizardSessionId={wizardSessionId}
+                      code={row.code}
+                      {...(row.display_name !== undefined ? { displayName: row.display_name } : {})}
+                      {...(row.rebuild_exhausted !== undefined
+                        ? { rebuildExhausted: row.rebuild_exhausted }
+                        : {})}
+                      onResolved={() => void run.runLoop()}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {state.kind === "error" ? (
+          <div data-testid="wizard-finalize-error" className="flex flex-col gap-1 text-sm text-warning-text">
+            <p id={titleId}>{renderEmphasis(state.copy)}</p>
+            <HelpAffordance code={state.code} />
+          </div>
+        ) : null}
+
+        <div className="flex justify-end">
+          <button
+            ref={dismissRef}
+            type="button"
+            data-testid="wizard-finalize-blocker-dismiss"
+            onClick={() => run.dismiss()}
+            className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            {dismissLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    portalRef.current,
   );
 }
 
