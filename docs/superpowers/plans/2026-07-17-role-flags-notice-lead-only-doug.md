@@ -142,6 +142,7 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
   - no-op `["A1"] → ["A1"]` → NO row.
   - new crew (`!prior`) → NO role row; removed member → NO role row (roster, not a change).
   - `fmt([])` renders `none`.
+  - **MI-9 no-double-emit (spec §7):** in `tests/sync/roleChangeLog.test.ts` (or the DB-path test), a LEAD role change on a has-a-prior member → exactly ONE identifiable role row (summary names the member + LEAD) AND assert the anonymous `"A field changed on this sync"` `field_changed` row is NOT emitted (the MI-9 arm was removed from `writeAutoApplyChanges`). A co-occurring MI-8 financial change still emits its own generic row (that arm is unchanged) — so assert exactly one anonymous row for the MI-8 change and one identifiable row for the LEAD change, never a duplicate for LEAD.
   - **Coverage-parity** (`tests/sync/roleChangeLogCoverageParity.test.ts`): over fixtures {scope-tile change, held-fold, applied-rename, new-crew, removed-capability, staged-shaped empty-identityLinkRenames}, assert the SET of member names the writer emits == the set an UNFILTERED `capabilityRoleChangesForNotice` arm (a) (existing-member diff, capability filter removed) would flag. Roster arms (b/c) excluded.
   - **Supersession regression** (DB test, `tests/sync/roleChangeLog.db.test.ts` or extend an existing DB test): sync 1 inserts a `crew_added` "Alice" row (undoable, before_image set); sync 2 writes a role row for Alice's `["A1"] → ["V1"]` and runs `cleanup_superseded_before_images($show)`; assert the older `crew_added` row is STILL `status='applied'` with `before_image` intact (null entity_ref triggered no supersession).
 
@@ -169,7 +170,20 @@ Read spec §2.4 (writer + coverage principle + supersession safety + held-fold +
   }
   ```
   (Add a `// not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client)` comment on the `port.unsafe`, mirroring `writeAutoApplyChanges.ts:182`.)
-  - In `lib/sync/phase2.ts` `runPhase2`, after `roleFlagChanges` is computed (`~:547`), call `await callTx("writeRoleChangeLogRows", () => writeRoleChangeLogRows(port, snapshot.showId, args.driveFileId, snapshot.previousCrewMembers ?? [], applyOutcome.appliedCrewMembers, args.identityLinkRenames ?? [], occurredAt))` UNCONDITIONALLY (not gated by feedPolicy). The writer takes an optional `occurredAt` defaulted to `new Date().toISOString()` (mirrors `writeAutoApplyChanges.ts:177`); the `runPhase2` call may omit it (same as the `writeAutoApplyChanges` call at `:498`), and unit tests pass an explicit value for determinism.
+  - In `lib/sync/phase2.ts` `runPhase2`, after `roleFlagChanges` is computed (`~:547`), call — **omitting the `occurredAt` argument** (there is NO `occurredAt` binding in `runPhase2`; passing it would fail typecheck — the `writeAutoApplyChanges` call at `:498-511` likewise omits it):
+    ```ts
+    await callTx("writeRoleChangeLogRows", () =>
+      writeRoleChangeLogRows(
+        port,
+        snapshot.showId,
+        args.driveFileId,
+        snapshot.previousCrewMembers ?? [],
+        applyOutcome.appliedCrewMembers,
+        args.identityLinkRenames ?? [],
+      ),
+    );
+    ```
+    UNCONDITIONALLY (not gated by feedPolicy). The writer's optional `occurredAt` defaults to `new Date().toISOString()` (mirrors `writeAutoApplyChanges.ts:177`); unit tests pass an explicit value for determinism.
   - In `lib/sync/changeLog/writeAutoApplyChanges.ts:142-152`, remove `|| i.invariant === "MI-9"` from the field_changed `hasInvariant` predicate (keep MI-8/8b/8c).
 
 - [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/sync/roleChangeLog.test.ts tests/sync/roleChangeLogCoverageParity.test.ts` → PASS. Run the topology meta-test: `pnpm vitest run tests/sync/_metaLeadRoleAppliedTopology.test.ts` → PASS (unchanged). `pnpm tsc --noEmit`.
@@ -200,6 +214,7 @@ Read spec §7 last two bullets before starting.
 - Modify: `tests/messages/_metaAlertAudienceContract.test.ts` (`:52` NOTICE→DOUG; `:71-76` counts)
 - Modify (master spec, NEVER prettier): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §6.8 MI-9 `:1624`, MI-10 `:1629`, §6.8.2 `:1713`, §12.4 `:2863`, help `:3157`
 - Modify: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` amendment 8 `:163,:170`
+- Modify: `docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md` — add a dated one-line amendment note at §3.2 (spec §2.2): "2026-07-17: `ROLE_FLAGS_NOTICE` moved `audience: health → doug` (dismissible operator nudge; see `2026-07-17-role-flags-notice-lead-only-doug.md`)". Do NOT reconcile the doc's stale `42` count (already stale vs the live meta-test; not CI-enforced).
 - Regen: `lib/messages/__generated__/spec-codes.ts` via `pnpm gen:spec-codes`
 - Test: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/codes.test.ts` (x1), `tests/cross-cutting/codes.test.ts`, resolve-route + BellPanel render tests
 
@@ -216,6 +231,7 @@ Read spec §2.2 (reclassify cascade) + §2.3 (copy) + §4 (reconciliation, all 6
 - [ ] **Step 3: Implement (ONE commit — §12.4 lockstep):**
   - `lib/messages/catalog.ts` ROLE_FLAGS_NOTICE: `audience: "doug"`; **remove** `healthWeight: "notice"` and `dougSummary`; keep `severity: "info"`, `resolution: "manual"`. Tighten `helpfulContext` to drop the "department swap (A1 → V1) / additive flag like BO" enumeration and frame as a **capability** change (LEAD or financial-data access) without asserting the specific row is LEAD (§2.3). `dougFacing` stays as-is (conditional/truthful).
   - Master spec + 00-overview: apply §4 items 1-6 (capability → alert+event, scope-tile → change-log row; CORRECT the false "LEAD is the only capability element" sentence in §6.8 MI-9 to name **LEAD and FINANCIALS**; de-example the help string). Edit the master spec by hand (NEVER prettier).
+  - `docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md`: add the dated §3.2 amendment note (spec §2.2) recording the `health → doug` move; do NOT touch its stale `42` count.
   - `pnpm gen:spec-codes` → regen `lib/messages/__generated__/spec-codes.ts`.
   - `_metaAlertAudienceContract.test.ts`: apply the NOTICE→DOUG move + count updates from Step 1.
 
