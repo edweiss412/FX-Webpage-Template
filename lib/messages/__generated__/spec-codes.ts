@@ -578,12 +578,6 @@ export const SPEC_CODES = {
     "followUp": "Doug → review staged",
     "helpfulContext": "A financial field (PO#, Proposal $, Invoice, Invoice Notes, COI) that was previously filled in is now blank. We hold the change for review because financial blanks are usually accidental. Confirm the blank is intentional before applying.",
   },
-  "MI-9_ROLE_FLAGS_DELTA": {
-    "crewFacing": null,
-    "dougFacing": "_<crew-name>_'s LEAD status changed (was _<prior>_, now _<new>_). LEAD grants admin / ops / financials access — confirm before applying.",
-    "followUp": "Doug → review staged",
-    "helpfulContext": "A crew member's LEAD status changed — they either gained or lost LEAD. LEAD grants admin/ops surface access including the ability to see internal financials, so we hold every LEAD toggle for review. (Non-LEAD role_flags changes — like swapping a department designation from A1 to V1, or adding BO — auto-apply with a `ROLE_FLAGS_NOTICE` entry in the alert feed and do NOT trigger this code.) Confirm the LEAD change is intentional before applying.",
-  },
   "MI11_DRIVE_RECHECK_FAILED": {
     "crewFacing": null,
     "dougFacing": "We couldn't re-check the sheet right now. Try again in a moment.",
@@ -1024,9 +1018,9 @@ export const SPEC_CODES = {
   },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
-    "dougFacing": "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
+    "dougFacing": "A crew member's role flags changed and were applied automatically — this entry is here for your audit. If the change included LEAD status (which grants admin/ops/financials access), confirm it was intentional.",
     "followUp": "none (informational)",
-    "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
+    "helpfulContext": "A crew member's role flags changed and were applied automatically — for example a department swap (A1 → V1), an additive flag like BO, or a LEAD-status gain/loss (LEAD grants admin/ops surface access including internal financials). LEAD is a deliberate sheet edit, so it auto-applies too, but it is logged here (and in a durable audit event) so you can confirm it was intentional. Department/scope flags only change which tile the crew member sees on their own page. No action needed; if you want to see the prior value, the audit page captures it — and if a LEAD change was a mistake, correct it in the sheet.",
   },
   "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
     "crewFacing": null,
@@ -1633,6 +1627,11 @@ export const SPEC_CODES = {
 export const RETIRED_CODES = {
   "FIRST_SEEN_REVIEW": {
     "replacedBy": "SHOW_FIRST_PUBLISHED",
+    "retiredIn": "§12.4",
+    "variant": null,
+  },
+  "MI-9_ROLE_FLAGS_DELTA": {
+    "replacedBy": "ROLE_FLAGS_NOTICE",
     "retiredIn": "§12.4",
     "variant": null,
   },
