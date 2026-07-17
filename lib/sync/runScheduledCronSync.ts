@@ -1112,7 +1112,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `
         update public.shows
            set last_sync_status = 'shrink_held',
-               last_sync_error = $2
+               last_sync_error = $2,
+               last_checked_at = now()
          where drive_file_id = $1
         returning id
       `,
@@ -1127,7 +1128,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         update public.shows
            set last_sync_status = 'pending_review',
                last_sync_error = null,
-               last_synced_at = now()
+               last_synced_at = now(),
+               last_checked_at = now()
          where drive_file_id = $1
       `,
       [driveFileId],
@@ -1482,6 +1484,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $16::jsonb,
                    source_anchors = coalesce($17::jsonb, source_anchors),
                    last_synced_at = now(),
+                   last_checked_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
                    requires_resync = false
@@ -1509,6 +1512,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $17::jsonb,
                    source_anchors = coalesce($18::jsonb, source_anchors),
                    last_synced_at = now(),
+                   last_checked_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
                    requires_resync = false
@@ -1545,12 +1549,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at, source_anchors,
-                  last_synced_at, last_sync_status, last_sync_error${extraColumns}
+                  last_synced_at, last_checked_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, $21::jsonb, now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb, now(), now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
@@ -2689,6 +2693,15 @@ export async function processOneFile(
       if (await readShowArchived_unlocked(lockedTx, driveFileId)) {
         return { outcome: "skipped" as const, reason: ARCHIVED_SKIP_REASON };
       }
+      // A non-error skip (watermark / deferred_modtime / deferred_permanent) is a SUCCESSFUL
+      // Drive check that applied nothing. Advance last_checked_at so idle-but-healthy shows stay
+      // fresh for the driveConnectionHealth + StaleFooter age tiers (spec 2026-07-16-last-checked-at
+      // §4). Rides THIS single held show-lock tx (invariant 2 single-holder); last_synced_at
+      // untouched. A missing show row (deferred_permanent non-show file) matches zero rows → undefined.
+      await lockedTx.queryOne<{ updated: true } | undefined>(
+        "update public.shows set last_checked_at = now() where drive_file_id = $1 returning true as updated",
+        [driveFileId],
+      );
       await logSync(deps, driveFileId, prepared.result, prepared.payload);
       return prepared.result;
     });
