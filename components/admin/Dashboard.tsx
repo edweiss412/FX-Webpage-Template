@@ -100,6 +100,10 @@ export type DashboardData = {
   // service-role client (show_change_log is REVOKEd from authenticated), so it is
   // NOT part of the cookie-client Promise.all above.
   recentAutoApplied: RecentAutoApplied;
+  // Mobile parity (spec 2026-07-16-mobile-autoapplied-parity §D5): total
+  // un-dispositioned auto-applied backlog (renderedCount + overflowCount), fed to
+  // the mobile summary card's chip. 0 when the read faulted.
+  autoAppliedCount: number;
 };
 
 type DatesJson = {
@@ -475,6 +479,13 @@ export async function fetchDashboardData(
   const recentAutoApplied = await recentAutoAppliedPromise;
   const rosterShiftByShow =
     recentAutoApplied.kind === "ok" ? recentAutoApplied.rosterShiftByShow : {};
+  // TRUE backlog for the mobile chip: renderedCount + overflowCount = the exact
+  // matched total. groups.reduce(rows) would cap at STRIP_RENDER_CAP and
+  // under-report a 50+ backlog (spec §D5).
+  const autoAppliedCount =
+    recentAutoApplied.kind === "ok"
+      ? recentAutoApplied.renderedCount + recentAutoApplied.overflowCount
+      : 0;
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
@@ -530,6 +541,7 @@ export async function fetchDashboardData(
     ignoredDegraded,
     dataGapsDegraded,
     recentAutoApplied,
+    autoAppliedCount,
   };
 }
 
@@ -718,6 +730,7 @@ export async function Dashboard(
             ingestionTotal={result.needsAttention.ingestionTotal}
             syncTotal={result.needsAttention.syncTotal}
             syncProblemTotal={result.needsAttention.syncProblemTotal}
+            autoAppliedCount={result.autoAppliedCount}
             className="min-[720px]:hidden"
           />
           <div

@@ -24,7 +24,7 @@
  * Double-click is guarded by the loading state (disabled while in flight) — NOT a
  * self-disabling form action (see feedback_react_form_action_synchronous_disable).
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
@@ -82,9 +82,6 @@ const PLAIN_COPY: Record<"superseded" | "no_active_session" | "not_found" | "not
     not_a_sheet: "This file isn't a Google Sheet, so there's nothing to re-scan.",
   };
 
-// Armed-state auto-revert window (spec §4: 4s), shared naming idiom with AUTO_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
-
 function resultFor(body: RescanResponse): ResultState {
   if (body.ok) {
     if (body.needsReview) {
@@ -122,32 +119,6 @@ export function RescanSheetButton({
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  // G3 two-tap guard (spec 2026-07-16-destructive-confirm-pass §4): first tap
-  // arms (recipe fill + confirm label, 4s auto-revert), second tap fires the
-  // EXISTING handleClick() unchanged. Same button in both placement variants.
-  const [armed, setArmed] = useState(false);
-  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function clearArmTimer() {
-    if (armTimerRef.current !== null) {
-      clearTimeout(armTimerRef.current);
-      armTimerRef.current = null;
-    }
-  }
-  useEffect(() => clearArmTimer, []);
-  function onGuardedClick() {
-    if (!armed) {
-      setArmed(true);
-      clearArmTimer();
-      armTimerRef.current = setTimeout(() => {
-        armTimerRef.current = null; // callback clears its own ref — no stale identity survives
-        setArmed(false);
-      }, ARM_REVERT_MS);
-      return;
-    }
-    clearArmTimer();
-    setArmed(false);
-    void handleClick();
-  }
 
   async function handleClick() {
     if (pending) return;
@@ -200,27 +171,13 @@ export function RescanSheetButton({
         type="button"
         ref={triggerRef}
         data-testid={`rescan-sheet-button-${driveFileId}`}
-        onClick={onGuardedClick}
+        onClick={() => void handleClick()}
         disabled={pending || disabled}
         aria-busy={pending}
-        className={
-          armed
-            ? "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-transparent bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-        }
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >
-        {armed
-          ? "Confirm re-scan: replaces this staged review"
-          : pending
-            ? "Re-scanning…"
-            : "Re-scan this sheet"}
+        {pending ? "Re-scanning…" : "Re-scan this sheet"}
       </button>
-      {/* Persistent sr-only live region: announces the silent label morph to
-          screen readers (impeccable P2). Always mounted — conditional
-          mounting drops the announcement (project a11y rule). */}
-      <span role="status" className="sr-only">
-        {armed ? "Tap again to confirm." : ""}
-      </span>
 
       {result ? (
         placement === "overlay" ? (

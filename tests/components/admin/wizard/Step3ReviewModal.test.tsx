@@ -593,8 +593,7 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     );
     const { q } = renderModal();
     const footer = q.getByTestId(tid("footer"));
-    // G3 two-tap guard: first click arms, second click fires.
-    fireEvent.click(within(footer).getByTestId(`rescan-sheet-button-${DFID}`));
+    // One tap fires (G3 guard withdrawn).
     await act(async () => {
       fireEvent.click(within(footer).getByTestId(`rescan-sheet-button-${DFID}`));
     });
