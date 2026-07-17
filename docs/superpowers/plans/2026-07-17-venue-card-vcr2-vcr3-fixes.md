@@ -35,11 +35,14 @@
 
 **Files:**
 - Modify: `components/admin/wizard/VenueMapTile.tsx` (`:29` state init, `:36` src, `:64-78` img)
-- Test: `tests/components/admin/wizard/venueMapTile.test.tsx`
+- Test: `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueTransitionAudit.test.ts`
+- Modify (test amend): `tests/e2e/step3-review-modal.layout.spec.ts` (`§DI-2` at `:601` — reframe off the now-client-only `<img>`)
 
 **Interfaces:**
 - Consumes: nothing new.
 - Produces: `VenueMapTile` renders the `<img>` (testid `venue-map-img`) **only when `theme !== null`**; `theme` state type `"light" | "dark" | null`, init `null`, resolved once in the existing mount `useEffect`. Guard `if (!query) return null` UNCHANGED in this task (VCR-3 changes it in Task 2).
+
+**Layout-harness consequence (important):** the standalone layout harness renders via `renderToStaticMarkup` (no hydration, no effects — `step3-review-modal.layout.spec.ts:82-121`, comment at `:411`). After the mount-gate, `theme` stays `null` in a static render → **no `<img>` in the served HTML**. The existing `§DI-2` test (`:601`) locates `[data-testid="venue-map-img"]` and will therefore FAIL. It is reframed in Step 5 to assert the always-painted **stripe base** (`venue-map-fallback`, `absolute inset-0`) fills the region — the identical `absolute inset-0 size-full` fill classes the `<img>` uses, so the no-letterbox invariant is preserved and now theme-independent (works in the static harness). Spec §5 is amended to match.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -132,16 +135,48 @@ The `src` is now built inline only inside `theme !== null` (narrowed to `"light"
 Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
 Expected: PASS — the new SSR + post-hydration + audit tests, plus every pre-existing test (the existing "query + mapHref → theme=light" and "dark theme after hydration → theme=dark" still pass because RTL `render()` flushes the effect, resolving `theme` before assertions).
 
-- [ ] **Step 5: Typecheck the changed file**
+- [ ] **Step 5: Reframe §DI-2 off the now-client-only `<img>` and run the FULL layout spec**
+
+The static layout harness has no `<img>` after the mount-gate (see the "Layout-harness consequence" note above), so `§DI-2` (`tests/e2e/step3-review-modal.layout.spec.ts:601`) must assert the always-painted stripe base instead. Replace the test body's `img` locator with the fallback base and update the name/comment:
+
+```ts
+test("§DI-2 venue map fill layer (stripe base) fills its region box (no letterbox) @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  // The <img> is client-only post-VCR-2 (mount-gated on the resolved theme) and
+  // absent from this static (renderToStaticMarkup) harness. The stripe base
+  // (venue-map-fallback) is `absolute inset-0` and always painted — it carries
+  // the SAME no-letterbox fill invariant, theme-independently.
+  const base = await rect(page, '[data-testid="venue-map-fallback"]');
+  const contentBox = await page
+    .locator('[data-testid="venue-map-region"]')
+    .evaluate((el) => ({ w: el.clientWidth, h: el.clientHeight }));
+  expect(contentBox.w, "map region content box rendered").toBeGreaterThan(0);
+  expect(
+    Math.abs(base.width - contentBox.w),
+    `base w ${base.width} === region content w ${contentBox.w}`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(base.height - contentBox.h),
+    `base h ${base.height} === region content h ${contentBox.h}`,
+  ).toBeLessThanOrEqual(TOL);
+});
+```
+
+Then run the FULL standalone layout spec (NOT just `-g link-only`) to confirm DI-1..DI-6 all still pass after the mount-gate:
+
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts`
+Expected: PASS — all §DI tests green (DI-2 now on the stripe base; the link-only DI-1 test does not exist yet — it lands in Task 2).
+
+- [ ] **Step 6: Typecheck the changed file**
 
 Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm tsc --noEmit`
-Expected: no errors. (If `theme` narrowing fails at the `src` declaration, move `const src` inside the branch per Step 3.)
+Expected: no errors.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add components/admin/wizard/VenueMapTile.tsx tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts
+git add components/admin/wizard/VenueMapTile.tsx tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts tests/e2e/step3-review-modal.layout.spec.ts
 git commit --no-verify -m "fix(crew-page): mount venue map <img> only after theme resolves (VCR-2)"
 ```
 
@@ -182,7 +217,14 @@ test("guard: empty query + null mapHref → renders nothing", () => {
 });
 ```
 
-**(1b)** In `tests/components/admin/wizard/venueBreakdown.test.tsx`, **replace** the existing `test("name+address both empty → map region collapses (parent owns), no map tile mounted", …)` (uses valid `https://m.co`) with three tests. `getByText("(N)")` matches the legacy-path count span (`step3ReviewSections.tsx:793`, `{count !== null ? <span …>({count})</span> …}`; `VenueBreakdown` renders WITHOUT the chrome context provider in this test, so the count parenthetical is present):
+**(1b-i) valid-query image regression (spec §6 test-2).** First strengthen the EXISTING `test("full venue → name/address/city, map region, dock footer", …)` — after its `venue-map-region` assertion, add a line proving the mount-gate did NOT suppress the `<img>` for a valid query (RTL `render()` flushes the effect, so `theme` resolves and the img mounts):
+
+```tsx
+  // VCR-2 regression: a valid query still yields the <img> after effects flush.
+  expect(container.querySelector('[data-testid="venue-map-img"]')).not.toBeNull();
+```
+
+**(1b-ii)** Then **replace** the existing `test("name+address both empty → map region collapses (parent owns), no map tile mounted", …)` (uses valid `https://m.co`) with three tests. `getByText("(N)")` matches the legacy-path count span (`step3ReviewSections.tsx:793`, `{count !== null ? <span …>({count})</span> …}`; `VenueBreakdown` renders WITHOUT the chrome context provider in this test, so the count parenthetical is present):
 
 ```tsx
 test("VCR-3: link-only venue (valid googleLink) → region MOUNTS with Directions, no <img>, count (1), no empty copy", () => {
@@ -322,8 +364,8 @@ In `components/admin/wizard/step3ReviewSections.tsx`, change the region-mount ga
 Run (unit + audit): `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx tests/components/admin/wizard/venueBreakdown.test.tsx tests/components/admin/wizard/venueTransitionAudit.test.ts`
 Expected PASS — all tests in all three files, including pre-existing `non-URL googleLink → map region present but no Directions anchor` (full venue, `googleLink:"TBD"` → `query` non-empty → region mounts, `mapHref` null → no Directions) and `null venue → empty copy`.
 
-Run (real browser): `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts -g "link-only"`
-Expected PASS — region mounts, heights equal, region ≥ 96px, tile fills region.
+Run (real browser — FULL spec, not just `-g link-only`, to confirm DI-1..DI-6 + the reframed DI-2 + the new link-only test all pass together): `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && pnpm playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts`
+Expected PASS — every §DI test green; the link-only test: region mounts, heights equal, region ≥ 96px, tile fills region.
 
 - [ ] **Step 5: Typecheck**
 
