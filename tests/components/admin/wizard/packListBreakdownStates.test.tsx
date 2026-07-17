@@ -79,7 +79,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[]}
         archivedPullSheetTabs={[]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     expect(packSection(container).textContent).toContain("No pack list parsed.");
@@ -94,7 +94,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         archivedPullSheetTabs={[
           tab({ headerPreviews: ["RIA - CHICAGO", "MIAMI"], fingerprint: "ff" }),
         ]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
@@ -128,7 +128,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[FOH]}
         archivedPullSheetTabs={[tab({ included: true, fingerprint: "ff" })]}
-        overrideActive={true}
+        pullSheetOverride={{ tabName: "OLD PULL SHEET", fingerprint: "ff" }}
       />,
     );
     const sec = packSection(container);
@@ -152,7 +152,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[]}
         archivedPullSheetTabs={[tab({ contentChangedSinceAccept: true, fingerprint: "ee" })]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
@@ -168,7 +168,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[FOH]}
         archivedPullSheetTabs={[tab({ contentChangedSinceAccept: true, fingerprint: "ee" })]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
@@ -186,7 +186,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
           tab({ tabName: "OLD PULL SHEET", fingerprint: "a1" }),
           tab({ tabName: "OLD PULL SHEET 2", fingerprint: "b2" }),
         ]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
@@ -201,7 +201,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[]}
         archivedPullSheetTabs={[tab({ fingerprint: "ff" })]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
@@ -219,11 +219,83 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
         wizardSessionId={WSID}
         cases={[]}
         archivedPullSheetTabs={[tab({ headerPreviews: [""], fingerprint: "ff" })]}
-        overrideActive={false}
+        pullSheetOverride={null}
       />,
     );
     const sec = packSection(container);
     expect(sec.textContent).toContain("(no header text)");
     expect(within(sec).getByRole("button", { name: /use this show.s gear/i })).toBeTruthy();
+  });
+
+  test("S5 accept-stale: durable set + tab present-but-not-included => recovery block, NO S2 offer", () => {
+    const { container } = render(
+      <PackListBreakdown
+        dfid={DFID}
+        wizardSessionId={WSID}
+        cases={[]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
+        pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }}
+      />,
+    );
+    const sec = packSection(container);
+    expect(within(sec).getByTestId(`pack-list-rescan-needed-${DFID}`)).toBeTruthy();
+    expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull(); // S2 suppressed
+  });
+
+  test("S5 revoke-stale: durable null + tab still included => recovery block, NO S3 revoke note", () => {
+    const { container } = render(
+      <PackListBreakdown
+        dfid={DFID}
+        wizardSessionId={WSID}
+        cases={[FOH]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: true })]}
+        pullSheetOverride={null}
+      />,
+    );
+    const sec = packSection(container);
+    expect(within(sec).getByTestId(`pack-list-rescan-needed-${DFID}`)).toBeTruthy();
+    expect(within(sec).queryByRole("button", { name: /revoke/i })).toBeNull(); // S3 suppressed
+  });
+
+  test("S5 tab-swap: durable B + preview included A => recovery block (snapshot mismatch)", () => {
+    const { container } = render(
+      <PackListBreakdown
+        dfid={DFID}
+        wizardSessionId={WSID}
+        cases={[]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: true })]}
+        pullSheetOverride={{ tabName: "OLD B", fingerprint: "fp2" }}
+      />,
+    );
+    expect(within(packSection(container)).getByTestId(`pack-list-rescan-needed-${DFID}`)).toBeTruthy();
+  });
+
+  test("S4 non-collision: durable null + not-included content-changed tab => S4, NOT S5", () => {
+    const { container } = render(
+      <PackListBreakdown
+        dfid={DFID}
+        wizardSessionId={WSID}
+        cases={[]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp2", included: false, contentChangedSinceAccept: true })]}
+        pullSheetOverride={null}
+      />,
+    );
+    const sec = packSection(container);
+    expect(sec.textContent).toMatch(/changed\.\s*re-confirm/i);
+    expect(within(sec).queryByTestId(`pack-list-rescan-needed-${DFID}`)).toBeNull(); // S5 did NOT steal S4
+  });
+
+  test("published mode (no wizardSessionId): no affordance, no S5 even if a durable snapshot is passed", () => {
+    const { container } = render(
+      <PackListBreakdown
+        dfid={DFID}
+        cases={[FOH]}
+        archivedPullSheetTabs={[tab({ tabName: "OLD A", fingerprint: "fp1", included: false })]}
+        pullSheetOverride={{ tabName: "OLD A", fingerprint: "fp1" }}
+      />,
+    );
+    const sec = packSection(container);
+    expect(within(sec).queryByTestId(`pack-list-rescan-needed-${DFID}`)).toBeNull();
+    expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull();
   });
 });

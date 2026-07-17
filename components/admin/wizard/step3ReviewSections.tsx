@@ -88,6 +88,8 @@ import {
 } from "@/lib/data/diagrams";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import { overrideSnapshotsEqual, type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
@@ -1929,7 +1931,7 @@ export function PackListBreakdown({
   wizardSessionId,
   cases,
   archivedPullSheetTabs,
-  overrideActive,
+  pullSheetOverride,
 }: {
   dfid: string | null;
   // Staged-only: the archived-tab accept/skip affordance posts against the wizard
@@ -1938,7 +1940,7 @@ export function PackListBreakdown({
   wizardSessionId?: string;
   cases: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
-  overrideActive: boolean;
+  pullSheetOverride: OverrideSnapshot;
 }) {
   const staged = wizardSessionId != null;
   // §5.6 state machine. The included tab (override applied) carries the revoke
@@ -1947,11 +1949,20 @@ export function PackListBreakdown({
   // only one override at a time (the RPC enforces it). The affordance is staged-
   // only, so both derivations gate on `staged`.
   const includedTab = staged ? (archivedPullSheetTabs.find((t) => t.included) ?? null) : null;
-  const offers = staged && !overrideActive ? archivedPullSheetTabs.filter((t) => !t.included) : [];
+  const previewSnapshot: OverrideSnapshot = includedTab
+    ? { tabName: includedTab.tabName, fingerprint: includedTab.fingerprint }
+    : null;
+  const overrideActive = pullSheetOverride !== null;
+  // S5 (spec §3.2): the durable override and the parse preview disagree. Only a
+  // re-scan heals it, so it preempts the S2/S3 affordances that would loop.
+  const divergent = staged && !overrideSnapshotsEqual(pullSheetOverride, previewSnapshot);
+  const offers =
+    staged && !divergent && !overrideActive ? archivedPullSheetTabs.filter((t) => !t.included) : [];
   const hasCases = cases.length > 0;
   // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
-  // override (S3) suppresses the empty state.
-  const isEmpty = !hasCases && archivedPullSheetTabs.length === 0;
+  // override (S3) suppresses the empty state. Must also require !divergent so a
+  // durable-set/empty-preview row is S5 (recovery), not S1.
+  const isEmpty = !divergent && !hasCases && archivedPullSheetTabs.length === 0;
   // Dismissing an offer unmounts its whole card (incl. the focused button). Inside
   // the focus-trapped review modal that would strand focus on <body> (WCAG 2.4.3),
   // so the section wrapper is a `tabIndex={-1}` focus fallback the offer targets
@@ -1973,14 +1984,17 @@ export function PackListBreakdown({
       >
         {isEmpty ? <p className="text-sm text-text-subtle">No pack list parsed.</p> : null}
         {hasCases ? <PackListCases dfid={dfid} cases={cases} /> : null}
-        {overrideActive && includedTab && wizardSessionId != null ? (
+        {divergent && dfid != null && wizardSessionId != null ? (
+          <ArchivedTabRescanNeeded dfid={dfid} wizardSessionId={wizardSessionId} />
+        ) : null}
+        {!divergent && overrideActive && includedTab && wizardSessionId != null ? (
           <ArchivedTabIncludedNote
             dfid={dfid}
             wizardSessionId={wizardSessionId}
             tab={includedTab}
           />
         ) : null}
-        {wizardSessionId != null
+        {!divergent && wizardSessionId != null
           ? offers.map((tab, i) => (
               <ArchivedTabOffer
                 key={`${tab.tabName}-${i}`}
@@ -2276,6 +2290,29 @@ function ArchivedTabIncludedNote({
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** S5 (spec §3.4): durable override and preview disagree (committed-but-preview-
+ *  stale). A reload can't heal it (same stale envelope) — only a re-scan refreshes
+ *  the preview. Renders the note + the existing RescanSheetButton. (Task 5 adds the
+ *  publish-run freeze via Step3RunStateContext — test-first.) */
+function ArchivedTabRescanNeeded({
+  dfid,
+  wizardSessionId,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+}) {
+  return (
+    <div
+      data-testid={`pack-list-rescan-needed-${dfid}`}
+      className="flex flex-col gap-2 rounded-sm border border-border bg-info-bg p-3 text-sm text-text-strong"
+    >
+      <p className="font-medium">Gear saved. The preview is out of date.</p>
+      <p>Re-scan to refresh it.</p>
+      <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
     </div>
   );
 }
@@ -3827,7 +3864,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
           dfid={s.driveFileId}
           cases={s.pullSheet}
           archivedPullSheetTabs={s.archivedPullSheetTabs}
-          overrideActive={s.archivedPullSheetTabs.some((t) => t.included)}
+          pullSheetOverride={s.pullSheetOverride}
           {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
         />
       ),
