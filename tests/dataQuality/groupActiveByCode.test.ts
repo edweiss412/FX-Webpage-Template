@@ -34,7 +34,10 @@ describe("groupActiveByCode", () => {
     ]);
     // interleaved same-code warnings collapse into one group, intra-group order preserved
     expect(groups[0]!.items.map((i) => i.rawSnippet)).toEqual(["Rigging", "Catering"]);
-    expect(groups[1]!.items.map((i) => i.rawSnippet)).toEqual(["Storage | dock", "Floor Plan | link"]);
+    expect(groups[1]!.items.map((i) => i.rawSnippet)).toEqual([
+      "Storage | dock",
+      "Floor Plan | link",
+    ]);
     // singleton codes get their own single-item group
     expect(groups[2]!.items).toHaveLength(1);
     expect(groups[3]!.items).toHaveLength(1);

@@ -53,11 +53,19 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     // eyebrow labels asserted on the EYEBROW subtree (dedicated testid), NOT the whole
     // group — the card slot would otherwise also carry the catalog title and mask a
     // missing eyebrow (anti-tautology; spec §5.4 / spec test-scope rule).
-    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe("Unrecognized row in sheet");
-    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe("removed section");
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe(
+      "Unrecognized row in sheet",
+    );
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
+      "removed section",
+    );
     // invariant 5: the raw code is never printed in the eyebrow
-    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain("UNKNOWN_FIELD");
-    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain("BLOCK_DISAPPEARED");
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain(
+      "UNKNOWN_FIELD",
+    );
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain(
+      "BLOCK_DISAPPEARED",
+    );
     // cards slotted through
     expect(screen.getByTestId("cards-UNKNOWN_FIELD")).toBeInTheDocument();
     expect(screen.getByTestId("cards-BLOCK_DISAPPEARED")).toBeInTheDocument();
@@ -80,7 +88,9 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     fireEvent.click(chip); // arm
     fireEvent.click(chip); // confirm → fires
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const bodies = fetchMock.mock.calls.map((c) => JSON.parse((c[1] as RequestInit).body as string));
+    const bodies = fetchMock.mock.calls.map((c) =>
+      JSON.parse((c[1] as RequestInit).body as string),
+    );
     expect(bodies).toEqual([
       { code: "UNKNOWN_FIELD", rawSnippet: "Storage | dock" },
       { code: "UNKNOWN_FIELD", rawSnippet: "Floor Plan | link" },
@@ -142,7 +152,14 @@ describe("BulkIgnoreControls (grouped active list)", () => {
 
     function expectDestructiveRecipe(el: HTMLElement) {
       const tokens = el.className.split(/\s+/);
-      for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90", "border", "border-transparent"]) {
+      for (const t of [
+        "bg-warning-text",
+        "text-warning-bg",
+        "font-semibold",
+        "hover:opacity-90",
+        "border",
+        "border-transparent",
+      ]) {
         expect(tokens).toContain(t);
       }
       for (const t of ["bg-accent", "bg-surface", "bg-bg"]) expect(tokens).not.toContain(t);
@@ -223,7 +240,9 @@ describe("BulkIgnoreControls (grouped active list)", () => {
 
     test("running disables ALL chips and clears armed", async () => {
       const resolvers: Array<(r: Response) => void> = [];
-      fetchMock.mockImplementation(() => new Promise<Response>((resolve) => resolvers.push(resolve)));
+      fetchMock.mockImplementation(
+        () => new Promise<Response>((resolve) => resolvers.push(resolve)),
+      );
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`) as HTMLButtonElement;
       const btnY = screen.getByTestId(`dq-bulk-ignore-${groupY.code}`) as HTMLButtonElement;
@@ -234,7 +253,9 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       expect(btnY.disabled).toBe(true);
       expect(btnX.textContent).not.toContain("Confirm");
       expect(btnY.textContent).not.toContain("Confirm");
-      await act(async () => { for (const r of resolvers) r(okResponse()); });
+      await act(async () => {
+        for (const r of resolvers) r(okResponse());
+      });
       await waitFor(() => expect(btnX.disabled).toBe(false));
     });
 

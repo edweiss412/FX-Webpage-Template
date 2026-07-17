@@ -486,7 +486,12 @@ export default async function AdminShowPage({
         reportSurfaceId={buildReportSurfaceId(show.slug, w)}
       />
       {/* spec §8: use-raw toggle for the recoverable structural-transform warnings; self-hides. */}
-      <UseRawControlBoundary surface="show" showId={show.id} warning={w} decision={decisionFor(w)} />
+      <UseRawControlBoundary
+        surface="show"
+        showId={show.id}
+        warning={w}
+        decision={decisionFor(w)}
+      />
       {/* spec 2026-07-15 §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN; self-hides. */}
       <RoleRecognizeControlBoundary surface="show" showId={show.id} warning={w} />
     </>

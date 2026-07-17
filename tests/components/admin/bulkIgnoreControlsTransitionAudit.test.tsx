@@ -5,15 +5,25 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
-beforeEach(() => { global.fetch = vi.fn() as unknown as typeof fetch; });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+beforeEach(() => {
+  global.fetch = vi.fn() as unknown as typeof fetch;
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const g = (): ActiveWarningGroup => ({
   code: "UNKNOWN_FIELD",
   label: "Unrecognized row in sheet",
-  bulk: { code: "UNKNOWN_FIELD", label: "Unrecognized row in sheet", items: [
-    { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" }, { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
-  ] },
+  bulk: {
+    code: "UNKNOWN_FIELD",
+    label: "Unrecognized row in sheet",
+    items: [
+      { code: "UNKNOWN_FIELD", rawSnippet: "a | 1" },
+      { code: "UNKNOWN_FIELD", rawSnippet: "b | 2" },
+    ],
+  },
   cards: <ul data-testid="cards" />,
 });
 

@@ -1019,8 +1019,12 @@ describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => 
     expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
     // the non-ignorable group is labeled through the page's real bulkGroupLabel path:
     // no catalog title → DATA_GAP_CLASS_LABELS → "removed section" (scoped to the eyebrow)
-    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe("removed section");
-    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain("BLOCK_DISAPPEARED");
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
+      "removed section",
+    );
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain(
+      "BLOCK_DISAPPEARED",
+    );
   });
 });
 
