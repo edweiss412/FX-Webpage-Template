@@ -47,11 +47,9 @@
 - Produces: `PublishedToggleProps.variant?: "card" | "inline"` (default `"card"`). Inline DOM: container `data-testid="published-toggle-inline"` (a `<div>`), a `<span>Published</span>` label, the shared switch (`data-testid="published-toggle"`), and — when applicable — a popover `data-testid="published-toggle-popover"` with `id="published-toggle-popover-<slug>"`. Card DOM unchanged (`published-toggle-row`, `-subline`, `-error`, `-retry`).
 - Consumes: `ErrorExplainer` (`code`, `surface="admin"`), `HelpAffordance` (`code`), `messageFor` (tests only), `useFormStatus`.
 
-- [ ] **Step 1: Write failing tests — inline render + states.** Append to `tests/components/admin/PublishedToggle.test.tsx`. Extend the existing `renderToggle` helper to accept `variant`; add helpers for the inline subtree. Add this `describe` block:
+- [ ] **Step 1: Write failing tests — inline render + states.** Append to `tests/components/admin/PublishedToggle.test.tsx`. The file ALREADY imports `act, cleanup, fireEvent, render, screen` (`:19`), `PublishedToggle` (`:20`), `messageFor` (`:21`), `vi` (`:18`) — do NOT re-import them (duplicate declarations). Reuse the existing `okAction()` and `renderToggle` helpers; add the inline helpers + `describe` block below:
 
 ```tsx
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-
 function renderInline(
   overrides: Partial<{
     published: boolean;
@@ -138,25 +136,54 @@ describe("PublishedToggle — inline variant", () => {
     expect(screen.getByTestId("published-toggle").hasAttribute("disabled")).toBe(true);
   });
 
-  it("error and finalize popovers share identical positioning classes (only skin/role differ)", async () => {
-    // S4 finalize popover classes
+  it("error and finalize popovers share the EXACT positioning class set; only skin/role differ", async () => {
+    // Strong form (Codex plan-R1 finding 3): the S4 geometry is the real-browser proxy for S2's
+    // geometry (§8.10), so the two popovers must not merely share SOME tokens — the non-skin
+    // token set must be IDENTICAL, and neither may carry a stray geometry class (right-0,
+    // translate-x-*, a max-w other than max-w-60) that would let the error popover overflow
+    // while the measured finalize popover stays in-viewport.
+    const POSITION = ["absolute", "left-0", "top-full", "z-40", "mt-1", "w-max", "max-w-60",
+      "rounded-sm", "p-2", "text-sm", "shadow-tile"]; // === POPOVER_POSITION tokens
+    const ERROR_SKIN = new Set(["border", "border-border-strong", "bg-warning-bg", "text-warning-text"]);
+    const FINALIZE_SKIN = new Set(["border", "border-border", "bg-surface", "text-text-subtle"]);
+    const FORBIDDEN = /^(right-0|right-\d|translate-x-|max-w-(?!60\b))/; // any geometry that breaks the proxy
+
     const { unmount } = renderInline({ published: true, finalizeOwned: true });
-    const finalizeCls = popover()!.className;
+    const finalizeTokens = popover()!.className.split(/\s+/).filter(Boolean);
     unmount();
-    // S2 error popover classes
     const setPublished = vi.fn(async () => ({ ok: false as const, code: "PUBLISH_BLOCKED_PENDING_REVIEW" }));
     renderInline({ published: false, setPublished });
     await act(async () => { fireEvent.click(screen.getByTestId("published-toggle")); });
-    const errorCls = popover()!.className;
-    for (const c of ["absolute", "top-full", "left-0", "max-w-60", "w-max", "z-40", "mt-1"]) {
-      expect(finalizeCls, `finalize popover missing ${c}`).toContain(c);
-      expect(errorCls, `error popover missing ${c}`).toContain(c);
+    const errorTokens = popover()!.className.split(/\s+/).filter(Boolean);
+
+    for (const t of POSITION) {
+      expect(finalizeTokens, `finalize missing ${t}`).toContain(t);
+      expect(errorTokens, `error missing ${t}`).toContain(t);
+    }
+    // Non-position tokens must be exactly the allowed skin — no stray geometry.
+    const finalizeExtra = finalizeTokens.filter((t) => !POSITION.includes(t));
+    const errorExtra = errorTokens.filter((t) => !POSITION.includes(t));
+    expect(new Set(finalizeExtra)).toEqual(FINALIZE_SKIN);
+    expect(new Set(errorExtra)).toEqual(ERROR_SKIN);
+    for (const t of [...finalizeTokens, ...errorTokens]) {
+      expect(t, `forbidden geometry class ${t}`).not.toMatch(FORBIDDEN);
     }
   });
 
-  it("inline branch imports no motion library / AnimatePresence (belt-and-suspenders)", () => {
-    // structural: the whole file must stay motion-free (also pinned by transitionAudit)
-    // (read via the existing src() pattern in transitionAudit; here assert no import lines)
+  it("inline B1 dispatch-safety: clicking the enabled switch actually dispatches the form action", async () => {
+    // The B1 revoke-hang bug is a SYNCHRONOUS onClick disable, which cancels the React form
+    // submit (feedback_react_form_action_synchronous_disable_cancels_submit). Proof the submit
+    // fires: setPublished is CALLED with the flipped value. If a synchronous disable regressed
+    // in, the action would never run and this assertion would fail.
+    const setPublished = vi.fn(async () => ({ ok: true as const }));
+    renderInline({ published: true, finalizeOwned: false, setPublished });
+    const sw = screen.getByTestId("published-toggle");
+    expect(sw.getAttribute("type")).toBe("submit");
+    expect(sw.closest("form")).not.toBeNull();
+    expect(sw.hasAttribute("disabled")).toBe(false); // enabled at rest
+    await act(async () => { fireEvent.click(sw); });
+    expect(setPublished).toHaveBeenCalledTimes(1);
+    expect(setPublished).toHaveBeenCalledWith(false); // flipped from published:true
   });
 });
 ```
@@ -320,14 +347,22 @@ git commit --no-verify -m "feat(admin): StatusStrip renders the inline Published
 
 **Approach:** replicate the static-harness scaffold from `tests/e2e/showPageLayout.spec.ts` (tsx subprocess renders `renderToStaticMarkup` → JSON of `{ idleHtml, finalizeHtml, cardHtml }`; compile `app/globals.css` via Tailwind CLI with `@source` at the rendered markup; serve over `node:http`; measure with Playwright at 390px). Runs under `tests/e2e/standalone.config.ts` (no webServer/Supabase). The harness wraps each strip in the real admin-layout shell width so wrapping is faithful, and renders inside `ShareTokenProvider` (token null → no copy-link, irrelevant to geometry).
 
-- [ ] **Step 1: Write the harness.** Create `tests/e2e/_statusStripToggleHarness.tsx`. Model the subprocess main-guard + prop fixtures on `_showPageLayoutHarness.tsx`. It must export/emit three markup strings via `renderToStaticMarkup`, each the `StatusStrip` at a 390px-width shell:
+- [ ] **Step 1: Write the harness.** Create `tests/e2e/_statusStripToggleHarness.tsx`. Model the subprocess main-guard + prop fixtures on `_showPageLayoutHarness.tsx`. **Critical (Codex plan-R1 finding 2): `PublishedToggle` calls `useRouter()` (`PublishedToggle.tsx:27,57`), so each render MUST be wrapped in `AppRouterContext.Provider` with a stub router — copy the exact `stubRouter` + `AppRouterContext.Provider` wrapping from `_showPageLayoutHarness.tsx:32-34,229-238`, else `renderToStaticMarkup` throws "invariant expected app router to be mounted".** Wrap in `ShareTokenProvider` (token null) too. It must emit markup strings via `renderToStaticMarkup`, each the `StatusStrip` at a 390px-width shell:
   - `idle`: `StatusStrip` with `published:true, finalizeOwned:false` (inline S1).
   - `finalize`: `StatusStrip` with `published:true, finalizeOwned:true` (inline S4 — popover renders from the prop, no test-only path).
   - `card`: a strip-like row that renders `<PublishedToggle variant="card" …>` in place of the inline toggle (the pre-CASP-2 baseline). Build this by rendering `StatusStrip` but with a `variant` seam is NOT available — instead render a minimal wrapper `<div className="... same strip classes ...">` containing `<PublishedToggle variant="card" .../>` plus the same title `<h1>`, to represent the old strip layout for the compaction delta. (Only its height is compared; exact chrome parity is not required — it just needs the card toggle in a strip-width row.)
 
   Run each at both `SHOWPAGE_TITLE` (short) and `SHOWPAGE_LONG_TITLE` for the containment sub-check. Emit JSON `{ idleShort, idleLong, finalizeShort, finalizeLong, cardShort }` to stdout.
 
-- [ ] **Step 2: Write the failing spec.** Create `tests/e2e/statusStripToggleLayout.spec.ts`, scaffold copied from `showPageLayout.spec.ts` (execFileSync tsx, Tailwind compile, node:http serve). Set viewport 390. Assertions:
+- [ ] **Step 1b: Register the new spec in the standalone config.** `tests/e2e/standalone.config.ts:24-25` has an explicit `testMatch` regex allowlist (no glob) — a new spec NOT listed is silently never run (Codex plan-R1 finding 1). Add `statusStripToggleLayout` to the alternation:
+
+```ts
+// tests/e2e/standalone.config.ts — add to the testMatch regex alternation
+/(…|showPageLayout|statusStripToggleLayout|blocked-row-resolver-transitions)\.spec\.ts/,
+```
+Verify discovery after writing the spec: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --list | grep statusStripToggleLayout` must print the test.
+
+- [ ] **Step 2: Write the failing spec.** Create `tests/e2e/statusStripToggleLayout.spec.ts`, scaffold copied from `showPageLayout.spec.ts` (execFileSync tsx, Tailwind compile, node:http serve; pass `HASH_FOR_LOG_PEPPER` in the subprocess env as `showPageLayout.spec.ts:90` does — a transitively-imported auth helper has a module-load guard). Set viewport 390. Assertions:
 
 ```ts
 // (a) height-invariance: popover is out of flow
@@ -432,10 +467,10 @@ git commit --no-verify -m "docs: mark CASP-2 resolved (inline StatusStrip toggle
 
 ## Self-Review
 
-**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, left-0, max-w-60, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 B1 → preserved (shared formAction/SwitchButton; no test regresses the existing dispatch tests, run in T5). §7/§8.10 dimensional → T3. §8.11 → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
+**Spec coverage:** §4.1 variant prop → T1. §4.2 card unchanged → T1 (default-card test). §4.3 inline render → T1. §4.4 popover (skins, left-0, max-w-60, RETRY_COPY, ErrorExplainer/HelpAffordance) → T1. §4.5 a11y (describedby, no role=alert on finalize, single aria-label) → T1 (S4 test). §4.6 StatusStrip → T2. §4.7 Overview single-source → T4 (e2e asserts the notice). §4.8 transition inventory → T1 (S1–S5 + class-equality). §5 guards → T1 states. §6 / §8.7 B1 → preserved + proven by the new inline dispatch test (T1) + existing suite (T5). §7/§8.10 dimensional → T3. §8.11 → T1. §8.12 → T4. §9 impeccable → T5. §10 meta → declared above.
 
 **Placeholder scan:** none — every step has concrete code/commands.
 
 **Type consistency:** `variant?: "card" | "inline"` used identically in T1 (definition), T2/T3 (consumers). `describedBy?: string` on `SwitchButton` matches its single call sites. `POPOVER_POSITION`/`RETRY_COPY` referenced consistently in impl + the class-equality test. Popover id `published-toggle-popover-<slug>` consistent across impl (T1 step 3), S4 test, and aria-describedby.
 
-**B1 note:** the shared `formAction` and `SwitchButton` are lifted, not rewritten — the switch stays the submitter, disables only on `pending`/`finalizeOwned`. The existing dispatch-safety tests in `PublishedToggle.test.tsx` / `per-show-lifecycle.test.tsx` run unmodified in T5 and must stay green (regression guard for B1).
+**B1 note:** the shared `formAction` and `SwitchButton` are lifted, not rewritten — the switch stays the submitter, disables only on `pending`/`finalizeOwned`. The **inline-specific** B1 proof is the new Task 1 test "inline B1 dispatch-safety: clicking the enabled switch actually dispatches the form action" — it asserts `setPublished` is CALLED on click (a synchronous-onClick-disable regression would cancel the submit and fail this), which is a real behavioral guard, not the weak `onclick`-attribute / initial-disabled checks in the existing suite (Codex plan-R1 finding 6). The existing tests still run in T5 as a secondary regression net.
