@@ -374,6 +374,10 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.getAttribute("data-layout")).toBe("row");
     expect(strip.className).toContain("min-[720px]:flex-row");
     expect(strip.className).toContain("min-[720px]:divide-x");
+    // D4: the row strip wraps so a full-width overflow disclosure drops to its own
+    // line instead of overflowing the strip horizontally (verified in a real
+    // browser at 1000px; jsdom pins the load-bearing class).
+    expect(strip.className).toContain("min-[720px]:flex-wrap");
     // Equal-width cells: every present row carries the flex-1 cell class (Dimensional Invariants §5.5).
     for (const row of Array.from(strip.querySelectorAll("[data-anchor]"))) {
       expect(row.className).toContain("min-[720px]:flex-1");
@@ -405,9 +409,13 @@ describe("<KeyTimesStrip>", () => {
     const overflow = strip.querySelector('[data-testid="key-times-shows-overflow"]');
     expect(overflow).not.toBeNull();
     // D2: overflow is a native <details> disclosure — recessive at rest, tap to
-    // expand the hidden days inline (no client JS, aria-expanded for free).
+    // expand the hidden days inline (no client JS; details/summary a11y mapping
+    // exposes the expand state).
     expect(overflow!.tagName).toBe("DETAILS");
     expect(overflow!.querySelector("summary")).not.toBeNull();
+    // D4: the overflow group (<dt>/<dd> wrapper) is full-width in row layout so it
+    // wraps to its own line and never overflows the strip (real-browser verified).
+    expect(overflow!.closest("[class*='min-[720px]:basis-full']")).not.toBeNull();
     // Hidden-day count derived from the fixture (10 - 7 = 3), never hardcoded.
     const hidden = shows.length - 7;
     expect(overflow!.textContent).toContain(`+${hidden}`);

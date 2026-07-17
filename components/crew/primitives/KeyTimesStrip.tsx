@@ -133,7 +133,7 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
   // desktop split-wide layout. `divide-border` draws the hairline column rules;
   // `first:pl-0`/`last:pr-0` keep the band flush to the card's content edges.
   const containerClass = isRow
-    ? "flex flex-col gap-2 min-[720px]:flex-row min-[720px]:gap-0 min-[720px]:divide-x min-[720px]:divide-border"
+    ? "flex flex-col gap-2 min-[720px]:flex-row min-[720px]:flex-wrap min-[720px]:gap-0 min-[720px]:divide-x min-[720px]:divide-border"
     : "flex flex-col gap-2";
   const anchorClass = isRow
     ? "flex min-w-0 items-baseline justify-between gap-3 min-[720px]:flex-1 min-[720px]:flex-col min-[720px]:items-start min-[720px]:justify-start min-[720px]:gap-0.5 min-[720px]:px-4 min-[720px]:first:pl-0 min-[720px]:last:pr-0"
@@ -172,11 +172,12 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
         // bare <details>. The <dd> legally holds the disclosure, and the hidden
         // days nest under the "More show days" term as their definition, so a SR
         // reads them as a continuation of the key-times list, not a stray list.
-        // Stack-only affordance: in `layout="row"` (the ≥720px equal-width strip)
-        // a >8-show-day show renders this as a full-width block rather than an
-        // equal column — an accepted exception for a near-unreachable case
-        // (realistic max ~3 show days, cap 8); confirmed on the PR preview (D4).
-        <div className="min-w-0">
+        // In `layout="row"` (the ≥720px equal-width strip) the disclosure is not
+        // an equal column — it wraps to its OWN full-width line below the columns
+        // (`min-[720px]:basis-full`, paired with the container's `flex-wrap`), so
+        // a >8-show-day show never overflows the strip horizontally. Verified in a
+        // real browser at 390px (stack) and 1000px (row) — D4.
+        <div className="min-w-0 min-[720px]:basis-full min-[720px]:border-l-0">
           <dt className="sr-only">More show days</dt>
           <dd className="min-w-0">
             <details
