@@ -21,7 +21,7 @@ Make the badge's PRIMARY signal — signal type + count — **visible without ho
 ## 3. Non-goals (explicit — do-not-relitigate)
 
 - **No interactive disclosure / popover / focusable control.** Rejected in brainstorming: the summary becoming visible dissolves the hover-only dependency; the FULL class-level breakdown (which gap classes, added/removed/renamed split) stays in `aria-label` + `title` as progressive enhancement. No client island, no dismiss-on-outside-click, no focus management. (This is the deliberate scope boundary — a reviewer proposing a popover is relitigating a settled decision.)
-- **No new color token / no hue-based distinction.** Both signals stay `text-status-warn-text` amber. Per Flow-4 spec §6.4 (`2026-07-07-flow4-auto-applied-strip-roster-badge.md:209-215`) both are "needs-a-glance" states sharing the data-quality badge; per `DESIGN.md:87` the color-blind floor requires signals never carried by hue alone. Distinction is carried by **glyph shape + visible count**, not color.
+- **No new color token / no hue-based distinction.** Both signals stay `text-status-warn-text` amber. Per Flow-4 spec §6.4 (`2026-07-07-flow4-auto-applied-strip-roster-badge.md:209-215`) both are "needs-a-glance" states sharing the data-quality badge; per the DESIGN.md §1 color-blind floor (`DESIGN.md:15` — "red and green are NEVER used as primary semantic carriers … every state signal pairs color with text or icon") and the status dot/text-pairing rule (`DESIGN.md:84`) signals are never carried by hue alone. Distinction is carried by **glyph shape + visible count**, not color.
 - **CARDREPORT-1** (crew card-header touch targets, `DEFERRED.md:187`) — separate surface, stays deferred.
 - No DB, no advisory-lock, no telemetry surface, no §12.4 catalog code, no RPC.
 
@@ -53,26 +53,38 @@ The badge renders **up to two visible chips** inside the unchanged outer `role="
 
 - **Order: roster chip THEN gap chip**, matching the §6.5 aria-label concatenation order (roster segment then gap segment). Prevents a visual-vs-AT order mismatch a reviewer would flag.
 - Each glyph keeps `className="size-3.5"` (unchanged from the current `TriangleAlert`).
-- Each count: `text-xs font-medium tabular-nums` (established idiom, e.g. `components/atoms/KeyValue.tsx`). `tabular-nums` so multi-digit counts don't jitter column width.
+- Each count: `text-xs font-medium tabular-nums leading-none`. `tabular-nums` is the project's numeric-value idiom (`components/atoms/KeyValue.tsx:134,144`); `text-xs`/`font-medium` are standard small-label sizes. **`leading-none` is load-bearing for the §5.4 dimensional invariant**: default `text-xs` has a 16px line box, taller than the 14px (`size-3.5`) glyph, which would grow the badge height; `leading-none` collapses the count's line box to its ~12px font size so the 14px glyph remains the tallest child and the badge height stays at the single-glyph baseline.
 - Glyphs are `aria-hidden="true"`; counts are visible text but semantically subsumed by the outer `role="img"` name (screen readers read only the `aria-label`, never the inner text — unchanged AT behavior).
 
 ### 5.2 Outer element (contract-preserving)
 
-Unchanged: `<span data-testid={`shows-data-quality-${slug}`} role="img" aria-label={label} title={label}>`. ClassName becomes `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-status-warn-text` (adds `gap-1.5` between chips and `whitespace-nowrap` so the two-chip cluster never wraps within a table cell). Each chip is an inner `<span aria-hidden="true" className="inline-flex items-center gap-0.5">{glyph}{count}</span>`.
+Unchanged: `<span data-testid={`shows-data-quality-${slug}`} role="img" aria-label={label} title={label}>`. ClassName becomes `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-status-warn-text` (adds `gap-1.5` between chips and `whitespace-nowrap` so the two-chip cluster never wraps within a table cell). Each chip is an inner `<span aria-hidden="true" className="inline-flex items-center gap-0.5 leading-none">{glyph}{count}</span>` (the count span carries the `text-xs font-medium tabular-nums leading-none` of §5.1).
 
-`label`, `rosterLabel`, `gapLabel`, the render gate, and `data-testid` are byte-identical to today.
+`label`, `rosterLabel`, `gapLabel`, and `data-testid` are byte-identical to today. The **render gate is hardened** (see §5.3): from the old strict `gapTotal === 0 && rosterTotal === 0` (`components/admin/DataQualityBadge.tsx:24`) to `if (!hasGap && !hasRoster) return null`, where `hasGap`/`hasRoster` are the positive-total predicates below. `slug` is interpolated only into `data-testid`; it is never rendered as content and has no effect on the render gate or chips.
 
-### 5.3 Guard conditions (every prop state)
+### 5.3 Guard conditions (every prop / input state)
 
-| `dataGaps` | `rosterShift` | Rendered |
-|-----------|--------------|----------|
-| undefined / total 0 | undefined / total 0 | `null` (unchanged `:24`; instant unmount, no animation) |
-| total > 0 | undefined / total 0 | gap chip only (`TriangleAlert` + gap count) |
-| undefined / total 0 | total > 0 | roster chip only (`Users` + roster count) |
-| total > 0 | total > 0 | both chips, roster then gap |
+Define the two positive-total predicates once, and drive BOTH the render gate and each chip off them:
 
-- `?? 0` guards on both totals (unchanged `:22-23`) — undefined summary contributes 0.
-- Count values are always the summary `.total` integers; never NaN (summaries are constructed with numeric totals). No count is ever rendered as a bare `0` (a chip renders only when its total `> 0`).
+```
+const gapTotal    = dataGaps?.total ?? 0;
+const rosterTotal = rosterShift?.total ?? 0;
+const hasGap    = Number.isFinite(gapTotal)    && gapTotal    > 0;
+const hasRoster = Number.isFinite(rosterTotal) && rosterTotal > 0;
+if (!hasGap && !hasRoster) return null;
+```
+
+| `dataGaps.total` | `rosterShift.total` | `hasGap` / `hasRoster` | Rendered |
+|-----------|--------------|----------|----------|
+| undefined / 0 / negative / NaN | undefined / 0 / negative / NaN | false / false | `null` (instant unmount, no animation) |
+| finite > 0 | undefined / 0 / negative / NaN | true / false | gap chip only (`TriangleAlert` + gap count) |
+| undefined / 0 / negative / NaN | finite > 0 | false / true | roster chip only (`Users` + roster count) |
+| finite > 0 | finite > 0 | true / true | both chips, roster then gap |
+
+- `?? 0` guards a missing summary object → contributes 0.
+- **`Number.isFinite` + `> 0`** hardens against the pre-existing gap in `:24`'s strict `=== 0` gate: a `NaN` or negative total (`NaN === 0` is `false`, `-1 === 0` is `false`) would previously slip past the gate and render an outer `role="img"` span with an **empty `aria-label`** and no chips. The new predicate treats any non-positive/non-finite total as "no signal" → `null`. Chips render iff their predicate is true, so no count is ever rendered as `0`, negative, or `NaN`.
+- **`slug`** (`string`): interpolated only into `data-testid={`shows-data-quality-${slug}`}`. An empty/whitespace slug yields an empty-suffixed but still-valid testid; it never renders as visible content and never affects the gate or chips. No behavior change from today (`:49`).
+- The chip **count** is always the finite positive `.total` integer that made its predicate true.
 
 ### 5.4 Dimensional invariants
 
@@ -82,17 +94,29 @@ The badge sits inline beside the show title in a shows-table row (`ShowsTable.ts
 |----------------|-----------|
 | Outer badge span → chips | `items-center` (vertical center), `gap-1.5` (inter-chip), `whitespace-nowrap` (no wrap) |
 | Chip span → glyph + count | `inline-flex items-center gap-0.5` |
+| Chip count → glyph | `leading-none` on the count so its line box (~12px) never exceeds the 14px (`size-3.5`) glyph → glyph is the tallest child → badge height == glyph height |
 | Badge → table row | `shrink-0` (never squeezed); badge must NOT increase the row's height beyond its existing single-glyph height, and must NOT wrap to a second line |
 
-Verified by a real-browser (Playwright) assertion in the plan: render a row with both chips, `getBoundingClientRect()` on the badge testid, assert its height equals a single-glyph baseline (within 0.5px) and the row height is unchanged vs a gap-only badge. jsdom is insufficient (no layout).
+**Baseline definition (precise):** the invariant is `badgeHeight === glyphHeight` (the 14px `size-3.5` box), NOT "unchanged vs today" in the abstract — today's single-glyph badge already == glyph height, and `leading-none` on the count keeps the two-chip badge at that same height. Verified by a real-browser (Playwright) assertion in the plan: render a row with both chips, `getBoundingClientRect()` on the badge testid AND on a chip glyph, assert `|badge.height − glyph.height| ≤ 0.5px`, and assert the badge does not wrap (its height is within 0.5px of a single-chip badge's height, i.e. no second line). jsdom is insufficient (no layout).
 
 ### 5.5 Transition inventory
 
-States: `{none, gap-only, roster-only, both}`. All are server-rendered as a pure function of props and only change on the next sync's full re-render — there is no client state, no user-driven toggle. **Every transition is INSTANT** (plain ternary / `&&` / early-return; no `AnimatePresence`, no framer-motion, no exit/initial/animate). This is the same treatment the existing `dataGapsTransitionAudit.test.tsx` already asserts by grepping `components/admin/DataQualityBadge.tsx` for motion imports — the new two-chip markup adds none, so that meta-test continues to pass. No compound transitions (no shared client state with any sibling).
+4 states: `{none, gap-only, roster-only, both}`. All are server-rendered as a pure function of props and only change on the next sync's full re-render — there is no client state, no user-driven toggle. All `4·3/2 = 6` unordered state-transition pairs, each **INSTANT** (plain ternary / `&&` / early-return; no `AnimatePresence`, no framer-motion, no `exit`/`initial`/`animate`):
+
+| # | Transition pair | Treatment |
+|---|-----------------|-----------|
+| 1 | none ↔ gap-only | INSTANT — gap chip mounts/unmounts via `hasGap` early-return / `&&` |
+| 2 | none ↔ roster-only | INSTANT — roster chip mounts/unmounts via `hasRoster` |
+| 3 | none ↔ both | INSTANT — outer span + both chips mount/unmount together |
+| 4 | gap-only ↔ roster-only | INSTANT — one chip swaps for the other on re-render |
+| 5 | gap-only ↔ both | INSTANT — roster chip appears/disappears beside the persisting gap chip |
+| 6 | roster-only ↔ both | INSTANT — gap chip appears/disappears beside the persisting roster chip |
+
+**Compound transitions:** none. The badge holds no client state and shares none with any sibling; every state is a pure re-render given props, so there is no "state A animates while state B mid-transition" hazard — nothing animates, nothing to interrupt. The existing `dataGapsTransitionAudit.test.tsx` (greps `components/admin/DataQualityBadge.tsx` for motion imports) continues to pass because the two-chip markup adds none.
 
 ## 6. DESIGN.md amendment (the FLOW4-3 "DESIGN.md decision")
 
-FLOW4-3's deferral trigger is explicitly "a DESIGN.md decision to split data-quality signal types" (`DEFERRED.md:483`). Add a short subsection to `DESIGN.md` recording the convention: the admin data-quality badge carries up to two amber chips, each a distinct glyph + count (`Users` = roster changed, `TriangleAlert` = parse gaps), both `--color-status-warn-text`; distinction is by glyph+count, never hue (upholds the §1 color-blind floor at `DESIGN.md:87`). This edit makes `DESIGN.md` part of the diff → **invariant-8 impeccable dual-gate applies** (badge diff + DESIGN.md).
+FLOW4-3's deferral trigger is explicitly "a DESIGN.md decision to split data-quality signal types" (`DEFERRED.md:483`). Add a short subsection to `DESIGN.md` recording the convention: the admin data-quality badge carries up to two amber chips, each a distinct glyph + count (`Users` = roster changed, `TriangleAlert` = parse gaps), both `--color-status-warn-text`; distinction is by glyph+count, never hue (upholds the §1 color-blind floor at `DESIGN.md:15`, dot/text-pairing rule `DESIGN.md:84`). This edit makes `DESIGN.md` part of the diff → **invariant-8 impeccable dual-gate applies** (badge diff + DESIGN.md).
 
 ## 7. Invariants & meta-test inventory
 
@@ -109,8 +133,9 @@ New file `tests/components/admin/DataQualityBadge.chips.test.tsx` (jsdom), anti-
 2. **roster-only** → exactly one `Users`, no `TriangleAlert`; visible count === `rosterShift.total`.
 3. **both** → `Users` chip precedes `TriangleAlert` chip in DOM order; both counts match their respective fixture totals.
 4. **0/0** → renders nothing (`container` empty; `queryByRole("img")` null).
-5. **aria-label unchanged** → assert the exact §6.5 strings for roster-only / gap-only / both (mirrors the existing rosterShift test's derivation via `formatDataGapBreakdown`), proving the contract preserved.
-6. Glyph identification: assert by a stable per-chip hook (e.g. `data-testid` on each chip span, `roster` / `gap`) — clone-and-scope so the gap assertion cannot be satisfied by the roster chip and vice-versa.
+5. **Non-finite / negative guard (§5.3)** → `{total: NaN}` on either input, `{total: -1}` on either input, and NaN+NaN both render nothing (no `role="img"`, no empty-label span). Proves the hardened `Number.isFinite && > 0` gate; catches the failure mode where a `NaN`/negative total slips past the old `=== 0` gate into an empty-`aria-label` badge.
+6. **aria-label unchanged** → assert the exact §6.5 strings for roster-only / gap-only / both (mirrors the existing rosterShift test's derivation via `formatDataGapBreakdown`), proving the contract preserved.
+7. Glyph identification: assert by a stable per-chip hook (e.g. `data-testid` on each chip span, `roster` / `gap`) — clone-and-scope so the gap assertion cannot be satisfied by the roster chip and vice-versa.
 
 Real-browser layout task (Playwright) per §5.4 — badge height parity + no-wrap, both-chips vs gap-only.
 
