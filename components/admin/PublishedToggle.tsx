@@ -39,6 +39,9 @@ const KNOWN_REFUSAL_CODES = new Set([
 
 // Generic-retry copy — reused verbatim by the card (published-toggle-retry) and the inline
 // popover so the string is byte-identical (curly apostrophe = U+2019, same as the card's &rsquo;).
+// not-subject:M5-D8 — this is the generic codeless retry fallback (shown for infra_error /
+// unmapped codes that have no catalog entry to route through messageFor); it is the same literal
+// the card has always rendered inline, now centralized to one const so both variants stay identical.
 const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 
 // Inline popover positioning — one source, carried identically by BOTH the error and finalize
