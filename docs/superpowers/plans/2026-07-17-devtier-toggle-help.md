@@ -54,7 +54,7 @@ git commit -m "docs(admin): mark BELL-4 resolved-stale (panel max-h already toke
 
 ```tsx
 const GRANT_COPY =
-  "The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers.";
+  "The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers.";
 const GRANT_CLAUSES = ["Telemetry", "Maintenance", "Diagnostics", "Developer tools", "making other admins developers"];
 
 describe("AdministratorsSection — DEVTIER-1 developer-toggle help copy", () => {
@@ -110,7 +110,7 @@ Expected: FAIL — the developer-arm copy does not yet contain `GRANT_COPY`/the 
 to:
 
 ```tsx
-? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers."
+? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers."
 ```
 
 Leave the non-developer arm (`:95`) unchanged. Curly apostrophe `’`; no em dash.

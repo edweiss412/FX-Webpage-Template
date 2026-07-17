@@ -29,10 +29,10 @@ Before (developer arm, `:94`):
 
 After:
 
-> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers.
+> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers.
 
 - The four surface names are the **actual UI labels** the developer sees: nav item "Telemetry" (`components/admin/nav/navConfig.ts:42`), settings sections "Maintenance" (`app/admin/settings/page.tsx:237`) and "Diagnostics" (`:292`), and the "Developer tools" row (`components/admin/settings/DevToolsRow.tsx:43`). "…making other admins developers" is the `setDeveloperAction` promote/demote power.
-- Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses `:` and `,` only.
+- Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses commas only.
 - Non-developer arm (`:95`) unchanged: "…Roster changes are managed by a developer."
 
 ## Developer-only visibility (the user-ratified constraint)
@@ -62,13 +62,13 @@ So only a viewer who can actually use the toggle ever sees the grant explanation
 
 New assertions in `tests/components/admin/settings/AdministratorsSection-developer.test.tsx` (has both `viewerIsDeveloper` true/false render helpers):
 
-The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle grants full developer access/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it.
+The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle grants developer access/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it. The copy says "including …" (not "full") — deliberately non-exhaustive: it names the principal developer-only surfaces, not every minor developer-gated behavior (e.g. the bell DevFooter or the AppHealthIndicator deep-link), so the claim stays accurate without enumerating trivia (Codex plan-R1 finding).
 
 Define one shared constant in the test module:
 
 ```
 const GRANT_COPY =
-  "The Developer toggle grants full developer access: Telemetry, Maintenance, Diagnostics, and Developer tools, plus making other admins developers.";
+  "The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers.";
 const GRANT_CLAUSES = ["Telemetry", "Maintenance", "Diagnostics", "Developer tools", "making other admins developers"];
 ```
 
