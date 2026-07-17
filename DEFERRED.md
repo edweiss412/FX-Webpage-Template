@@ -6,41 +6,36 @@ Work intentionally deferred (will do, concrete trigger). Distinct from BACKLOG.m
 
 Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `per-day-schedule-keytimes` vs `aef09fbc`. Full findings + dispositions in `.superpowers/sdd/task-19-impeccable-report.md`. Gate verdict: critique 34/40 PASS, audit 18/20 PASS, deterministic detector `[]`, zero CRITICAL. No HIGH/CRITICAL left unaddressed — F1 and F2 are FIX-RECOMMENDED to the implementer; the entries below are the explicit DEFER fallbacks + the P3 polish/real-browser items.
 
-### D1 — [P2] KeyTimesStrip onto `<dl>`/`<dt>`/`<dd>` (semantic-structure drift)
+### D1 — [P2] KeyTimesStrip onto `<dl>`/`<dt>`/`<dd>` (semantic-structure drift) — ✅ RESOLVED
 
-- **What:** `components/crew/primitives/KeyTimesStrip.tsx:123-140` renders presentational `<div><span><span>` for each label/value pair, while the two sibling primitives doing the identical job use `<dl>` (`RightNowHero.tsx:553-573`, `KeyValueRows.tsx:64,91,94`). SR reads the strip as a flat text run with no label↔value association (WCAG 1.3.1 A).
-- **Why deferred:** the inv6 test contract reads first/last `<span>` (`tests/components/crew/primitives.test.tsx:262-264` + e2e `crew-layout-dimensions.spec.ts` `span.first()`/`span.last()`); a `<dl>` migration is feasible (keep label/value spans as first/last children inside `<dt>`/`<dd>`) but touches the test contract. Deferred only if that churn is out of scope this milestone; otherwise the implementer should fix now.
-- **Trigger:** next touch of KeyTimesStrip, OR the next a11y/semantics pass on crew primitives, OR if any SR-audit flags the strip. Closes the systemic "three primitives, three structures" drift in one move.
+- **What:** `KeyTimesStrip.tsx` rendered presentational `<div><span><span>` for each label/value pair, while the two sibling primitives use `<dl>` (`KeyValueRows.tsx:64,91,94`). SR read the strip as a flat text run with no label↔value association (WCAG 1.3.1 A).
+- **Resolution:** the strip is now a `<dl data-testid="key-times-strip">` container whose rows are `<div data-anchor>` groups of `<dt><span>` (label) + `<dd><span>` (value) — the SAME structure as `KeyValueRows`, closing the "three primitives, three structures" drift. The label/value spans are kept as first/last span inside `<dt>`/`<dd>`, so the inv6 alignment contract (`span.first()`/`span.last()`) and the `[data-anchor]` count are unchanged. Pinned by `tests/components/crew/primitives.test.tsx` ("D1/D5 semantics").
 
-### D2 — [P1] Overflow row "+N more" deep-link / recessive restyle (DEFER FALLBACK for F1)
+### D2 — [P1] Overflow row "+N more" deep-link / recessive restyle — ✅ RESOLVED
 
-- **What:** `KeyTimesStrip.tsx:95-102` overflow row ("More days" / "+N more") is styled identically to data rows with no affordance and no path to the full per-day list.
-- **Why deferred:** FIX-RECOMMENDED now (preferred: make it a `SectionChipLink section="schedule"` like `TodaySection.tsx:568`, or restyle recessive). Deferred only if not fixed this milestone — bounded by cap=5 + realistic max ~3 show days (rarely hit).
-- **Trigger:** a show with >5 visible show days appears in real data, OR the next KeyTimesStrip touch. Un-defer immediately if a 6+-show-day show ships.
+- **What:** the overflow row ("More days" / "+N more") was styled identically to data rows with no affordance and no path to the full per-day list.
+- **Resolution:** the overflow is now a native `<details>`/`<summary>` disclosure (`data-testid="key-times-shows-overflow"`) — recessive at rest (muted, hairline-split, chevron), and a tap expands the hidden day rows INLINE (chronological, before Strike). `<summary>` is natively a button with `aria-expanded`, so keyboard + SR work with zero client JS and the component stays a Server Component. The **cap was raised 5 → 8** (owner decision), so the disclosure only fires at >8 visible show days; the first 7 render and the rest collapse. Pinned by `tests/components/crew/primitives.test.tsx` ("shows longer than the cap (8) → first 7 + `<details>`").
 
-### D3 — [P3] Normalize time-meridiem casing across anchors
+### D3 — [P3] Normalize time-meridiem casing across anchors — ✅ RESOLVED
 
-- **What:** Set "9:00PM" (`resolveKeyTimes.ts:109`) vs window/showStart "7:30am" stacked in one strip column; also DayCard "Setup 10:00PM". Reads as un-curated sheet passthrough.
-- **Why deferred:** the fix lives in `lib/crew/resolveKeyTimes.ts` (non-UI; not strictly an invariant-8 surface) — a copy-quality polish, not a gate blocker. Window en-dash "–" is correct and stays.
-- **Trigger:** a copy/voice polish pass on key-times, OR the next resolveKeyTimes touch. Add one meridiem-normalizer helper applied uniformly to Set/Show/Strike/window/showStart.
+- **What:** Set "9:00PM" vs window/showStart "7:30am" stacked in one strip column; DayCard "Setup 10:00PM". Read as un-curated sheet passthrough.
+- **Resolution:** new `lib/crew/normalizeMeridiem.ts` helper (single space + upper-cased AM/PM; digit-anchored so it never touches words like "spam"; en-dash preserved; idempotent). Applied uniformly at `resolveKeyTimes` exit (Set / Show / Strike) and in `ScheduleSection.guardMeta` (setup / window / showStart / showEnd), so every rendered clock uses "H:MM AM/PM". Pinned by `tests/crew/normalizeMeridiem.test.ts` + the updated resolver/section assertions.
 
-### D4 — [P3] Real-browser 390px density check (8-row strip) — REAL-BROWSER PASS
+### D4 — [P3] Real-browser 390px density check (strip) — REAL-BROWSER PASS (still deferred)
 
-- **What:** worst case Set + 5 shows + overflow + Strike = 8 rows in the narrow "Daily call times" card (`ScheduleSection.tsx:276`, defaults to `stack`).
-- **Why deferred:** requires a real browser render; the app could not boot in the gate environment.
-- **Trigger:** PR Vercel preview — capture the "Daily call times" card at 390px with a 5-show fixture, confirm no crowding/clip. If dense, lower the visible cap to 3 before overflow.
+- **What:** with the cap now 8, the worst realistic case is Set + up to 8 show rows + Strike (≤10 rows), or Set + 7 shows + the `<details>` summary + Strike when >8 shows, in the narrow "Daily call times" card (`ScheduleSection.tsx`, defaults to `stack`). The `<details>` keeps the DEFAULT compact (extras hidden until tapped), but a fully-visible ≤8-show list is denser than the old cap-5 worst case.
+- **Why still deferred:** requires a real browser render; the app could not boot in the gate environment.
+- **Trigger:** PR Vercel preview — capture the "Daily call times" card at 390px with an 8-show fixture (and a >8-show fixture to exercise the collapsed `<details>`), confirm no crowding/clip. If dense, lower the visible cap before overflow.
 
-### D5 — [P3] Per-day date as `<time>`; middot speech
+### D5 — [P3] Per-day date as `<time>`; middot speech — ✅ RESOLVED (`<time>`)
 
-- **What:** `KeyTimesStrip.tsx:133-138` renders "Day 1 · Wed 10/8" as plain text; `data-anchor-date` (ISO) is on a `<div>`, not a `<time>`. `RightNowHero` wraps dates in `<time>`. Some SRs verbalize "·".
-- **Why deferred:** low impact (informational strip); separator copy is owned by `resolveKeyTimes.labelFor`, not the component.
-- **Trigger:** addressed alongside D1 (the `<dl>` migration), OR an SR audit flags the middot. Wrap the date in `<time dateTime={row.date}>` or swap the separator.
+- **What:** the strip rendered "Day 1 · Wed 10/8" as plain text; `data-anchor-date` (ISO) sat on a `<div>`, not a `<time>`.
+- **Resolution:** each show-row date label is now wrapped in `<time dateTime={row.date}>` (the ISO date), matching `RightNowHero`; Set/Strike labels stay plain (not dates). `data-anchor-date` is retained on the row for targeting. Pinned by `tests/components/crew/primitives.test.tsx` ("D1/D5 semantics"). The middot "·" separator is copy owned by `resolveKeyTimes.labelFor` and was left as-is (the `<time>` wrapper already fixes the machine-readability half; separator speech is a lower-value copy call not taken this pass).
 
-### D6 — [P3] DESIGN.md §1.2 — publish `text-subtle` on `--color-surface` (dark) — REAL-BROWSER MEASURE
+### D6 — [P3] DESIGN.md §1.2 — publish `text-subtle` on `--color-surface` — ✅ RESOLVED (computed)
 
-- **What:** `text-text-subtle` at 12px is used on the card fill (`--color-surface`) for the meta line (`DayCard.tsx:105`) + strip labels (`KeyTimesStrip.tsx:133`), but DESIGN.md §1.2 only publishes the ratio on `--color-bg`. Dark surface `#16171C` is slightly lighter than bg → marginally below the 6.4:1 bg figure (still ≥ AA-large; at/near AA-body for these eyebrow/meta uses; not used for any action target).
-- **Why deferred:** exact measurement requires a real render against the live `globals.css` dark surface.
-- **Trigger:** PR Vercel preview — measure subtle-on-dark-surface; add a `--color-surface` row to DESIGN.md §1.2 with the computed ratio.
+- **What:** `text-text-subtle` at 12px is used on the card fill (`--color-surface`) for DayCard meta + strip labels, but §1.2 only published the ratio on `--color-bg`.
+- **Resolution:** added a `--color-text-subtle` on `--color-surface` row to DESIGN.md §1.2 with the computed WCAG ratios (light 6.8:1 on `#FFFFFF`, dark 6.4:1 on `#16171C` — both clear AA body ≥4.5:1; eyebrow/meta only, never an action target). Computed via the standard WCAG relative-luminance formula (validated against the existing text/text-strong rows, which reproduce to within 0.1). **NOTE / follow-up:** during the measurement the existing `text-subtle` on `--color-bg` figures (light 7.8:1, dark 6.4:1) did NOT reproduce under the same formula (computed light 6.5:1, dark 6.8:1). Left the canonical bg figures untouched (changing published design-canonical numbers deserves explicit sign-off) — flagged for a separate reconcile.
 
 ## /help prose typography layer — impeccable gate (2026-06-22)
 

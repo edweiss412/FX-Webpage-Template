@@ -55,6 +55,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-text` on `--color-bg`                    | 16.5:1 | 14.8:1 | AAA body (>7:1)                                          |
 | `--color-text-strong` on `--color-bg`             | 18.4:1 | 16.9:1 | AAA body                                                 |
 | `--color-text-subtle` on `--color-bg`             | 7.8:1  | 6.4:1  | AAA-light / AA-body                                      |
+| `--color-text-subtle` on `--color-surface`        | 6.8:1  | 6.4:1  | AA body (≥4.5:1) — subtle eyebrow/meta on the card fill (KeyTimesStrip labels, DayCard meta); never an action target. Dark surface `#16171C` is one step lighter than bg, so it lands just at the bg figure (D6). |
 | `--color-accent` on `--color-bg` (text-on-bg use) | 2.23:1 | 8.16:1 | decorative-only in light — use `--color-accent-on-bg` for any load-bearing text/glyph |
 | `--color-accent-on-bg` on `--color-bg`            | 5.34:1 | 9.39:1 | AA body / AAA body                                       |
 | `--color-accent-text` on `--color-accent`         | 8.23:1 | 8.23:1 | AA body both modes (same pair)                           |
