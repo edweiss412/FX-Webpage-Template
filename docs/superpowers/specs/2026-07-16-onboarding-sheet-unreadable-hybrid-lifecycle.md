@@ -117,7 +117,7 @@ Two exported functions:
 
 ### 3.5 Copy rewrite (§12.4 three-way lockstep)
 
-All in ONE commit (x1 gate `tests/messages/codes.test.ts:92`): (a) master spec §12.4 table row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2959` + helpfulContext appendix entry at `:3189`; (b) `pnpm gen:spec-codes`; (c) `lib/messages/catalog.ts:2008-2021` row. Never run prettier on the master spec.
+All in ONE commit (x1 catalog-parity gate `tests/cross-cutting/codes.test.ts:68-90` — the AC-X.1 §12.4 parity test that deep-matches `MESSAGE_CATALOG` ↔ `SPEC_CODES` on `dougFacing`/`crewFacing`/`followUp`/`helpfulContext`): (a) master spec §12.4 table row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2959` + helpfulContext appendix entry at `:3189`; (b) `pnpm gen:spec-codes`; (c) `lib/messages/catalog.ts:2008-2021` row. Never run prettier on the master spec.
 
 New copy (exact strings; `resolution` stays `"manual"`, `audience: "doug"`, `crewFacing: null`, severity default `warning`):
 
