@@ -468,8 +468,8 @@ The redesigned "Recently auto-applied" change card distributes Accept/Undo via C
 
 ### BL-AUTOAPPLIED-SINGLETON-FLATTEN — flatten card-in-card for single-change groups
 
-**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI POLISH
-A per-show group with one change renders a group-card wrapper around a single inner change-card (card-in-card). Consider dropping the inner border/padding when `rows.length === 1`. Deferred: marginal gain, adds a render branch, matches the approved mock.
+**Status:** ✅ RESOLVED-BY-SUPERSESSION (2026-07-17) · **Severity:** low · **Class:** UI POLISH
+A per-show group with one change renders a group-card wrapper around a single inner change-card (card-in-card). Consider dropping the inner border/padding when `rows.length === 1`. ~~Deferred: marginal gain, adds a render branch, matches the approved mock.~~ **Resolved:** `StripRow` now takes a `flatten` path — singleton groups flatten the inner row card (no card-in-card) while multi-row groups keep per-row cards; pinned green by `tests/components/admin/RecentAutoAppliedStrip.test.tsx` ("singleton group flattens the inner row card"). See `DEFERRED.md` AUTOAPPLIED-REDESIGN-2. (Verified live during the KINDDOT-1 ship; BACKLOG had drifted.)
 
 ### BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF — structured field-level From→To for field_changed
 
@@ -478,13 +478,13 @@ A per-show group with one change renders a group-card wrapper around a single in
 
 ### BL-AUTOAPPLIED-COLLAPSED-KIND-HINT — surface change kind in the collapsed group header
 
-**Status:** OPEN (2026-07-15, auto-applied-collapsible-groups) · **Severity:** low · **Class:** UI TRIAGE DENSITY
-Collapsed-by-default group headers (per explicit user directive) show only showName + a bare count; the change kind (incl. a destructive "Removed") is hidden until expand. Consider a small per-kind dot cluster / severity chip in the collapsed header so a destructive auto-apply is visible without expanding. Net-new affordance beyond the requested change; needs its own impeccable pass + tests. Trigger: a Doug report of a missed destructive auto-apply behind a collapsed header, or a dashboard triage-density pass. See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-1.
+**Status:** ✅ RESOLVED-BY-SUPERSESSION (2026-07-17) · **Severity:** low · **Class:** UI TRIAGE DENSITY
+~~Collapsed-by-default group headers (per explicit user directive) show only showName + a bare count; the change kind (incl. a destructive "Removed") is hidden until expand.~~ **Resolved:** the collapsed `GroupSection` header now renders `KindDotCluster` — one dot per distinct change kind (incl. destructive "Removed") + an `aria-label` naming every kind, visible before expanding; pinned by `tests/components/admin/RecentAutoAppliedStrip.test.tsx` ("collapsed header shows a kind-dot cluster"). KINDDOT-1 (2026-07-17) then hardened the destructive dot with a shape-distinct minus-bar (non-color tell). See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-1 + KINDDOT-1. (Verified live during the KINDDOT-1 ship; BACKLOG had drifted.)
 
 ### BL-DISCLOSURE-FAMILY-HEIGHT-MORPH — animate the disclosure family (accordions) at once
 
-**Status:** OPEN (2026-07-15, auto-applied-collapsible-groups) · **Severity:** low · **Class:** UI MOTION / SYSTEM-WIDE
-The dashboard disclosure components (`RecentAutoAppliedStrip` groups, `IgnoredSheetsDisclosure`, `AddAdminDisclosure`) all mount/unmount their panels instantly while the chevron animates; DESIGN.md lists "accordion expand" at `duration-normal`. Adopt the `globals.css` height-morph disclosure pattern across the whole family in one deliberate pass (animating just one diverges from the shared idiom). Trigger: a cross-cutting disclosure-motion pass. See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-2.
+**Status:** ✅ RESOLVED-BY-SUPERSESSION (2026-07-17) · **Severity:** low · **Class:** UI MOTION / SYSTEM-WIDE
+~~The dashboard disclosure components (`RecentAutoAppliedStrip` groups, `IgnoredSheetsDisclosure`, `AddAdminDisclosure`) all mount/unmount their panels instantly while the chevron animates~~; DESIGN.md lists "accordion expand" at `duration-normal`. **Resolved:** all three named disclosures now use the shared `components/admin/CollapsePanel.tsx` — a height-morph track (`grid-template-rows 0fr→1fr` over `duration-normal`, `inert`-when-closed, reduced-motion aware), so the whole family shares one animated idiom. (Other instant `{open ? … : null}` surfaces like `AppHealthIndicator`/`ReportModal` are a nav indicator + modal, outside this disclosure family.) See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-2. (Verified live during the KINDDOT-1 ship; BACKLOG had drifted.)
 
 ### BL-CREWPAGE-ROTATE-URL-FLASH — one-shot highlight on the crew URL when it updates after a rotate
 

@@ -308,11 +308,71 @@ it("kind-dot cluster: >4 distinct kinds → 4 dots + a +N overflow marker", () =
     />,
   );
   const cluster = screen.getByTestId("auto-applied-kind-dots");
-  const dotEls = [...cluster.querySelectorAll("span[aria-hidden='true']")].filter((el) =>
-    el.className.includes("rounded-full"),
-  );
-  expect(dotEls.length).toBe(4);
+  // Count top-level markers by testid, not by `.rounded-full` — the destructive
+  // crew_removed marker is a non-rounded minus-bar wrapper (KINDDOT-1), so a
+  // shape filter would miscount. Marker identity is shape-independent.
+  const markerEls = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markerEls.length).toBe(4);
   expect(cluster.textContent ?? "").toContain("+2");
+});
+
+it("kind-dot cluster: destructive crew_removed renders a minus-bar (non-color tell), not a disc", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_removed", "crew_added"])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(2);
+  // the removed marker is the minus-bar wrapper: NOT a rounded-full disc itself,
+  // and it contains an h-0.5 w-2 rounded-full bar.
+  const removedMarker = markers.find((m) => m.querySelector(".h-0\\.5.w-2"));
+  expect(removedMarker).toBeTruthy();
+  expect(removedMarker!.className).not.toContain("rounded-full");
+  expect(removedMarker!.querySelector(".h-0\\.5.w-2.rounded-full")).toBeTruthy();
+  // the non-removed (added) marker stays a filled size-2 rounded-full disc.
+  const discs = markers.filter(
+    (m) => m.className.includes("size-2") && m.className.includes("rounded-full"),
+  );
+  expect(discs.length).toBe(1);
+});
+
+it("kind-dot cluster: no crew_removed → all markers are filled discs, no minus-bar", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_renamed", "crew_added"])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(2);
+  expect(markers.every((m) => m.className.includes("rounded-full"))).toBe(true);
+  expect(cluster.querySelector(".h-0\\.5.w-2")).toBeNull();
+});
+
+it("kind-dot cluster: destructive minus-bar stays visible with all 5 kinds (never in +N overflow)", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData([
+        "crew_removed",
+        "crew_renamed",
+        "crew_added",
+        "field_changed",
+        "crew_email_changed",
+      ])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  // 5 known kinds → 4 shown markers + "+1"; crew_removed (KIND_ORDER[0]) is shown.
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(4);
+  expect(markers.some((m) => m.querySelector(".h-0\\.5.w-2"))).toBe(true);
+  expect(cluster.textContent ?? "").toContain("+1");
+  expect(cluster.getAttribute("aria-label") ?? "").toContain("Removed");
 });
 
 it("kind-dot cluster: empty rows → renders nothing", () => {
