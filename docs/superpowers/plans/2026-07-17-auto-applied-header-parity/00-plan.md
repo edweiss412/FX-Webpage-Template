@@ -13,7 +13,9 @@ Implementer: Opus / Claude Code (UI surface — invariant 8 impeccable dual-gate
 
 ## Advisory-lock holder topology
 
-No change. The new `show_change_log` seed insert + base-seed cleanup delete are on an UNLOCKED table (invariant-2 set = `shows`/`crew_members`/`crew_member_auth`/`pending_syncs`/`pending_ingestions`). `WALKER_DRIVE_FILE_IDS` (4 ids) and its sorted lock sweep are untouched. `advisoryLockRpcDeadlock.test.ts` not extended.
+No production lock-holder change. The new `show_change_log` seed insert + base-seed cleanup delete are on an UNLOCKED table (invariant-2 set = `shows`/`crew_members`/`crew_member_auth`/`pending_syncs`/`pending_ingestions`). `WALKER_DRIVE_FILE_IDS` (4 ids) and its sorted lock sweep are untouched. `advisoryLockRpcDeadlock.test.ts` not extended.
+
+**Task 1 e2e fixture note (Codex R4 finding 1):** the gap test seeds one `pending_syncs` inbox row — `pending_syncs` IS in the invariant-2 set, but invariant 2 governs the runtime app/sync/admin mutation code paths, not e2e test fixtures. This test reuses the EXISTING, already-shipped lock-free service-role fixture convention in this very file: `tests/e2e/admin-nav-layout-dimensions.spec.ts:161` (`admin.from("pending_syncs").insert({...})` for the badge-height test, cleaned up by `.eq(drive_file_id, …).delete()`). The gap test mirrors that helper shape (same `drive_file_id` sentinel style, same insert/cleanup), so it is NOT a new mutation surface and adds no new structural-guard obligation. If a reviewer requires strict lock parity even for fixtures, the pre-existing badge fixture would need the same treatment first — out of scope here; this plan matches the established convention exactly.
 
 ## Task order (TDD, one commit each)
 
@@ -23,7 +25,7 @@ Ordering rationale — two hard constraints from the meta-tests:
 
 ### Task 1 — Gap fix (`fix(admin): …`)
 
-- **Test first (real-browser, Playwright — jsdom cannot compute layout):** extend `tests/e2e/admin-nav-layout-dimensions.spec.ts`. Service-role-seed one `pending_syncs` inbox row (so the inbox uses its POPULATED branch, `needs-attention-inbox`) AND one `auto_apply`/`applied`/unacknowledged `show_change_log` row on a published seed show (so the strip renders); at desktop 1280×800 (two-col split ≥1240), navigate `/admin` and assert via `getBoundingClientRect()` that `[data-testid=recent-auto-applied-strip]` `.top` is within 14px of `[data-testid=needs-attention-inbox]` `.bottom` (container `gap-3` = 12px + tolerance). Clean up both seeded rows in a `finally`/`afterAll`. **Concrete failure mode caught:** reintroducing `h-full`/`flex-1` on the inbox re-opens the detached band (the strip's top jumps hundreds of px below the inbox bottom in the stretched column).
+- **Test first (real-browser, Playwright — jsdom cannot compute layout):** extend `tests/e2e/admin-nav-layout-dimensions.spec.ts`. Reusing the file's existing lock-free service-role fixture convention (`:161`, see topology note): seed one `pending_syncs` inbox row (inbox → POPULATED branch, `needs-attention-inbox`) AND one `auto_apply`/`applied`/unacknowledged `show_change_log` row on a published seed show (strip renders); at desktop 1280×800 (two-col split ≥1240), navigate `/admin` and assert via `getBoundingClientRect()` that `[data-testid=recent-auto-applied-strip]` `.top` is within 14px of `[data-testid=needs-attention-inbox]` `.bottom` (container `gap-3` = 12px + tolerance). Clean up BOTH seeded rows in a `finally`/`afterAll` (delete by their sentinel `drive_file_id` / `created_by`). **Concrete failure mode caught:** reintroducing `h-full`/`flex-1` on the inbox re-opens the detached band (the strip's top jumps hundreds of px below the inbox bottom in the stretched column).
 - **Implementation:** `components/admin/NeedsAttentionInbox.tsx:182` — remove `h-full` from the populated-branch root (`flex h-full flex-col gap-2` → `flex flex-col gap-2`). Empty-state branch (:170) untouched.
 - **Verify:** the new Playwright assertion green (RED before the `h-full` removal — the strip sits far below the inbox); `Dashboard.test.tsx` still green.
 
@@ -37,7 +39,7 @@ Everything that touches the walker row lands together so the committed state is 
     (a) `headingLevel={4}` + `ok` fixture (`renderedCount:4, overflowCount:3`) → `recent-auto-applied-count-chip` text `7` (**derived** `4+3` from the summed fixture fields, not a bare literal);
     (b) `headingLevel={4}` → HoverHelp root `help-affordance--dashboard-recently-auto-applied--tooltip` present, its "Learn more" link href = `/help/admin/review-queues#re-stage`;
     (c) `headingLevel={4}` + `infra_error` → help present, `recent-auto-applied-count-chip` null;
-    (d) `headingLevel={2}` + `ok` → BOTH `recent-auto-applied-count-chip` AND the help root null (queryByTestId);
+    (d) `headingLevel={2}` + `ok` → BOTH `recent-auto-applied-count-chip` AND the help root null (queryByTestId) AND the `Recently auto-applied` heading is NOT inside a `flex items-center gap-2` wrapper (assert `parentElement` is the strip `<section>`) — proves the bare-DOM contract for the shared needs-attention route (Codex R4 finding 2);
     (e) existing per-group `auto-applied-count-${showId}` badge assertions unchanged (regression).
   - Vitest for the above runs RED. Additionally, to demonstrate the walker's dependence on the seed: after the matrix row + call site are drafted BUT before adding the seed, run the filtered walker and observe it RED (`help-affordance--dashboard-recently-auto-applied--tooltip should be visible on /admin`). This is a development-time demonstration; it is NOT committed in a red state.
 - **Implementation (GREEN — all together in this commit):**
