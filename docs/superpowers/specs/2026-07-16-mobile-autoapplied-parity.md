@@ -68,11 +68,11 @@ Note the visible heading text is "Recently auto-applied" (`:427`, `:448`) while 
 
 ### D5 — summary-card auto-applied chip
 
-`NeedsAttentionSummaryCard` gains `autoAppliedCount: number` (required — the only call site is `Dashboard.tsx:716`, which is edited in the same change).
+`NeedsAttentionSummaryCard` gains `autoAppliedCount?: number` (OPTIONAL, default treated as `0`). Optional deliberately: the guard below absorbs `undefined`, so the 3 existing test render sites in `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx:12,24,36` keep compiling without edits, and the sole prod call site `Dashboard.tsx:716` passes it explicitly.
 
-- `Dashboard.tsx` computes: `recentAutoApplied.kind === "ok" ? recentAutoApplied.groups.reduce((n, g) => n + g.rows.length, 0) : 0` and threads it. Degraded auto-applied read → `0` → chip hidden (no false signal; the desktop strip shows the degraded copy, mobile simply doesn't count — awareness parity is best-effort under infra failure).
+- `Dashboard.tsx` computes the TRUE backlog, not the capped rendered rows: `recentAutoApplied.kind === "ok" ? recentAutoApplied.renderedCount + recentAutoApplied.overflowCount : 0` and threads it. This equals `matchedTotal` (the `count:"exact"` figure, `loadRecentAutoApplied.ts:160,168,219`); `groups.reduce(rows)` would equal `renderedCount` alone and silently cap the chip at `STRIP_RENDER_CAP = 50` (`loadRecentAutoApplied.ts:57`) — the mobile chip must not under-report a 50+ backlog. Degraded auto-applied read → `0` → chip hidden (no false signal; the desktop strip shows the degraded copy, mobile simply doesn't count — awareness parity is best-effort under infra failure).
 - Card internals:
-  - `const autoApplied = Number.isFinite(autoAppliedCount) && autoAppliedCount > 0 ? autoAppliedCount : 0;` (guard: null/NaN/negative/zero all render as absent).
+  - `const autoApplied = typeof autoAppliedCount === "number" && Number.isFinite(autoAppliedCount) && autoAppliedCount > 0 ? autoAppliedCount : 0;` (guard: undefined/null/NaN/negative/zero all render as absent).
   - `zero` becomes `totalCount === 0 && autoApplied === 0` — the card may not claim "All caught up / Nothing waiting on you." while dispositions are pending.
   - Non-zero branch: the title count segment `· {totalCount}` renders only when `totalCount > 0`; with `totalCount === 0 && autoApplied > 0` the title is plain "Needs attention" (never "· 0"). `totalCount` semantics are untouched — auto-applied is NOT folded into it (mirrors desktop, where the strip is a separate section below the inbox).
   - New chip in the existing chips row (`:36-52`), after `summary-chip-sync-problems`: `{autoApplied > 0 && (<span data-testid="summary-chip-auto-applied" className="tabular-nums">{autoApplied} auto-applied</span>)}` — same classes as sibling chips.
@@ -96,7 +96,7 @@ None new: the strip and card join existing single-column flex flows (`page.tsx:3
 
 | Input | null/empty/zero/NaN behavior |
 | --- | --- |
-| `autoAppliedCount` (card) | non-finite, negative, or 0 → chip absent; zero-state eligible |
+| `autoAppliedCount` (card) | undefined (omitted), non-finite, negative, or 0 → chip absent; zero-state eligible |
 | `recentAutoApplied.kind === "infra_error"` (page) | strip renders its bounded degraded copy (`RecentAutoAppliedStrip.tsx:421-436`) |
 | `groups = []` (page, ok data) | strip renders `null` (`RecentAutoAppliedStrip.tsx:440`) — page shows inbox only |
 | `recentAutoApplied.kind === "infra_error"` (dashboard chip) | count `0` → chip hidden |
@@ -117,9 +117,10 @@ None new: the strip and card join existing single-column flex flows (`page.tsx:3
 2. **`tests/admin/autoAppliedActions.test.ts`** (extend): each success branch asserts BOTH `revalidatePath("/admin", "page")` AND `revalidatePath("/admin/needs-attention", "page")`; failure branches keep asserting `revalidatePath` not called.
 3. **`tests/components/admin/RecentAutoAppliedStrip.test.tsx`** (extend): default renders `h4`/`h5` (regression pin); `headingLevel={2}` renders `h2`/`h3` in populated AND infra_error branches; populated + degraded sections' accessible name comes from the heading via `aria-labelledby` (assert `section` accessible name "Recently auto-applied" and absence of `aria-label`).
 4. **`tests/components/admin/NeedsAttentionSummaryCard.test.tsx`** (extend): chip absent at 0/negative/NaN; chip "3 auto-applied" at 3; `totalCount=0 && autoAppliedCount>0` → NOT "All caught up", title without "· 0", only the auto-applied chip; `totalCount>0 && autoAppliedCount>0` → title count + all applicable chips.
-5. **`tests/components/admin/Dashboard.test.tsx`** (extend — it already renders the summary card via `needs-attention-summary-card`): `autoAppliedCount` threaded as the groups' row sum; `infra_error` data → chip absent.
+5. **`tests/components/admin/Dashboard.test.tsx`** (extend — it already renders the summary card via `needs-attention-summary-card`): `autoAppliedCount` threaded as `renderedCount + overflowCount` (assert a fixture with `renderedCount=3, overflowCount=2` → chip "5 auto-applied", proving overflow is counted, NOT the capped rendered rows); `infra_error` data → chip absent.
+   Also assert existing card render sites (`tests/components/needsAttentionSummaryCardSyncProblem.test.tsx`) still pass without the prop (compile + chip absent) — the optional-prop regression pin.
 
-Anti-tautology: card expectations derive from constructed props (e.g., 2 groups × [2,1] rows → chip text "3 auto-applied"), never from re-reading the rendered container; heading-level assertions query by role+level (`getByRole("heading", { level: 2 })`), not by tag-name scans of a container that renders both levels.
+Anti-tautology: card chip expectations derive from the constructed `autoAppliedCount` prop (e.g., prop `5` → chip text "5 auto-applied"), and the Dashboard-threading expectation derives from fixture `renderedCount`/`overflowCount` (3+2 → "5 auto-applied"), never from re-reading the rendered container; heading-level assertions query by role+level (`getByRole("heading", { level: 2 })`), not by tag-name scans of a container that renders both levels.
 
 ## 7. Meta-test inventory
 
