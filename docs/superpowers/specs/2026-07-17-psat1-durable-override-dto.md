@@ -78,6 +78,16 @@ The durable override is reduced to an `OverrideSnapshot` (`{ tabName, fingerprin
 | 9. Render site | `step3ReviewSections.tsx:3824` `<PackListBreakdown>` | Pass `pullSheetOverride={s.pullSheetOverride}` instead of the boolean `overrideActive`. |
 | 10. Component | `step3ReviewSections.tsx:1925` `PackListBreakdown` | Replace the `overrideActive: boolean` prop with `pullSheetOverride: OverrideSnapshot`; derive state internally (§3.2). |
 
+**Freeze-flag threading (separate from the override snapshot — see §3.4).** `PackListBreakdown` renders only inside the shared `ShowReviewSurface` via `s.render(data)` (`ShowReviewSurface.tsx:819`), which today passes only `data` — no run-state. The S5 `RescanSheetButton` is a mutator under the Step-3 publish-run freeze contract, so `isPublishRunActive` must reach it. Thread it via a small React context (NOT by polluting the content DTO `SectionData`):
+
+| Hop | File:symbol | Change |
+| --- | --- | --- |
+| F1 | `ShowReviewSurface.tsx` props (`:142`) | Add optional `isPublishRunActive?: boolean` (default `false`). |
+| F2 | `Step3ReviewModal.tsx:167` renders `<ShowReviewSurface …>` (`:55`/`:122` import) | Pass `isPublishRunActive={isPublishRunActive}` (the modal already holds it — `:79`,`:167`). |
+| F3 | `PublishedReviewPage.tsx:188` renders `<ShowReviewSurface layout="page">` | Omit the prop → default `false` (published never shows S5). |
+| F4 | `ShowReviewSurface.tsx` around the section render (`:819`) | Provide a new `Step3RunStateContext` (`{ isPublishRunActive }`, default `{ isPublishRunActive: false }`) wrapping the `{s.render(data)}` region — mirrors the existing `Step3SectionChromeContext` pattern in `step3ReviewSections.tsx`. |
+| F5 | `step3ReviewSections.tsx` `PackListBreakdown` | `const { isPublishRunActive } = useContext(Step3RunStateContext);` and pass `disabled={isPublishRunActive}` to the S5 `RescanSheetButton`. The local variable MUST be named `isPublishRunActive` so the extended freeze meta-test (§5) matches the literal `disabled={isPublishRunActive}`. |
+
 **Coercer (hop 4).** The loader must not trust raw jsonb. Introduce one exported, validated reducer in `lib/sync/pullSheetOverride.ts`:
 
 ```ts
@@ -143,7 +153,7 @@ A new internal component `ArchivedTabRescanNeeded` renders inside the pack-list 
 
 - A short note, matching the existing card chrome (`bg-info-bg`, `border-border`, typographic quotes, **no em dash** per DESIGN.md UI-copy rule):
   > **Gear saved.** The preview is out of date. Re-scan to refresh it.
-- The existing `components/admin/RescanSheetButton.tsx` (`POST /api/admin/onboarding/rescan-sheet` → re-fetch + re-parse + re-stage + `router.refresh()`), passed `driveFileId={dfid}` and `wizardSessionId={wizardSessionId}`.
+- The existing `components/admin/RescanSheetButton.tsx` (`POST /api/admin/onboarding/rescan-sheet` → re-fetch + re-parse + re-stage + `router.refresh()`), passed `driveFileId={dfid}`, `wizardSessionId={wizardSessionId}`, **and `disabled={isPublishRunActive}`** (the Step-3 publish-run freeze contract, spec §4.4 R8 — every `RescanSheetButton` mutator freezes while a publish/resume finalize run is active). `isPublishRunActive` comes from `Step3RunStateContext` (hops F1–F5 in §3.1). Omitting this freeze prop would ship an enabled body-level re-scan during an active publish run and is caught at CI time by the extended freeze meta-test (§5).
 - **Rationale (do not relitigate):** the deferred-text copy suggestion "reload to update" is **wrong**. `router.refresh()` re-reads the SAME stale envelope (the preview was never refreshed because the post-commit re-scan failed). Only a NEW re-scan converges the preview to the durable override. `RescanSheetButton` is exactly that re-scan.
 
 Guard: S5 only renders when `dfid != null && wizardSessionId != null` (both are non-null in staged mode; `RescanSheetButton` requires `driveFileId: string`). If `dfid` is somehow null in a staged row (should not happen — `isStaged(s)` ⇒ `s.dfid` is a string, and `dfid = s.driveFileId = dfid`), fall back to rendering nothing new (never crash; never re-offer S2/S3 — S5's suppression still holds).
@@ -178,7 +188,7 @@ Guard: S5 only renders when `dfid != null && wizardSessionId != null` (both are 
 
 The §4.1 tests exercise the PURE `buildStep3Row` in isolation; they can all pass while the production read never reads the durable column (the exact live bug). So this milestone MUST also add a `fetchStep3Data` wiring test — modeled directly on the existing `source_anchors` threading test at `tests/components/onboardingWizard.fetchStep3.test.ts:285` (the `describe("fetchStep3Data — source_anchors threading")` block; the SELECT-column assertion is at `:291`). Two assertions, both **fail-first on `origin/main`**:
 
-1. **SELECT column present:** after `fetchStep3Data(SESSION_ID)` with a seeded `pending_syncs` row, `expect(seed.selectByTable["pending_syncs"]).toContain("pull_sheet_override")`. This catches "coercion + threading added but the production SELECT column forgotten" (the mock passthrough would otherwise mask it) — the class the source_anchors test's own comment calls out at `:299-300`.
+1. **SELECT column present:** after `fetchStep3Data(SESSION_ID)` with a seeded `pending_syncs` row, `expect(seed.selectByTable["pending_syncs"]).toContain("pull_sheet_override")`. This catches "coercion + threading added but the production SELECT column forgotten" (the mock passthrough would otherwise mask it) — the class the source_anchors test's own comment calls out at `tests/components/onboardingWizard.fetchStep3.test.ts:303-304`.
 2. **Durable value threaded onto the row:** seed `pending_syncs.pull_sheet_override = {tabName:'OLD A', fingerprint:'fp1', acceptedBy, acceptedAt}`; assert the returned row's `pullSheetOverride === {tabName:'OLD A', fingerprint:'fp1'}` (reduced, audit fields dropped) — proving the `rawPendingByDfid` assembly (`OnboardingWizard.tsx:519`) copies the column through to `buildStep3Row`. A `null` durable value → row field absent.
 
 Without §4.1b, an implementation can be green on §4.1/§4.2/§4.3 and still leave the production loop unfixed.
@@ -207,6 +217,8 @@ Each assertion asserts the S5 recovery block via its own `data-testid` AND asser
 
 The S5 recovery block is new UI. Render it in the real-browser harness (mirrors `reference_step3_modal_realbrowser_harnesses`): assert the note text, the `RescanSheetButton` renders and is focusable, no raw code leaks, no em dash in rendered copy. If S5 sits inside a fixed-dimension parent, add a `getBoundingClientRect` layout assertion; otherwise document "no fixed-dimension parent — layout task N/A."
 
+**Freeze behavioral test (component):** an additional `PackListBreakdown` case in divergent (S5) state, rendered inside a `Step3RunStateContext.Provider value={{ isPublishRunActive: true }}` — assert the S5 `RescanSheetButton` is `disabled` (the frozen path). A twin case with `isPublishRunActive: false` asserts it is enabled. This is the behavioral complement to the static freeze meta-test (§5), catching a freeze-prop that is present but wired to the wrong value.
+
 ### 4.5 Regression
 
 - Existing `PackListBreakdown` tests that passed `overrideActive` must be migrated to `pullSheetOverride` (the prop is renamed/retyped). Grep `overrideActive` across `tests/` and update every call site.
@@ -222,7 +234,10 @@ The S5 recovery block is new UI. Render it in the real-browser harness (mirrors 
 - **Invariant 9 (Supabase call-boundary).** The `pending_syncs` select already destructures `{ data, error }` at `OnboardingWizard.tsx`; adding one column to the existing `.select(...)` introduces no new call site. No `_metaInfraContract` row needed. (Confirm during implementation.)
 - **Invariant 10 (mutation-surface telemetry).** No new mutation surface — the accept/revoke route and RPC are unchanged; `RescanSheetButton` posts to the existing, already-instrumented `/rescan-sheet` route.
 
-**Meta-test inventory:** This milestone **creates/extends none** of the structural registries (Supabase call-boundary, sentinel-hiding, admin-alert-catalog, advisory-lock topology, no-inline-email). Reason: no new Supabase helper, no new admin alert, no lock surface, no email path. The new coverage is ordinary unit + component + real-browser tests. Declared explicitly per the writing-plans meta-test-inventory rule.
+**Meta-test inventory:** This milestone **EXTENDS one** structural meta-test and creates/extends none of the others.
+
+- **EXTENDS `tests/components/admin/wizard/_metaStep3FreezeContract.test.ts:24` (`SURFACES`).** The S5 recovery block adds a NEW `<RescanSheetButton>` render site in `components/admin/wizard/step3ReviewSections.tsx`, a file **not** currently in the meta-test's `SURFACES` list (`Step3ReviewModal.tsx`, `Step3SheetCard.tsx`). Add `components/admin/wizard/step3ReviewSections.tsx` to `SURFACES` so the fails-by-default guard scans the new site and enforces `disabled={isPublishRunActive}` on it. This is the structural defense (same-vector-→-structural-pin rule): the freeze contract's whole point is that a new un-frozen Re-scan mutator fails CI immediately; a new render site in an unscanned file would silently bypass it. The meta-test's per-file `els.length > 0` sanity assertion holds (the file has exactly one `RescanSheetButton`).
+- **Creates/extends none of:** Supabase call-boundary (`_metaInfraContract`), sentinel-hiding, admin-alert-catalog, advisory-lock topology, no-inline-email. Reason: no new Supabase helper, no new admin alert, no lock surface, no email path.
 
 ---
 
@@ -234,11 +249,13 @@ The S5 recovery block is new UI. Render it in the real-browser harness (mirrors 
 4. **S5 vs S4 non-collision is structural** (§3.2): `discardAndRerun` nulls the durable override in-tx, so content-changed is always `null==null` (not divergent). Case (f) pins this.
 5. **`overrideActive` prop is removed** from `PackListBreakdown` and replaced by `pullSheetOverride: OverrideSnapshot`. All call sites (one prod render + tests) migrate.
 6. **No DB / no lock / no route / no RPC change** — the fix is entirely in the read + render layer.
+7. **S5 `RescanSheetButton` freezes on `isPublishRunActive`** (§3.4, hops F1–F5) — honoring the existing Step-3 publish-run freeze contract + extending its meta-test (§5). The sibling archived-tab accept/revoke buttons (`ArchivedTabOffer`/`ArchivedTabIncludedNote`) are **deliberately NOT** brought under the freeze contract here — that contract is `RescanSheetButton`-specific, and expanding it to the accept/revoke affordances is out of scope (would relitigate a pre-existing boundary). S5 introduces a `RescanSheetButton`, which the contract already governs everywhere it renders.
 
 ---
 
 ## 7. Numeric sweep
 
 - States in the pack-list region: **5** (S1 empty, S2 offer, S3 included note, S4 re-confirm, **S5 divergent-recovery** new). §3.3 and §4.3 agree.
-- Threading hops: **10** (§3.1 table). Files touched: `OnboardingWizard.tsx`, `Step3Review.tsx`, `Step3SheetCard.tsx`, `sectionData.ts`, `publishedAdapter.ts`, `step3ReviewSections.tsx`, `lib/sync/pullSheetOverride.ts` (new coercer) = **7 source files** (+ tests + `DEFERRED.md`/`BACKLOG.md`).
-- New `§12.4` codes: **0**. New DB columns: **0**. New advisory-lock holders: **0**.
+- Override-snapshot threading hops: **10** (§3.1 first table). Freeze-flag threading hops: **5** (F1–F5, §3.1 second table).
+- Source files touched: `OnboardingWizard.tsx`, `Step3Review.tsx`, `Step3SheetCard.tsx`, `sectionData.ts`, `publishedAdapter.ts`, `step3ReviewSections.tsx`, `lib/sync/pullSheetOverride.ts` (new coercer), `ShowReviewSurface.tsx` (freeze prop + context), `Step3ReviewModal.tsx` (pass freeze prop) = **9 source files** (+ tests, the freeze meta-test extension, and `DEFERRED.md`/`BACKLOG.md`). (`PublishedReviewPage.tsx` omits the freeze prop — a default, not an edit; not counted.)
+- New `§12.4` codes: **0**. New DB columns: **0**. New advisory-lock holders: **0**. Structural meta-tests extended: **1** (`_metaStep3FreezeContract`).
