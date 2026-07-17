@@ -239,4 +239,57 @@ describe("computeRescanDecision", () => {
     expect(dirty).toBe(true);
     expect(decisionItems.length).toBeGreaterThan(0);
   });
+
+  // Telemetry observability (spec §4.1): the dirty gate must also NAME which non-ambiguity
+  // gap class(es) regressed, so a demote's cause is machine-readable in SHEET_RESCANNED
+  // (reviewCodes). A bare boolean discards the class. Expected class derived from the
+  // fixture's injected warning code — never hardcoded independent of the fixture.
+  describe("regressedGapClasses", () => {
+    test("present baseline, PULL_SHEET_ON_ARCHIVED_TAB 0 → 1 → names that class, dirty", () => {
+      const priorGaps = mkDataGaps({});
+      const refreshed = makeParse(
+        [{ name: "Ada Lovelace", email: "ada@x.example" }],
+        archivedTab(),
+      );
+      const { dirty, regressedGapClasses } = computeRescanDecision(PRIOR, refreshed, priorGaps);
+      expect(dirty).toBe(true);
+      expect(regressedGapClasses).toContain("PULL_SHEET_ON_ARCHIVED_TAB");
+    });
+
+    test("null baseline + standing gap → regressedGapClasses is empty (not comparable)", () => {
+      const refreshed = makeParse(
+        [{ name: "Ada Lovelace", email: "ada@x.example" }],
+        archivedTab(),
+      );
+      const { dirty, regressedGapClasses } = computeRescanDecision(null, refreshed, null);
+      expect(dirty).toBe(false);
+      expect(regressedGapClasses).toEqual([]);
+    });
+
+    test("ambiguity-only increase → regressedGapClasses empty (judgment call, never a cause)", () => {
+      const priorGaps = mkDataGaps({});
+      const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], ambiguity(2));
+      expect(computeRescanDecision(PRIOR, refreshed, priorGaps).regressedGapClasses).toEqual([]);
+    });
+
+    test("present baseline, no increase → regressedGapClasses empty", () => {
+      const priorGaps = mkDataGaps({ FIELD_UNREADABLE: 2 });
+      const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], unreadable(1));
+      expect(computeRescanDecision(PRIOR, refreshed, priorGaps).regressedGapClasses).toEqual([]);
+    });
+
+    test("two classes regress (FIELD_UNREADABLE + UNKNOWN_FIELD 0 → 1) → both named, order deterministic", () => {
+      const priorGaps = mkDataGaps({});
+      const refreshed = makeParse(
+        [{ name: "Ada Lovelace", email: "ada@x.example" }],
+        [...unreadable(1), { severity: "warn", code: "UNKNOWN_FIELD", message: "new field" }],
+      );
+      const { regressedGapClasses } = computeRescanDecision(PRIOR, refreshed, priorGaps);
+      expect(new Set(regressedGapClasses)).toEqual(new Set(["FIELD_UNREADABLE", "UNKNOWN_FIELD"]));
+      // deterministic: identical inputs yield identical ordering
+      expect(regressedGapClasses).toEqual(
+        computeRescanDecision(PRIOR, refreshed, priorGaps).regressedGapClasses,
+      );
+    });
+  });
 });
