@@ -55,6 +55,11 @@ export type RescanDecisionOutcome =
 /** Test seam — inject the restage so a fake-tx unit isolates the decision from real staging. */
 export type ApplyRescanDecisionDeps = {
   scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
+  /** In-txn callback invoked immediately after EACH shows_pending_changes delete (both the
+   * hard_failed site and the main dirty/clean site) — never on shadow-RETAINING outcomes.
+   * Passed the SAME `tx` the core is running on, so writes stay in the same commit/rollback
+   * boundary as the delete they're co-located with. Optional; only cap-counted rebuilds pass it. */
+  onShadowDeleted?: (tx: PostgresTransaction) => Promise<void>;
 };
 
 function isoOf(value: unknown): string | null {
@@ -207,6 +212,7 @@ export async function applyRescanDecisionUnderLock(
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, driveFileId],
     );
+    if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
     // Demote any retained Flow-A approval: a hard-failing re-scan writes only the manifest +
     // pending_ingestions, so an approved pending_syncs row survives with choices keyed to the OLD
     // staged item ids. A later Step-3 Retry re-stages fresh sentinel ids while upsertLivePendingSync
@@ -260,6 +266,7 @@ export async function applyRescanDecisionUnderLock(
       where wizard_session_id = $1::uuid and drive_file_id = $2`,
     [wizardSessionId, driveFileId],
   );
+  if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
   // Re-stageable: status='staged' (preserve publish_intent — not touched here).
   await tx.unsafe(
     `update public.onboarding_scan_manifest
