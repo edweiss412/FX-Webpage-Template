@@ -215,7 +215,7 @@ The finalize batch that follows a resolve (auto-retry, Task 12) is a **separate 
   ```
 - [ ] Run: `pnpm vitest run tests/onboarding/sessionLifecycle.test.ts` — green.
 - [ ] Regenerate manifest: `pnpm gen:schema-manifest` — commit the diff to `supabase/__generated__/schema-manifest.json`.
-- [ ] Apply to validation: `psql "$VALIDATION_DATABASE_URL" -f supabase/migrations/20260717000000_onboarding_rebuild_attempts.sql` then `psql "$VALIDATION_DATABASE_URL" -c "notify pgrst, 'reload schema';"`.
+- [ ] Apply to validation: `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260717000000_onboarding_rebuild_attempts.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`.
 - [ ] Commit: `feat(db): add onboarding_rebuild_attempts cap-counter table with DML lockdown + session cleanup`
 
 ## Task 3 — Migration: `_unarchive_show_apply` (lock-free, gate-free) + refactor `unarchive_show`
@@ -320,7 +320,7 @@ The finalize batch that follows a resolve (auto-retry, Task 12) is a **separate 
   ```
 - [ ] Run migration locally, then: `TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm vitest run tests/db/b2-lifecycle-rpc-meta.test.ts tests/db/unarchiveShowBehaviorPreserved.db.test.ts` — both green.
 - [ ] Regenerate manifest: `pnpm gen:schema-manifest` — commit diff.
-- [ ] Apply to validation: `psql "$VALIDATION_DATABASE_URL" -f supabase/migrations/20260717000001_unarchive_show_apply_gate_free.sql` then `notify pgrst, 'reload schema';`.
+- [ ] Apply to validation: `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260717000001_unarchive_show_apply_gate_free.sql` then `notify pgrst, 'reload schema';`.
 - [ ] Commit: `feat(db): extract lock-free gate-free _unarchive_show_apply; unarchive_show delegates`
 
 ## Task 4 — `ApplyRescanDecisionDeps.onShadowDeleted` in-txn hook
@@ -461,8 +461,10 @@ export type ParsedShadowPayloadForApply =
 **Interfaces:**
 ```ts
 export type ResolveBlockerRouteDeps = {
+  // Injectable seams: auth (all tests), and the rebuild Drive/core steps (Task 8 forced-outcome tests).
   requireAdminIdentity?: () => Promise<{ email: string }>;
-  withTx?: <R>(fn: (tx: ResolveBlockerRouteTx) => Promise<R>) => Promise<R>; // mirrors FinalizeCasRouteTx shape
+  prepareOnboardingFiles?: typeof defaultPrepareOnboardingFiles;
+  applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock;
 };
 type ResolveBlockerResponse =
   | { ok: true; status: "resolved" }
@@ -470,6 +472,7 @@ type ResolveBlockerResponse =
   | { ok: false; status: "needs_attention" | "busy"; code: string }
   | { ok: false; status: "superseded" | "no_active_session" | "not_found" | "not_currently_blocked" | "bad_request" | "wrong_action" };
 ```
+The route opens the privileged `postgres.js` connection directly (mirroring `finalize-cas`), NOT a `withTx` seam — so its DB-touching tests (session guards, authz, rebuild outcomes) are **DB-integration tests** (run with `TEST_DATABASE_URL` pointed at local `127.0.0.1:54322`); only the pure body/`wrong_action` guard tests run without a DB. `deferPostResponse` is module-mocked (never a dep). This matches the Codex plan-R1 F5 resolution: no stale seam, tests are honestly integration where they touch the DB.
 
 - [ ] Write failing tests in `tests/api/admin/onboarding/resolveBlocker.test.ts` (pattern-matched to `tests/api/admin/onboarding/rescanSheet.test.ts` if present — locate via `find tests -iname "*rescanSheet*" -path "*api*"`):
   - malformed JSON body → `{ ok: false, status: "bad_request" }`, HTTP 200
@@ -490,7 +493,7 @@ type ResolveBlockerResponse =
 - [ ] Run: `pnpm vitest run tests/api/admin/onboarding/resolveBlocker.test.ts` — fails (module doesn't exist).
 - [ ] Minimal implementation — `app/api/admin/onboarding/resolve-blocker/route.ts`, scaffold ONLY the parse/guard branches (unarchive/rebuild transition logic is Tasks 7-8), following `rescan-sheet/route.ts`'s body-validation shape (`:52-89`) and `finalize-cas/route.ts`'s `databaseUrl()`/`postgresTxAdapter` shape (`:109-138`):
   ```ts
-  import { NextResponse, after } from "next/server";
+  import { NextResponse } from "next/server";
   import postgres from "postgres";
   import { requireAdminIdentity as realRequireAdminIdentity } from "@/lib/auth/requireAdmin";
   import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
@@ -499,6 +502,7 @@ type ResolveBlockerResponse =
   import { applyRescanDecisionUnderLock, applyRescanDecisionUnderLock as defaultApplyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
   import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
   import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+  import { deferPostResponse } from "@/lib/async/deferPostResponse";
 
   const REBUILDABLE_CODES = new Set(["STAGED_REVIEW_ITEMS_CORRUPT", "STAGED_PARSE_RESULT_CORRUPT"]);
 
@@ -618,12 +622,12 @@ type ResolveBlockerResponse =
     }
   }
 
-  export function POST(req: Request): Promise<Response> {
-    return handleResolveBlocker(req);
-  }
+  // NOTE (Codex plan-R1 F2): Task 6 does NOT `export function POST` — the file is not a
+  // live route yet, so no throwing/incomplete handler is ever reachable in this intermediate
+  // commit. `export const POST` is added in Task 8, once BOTH actions are real.
   ```
-  `resolveUnarchive`/`resolveRebuild` are stubbed to `throw new Error("not implemented")` for this task — Tasks 7/8 fill them in (each task's own failing-test cycle covers the stub).
-- [ ] Run: `pnpm vitest run tests/api/admin/onboarding/resolveBlocker.test.ts` — the guard-branch tests pass; any test reaching `resolveUnarchive`/`resolveRebuild` is deferred to Tasks 7/8 (mark `.todo` or omit until then).
+  `resolveUnarchive`/`resolveRebuild` are defined in Task 6 as **safe non-throwing placeholders** that return `NextResponse.json({ ok: false, status: "not_currently_blocked" })` (never a throw, never a mutation) so the module typechecks and the guard tests run; Task 7 replaces `resolveUnarchive`'s body, Task 8 replaces `resolveRebuild`'s body and adds the `POST` export. No intermediate commit can produce a 500 from a reachable route.
+- [ ] Run: `pnpm vitest run tests/api/admin/onboarding/resolveBlocker.test.ts` — the guard-branch tests (bad_request/wrong_action) pass; the session/authz tests (DB-integration, run with local `TEST_DATABASE_URL`) pass; a valid-action request returns the safe `not_currently_blocked` placeholder (NOT a throw) until Tasks 7/8 supply the real bodies.
 - [ ] Commit: `feat(admin): scaffold POST /api/admin/onboarding/resolve-blocker with session/body guards`
 
 ## Task 7 — `action: "unarchive"`
@@ -674,7 +678,10 @@ type ResolveBlockerResponse =
       showId,
     ])) as Array<{ transitioned: boolean }>;
     const transitioned = applyRows[0]?.transitioned ?? false;
-    after(async () => {
+    deferPostResponse(async () => {
+      // Task body catches ALL rejections (deferPostResponse never awaits; logAdminOutcome
+      // also self-catches). POST-COMMIT: sql.begin has resolved (committed) by the time
+      // the deferred callback runs post-response — outside the advisory-lock txn (invariant 10).
       await logAdminOutcome({
         code: "ONBOARDING_BLOCKER_UNARCHIVED",
         source: "api.admin.onboarding.resolveBlocker",
@@ -683,13 +690,14 @@ type ResolveBlockerResponse =
         wizardSessionId,
         showId,
         result: transitioned ? "unarchived" : "noop",
-      });
+      }).catch(() => {});
     });
     return NextResponse.json({ ok: true, status: "resolved" });
   }
   ```
-  (`after` from `next/server`, matching `finalize-cas/route.ts:1`'s import; the post-commit emit rides `after()` the same way the file's existing streaming revalidation does — the lock txn commits when `sql.begin` returns, and `after()` schedules the emit post-response, which is after-commit since `sql.begin` already resolved.)
+  Uses the repo's canonical post-response scheduler `deferPostResponse` (`lib/async/deferPostResponse.ts`), NOT a raw `after()` (which throws E468 outside a request scope — Codex plan-R1 F3). Tests module-mock `@/lib/async/deferPostResponse` (`vi.mock`) to capture the callback and run it inline AFTER asserting the committed DB state, proving the emit is post-commit and never fires on the `not_currently_blocked`/guard branches.
 - [ ] Run: `pnpm vitest run tests/api/admin/onboarding/resolveBlocker.test.ts` — green.
+- [ ] Now export the live route entrypoint (Codex plan-R1 F2 — deferred from Task 6; unarchive is real, rebuild is still a SAFE non-throwing `not_currently_blocked` placeholder until Task 8, so the live surface can never 500): append to `app/api/admin/onboarding/resolve-blocker/route.ts`: `export const POST = (req: Request): Promise<Response> => handleResolveBlocker(req);`.
 - [ ] Add to `tests/log/_auditableMutations.ts`: `{ file: "app/api/admin/onboarding/resolve-blocker/route.ts", fn: "POST", code: "ONBOARDING_BLOCKER_UNARCHIVED" }`.
 - [ ] Write failing sink-spy test in `tests/log/adminOutcomeBehavior.test.ts` (follow the file's existing per-surface pattern, `collectSurfaceUnits`/real-logger sink-spy, `:1-20`): assert `ONBOARDING_BLOCKER_UNARCHIVED` is emitted with `result: "unarchived"` only after a committed real transition, and NOT emitted on the `not_currently_blocked` branch.
 - [ ] Run: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts tests/log/_metaMutationSurfaceObservability.test.ts` — green (the discovery meta-test now sees the registered route + `fn: "POST"`).
@@ -706,7 +714,7 @@ type ResolveBlockerResponse =
 **Interfaces:** `resolveRebuild(tx, { wizardSessionId, driveFileId, code, admin }): Promise<Response>`.
 
 - [ ] Write failing tests in `tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts` (real DB, using the `applyRescanDecisionUnderLock.test.ts` fake-restage-injection idiom is NOT sufficient here since this test must drive the route's Drive-fetch + `prepareOnboardingFiles` pre-lock step too — inject via the route's dep-injection seam analogous to `finalize/route.ts`'s `prepareOnboardingFiles` dep):
-  - **not_currently_blocked cases:** rebuild requested for a sheet with no `shows_pending_changes` row → `not_currently_blocked`, no mutation; a sheet whose shadow parses clean (not `STAGED_*_CORRUPT`) → `not_currently_blocked`.
+  - **not_currently_blocked cases:** (a) no `shows_pending_changes` row → `not_currently_blocked`; (b) shadow parses clean (not `STAGED_*_CORRUPT`) → `not_currently_blocked`; (c) **a corrupt shadow that exists but has NO `onboarding_scan_manifest` row for `(session, sheet)` → `not_currently_blocked`, no mutation** (Codex plan-R1 F1 — a stale/forged shadow outside the session manifest must not be rebuildable).
   - **Pre-restage cap gate:** seed `onboarding_rebuild_attempts.attempts = 1` (== CAP) for `(session, sheet)` → `{ ok: false, status: "escalated", code }`, NO restage attempted (assert the injected `prepareOnboardingFiles` dep was never called).
   - **Seven-outcome enumeration (structural defense):** drive each of `schema_missing`/`superseded`/`not_staged`/`hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked` (via the injected `scanOnboardingPreparedFiles` seam threaded through to `applyRescanDecisionUnderLock`) and assert `onboarding_rebuild_attempts.attempts` increments iff the outcome is one of `hard_failed`/`dirty_demoted`/`clean_restamped`/`clean_unchecked`:
     ```ts
@@ -749,8 +757,16 @@ type ResolveBlockerResponse =
       deps?: { applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock };
     },
   ): Promise<Response> {
-    // Authoritative authz re-derivation UNDER the lock (spec §3.2 point 3): the corrupt
-    // shadow must still exist AND still parse as STAGED_*_CORRUPT right now.
+    // Authoritative authz re-derivation UNDER the lock (spec §3.2 point 3 — applies to BOTH
+    // actions, Codex plan-R1 F1). (a) session membership: the sheet must be in THIS session's
+    // scan manifest; (b) the corrupt shadow must still exist AND still parse as STAGED_*_CORRUPT.
+    const manifestRows = (await tx.unsafe(
+      `select 1 from public.onboarding_scan_manifest where wizard_session_id = $1::uuid and drive_file_id = $2`,
+      [wizardSessionId, driveFileId],
+    )) as unknown[];
+    if (manifestRows.length === 0) {
+      return NextResponse.json({ ok: false, status: "not_currently_blocked" });
+    }
     const shadowRows = (await tx.unsafe(
       `select payload from public.shows_pending_changes where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, driveFileId],
@@ -801,7 +817,7 @@ type ResolveBlockerResponse =
       },
     );
 
-    after(async () => {
+    deferPostResponse(async () => {
       await logAdminOutcome({
         code: "ONBOARDING_BLOCKER_REBUILT",
         source: "api.admin.onboarding.resolveBlocker",
@@ -810,7 +826,7 @@ type ResolveBlockerResponse =
         wizardSessionId,
         result: outcome.kind,
         extra: { corruptionReason, shadowDeleted },
-      });
+      }).catch(() => {});
     });
 
     switch (outcome.kind) {
@@ -827,7 +843,7 @@ type ResolveBlockerResponse =
     }
   }
   ```
-- [ ] Run: `TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm vitest run tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts` — all seven outcomes + cap gate + concurrency + reason-survival green.
+- [ ] Run: `TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm vitest run tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts` — all seven outcomes + cap gate + concurrency + reason-survival + the no-manifest-row case green. (`POST` was already exported in Task 7; this task only makes the rebuild branch real.)
 - [ ] Add to `tests/log/_auditableMutations.ts`: `{ file: "app/api/admin/onboarding/resolve-blocker/route.ts", fn: "POST", code: "ONBOARDING_BLOCKER_REBUILT" }`.
 - [ ] Write failing sink-spy test in `tests/log/adminOutcomeBehavior.test.ts`: `ONBOARDING_BLOCKER_REBUILT` emits on every committed rebuild-initiated rescan (all four shadow-deleting outcomes AND `schema_missing`/`superseded`/`not_staged` — spec §3.2 says the emit fires "on every committed rebuild-initiated rescan," not only cap-consuming ones); does NOT emit on the `escalated` gate-abort or `not_currently_blocked` branches (non-mutating).
 - [ ] Run: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts tests/log/_metaMutationSurfaceObservability.test.ts` — green.
