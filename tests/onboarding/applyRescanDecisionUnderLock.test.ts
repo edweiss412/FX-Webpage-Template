@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { applyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
 import type { PostgresTransaction } from "@/lib/sync/runOnboardingScan";
@@ -320,5 +320,148 @@ describe("applyRescanDecisionUnderLock", () => {
       calls.some((c) => /wizard_approved\s*=\s*true/i.test(c.sql)),
       "dirty path must not re-stamp wizard_approved=true",
     ).toBe(false);
+  });
+
+  // Failure mode: a future refactor that moves the shows_pending_changes delete without
+  // moving the hook call, or that fires the hook on a retained-shadow path (would
+  // double-consume the rebuild cap on a non-destructive outcome).
+  test("onShadowDeleted fires once, on tx, for hard_failed (shadow-deleting outcome)", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const onShadowDeleted = vi.fn(async (calledTx: PostgresTransaction) => {
+      expect(calledTx).toBe(tx);
+    });
+    const hardFailedScan = (async () => ({
+      outcome: "completed",
+      processed: [{ driveFileId: DRIVE, outcome: "hard_failed" }],
+    })) as never;
+    await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: hardFailedScan, onShadowDeleted },
+    );
+    expect(onShadowDeleted).toHaveBeenCalledTimes(1);
+  });
+
+  // Failure mode: same as above, but for the main (dirty/clean) delete site — the three
+  // dirty_demoted/clean_restamped/clean_unchecked outcomes all branch AFTER a single shared
+  // shows_pending_changes delete, so this representative clean_restamped case covers the
+  // shared call site for all three.
+  test("onShadowDeleted fires once, on tx, for clean_restamped (main delete site)", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const onShadowDeleted = vi.fn(async (calledTx: PostgresTransaction) => {
+      expect(calledTx).toBe(tx);
+    });
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan, onShadowDeleted },
+    );
+    expect(out).toEqual({ kind: "clean_restamped", changed: true });
+    expect(onShadowDeleted).toHaveBeenCalledTimes(1);
+  });
+
+  // Failure mode: firing the hook on a shadow-RETAINING outcome would double-consume the
+  // rebuild cap for a row whose pending_ingestions/onboarding_scan_manifest shadow row is
+  // never deleted by this core.
+  test("onShadowDeleted does NOT fire for schema_missing (shadow retained)", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const onShadowDeleted = vi.fn();
+    const schemaMissingScan = (async () => ({
+      outcome: "schema_missing",
+      code: "STAGED_PARSE_FAILED",
+    })) as never;
+    await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: schemaMissingScan, onShadowDeleted },
+    );
+    expect(onShadowDeleted).not.toHaveBeenCalled();
+  });
+
+  test("onShadowDeleted does NOT fire for superseded (shadow retained)", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const onShadowDeleted = vi.fn();
+    const supersededScan = (async () => ({ outcome: "superseded" })) as never;
+    await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: supersededScan, onShadowDeleted },
+    );
+    expect(onShadowDeleted).not.toHaveBeenCalled();
+  });
+
+  test("onShadowDeleted does NOT fire for not_staged (readback empty, shadow retained)", async () => {
+    const { tx } = makeTx(
+      {
+        wizard_approved: true,
+        wizard_approved_by_email: "ada@x.example",
+        parse_result: PRIOR_PARSE,
+        staged_modified_time: PRIOR_MODTIME,
+      },
+      { stagedReadbackEmpty: true },
+    );
+    const onShadowDeleted = vi.fn();
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan, onShadowDeleted },
+    );
+    expect(out).toEqual({ kind: "not_staged", code: expect.any(String) });
+    expect(onShadowDeleted).not.toHaveBeenCalled();
   });
 });

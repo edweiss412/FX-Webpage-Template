@@ -65,9 +65,14 @@ export function deriveStep3DisplayState(input: DisplayDerivationInput): Step3Dis
   ) {
     return "ready_to_publish";
   }
-  // 6. Held: a session-linked show that is not Live and not Ready-to-publish
-  //    (deliberately-unchecked draft, or archived).
-  if (input.sessionLinked && input.linkedShow) return "held";
+  // 6. Held: any linked show that is neither crew-visible-live (Rule 4) nor a
+  //    session-created ready-to-publish (Rule 5) is Held, regardless of
+  //    provenance (session-linked OR existing-show branch). Was
+  //    `input.sessionLinked && input.linkedShow` — that guard let an existing
+  //    archived/held-with-blocker show fall through to Rule 7 "ready", a green
+  //    badge on a publish-blocked show (spec 2026-07-16-wizard-blocker-inline-
+  //    resolution §4.1). Only `linkedShow===null` now reaches Rule 7.
+  if (input.linkedShow) return "held";
   // 7. Ready (pre-finalize): no linked show, clean row.
   return "ready";
 }

@@ -109,12 +109,70 @@ describe("deriveStep3DisplayState (spec §4.2 ordered algorithm)", () => {
     ).toBe("held");
   });
 
+  it("rule 6 broadened: existing archived show (sessionLinked:false) → Held (the reported hole)", () => {
+    expect(
+      deriveStep3DisplayState({
+        ...base,
+        status: "applied",
+        linkedShow: { published: false, archived: true },
+        sessionLinked: false,
+        publishIntent: false,
+      }),
+    ).toBe("held");
+  });
+
+  it("rule 6 broadened: existing HELD show with a corrupt-shadow blocker (not archived) → Held, not Ready", () => {
+    expect(
+      deriveStep3DisplayState({
+        ...base,
+        status: "applied",
+        linkedShow: { published: false, archived: false },
+        sessionLinked: false,
+        publishIntent: false,
+      }),
+    ).toBe("held");
+  });
+
+  it("rule 6 broadened: publishIntent does NOT resurrect Ready for an existing show", () => {
+    expect(
+      deriveStep3DisplayState({
+        ...base,
+        status: "applied",
+        linkedShow: { published: false, archived: false },
+        sessionLinked: false,
+        publishIntent: true,
+      }),
+    ).toBe("held");
+  });
+
+  it("rule 4 unchanged: existing published show (sessionLinked:false) stays Live", () => {
+    expect(
+      deriveStep3DisplayState({
+        ...base,
+        status: "applied",
+        linkedShow: { published: true, archived: false },
+        sessionLinked: false,
+      }),
+    ).toBe("live");
+  });
+
+  it("rule 7 guard: no linked show still falls through to Ready (broadened Rule 6 did not swallow Rule 7)", () => {
+    expect(
+      deriveStep3DisplayState({
+        ...base,
+        status: "applied",
+        linkedShow: null,
+        sessionLinked: false,
+      }),
+    ).toBe("ready");
+  });
+
   it("rule 7: no linked show, clean → Ready (pre-finalize)", () => {
     expect(deriveStep3DisplayState({ ...base, status: "staged" })).toBe("ready");
     expect(deriveStep3DisplayState({ ...base, status: "applied" })).toBe("ready");
   });
 
-  it("existing-show (not session-linked) pre-CAS published=false is NOT ready_to_publish (rule 5 needs sessionLinked)", () => {
+  it("existing-show (not session-linked) pre-CAS published=false is Held, not ready_to_publish (rule 5 needs sessionLinked) or Ready (broadened rule 6)", () => {
     expect(
       deriveStep3DisplayState({
         ...base,
@@ -122,6 +180,6 @@ describe("deriveStep3DisplayState (spec §4.2 ordered algorithm)", () => {
         linkedShow: { published: false, archived: false },
         sessionLinked: false,
       }),
-    ).toBe("ready");
+    ).toBe("held");
   });
 });

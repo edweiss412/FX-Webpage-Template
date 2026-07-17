@@ -195,6 +195,17 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
+    table: "onboarding_rebuild_attempts",
+    closed_at: "supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      wizard_session_id: "00000000-0000-0000-0000-000000000000",
+      drive_file_id: "lockdown-test",
+    },
+    rowFilter: "?wizard_session_id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
     // Phase-1 logging: append-only event log. Writes flow ONLY through the
     // lib/log service-role insert; anon/authenticated have zero access.
     // Append-only is enforced structurally (tests/log/_metaAppEventsWriter.test.ts),

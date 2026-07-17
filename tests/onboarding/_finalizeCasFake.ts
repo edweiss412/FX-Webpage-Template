@@ -116,6 +116,10 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   published = false;
   deletedWizardDeferrals = false;
   operations: string[] = [];
+  // Task 10: onboarding_rebuild_attempts fake, keyed by drive_file_id (these fixtures use a
+  // single wizard session, W1). Empty = COALESCE 0 for every corrupt row (rebuild_exhausted
+  // false, no escalation) — the default, matching every pre-Task-10 test's expectations.
+  rebuildAttempts = new Map<string, { attempts: number; escalationLogged: boolean }>();
 
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -225,6 +229,28 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       return { rows: [], rowCount: 0 };
     }
 
+    // Task 10: the corrupt-row rebuild_exhausted LEFT JOIN (COALESCE 0 when no
+    // onboarding_rebuild_attempts row exists for this drive id).
+    if (normalized.startsWith("select coalesce(ora.attempts, 0) as attempts")) {
+      const driveFileId = params[1] as string;
+      const entry = this.rebuildAttempts.get(driveFileId);
+      return { rows: [{ attempts: entry?.attempts ?? 0 } as T], rowCount: 1 };
+    }
+
+    // Task 10: the in-txn idempotent escalation claim. Matches zero rows (rowCount 0) unless
+    // the cap is reached AND escalation_logged is still false — mirroring the real
+    // `and attempts >= $3 and not escalation_logged` predicate.
+    if (normalized.startsWith("update public.onboarding_rebuild_attempts")) {
+      const driveFileId = params[1] as string;
+      const cap = params[2] as number;
+      const entry = this.rebuildAttempts.get(driveFileId);
+      if (entry && entry.attempts >= cap && !entry.escalationLogged) {
+        entry.escalationLogged = true;
+        return { rows: [{ attempts: entry.attempts } as T], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
     if (
       normalized.startsWith("update public.shows s") &&
       normalized.includes("set published = true")
@@ -267,6 +293,12 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     if (sql.startsWith("select status, batches_completed")) return "read-checkpoint";
     if (sql.startsWith("select wizard_session_id, drive_file_id")) return "read-shadows";
     if (sql.startsWith("select id, last_seen_modified_time, diagrams")) return "read-live-show";
+    if (sql.startsWith("select coalesce(ora.attempts, 0) as attempts")) {
+      return "read-rebuild-attempts";
+    }
+    if (sql.startsWith("update public.onboarding_rebuild_attempts")) {
+      return "claim-rebuild-escalation";
+    }
     if (sql.startsWith("select m.drive_file_id from public.onboarding_scan_manifest m")) {
       return "legacy-ambiguity-preflight";
     }

@@ -57,6 +57,12 @@ const REGISTRY: Row[] = [
     "dq-bulk-ignore-* armed branch (G4 two-tap armed-state guard)",
   ),
   R(
+    "components/admin/BlockedRowResolver.tsx",
+    0,
+    "morph",
+    "blocked-row-resolver-* armed branch (two-tap arm/confirm, mirrors RescanSheetButton's idiom)",
+  ),
+  R(
     "components/admin/RecentAutoAppliedStrip.tsx",
     0,
     "panel",

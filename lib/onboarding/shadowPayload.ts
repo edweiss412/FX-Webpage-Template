@@ -37,6 +37,18 @@ export type ShadowPayloadRefusalCode =
   | "STAGED_PARSE_RESULT_CORRUPT"
   | "STAGED_PARSE_OUTDATED_AT_PHASE_D";
 
+// Task 5 — low-cardinality reason attached at each `refuse()` call site so a corrupt shadow's
+// forensic record distinguishes WHICH structural check failed, without widening
+// ShadowPayloadRefusalCode itself. Scoped to the 12 corruption-shaped refuse() call sites;
+// the two STAGED_PARSE_OUTDATED_AT_PHASE_D call sites (:202,:208) are a staleness posture, not
+// corruption, and are deliberately left without a reason (optional field).
+export type CorruptionReason =
+  | "parse_result_absent"
+  | "parse_result_shape_invalid"
+  | "review_items_invalid"
+  | "reviewer_choice_element_invalid"
+  | "override_snapshot_malformed";
+
 export type ParsedShadowPayloadForApply =
   | {
       ok: true;
@@ -62,10 +74,15 @@ export type ParsedShadowPayloadForApply =
       // publishes the parsed value despite the toggle. Tolerant: absent/malformed → [] (overlay no-op).
       useRawDecisions: UseRawDecision[];
     }
-  | { ok: false; code: ShadowPayloadRefusalCode };
+  | { ok: false; code: ShadowPayloadRefusalCode; reason?: CorruptionReason };
 
-function refuse(code: ShadowPayloadRefusalCode): ParsedShadowPayloadForApply {
-  return { ok: false, code };
+function refuse(
+  code: ShadowPayloadRefusalCode,
+  reason?: CorruptionReason,
+): ParsedShadowPayloadForApply {
+  // exactOptionalPropertyTypes: `reason` must be OMITTED, not set to `undefined`, when the
+  // call site doesn't supply one (the two STAGED_PARSE_OUTDATED_AT_PHASE_D sites).
+  return reason === undefined ? { ok: false, code } : { ok: false, code, reason };
 }
 
 /**
@@ -137,7 +154,7 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   // Non-null plain-object guard: jsonb permits top-level null / string / number /
   // boolean / array; none of those carries an interpretable apply payload.
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "parse_result_shape_invalid");
   }
   const obj = payload as Record<string, unknown>;
 
@@ -145,7 +162,7 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   // silent-success bug). Present → decode object-or-double-encoded-string AND
   // validate the full ParseResult shape; anything else is corrupt.
   if (obj.parse_result === null || obj.parse_result === undefined) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "parse_result_absent");
   }
   let parseResult: ParseResult;
   try {
@@ -157,29 +174,29 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     // Bare catch (JsonbCoercionError and anything else): this parser NEVER throws.
     parseResult = asParseResult(obj.parse_result);
   } catch {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "parse_result_shape_invalid");
   }
 
   // staged_id + staged_modified_time: the apply core requires both for the
   // audit row and the holds binding.
   const stagedId = obj.staged_id;
   if (typeof stagedId !== "string" || stagedId.length === 0) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "parse_result_shape_invalid");
   }
   const stagedModifiedTime = toIsoOrNull(obj.staged_modified_time);
   if (stagedModifiedTime === null) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "parse_result_shape_invalid");
   }
 
   // triggered_review_items: key ABSENT → refuse (a legacy/truncated payload must
   // not bypass the identity gate). Present → the single gate-boundary parser;
   // a present-but-null value is its legitimate-empty case.
   if (!("triggered_review_items" in obj)) {
-    return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+    return refuse("STAGED_REVIEW_ITEMS_CORRUPT", "review_items_invalid");
   }
   const parsedItems = parseTriggeredReviewItems(obj.triggered_review_items);
   if (!parsedItems.ok) {
-    return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+    return refuse("STAGED_REVIEW_ITEMS_CORRUPT", "review_items_invalid");
   }
   // WM-R5 (same class as the WM-R4 reviewer_choices fix, item side): the shared parser
   // bare-casts any array, so element shapes must be validated HERE before the mi11 filter's
@@ -189,7 +206,7 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   // Unknown invariant strings with valid id/invariant are accepted: allowedActions is total
   // (defaults to {apply}) and derefs nothing else — refusing them would break forward-compat.
   if (!parsedItems.items.every(isStructurallyValidReviewItem)) {
-    return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+    return refuse("STAGED_REVIEW_ITEMS_CORRUPT", "review_items_invalid");
   }
   const mi11Items = parsedItems.items.filter(
     (item): item is Mi11Item => item.invariant === "MI-11",
@@ -219,11 +236,12 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   try {
     rawChoices = coerceJsonbArray(obj.reviewer_choices, "shadow payload reviewer_choices");
   } catch {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "reviewer_choice_element_invalid");
   }
   const reviewerChoices: ReviewerChoice[] = [];
   for (const candidate of rawChoices) {
-    if (!isReviewerChoice(candidate)) return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+    if (!isReviewerChoice(candidate))
+      return refuse("STAGED_REVIEW_ITEMS_CORRUPT", "reviewer_choice_element_invalid");
     reviewerChoices.push(candidate);
   }
 
@@ -233,11 +251,11 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   // Task 11.
   const parsedOverride = parsePullSheetOverrideField(obj.pull_sheet_override);
   if (!parsedOverride.ok) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "override_snapshot_malformed");
   }
   const parsedOverrideApplied = parseOverrideSnapshotField(obj.pull_sheet_override_applied);
   if (!parsedOverrideApplied.ok) {
-    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+    return refuse("STAGED_PARSE_RESULT_CORRUPT", "override_snapshot_malformed");
   }
 
   return {

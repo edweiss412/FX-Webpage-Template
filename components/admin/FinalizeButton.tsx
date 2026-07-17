@@ -49,6 +49,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { AccentButton } from "@/components/shared/AccentButton";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import { BlockedRowResolver } from "@/components/admin/BlockedRowResolver";
 import {
   FINALIZE_STREAM_CONTENT_TYPE,
   type PerRowFailure,
@@ -638,7 +639,18 @@ export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
                     driveFileId={row.drive_file_id}
                     wizardSessionId={wizardSessionId}
                   />
-                ) : null}
+                ) : (
+                  <BlockedRowResolver
+                    driveFileId={row.drive_file_id}
+                    wizardSessionId={wizardSessionId}
+                    code={row.code}
+                    {...(row.display_name !== undefined ? { displayName: row.display_name } : {})}
+                    {...(row.rebuild_exhausted !== undefined
+                      ? { rebuildExhausted: row.rebuild_exhausted }
+                      : {})}
+                    onResolved={() => void run.runLoop()}
+                  />
+                )}
               </li>
             ))}
           </ul>

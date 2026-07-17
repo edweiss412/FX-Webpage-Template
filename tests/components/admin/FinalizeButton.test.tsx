@@ -662,6 +662,115 @@ describe("FinalizeButton", () => {
     expect(container.textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
   });
 
+  test("Task 12: cas_per_row SHOW_ARCHIVED_IMMUTABLE renders BlockedRowResolver; STAGED_PARSE_OUTDATED_AT_PHASE_D STILL renders RescanSheetButton (freshness byte-parity)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            per_row: [
+              { drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" },
+              { drive_file_id: "drive-outdated-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+            ],
+          },
+          { status: 409 },
+        ),
+      );
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull();
+    });
+    // Archived row: BlockedRowResolver renders (the new inline resolver).
+    expect(queryByTestId("blocked-row-resolver-drive-archived-1")).not.toBeNull();
+    // Freshness row: RescanSheetButton STILL renders — the freshness path is untouched.
+    expect(queryByTestId("rescan-sheet-button-drive-outdated-1")).not.toBeNull();
+    // The archived row does NOT also get a rescan button (mutually exclusive).
+    expect(queryByTestId("rescan-sheet-button-drive-archived-1")).toBeNull();
+  });
+
+  test("Task 12: resolving a blocked cas_per_row row auto-retries the finalize loop", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            per_row: [{ drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" }],
+          },
+          { status: 409 },
+        ),
+      )
+      .mockResolvedValueOnce(mockJsonResponse({ ok: true, status: "resolved" }))
+      // Auto-retry re-POST to /finalize; keep the loop terminating cleanly.
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "finalize_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          watched_folder_id: "folder-xyz",
+        }),
+      );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(getByTestId("blocked-row-resolver-drive-archived-1")).toBeTruthy();
+    });
+    const resolverButton = getByTestId("blocked-row-resolver-drive-archived-1");
+    // Two-tap: arm, then confirm — the confirm tap fires the resolve-blocker POST.
+    await act(async () => {
+      fireEvent.click(resolverButton);
+    });
+    await act(async () => {
+      fireEvent.click(resolverButton);
+    });
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((c) => c[0] === "/api/admin/onboarding/resolve-blocker"),
+      ).toBe(true);
+    });
+    // Auto-retry proof: onResolved fires run.runLoop(), which re-POSTs /finalize.
+    await waitFor(() => {
+      const finalizeCalls = fetchMock.mock.calls.filter(
+        (c) => c[0] === "/api/admin/onboarding/finalize",
+      );
+      expect(finalizeCalls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   test("WM-R3: finalize-cas 409 WITHOUT per_row keeps the existing top-level copy path", async () => {
     fetchMock
       .mockResolvedValueOnce(

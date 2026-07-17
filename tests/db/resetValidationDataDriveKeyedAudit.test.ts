@@ -93,6 +93,18 @@ const DRIVE_KEYED_REGISTRY: Record<string, Disposition> = {
     reason:
       "operational event log (60-day prune cron, show_id ON DELETE SET NULL by design); not persistent per-show fixture data, so a validation reset need not truncate it",
   },
+  // Wizard blocker inline resolution (2026-07-16 spec §3.3): session-scoped
+  // rebuild-cap counter, keyed by (wizard_session_id, drive_file_id) with NO
+  // FK to shows (no cascade path exists). It is cleaned up on session
+  // teardown by lib/onboarding/sessionLifecycle.ts (both the normal teardown
+  // path and the stale-session reap path delete rows by wizard_session_id),
+  // so it never outlives its owning wizard session. Not persistent per-show
+  // fixture data, so a validation reset need not truncate it.
+  onboarding_rebuild_attempts: {
+    kind: "preserve",
+    reason:
+      "session-scoped rebuild-cap counter, self-clears via sessionLifecycle.ts teardown/reap (both delete by wizard_session_id); not persistent per-show fixture data, so a validation reset need not truncate it",
+  },
 };
 
 /** Is `table` an ON DELETE CASCADE FK child of public.shows? */
