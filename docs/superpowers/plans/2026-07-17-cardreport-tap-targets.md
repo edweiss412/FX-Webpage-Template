@@ -13,10 +13,10 @@
 ## Global Constraints
 
 - **Full-literal Tailwind class strings** — never string-interpolate utility fragments; the Tailwind v4 JIT only sees complete literals. Direction-conditional class sets are chosen by a `hitDirection === "down" ? "<full literal>" : "<full literal>"` ternary (repo precedent: `ReportButton` ringOffset map, DQIGNORE-5).
-- **Sizing token:** `--spacing-tap-min` = 44px (`app/globals.css:162`), utilities `h-tap-min` / `w-tap-min`. **Fallback:** if a `before:h-tap-min` / `before:w-tap-min` variant fails to emit CSS (verify at Task 6 — overlay would compute to 0px and the probe fails), substitute the plain-scale `before:h-11` / `before:w-11` (44px). Prefer the semantic token; fall back only on a proven non-emit.
+- **Sizing token:** `--spacing-tap-min` = 44px (`app/globals.css:162`), utilities `h-tap-min` / `w-tap-min`. **Fallback:** if a `before:h-tap-min` / `before:w-tap-min` variant fails to emit CSS (verify at Task 5 — overlay would compute to 0px and the probe fails), substitute the plain-scale `before:h-11` / `before:w-11` (44px). Prefer the semantic token; fall back only on a proven non-emit.
 - **No header-height change** (spec constraint 2): the overlay is a positioned `::before`, invisible to `getBoundingClientRect()`. The existing row-height + affordance-box assertions in `tests/e2e/source-link-dimensional.spec.ts` must stay green.
 - **Recessive appearance unchanged**: glyphs, `text-text-faint`, labels, and the existing hover/focus color transitions are untouched. Only the invisible hit area grows.
-- **Invariant 8 (UI quality gate):** every file under `components/`, `app/` (non-`app/api`) touched here ships only after `/impeccable critique` AND `/impeccable audit` pass on the diff, P0/P1 fixed or DEFERRED-logged, BEFORE the cross-model close-out (Task 8).
+- **Invariant 8 (UI quality gate):** every file under `components/`, `app/` (non-`app/api`) touched here ships only after `/impeccable critique` AND `/impeccable audit` pass on the diff, P0/P1 fixed or DEFERRED-logged, BEFORE the cross-model close-out (Task 7).
 
 ## Meta-test inventory
 
@@ -24,7 +24,7 @@
 
 ## Layout-dimensions task
 
-Task 6 is the mandatory real-browser layout/dimensional assertion (Playwright `getBoundingClientRect()` + `elementFromPoint()` on the fixed-dimension header band). jsdom is NOT sufficient and is not used for the dimensional proof.
+Task 5 is the mandatory real-browser layout/dimensional assertion (Playwright `getBoundingClientRect()` + `elementFromPoint()` on the fixed-dimension header band). jsdom is NOT sufficient and is not used for the dimensional proof.
 
 ## File Structure
 
@@ -45,7 +45,7 @@ Task 6 is the mandatory real-browser layout/dimensional assertion (Playwright `g
 
 **Files:**
 - Modify: `components/crew/primitives/SourceLink.tsx`
-- Test: `tests/components/crew/SourceLink.test.tsx` (create if absent; else append)
+- Test: `tests/components/crew/sourceLink.test.tsx` (create if absent; else append)
 
 **Interfaces:**
 - Produces: `SourceLink({ driveFileId, anchor, hitDirection }: { driveFileId: string | null; anchor?: SourceAnchor | null | undefined; hitDirection?: "up" | "down" })`. `hitDirection` defaults to `"up"`.
@@ -86,7 +86,7 @@ it("down: the overlay is top-anchored instead", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/components/crew/SourceLink.test.tsx`
+Run: `pnpm vitest run tests/components/crew/sourceLink.test.tsx`
 Expected: FAIL (current class string has no `relative`/`before:*`).
 
 - [ ] **Step 3: Write minimal implementation**
@@ -131,13 +131,13 @@ export function SourceLink({ driveFileId, anchor, hitDirection = "up" }: SourceL
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/components/crew/SourceLink.test.tsx`
+Run: `pnpm vitest run tests/components/crew/sourceLink.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/crew/primitives/SourceLink.tsx tests/components/crew/SourceLink.test.tsx
+git add components/crew/primitives/SourceLink.tsx tests/components/crew/sourceLink.test.tsx
 git commit --no-verify -m "feat(crew-page): SourceLink direction-anchored 44px hit overlay (CARDREPORT-1)"
 ```
 
@@ -345,7 +345,7 @@ git commit --no-verify -m "feat(crew-page): CardHeaderActions threads hitDirecti
 - Test: `tests/components/crew/sourceLinkCoverage.test.tsx` (append §4.2 guard)
 
 **Interfaces:**
-- Consumes: `CardHeaderActions` `hitDirection` (Task 3) + `data-hit-direction` reflection.
+- Consumes: `CardHeaderActions` `hitDirection` (Task 3) + `data-hit-direction` reflection. The test appends to `sourceLinkCoverage.test.tsx`, reusing its file-local `fullFixture()` (`:84`) and `renderAllSections()` (`:188`) helpers (verified present).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -410,84 +410,21 @@ git commit --no-verify -m "feat(crew-page): schedule-days grows hit target DOWN 
 
 ---
 
-### Task 5: Dev harness — `card-actions-up` + `card-actions-down` contexts
+### Task 5: Real-browser hit-probe + dev harness (test-first TDD) — layout-dimensions task
 
 **Files:**
-- Modify: `app/admin/dev/source-link-dim/page.tsx`
+- Modify: `tests/e2e/source-link-dimensional.spec.ts` (the test — written and run FIRST)
+- Modify: `app/admin/dev/source-link-dim/page.tsx` (the harness — the implementation that turns the test green)
 
 **Interfaces:**
-- Consumes: `CardHeaderActions`, `SectionCard`, `KeyValueRows` (existing imports; add `KeyValueRows` if not already imported).
-- Produces: two new render containers `[data-testid="card-actions-up"]` and `[data-testid="card-actions-down"]` with the testids the Task-6 probe reads.
+- Consumes: overlays from Tasks 1–3, wiring from Task 4; `[data-slot=source-link]` / `[data-slot=card-report-trigger]`.
+- Produces: harness containers `[data-testid=card-actions-up|down]` with neighbor testids `dim-tel-above`, `dim-tel-below`, `dim-agenda-above`, `dim-daycard-below`.
 
-- [ ] **Step 1: Add the harness markup (no test yet — this is the fixture Task 6 consumes)**
+**TDD note (why test-first is honest here):** the e2e probe is written and run BEFORE the harness exists, so its `beforeEach` `getByTestId("card-actions-up")` FAILS (harness absent) — a real red. The harness markup is the implementation that turns it green. The overlays' own fail-first proofs are the jsdom tests in Tasks 1–3; a cross-cutting real-browser probe cannot also fail-first on "overlay absent" once Tasks 1–3 have landed, so its red is on harness/probe wiring. The negative probes (`bottom+2`/`top-2` NOT the slot; below/above neighbor still hittable) are what make a PASS non-vacuous — a centered/symmetric or absent overlay fails them.
 
-Add, alongside the existing measured cards, two context blocks. `card-actions-up`: an interactive `tel:` row above (`dim-tel-above`) and an icon+title `SectionCard` whose first body child is an interactive `tel:` row (`dim-tel-below`), stacked at `gap-3`. `card-actions-down`: an agenda-style link above (`dim-agenda-above`) then the bare `mb-2 flex justify-end` header with `hitDirection="down"` above a non-interactive day-card stub.
+- [ ] **Step 1: Write the e2e test (append a new `test.describe`)**
 
-```tsx
-// inside the page's returned column, after the existing cards:
-<div data-testid="card-actions-up" className="flex flex-col gap-3">
-  {/* interactive neighbor ABOVE, at the tightest real inter-card gap (gap-3) */}
-  <a data-testid="dim-tel-above" href="tel:5085550100" className="inline-flex min-h-tap-min items-center text-sm">
-    Call sheet lead
-  </a>
-  <SectionCard
-    icon={<ClockIcon />}
-    title="Tonight"
-    action={
-      <CardHeaderActions cardId="today-dress" driveFileId="drive-1" anchor={{ title: "INFO", gid: 0, a1: "A1:B2" }} showId="s1" />
-    }
-  >
-    {/* interactive neighbor BELOW, first body child */}
-    <a data-testid="dim-tel-below" href="tel:5085550111" className="inline-flex min-h-tap-min items-center text-sm">
-      Call venue
-    </a>
-  </SectionCard>
-</div>
-
-<div data-testid="card-actions-down" className="flex flex-col gap-4">
-  {/* possibly-interactive neighbor ABOVE (agenda link) */}
-  <a data-testid="dim-agenda-above" href="#agenda" className="inline-flex min-h-tap-min items-center text-sm">
-    Full agenda (PDF)
-  </a>
-  {/* bare schedule-days-style header, grows DOWN */}
-  <div className="mb-2 flex justify-end">
-    <div data-slot="section-card-action" className="flex shrink-0 items-center">
-      <CardHeaderActions cardId="schedule-days" driveFileId="drive-1" anchor={{ title: "SCHED", gid: 1, a1: "A1:B2" }} showId="s1" hitDirection="down" />
-    </div>
-  </div>
-  {/* non-interactive day-card stub BELOW */}
-  <div data-testid="dim-daycard-below" className="rounded-md border border-border p-tile-pad text-sm text-text-subtle">
-    Fri · Show day
-  </div>
-</div>
-```
-
-Import `ClockIcon` from `@/components/crew/icons/sectionIcons` and `SectionCard`/`CardHeaderActions` if not already imported (they are, per the file header). Confirm `today-dress` and `schedule-days` are valid `CardId`s in `CARD_REGION_MAP` (they are — used by `TodaySection`/`ScheduleSection`).
-
-- [ ] **Step 2: Verify the harness renders (manual/build check)**
-
-Run: `pnpm exec next build` is NOT required here; instead confirm the route compiles by letting Task 6's Playwright `webServer` boot. If iterating locally: `ADMIN_DEV_PANEL_ENABLED=true pnpm dev`, sign in as admin, visit `/admin/dev/source-link-dim`, confirm both new testids are present.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add app/admin/dev/source-link-dim/page.tsx
-git commit --no-verify -m "test(crew-page): dev harness up/down hit-target contexts (CARDREPORT-1)"
-```
-
----
-
-### Task 6: Real-browser hit-probe (layout-dimensions task)
-
-**Files:**
-- Modify: `tests/e2e/source-link-dimensional.spec.ts`
-
-**Interfaces:**
-- Consumes: harness testids from Task 5 (`card-actions-up`, `card-actions-down`, `dim-tel-above`, `dim-tel-below`, `dim-agenda-above`, `dim-daycard-below`), and `[data-slot=source-link]` / `[data-slot=card-report-trigger]`.
-
-- [ ] **Step 1: Write the failing test**
-
-Append a new `test.describe` block. Helper reads a slot's box, then probes the live compositor. Coordinates are derived from measured rects; the only literals are ±1/±2/±21/−43 probe offsets (each strictly inside/outside the 44px span). The probe uses `document.elementFromPoint` and `.closest()` (so hitting the `::before` returns the originating element, and hitting a glyph child resolves via ancestor).
+Coordinates are derived from measured rects; the only literals are ±1/±2/±21/−43/+43 probe offsets (each strictly inside/outside the 44px span). `elementFromPoint` over a `::before` returns the originating element (which carries `data-slot`); `.closest()` also resolves a glyph child up to its slot.
 
 ```ts
 test.describe("CARDREPORT-1: ≥44px direction-aware hit targets (spec §4)", () => {
@@ -501,7 +438,8 @@ test.describe("CARDREPORT-1: ≥44px direction-aware hit targets (spec §4)", ()
     await expect(page.getByTestId("card-actions-down")).toBeVisible();
   });
 
-  // Returns {closest} = the data-slot the point resolves to (or null), inside the given root.
+  // The data-slot the point resolves to inside `rootTestId`, or `testid:<id>` for
+  // an interactive neighbor that has no data-slot, or null.
   async function hitSlot(page, rootTestId: string, x: number, y: number): Promise<string | null> {
     return page.evaluate(
       ([rid, px, py]) => {
@@ -510,7 +448,6 @@ test.describe("CARDREPORT-1: ≥44px direction-aware hit targets (spec §4)", ()
         const root = document.querySelector(`[data-testid="${rid}"]`);
         const slotEl = el.closest("[data-slot]");
         if (!slotEl || !root || !root.contains(slotEl)) {
-          // could be an interactive neighbor (an <a> without data-slot) — return its testid marker
           const tid = el.closest("[data-testid]")?.getAttribute("data-testid") ?? null;
           return tid ? `testid:${tid}` : null;
         }
@@ -524,74 +461,114 @@ test.describe("CARDREPORT-1: ≥44px direction-aware hit targets (spec §4)", ()
     return page.locator(`[data-testid="${rootTestId}"] [data-slot="${slot}"]`).boundingBox();
   }
 
-  test("UP context: 44px reachable upward; zero downward bleed; below tel row intact", async ({ page }) => {
+  test("UP context: 44px reachable upward; zero downward bleed; both tel rows intact", async ({ page }) => {
     for (const slot of ["source-link", "card-report-trigger"]) {
       const b = (await box(page, "card-actions-up", slot))!;
       expect(b, `${slot} must lay out`).not.toBeNull();
       const cx = b.x + b.width / 2;
       const bottom = b.y + b.height;
-      // 1) 44px reachable UP: near the overlay bottom and near its top both resolve to the slot
-      expect(await hitSlot(page, "card-actions-up", cx, bottom - 1)).toBe(slot);
-      expect(await hitSlot(page, "card-actions-up", cx, bottom - 43)).toBe(slot);
-      // 2) zero downward overhang: 2px below the box is NOT the slot
-      expect(await hitSlot(page, "card-actions-up", cx, bottom + 2)).not.toBe(slot);
+      expect(await hitSlot(page, "card-actions-up", cx, bottom - 1)).toBe(slot);   // near overlay bottom
+      expect(await hitSlot(page, "card-actions-up", cx, bottom - 43)).toBe(slot);  // near overlay top (44px up)
+      expect(await hitSlot(page, "card-actions-up", cx, bottom + 2)).not.toBe(slot); // zero down overhang
     }
-    // trigger also reaches 44px WIDE
     const t = (await box(page, "card-actions-up", "card-report-trigger"))!;
     const tcy = t.y + t.height / 2;
-    expect(await hitSlot(page, "card-actions-up", t.x + t.width / 2 - 21, tcy)).toBe("card-report-trigger");
+    expect(await hitSlot(page, "card-actions-up", t.x + t.width / 2 - 21, tcy)).toBe("card-report-trigger"); // 44px wide
     expect(await hitSlot(page, "card-actions-up", t.x + t.width / 2 + 21, tcy)).toBe("card-report-trigger");
-    // below interactive tel row's TOP edge is still hittable (overlay didn't shave it)
     const row = (await page.getByTestId("dim-tel-below").boundingBox())!;
-    expect(await hitSlot(page, "card-actions-up", row.x + row.width / 2, row.y + 1)).toBe("testid:dim-tel-below");
-    // above interactive tel row's BOTTOM edge still hittable (upward overhang never reached it)
+    expect(await hitSlot(page, "card-actions-up", row.x + row.width / 2, row.y + 1)).toBe("testid:dim-tel-below"); // below row top intact
     const above = (await page.getByTestId("dim-tel-above").boundingBox())!;
-    expect(await hitSlot(page, "card-actions-up", above.x + above.width / 2, above.y + above.height - 1)).toBe("testid:dim-tel-above");
+    expect(await hitSlot(page, "card-actions-up", above.x + above.width / 2, above.y + above.height - 1)).toBe("testid:dim-tel-above"); // above row bottom intact
   });
 
-  test("DOWN context: 44px reachable downward; zero upward bleed; agenda link above intact", async ({ page }) => {
+  test("DOWN context: 44px reachable downward + wide; zero upward bleed; no sibling overlap; agenda intact", async ({ page }) => {
     for (const slot of ["source-link", "card-report-trigger"]) {
       const b = (await box(page, "card-actions-down", slot))!;
       const cx = b.x + b.width / 2;
       const top = b.y;
-      expect(await hitSlot(page, "card-actions-down", cx, top + 1)).toBe(slot);
-      expect(await hitSlot(page, "card-actions-down", cx, top + 43)).toBe(slot);
-      expect(await hitSlot(page, "card-actions-down", cx, top - 2)).not.toBe(slot);
+      expect(await hitSlot(page, "card-actions-down", cx, top + 1)).toBe(slot);   // near overlay top
+      expect(await hitSlot(page, "card-actions-down", cx, top + 43)).toBe(slot);  // near overlay bottom (44px down)
+      expect(await hitSlot(page, "card-actions-down", cx, top - 2)).not.toBe(slot); // zero up overhang
     }
-    // agenda link above is still hittable at its BOTTOM edge (down overlay stole nothing)
+    // trigger reaches 44px WIDE in the DOWN branch too (F2: down-branch width was previously unprobed)
+    const t = (await box(page, "card-actions-down", "card-report-trigger"))!;
+    const tcy = t.y + t.height / 2;
+    expect(await hitSlot(page, "card-actions-down", t.x + t.width / 2 - 21, tcy)).toBe("card-report-trigger");
+    expect(await hitSlot(page, "card-actions-down", t.x + t.width / 2 + 21, tcy)).toBe("card-report-trigger");
+    // no sibling overlap in the DOWN branch: SourceLink's right edge belongs to SourceLink, not the trigger
+    const s = (await box(page, "card-actions-down", "source-link"))!;
+    const scy = s.y + s.height / 2;
+    expect(await hitSlot(page, "card-actions-down", s.x + s.width - 2, scy)).toBe("source-link");
+    // agenda link above still hittable at its BOTTOM edge (down overlay stole nothing)
     const ag = (await page.getByTestId("dim-agenda-above").boundingBox())!;
     expect(await hitSlot(page, "card-actions-down", ag.x + ag.width / 2, ag.y + ag.height - 1)).toBe("testid:dim-agenda-above");
   });
 
-  test("no sibling overlap: SourceLink label + right edge belong to SourceLink, not the trigger", async ({ page }) => {
+  test("UP context no sibling overlap: SourceLink label + right edge belong to SourceLink, not the trigger", async ({ page }) => {
     const s = (await box(page, "card-actions-up", "source-link"))!;
     const scy = s.y + s.height / 2;
-    // SourceLink right edge (−2px) and its mid-label resolve to source-link, never the trigger
     expect(await hitSlot(page, "card-actions-up", s.x + s.width - 2, scy)).toBe("source-link");
     expect(await hitSlot(page, "card-actions-up", s.x + s.width / 2, scy)).toBe("source-link");
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails first (guard against a vacuous pass)**
+- [ ] **Step 2: Run to verify it FAILS (red)**
 
-Temporarily stash the overlay (or run before Tasks 1–5 are merged) is impractical mid-plan; instead assert meaningfulness by running now and confirming PASS, then in Step 3 confirm the `bottom+2`/`top-2` negative probes are non-trivially satisfied (they fail if the overlay were centered/symmetric). Run: `pnpm exec playwright test tests/e2e/source-link-dimensional.spec.ts --project=desktop-chromium`
-Expected: the three new tests PASS; the two pre-existing tests still PASS.
+Run: `pnpm exec playwright test tests/e2e/source-link-dimensional.spec.ts --project=desktop-chromium -g "direction-aware"`
+Expected: FAIL — `beforeEach` errors because `card-actions-up`/`card-actions-down` are not in the harness yet.
 
-- [ ] **Step 3: Verify the `before:*` utilities actually emitted 44px**
+- [ ] **Step 3: Add the harness markup (implementation)**
 
-If any `*.toBe(slot)` at the `−43` / `+43` / `±21` extreme fails, the `before:h-tap-min`/`before:w-tap-min` variant did not emit — apply the Global-Constraints fallback (`before:h-11` / `before:w-11`) in Tasks 1–2, re-commit those, and re-run.
+In `app/admin/dev/source-link-dim/page.tsx`, add two context blocks alongside the existing measured cards. Import `ClockIcon` from `@/components/crew/icons/sectionIcons` (add to imports). `SectionCard`/`CardHeaderActions` are already imported per the file header. `today-dress` and `schedule-days` are valid `CardId`s (used by `TodaySection`/`ScheduleSection`); a non-null `driveFileId` guarantees a rendered `SourceLink`.
 
-- [ ] **Step 4: Commit**
+```tsx
+<div data-testid="card-actions-up" className="flex flex-col gap-3">
+  {/* interactive neighbor ABOVE at the tightest real inter-card gap (gap-3) */}
+  <a data-testid="dim-tel-above" href="tel:5085550100" className="inline-flex min-h-tap-min items-center text-sm">Call sheet lead</a>
+  <SectionCard
+    icon={<ClockIcon />}
+    title="Tonight"
+    action={<CardHeaderActions cardId="today-dress" driveFileId="drive-1" anchor={{ title: "INFO", gid: 0, a1: "A1:B2" }} showId="s1" />}
+  >
+    {/* interactive neighbor BELOW, first body child */}
+    <a data-testid="dim-tel-below" href="tel:5085550111" className="inline-flex min-h-tap-min items-center text-sm">Call venue</a>
+  </SectionCard>
+</div>
+
+<div data-testid="card-actions-down" className="flex flex-col gap-4">
+  {/* possibly-interactive neighbor ABOVE (agenda link) */}
+  <a data-testid="dim-agenda-above" href="#agenda" className="inline-flex min-h-tap-min items-center text-sm">Full agenda (PDF)</a>
+  {/* bare schedule-days-style header, grows DOWN */}
+  <div className="mb-2 flex justify-end">
+    <div data-slot="section-card-action" className="flex shrink-0 items-center">
+      <CardHeaderActions cardId="schedule-days" driveFileId="drive-1" anchor={{ title: "SCHED", gid: 1, a1: "A1:B2" }} showId="s1" hitDirection="down" />
+    </div>
+  </div>
+  {/* non-interactive day-card stub BELOW */}
+  <div data-testid="dim-daycard-below" className="rounded-md border border-border p-tile-pad text-sm text-text-subtle">Fri · Show day</div>
+</div>
+```
+
+- [ ] **Step 4: Run to verify it PASSES (green)**
+
+Run: `pnpm exec playwright test tests/e2e/source-link-dimensional.spec.ts --project=desktop-chromium`
+Expected: the 3 new tests PASS; the 2 pre-existing tests still PASS.
+
+- [ ] **Step 5: Verify the `before:*` utilities actually emitted 44px**
+
+If any probe at the `−43`/`+43`/`±21` extreme fails, the `before:h-tap-min`/`before:w-tap-min` variant did not emit CSS — apply the Global-Constraints fallback (`before:h-11`/`before:w-11`) in Tasks 1–2, re-commit those, and re-run this task.
+
+- [ ] **Step 6: Commit both**
 
 ```bash
-git add tests/e2e/source-link-dimensional.spec.ts
-git commit --no-verify -m "test(crew-page): real-browser direction-aware hit-probe (CARDREPORT-1)"
+git add tests/e2e/source-link-dimensional.spec.ts app/admin/dev/source-link-dim/page.tsx
+git commit --no-verify -m "test(crew-page): real-browser direction-aware hit-probe + harness (CARDREPORT-1)"
 ```
 
 ---
 
-### Task 7: Full-suite + typecheck + lint + format gate
+### Task 6: Full-suite + typecheck + lint + format gate
 
 **Files:** none (verification task).
 
@@ -625,7 +602,7 @@ git add -A && git commit --no-verify -m "chore(crew-page): typecheck/lint/format
 
 ---
 
-### Task 8: Impeccable dual-gate + DEFERRED.md close-out
+### Task 7: Impeccable dual-gate + DEFERRED.md close-out
 
 **Files:**
 - Modify: `DEFERRED.md`
@@ -649,10 +626,10 @@ git commit --no-verify -m "docs: CARDREPORT-1 resolved — direction-aware tap-t
 
 ## Self-Review
 
-**Spec coverage:** §2 constraints 1–5 → Tasks 1–3 (overlay + no-height-change + non-overlap) + Task 6 (behavioral proof). §3.1 direction anchoring → Tasks 1–4. §3.2 gap-4 + trigger width → Task 3 + Task 6 width probe. §4 e2e probe → Task 6. §4.1 harness → Task 5. §4.2 wiring guard → Task 4. §5 guards → covered by defaults (Task 3) + Task 6 negative probes. §7 files → Tasks 1–8. Invariant 8 → Task 8.
+**Spec coverage:** §2 constraints 1–5 → Tasks 1–3 (overlay + no-height-change + non-overlap) + Task 6 (behavioral proof). §3.1 direction anchoring → Tasks 1–4. §3.2 gap-4 + trigger width → Task 3 + Task 5 width probe. §4 e2e probe + §4.1 harness → Task 5 (merged, test-first). §4.2 wiring guard → Task 4. §5 guards → covered by defaults (Task 3) + Task 5 negative probes. §7 files → Tasks 1–7. Invariant 8 → Task 7.
 
 **Placeholder scan:** every code step has full literal code; no TBD/TODO.
 
-**Type consistency:** `hitDirection?: "up" | "down"` identical across `SourceLink`, `CardReportTrigger`, `CardHeaderActions`; `data-hit-direction` string value matches the prop; testids in Task 5 match Task 6 reads (`card-actions-up/down`, `dim-tel-above/below`, `dim-agenda-above`).
+**Type consistency:** `hitDirection?: "up" | "down"` identical across `SourceLink`, `CardReportTrigger`, `CardHeaderActions`; `data-hit-direction` string value matches the prop; harness testids match the probe reads within Task 5 (`card-actions-up/down`, `dim-tel-above/below`, `dim-agenda-above`).
 
-**Anti-tautology:** Task 6 is the load-bearing behavioral gate — it probes the live compositor, derives all coordinates from measured rects, and its negative probes (`bottom+2`/`top-2` NOT the slot) would fail a centered/symmetric overlay, so it cannot pass vacuously. The jsdom class-string tests (Tasks 1–3) are explicitly scoped to catch prop-threading/direction regressions, with the failure mode stated; they are not the dimensional proof.
+**Anti-tautology:** Task 5 is the load-bearing behavioral gate — it probes the live compositor, derives all coordinates from measured rects, and its negative probes (`bottom+2`/`top-2` NOT the slot) would fail a centered/symmetric overlay, so it cannot pass vacuously. The jsdom class-string tests (Tasks 1–3) are explicitly scoped to catch prop-threading/direction regressions, with the failure mode stated; they are not the dimensional proof.
