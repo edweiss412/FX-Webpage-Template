@@ -57,6 +57,8 @@ Because the safe growth direction is context-dependent (§1.1), the overlay is *
 
 `ScheduleSection`'s bare `schedule-days` cluster (`ScheduleSection.tsx:253`) passes `hitDirection="down"`. Every other call site inherits the `"up"` default. The prop threads `CardHeaderActions` → both `SourceLink` and `CardReportTrigger`.
 
+**Production-wiring observability.** `CardHeaderActions` reflects the resolved direction onto its wrapper as `data-hit-direction={hitDirection}` (default `"up"`). This makes the wiring assertable in a fast jsdom render test (§4.2) — the real-browser probe proves the *mechanism* works for a given direction, but only a per-call-site assertion proves `ScheduleSection` actually *passes* `"down"` (a forgotten prop would silently default schedule-days to `"up"` and re-introduce the context-C agenda bleed). The attribute is inert (no styling, no behavior) — purely a test seam.
+
 ### 3.2 Horizontal geometry (orthogonal to direction)
 
 - **Cluster gap `gap-2` → `gap-4`** (`CardHeaderActions.tsx:42`; 8px → 16px). Widens horizontal clearance so a symmetric-width trigger overlay clears SourceLink. Changes cluster WIDTH only, never band height.
@@ -92,6 +94,10 @@ Add two context cards next to the existing measured cards (the file is a dev-onl
 
 The existing `card-with-actions` row-height assertions are retained unchanged.
 
+### 4.2 Production-wiring guard (jsdom, `tests/components/crew/sourceLinkCoverage.test.tsx`)
+
+The e2e harness proves the mechanism but renders synthetic cards. Add a fast jsdom assertion in the existing all-sections coverage test (which already renders every real section via `renderAllSections`): for every rendered `[data-slot="card-header-actions"]`, assert `data-hit-direction` is `"down"` for the `schedule-days` cluster and `"up"` for every other cluster. This pins that `ScheduleSection` passes `"down"` at the real call site and that no other section is accidentally wired `"down"` — catching a forgotten/typo'd prop that the synthetic e2e harness cannot (the harness sets the prop itself). Failure mode caught: `ScheduleSection.tsx:253` drops `hitDirection="down"` → schedule-days defaults `"up"` → its 44px overlay grows into the agenda above.
+
 ---
 
 ## 5. Guard conditions
@@ -122,10 +128,11 @@ The existing `card-with-actions` row-height assertions are retained unchanged.
 | --- | --- |
 | `components/crew/primitives/SourceLink.tsx` | Accept `hitDirection?: "up"\|"down"` (default `"up"`); `relative` + direction-anchored full-width `::before` 44px overlay. |
 | `components/shared/CardReportTrigger.tsx` | Accept `hitDirection?`; `relative` + direction-anchored centered 44×44 `::before` overlay. |
-| `components/crew/primitives/CardHeaderActions.tsx` | Accept `hitDirection?` (default `"up"`), thread to both children; `gap-2` → `gap-4`. |
+| `components/crew/primitives/CardHeaderActions.tsx` | Accept `hitDirection?` (default `"up"`), thread to both children; reflect `data-hit-direction`; `gap-2` → `gap-4`. |
 | `components/crew/sections/ScheduleSection.tsx` | Bare `schedule-days` cluster passes `hitDirection="down"` (`:253`). |
 | `app/admin/dev/source-link-dim/page.tsx` | Add `card-actions-up` (interactive tel row below) + `card-actions-down` (bare header) harness contexts. |
-| `tests/e2e/source-link-dimensional.spec.ts` | New direction-aware `elementFromPoint` hit-probe (§4). |
+| `tests/e2e/source-link-dimensional.spec.ts` | New direction-aware `elementFromPoint` hit-probe (§4/§4.1). |
+| `tests/components/crew/sourceLinkCoverage.test.tsx` | Production-wiring guard: `data-hit-direction` is `"down"` for `schedule-days`, `"up"` elsewhere (§4.2). |
 | `DEFERRED.md` | Mark CARDREPORT-1 ✅ RESOLVED with the shipped mechanism. |
 
 Invariant-8 impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) runs on the UI diff before cross-model close-out. No new meta-test registry rows (no auth/DB/mutation surface touched).
