@@ -139,15 +139,14 @@ export async function writeAutoApplyChanges(args: WriteAutoApplyChangesArgs): Pr
       afterImage: null,
     });
   }
-  // Field changes (MI-8/8b/8c + MI-9 LEAD — non-identity crew field, not undoable per F17).
+  // Field changes (MI-8/8b/8c — non-identity crew field, not undoable per F17). MI-9 (role_flags)
+  // is NO LONGER handled here: role changes now get an identifiable per-member field_changed row
+  // via writeRoleChangeLogRows (spec §2.4), which names the member + prior→new flags. Keeping the
+  // MI-9 arm would double-emit the anonymous "A field changed on this sync" row for role changes.
   if (
     hasInvariant(
       args.triggeredItems,
-      (i) =>
-        i.invariant === "MI-8" ||
-        i.invariant === "MI-8b" ||
-        i.invariant === "MI-8c" ||
-        i.invariant === "MI-9",
+      (i) => i.invariant === "MI-8" || i.invariant === "MI-8b" || i.invariant === "MI-8c",
     )
   ) {
     rows.push({

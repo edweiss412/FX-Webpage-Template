@@ -3,6 +3,7 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult, ParseWarning, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
+import { writeRoleChangeLogRows } from "@/lib/sync/changeLog/writeRoleChangeLogRows";
 import { writeUseRawStaleChanges } from "@/lib/sync/changeLog/writeUseRawStaleChanges";
 import { applyUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import {
@@ -595,6 +596,24 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
           },
         }
       : undefined;
+
+  // Identifiable role-change change-log rows (spec §2.4). Written UNCONDITIONALLY of feedPolicy from
+  // this shared runPhase2 point so both the cron auto-apply AND staged-apply paths get a discrete
+  // per-member row for every applied role_flags change on a has-a-prior member (capability OR
+  // scope-tile). Guarded on `port` (the DB write needs it); the capability AUDIT (notice + durable
+  // event) is port-independent, so a missing port drops only the Doug-visible row, never the audit.
+  if (port) {
+    await callTx("writeRoleChangeLogRows", () =>
+      writeRoleChangeLogRows(
+        port,
+        snapshot.showId,
+        args.driveFileId,
+        snapshot.previousCrewMembers ?? [],
+        applyOutcome.appliedCrewMembers,
+        args.identityLinkRenames ?? [],
+      ),
+    );
+  }
 
   // §10 point 2/4: gate the applied role mappings against PRIOR-PERSISTED state only — the same
   // prior-crew source capabilityRoleChangesForNotice diffs (snapshot.previousCrewMembers) plus the
