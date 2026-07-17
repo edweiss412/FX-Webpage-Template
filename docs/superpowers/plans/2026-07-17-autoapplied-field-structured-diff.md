@@ -547,6 +547,13 @@ describe("deriveFieldsDiff (read-side re-validation)", () => {
     expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
     expect(r.invalid).toBe(true);
   });
+  it("a from/to entry carrying a whitespace note normalizes note→null (renders From→To, not blank) (R4 F2)", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "COI status", from: "pending", to: "received", note: " " }] } as never);
+    expect(r.invalid).toBe(false);
+    expect((r.diff as { entries: FieldChangeEntry[] }).entries[0]).toEqual({
+      label: "COI status", from: "pending", to: "received", note: null,
+    });
+  });
 });
 ```
 
@@ -605,13 +612,19 @@ function isValidEntry(e: unknown): e is FieldChangeEntry {
     typeof o.from === "string" && o.from.trim() !== "" && typeof o.to === "string" && o.to.trim() !== "";
   return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
 }
+// Normalize to a canonical single-branch entry: exactly ONE of {note} / {from,to}
+// is non-null. isValidEntry guarantees the XOR; here we NULL the inactive branch so
+// a corrupt-but-XOR-valid entry (e.g. a from/to entry carrying `note: " "`) cannot
+// leave a non-null blank that the component's `e.note != null` check renders as a
+// blank line instead of the From→To (R4 F2). Trim active values before capping.
 function boundEntry(e: FieldChangeEntry): FieldChangeEntry {
-  return {
-    label: capValue(e.label),
-    from: e.from == null ? null : capValue(e.from),
-    to: e.to == null ? null : capValue(e.to),
-    note: e.note == null ? null : capValue(e.note),
-  };
+  const label = capValue(e.label);
+  const hasNote = typeof e.note === "string" && e.note.trim() !== "";
+  if (hasNote) {
+    return { label, from: null, to: null, note: capValue((e.note as string).trim()) };
+  }
+  // isValidEntry guarantees from & to are non-empty strings when not the note branch.
+  return { label, from: capValue((e.from as string).trim()), to: capValue((e.to as string).trim()), note: null };
 }
 function invalidMarker(note: string): { diff: FieldsDiff; invalid: true } {
   return { diff: { kind: "fields", entries: [{ label: "Unavailable", from: null, to: null, note }] }, invalid: true };
@@ -680,11 +693,14 @@ At the map call site (`:183`), replace with a warn-aware computation so a corrup
         }
         const { diff, invalid } = deriveFieldsDiff(r.after_image);
         if (invalid) {
-          // Row-attributed forensic warn (the change-log row id is in the message so
-          // the corrupt row is findable via `observe events --q`; show_id in context).
+          // Row-attributed forensic warn. `LogFields` REQUIRES `source`; the show
+          // correlation field is the reserved `showId` (NOT `show_id`), so the persisted
+          // app_event is show-filterable (`observe events --show`). Row id in the message
+          // so the corrupt row is findable via `observe events --q <id>` (R4 F1).
           log.warn(`auto-applied field_changed row ${r.id} has an invalid fieldChanges payload`, {
+            source: "admin.loadRecentAutoApplied",
             code: FIELDCHANGES_INVALID_CODE,
-            show_id: r.show_id,
+            showId: r.show_id,
           });
         }
         return diff;
@@ -815,7 +831,7 @@ it("Unavailable marker entry renders as a distinct warning-textured row", () => 
 
 - [ ] **Step 2: Run to verify fail** — `pnpm vitest run tests/components/admin/RecentAutoAppliedStrip.test.tsx` → FAIL (no fields branch; isCrew still shows "Crew member").
 
-- [ ] **Step 3a: Implement the `fields` branch in `DiffBlock`** (`components/admin/RecentAutoAppliedStrip.tsx`, after the `fromTo`/`single` handling in `DiffBlock:105`):
+- [ ] **Step 3a: Implement the `fields` branch in `DiffBlock`** (`components/admin/RecentAutoAppliedStrip.tsx`). **Placement (R4 F3):** the live `DiffBlock` is `if (d.kind==="none") return …; if (d.kind==="fromTo") return …;` then a trailing `return (…)` that handles the `single` case by reading `d.caption`/`d.value`. Insert the `fields` branch as `if (d.kind === "fields") return …` **BEFORE that trailing `single` return** — otherwise it is unreachable AND the trailing return fails to narrow (`d` could still be `fields`, so `d.caption` is a type error). After insertion the trailing return correctly narrows to `single`:
 
 ```tsx
   if (d.kind === "fields") {
