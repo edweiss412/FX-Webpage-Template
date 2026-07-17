@@ -478,7 +478,7 @@ it("partial-failure bulk undo shows the failure alert, no success status (preced
 
 - [ ] **Step 2: Run — expect FAIL** (success testid never rendered; code sets `null` on success).
 
-- [ ] **Step 3: Implement** — `confirmUndoAll` (`:265`): `setBulkUndoOutcome(failed > 0 ? { failed, total } : null)` → `setBulkUndoOutcome({ failed, total })`. Replace the outcome block (`:393-402`), keeping its DOM position (after the `confirming` block, before the `<ul>`):
+- [ ] **Step 3: Implement** — `confirmUndoAll` (`:265`): `setBulkUndoOutcome(failed > 0 ? { failed, total } : null)` → `setBulkUndoOutcome({ failed, total })`. **Also update the now-stale lifecycle comment at `:200-204`** — currently "completion writes ({failed,total} when failed>0, else null)" → "completion always writes {failed,total}; render branches: failed>0 → visible alert, else total>0 → sr-only status" (independent-review P3 nit; the old comment misdescribes the new always-write behavior). Replace the outcome block (`:393-402`), keeping its DOM position (after the `confirming` block, before the `<ul>`):
 
 ```tsx
 {bulkUndoOutcome && bulkUndoOutcome.failed > 0 ? (
