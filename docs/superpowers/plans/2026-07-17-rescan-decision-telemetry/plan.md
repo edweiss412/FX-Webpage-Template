@@ -47,33 +47,51 @@ Commit: `feat(onboarding): computeRescanDecision returns regressedGapClasses`.
 
 ## Task 2 — apply layer: reason constants + `reviewCodes` on `dirty_demoted`
 
-**RED** (`tests/onboarding/applyRescanDecisionUnderLock.test.ts`): per-driver `reviewCodes` assertions (gap → gap class; MI-11 → `"MI-11"`; corrupt prior → `"PRIOR_PARSE_UNREADABLE"`; null approver → `"PRIOR_APPROVER_UNATTRIBUTABLE"`); dedup; sentinel-excluded case. Reference the two tokens by imported symbol.
+**Per-task-green rule (plan R1 finding 1):** `dirty_demoted` gains a REQUIRED `reviewCodes` field, so EVERY `RescanDecisionOutcome`-typed construction site must be fixed IN THIS COMMIT or typecheck breaks before Task 3. Complete site list (verified live):
+- `tests/onboarding/_finalizeFake.ts:459` (return typed via `FinalizeRouteDeps["applyRescanDecisionUnderLock"]`).
+- `tests/onboarding/finalizeInlineRescan.test.ts:106` (typed `Promise<RescanDecisionOutcome>`).
+- `tests/onboarding/applyRescanDecisionUnderLock.test.ts:242,309` (exact `toEqual` on the `dirty_demoted` return — add expected `reviewCodes`).
+- `tests/onboarding/rescanCheckpointReopen.test.ts:93` (verify at edit; add `reviewCodes` if the `outcome` literal is `RescanDecisionOutcome`-typed).
+- NOT affected: `tests/admin/mapRoleTokenStagedAction.test.ts` (mock is `Promise<unknown>`), component/e2e `status:"updated"` (JSON mocks, not this union).
+
+**RED** (`tests/onboarding/applyRescanDecisionUnderLock.test.ts`): per-driver `reviewCodes` assertions (gap → gap class; MI-11 → `"MI-11"`; corrupt prior → `"PRIOR_PARSE_UNREADABLE"`; null approver → `"PRIOR_APPROVER_UNATTRIBUTABLE"`); dedup; sentinel-excluded case (gap-driven demote whose staged row also carries a sentinel → `reviewCodes` has the gap class, NOT the sentinel invariant). Reference the two tokens by imported symbol.
 
 **GREEN:**
-- `lib/onboarding/rescanReviewCode.ts`: add `export const PRIOR_PARSE_UNREADABLE = "PRIOR_PARSE_UNREADABLE" as const;` and `export const PRIOR_APPROVER_UNATTRIBUTABLE = "PRIOR_APPROVER_UNATTRIBUTABLE" as const;` with a comment explaining they are telemetry-diagnostic reason tokens (scanner-invisible file by design; see spec §4.2).
-- `lib/onboarding/applyRescanDecisionUnderLock.ts`: `RescanDecisionOutcome` `dirty_demoted` → `{ kind:"dirty_demoted"; changed:boolean; reviewCodes:string[] }`. In the dirty block, build `reviewCodes` (deduped, order-stable Set) = `decisionItems.map(i=>i.invariant)` ++ `regressedGapClasses` ++ conditional `PRIOR_PARSE_UNREADABLE` / `PRIOR_APPROVER_UNATTRIBUTABLE`. Requires capturing `regressedGapClasses` from the `computeRescanDecision` destructure and the two clause booleans. Return it on the variant. **Do NOT include `sentinelItems`.**
+- `lib/onboarding/rescanReviewCode.ts`: add `export const PRIOR_PARSE_UNREADABLE = "PRIOR_PARSE_UNREADABLE" as const;` and `export const PRIOR_APPROVER_UNATTRIBUTABLE = "PRIOR_APPROVER_UNATTRIBUTABLE" as const;` with a comment: telemetry-diagnostic reason tokens (scanner-invisible file by design; see spec §4.2).
+- `lib/onboarding/applyRescanDecisionUnderLock.ts`: `RescanDecisionOutcome` `dirty_demoted` → `{ kind:"dirty_demoted"; changed:boolean; reviewCodes:string[] }`. At the `computeRescanDecision` call (`:279-283`) destructure `regressedGapClasses` too. In the dirty block (`:298-311`) build `reviewCodes` (deduped, order-stable `Set`) = `decisionItems.map(i=>i.invariant)` ++ `regressedGapClasses` ++ conditional `PRIOR_PARSE_UNREADABLE` (when `prior.priorReady && prior.priorParse===null`) / `PRIOR_APPROVER_UNATTRIBUTABLE` (when `prior.priorReady && prior.priorApprovedByEmail===null`). Return it on the variant. **Do NOT include `sentinelItems`.**
 
-**Guard:** re-run `no-raw-codes.test.ts` — must stay green (proves scanner-invisibility).
+**Green gate before commit:** `pnpm typecheck` + `applyRescanDecisionUnderLock.test.ts` + `finalizeInlineRescan.test.ts` + `rescanCheckpointReopen.test.ts` + `no-raw-codes.test.ts` (scanner-invisibility) all green.
 
 Commit: `feat(onboarding): dirty_demoted carries causal reviewCodes`.
 
 ## Task 3 — thread `reviewCodes` through `RescanResult`
 
-**RED/compile-fix** (`tests/onboarding/rescanWizardSheet.db.test.ts`, `rescanWizardSheetFlowB.db.test.ts`, `_finalizeFake.ts`, `finalizeInlineRescan.test.ts`, `rescanCheckpointReopen.test.ts`): re-grep exact sites first (see pre-draft note). Add a positive assertion in the DB tests: a demote path returns `reviewCodes` with the expected cause; a clean path returns `reviewCodes: []`.
+**Per-task-green rule (plan R1 finding 2):** `RescanResult.updated` gains a REQUIRED `reviewCodes` field. Fix EVERY `RescanResult`-typed / exact-`toEqual` site IN THIS COMMIT. Complete site list (verified live):
+- Source: `lib/onboarding/rescanWizardSheet.ts:27` (union) + mapping `:266` (dirty → `outcome.reviewCodes`), `:269`,`:272` (clean → `[]`).
+- `tests/api/rescanSheetRoute.test.ts`: typed `rescanMock(result: RescanResult)` `:37`; INPUT `RescanResult` literals `:51,74,96,113`; `test.each<[RescanResult,…]>` inputs `:129,133`. **The EXPECTED mapResult JSON (`:130,134` and the per-case `toEqual` targets) stays WITHOUT `reviewCodes`** — mapResult is unchanged; this positively proves `reviewCodes` never leaks to the client JSON (anti-tautology bonus).
+- `tests/onboarding/rescanWizardSheet.db.test.ts`: exact `toEqual` `:361,407,439,585,640` (add expected `reviewCodes`); `let result: RescanResult` `:536`.
+- `tests/onboarding/rescanWizardSheetFlowB.db.test.ts:516` (exact `toEqual`).
+- NOT affected: `rescanCheckpointReopen.test.ts:96,106` (`toMatchObject`, partial); component/e2e/JSON-mock `status:"updated"` sites (`RescanSheetButton.test.tsx`, `step3ReviewModal.transitions.test.tsx`, `Step3ReviewModal.test.tsx`, `_step3ReviewModalLiveEntry.tsx`, `adminOutcomeBehavior.test.ts:1599`, `pullSheetOverrideRoute.test.ts:63`, `mapRoleTokenStagedAction.test.ts`) — none typed as `RescanResult`.
 
-**GREEN** (`lib/onboarding/rescanWizardSheet.ts`): `RescanResult.updated` → add `reviewCodes: string[]`. Map: `dirty_demoted` → `reviewCodes: outcome.reviewCodes`; `clean_restamped`/`clean_unchecked` → `reviewCodes: []`. Update every broken `toEqual`/literal-construction site to include the field.
+**RED:** in the DB tests add a positive assertion — a demote path returns `reviewCodes` with the expected cause; a clean path returns `reviewCodes: []`.
+
+**GREEN** (`lib/onboarding/rescanWizardSheet.ts`): union + mapping per the list above.
 
 **Failure mode caught:** required-field addition silently missed at a construction site → typecheck/exact-assertion breakage.
+
+**Green gate before commit:** `pnpm typecheck` + `rescanSheetRoute.test.ts` + `rescanWizardSheet.db.test.ts` + `rescanWizardSheetFlowB.db.test.ts` green.
 
 Commit: `feat(onboarding): RescanResult.updated carries reviewCodes`.
 
 ## Task 4 — route emit enrichment
 
-**RED** (`tests/api/rescanSheetRoute.test.ts` and/or `tests/api/admin/onboardingMutations-telemetry.test.ts`): sink-spy asserts the `SHEET_RESCANNED` emit's `context` carries `demoted`, `changed`, `needsReview`, `reviewCodes` with the exact values from a demote result and from a clean result (`reviewCodes:[]`). Assert against the sink record, not `mapResult`.
+No type change (Task 3 already made `rescanSheetRoute.test.ts` compile). This task adds behavior + its assertion.
 
-**GREEN** (`app/api/admin/onboarding/rescan-sheet/route.ts`): add `extra: { demoted: result.demoted, changed: result.changed, needsReview: result.needsReview, reviewCodes: result.reviewCodes }` to the existing `logAdminOutcome` call. `mapResult` unchanged.
+**RED** (`tests/api/admin/onboardingMutations-telemetry.test.ts` — update the `:41` mock to return `demoted` + `reviewCodes`; and/or `tests/api/rescanSheetRoute.test.ts`): sink-spy asserts the `SHEET_RESCANNED` emit's `context` carries `demoted`, `changed`, `needsReview`, `reviewCodes` with the exact values from a demote result (`reviewCodes` = the cause) and from a clean result (`reviewCodes:[]`). Assert against the sink record, NOT `mapResult`.
 
-**Guard:** `adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` stay green.
+**GREEN** (`app/api/admin/onboarding/rescan-sheet/route.ts`): add `extra: { demoted: result.demoted, changed: result.changed, needsReview: result.needsReview, reviewCodes: result.reviewCodes }` to the existing `logAdminOutcome` call (`:118`). `mapResult` unchanged.
+
+**Green gate before commit:** touched telemetry test + `adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` green.
 
 Commit: `feat(admin): SHEET_RESCANNED emit carries the rescan decision`.
 
