@@ -120,6 +120,15 @@ export async function handleRescanSheet(
         source: "api.admin.onboarding.rescan-sheet",
         driveFileId,
         wizardSessionId,
+        // The rescan decision, so a false "Sheet changed" demote is queryable from
+        // telemetry alone (spec 2026-07-17). `reviewCodes` names the demote cause(s);
+        // `[]` on a clean re-stage. Non-PII scalars/enum tokens — safe in `extra`.
+        extra: {
+          demoted: result.demoted,
+          changed: result.changed,
+          needsReview: result.needsReview,
+          reviewCodes: result.reviewCodes,
+        },
       });
     } catch {
       /* best-effort */

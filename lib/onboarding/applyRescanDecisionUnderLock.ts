@@ -7,7 +7,11 @@ import {
 } from "@/lib/sync/runOnboardingScan";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { computeRescanDecision } from "@/lib/onboarding/rescanDecision";
-import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
+import {
+  PRIOR_APPROVER_UNATTRIBUTABLE,
+  PRIOR_PARSE_UNREADABLE,
+  RESCAN_REVIEW_REQUIRED,
+} from "@/lib/onboarding/rescanReviewCode";
 import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
 import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
@@ -48,7 +52,7 @@ export type RescanDecisionOutcome =
   | { kind: "superseded" }
   | { kind: "hard_failed"; code: string }
   | { kind: "not_staged"; code: string }
-  | { kind: "dirty_demoted"; changed: boolean }
+  | { kind: "dirty_demoted"; changed: boolean; reviewCodes: string[] }
   | { kind: "clean_restamped"; changed: boolean } // previously-ready → approval re-stamped
   | { kind: "clean_unchecked"; changed: boolean }; // not previously-ready → left unapproved
 
@@ -276,7 +280,7 @@ export async function applyRescanDecisionUnderLock(
   );
 
   // (c) clean rule (§6).
-  const { dirty, decisionItems } = computeRescanDecision(
+  const { dirty, decisionItems, regressedGapClasses } = computeRescanDecision(
     prior.priorParse,
     refreshedParse,
     prior.priorDataGaps,
@@ -299,6 +303,19 @@ export async function applyRescanDecisionUnderLock(
     // DIRTY → demote-shaped block (spec §6.1): truly blocks finalize via
     // last_finalize_failure_code, and carries the decision items for the reapply surface.
     const triggered = [...sentinelItems, ...decisionItems];
+    // The CAUSAL drivers of this demote, for telemetry (spec 2026-07-17 §4.2). Sentinels are
+    // NOT causes (they never enter `isDirty`) → excluded; only the crew-change invariant(s),
+    // the regressed non-ambiguity gap class(es), and the two corrupt-prior clauses. Deduped,
+    // order-stable (invariant → gap → prior-reason). Never empty on a demote (each `isDirty`
+    // driver contributes ≥1 token).
+    const reviewCodes = [
+      ...decisionItems.map((i) => i.invariant),
+      ...regressedGapClasses,
+      ...(prior.priorReady && prior.priorParse === null ? [PRIOR_PARSE_UNREADABLE] : []),
+      ...(prior.priorReady && prior.priorApprovedByEmail === null
+        ? [PRIOR_APPROVER_UNATTRIBUTABLE]
+        : []),
+    ];
     await tx.unsafe(
       `update public.pending_syncs
           set wizard_approved = false, wizard_approved_by_email = null, wizard_approved_at = null,
@@ -307,7 +324,7 @@ export async function applyRescanDecisionUnderLock(
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, driveFileId, RESCAN_REVIEW_REQUIRED, triggered],
     );
-    return { kind: "dirty_demoted", changed };
+    return { kind: "dirty_demoted", changed, reviewCodes: [...new Set(reviewCodes)] };
   }
 
   if (prior.priorReady) {

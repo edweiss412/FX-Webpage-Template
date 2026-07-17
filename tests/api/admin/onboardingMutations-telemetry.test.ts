@@ -34,13 +34,15 @@ describe("rescan-sheet telemetry", () => {
       body: JSON.stringify({ driveFileId: "df-1", wizardSessionId: WID }),
     });
 
-  test("status=updated → SHEET_RESCANNED (driveFileId + wizardSessionId)", async () => {
+  test("clean update → SHEET_RESCANNED carries the decision (demoted=false, reviewCodes=[])", async () => {
     const sink = capture();
     const res = await handleRescanSheet(req(), {
       rescanWizardSheet: (async () => ({
         status: "updated",
         needsReview: false,
         changed: true,
+        demoted: false,
+        reviewCodes: [],
       })) as never,
     });
     expect(res.status).toBe(200);
@@ -48,6 +50,31 @@ describe("rescan-sheet telemetry", () => {
     expect(rec).toHaveLength(1);
     expect(rec[0]!.driveFileId).toBe("df-1");
     expect(rec[0]!.context.wizardSessionId).toBe(WID);
+    // Decision context — the whole point (spec 2026-07-17): a clean rescan STILL emits,
+    // with reviewCodes:[] (empty, not absent) so demoted=false is queryable.
+    expect(rec[0]!.context.demoted).toBe(false);
+    expect(rec[0]!.context.changed).toBe(true);
+    expect(rec[0]!.context.needsReview).toBe(false);
+    expect(rec[0]!.context.reviewCodes).toEqual([]);
+  });
+
+  test("demote update → SHEET_RESCANNED carries demoted=true + the causing reviewCodes", async () => {
+    const sink = capture();
+    const res = await handleRescanSheet(req(), {
+      rescanWizardSheet: (async () => ({
+        status: "updated",
+        needsReview: true,
+        changed: false,
+        demoted: true,
+        reviewCodes: ["PULL_SHEET_ON_ARCHIVED_TAB"],
+      })) as never,
+    });
+    expect(res.status).toBe(200);
+    const rec = sink.filter((r) => r.code === "SHEET_RESCANNED");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]!.context.demoted).toBe(true);
+    expect(rec[0]!.context.needsReview).toBe(true);
+    expect(rec[0]!.context.reviewCodes).toEqual(["PULL_SHEET_ON_ARCHIVED_TAB"]);
   });
 
   test("non-updated (busy) → NO SHEET_RESCANNED", async () => {

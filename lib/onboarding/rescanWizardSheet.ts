@@ -24,7 +24,14 @@ import {
  * invariant 5).
  */
 export type RescanResult =
-  | { status: "updated"; needsReview: boolean; changed: boolean; demoted: boolean }
+  | {
+      status: "updated";
+      needsReview: boolean;
+      changed: boolean;
+      demoted: boolean;
+      /** Causal driver(s) of a demote (spec 2026-07-17 §4.3). `[]` on a clean re-stage. */
+      reviewCodes: string[];
+    }
   | { status: "needs_attention"; code: string }
   | { status: "busy"; code: "CONCURRENT_FINALIZE_IN_FLIGHT" }
   // §5.7/I5a locked-snapshot protocol: the pre-lock parse was produced under an override that
@@ -263,13 +270,31 @@ export async function rescanWizardSheet(
         return { status: "superseded" };
       case "dirty_demoted":
         await reopenCompletedCheckpoint();
-        return { status: "updated", needsReview: true, changed: outcome.changed, demoted: true };
+        return {
+          status: "updated",
+          needsReview: true,
+          changed: outcome.changed,
+          demoted: true,
+          reviewCodes: outcome.reviewCodes,
+        };
       case "clean_restamped":
         await reopenCompletedCheckpoint();
-        return { status: "updated", needsReview: false, changed: outcome.changed, demoted: false };
+        return {
+          status: "updated",
+          needsReview: false,
+          changed: outcome.changed,
+          demoted: false,
+          reviewCodes: [],
+        };
       case "clean_unchecked":
         await reopenCompletedCheckpoint();
-        return { status: "updated", needsReview: true, changed: outcome.changed, demoted: false };
+        return {
+          status: "updated",
+          needsReview: true,
+          changed: outcome.changed,
+          demoted: false,
+          reviewCodes: [],
+        };
     }
   });
 }

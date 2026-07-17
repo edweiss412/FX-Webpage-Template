@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { applyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
+import {
+  PRIOR_APPROVER_UNATTRIBUTABLE,
+  PRIOR_PARSE_UNREADABLE,
+} from "@/lib/onboarding/rescanReviewCode";
 import type { PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import type { OnboardingScanResult, PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -239,7 +243,11 @@ describe("applyRescanDecisionUnderLock", () => {
       },
       { scanOnboardingPreparedFiles: stagedScan },
     );
-    expect(out).toEqual({ kind: "dirty_demoted", changed: true });
+    expect(out).toEqual({
+      kind: "dirty_demoted",
+      changed: true,
+      reviewCodes: [PRIOR_APPROVER_UNATTRIBUTABLE],
+    });
     // MUST NOT attempt an approved=true write with a null approver (the CHECK would 500).
     expect(
       calls.some((c) => /wizard_approved\s*=\s*true/i.test(c.sql)),
@@ -306,7 +314,7 @@ describe("applyRescanDecisionUnderLock", () => {
       },
       { scanOnboardingPreparedFiles: stagedScan },
     );
-    expect(out).toEqual({ kind: "dirty_demoted", changed: true });
+    expect(out).toEqual({ kind: "dirty_demoted", changed: true, reviewCodes: ["MI-12"] });
 
     const demote = calls.find(
       (c) =>
@@ -463,5 +471,103 @@ describe("applyRescanDecisionUnderLock", () => {
     );
     expect(out).toEqual({ kind: "not_staged", code: expect.any(String) });
     expect(onShadowDeleted).not.toHaveBeenCalled();
+  });
+});
+
+// Telemetry cause (spec 2026-07-17 §4.2): every dirty_demoted carries `reviewCodes` naming
+// the CAUSAL driver(s) — crew invariant(s), regressed gap class(es), and/or the corrupt-prior
+// reasons — deduped, sentinels EXCLUDED. This is what makes a false "Sheet changed" demote
+// diagnosable from `pnpm observe` instead of a DB probe.
+describe("applyRescanDecisionUnderLock — dirty_demoted reviewCodes", () => {
+  const archivedTab: ParseWarning[] = [
+    { severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB", message: "pull sheet on OLD tab" },
+  ];
+  const reviewCodesOf = (out: unknown): string[] => {
+    expect(out).toMatchObject({ kind: "dirty_demoted" });
+    return (out as { reviewCodes: string[] }).reviewCodes;
+  };
+
+  // Failure mode: a gap-driven demote with no machine-readable cause (the exact PR #410
+  // shape when the baseline IS present). Also proves sentinels are NOT a reviewCodes cause:
+  // makeTx's staged readback always carries a sentinel MI-2, which must NOT appear.
+  test("gap regression (present baseline, PULL_SHEET_ON_ARCHIVED_TAB 0→1) → gap class, sentinel excluded", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE, // present baseline, this class at 0
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], archivedTab);
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(refreshed),
+        refreshedParse: refreshed,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    const rc = reviewCodesOf(out);
+    expect(rc).toContain("PULL_SHEET_ON_ARCHIVED_TAB");
+    expect(rc).not.toContain("MI-2"); // sentinel — persisted, but NOT a cause
+  });
+
+  // Failure mode: a corrupt-prior demote (previously-ready, prior parse unreadable) with no
+  // cause token — indistinguishable in telemetry from a content regression.
+  test("corrupt prior (priorReady + null parse) → PRIOR_PARSE_UNREADABLE", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true, // priorReady
+      wizard_approved_by_email: "ada@x.example", // attributable → only the parse clause fires
+      parse_result: null, // unreadable prior
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }]);
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(refreshed),
+        refreshedParse: refreshed,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    expect(reviewCodesOf(out)).toEqual([PRIOR_PARSE_UNREADABLE]);
+  });
+
+  // Union + dedup: a crew change (MI-11 email) AND a gap regression co-occur → both named,
+  // once each. Proves reviewCodes is a real union, not a single-cause overwrite.
+  test("MI-11 email change + gap regression → both causes, deduped", async () => {
+    const { tx } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: "ada@x.example",
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const refreshed = makeParse(
+      [{ name: "Ada Lovelace", email: "ada-new@x.example" }],
+      archivedTab,
+    );
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(refreshed),
+        refreshedParse: refreshed,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    const rc = reviewCodesOf(out);
+    expect(rc).toContain("MI-11");
+    expect(rc).toContain("PULL_SHEET_ON_ARCHIVED_TAB");
+    expect(rc).toHaveLength(2); // no duplicates, no sentinel
   });
 });

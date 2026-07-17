@@ -456,7 +456,7 @@ export function dirtyInlineCore(
     }
     db.manifestStatuses.set(input.driveFileId, "staged");
     db.demoted.push({ driveFileId: input.driveFileId, code: "RESCAN_REVIEW_REQUIRED" });
-    return { kind: "dirty_demoted", changed: true };
+    return { kind: "dirty_demoted", changed: true, reviewCodes: ["MI-12"] };
   }) as NonNullable<FinalizeRouteDeps["applyRescanDecisionUnderLock"]>;
 }
 

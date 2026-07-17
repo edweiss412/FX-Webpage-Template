@@ -31,7 +31,7 @@ export function computeRescanDecision(
   priorParse: ParseResult | null,
   refreshedParse: ParseResult,
   priorDataGaps: DataGapsSummary | null,
-): { dirty: boolean; decisionItems: TriggeredReviewItem[] } {
+): { dirty: boolean; decisionItems: TriggeredReviewItem[]; regressedGapClasses: string[] } {
   const inv = runInvariants(priorParse, refreshedParse);
   const decisionItems =
     inv.outcome === "stage"
@@ -55,11 +55,20 @@ export function computeRescanDecision(
   // Only NON-ambiguity gap classes drive the dirty gate. Once priorGaps is non-null
   // it is a full-shape all-keys record (summarizeDataGaps ⇐ zeroClasses), so every
   // `priorGaps[cls]` is a number — no `?? 0` fallback needed.
-  const gapRegressed =
-    priorGaps != null &&
-    (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
-      (cls) => !isAmbiguityCode(cls) && newGaps[cls] > priorGaps[cls],
-    );
+  // The NON-AMBIGUITY gap classes that regressed (count increased vs a PRESENT baseline).
+  // Named — not a bare boolean — so a demote's cause is machine-readable in telemetry
+  // (`reviewCodes`, spec §4). A null baseline yields `[]` (not comparable; see above), so
+  // `regressedGapClasses.length > 0` is exactly the prior `gapRegressed` predicate.
+  const regressedGapClasses: string[] =
+    priorGaps == null
+      ? []
+      : (Object.keys(newGaps) as Array<keyof typeof newGaps>).filter(
+          (cls) => !isAmbiguityCode(cls) && newGaps[cls] > priorGaps[cls],
+        );
 
-  return { dirty: decisionItems.length > 0 || gapRegressed, decisionItems };
+  return {
+    dirty: decisionItems.length > 0 || regressedGapClasses.length > 0,
+    decisionItems,
+    regressedGapClasses,
+  };
 }

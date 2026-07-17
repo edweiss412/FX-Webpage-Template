@@ -517,6 +517,7 @@ describe("rescanWizardSheet — Flow B blocker heal (real DB, end-to-end)", () =
         needsReview: false,
         changed: true,
         demoted: false,
+        reviewCodes: [],
       });
 
       // Orphan shadow deleted; a fresh approved pending row re-stamped with base == CURRENT live.

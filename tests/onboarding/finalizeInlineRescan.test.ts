@@ -103,7 +103,11 @@ describe("finalize inline re-parse on modtime drift (Thread 3)", () => {
   it("DIRTY genuine content change: returns RESCAN_REVIEW_REQUIRED, does not publish", async () => {
     const db = seededDb();
     const fakeCore = vi.fn(
-      async (): Promise<RescanDecisionOutcome> => ({ kind: "dirty_demoted", changed: true }),
+      async (): Promise<RescanDecisionOutcome> => ({
+        kind: "dirty_demoted",
+        changed: true,
+        reviewCodes: ["MI-12"],
+      }),
     );
 
     const res = await handleOnboardingFinalize(
