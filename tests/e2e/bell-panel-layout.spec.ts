@@ -109,7 +109,7 @@
  *     (+ `isWatch` retry form, `entry.action` link)
  *       → instant conditional content. Tested: HERE (SYNC_DELAYED_SEVERE is
  *         non-health/non-auto → Resolve renders) + unit for the other arms.
- *   - `OccurrenceChip` (`occurrences <= 1 ? null`), `IdentityLine`
+ *   - `OccurrenceChip` repeat-chip (`occurrences <= 1 ? null`), `IdentityChip`
  *     (`text ? … : null`), `HistoryRow` (`resolved ? … : null`),
  *     `DevFooter` bounds (`boundsError ? … : null`)
  *       → instant. Tested: unit / route.
@@ -308,11 +308,12 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     const dot = page.getByTestId(`bell-unread-dot-${id}`);
     const toggle = page.getByTestId(`bell-entry-toggle-${id}`);
 
-    // DI-4 (redesign): the severity icon-circle is a fixed 34×34 box that never
-    // shrinks in the row flex; the unread pip (the dot) rides its top-right corner.
+    // DI-4 (Quiet-rail redesign): the severity glyph is a fixed 18×18 on-surface
+    // stroke icon (no fill circle) that never shrinks in the row flex; the unread
+    // pip (the dot) rides its top-right corner.
     const sev = await rectOf(page.getByTestId(`bell-sev-${id}`));
-    expect(Math.abs(sev.width - 34), "severity circle width 34px").toBeLessThanOrEqual(TOL);
-    expect(Math.abs(sev.height - 34), "severity circle height 34px").toBeLessThanOrEqual(TOL);
+    expect(Math.abs(sev.width - 18), "severity glyph width 18px").toBeLessThanOrEqual(TOL);
+    expect(Math.abs(sev.height - 18), "severity glyph height 18px").toBeLessThanOrEqual(TOL);
 
     // BEFORE the read gesture: dot is a fixed 8×8 box and is visible (opacity 1).
     const dotBefore = await rectOf(dot);
