@@ -83,21 +83,26 @@ The durable override is reduced to an `OverrideSnapshot` (`{ tabName, fingerprin
 | Hop | File:symbol | Change |
 | --- | --- | --- |
 | F1 | `ShowReviewSurface.tsx` props (`:142`) | Add optional `isPublishRunActive?: boolean` (default `false`). |
-| F2 | `Step3ReviewModal.tsx:167` renders `<ShowReviewSurface …>` (`:55`/`:122` import) | Pass `isPublishRunActive={isPublishRunActive}` (the modal already holds it — `:79`,`:167`). |
+| F2 | `Step3ReviewModal.tsx:715` renders `<ShowReviewSurface …>` (`:55`/`:122` import; the resolved `isPublishRunActive` flag is computed at `:167`) | Pass `isPublishRunActive={isPublishRunActive}` (the modal already holds it — `:79`,`:167`). |
 | F3 | `PublishedReviewPage.tsx:188` renders `<ShowReviewSurface layout="page">` | Omit the prop → default `false` (published never shows S5). |
 | F4 | `ShowReviewSurface.tsx` around the section render (`:819`) | Provide a new `Step3RunStateContext` (`{ isPublishRunActive }`, default `{ isPublishRunActive: false }`) wrapping the `{s.render(data)}` region — mirrors the existing `Step3SectionChromeContext` pattern in `step3ReviewSections.tsx`. |
 | F5 | `step3ReviewSections.tsx` `PackListBreakdown` | `const { isPublishRunActive } = useContext(Step3RunStateContext);` and pass `disabled={isPublishRunActive}` to the S5 `RescanSheetButton`. The local variable MUST be named `isPublishRunActive` so the extended freeze meta-test (§5) matches the literal `disabled={isPublishRunActive}`. |
 
-**Coercer (hop 4).** The loader must not trust raw jsonb. Introduce one exported, validated reducer in `lib/sync/pullSheetOverride.ts`:
+**Coercer (hop 4) — MUST agree with finalize's durable-override validation (Codex R4 P2).** The durable `pending_syncs.pull_sheet_override` column stores the **full audit shape** `{tabName, fingerprint, acceptedBy, acceptedAt}` (written by the `set_pull_sheet_override` RPC), and finalize accepts it as a valid override ONLY when all four are present strings — `coercePullSheetOverride` (`finalize/route.ts:290`). If Step-3 treated a partial `{tabName, fingerprint}` as an active override while finalize treats it as `null`, "override active" would mean two different things across the two surfaces. So the loader reducer MUST use the SAME full-shape validator, then reduce to the snapshot:
 
-```ts
-/** Reduce an untyped `*.pull_sheet_override` jsonb value to an OverrideSnapshot.
- *  Returns null unless the value is an object with string `tabName` AND string
- *  `fingerprint`. Audit fields (acceptedBy/acceptedAt) are dropped (§5.8). */
-export function coerceOverrideSnapshotFromRow(value: unknown): OverrideSnapshot
-```
+1. **Extract** `coercePullSheetOverride` from `finalize/route.ts:290` into `lib/sync/pullSheetOverride.ts` as an exported function (single source of truth), and re-import it in `finalize/route.ts` (drop the local copy — the existing finalize tests cover it). `coerceOverrideSnapshot` (`finalize/route.ts:309`, the reduced-shape validator for the `*_applied` column) stays where it is; it is a different column's validator.
+2. **Define** the loader reducer as the composition:
+   ```ts
+   /** Reduce an untyped pending_syncs.pull_sheet_override jsonb value to an
+    *  OverrideSnapshot, using the SAME full-audit-shape validation finalize uses,
+    *  then dropping the audit fields (§5.8). Partial/absent shape → null, so
+    *  Step-3 "override active" agrees exactly with the finalize gate. */
+   export const coerceOverrideSnapshotFromRow = (value: unknown): OverrideSnapshot =>
+     overrideSnapshot(coercePullSheetOverride(value));
+   ```
+   (`overrideSnapshot` is `lib/sync/pullSheetOverride.ts:30`.)
 
-This mirrors the local `coercePullSheetOverride` + `coerceOverrideSnapshot` pair in `finalize/route.ts:290,309` but lives in the shared lib so the loader has one validated entry point. (The finalize route's local copies are left untouched — consolidating them is out of scope; a `BACKLOG.md` note may record the future DRY.)
+Net effect: a durable value missing `acceptedBy`/`acceptedAt` reduces to `null` in Step-3 exactly as it does at finalize — no split-brain on override validity.
 
 ### 3.2 Divergence detection — snapshot equality
 
@@ -167,7 +172,7 @@ Guard: S5 only renders when `dfid != null && wizardSessionId != null` (both are 
 | `archivedPullSheetTabs` | `[]` | `previewSnapshot = null`; divergent iff durable set → S5; else S1/normal. |
 | `wizardSessionId` | absent (published mode) | `staged = false`; `divergent = false` always; no affordance, no S5 (published packlist is display-only). |
 | `dfid` | `null` in staged (defensive) | S5 renders nothing (no crash); cases still render. |
-| jsonb `pull_sheet_override` | malformed / non-object | `coerceOverrideSnapshotFromRow` → `null` (treated as no override). |
+| jsonb `pull_sheet_override` | malformed / non-object / partial (missing `acceptedBy` or `acceptedAt`) | `coerceOverrideSnapshotFromRow` → `null` (treated as no override — identical to finalize's `coercePullSheetOverride`, §3.1 hop 4). |
 
 ### 3.6 Published mode
 
@@ -195,7 +200,7 @@ Without §4.1b, an implementation can be green on §4.1/§4.2/§4.3 and still le
 
 ### 4.2 Unit — `coerceOverrideSnapshotFromRow`
 
-Table: valid object → snapshot; missing/blank `tabName` or `fingerprint` → null; non-object → null; extra keys ignored; audit fields dropped.
+Table (asserts parity with finalize's full-shape contract, Codex R4 P2): full audit shape `{tabName, fingerprint, acceptedBy, acceptedAt}` all strings → `{tabName, fingerprint}` snapshot; **missing `acceptedBy` OR `acceptedAt` → null** (matches `coercePullSheetOverride`); non-string `tabName`/`fingerprint` → null; non-object / array / null → null; extra keys ignored. Add/keep a parity assertion that `coerceOverrideSnapshotFromRow(v)` is `overrideSnapshot(coercePullSheetOverride(v))` for a representative set (so the extraction can't drift from finalize's validator).
 
 ### 4.3 Component — `PackListBreakdown` state machine
 
@@ -248,7 +253,7 @@ The S5 recovery block is new UI. Render it in the real-browser harness (mirrors 
 3. **Snapshot equality, not boolean** — chosen to catch the tab-swap case (§3.2). Ratified by the user before spec.
 4. **S5 vs S4 non-collision is structural** (§3.2): `discardAndRerun` nulls the durable override in-tx, so content-changed is always `null==null` (not divergent). Case (f) pins this.
 5. **`overrideActive` prop is removed** from `PackListBreakdown` and replaced by `pullSheetOverride: OverrideSnapshot`. All call sites (one prod render + tests) migrate.
-6. **No DB / no lock / no route / no RPC change** — the fix is entirely in the read + render layer.
+6. **No DB / no lock / no RPC / no route-behavior change** — the fix is in the read + render layer. The one `finalize/route.ts` edit is a pure refactor: extract `coercePullSheetOverride` to the lib and re-import it (identical logic, existing finalize tests still cover it). No finalize behavior changes.
 7. **S5 `RescanSheetButton` freezes on `isPublishRunActive`** (§3.4, hops F1–F5) — honoring the existing Step-3 publish-run freeze contract + extending its meta-test (§5). The sibling archived-tab accept/revoke buttons (`ArchivedTabOffer`/`ArchivedTabIncludedNote`) are **deliberately NOT** brought under the freeze contract here — that contract is `RescanSheetButton`-specific, and expanding it to the accept/revoke affordances is out of scope (would relitigate a pre-existing boundary). S5 introduces a `RescanSheetButton`, which the contract already governs everywhere it renders.
 
 ---
@@ -257,5 +262,5 @@ The S5 recovery block is new UI. Render it in the real-browser harness (mirrors 
 
 - States in the pack-list region: **5** (S1 empty, S2 offer, S3 included note, S4 re-confirm, **S5 divergent-recovery** new). §3.3 and §4.3 agree.
 - Override-snapshot threading hops: **10** (§3.1 first table). Freeze-flag threading hops: **5** (F1–F5, §3.1 second table).
-- Source files touched: `OnboardingWizard.tsx`, `Step3Review.tsx`, `Step3SheetCard.tsx`, `sectionData.ts`, `publishedAdapter.ts`, `step3ReviewSections.tsx`, `lib/sync/pullSheetOverride.ts` (new coercer), `ShowReviewSurface.tsx` (freeze prop + context), `Step3ReviewModal.tsx` (pass freeze prop) = **9 source files** (+ tests, the freeze meta-test extension, and `DEFERRED.md`/`BACKLOG.md`). (`PublishedReviewPage.tsx` omits the freeze prop — a default, not an edit; not counted.)
+- Source files touched: `OnboardingWizard.tsx`, `Step3Review.tsx`, `Step3SheetCard.tsx`, `sectionData.ts`, `publishedAdapter.ts`, `step3ReviewSections.tsx`, `lib/sync/pullSheetOverride.ts` (extracted `coercePullSheetOverride` + new `coerceOverrideSnapshotFromRow`), `app/api/admin/onboarding/finalize/route.ts` (re-import the extracted coercer, drop local copy), `ShowReviewSurface.tsx` (freeze prop + context), `Step3ReviewModal.tsx` (pass freeze prop) = **10 source files** (+ tests, the freeze meta-test extension, and `DEFERRED.md`/`BACKLOG.md`). (`PublishedReviewPage.tsx` omits the freeze prop — a default, not an edit; not counted.)
 - New `§12.4` codes: **0**. New DB columns: **0**. New advisory-lock holders: **0**. Structural meta-tests extended: **1** (`_metaStep3FreezeContract`).
