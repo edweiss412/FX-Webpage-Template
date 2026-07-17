@@ -79,10 +79,18 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
     const h0 = cells[0]!.height;
     for (const c of cells) expect(Math.abs(c.height - h0)).toBeLessThanOrEqual(TOL);
 
-    // Dashboard split: shows col ⟷ inbox col equal height (items-stretch).
+    // Dashboard split (≥1240 = CSS grid, items-start): the shows table (left row
+    // 1) and the inbox (right, spanning both rows) are top-aligned and
+    // side-by-side, and the Ignored-sheets disclosure (left row 2) sits TIGHT
+    // beneath the table — separated only by the grid's row gap (gap-y-3 = 12px),
+    // never by the taller inbox column's height. That "no gap under the table"
+    // relationship is the whole point of the grid-rows-[min-content_1fr] split.
+    const GRID_ROW_GAP = 12; // gap-y-3 = 0.75rem
     const shows = await rect(page, "dashboard-shows-col");
     const inbox = await rect(page, "dashboard-inbox-col");
-    expect(Math.abs(shows.height - inbox.height)).toBeLessThanOrEqual(TOL);
+    const ignored = await rect(page, "admin-ignored-sheets");
+    expect(Math.abs(inbox.top - shows.top)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(ignored.top - (shows.bottom + GRID_ROW_GAP))).toBeLessThanOrEqual(TOL);
     // Side-by-side on desktop (not stacked).
     expect(inbox.left).toBeGreaterThan(shows.left + 1);
 
