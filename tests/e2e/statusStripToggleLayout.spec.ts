@@ -240,14 +240,12 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     const toggle = await page.getByTestId("strip-publish-toggle").evaluate(box);
     const live = await page.getByTestId("strip-live-badge").evaluate(box);
     expect(dividerAt800.width, "divider has real width at ≥sm").toBeGreaterThan(0);
-    expect(
-      toggle.right,
-      "toggle sits left of the divider",
-    ).toBeLessThanOrEqual(dividerAt800.left + 0.5);
-    expect(
-      dividerAt800.right,
-      "divider sits left of the live badge",
-    ).toBeLessThanOrEqual(live.left + 0.5);
+    expect(toggle.right, "toggle sits left of the divider").toBeLessThanOrEqual(
+      dividerAt800.left + 0.5,
+    );
+    expect(dividerAt800.right, "divider sits left of the live badge").toBeLessThanOrEqual(
+      live.left + 0.5,
+    );
 
     // 390px: `hidden` (no sm) → display:none → no layout box (boundingBox() is null),
     // so the CASP-2 §8.10 mobile geometry is unchanged — no new element on the wrapped row.
