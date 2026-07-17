@@ -551,8 +551,32 @@ vi.mock("@/lib/async/deferPostResponse", () => ({
   deferPostResponse: (t: () => Promise<void>) => deferPostResponseMock(t),
 }));
 
+// Task 8 — `action: "rebuild"` is NOT injectable for its Drive-fetch seam (only
+// requireAdminIdentity/prepareOnboardingFiles/scanOnboardingPreparedFiles are, per
+// ResolveBlockerRouteDeps), so fetchDriveFileMetadata is module-mocked here. Safe
+// file-wide: every OTHER route in this file that calls fetchDriveFileMetadata does so
+// through its OWN injectable dep (pending-ingestions retry's `fetchDriveFileMetadata`
+// dep at line ~2105, extract-agenda's `fetchMeta` dep at line ~3058) — neither relies
+// on the real module, so overriding it here cannot affect their assertions. Other
+// exports are passed through via importActual so lib/drive/list.ts's `withDriveRetry`
+// re-export (consumed transitively) keeps working.
+const resolveBlockerRebuildFetchMetaMock = vi.fn(async (driveFileId: string) => ({
+  driveFileId,
+  name: "Rebuild Sheet",
+  mimeType: "application/vnd.google-apps.spreadsheet",
+  modifiedTime: "2026-07-16T00:00:00.000Z",
+  parents: ["admin-outcome-resolve-blocker-folder"],
+}));
+vi.mock("@/lib/drive/fetch", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/drive/fetch")>()),
+  fetchDriveFileMetadata: (...a: [string]) => resolveBlockerRebuildFetchMetaMock(...a),
+}));
+
 import postgres from "postgres";
 import { handleResolveBlocker } from "@/app/api/admin/onboarding/resolve-blocker/route";
+import type { ParseResult } from "@/lib/parser/types";
+import type { PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
+import type { DriveListedFile } from "@/lib/drive/list";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -3542,7 +3566,8 @@ try {
   resolveBlockerSql = probe;
   resolveBlockerDbUp = true;
 } catch {
-  if (resolveBlockerSql) await (resolveBlockerSql as ReturnType<typeof postgres>).end().catch(() => {});
+  if (resolveBlockerSql)
+    await (resolveBlockerSql as ReturnType<typeof postgres>).end().catch(() => {});
   resolveBlockerSql = null;
   resolveBlockerDbUp = false;
 }
@@ -3618,8 +3643,9 @@ describe("Task 7 — resolve-blocker unarchive route observes success only", () 
     await rbCleanup();
   });
   afterAll(async () => {
+    // NOTE: does NOT end `resolveBlockerSql` — it's a shared module-scoped connection the
+    // Task 8 describe below (same file) also uses; that block's afterAll owns the close.
     if (resolveBlockerDbUp) await rbCleanup();
-    if (resolveBlockerSql) await resolveBlockerSql.end().catch(() => {});
   });
 
   test.skipIf(!resolveBlockerDbUp)(
@@ -3674,6 +3700,355 @@ describe("Task 7 — resolve-blocker unarchive route observes success only", () 
         expect(await res.clone().json()).toEqual({ ok: false, status: "not_currently_blocked" });
       });
       expect(failCodes).not.toContain("ONBOARDING_BLOCKER_UNARCHIVED");
+      expect(resolveBlockerDeferredTasks.length).toBe(0);
+    },
+  );
+});
+
+// ── Task 8 — resolve-blocker rebuild fixtures ────────────────────────────────
+const RB_REBUILD_CLAIMED_CODE = "STAGED_REVIEW_ITEMS_CORRUPT";
+const RB_REBUILD_PRIOR_MODTIME = "2026-06-01T00:00:00.000Z";
+
+function rbRebuildParse(crew: Array<{ name: string; email: string }>): ParseResult {
+  return {
+    show: {
+      title: "Rebuild Behavior Fixture",
+      client_label: "Client",
+      client_contact: null,
+      template_version: "v4",
+      venue: null,
+      dates: {
+        travelIn: "2026-05-07",
+        set: "2026-05-08",
+        showDays: ["2026-05-09"],
+        travelOut: "2026-05-10",
+      },
+      schedule_phases: {},
+      event_details: {},
+      agenda_links: [],
+      coi_status: null,
+      po: "PO-1",
+      proposal: null,
+      invoice: null,
+      invoice_notes: null,
+    },
+    crewMembers: crew.map((c) => ({
+      name: c.name,
+      email: c.email,
+      phone: null,
+      role: "A1",
+      role_flags: [],
+      date_restriction: { kind: "none" },
+      stage_restriction: { kind: "none" },
+      flight_info: null,
+    })),
+    hotelReservations: [],
+    rooms: [
+      {
+        kind: "ballroom",
+        name: "Main",
+        dimensions: null,
+        floor: null,
+        setup: null,
+        set_time: null,
+        show_time: null,
+        strike_time: null,
+        audio: null,
+        video: null,
+        lighting: null,
+        scenic: null,
+        power: null,
+        digital_signage: null,
+        other: null,
+        notes: null,
+      },
+    ],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
+  } as unknown as ParseResult;
+}
+
+const RB_REBUILD_PARSE_PRIOR = rbRebuildParse([{ name: "Ada", email: "ada@x.example" }]);
+
+function rbRebuildPreparedFor(
+  parse: ParseResult,
+): Extract<PreparedOnboardingFile, { kind: "sheet" }> {
+  return {
+    file: {
+      driveFileId: RB_DRIVE_FILE_ID,
+      name: "Rebuild Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-07-16T00:00:00.000Z",
+      parents: ["admin-outcome-resolve-blocker-folder"],
+    } as DriveListedFile,
+    kind: "sheet",
+    binding: {} as never,
+    parseResult: parse,
+    sourceAnchors: {},
+  };
+}
+
+/** Unlike `rbSeedActiveSession` (Task 7, no Drive pre-lock phase), rebuild's pre-lock phase
+ * reads `pending_folder_id` — absent it returns `no_active_session` before ever touching
+ * Drive/scan seams, so this session-seed ALSO stamps the folder id the mocked
+ * `fetchDriveFileMetadata`'s `parents` must match (the out-of-scope guard). */
+async function rbSeedRebuildActiveSession(session: string): Promise<void> {
+  await resolveBlockerSql!.unsafe(
+    `update public.app_settings
+        set pending_wizard_session_id = $1::uuid, pending_wizard_session_at = now(),
+            pending_folder_id = 'admin-outcome-resolve-blocker-folder'
+      where id = 'default'`,
+    [session],
+  );
+}
+
+/** A shadow row whose payload refuses with STAGED_REVIEW_ITEMS_CORRUPT (the
+ * `triggered_review_items` key absent — see lib/onboarding/shadowPayload.ts). */
+async function rbSeedRebuildShadow(
+  session: string,
+  driveFileId: string,
+  showId: string,
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    staged_id: "staged-1",
+    staged_modified_time: RB_REBUILD_PRIOR_MODTIME,
+    base_modified_time: null,
+    parse_result: RB_REBUILD_PARSE_PRIOR,
+  };
+  await resolveBlockerSql!.unsafe(
+    `insert into public.shows_pending_changes
+       (wizard_session_id, drive_file_id, show_id, payload, applied_by_email, applied_at_intent)
+     values ($1::uuid, $2, $3::uuid, $4, $5, now())`,
+    // postgres.js serializes a raw object for a jsonb column itself — never JSON.stringify
+    // (the double-encode class; see tests/onboarding/finalizeCasFullApply.db.test.ts:236).
+    [session, driveFileId, showId, payload, RB_ADMIN_EMAIL] as never[],
+  );
+}
+
+async function rbReadAttempts(session: string, driveFileId: string): Promise<number> {
+  const rows = (await resolveBlockerSql!.unsafe(
+    `select attempts from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [session, driveFileId],
+  )) as Array<{ attempts: number }>;
+  return rows[0]?.attempts ?? 0;
+}
+
+async function rbCleanupRebuild(driveFileId: string): Promise<void> {
+  if (!resolveBlockerSql) return;
+  await resolveBlockerSql
+    .unsafe(`delete from public.onboarding_rebuild_attempts where drive_file_id = $1`, [
+      driveFileId,
+    ])
+    .catch(() => {});
+  // pending_syncs has no FK/cascade to shows — rbCleanup()'s `delete from shows` does NOT
+  // reap these; the staged-outcome cases re-seed a prior row each iteration.
+  await resolveBlockerSql
+    .unsafe(`delete from public.pending_syncs where drive_file_id = $1`, [driveFileId])
+    .catch(() => {});
+}
+
+describe("Task 8 — resolve-blocker rebuild route observes every committed outcome", () => {
+  beforeEach(async () => {
+    resolveBlockerDeferredTasks.length = 0;
+    resolveBlockerRebuildFetchMetaMock.mockClear();
+    if (!resolveBlockerDbUp) return;
+    await rbCleanup();
+    await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+  });
+  afterAll(async () => {
+    if (resolveBlockerDbUp) {
+      await rbCleanup();
+      await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+    }
+    if (resolveBlockerSql) await resolveBlockerSql.end().catch(() => {});
+  });
+
+  test.skipIf(!resolveBlockerDbUp)(
+    "ONBOARDING_BLOCKER_REBUILT emits on every committed rebuild-initiated rescan (shadow-deleting AND shadow-retaining outcomes); never on escalated or not_currently_blocked",
+    async () => {
+      const runRebuild = (deps: {
+        prepareOnboardingFiles?: () => Promise<PreparedOnboardingFile[]>;
+        scanOnboardingPreparedFiles?: () => Promise<unknown>;
+      }) =>
+        handleResolveBlocker(
+          resolveBlockerReq({
+            wizardSessionId: RB_SESSION,
+            driveFileId: RB_DRIVE_FILE_ID,
+            code: RB_REBUILD_CLAIMED_CODE,
+            action: "rebuild",
+          }),
+          {
+            requireAdminIdentity: async () => ({ email: RB_ADMIN_EMAIL }),
+            ...deps,
+          } as never,
+        );
+
+      const scanReturning = (result: unknown) => async () => result;
+
+      // The four scan-level outcomes: only the corrupt shadow + manifest are needed
+      // (capturePriorState's result is never touched by these branches).
+      const scanLevel: Array<{ label: string; scan: unknown }> = [
+        {
+          label: "schema_missing",
+          scan: {
+            outcome: "schema_missing",
+            code: "WIZARD_ISOLATION_INDEXES_MISSING",
+            missingIndexes: [],
+          },
+        },
+        {
+          label: "superseded",
+          scan: {
+            outcome: "superseded",
+            code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+            processed: [],
+          },
+        },
+        {
+          label: "not_staged",
+          scan: {
+            outcome: "completed",
+            processed: [{ driveFileId: RB_DRIVE_FILE_ID, outcome: "skipped_non_sheet" }],
+          },
+        },
+        {
+          label: "hard_failed",
+          scan: {
+            outcome: "completed",
+            processed: [{ driveFileId: RB_DRIVE_FILE_ID, outcome: "hard_failed" }],
+          },
+        },
+      ];
+      for (const { label, scan } of scanLevel) {
+        await rbCleanup();
+        await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+        await rbSeedRebuildActiveSession(RB_SESSION);
+        const showId = await rbSeedShow();
+        await rbSeedManifestRow(RB_SESSION, RB_DRIVE_FILE_ID);
+        await rbSeedRebuildShadow(RB_SESSION, RB_DRIVE_FILE_ID, showId);
+
+        const before = await rbReadAttempts(RB_SESSION, RB_DRIVE_FILE_ID);
+        const codes = await observeSuccessCodes(async () => {
+          await runRebuild({
+            prepareOnboardingFiles: async () => [rbRebuildPreparedFor(RB_REBUILD_PARSE_PRIOR)],
+            scanOnboardingPreparedFiles: scanReturning(scan),
+          });
+          for (const t of resolveBlockerDeferredTasks.splice(0)) await t();
+        });
+        expect(
+          codes,
+          `${(scan as { outcome: string }).outcome} must emit ONBOARDING_BLOCKER_REBUILT`,
+        ).toContain("ONBOARDING_BLOCKER_REBUILT");
+        const after = await rbReadAttempts(RB_SESSION, RB_DRIVE_FILE_ID);
+        // Only `hard_failed` (among the four scan-level outcomes) deletes the shadow;
+        // schema_missing/superseded/not_staged retain it and must NOT consume the cap.
+        expect(after, `${label}: attempts consumed only iff shadow-deleting`).toBe(
+          label === "hard_failed" ? before + 1 : before,
+        );
+      }
+
+      // The three staged outcomes need a real `pending_syncs` prior (capturePriorState checks
+      // pending_syncs BEFORE the shadow) driving the REAL computeRescanDecision.
+      const stagedCases: Array<{ approved: boolean; refreshed: ParseResult }> = [
+        {
+          approved: true,
+          refreshed: rbRebuildParse([{ name: "Ada", email: "ada-changed@example.com" }]),
+        }, // dirty_demoted
+        { approved: true, refreshed: RB_REBUILD_PARSE_PRIOR }, // clean_restamped
+        { approved: false, refreshed: RB_REBUILD_PARSE_PRIOR }, // clean_unchecked
+      ];
+      for (const { approved, refreshed } of stagedCases) {
+        await rbCleanup();
+        await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+        await rbSeedRebuildActiveSession(RB_SESSION);
+        const showId = await rbSeedShow();
+        await rbSeedManifestRow(RB_SESSION, RB_DRIVE_FILE_ID);
+        await rbSeedRebuildShadow(RB_SESSION, RB_DRIVE_FILE_ID, showId);
+        await resolveBlockerSql!.unsafe(
+          `insert into public.pending_syncs
+             (drive_file_id, wizard_session_id, base_modified_time, staged_modified_time, parse_result,
+              triggered_review_items, source_kind, wizard_approved, wizard_approved_by_email,
+              wizard_approved_at, wizard_reviewer_choices, wizard_reviewer_choices_version, warning_summary)
+           values ($1, $2::uuid, null, $3::timestamptz, $4, '[]'::jsonb, 'onboarding_scan', $5, $6, $7,
+                   case when $5 then '[]'::jsonb else null end,
+                   case when $5 then 1 else null end,
+                   '')`,
+          [
+            RB_DRIVE_FILE_ID,
+            RB_SESSION,
+            RB_REBUILD_PRIOR_MODTIME,
+            RB_REBUILD_PARSE_PRIOR,
+            approved,
+            approved ? RB_ADMIN_EMAIL : null,
+            approved ? RB_REBUILD_PRIOR_MODTIME : null,
+          ] as never[],
+        );
+
+        const codes = await observeSuccessCodes(async () => {
+          const res = await runRebuild({
+            prepareOnboardingFiles: async () => [rbRebuildPreparedFor(refreshed)],
+            scanOnboardingPreparedFiles: scanReturning({
+              outcome: "completed",
+              processed: [{ driveFileId: RB_DRIVE_FILE_ID, outcome: "staged" }],
+            }),
+          });
+          expect((await res.clone().json()) as { ok: boolean }).toEqual({
+            ok: true,
+            status: "resolved",
+          });
+          for (const t of resolveBlockerDeferredTasks.splice(0)) await t();
+        });
+        expect(
+          codes,
+          `approved=${approved} refreshed-identical=${refreshed === RB_REBUILD_PARSE_PRIOR} must emit`,
+        ).toContain("ONBOARDING_BLOCKER_REBUILT");
+      }
+      recordAdminOutcomeBehavior({
+        file: RESOLVE_BLOCKER_ROUTE,
+        fn: "POST",
+        code: "ONBOARDING_BLOCKER_REBUILT",
+      });
+
+      // Non-mutating branches never emit: escalated (cap already exhausted) and
+      // not_currently_blocked (no shadow at all).
+      await rbCleanup();
+      await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+      await rbSeedRebuildActiveSession(RB_SESSION);
+      await resolveBlockerSql!.unsafe(
+        `insert into public.onboarding_rebuild_attempts (wizard_session_id, drive_file_id, attempts)
+         values ($1::uuid, $2, 1)`,
+        [RB_SESSION, RB_DRIVE_FILE_ID],
+      );
+      const escalatedCodes = await observeCodes(async () => {
+        const res = await runRebuild({});
+        expect(await res.clone().json()).toEqual({
+          ok: false,
+          status: "escalated",
+          code: RB_REBUILD_CLAIMED_CODE,
+        });
+      });
+      expect(escalatedCodes).not.toContain("ONBOARDING_BLOCKER_REBUILT");
+      expect(resolveBlockerDeferredTasks.length).toBe(0);
+
+      await rbCleanup();
+      await rbCleanupRebuild(RB_DRIVE_FILE_ID);
+      await rbSeedRebuildActiveSession(RB_SESSION);
+      await rbSeedShow();
+      await rbSeedManifestRow(RB_SESSION, RB_DRIVE_FILE_ID);
+      // No shadow row at all → not_currently_blocked.
+      const notBlockedCodes = await observeCodes(async () => {
+        const res = await runRebuild({
+          prepareOnboardingFiles: async () => [rbRebuildPreparedFor(RB_REBUILD_PARSE_PRIOR)],
+        });
+        expect(await res.clone().json()).toEqual({ ok: false, status: "not_currently_blocked" });
+      });
+      expect(notBlockedCodes).not.toContain("ONBOARDING_BLOCKER_REBUILT");
       expect(resolveBlockerDeferredTasks.length).toBe(0);
     },
   );

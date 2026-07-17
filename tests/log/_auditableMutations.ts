@@ -397,6 +397,15 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "ONBOARDING_BLOCKER_UNARCHIVED",
   },
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 8): the resolve-blocker
+  // route's rebuild action. Emit is POST-COMMIT via deferPostResponse, outside the
+  // advisory-lock txn (invariant 2/10); fires on every committed rebuild-initiated
+  // rescan (all seven RescanDecisionOutcome kinds), not only the cap-consuming ones.
+  {
+    file: "app/api/admin/onboarding/resolve-blocker/route.ts",
+    fn: "POST",
+    code: "ONBOARDING_BLOCKER_REBUILT",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -491,6 +500,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // (logAdminOutcome-stamped -> stripped from the producer scan); flows into
   // NEW_FORENSIC_CODES via spread.
   "ONBOARDING_BLOCKER_UNARCHIVED",
+  // Wizard blocker in-wizard resolution (spec 2026-07-16, Task 8): forensic outcome
+  // code for the resolve-blocker route's rebuild action. §12.4-exempt
+  // (logAdminOutcome-stamped -> stripped from the producer scan); flows into
+  // NEW_FORENSIC_CODES via spread.
+  "ONBOARDING_BLOCKER_REBUILT",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

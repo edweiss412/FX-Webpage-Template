@@ -17,9 +17,11 @@ import { deferPostResponse } from "@/lib/async/deferPostResponse";
  * POST /api/admin/onboarding/resolve-blocker.
  *
  * Task 7 makes `action: "unarchive"` real and exports the live `POST` handler
- * (Codex plan-R1 F2). `resolveRebuild` is STILL the Task 6 SAFE non-throwing
- * `not_currently_blocked` placeholder until Task 8 — it never throws and never
- * mutates, so the now-live surface can never 500 on a `rebuild` request.
+ * (Codex plan-R1 F2). Task 8 makes `action: "rebuild"` real: it re-derives authz
+ * under the lock, gates on the `onboarding_rebuild_attempts` cap, and dispatches the
+ * REAL `applyRescanDecisionUnderLock` core — the cap is consumed IFF the corrupt
+ * shadow is deleted (co-located with the core's own shadow-delete sites via
+ * `onShadowDeleted`), never on a shadow-retaining outcome.
  *
  * Two-phase structure for `action: "rebuild"` (spec §3.2): a PRE-LOCK phase (advisory
  * session read + advisory cap read + Drive fetch + prepareOnboardingFiles) runs with NO
@@ -95,7 +97,12 @@ function queryOneTxAdapter(tx: RawTx): { queryOne<T>(sql: string, params: unknow
 // (spec §3.2 "action: unarchive", steps 3-6).
 async function resolveUnarchive(
   tx: RawTx,
-  { wizardSessionId, driveFileId, showId, admin }: {
+  {
+    wizardSessionId,
+    driveFileId,
+    showId,
+    admin,
+  }: {
     wizardSessionId: string;
     driveFileId: string;
     showId: string;
@@ -109,13 +116,19 @@ async function resolveUnarchive(
     [wizardSessionId, driveFileId],
   )) as unknown[];
   if (manifestRows.length === 0) {
-    return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+    return NextResponse.json({
+      ok: false,
+      status: "not_currently_blocked",
+    } satisfies ResolveBlockerResponse);
   }
   // Step 3b — re-derive the current blocking condition (the exact predicate
   // finalize-cas uses). Not archived → not_currently_blocked, no mutation.
   const archived = await readShowArchived_unlocked(queryOneTxAdapter(tx), driveFileId);
   if (!archived) {
-    return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+    return NextResponse.json({
+      ok: false,
+      status: "not_currently_blocked",
+    } satisfies ResolveBlockerResponse);
   }
   // Step 4 — the single source of the archived->held transition (owner SQL,
   // NOT the is_admin()-gated unarchive_show — the route's owner postgres.js
@@ -143,12 +156,23 @@ async function resolveUnarchive(
   return NextResponse.json({ ok: true, status: "resolved" } satisfies ResolveBlockerResponse);
 }
 
-// Task 6 SAFE PLACEHOLDER — never throws, never mutates. Task 8 replaces this body with the
-// real cap-gated rebuild dispatch (scanOnboardingPreparedFiles → applyRescanDecisionUnderLock)
-// under the already-held advisory lock, and adds the `POST` export.
-async function resolveRebuild(
-  _tx: RawTx,
-  _ctx: {
+const REBUILD_CAP = 1;
+
+// Task 8 — real cap-gated rebuild dispatch (spec §3.2 "action: rebuild", steps 3-6). Runs
+// under the already-held advisory lock. `prepared`/`pendingFolderId` were computed PRE-LOCK
+// by `handleResolveBlocker` (spec §3.2 "pre-lock, side-effect-free") — no Drive fetch happens
+// here.
+export async function resolveRebuild(
+  tx: RawTx,
+  {
+    wizardSessionId,
+    driveFileId,
+    code,
+    admin,
+    prepared,
+    pendingFolderId,
+    deps = {},
+  }: {
     wizardSessionId: string;
     driveFileId: string;
     code: string;
@@ -158,10 +182,136 @@ async function resolveRebuild(
     deps?: ResolveBlockerRouteDeps | undefined;
   },
 ): Promise<Response> {
-  return NextResponse.json({ ok: false, status: "not_currently_blocked" } satisfies ResolveBlockerResponse);
+  // Authoritative authz re-derivation UNDER the lock (spec §3.2 point 3 — applies to BOTH
+  // actions, Codex plan-R1 F1). (a) session membership: the sheet must be in THIS session's
+  // scan manifest; (b) the corrupt shadow must still exist AND still parse as STAGED_*_CORRUPT.
+  const manifestRows = (await tx.unsafe(
+    `select 1 from public.onboarding_scan_manifest where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [wizardSessionId, driveFileId],
+  )) as unknown[];
+  if (manifestRows.length === 0) {
+    return NextResponse.json({
+      ok: false,
+      status: "not_currently_blocked",
+    } satisfies ResolveBlockerResponse);
+  }
+  const shadowRows = (await tx.unsafe(
+    `select payload from public.shows_pending_changes where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [wizardSessionId, driveFileId],
+  )) as Array<{ payload: unknown }>;
+  if (shadowRows.length === 0) {
+    return NextResponse.json({
+      ok: false,
+      status: "not_currently_blocked",
+    } satisfies ResolveBlockerResponse);
+  }
+  const parsed = parseShadowPayloadForApply(shadowRows[0]!.payload);
+  // Must STILL refuse with EXACTLY the corrupt code the request claims (Codex plan-R3 F1). A
+  // clean parse, OR a refusal with a DIFFERENT code (e.g. a freshness/other refusal), means this
+  // is not the STAGED_*_CORRUPT blocker the request targets → not this rebuild's job. `code` was
+  // already gated to a STAGED_*_CORRUPT value by the scaffold's wrong_action check.
+  if (parsed.ok || parsed.code !== code) {
+    return NextResponse.json({
+      ok: false,
+      status: "not_currently_blocked",
+    } satisfies ResolveBlockerResponse);
+  }
+  const corruptionReason = parsed.reason;
+
+  // Authoritative, race-safe cap gate UNDER the lock (the pre-lock read was advisory only). A
+  // concurrent request that lost the lock race sees the winner's committed attempts here.
+  const attemptRows = (await tx.unsafe(
+    `select attempts from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [wizardSessionId, driveFileId],
+  )) as Array<{ attempts: number }>;
+  const attempts = attemptRows[0]?.attempts ?? 0;
+  if (attempts >= REBUILD_CAP) {
+    return NextResponse.json({
+      ok: false,
+      status: "escalated",
+      code,
+    } satisfies ResolveBlockerResponse);
+  }
+
+  // `prepared` was fetched + parsed PRE-LOCK. A sheet that vanished / became a non-sheet
+  // between the pre-lock fetch and here fails closed (never publishes stale gear).
+  if (!prepared || prepared.kind !== "sheet") {
+    return NextResponse.json({
+      ok: false,
+      status: "needs_attention",
+      code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+    } satisfies ResolveBlockerResponse);
+  }
+
+  // Call the REAL core (never an injected whole-function) so its real shadow-delete +
+  // onShadowDeleted co-location run; the test forces outcomes at the core's OWN scan seam.
+  const rescanTx = { unsafe: (sql: string, params: unknown[] = []) => tx.unsafe(sql, params) };
+  let shadowDeleted = false;
+  const outcome = await applyRescanDecisionUnderLock(
+    rescanTx,
+    {
+      wizardSessionId,
+      driveFileId,
+      pendingFolderId,
+      prepared,
+      refreshedParse: prepared.parseResult,
+      isBlockerHeal: true,
+    },
+    {
+      ...(deps.scanOnboardingPreparedFiles !== undefined
+        ? { scanOnboardingPreparedFiles: deps.scanOnboardingPreparedFiles }
+        : {}),
+      onShadowDeleted: async (t) => {
+        shadowDeleted = true;
+        await t.unsafe(
+          `insert into public.onboarding_rebuild_attempts (wizard_session_id, drive_file_id, attempts)
+             values ($1::uuid, $2, 1)
+           on conflict (wizard_session_id, drive_file_id)
+             do update set attempts = onboarding_rebuild_attempts.attempts + 1, updated_at = now()
+             where onboarding_rebuild_attempts.attempts < $3`,
+          [wizardSessionId, driveFileId, REBUILD_CAP],
+        );
+      },
+    },
+  );
+
+  deferPostResponse(async () => {
+    await logAdminOutcome({
+      code: "ONBOARDING_BLOCKER_REBUILT",
+      source: "api.admin.onboarding.resolveBlocker",
+      actorEmail: admin.email,
+      driveFileId,
+      wizardSessionId,
+      result: outcome.kind,
+      extra: { corruptionReason: corruptionReason ?? null, shadowDeleted },
+    }).catch(() => {});
+  });
+
+  switch (outcome.kind) {
+    case "dirty_demoted":
+    case "clean_restamped":
+    case "clean_unchecked":
+      return NextResponse.json({ ok: true, status: "resolved" } satisfies ResolveBlockerResponse);
+    case "superseded":
+      return NextResponse.json({
+        ok: false,
+        status: "superseded",
+      } satisfies ResolveBlockerResponse);
+    case "hard_failed":
+    case "schema_missing":
+    case "not_staged":
+      return NextResponse.json({
+        ok: false,
+        status: "needs_attention",
+        code: outcome.code,
+      } satisfies ResolveBlockerResponse);
+  }
 }
 
-export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRouteDeps): Promise<Response> {
+export async function handleResolveBlocker(
+  req: Request,
+  deps?: ResolveBlockerRouteDeps,
+): Promise<Response> {
   const requireAdminIdentity = deps?.requireAdminIdentity ?? realRequireAdminIdentity;
   const admin = await requireAdminIdentity();
 
@@ -214,7 +364,8 @@ export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRo
           `select attempts from public.onboarding_rebuild_attempts where wizard_session_id = $1::uuid and drive_file_id = $2`,
           [wizardSessionId, driveFileId],
         )) as Array<{ attempts: number }>;
-        if ((capRows[0]?.attempts ?? 0) >= 1) return { early: { ok: false, status: "escalated", code } as const };
+        if ((capRows[0]?.attempts ?? 0) >= 1)
+          return { early: { ok: false, status: "escalated", code } as const };
         return { folderId: rows[0]?.pending_folder_id ?? null };
       });
       if ("early" in pre) return NextResponse.json(pre.early);
@@ -227,14 +378,25 @@ export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRo
       try {
         metadata = await fetchDriveFileMetadata(driveFileId);
       } catch {
-        return NextResponse.json({ ok: false, status: "needs_attention", code: "DRIVE_FETCH_FAILED" });
+        return NextResponse.json({
+          ok: false,
+          status: "needs_attention",
+          code: "DRIVE_FETCH_FAILED",
+        });
       }
       if (!metadata.parents.includes(preFolderId)) {
-        return NextResponse.json({ ok: false, status: "needs_attention", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" });
+        return NextResponse.json({
+          ok: false,
+          status: "needs_attention",
+          code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+        });
       }
-      const preparedFiles = await (deps?.prepareOnboardingFiles ?? defaultPrepareOnboardingFiles)(preFolderId, {
-        listFolder: async () => [metadata],
-      });
+      const preparedFiles = await (deps?.prepareOnboardingFiles ?? defaultPrepareOnboardingFiles)(
+        preFolderId,
+        {
+          listFolder: async () => [metadata],
+        },
+      );
       prepared = preparedFiles[0];
     }
 
@@ -259,7 +421,12 @@ export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRo
       }
       await rawTx.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
       if (action === "unarchive") {
-        return await resolveUnarchive(rawTx, { wizardSessionId, driveFileId, showId: showRows[0]!.id, admin });
+        return await resolveUnarchive(rawTx, {
+          wizardSessionId,
+          driveFileId,
+          showId: showRows[0]!.id,
+          admin,
+        });
       }
       return await resolveRebuild(rawTx, {
         wizardSessionId,
@@ -277,14 +444,5 @@ export async function handleResolveBlocker(req: Request, deps?: ResolveBlockerRo
 }
 
 // Live route entrypoint (Codex plan-R1 F2 — deferred from Task 6, landed here in Task 7):
-// `action: "unarchive"` is real; `action: "rebuild"` is still the Task 6 SAFE
-// non-throwing `not_currently_blocked` placeholder until Task 8, so this export can
-// never 500 on either action.
+// both `action: "unarchive"` and `action: "rebuild"` are real as of Task 8.
 export const POST = (req: Request): Promise<Response> => handleResolveBlocker(req);
-
-// Referenced only to keep the Task 8 import surface stable across this commit — not
-// called yet (resolveRebuild's placeholder body never reaches them). Prevents an
-// unused-import lint pass from being the thing that forces a diff in Task 8.
-void applyRescanDecisionUnderLock;
-void parseShadowPayloadForApply;
-void defaultScanOnboardingPreparedFiles;
