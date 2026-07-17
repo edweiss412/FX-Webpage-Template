@@ -177,13 +177,31 @@ function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
       className="flex shrink-0 items-center gap-1"
       aria-label={`Change kinds: ${kinds.map(labelFor).join(", ")}`}
     >
-      {shown.map((k) => (
-        <span
-          key={k}
-          aria-hidden="true"
-          className={`size-2 rounded-full ${KIND_PILL[k]?.dot ?? FALLBACK_PILL.dot}`}
-        />
-      ))}
+      {shown.map((k) =>
+        k === "crew_removed" ? (
+          // KINDDOT-1: the destructive kind gets a shape-distinct non-color tell
+          // (a centered minus-bar) so a color-vision-limited operator can tell
+          // "Removed" from the near-identical "Renamed" review hue at a glance.
+          // bg stays a literal (Tailwind v4 JIT scans literals); aria-hidden on
+          // the wrapper hides the whole marker subtree, so the aria-label text
+          // channel (which names every kind) remains the sole AT source.
+          <span
+            key={k}
+            aria-hidden="true"
+            data-testid="auto-applied-kind-marker"
+            className="flex size-2 items-center justify-center"
+          >
+            <span className="h-0.5 w-2 rounded-full bg-status-warn" />
+          </span>
+        ) : (
+          <span
+            key={k}
+            aria-hidden="true"
+            data-testid="auto-applied-kind-marker"
+            className={`size-2 rounded-full ${KIND_PILL[k]?.dot ?? FALLBACK_PILL.dot}`}
+          />
+        ),
+      )}
       {overflow > 0 ? (
         <span aria-hidden="true" className="text-xs font-semibold text-text-subtle">
           +{overflow}
