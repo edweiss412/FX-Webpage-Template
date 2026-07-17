@@ -86,8 +86,10 @@ export function activeSectionFor(
   scrollTop: number,
   clientHeight: number,
   scrollHeight: number,
-  sectionTops: ReadonlyArray<{ id: SectionId; top: number }>,
-): SectionId {
+  // Phase 2 (spec §5/§10): rail item ids are `SectionId | ExtraSection.id`
+  // (`"overview"`/`"changes"`), so the pure spy rule reads string ids.
+  sectionTops: ReadonlyArray<{ id: string; top: number }>,
+): string {
   const first = sectionTops[0];
   if (!first) return "warnings"; // registry always renders ≥11 sections; defensive only
   const last = sectionTops[sectionTops.length - 1] ?? first;
@@ -131,6 +133,7 @@ export type ExtraSection = {
 export function ShowReviewSurface({
   data,
   scrollerRef,
+  layout,
   extraSectionsBefore,
   extraSectionsAfter,
   renderSectionExtras,
@@ -185,10 +188,28 @@ export function ShowReviewSurface({
     [data.warnings],
   );
 
-  // Active nav section — shared by BOTH navs (§9.4); starts at the first
-  // rendered section (§6.3a initial state). Scroll-spy re-derives it in Task 6.
-  const [active, setActive] = useState<SectionId>(() => step3Sections(data)[0]?.id ?? "warnings");
-  const sectionElsRef = useRef(new Map<SectionId, HTMLElement>());
+  // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
+  // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in
+  // the content pane, so the scroll-spy tops list matches the DOM. With no extras
+  // (the modal) this is exactly `sections.map(s => s.id)` — byte-identical.
+  const railItemIds = useMemo(
+    () => [
+      ...(extraSectionsBefore ?? []).map((e) => e.id),
+      ...sections.map((s) => s.id),
+      ...(extraSectionsAfter ?? []).map((e) => e.id),
+    ],
+    [extraSectionsBefore, extraSectionsAfter, sections],
+  );
+
+  // Active nav section — shared by BOTH navs (§9.4); starts at the FIRST rail
+  // item (§6.3a initial state): Overview when present (spec §5.1 default-active),
+  // else the first registry section (byte-identical to the modal). Scroll-spy
+  // re-derives it. Typed `string` because extra ids ("overview"/"changes") are
+  // not `SectionId`s.
+  const [active, setActive] = useState<string>(
+    () => extraSectionsBefore?.[0]?.id ?? step3Sections(data)[0]?.id ?? "warnings",
+  );
+  const sectionElsRef = useRef(new Map<string, HTMLElement>());
 
   // §D3a active-section plumbing: a stable-identity reader over a ref kept in
   // sync with `active`, so ReportIssueSection gets a stale-free read AT SUBMIT
@@ -198,7 +219,10 @@ export function ShowReviewSurface({
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
-  const getActiveSection = useCallback((): SectionId => activeRef.current, []);
+  // The report chrome consumes a `SectionId`; in staged/modal mode `active` is
+  // always a registry SectionId (no extras), and published mode omits the report
+  // section, so the cast is sound at every call site.
+  const getActiveSection = useCallback((): SectionId => activeRef.current as SectionId, []);
 
   /** Rail/chip status-dot tone (§6.2/§6.3). */
   function dotToneClass(id: SectionId): string {
@@ -247,8 +271,15 @@ export function ShowReviewSurface({
    *  The clicked id stays `active` for the whole §A2 suppressed window on BOTH
    *  navs (shared state — no flicker on the chip rail either).
    *  (jsdom has no Element#scrollTo; tests stub it — guard keeps this safe.) */
-  function handleNavClick(id: SectionId) {
+  function handleNavClick(id: string) {
     setActive(id);
+    // Deep-link the hash (spec §10) — page mode only, so the modal never mutates
+    // the page URL (byte-identical rail behavior). replaceState (not
+    // `location.hash =`) updates the URL WITHOUT the browser's native anchor
+    // jump, letting the pane's motion-safe smooth-scroll below own the glide.
+    if (layout === "page" && typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${id}`);
+    }
     const scroller = scrollerRef.current;
     const target = sectionElsRef.current.get(id);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") return;
@@ -340,10 +371,10 @@ export function ShowReviewSurface({
       // actually has a size; the initial-render default (first section)
       // stands until then.
       if (el.clientHeight === 0 && el.scrollHeight === 0) return;
-      const tops: Array<{ id: SectionId; top: number }> = [];
-      for (const s of sections) {
-        const sectionEl = sectionElsRef.current.get(s.id);
-        if (sectionEl) tops.push({ id: s.id, top: sectionTopFor(el, sectionEl) });
+      const tops: Array<{ id: string; top: number }> = [];
+      for (const id of railItemIds) {
+        const sectionEl = sectionElsRef.current.get(id);
+        if (sectionEl) tops.push({ id, top: sectionTopFor(el, sectionEl) });
       }
       if (tops.length === 0) return;
       // §A2: while a nav-click/jump glide is in flight, hold `active` constant
@@ -427,15 +458,41 @@ export function ShowReviewSurface({
     // convention as clearPanelDragStyles in the mode-boundary effect below).
     // scrollerRef is the shell-owned prop ref (stable identity per render); it
     // is in the dep list only to satisfy exhaustive-deps — it never re-fires
-    // the effect (the modal's `useRef` never changes identity).
-  }, [sections, scrollerRef]);
+    // the effect (the modal's `useRef` never changes identity). `railItemIds`
+    // replaces `sections` (it derives from it plus the extra rail ids), so the
+    // no-extras path re-fires identically to before.
+  }, [railItemIds, scrollerRef]);
+
+  // ── §10 hash deep-link restore (page mode only) ─────────────────────────────
+  // On mount, if `location.hash` names a rail item, glide to it via the SAME
+  // nav-click accessor rail clicks use (one code path → identical scroll-spy
+  // suppression + coordinate math). A `#overview` anchor is also natively
+  // resolvable (OverviewSection carries `id="overview"`); this generalizes the
+  // restore to registry ids too (e.g. `#crew`, which has no DOM id). Runs once
+  // (ref-guarded); the modal never touches the page URL so it is page-mode only.
+  const hashRestoredRef = useRef(false);
+  useEffect(() => {
+    if (layout !== "page" || hashRestoredRef.current) return;
+    if (typeof window === "undefined") return;
+    const target = window.location.hash.replace(/^#/, "");
+    if (!target || !railItemIds.includes(target)) return;
+    hashRestoredRef.current = true;
+    // One frame so the pane has real layout before the glide is measured.
+    const raf = requestAnimationFrame(() => handleNavClick(target));
+    return () => cancelAnimationFrame(raf);
+    // handleNavClick is a stable render-local closure over refs; re-running on
+    // its identity would re-scroll every render. Guarded by hashRestoredRef +
+    // gated on railItemIds (stable once mounted). (same omit convention as the
+    // scroll-spy effect above.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, railItemIds]);
 
   // ── §A3 sliding rail indicator (desktop rail only) ─────────────────────────
   // ONE shared indicator, positioned from the ACTIVE rail button's measured
   // rect — replaces the per-item conditionally-mounted span so the accent bar
   // can slide between items instead of teleporting.
   const railRef = useRef<HTMLElement | null>(null);
-  const railItemRefs = useRef(new Map<SectionId, HTMLButtonElement>());
+  const railItemRefs = useRef(new Map<string, HTMLButtonElement>());
   const [railIndicator, setRailIndicator] = useState<{ y: number; h: number } | null>(null);
   const [indicatorTransitionsOn, setIndicatorTransitionsOn] = useState(false);
   const hasMeasuredRef = useRef(false);
@@ -467,6 +524,85 @@ export function ShowReviewSurface({
     }
   }, [active, sections]);
 
+  // ── Extra rail items (spec §5: Overview / Changes) ──────────────────────────
+  // Full rail participants: side-rail button, chip entry, active-highlight, and
+  // (side rail) an optional `railBadge`. Rendered via `.map` from the extras
+  // arrays so the modal (no extras) mounts none. Hover/active bg swaps are
+  // INSTANT (no color-fade utility): the §7.4 audit pins the modal+surface
+  // transition-class count, and the extras must not grow it — instant hover is
+  // also strictly §7.4-compliant ("all pairs instant"). (The registry items use
+  // a fast color fade; the subtle hover-parity nuance is an impeccable/Task-16
+  // call — bump the §7.4 pin there if the fade is wanted.) The ONLY animated rail
+  // element remains the shared sliding indicator (§A3).
+  function renderExtraRailItem(extra: ExtraSection) {
+    const isActive = active === extra.id;
+    return (
+      <button
+        key={extra.id}
+        type="button"
+        ref={(el) => {
+          if (el) railItemRefs.current.set(extra.id, el);
+          else railItemRefs.current.delete(extra.id);
+        }}
+        data-testid={`wizard-step3-card-${dfid}-review-rail-item-${extra.id}`}
+        aria-current={isActive ? "true" : undefined}
+        onClick={() => handleNavClick(extra.id)}
+        className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left ${
+          isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
+        }`}
+      >
+        <extra.Icon
+          aria-hidden="true"
+          className={`size-4 shrink-0 ${isActive ? "text-accent-on-bg" : "text-text-subtle"}`}
+        />
+        <span
+          className={`min-w-0 flex-1 truncate text-sm font-medium ${
+            isActive ? "text-text-strong" : "text-text"
+          }`}
+        >
+          {extra.label}
+        </span>
+        {extra.railBadge}
+      </button>
+    );
+  }
+
+  function renderExtraChipItem(extra: ExtraSection) {
+    const isActive = active === extra.id;
+    return (
+      <button
+        key={extra.id}
+        type="button"
+        data-testid={`wizard-step3-card-${dfid}-review-chip-item-${extra.id}`}
+        aria-current={isActive ? "true" : undefined}
+        onClick={() => handleNavClick(extra.id)}
+        className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap ${
+          isActive
+            ? "border-transparent bg-surface-sunken text-text-strong"
+            : "border-border bg-surface text-text"
+        }`}
+      >
+        <extra.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
+        {extra.label}
+      </button>
+    );
+  }
+
+  function renderExtraPanel(extra: ExtraSection) {
+    return (
+      <div
+        key={extra.id}
+        ref={(el) => {
+          if (el) sectionElsRef.current.set(extra.id, el);
+          else sectionElsRef.current.delete(extra.id);
+        }}
+        className="flex min-w-0 flex-col"
+      >
+        {extra.render()}
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid={`wizard-step3-card-${dfid}-review-main`}
@@ -496,6 +632,8 @@ export function ShowReviewSurface({
             }}
           />
         ) : null}
+        {/* Spec §5.1: Overview is the FIRST rail item. No extras in the modal. */}
+        {extraSectionsBefore?.map(renderExtraRailItem)}
         {STEP3_SECTION_GROUPS.map((group) => {
           const groupSections = sections.filter((s) => s.group === group);
           if (groupSections.length === 0) return null;
@@ -575,6 +713,8 @@ export function ShowReviewSurface({
             </Fragment>
           );
         })}
+        {/* Spec §5.4: Changes is the LAST rail item. No extras in the modal. */}
+        {extraSectionsAfter?.map(renderExtraRailItem)}
       </nav>
 
       {/* Chip rail — sheet + popup modes (§6.3): one horizontal scroll row
@@ -586,6 +726,7 @@ export function ShowReviewSurface({
         data-testid={`wizard-step3-card-${dfid}-review-chiprail`}
         className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-tile-pad py-2 lg:hidden"
       >
+        {extraSectionsBefore?.map(renderExtraChipItem)}
         {sections.map((s) => {
           const isActive = active === s.id;
           return (
@@ -613,6 +754,7 @@ export function ShowReviewSurface({
             </button>
           );
         })}
+        {extraSectionsAfter?.map(renderExtraChipItem)}
       </nav>
 
       {/* Content pane — the scroll container (§5.2 rhythm; §6.3a names it
@@ -627,10 +769,9 @@ export function ShowReviewSurface({
             children (byte-identical to the pre-extraction modal). */}
         {children}
         {/* Extra rail sections mounted before the registry (Phase 2: Overview).
-            Phase 1 (the modal) passes none → renders nothing. */}
-        {extraSectionsBefore?.map((extra) => (
-          <Fragment key={extra.id}>{extra.render()}</Fragment>
-        ))}
+            Wrapped in a ref-carrying box so the scroll-spy can measure the
+            section top by rail id. Phase 1 (the modal) passes none → nothing. */}
+        {extraSectionsBefore?.map(renderExtraPanel)}
         {sections.map((s) => (
           <section
             key={s.id}
@@ -666,7 +807,13 @@ export function ShowReviewSurface({
                 // §E3: callout entries for every flagged section EXCEPT
                 // `warnings` (its body IS the warning list — circular).
                 // exactOptional discipline: ABSENT, never undefined.
-                ...(s.id !== "warnings" && bySection.has(s.id)
+                // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
+                // the per-section `renderSectionExtras` list IS the warning
+                // surface, so the §E3 SectionFlagCallout preview would be a
+                // duplicate affordance (and its use-raw/role controls are
+                // wizardSession-gated → silent). Gating on `isStaged` keeps the
+                // modal byte-identical and hides the callout on the page.
+                ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                   ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
                   : {}),
               }}
@@ -684,10 +831,8 @@ export function ShowReviewSurface({
             extraSectionsAfter. Nothing when the shell passes none. */}
         {bottomSlot}
         {/* Extra rail sections mounted after the registry (Phase 2: Changes).
-            Phase 1 (the modal) passes none → renders nothing. */}
-        {extraSectionsAfter?.map((extra) => (
-          <Fragment key={extra.id}>{extra.render()}</Fragment>
-        ))}
+            Ref-wrapped for scroll-spy measurement. Phase 1 passes none. */}
+        {extraSectionsAfter?.map(renderExtraPanel)}
       </div>
     </div>
   );
