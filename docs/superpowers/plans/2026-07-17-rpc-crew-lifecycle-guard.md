@@ -44,9 +44,11 @@
 **Files:**
 - Create: `supabase/migrations/20260719000000_reset_crew_member_selection_lifecycle_guard.sql`
 - Create: `tests/db/reset_crew_member_selection_lifecycle_guard.test.ts`
+- Modify: `tests/db/_b2Helpers.ts` (add a 2-arg race helper for the reset TOCTOU case)
 
 **Interfaces:**
 - Produces: `reset_crew_member_selection(p_show_id uuid, p_crew_member_id uuid) returns timestamptz` — now raises `P0001` with message `SHOW_ARCHIVED_IMMUTABLE` / `FINALIZE_OWNED_SHOW` / `SHOW_NOT_PUBLISHED` for ineligible shows; NULL not-found contract preserved (missing show / bad crew id → NULL).
+- Produces (helper): `archivedImmutabilityRaceReset(showId, crewId): Promise<{ concurrentThrew: boolean }>` in `_b2Helpers.ts`.
 
 - [ ] **Step 1: Write the failing DB test.** Copy the `runPsql` + `begin;…rollback;` self-cleaning harness from the **existing** `tests/db/reset_crew_member_selection.test.ts` (its `runPsql`, `sqlString`, `ADMIN_JWT` are the exact template). Each case seeds show+crew inline, sets the lifecycle state inline, sets the admin claim, and calls the RPC inside the transaction. A guard `raise` makes psql exit non-zero → `runPsql` throws, so refusals assert with `expect(() => runPsql(...)).toThrow(/SENTINEL/)`.
 
@@ -123,6 +125,46 @@ describe("reset_crew_member_selection — DEF-1 lifecycle guard", () => {
 
 > **Implementer note:** The share-token row is auto-created by the `shows` insert trigger — do NOT insert it. `finalizeOwnedSql` mirrors `_b2Helpers.ts` `seedShow` finalizeOwned branch (`:148-153`). All work is in a rolled-back txn → no teardown, no sibling-DB pollution. `readfinalizeowned_b2`'s applied-manifest branch needs `published=false`; the `shows_pending_changes` branch (used here) matches on `show_id` + an `in_progress` checkpoint (`20260601000000:26-33`), so the finalize-owned case is genuinely finalize-owned.
 
+- [ ] **Step 1b: Add the R32 TOCTOU race test** (spec §6). A stale *pre-lock* guard would pass all five cases above; only a concurrent-Archive race proves the re-read is post-lock. First add a 2-arg race helper to `_b2Helpers.ts` (the existing `raceArchiveAgainst` calls the RPC with only `show_id`; reset needs `p_crew_member_id`). Generalize it:
+
+```ts
+// tests/db/_b2Helpers.ts — add an exported reset-specific race that mirrors raceArchiveAgainst but
+// passes a second arg. Reuse the SAME internal newConn()/asAdminTx()/pg_stat_activity-poll structure;
+// only the B-txn call changes to reset_crew_member_selection($1, $2).
+export async function archivedImmutabilityRaceReset(
+  showId: string, crewId: string,
+): Promise<{ concurrentThrew: boolean }> {
+  // identical to raceArchiveAgainst(showId, 'reset_crew_member_selection') EXCEPT the B txn is:
+  //   await tx.unsafe(`select public.reset_crew_member_selection($1::uuid, $2::uuid)`, [showId, crewId]);
+  // and the pg_stat_activity poll matches query ilike '%reset_crew_member_selection%'.
+  // Factor raceArchiveAgainst to accept an optional `bCall: (tx) => Promise<void>` + `matchName` and
+  // implement both archivedImmutabilityRace and this on top of it (DRY), OR copy the ~40-line body.
+}
+```
+
+Race test case (persistent seed via `_b2Helpers` `sql` — NOT the rolled-back runPsql harness; add cleanup):
+
+```ts
+import { seedLiveShowWithToken, sqlClient, archivedImmutabilityRaceReset, readShow, closeB2Helpers } from "@/tests/db/_b2Helpers";
+import { afterAll } from "vitest";
+afterAll(async () => { await closeB2Helpers(); });
+
+test("loses the race to a concurrent Archive → REFUSES post-lock (R32 TOCTOU)", async () => {
+  const { showId, driveFileId } = await seedLiveShowWithToken();
+  const [{ id: crewId }] = await sqlClient<{ id: string }[]>`
+    insert into public.crew_members (show_id, name, role) values (${showId}::uuid, 'Alice', 'A2') returning id`;
+  try {
+    const { concurrentThrew } = await archivedImmutabilityRaceReset(showId, crewId);
+    expect(concurrentThrew).toBe(true);                 // reset refused after the archive committed
+    expect((await readShow(showId)).archived).toBe(true); // A's archive landed
+  } finally {
+    await sqlClient`delete from public.shows where drive_file_id = ${driveFileId}`; // cascade cleanup (archive commits — not rolled back)
+  }
+});
+```
+
+> **Implementer note:** The archive in the race COMMITS (not rolled back), so this case needs explicit teardown (the `finally` delete cascades to crew_members / show_share_tokens). Keep this `test` in the same file as the runPsql cases; the import of `_b2Helpers` + the `afterAll(closeB2Helpers)` coexist fine with the execFileSync cases.
+
 - [ ] **Step 2: Run the test — verify it FAILS** (guard not yet present; archived/held/finalize currently succeed, returning a timestamptz instead of raising).
 
 ```bash
@@ -130,7 +172,7 @@ cd /Users/ericweiss/fxav-rpc-lifecycle-guard
 set -a; source <(grep -E '^TEST_DATABASE_URL=' .env.local); set +a
 pnpm vitest run tests/db/reset_crew_member_selection_lifecycle_guard.test.ts
 ```
-Expected: FAIL (archived/finalize/held cases resolve instead of rejecting).
+Expected: FAIL (archived/finalize/held + race cases resolve instead of rejecting/refusing).
 
 - [ ] **Step 3: Write the migration.** Full `create or replace` body = the current `20260703000001` body + two `declare` vars + the DEF-1 guard block inserted after the `pg_advisory_xact_lock` and before the `update public.crew_members`.
 
@@ -202,12 +244,12 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202607190000
 psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/reset_crew_member_selection_lifecycle_guard.test.ts
 ```
-Expected: PASS (5/5).
+Expected: PASS (6/6, including the R32 race).
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add supabase/migrations/20260719000000_reset_crew_member_selection_lifecycle_guard.sql tests/db/reset_crew_member_selection_lifecycle_guard.test.ts
+git add supabase/migrations/20260719000000_reset_crew_member_selection_lifecycle_guard.sql tests/db/reset_crew_member_selection_lifecycle_guard.test.ts tests/db/_b2Helpers.ts
 git commit -m "feat(db): DEF-1 lifecycle guard on reset_crew_member_selection"
 ```
 
@@ -319,8 +361,10 @@ git commit -m "fix(auth): resetCrewMemberSelection skips infra-fault log on life
 //   finalize-owned → { ok:false, code:'UNDO_FINALIZE_OWNED' }
 //   Held show      → undo SUCCEEDS ({ ok:true, ... })   ← key negative-regression (NOT published-gated)
 //   Live show      → undo SUCCEEDS
-// At least the archived case seeds a tombstone (crew_removed) change_log row so it exercises the
-// Direction-B path — proving the guard fires BEFORE the _undo_tombstone delegation. Assert crew_members
+// The archived case seeds a Direction-B tombstone change_log row — change_kind 'crew_added' (undoing an
+// add = tombstone the added row; undo_change delegates to _undo_tombstone ONLY for crew_added,
+// 20260608000003_undo_change_rpc.sql:151; existing tombstone test tests/db/undo-change-tombstone.test.ts:2,34
+// confirms). This proves the guard fires BEFORE the _undo_tombstone delegation. Assert crew_members
 // row-count is unchanged on refusal (guard fired before any mutation).
 ```
 
@@ -409,25 +453,32 @@ git commit -m "feat(db): archived+finalize lifecycle guard on undo_change (+ UND
 **Interfaces:**
 - Produces: `undoChange` — the post-success `show_change_log` read destructures `{data, error}`; a returned `{error}` OR a thrown fault both resolve `resolvedShowId=null` and preserve `{ok:true}` (undo already committed). No infra-error mapping for this best-effort read.
 
-- [ ] **Step 1: Write the failing test.** Post-success read returns `{ error }` → result still `{ ok:true }` (no `showId`).
+- [ ] **Step 1: Write the failing test.** The discriminating case (Codex R1 F2): the post-success read returns **BOTH** `data.show_id` AND an `error`. Old code (`{data}`-only) ignores `error` → returns `{ok:true, showId:"x"}`. New code (`{data,error}`, error takes precedence) → returns `{ok:true}` (no showId). So the assertion "error present ⇒ showId omitted" FAILS pre-impl, PASSES post-impl — a genuine TDD case.
 
 ```ts
 // add to tests/sync/holds/undoChange.infra.test.ts (mirror the existing null/throw cases at :123-163)
-it("post-success show_change_log read returns {error} → undo still ok:true, showId omitted", async () => {
-  // RPC → { data: { ok:true }, error:null }; service read maybeSingle() → { data:null, error:{ message:'boom' } }
+it("post-success read returns {data:{show_id}, error} → error wins: ok:true WITHOUT showId", async () => {
+  // RPC → { data:{ ok:true }, error:null }
+  // service read maybeSingle() → { data:{ show_id:"11111111-1111-1111-1111-111111111111" }, error:{ message:"boom" } }
   const res = await undoChange(VALID_ID);
-  expect(res).toEqual({ ok: true }); // undo committed; cache-bust show-id simply unresolved
+  expect(res).toEqual({ ok: true });          // FAILS on old code (returns { ok:true, showId:"1111…" })
+  expect((res as { showId?: string }).showId).toBeUndefined();
+});
+it("post-success read returns {data:{show_id}, error:null} → ok:true WITH showId (unchanged happy path)", async () => {
+  // service read → { data:{ show_id:"2222…" }, error:null }  → { ok:true, showId:"2222…" }
+  const res = await undoChange(VALID_ID);
+  expect(res).toEqual({ ok: true, showId: "22222222-2222-2222-2222-222222222222" });
 });
 ```
 
-- [ ] **Step 2: Run — verify FAIL or (if current code coincidentally returns ok:true) verify the returned-error path is currently un-destructured.**
+- [ ] **Step 2: Run — verify FAIL.**
 
 ```bash
 pnpm vitest run tests/sync/holds/undoChange.infra.test.ts
 ```
-Expected: the new case exercises the returned-`{error}` shape; current code destructures only `{data}` so `error` is ignored — the test should pass on outcome but FAILS the intent until the destructure is explicit. To make it a true failing test, ALSO assert (Step 1 addition) that the read error is handled via the `error` branch — since behavior is identical, pin it via the meta-contract assertion in Step 4 instead. (Primary guard: Step 4's meta-contract line.)
+Expected: FAIL — the first case returns `{ ok:true, showId:"1111…" }` on the current `{data}`-only code (error ignored), so `toEqual({ ok:true })` fails.
 
-> **Implementer note:** Because both the old (`{data}`-only) and new (`{data,error}`) code return `{ok:true}` on this path, the behavioral test alone is weak. The load-bearing assertion is the **meta-contract** update (Step 4) — the structural test that pins the two-read contract. Keep the behavioral case (it documents intent + guards against a future regression that maps the read error to failure), and rely on Step 4 for enforcement.
+> **Implementer note:** Match the existing mock harness in `undoChange.infra.test.ts` (how it stubs `createSupabaseServiceRoleClient().from().select().eq().maybeSingle()` to return a chosen `{data,error}`, and `supabase.rpc` to return `{data:{ok:true},error:null}`). The two cases differ only in the read's `error` field.
 
 - [ ] **Step 3: Implement** — `lib/sync/holds/undoChange.ts`, replace the post-success read:
 
@@ -508,10 +559,23 @@ describe("crew/share RPC lifecycle-guard meta (whole-class, fails-by-default)", 
     expect(new Set(rows)).toEqual(TRIGGER_MUTATORS);
   });
   test("Step B+C+D: entry-point universe == GUARDED ∪ EXEMPT (no unclassified fn)", () => {
-    const helperRe = "\\\\m(_archive_show_core|_unarchive_show_apply|_undo_tombstone)[[:space:]]*\\\\(";
+    // helperRe must reach psql as the POSIX ARE  \m(...)[[:space:]]*\(  — so ONE backslash in the SQL
+    // literal, i.e. TWO in this JS string. (Codex plan-R1 F3: an over-escaped \\m matches a literal
+    // backslash and would silently miss the delegation arm.)
+    const helperRe = "\\m(_archive_show_core|_unarchive_show_apply|_undo_tombstone)[[:space:]]*\\(";
     const rows = q(`select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE}
       and (${DIRECT_MUTATOR} or pg_get_functiondef(p.oid) ~* '${helperRe}') order by 1`);
     expect(new Set(rows)).toEqual(new Set([...GUARDED, ...EXEMPT]));
+  });
+  test("delegation arm actually fires: archive_show/unarchive_show are in the universe VIA helper-call, not direct DML", () => {
+    // Proves arm (b) works: these two have NO direct target DML, so they enter ONLY through the helper-call regex.
+    const helperRe = "\\m(_archive_show_core|_unarchive_show_apply|_undo_tombstone)[[:space:]]*\\(";
+    const directOnly = new Set(q(`select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and ${DIRECT_MUTATOR} order by 1`));
+    expect(directOnly.has("archive_show")).toBe(false);   // not a direct mutator
+    expect(directOnly.has("unarchive_show")).toBe(false);
+    const withDelegation = new Set(q(`select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and (${DIRECT_MUTATOR} or pg_get_functiondef(p.oid) ~* '${helperRe}') order by 1`));
+    expect(withDelegation.has("archive_show")).toBe(true); // enters via the helper-call arm
+    expect(withDelegation.has("unarchive_show")).toBe(true);
   });
   test("GUARDED fns carry their lifecycle-guard tokens", () => {
     const need: Record<string, string[]> = {
@@ -539,7 +603,7 @@ pnpm vitest run tests/db/crew-rpc-lifecycle-guard-meta.test.ts
 ```
 Expected: PASS (4/4). If any registry set-equality fails, the message lists the offending function — classify it (do not loosen the predicate without cause).
 
-- [ ] **Step 3: Negative check — prove fails-by-default.** Temporarily remove `undo_change` from `GUARDED`; the Step B+C+D test must FAIL ("universe has undo_change not in GUARDED ∪ EXEMPT"). Restore.
+- [ ] **Step 3: Negative checks — prove fails-by-default on BOTH arms.** (a) Temporarily remove `undo_change` from `GUARDED`; the Step B+C+D test must FAIL (direct-mutator arm: universe has an unclassified fn). (b) Temporarily remove `archive_show` from `EXEMPT`; the Step B+C+D test must FAIL (delegation arm: archive_show entered via helper-call but is unclassified). Restore both. This proves a new unguarded RPC is caught whether it mutates directly OR delegates to a helper.
 
 - [ ] **Step 4: Commit.**
 
