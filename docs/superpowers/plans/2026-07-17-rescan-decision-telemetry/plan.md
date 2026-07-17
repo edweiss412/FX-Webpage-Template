@@ -21,7 +21,7 @@ All shapes verified live in the spec's §3. **One re-grep before Task 3 edits** 
 
 - `regressedGapClasses` assertions derive the expected class from the fixture's injected warning code (e.g. build a `PULL_SHEET_ON_ARCHIVED_TAB` warning, assert that exact string appears) — never hardcode a class the fixture didn't produce.
 - Completeness test asserts `reviewCodes.length > 0` for EACH of the four drivers independently (crew-invariant, gap-regression, corrupt-prior, null-approver), and asserts the SPECIFIC token for each — not just "non-empty."
-- Explicit negative: a sentinel-only staged row + no driver → CLEAN, `reviewCodes` never emitted (demoted=false); and a gap-driven demote whose staged row ALSO carries a sentinel → `reviewCodes` contains the gap class but NOT the sentinel invariant (proves exclusion, not just presence).
+- Explicit negative: a sentinel-only staged row + no driver → CLEAN — the `SHEET_RESCANNED` emit STILL fires (every `status:"updated"` emits) with `demoted:false` and `reviewCodes: []` (empty, not absent; `[]` = "no demote cause"). Assert `reviewCodes === []`, NOT that the field is missing. And a gap-driven demote whose staged row ALSO carries a sentinel → `reviewCodes` contains the gap class but NOT the sentinel invariant (proves exclusion, not just presence).
 - Route emit test spies the log sink and asserts `context.demoted/changed/needsReview/reviewCodes` are present with the exact decision values — asserts against the sink record, not the mapResult JSON (which is unchanged).
 
 ## Fix-round regression budget
