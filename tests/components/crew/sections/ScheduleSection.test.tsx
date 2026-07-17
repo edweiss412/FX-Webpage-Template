@@ -13,6 +13,7 @@
 import { expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
+import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import type { StageRestriction } from "@/lib/parser/types";
@@ -212,7 +213,8 @@ test("bare-window day → DayCard meta = the window string from the data source"
     .querySelector('[data-slot="day-card-meta"]');
   // Expected meta derived from the data source's window, not a hardcoded literal.
   expect(dayCard).not.toBeNull();
-  expect(dayCard!.textContent).toBe(`${window.start}–${window.end}`);
+  // Meridiem normalized on the meta funnel (D3); en-dash preserved.
+  expect(dayCard!.textContent).toBe(normalizeMeridiem(`${window.start}–${window.end}`));
   cleanup();
 });
 
@@ -235,7 +237,7 @@ test("Set day with dates.setupTime → DayCard meta 'Setup <time>'; sentinel/abs
   const setCard = r.container
     .querySelector('[data-testid="schedule-day-today"]')!
     .querySelector('[data-slot="day-card-meta"]');
-  expect(setCard!.textContent).toBe(`Setup ${data.show.dates.setupTime}`);
+  expect(setCard!.textContent).toBe(normalizeMeridiem(`Setup ${data.show.dates.setupTime}`));
   cleanup();
   const data2 = makeShowForViewer({
     show: {

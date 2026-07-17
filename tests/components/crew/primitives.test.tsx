@@ -333,6 +333,36 @@ describe("<KeyTimesStrip>", () => {
     }
   });
 
+  test("D1/D5 semantics: <dl> container, each row is <dt>/<dd>, show dates wrapped in <time>", () => {
+    const shows = [{ date: "2026-10-08", label: "Day 1 · Wed 10/8", time: "7:15am" }];
+    const anchors: KeyTimeAnchors = { set: "9:00 AM", shows, strike: "11:00 PM" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
+    const strip = getByTestId("key-times-strip");
+    // D1: the strip is a description list (matches KeyValueRows / RightNowHero),
+    // closing the "three primitives, three structures" drift.
+    expect(strip.tagName).toBe("DL");
+    // Each present anchor row is a group with one <dt> (label) + one <dd> (value),
+    // and the label/value spans are kept as the first/last span (inv6 contract).
+    for (const row of Array.from(strip.querySelectorAll("[data-anchor]"))) {
+      const dt = row.querySelector("dt");
+      const dd = row.querySelector("dd");
+      expect(dt).not.toBeNull();
+      expect(dd).not.toBeNull();
+      expect(dt!.querySelector("span")).not.toBeNull();
+      expect(dd!.querySelector("span")).not.toBeNull();
+    }
+    // D5: the show row's date label is a <time> carrying the ISO date; the label
+    // text is unchanged so SR + sighted copy match.
+    const showRow = strip.querySelector('[data-anchor="show"]')!;
+    const time = showRow.querySelector("time");
+    expect(time).not.toBeNull();
+    expect(time!.getAttribute("datetime")).toBe(shows[0]!.date);
+    expect(time!.textContent).toBe(shows[0]!.label);
+    // Set/Strike labels are plain (not dates → no <time>).
+    expect(strip.querySelector('[data-anchor="set"]')!.querySelector("time")).toBeNull();
+    expect(strip.querySelector('[data-anchor="strike"]')!.querySelector("time")).toBeNull();
+  });
+
   test('layout="row" with N shows → row container divider classes + every cell gets min-[720px]:flex-1', () => {
     const shows = [
       { date: "2026-10-08", label: "Day 1", time: "7:15am" },
@@ -361,33 +391,40 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.className).not.toContain("flex-row");
   });
 
-  test("shows[] longer than the cap → first 4 show rows + a single '+N more' row", () => {
-    const shows = Array.from({ length: 7 }, (_, i) => ({
+  test("shows[] longer than the cap (8) → first 7 show rows + a <details> overflow disclosure", () => {
+    const shows = Array.from({ length: 10 }, (_, i) => ({
       date: `2026-10-${String(8 + i).padStart(2, "0")}`,
       label: `Day ${i + 1}`,
-      time: `${7 + i}:00am`,
+      time: `${7 + (i % 12)}:00am`,
     }));
     const anchors: KeyTimeAnchors = { shows };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
     const strip = getByTestId("key-times-strip");
-    // First 4 show rows render; the 5th..Nth collapse into one overflow row.
-    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(4);
+    // First 7 show rows render as [data-anchor="show"]; the 8th..Nth collapse.
+    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(7);
     const overflow = strip.querySelector('[data-testid="key-times-shows-overflow"]');
     expect(overflow).not.toBeNull();
-    // Overflow count derived from the fixture (7 - 4 = 3), never hardcoded.
-    const hidden = shows.length - 4;
+    // D2: overflow is a native <details> disclosure — recessive at rest, tap to
+    // expand the hidden days inline (no client JS, aria-expanded for free).
+    expect(overflow!.tagName).toBe("DETAILS");
+    expect(overflow!.querySelector("summary")).not.toBeNull();
+    // Hidden-day count derived from the fixture (10 - 7 = 3), never hardcoded.
+    const hidden = shows.length - 7;
     expect(overflow!.textContent).toContain(`+${hidden}`);
+    // The disclosed rows are rendered inside the <details> (inline expansion), one
+    // per hidden day, and are NOT counted among the visible [data-anchor="show"] rows.
+    expect(overflow!.querySelectorAll("dd").length).toBe(hidden);
   });
 
-  test("exactly 5 shows → all 5 render, no overflow row (boundary)", () => {
-    const shows = Array.from({ length: 5 }, (_, i) => ({
+  test("exactly 8 shows → all 8 render, no overflow disclosure (boundary)", () => {
+    const shows = Array.from({ length: 8 }, (_, i) => ({
       date: `2026-10-${String(8 + i).padStart(2, "0")}`,
       label: `Day ${i + 1}`,
       time: `${7 + i}:00am`,
     }));
     const { getByTestId } = render(<KeyTimesStrip anchors={{ shows }} />);
     const strip = getByTestId("key-times-strip");
-    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(5);
+    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(8);
     expect(strip.querySelector('[data-testid="key-times-shows-overflow"]')).toBeNull();
   });
 });
