@@ -106,7 +106,7 @@ The e2e harness proves the mechanism but renders synthetic cards. Add a fast jsd
 | --- | --- |
 | `SourceLink` `href === null` | Renders nothing (`SourceLink.tsx:43`) — no overlay. Unchanged. |
 | `CardReportTrigger` `showId` falsy | Renders `null` (`CardReportTrigger.tsx:58`) — no overlay. Unchanged. |
-| `hitDirection` omitted | Defaults to `"up"` — correct for all 22 SectionCard call sites (A/B). |
+| `hitDirection` omitted | Defaults to `"up"` — correct for all 23 SectionCard call sites (A/B). |
 | A future SectionCard whose below-neighbor is interactive AND whose above-space is <44px | Not a current shape (all SectionCards get 20px pad + 32px section gap above). If one is ever added, the harness pattern + probe 2 would catch a bleed; add a `"down"` variant or reserve band height at that point. |
 | Very long future SourceLink label | Only widens the ≥44px width further — vertical overlay unaffected. A label short enough to drop <44px width would need a width overlay; documented label-dependency guard (not in scope — label is the constant "In sheet"). |
 | Context C day cards ever become interactive | The `"down"` overhang would then intersect them; revisit to reserve a 44px band on the schedule header instead. Documented; out of current scope (`DayCard` is non-interactive today). |
