@@ -50,7 +50,7 @@ The new divider renders **iff**:
 !archived && (isLive || (syncLabel != null && sync != null) || alertCount > 0)
 ```
 
-Rationale — the divider only makes sense when BOTH a control (the toggle, present only when `!archived`) AND at least one following signal exist to separate. The three disjuncts are exactly the render conditions of the three signal elements (`StatusStrip.tsx:139`, `145`, `151`), so the divider appears if-and-only-if ≥1 signal will render beside the toggle.
+Rationale — the divider only makes sense when BOTH a control (the toggle, present only when `!archived`) AND at least one following signal exist to separate. Under the outer `!archived` conjunct, the three inner disjuncts are the render conditions of the three signal elements: live's own condition is `!archived && isLive` (`StatusStrip.tsx:139`), sync's is `syncLabel != null && sync != null` (`:145`), alert's is `alertCount > 0` (`:151`). The `!archived` factor is already the divider's outer guard, so `isLive` alone inside the disjunction is equivalent to live's full condition here. The divider therefore appears if-and-only-if ≥1 signal will render beside the toggle.
 
 `syncLabel != null && sync != null` mirrors the sync element's own guard verbatim (`StatusStrip.tsx:145`) — a single named boolean `hasSignal` is computed once and reused so the condition cannot drift from the elements it gates (self-consistency).
 
@@ -77,7 +77,7 @@ Append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` to the al
 ## 6. Mode boundaries
 
 - **Not archived:** title · divider · toggle · **[new divider iff hasSignal]** · live? · sync? · alert? · copy-link?
-- **Archived (read-only):** title · archived badge · sync? — unchanged. The new divider's `!archived` guard makes it structurally impossible here (the archived branch renders no toggle, so there is no control to separate from signals).
+- **Archived (read-only):** title · archived badge · sync? · alert? — unchanged. NOTE the alert badge (`StatusStrip.tsx:151`) has NO `archived` guard, so an archived show with `alertCount > 0` DOES render it; the archived branch only suppresses the toggle, copy-link, and live badge. The new divider's `!archived` guard makes it structurally impossible here (the archived branch renders no toggle, so there is no control to separate from signals) — even an archived + alert show shows no control divider, which is correct.
 
 ## 7. Dimensional invariants
 
@@ -95,8 +95,8 @@ TDD per invariant 1. Anti-tautology: assert the divider's render **condition**, 
 
 The component has no `data-testid` on the dividers today. Add `data-testid="strip-control-divider"` to the **new** divider only (the title divider stays untested/undecorated — it is not under change) so tests can scope to it precisely.
 
-- **renders the control divider when published + live** (`hasSignal` via `isLive`) → `getByTestId("strip-control-divider")` present.
-- **renders the control divider when the only signal is an alert** (not live, never synced, `alertCount=1`) → present. Proves the guard keys on `hasSignal`, not specifically on `isLive`.
+- **renders the control divider when the ONLY signal is `isLive`** — `isLive=true`, **`lastSyncedAt=null`, `alertCount=0`** (overriding `baseProps`, which sets `lastSyncedAt: SYNCED_12M` at `tests/components/admin/showpage/statusStrip.test.tsx:54` — without nulling it the sync signal co-fires and a guard that dropped the `isLive` disjunct would still pass). → `getByTestId("strip-control-divider")` present. Failure mode: guard omits `isLive`.
+- **renders the control divider when the only signal is an alert** (not live, `lastSyncedAt=null`, `alertCount=1`) → present. Proves the guard keys on `hasSignal`, not specifically on `isLive` — and isolates the alert disjunct the same way.
 - **omits the control divider when there is no signal** (published, `isLive=false`, `lastSyncedAt=null`, `alertCount=0`) → `queryByTestId("strip-control-divider")` is null. The failure mode this catches: a dangling divider after the toggle pointing at empty space.
 - **omits the control divider when archived** (even with `lastSyncedAt` set so a sync signal renders) → null. Proves the `!archived` conjunct; the archived mode must show zero control affordances so a control/signal separator is meaningless.
 - **control divider carries the responsive-suppression + a11y recipe** → its className includes `hidden`, `sm:block`, and it is `aria-hidden="true"` (decorative; not announced).
