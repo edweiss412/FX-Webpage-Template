@@ -134,8 +134,35 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
         folder_id: RUN_FOLDER,
         wizard_session_id: W1,
         failed_drive_file_ids: ["d-a", "d-b"],
+        failed_sheet_names: ["d-a.xlsx", "d-b.xlsx"],
       },
     });
+  });
+
+  it("emits failed_sheet_names index-aligned to failed_drive_file_ids (both id-sorted)", async () => {
+    // Names given in an order deliberately different from sorted id order, so a
+    // naive parallel-array emit would misalign. Expected pairs are derived from
+    // the fixture (anti-tautology): d-a→Alpha, d-b→Bravo, d-c→Charlie.
+    const result: OnboardingScanResult = {
+      outcome: "completed",
+      processed: [
+        { driveFileId: "d-b", name: "Bravo", outcome: "hard_failed" },
+        { driveFileId: "d-c", name: "Charlie", outcome: "hard_failed" },
+        { driveFileId: "d-a", name: "Alpha", outcome: "hard_failed" },
+        { driveFileId: "d-ok", name: "OK Sheet", outcome: "staged" },
+      ],
+    };
+    await readNdjson(await handleOnboardingScan(request(FOLDER_URL), driveResult(result)));
+
+    expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "ONBOARDING_SHEET_UNREADABLE",
+        context: expect.objectContaining({
+          failed_drive_file_ids: ["d-a", "d-b", "d-c"],
+          failed_sheet_names: ["Alpha", "Bravo", "Charlie"],
+        }),
+      }),
+    );
   });
 
   it("does NOT emit when no file hard_failed (incl. live_row_conflict only)", async () => {

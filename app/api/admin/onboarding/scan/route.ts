@@ -289,11 +289,17 @@ export async function handleOnboardingScan(
           // (all per-file txs committed inside runOnboardingScan), no advisory
           // lock held. Last-write-wins context (NO failedKeys key). Fires for
           // first-run AND re-run setup; showId null (first-seen parse semantics).
-          const failedIds = Array.from(
-            new Set(
-              result.processed.filter((p) => p.outcome === "hard_failed").map((p) => p.driveFileId),
+          const failedPairs = Array.from(
+            // Map dedupes by driveFileId (first name wins); sort pairs by id so
+            // failed_sheet_names[i] names failed_drive_file_ids[i].
+            new Map(
+              result.processed
+                .filter((p) => p.outcome === "hard_failed")
+                .map((p) => [p.driveFileId, p.name] as const),
             ),
-          ).sort();
+          ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+          const failedIds = failedPairs.map(([id]) => id);
+          const failedNames = failedPairs.map(([, name]) => name);
           if (failedIds.length > 0) {
             try {
               await upsertAdminAlert({
@@ -303,6 +309,7 @@ export async function handleOnboardingScan(
                   folder_id: folder.folderId,
                   wizard_session_id: wizardSessionId,
                   failed_drive_file_ids: failedIds,
+                  failed_sheet_names: failedNames,
                 },
               });
             } catch {
