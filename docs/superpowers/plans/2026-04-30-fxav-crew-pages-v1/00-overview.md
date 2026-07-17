@@ -22,11 +22,12 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with twelve ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with twelve ratified plan amendments AND three ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
    - **§14.3 admin allow-list mechanism: runtime-mutable** _(2026-05-14, ratified through M9 C9 cross-CLI review R1–R11; integrated into spec body — §14.3 `ADMIN_EMAILS` row retired with cross-reference, §6.x is_admin() helper updated)_. Retires the migration-hardcoded `array['dlarson@fxav.net','edweiss412@gmail.com']` literal inside `public.is_admin()` and the unused `ADMIN_EMAILS` env var. Replaces with a runtime-mutable `public.admin_emails` table + atomic SECURITY DEFINER RPCs (`upsert_admin_email_rpc` + `revoke_admin_email_rpc`) + `/admin/settings/admins` CRUD UI. JWT-role override arm (`app_metadata.role = 'admin'`) preserved verbatim. RLS posture: SELECT-only grant + `for select` policy for authenticated; mutations route exclusively through the RPCs which enforce `is_admin()` + advisory-locked atomicity + last-admin-lockout + email-shape validation. See `docs/superpowers/specs/master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md` for the full authoritative shape including the R1/R6/R7 refinements.
+   - **§6.8 MI-9 LEAD-bit auto-apply (owner option B)** _(governing decision 2026-06-08 sync-changes-feed-identity-gate, cross-referenced in `docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/02-decision-rule-and-hold-aware-apply.md:37,42,50`; ratified by the owner 2026-07-17 and integrated into spec §6.8 / §6.8.2 / §12.4)_. The Phase 2 decision rule auto-applies an MI-9 LEAD-bit change (only MI-11 email changes stay gated) — a LEAD-bit toggle is a deliberate sheet edit that bumps no auth floor, so it does NOT stage. The previously-silent LEAD change now emits an info-severity `ROLE_FLAGS_NOTICE` feed alert AND a durable, failure-visible `LEAD_ROLE_APPLIED` audit `app_event`; the dead `MI-9_ROLE_FLAGS_DELTA` code is retired. This records the 2026-06-08 decision-rule amendment as the governing decision for MI-9 auto-apply (previously not in this ratified list, which was the §1b canonical divergence). See `docs/superpowers/specs/2026-07-17-mi9-lead-autoapply-fyi.md`.
 
    **Ratified plan amendments to spec:**
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:
@@ -155,26 +156,28 @@
       classes uniformly produces operator friction on routine department reassignments without a
       corresponding security or correctness benefit.
 
-      **The plan ratifies a narrowed MI-9:** Phase 1's MI-9 check stages **only** when the
-      LEAD-bit set membership differs between `prior.role_flags` and `new.role_flags`
-      (i.e., `prior.includes('LEAD') !== new.includes('LEAD')`). All other `role_flags` deltas
-      auto-apply via Phase 2 UPSERT and emit a `ROLE_FLAGS_NOTICE` entry to `admin_alerts` at
+      **The plan ratifies a narrowed MI-9; owner option B (2026-07-17) further ratifies that a
+      LEAD-bit change AUTO-APPLIES** (it no longer stages). A LEAD-bit change is a deliberate sheet
+      edit (Doug typing/removing `LEAD`), not a parser guess, and severs no access (no auth-floor
+      bump), so Phase 1 routes it to `pass` (auto-apply) just like a non-LEAD delta. All `role_flags`
+      deltas auto-apply via Phase 2 UPSERT and emit a `ROLE_FLAGS_NOTICE` entry to `admin_alerts` at
       **`info` severity** (visible in the alert feed but does not contribute to the dashboard's
-      action-required count or banner) so the change is auditable without blocking propagation.
-      **MI-10** (the LEAD-toggle documentation safety net) is now the canonical implementation
-      predicate, and MI-9 is implemented as `MI-10 || false` — i.e., MI-9 and MI-10 collapse
-      into a single LEAD-bit check. The §12.4 catalog gains `ROLE_FLAGS_NOTICE` (info severity,
-      no reviewer action) alongside `MI-9_ROLE_FLAGS_DELTA` (which is now reserved for the
-      LEAD-bit subset).
+      action-required count or banner) so the change is auditable without blocking propagation. A
+      LEAD-bit gain/loss ADDITIONALLY writes a durable, failure-visible `LEAD_ROLE_APPLIED` audit
+      `app_event` (forensic code, not §12.4) so a mistaken grant is always recoverable via `observe
+      events` even if the coalescing feed alert is overwritten. **MI-10** (the LEAD-toggle
+      documentation safety net) is the canonical predicate and MI-9 is its alias — both auto-apply.
+      The §12.4 catalog keeps `ROLE_FLAGS_NOTICE` (info severity, now covering LEAD too); the dead
+      `MI-9_ROLE_FLAGS_DELTA` code is RETIRED (moved to `RETIRED_CODES`, no producer).
 
-      Tests: (a) `['A1']` → `['LEAD','A1']` stages with `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit
-      changed); (b) `['LEAD','A1']` → `['LEAD','V1']` auto-applies and emits info-severity
-      `ROLE_FLAGS_NOTICE` (LEAD-bit unchanged, department changed); (c) `['A1']` →
-      `['A1','BO']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE` (additive
-      non-LEAD); (d) `['LEAD','A1']` → `['A1']` stages with `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit
-      lost). The §6.8 derivation table and §12.4 catalog are patched in the spec to reflect the
-      narrowing. The `tests/messages/_metaAdminAlertCatalog.test.ts` registry (per AGENTS.md
-      §13 meta-test inventory) gains the `ROLE_FLAGS_NOTICE` row.
+      Tests: (a) `['A1']` → `['LEAD','A1']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE`
+      + a durable `LEAD_ROLE_APPLIED` app_event (LEAD gained); (b) `['LEAD','A1']` → `['LEAD','V1']`
+      auto-applies and emits info-severity `ROLE_FLAGS_NOTICE` only (LEAD-bit unchanged, department
+      changed); (c) `['A1']` → `['A1','BO']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE`
+      (additive non-LEAD); (d) `['LEAD','A1']` → `['A1']` auto-applies and emits `ROLE_FLAGS_NOTICE`
+      + `LEAD_ROLE_APPLIED` (LEAD lost). The §6.8 derivation table and §12.4 catalog are patched in
+      the spec to reflect option B (auto-apply). The `tests/messages/_metaAdminAlertCatalog.test.ts`
+      registry (per AGENTS.md §13 meta-test inventory) keeps the `ROLE_FLAGS_NOTICE` row.
 
    9. **Spec §5.2 / §6.8 — FIRST_SEEN_REVIEW becomes auto-publish with 24h email-undo**
       _(applies to M6 onward; ratified 2026-05-09)_. The spec at §5.2 step 3 routes ALL
