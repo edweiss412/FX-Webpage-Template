@@ -421,7 +421,7 @@ describe("§11 T8: rescanPending false ↔ true — existing RescanSheetButton l
     // G3 two-tap guard: first click arms (still not busy), second click fires.
     fireEvent.click(btn);
     expect(btn.getAttribute("aria-busy")).toBe("false");
-    expect(btn.textContent).toBe("Confirm re-scan — replaces this staged review");
+    expect(btn.textContent).toBe("Confirm re-scan: replaces this staged review");
     fireEvent.click(btn);
     await waitFor(() => expect(btn.getAttribute("aria-busy")).toBe("true"));
     expect(btn.textContent).toBe("Re-scanning…");

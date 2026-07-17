@@ -170,7 +170,7 @@ describe("pending-ingestion action buttons (live host: NeedsAttentionInbox)", ()
 // sibling "Defer until modified" stays one-tap (§7 exemption).
 describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)", () => {
   const ID = "pi-g1";
-  const ARMED_LABEL = "Confirm — stop tracking this sheet permanently";
+  const ARMED_LABEL = "Confirm: stop tracking this sheet permanently";
 
   afterEach(() => {
     vi.useRealTimers();

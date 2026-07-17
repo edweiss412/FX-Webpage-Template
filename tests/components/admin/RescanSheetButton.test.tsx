@@ -496,7 +496,7 @@ describe("RescanSheetButton — final-publish blocker mount (OUTDATED rows only)
 // the EXISTING handleClick() unchanged. Same button in both placement variants;
 // self-start sizing preserved.
 describe("G3 two-tap guard — Re-scan this sheet", () => {
-  const ARMED_LABEL = "Confirm re-scan — replaces this staged review";
+  const ARMED_LABEL = "Confirm re-scan: replaces this staged review";
 
   function expectDestructiveRecipe(el: HTMLElement) {
     const tokens = el.className.split(/\s+/);

@@ -207,7 +207,7 @@ export function RescanSheetButton({
         }
       >
         {armed
-          ? "Confirm re-scan — replaces this staged review"
+          ? "Confirm re-scan: replaces this staged review"
           : pending
             ? "Re-scanning…"
             : "Re-scan this sheet"}

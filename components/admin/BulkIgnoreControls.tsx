@@ -128,7 +128,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             {running
               ? "Ignoring…"
               : armed
-                ? `Confirm — ignore all ${group.items.length}`
+                ? `Confirm: ignore all ${group.items.length}`
                 : `Ignore all ${group.items.length}`}
             {group.label ? (
               // While armed the span stays (it identifies WHICH group is armed) but

@@ -40,10 +40,10 @@ Each converts the existing one-tap button into the two-tap morph idiom: first ta
 
 | # | Control | File (verified) | Confirm label |
 |---|---------|-----------------|---------------|
-| G1 | Permanently ignore | `components/admin/PendingPanelDiscardButtons.tsx:84-95` | `Confirm — stop tracking this sheet permanently` |
-| G2 | Stop showing this sheet | `components/admin/StagedReviewCard.tsx:622-633` | `Confirm — stop showing this sheet` |
-| G3 | Re-scan this sheet | `components/admin/RescanSheetButton.tsx:170-180` | `Confirm re-scan — replaces this staged review` |
-| G4 | Ignore all N | `components/admin/BulkIgnoreControls.tsx:80-93` | `Confirm — ignore all N` (N interpolated, existing `group.items.length`). The secondary `· {group.label}` span (`:90-92`) REMAINS while armed (it identifies which group is armed) but drops its `text-text-subtle` override — while armed it renders `font-normal` only, inheriting the recipe's `text-warning-bg` so the child cannot visually undermine the destructive fill. |
+| G1 | Permanently ignore | `components/admin/PendingPanelDiscardButtons.tsx:84-95` | `Confirm: stop tracking this sheet permanently` |
+| G2 | Stop showing this sheet | `components/admin/StagedReviewCard.tsx:622-633` | `Confirm: stop showing this sheet` |
+| G3 | Re-scan this sheet | `components/admin/RescanSheetButton.tsx:170-180` | `Confirm re-scan: replaces this staged review` |
+| G4 | Ignore all N | `components/admin/BulkIgnoreControls.tsx:80-93` | `Confirm: ignore all N` (N interpolated, existing `group.items.length`). The secondary `· {group.label}` span (`:90-92`) REMAINS while armed (it identifies which group is armed) but drops its `text-text-subtle` override — while armed it renders `font-normal` only, inheriting the recipe's `text-warning-bg` so the child cannot visually undermine the destructive fill. |
 
 Notes:
 - G2's idle state is a recessive underline link (`text-text-subtle underline`, `StagedReviewCard.tsx:629`); on first tap it morphs into a solid recipe button (C1). Reverting restores the link. The existing `aria-describedby` note (`:630`) is preserved in both states.

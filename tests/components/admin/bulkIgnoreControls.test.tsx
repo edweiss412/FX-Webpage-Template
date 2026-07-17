@@ -135,7 +135,7 @@ describe("BulkIgnoreControls", () => {
       fireEvent.click(btn);
       expect(fetchMock).not.toHaveBeenCalled();
       // N derived from the fixture, never hardcoded.
-      expect(btn.textContent).toContain(`Confirm — ignore all ${groupX.items.length}`);
+      expect(btn.textContent).toContain(`Confirm: ignore all ${groupX.items.length}`);
       expectDestructiveRecipe(btn);
       // The group-identifying span remains while armed, but without the
       // text-text-subtle override (it inherits the recipe's text-warning-bg).
@@ -174,14 +174,14 @@ describe("BulkIgnoreControls", () => {
       fireEvent.click(btnY); // re-arm: Y armed at t=2000, X reverts
       expect(btnX.textContent).toContain(`Ignore all ${groupX.items.length}`);
       expect(btnX.textContent).not.toContain("Confirm");
-      expect(btnY.textContent).toContain(`Confirm — ignore all ${groupY.items.length}`);
+      expect(btnY.textContent).toContain(`Confirm: ignore all ${groupY.items.length}`);
       expect(fetchMock).not.toHaveBeenCalled();
       // Advancing only X's remainder (to t=4500 — past X's original 4s window,
       // but only 2.5s from Y's arm) must NOT disarm Y — stale-timer proof.
       act(() => {
         vi.advanceTimersByTime(2_500);
       });
-      expect(btnY.textContent).toContain(`Confirm — ignore all ${groupY.items.length}`);
+      expect(btnY.textContent).toContain(`Confirm: ignore all ${groupY.items.length}`);
       // Advancing to 4s from Y's arm disarms Y.
       act(() => {
         vi.advanceTimersByTime(1_500);
@@ -197,7 +197,7 @@ describe("BulkIgnoreControls", () => {
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       const idleClass = btn.className;
       fireEvent.click(btn);
-      expect(btn.textContent).toContain("Confirm — ignore all");
+      expect(btn.textContent).toContain("Confirm: ignore all");
       act(() => {
         vi.advanceTimersByTime(4_000);
       });
@@ -243,7 +243,7 @@ describe("BulkIgnoreControls", () => {
       expect(btn.textContent).not.toContain("Confirm");
       // The state machine is sane afterward: one tap arms again.
       fireEvent.click(btn);
-      expect(btn.textContent).toContain(`Confirm — ignore all ${groupX.items.length}`);
+      expect(btn.textContent).toContain(`Confirm: ignore all ${groupX.items.length}`);
       // Only the first fire's fan-out hit the network (re-arming never fetches).
       expect(fetchMock).toHaveBeenCalledTimes(groupX.items.length);
     });

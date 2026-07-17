@@ -497,13 +497,13 @@ Stale-timer note (plan R2 review): G1–G3 are SINGLE-control guards — there i
 
 Per-surface armed rendering (label + className swap on the SAME button; the armed branch is the registry's morph literal):
 
-- **G1** (`admin-pending-ignore-*`, "Permanently ignore"): armed label `Confirm — stop tracking this sheet permanently`; armed className
+- **G1** (`admin-pending-ignore-*`, "Permanently ignore"): armed label `Confirm: stop tracking this sheet permanently`; armed className
   `inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`
   Idle branch/classes unchanged; sibling "Defer until modified" untouched (§7).
-- **G2** (`staged-review-discard-ignore`, "Stop showing this sheet"): idle stays the recessive underline link (`:629`); armed label `Confirm — stop showing this sheet`, armed className
+- **G2** (`staged-review-discard-ignore`, "Stop showing this sheet"): idle stays the recessive underline link (`:629`); armed label `Confirm: stop showing this sheet`, armed className
   `min-h-tap-min rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60`
   Keep `aria-describedby` in both states.
-- **G3** (`rescan-sheet-button-*`): armed label `Confirm re-scan — replaces this staged review`; armed className mirrors its idle shape with recipe fill:
+- **G3** (`rescan-sheet-button-*`): armed label `Confirm re-scan: replaces this staged review`; armed className mirrors its idle shape with recipe fill:
   `inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`
   (`self-start` preserved per spec §4; both `placement` variants get it automatically — same button.)
 
@@ -520,11 +520,11 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 - Test: `tests/components/admin/bulkIgnoreControls.test.tsx` (verified)
 - Modify: destructive-confirm registry (+1 morph row)
 
-- [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm — ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed; unmount while armed clears the timer (fake timers, no act warnings after unmount).
+- [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm: ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed; unmount while armed clears the timer (fake timers, no act warnings after unmount).
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety). EVERY `setState({ kind: "error", … })` assignment in the file (there are two: the partial-failure branch and the catch branch, `BulkIgnoreControls.tsx:60-72`) gets an adjacent `setArmedCode(null)` — enumerate them by grepping `kind: "error"` in the file during implementation. Additionally, `ignoreGroup`'s FIRST statements become `clearArmTimer(); setArmedCode(null);` immediately before/with its existing `setState({ kind: "running", code: group.code })` — the running transition itself clears armed + timer (spec: entering `running` clears `armedCode`), so the success path needs nothing further. Armed className:
   `inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg`
-  Armed content: `Confirm — ignore all {group.items.length}` + `{group.label ? <span className="ml-1 font-normal">· {group.label}</span> : null}`.
+  Armed content: `Confirm: ignore all {group.items.length}` + `{group.label ? <span className="ml-1 font-normal">· {group.label}</span> : null}`.
 - [ ] **Step 4:** Run + meta-test — PASS. **Step 5: Commit** `feat(admin): two-tap armed-state guard on bulk Ignore all N (G4)`
 
 ---

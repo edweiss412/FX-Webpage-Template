@@ -659,7 +659,7 @@ export function StagedReviewCard({
                 : "min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
             }
           >
-            {ignoreArmed ? "Confirm — stop showing this sheet" : "Stop showing this sheet"}
+            {ignoreArmed ? "Confirm: stop showing this sheet" : "Stop showing this sheet"}
           </button>
           <p id={`staged-${row.stagedId}-ignore-note`} className="mt-1 text-xs text-text-subtle">
             This sheet will not reappear until Doug clears it from settings.
