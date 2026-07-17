@@ -308,7 +308,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   parseResult = useRawOutcome.result;
   const useRawKept = useRawOutcome.kept.map((d) => ({ ...d, applied: true }));
   // "Recognize this role" overlay (spec §6.1) — runs immediately after use-raw, BEFORE the crew
-  // upsert (role_flags) and nonLeadRoleFlagChanges diffing. PURE (deep-clones); [] → no-op.
+  // upsert (role_flags) and roleFlagChangesForNotice diffing. PURE (deep-clones); [] → no-op.
   const roleMappingOutcome = applyRoleTokenMappings(parseResult, args.roleTokenMappings ?? []);
   parseResult = roleMappingOutcome.result;
   // Consumed-token stamp for shows_internal.applied_role_mappings (staging-overlay spec
