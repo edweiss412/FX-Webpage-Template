@@ -477,8 +477,8 @@ A per-show group with one change renders a group-card wrapper around a single in
 
 ### BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF — structured field-level From→To for field_changed
 
-**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
-`field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded. Trigger: the spec §1 "Full fidelity" option, if pursued.
+**Status:** ✅ RESOLVED (PR #453, 2026-07-17) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
+~~`field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded.~~ **Resolved:** shipped as REDESIGN-3. `field_changed` rows render a structured per-field list (MI-8 "cleared" note-only / MI-8b COI From→To / MI-8c "N cases removed" / **MI-9 role From→To**, existing-crew-only) stored on `show_change_log.after_image.fieldChanges` — no migration (freeform jsonb, `after_image` already selected), no `TriggeredReviewItem` widening, no old financial value stored. New `lib/sync/changeLog/fieldChanges.ts` (`buildFieldChangesRow` writer + `deriveFieldsDiff` reader, 500-entry read cap + forensic `AUTOAPPLIED_FIELDCHANGES_INVALID` warn); component renders all entries (no "+N more"), field name as the heading, all-malformed/corrupt → a visible "Unavailable" warning row. Spec + plan under `docs/superpowers/{specs,plans}/2026-07-17-autoapplied-field-structured-diff`. See `DEFERRED.md` AUTOAPPLIED-REDESIGN-3.
 
 ### BL-AUTOAPPLIED-COLLAPSED-KIND-HINT — surface change kind in the collapsed group header
 
