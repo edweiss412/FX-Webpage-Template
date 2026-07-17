@@ -163,7 +163,7 @@ In `app/api/admin/onboarding/finalize/route.ts`: delete the local `function coer
 
 - [ ] **Step 5: Run tests + typecheck**
 
-Run: `pnpm vitest run tests/sync/pullSheetOverrideCoerce.test.ts && pnpm vitest run app/api/admin/onboarding/finalize` (the finalize route's existing tests still pass with the re-import) `&& pnpm typecheck`
+Run: `pnpm vitest run tests/sync/pullSheetOverrideCoerce.test.ts tests/onboarding/finalizeOverrideConsistencyGate.test.ts && pnpm typecheck` (typecheck proves the finalize re-import resolves; the override-gate test exercises the finalize override path)`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -188,32 +188,41 @@ git commit --no-verify -m "refactor(sync): extract coercePullSheetOverride to li
 
 - [ ] **Step 1: Write the failing unit test (buildStep3Row reduce)**
 
-Find the existing `buildStep3Row` test file (`rg -l "buildStep3Row" tests/`). Add:
+The `buildStep3Row` unit tests live in `tests/admin/step3UnifiedRead.test.ts` (imports `{ buildStep3Row }` from `@/components/admin/OnboardingWizard`; uses shared `const manifest = {...}` and `const pending = {...}` fixture objects and `it(...)`). Add a new `describe` there, matching that spread-fixture style:
 
 ```ts
-test("durable pull_sheet_override full shape reduces onto row.pullSheetOverride (audit dropped)", () => {
-  const row = buildStep3Row(
-    manifestRow({ status: "staged" }),
-    { staged_id: "s-1", parse_result: {}, pull_sheet_override: {
-      tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "2026-07-17T00:00:00Z",
-    } },
-    [],
-  );
-  expect(row.pullSheetOverride).toEqual({ tabName: "OLD A", fingerprint: "fp1" });
-});
+describe("buildStep3Row durable pull_sheet_override reduce (PSAT-1)", () => {
+  it("full audit shape reduces onto row.pullSheetOverride (audit dropped)", () => {
+    const row = buildStep3Row(
+      { ...manifest, status: "staged" },
+      { ...pending, pull_sheet_override: {
+        tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u@x.co", acceptedAt: "2026-07-17T00:00:00Z",
+      } },
+      [],
+    );
+    expect(row.pullSheetOverride).toEqual({ tabName: "OLD A", fingerprint: "fp1" });
+  });
 
-test("null durable override -> row.pullSheetOverride absent", () => {
-  const row = buildStep3Row(manifestRow({ status: "staged" }), { staged_id: "s-1", parse_result: {}, pull_sheet_override: null }, []);
-  expect("pullSheetOverride" in row).toBe(false);
-});
+  it("null durable override -> row.pullSheetOverride absent", () => {
+    const row = buildStep3Row({ ...manifest, status: "staged" }, { ...pending, pull_sheet_override: null }, []);
+    expect("pullSheetOverride" in row).toBe(false);
+  });
 
-test("non-pending row -> row.pullSheetOverride absent", () => {
-  const row = buildStep3Row(manifestRow({ status: "hard_failed" }), null, []);
-  expect("pullSheetOverride" in row).toBe(false);
+  it("partial audit shape (missing acceptedAt) -> absent (finalize parity)", () => {
+    const row = buildStep3Row(
+      { ...manifest, status: "staged" },
+      { ...pending, pull_sheet_override: { tabName: "OLD A", fingerprint: "fp1", acceptedBy: "u" } },
+      [],
+    );
+    expect("pullSheetOverride" in row).toBe(false);
+  });
+
+  it("non-pending row -> row.pullSheetOverride absent", () => {
+    const row = buildStep3Row({ ...manifest, status: "hard_failed" }, null, []);
+    expect("pullSheetOverride" in row).toBe(false);
+  });
 });
 ```
-
-(Use the file's existing `manifestRow`/helper shape; match its `ManifestRowForBuild` fixture builder. If none exists, construct the manifest object inline with the same fields the other tests use.)
 
 - [ ] **Step 2: Write the failing integration test (fetchStep3Data wiring, §4.1b)**
 
@@ -837,7 +846,7 @@ git commit --no-verify -m "docs: mark PSAT-1 / BL-PSAT-STEP3-DURABLE-OVERRIDE-DT
 - [ ] **Step 1: Run the full relevant gates**
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm vitest run tests/sync/pullSheetOverrideCoerce.test.ts tests/components/onboardingWizard.fetchStep3.test.ts tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/wizard/_metaStep3FreezeContract.test.ts app/api/admin/onboarding/finalize
+pnpm typecheck && pnpm lint && pnpm vitest run tests/sync/pullSheetOverrideCoerce.test.ts tests/components/onboardingWizard.fetchStep3.test.ts tests/components/admin/wizard/packListBreakdownStates.test.tsx tests/components/admin/wizard/_metaStep3FreezeContract.test.ts tests/onboarding/finalizeOverrideConsistencyGate.test.ts
 ```
 
 Then the full suite to catch fan-out regressions (page-rebuild / source-scanning meta-tests, other `buildStagedSectionData` callers, the modal render tests):
