@@ -140,7 +140,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
               {group.label ? (
                 <span
                   data-testid={`dq-group-label-${group.code}`}
-                  className="whitespace-nowrap text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                  className="min-w-0 truncate text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
                 >
                   {group.label}
                 </span>
@@ -154,6 +154,13 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                     onClick={() => onGuardedClick(bulk)}
                     disabled={state.kind === "running"}
                     aria-busy={running}
+                    // The type context now lives in the eyebrow (sighted users); give the
+                    // chip a stable accessible name so a screen-reader user who tabs straight
+                    // to it still hears WHICH type it ignores. The armed "Confirm" step is
+                    // announced by the sibling role="status" live region, not this name.
+                    aria-label={
+                      group.label ? `Ignore all ${bulk.items.length} · ${group.label}` : undefined
+                    }
                     className={armed ? ARMED_BTN : BTN}
                   >
                     {running
