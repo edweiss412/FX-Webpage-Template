@@ -45,6 +45,7 @@ const REGISTRY: Row[] = [
     "panel",
     "admin-alert-confirm-resolve-button",
   ),
+  R("components/admin/ReSyncButton.tsx", 0, "panel", "admin-resync-accept"),
   R(
     "components/admin/PreviewBanner.tsx",
     0,

@@ -74,6 +74,11 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   // SAFE "Keep current version" control — never the destructive accept — so a keyboard user reaches
   // the region and an inadvertent Enter keeps last-good rather than clobbering it.
   const keepCurrentRef = useRef<HTMLButtonElement>(null);
+  // C5 close focus (destructive-confirm pass R8, single-phase): "Keep current
+  // version" unmounts the panel AND the focused safe button, so the cancel
+  // handler focuses the still-mounted re-sync trigger FIRST, then dismisses.
+  // No auto-revert exists (persistent panel), so no two-phase guard is needed.
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (heldShrink && !errorCode) keepCurrentRef.current?.focus();
   }, [heldShrink, errorCode]);
@@ -130,6 +135,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   return (
     <div className="flex flex-col gap-3">
       <AccentButton
+        ref={triggerRef}
         onClick={() => post()}
         disabled={pending}
         data-testid="admin-resync-button"
@@ -166,25 +172,31 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
             <button
               ref={keepCurrentRef}
               type="button"
-              onClick={() => setHeldShrink(null)}
+              onClick={() => {
+                // C5: focus the trigger BEFORE unmounting the panel that holds
+                // the currently-focused safe control.
+                triggerRef.current?.focus();
+                setHeldShrink(null);
+              }}
               disabled={pending}
               data-testid="admin-resync-keep-current"
               className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
             >
               Keep current version
             </button>
-            <AccentButton
+            {/* Destructive-confirm recipe (spec R8): accepting a show-shrinking
+                sync over last-good is a destructive confirm-go — inverted-amber
+                C1 fill, plain button (not AccentButton). */}
+            <button
+              type="button"
               onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
               disabled={pending}
               data-testid="admin-resync-accept"
               aria-busy={pending}
-              fontWeight="medium"
-              inline
-              minWidthTap
-              ringOffset="warning-bg"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
             >
               {pending ? "Applying…" : "Apply reduced version"}
-            </AccentButton>
+            </button>
           </div>
         </div>
       ) : null}
