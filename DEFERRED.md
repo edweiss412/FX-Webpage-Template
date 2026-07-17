@@ -673,3 +673,25 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/mobile-autoapplied-p
 - **What:** `page.tsx:70` the primary inbox `<section aria-label="Needs attention">` has no heading, so the page's first `<h2>` belongs to the (secondary) strip. A heading-navigation SR user reaches the strip's h2 before any inbox heading.
 - **Why noted (pre-existing, not diff-introduced):** the inbox's heading IS the page `<h1>` "Needs attention" (the page IS the inbox list); the strip is correctly a secondary `<h2>`. The `aria-label` on the section predates this diff. The diff ADDED the h2 (before it the page had only h1) — added structure, not a regression.
 - **Trigger:** a needs-attention page IA pass, if the inbox section ever needs a distinct in-outline heading. Backlog: none (accepted).
+
+## Auto-applied-strip polish batch — impeccable dual-gate deferrals (2026-07-17)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/autoapplied-strip-polish` (spec `docs/superpowers/specs/2026-07-17-autoapplied-strip-polish.md`; COLLAPSE-1/-2, REDESIGN-2, DESTRUCT-3). Verdict: critique **37/40** (dual-agent, AI-slop CLEAN, cognitive load 1/8), audit **18/20** Strong (anti-patterns PASS), deterministic detector `[]` (0 findings), real-browser morph PASS. FIXED in-branch: the one converged P2 — the all-success bulk-undo `role=status` was conditionally mounted already-populated (some SR/browser combos skip a live region that first appears with text); now a persistent empty `role=status` region with the sentence written in on completion. The entries below are the accepted/deferred P2/P3s.
+
+### KINDDOT-1 — [P2→deferred] Collapsed-header kind dots are a color-only glance channel; `crew_removed` (warn) vs `crew_renamed` (review) hues are near-identical
+
+- **What:** `RecentAutoAppliedStrip.tsx` `KindDotCluster` renders one `size-2 rounded-full` dot per distinct kind, hue-only from `KIND_PILL[k].dot`. The warn (`#b26a16`) and review (`#a87716`) tokens are close, so a sighted color-vision-limited operator (Doug on a sunlit venue floor) can't reliably tell "Removed" from "Renamed" by dot alone.
+- **Why deferred (ratified + mitigated, not a 1.4.1 violation):** spec §2.2 scopes the dots as a NON-authoritative triage accelerant, not a safety mechanism — every disposition control lives inside the disclosed panel, so nothing (destructive included) is actioned without expanding and seeing the per-row `KindPill` (color + uppercase text + line-through). The dots are `aria-hidden`; the cluster's `aria-label` names every kind for AT. So the color channel is backed by text (AT) and by the expand-to-act interaction model (all users). The audit confirmed this is NOT a WCAG 1.4.1 use-of-color violation. Adding a non-color tell for the destructive dot (a leading `−`/ring, or a hue nudge) is optional polish.
+- **Trigger:** a shows-glance-legibility pass, OR a Doug report that the collapsed dots are hard to tell apart. Then give `crew_removed` a non-color differentiator (glyph/ring) or nudge the warn/review hues apart. Backlog: `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL`.
+
+### KINDDOT-2 — [P3→accepted] Kind-cluster `aria-label` folds into the toggle's accessible name
+
+- **What:** the `KindDotCluster` `aria-label` span sits inside the disclosure `<button>`, so name-from-content folds it into the toggle name → e.g. "II - FinTech… Change kinds: Removed, Added 3 changes".
+- **Why accepted (net-positive):** the verbose name IS the pre-expand a11y feature — an SR user hears the show, the kinds present (incl. destructive Removed), and the count before expanding, exactly the COLLAPSE-1 intent for Sam. Trimming it (aria-hiding the cluster) would strip the pre-expand kind hint from SR users. Accepted as-is.
+- **Trigger:** if operators report the toggle name reads too long in practice. Backlog: none (accepted).
+
+### COLLAPSE-REGION-1 — [P3→deferred] `CollapsePanel` emits a `role=region` landmark per panel; many groups could proliferate landmarks
+
+- **What:** `CollapsePanel` sets `role="region"` + `aria-label` on every disclosed panel. WAI-APG advises against many region landmarks (~>6); an admin with many recently-auto-applied show groups (up to `STRIP_RENDER_CAP=50`) plus ignored-sheets + add-admin could proliferate landmarks in the AT landmark list.
+- **Why deferred (bounded; region resolves a real contract):** the region is what lets the toggle's `aria-controls` point at a labeled region (spec §1.1, ratified against the alternative of a bare wrapper). In practice the dashboard rarely shows more than a few auto-applied groups, so the landmark count stays small. Making strip group-panels non-region while keeping the two singleton disclosures as regions would fork `CollapsePanel` with a `role` opt-out prop — net-new API for a bounded, rarely-hit case.
+- **Trigger:** an operator/SR report of landmark noise, OR real data commonly showing >6 concurrent auto-applied groups. Then add an optional `region?: boolean` (default true) to `CollapsePanel` and pass `false` for the strip group panels. Backlog: `BL-COLLAPSEPANEL-REGION-OPTOUT`.
