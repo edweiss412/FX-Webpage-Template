@@ -100,14 +100,22 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
   test("MISSING triggered_review_items key is REFUSED, never coerced to [] (an MI-11 would apply ungated)", () => {
     const { triggered_review_items: _omit, ...rest } = payload();
     const parsed = parseShadowPayloadForApply(rest);
-    expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
+    expect(parsed).toEqual({
+      ok: false,
+      code: "STAGED_REVIEW_ITEMS_CORRUPT",
+      reason: "review_items_invalid",
+    });
   });
 
   test("corrupt items value (object, double-encoded garbage) is REFUSED via parseTriggeredReviewItems", () => {
     const parsed = parseShadowPayloadForApply(
       payload({ triggered_review_items: { not: "an array" } }),
     );
-    expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
+    expect(parsed).toEqual({
+      ok: false,
+      code: "STAGED_REVIEW_ITEMS_CORRUPT",
+      reason: "review_items_invalid",
+    });
   });
 
   // WM-R5: element-level validation — same class as the WM-R4 reviewer_choices fix, on
@@ -141,7 +149,11 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     "malformed triggered_review_items element (%s) is REFUSED, never thrown on",
     (_label, items) => {
       const parsed = parseShadowPayloadForApply(payload({ triggered_review_items: items }));
-      expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
+      expect(parsed).toEqual({
+        ok: false,
+        code: "STAGED_REVIEW_ITEMS_CORRUPT",
+        reason: "review_items_invalid",
+      });
     },
   );
 
@@ -171,10 +183,12 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parseShadowPayloadForApply(rest)).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_absent",
     });
     expect(parseShadowPayloadForApply(payload({ parse_result: "not-decodable-{{{" }))).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_shape_invalid",
     });
   });
 
@@ -187,10 +201,12 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parseShadowPayloadForApply(payload({ parse_result: {} }))).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_shape_invalid",
     });
     expect(parseShadowPayloadForApply(payload({ parse_result: { show: {} } }))).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_shape_invalid",
     });
     // Legacy double-encoded-but-VALID parse_result still parses (asParseResult decodes it).
     expect(
@@ -203,11 +219,13 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parseShadowPayloadForApply(noId)).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_shape_invalid",
     });
     const { staged_modified_time: _b, ...noStaged } = payload();
     expect(parseShadowPayloadForApply(noStaged)).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "parse_result_shape_invalid",
     });
   });
 
@@ -226,6 +244,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
       expect(parseShadowPayloadForApply(topLevel)).toEqual({
         ok: false,
         code: "STAGED_PARSE_RESULT_CORRUPT",
+        reason: "parse_result_shape_invalid",
       });
     },
   );
@@ -234,6 +253,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parseShadowPayloadForApply(payload({ reviewer_choices: { item_id: "x" } }))).toEqual({
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "reviewer_choice_element_invalid",
     });
   });
 
@@ -260,9 +280,34 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
       expect(parseShadowPayloadForApply(payload({ reviewer_choices: reviewerChoices }))).toEqual({
         ok: false,
         code: "STAGED_REVIEW_ITEMS_CORRUPT",
+        reason: "reviewer_choice_element_invalid",
       });
     },
   );
+
+  test("malformed pull_sheet_override object is REFUSED with reason override_snapshot_malformed", () => {
+    // Present-but-malformed (missing fingerprint/acceptedBy/acceptedAt) trips the parser
+    // AFTER parse_result/staged_id/staged_modified_time/triggered_review_items/base_modified_time/
+    // reviewer_choices all validate clean (payload() base is fully valid), so this fixture
+    // proves the reason maps to the pull_sheet_override branch specifically, not an earlier check.
+    expect(parseShadowPayloadForApply(payload({ pull_sheet_override: { tabName: "T" } }))).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "override_snapshot_malformed",
+    });
+  });
+
+  test("malformed pull_sheet_override_applied object is REFUSED with reason override_snapshot_malformed", () => {
+    // pull_sheet_override is left absent (legitimate null case, doesn't trip :234-236), so this
+    // fixture isolates the pull_sheet_override_applied branch.
+    expect(
+      parseShadowPayloadForApply(payload({ pull_sheet_override_applied: { tabName: "T" } })),
+    ).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_RESULT_CORRUPT",
+      reason: "override_snapshot_malformed",
+    });
+  });
 
   test("valid reviewer_choices shapes still parse: every action in the union, rename with string rename_value", () => {
     for (const choices of [
