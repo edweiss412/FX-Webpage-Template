@@ -270,7 +270,7 @@ describe("PublishedToggle — inline variant", () => {
   it("error and finalize popovers share the EXACT positioning class set; only skin/role differ", async () => {
     const POSITION = [
       "absolute",
-      "left-0",
+      "right-0",
       "top-full",
       "z-40",
       "mt-1",
@@ -289,7 +289,9 @@ describe("PublishedToggle — inline variant", () => {
       "text-warning-text",
     ]);
     const FINALIZE_SKIN = new Set(["border", "border-border", "bg-surface", "text-text-subtle"]);
-    const FORBIDDEN = /^(right-0|right-\d|translate-x-|max-w-(?!60\b))/;
+    // Forbid a stray geometry class that would let the error popover overflow while only the
+    // finalize popover is measured in the real browser (spec §8.10 proxy argument).
+    const FORBIDDEN = /^(left-0|left-\d|translate-x-|max-w-(?!60\b))/;
 
     const { unmount } = renderInline({ published: true, finalizeOwned: true });
     const finalizeTokens = popover()!.className.split(/\s+/).filter(Boolean);

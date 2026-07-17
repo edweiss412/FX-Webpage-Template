@@ -42,12 +42,16 @@ const KNOWN_REFUSAL_CODES = new Set([
 const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 
 // Inline popover positioning — one source, carried identically by BOTH the error and finalize
-// skins (pinned equal by tests). left-0 (not right-0) keeps a 240px popover on-screen when the
-// toggle wraps to the left on a 390px phone; break-words + max-w-60 hard-cap ANY content width
-// so the long ErrorExplainer/HelpAffordance copy can only grow vertically (out of flow), never
-// overflow horizontally (CASP-2 spec §4.4 / §8.10).
+// skins (pinned equal by tests). The inline container is intentionally NOT `relative`, so the
+// popover's containing block is the nearest positioned ancestor — the sticky StatusStrip
+// (`sticky` is a positioned element). `right-0`/`top-full` therefore anchor to the STRIP's right
+// edge, just below it, and the popover stays in-viewport at 390px REGARDLESS of where the toggle
+// itself flex-wraps (a short title keeps it center-right, a long title wraps it far-left — both
+// verified by the real-browser §8.10c gate; anchoring to the toggle failed both extremes).
+// break-words + max-w-60 hard-cap ANY content width so the long ErrorExplainer/HelpAffordance
+// copy can only grow vertically (out of flow), never overflow horizontally (spec §4.4 / §8.10).
 const POPOVER_POSITION =
-  "absolute left-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
+  "absolute right-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
 
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */
@@ -102,10 +106,7 @@ export function PublishedToggle({
     const showError = errorCode != null || genericError;
     const showFinalize = !showError && finalizeOwned;
     return (
-      <div
-        data-testid="published-toggle-inline"
-        className="relative inline-flex items-center gap-2"
-      >
+      <div data-testid="published-toggle-inline" className="inline-flex items-center gap-2">
         <span className="text-sm font-medium text-text-strong">Published</span>
         <form action={formAction} className="contents">
           <SwitchButton
