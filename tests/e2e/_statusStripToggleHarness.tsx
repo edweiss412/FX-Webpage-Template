@@ -16,9 +16,10 @@
  *   card      — a strip-width row holding <PublishedToggle variant="card"> — the
  *               pre-CASP-2 baseline, for the compaction delta (height only).
  *   errorProbe— the REAL <ErrorExplainer> + <HelpAffordance> for the long catalog
- *               row inside a `max-w-60 break-words` box (the width-governing
- *               classes the class-equality unit test pins on the real popover), so
- *               the error CONTENT width is measured, not just the finalize proxy.
+ *               row inside the full-width `inset-x-0 break-words` banner box (the
+ *               width-governing classes the class-equality unit test pins on the real
+ *               popover), so the error CONTENT is measured in-viewport, not just the
+ *               finalize proxy.
  *
  * PublishedToggle calls useRouter(), so every render is wrapped in
  * AppRouterContext.Provider with a stub router (else renderToStaticMarkup throws
@@ -160,7 +161,9 @@ export function errorProbeHtml(): string {
       "div",
       {
         "data-testid": "error-content-probe-box",
-        className: "absolute left-0 top-full max-w-60 break-words rounded-sm p-2 text-sm",
+        // Full-strip-width banner geometry (CASP2-2): inset-x-0 spans the positioned
+        // parent's padding box; break-words caps long tokens vertically. No max-w cap.
+        className: "absolute inset-x-0 top-full break-words rounded-sm p-2 text-sm",
       },
       React.createElement(ErrorExplainer, { code: LONG_CODE, surface: "admin" }),
       React.createElement(HelpAffordance, { code: LONG_CODE }),

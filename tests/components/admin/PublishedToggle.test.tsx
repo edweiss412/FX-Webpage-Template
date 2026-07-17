@@ -270,28 +270,32 @@ describe("PublishedToggle — inline variant", () => {
   it("error and finalize popovers share the EXACT positioning class set; only skin/role differ", async () => {
     const POSITION = [
       "absolute",
-      "right-0",
+      "inset-x-0",
       "top-full",
       "z-40",
       "mt-1",
-      "w-max",
-      "max-w-60",
       "break-words",
       "rounded-sm",
       "p-2",
       "text-sm",
       "shadow-tile",
-    ]; // === POPOVER_POSITION tokens
+    ]; // === POPOVER_POSITION tokens (CASP2-2: full-strip-width banner)
     const ERROR_SKIN = new Set([
       "border",
       "border-border-strong",
       "bg-warning-bg",
       "text-warning-text",
     ]);
-    const FINALIZE_SKIN = new Set(["border", "border-border", "bg-surface", "text-text-subtle"]);
-    // Forbid a stray geometry class that would let the error popover overflow while only the
-    // finalize popover is measured in the real browser (spec §8.10 proxy argument).
-    const FORBIDDEN = /^(left-0|left-\d|translate-x-|max-w-(?!60\b))/;
+    const FINALIZE_SKIN = new Set([
+      "border",
+      "border-border-strong",
+      "bg-surface-sunken",
+      "text-text-subtle",
+    ]);
+    // CASP2-2: the banner must span the full strip (inset-x-0). Forbid single-side anchors
+    // (left-0/right-0), any positive edge offset, and ANY width cap (w-max / w-N / max-w-* /
+    // min-w-*) — reintroducing one would shrink the banner back to a disconnected right box.
+    const FORBIDDEN = /^(left-0|right-0|left-\d|right-\d|w-max|w-\d|max-w-|min-w-|translate-x-)$/;
 
     const { unmount } = renderInline({ published: true, finalizeOwned: true });
     const finalizeTokens = popover()!.className.split(/\s+/).filter(Boolean);

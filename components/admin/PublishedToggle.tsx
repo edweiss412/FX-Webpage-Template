@@ -47,14 +47,16 @@ const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 // Inline popover positioning — one source, carried identically by BOTH the error and finalize
 // skins (pinned equal by tests). The inline container is intentionally NOT `relative`, so the
 // popover's containing block is the nearest positioned ancestor — the sticky StatusStrip
-// (`sticky` is a positioned element). `right-0`/`top-full` therefore anchor to the STRIP's right
-// edge, just below it, and the popover stays in-viewport at 390px REGARDLESS of where the toggle
-// itself flex-wraps (a short title keeps it center-right, a long title wraps it far-left — both
-// verified by the real-browser §8.10c gate; anchoring to the toggle failed both extremes).
-// break-words + max-w-60 hard-cap ANY content width so the long ErrorExplainer/HelpAffordance
-// copy can only grow vertically (out of flow), never overflow horizontally (spec §4.4 / §8.10).
+// (`sticky` is a positioned element). `inset-x-0`/`top-full` therefore render it as a FULL-STRIP-
+// WIDTH banner spanning the strip's padding box, just below it (CASP2-2 fix, BL-CASP2-POPOVER-
+// PROXIMITY): a full-width banner reads as belonging to the strip, restoring Gestalt proximity —
+// the pre-fix right-anchored max-w-60 box sat at the strip's right edge while a long title wrapped
+// the toggle far-left, so the box pointed at a phantom edge. The banner is in-viewport at 390px
+// BY CONSTRUCTION (it hugs the strip's content edges) and its x-position is invariant to where the
+// toggle flex-wraps — both verified by the real-browser §8.10c gate. break-words caps long
+// ErrorExplainer/HelpAffordance tokens so copy grows only vertically, never overflowing (§4.4 / §8.10).
 const POPOVER_POSITION =
-  "absolute right-0 top-full z-40 mt-1 w-max max-w-60 break-words rounded-sm p-2 text-sm shadow-tile";
+  "absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile";
 
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */
@@ -138,7 +140,11 @@ export function PublishedToggle({
           <div
             id={popoverId}
             data-testid="published-toggle-popover"
-            className={`${POPOVER_POSITION} border border-border bg-surface text-text-subtle`}
+            // Calm (finalize) skin uses the SUNKEN plate + strong border, not bg-surface: the
+            // host StatusStrip is itself bg-surface, so a bg-surface banner would read as strip
+            // chrome instead of a distinct message (impeccable critique P2). The error skin below
+            // already separates via bg-warning-bg.
+            className={`${POPOVER_POSITION} border border-border-strong bg-surface-sunken text-text-subtle`}
           >
             {subline}
           </div>
