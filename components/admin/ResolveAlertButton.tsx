@@ -62,6 +62,11 @@ type UiState = "idle" | "confirm";
 export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) {
   const [ui, setUi] = useState<UiState>("idle");
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const confirmRowRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef(false);
 
   // Clear the 3s auto-revert timer if the component unmounts (e.g.,
   // banner re-renders after an alert resolves elsewhere) or if the
@@ -74,17 +79,50 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
   };
   useEffect(() => clearAutoRevert, []);
 
+  function closeConfirm() {
+    // used ONLY by cancel onClick and the auto-revert timer callback — never
+    // submit/result paths (spec §6 F4 matrix: pending/success/failure keep
+    // their existing behavior; failure silently re-enables, success re-mounts).
+    // Capture ONLY while the confirm row is still mounted; a timer firing after
+    // the row is gone must not write anything (and the functional setUi guard
+    // below already no-ops then).
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
+    // Preserve the existing functional guard — only confirm → idle, never
+    // clobber a later state.
+    setUi((prev) => (prev === "confirm" ? "idle" : prev));
+  }
+
+  // C3 (open focus): the confirm row mounts with the SAFE control focused,
+  // closing the stray-second-Enter vector (spec §3 C3).
+  useEffect(() => {
+    if (ui === "confirm") cancelRef.current?.focus();
+  }, [ui]);
+
+  // C5 (close focus), single-shot consumption: the idle-render effect resets
+  // restoreFocusRef to false when it fires, and only one close happens per
+  // confirm episode (cancel clears the timer; the timer cannot race a consumed
+  // restore because the effect runs on the very next render, before any later
+  // macro-task timer callback).
+  useEffect(() => {
+    if (ui === "idle" && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [ui]);
+
   const onResolveClick = () => {
     clearAutoRevert();
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
-      setUi((prev) => (prev === "confirm" ? "idle" : prev));
+      closeConfirm();
     }, AUTO_REVERT_MS);
   };
 
   const onCancelClick = () => {
     clearAutoRevert();
-    setUi("idle");
+    closeConfirm();
   };
 
   // Confirm button is type="submit" — clicking submits the parent
@@ -106,6 +144,7 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
       return (
         <button
           type="button"
+          ref={triggerRef}
           data-testid="admin-alert-resolve-button"
           onClick={onResolveClick}
           className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text"
@@ -116,6 +155,7 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
     }
     return (
       <AccentButton
+        ref={triggerRef}
         data-testid="admin-alert-resolve-button"
         onClick={onResolveClick}
         fontWeight="medium"
@@ -127,7 +167,14 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
     );
   }
 
-  return <ConfirmRow onConfirmClick={onConfirmClick} onCancelClick={onCancelClick} />;
+  return (
+    <ConfirmRow
+      onConfirmClick={onConfirmClick}
+      onCancelClick={onCancelClick}
+      cancelRef={cancelRef}
+      rowRef={confirmRowRef}
+    />
+  );
 }
 
 /**
@@ -140,29 +187,37 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
 function ConfirmRow({
   onConfirmClick,
   onCancelClick,
+  cancelRef,
+  rowRef,
 }: {
   onConfirmClick: () => void;
   onCancelClick: () => void;
+  cancelRef: React.RefObject<HTMLButtonElement | null>;
+  rowRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { pending } = useFormStatus();
   return (
-    <div data-testid="admin-alert-confirm-row" className="flex flex-wrap items-center gap-3">
-      <AccentButton
+    <div
+      ref={rowRef}
+      data-testid="admin-alert-confirm-row"
+      className="flex flex-wrap items-center gap-3"
+    >
+      {/* Destructive-confirm recipe (spec R6): plain submit button, inverted-amber
+          C1 fill. The M9-D-C4-1 stable-fill-under-pending intent is preserved:
+          the recipe fill is state-independent (no hover:bg-* to override). */}
+      <button
         type="submit"
         data-testid="admin-alert-confirm-resolve-button"
         onClick={onConfirmClick}
         disabled={pending}
         aria-busy={pending}
-        minWidthTap
-        ringOffset="warning-bg"
-        // Preserve the M9-D-C4-1 stable-fill-under-pending treatment: while
-        // submitting, keep the accent fill rather than the hover shade.
-        className="disabled:hover:bg-accent"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Dismissing…" : "Confirm dismiss"}
-      </AccentButton>
+      </button>
       <button
         type="button"
+        ref={cancelRef}
         data-testid="admin-alert-cancel-button"
         onClick={onCancelClick}
         disabled={pending}

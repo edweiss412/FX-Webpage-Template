@@ -50,9 +50,8 @@ const D = (file: string, index: number, context = "bg-accent"): Row => ({
 // one-liner); indexes are the nth exact-token occurrence per file after
 // comment-stripping, in line order.
 const REGISTRY: Row[] = [
-  // labeled (34)
+  // labeled (33)
   L("components/admin/Mi11GateActions.tsx", 0),
-  L("components/admin/ResolveAlertButton.tsx", 0, "disabled:hover:bg-accent"),
   L("components/admin/RoleRecognizeControl.tsx", 0),
   L("components/admin/nav/AdminNav.tsx", 0),
   L("components/admin/nav/NotifBell.tsx", 0),

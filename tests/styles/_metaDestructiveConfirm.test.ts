@@ -40,6 +40,12 @@ const REGISTRY: Row[] = [
   ),
   R("components/admin/ReapStaleSessionsButton.tsx", 0, "panel", "reap-stale-sessions-confirm-yes"),
   R(
+    "components/admin/ResolveAlertButton.tsx",
+    0,
+    "panel",
+    "admin-alert-confirm-resolve-button",
+  ),
+  R(
     "components/admin/PreviewBanner.tsx",
     0,
     "exempt-non-confirm",
