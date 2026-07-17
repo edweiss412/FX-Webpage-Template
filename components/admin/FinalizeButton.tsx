@@ -630,21 +630,20 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
-  const portalRef = useRef<HTMLDivElement | null>(null);
-  if (portalRef.current === null && typeof document !== "undefined") {
-    portalRef.current = document.createElement("div");
-  }
+  // Own portal node (lazy state init, not a ref-during-render) so the
+  // background-inert effect below can exclude it by identity.
+  const [portalEl] = useState<HTMLDivElement | null>(() =>
+    typeof document !== "undefined" ? document.createElement("div") : null,
+  );
 
-  // Own portal node (appended/removed with the dialog's lifetime) so the
-  // background-inert effect (Task 5) can exclude it by identity.
+  // Append/remove the portal node with the dialog's lifetime.
   useEffect(() => {
-    const el = portalRef.current;
-    if (!el) return;
-    document.body.appendChild(el);
+    if (!portalEl) return;
+    document.body.appendChild(portalEl);
     return () => {
-      el.remove();
+      portalEl.remove();
     };
-  }, []);
+  }, [portalEl]);
 
   // Initial focus → the Close/Back control; Tab trap; restore focus on unmount.
   useDialogFocus(panelRef, dismissRef);
@@ -685,7 +684,11 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
     dismissible,
     dismiss: handleDismiss,
   });
-  escRef.current = { dismissible, dismiss: handleDismiss };
+  // Sync the latest values in an effect (not during render) so the stable
+  // capture-phase listener always reads the current dismissible/dismiss.
+  useEffect(() => {
+    escRef.current = { dismissible, dismiss: handleDismiss };
+  });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -705,7 +708,6 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   // BEFORE useDialogFocus restores focus into it (else the restore target is
   // inert and focus drops to <body>).
   useEffect(() => {
-    const portalEl = portalRef.current;
     const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
     for (const el of Array.from(document.body.children)) {
       if (el === portalEl) continue;
@@ -724,9 +726,9 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         else el.setAttribute("aria-hidden", priorAriaHidden);
       }
     };
-  }, []);
+  }, [portalEl]);
 
-  if (portalRef.current === null) return null;
+  if (portalEl === null) return null;
 
   return createPortal(
     <div
@@ -764,7 +766,10 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
       >
         {state.kind === "race_row" ? (
-          <div data-testid="wizard-finalize-race-row" className="flex flex-col gap-3 text-warning-text">
+          <div
+            data-testid="wizard-finalize-race-row"
+            className="flex flex-col gap-3 text-warning-text"
+          >
             <h2 id={titleId} className="text-sm font-semibold">
               Some sheets need another look before we can publish.
             </h2>
@@ -793,7 +798,10 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         ) : null}
 
         {state.kind === "cas_per_row" ? (
-          <div data-testid="wizard-finalize-cas-per-row" className="flex flex-col gap-3 text-warning-text">
+          <div
+            data-testid="wizard-finalize-cas-per-row"
+            className="flex flex-col gap-3 text-warning-text"
+          >
             <h2 id={titleId} className="text-sm font-semibold">
               Some sheets are blocking the final publish step.
             </h2>
@@ -833,7 +841,10 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         ) : null}
 
         {state.kind === "error" ? (
-          <div data-testid="wizard-finalize-error" className="flex flex-col gap-1 text-sm text-warning-text">
+          <div
+            data-testid="wizard-finalize-error"
+            className="flex flex-col gap-1 text-sm text-warning-text"
+          >
             <p id={titleId}>{renderEmphasis(state.copy)}</p>
             <HelpAffordance code={state.code} />
           </div>
@@ -852,7 +863,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
         </div>
       </div>
     </div>,
-    portalRef.current,
+    portalEl,
   );
 }
 

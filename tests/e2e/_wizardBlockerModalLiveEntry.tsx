@@ -68,7 +68,10 @@ function LiveHarness() {
         {kind === "cas_per_row" ? (
           <div data-testid="review-standin" className="fixed inset-0 z-50" />
         ) : null}
-        <WizardFooter primary={<span data-testid="footer-primary" />} center={<FinalizeStatusRegion run={run} />} />
+        <WizardFooter
+          primary={<span data-testid="footer-primary" />}
+          center={<FinalizeStatusRegion run={run} />}
+        />
       </div>
     </AppRouterContext.Provider>
   );

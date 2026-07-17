@@ -1,0 +1,9 @@
+- [HIGH] Spec does not define the new Back/dismiss behavior while a row recovery action is pending. `BlockedRowResolver` awaits fetch and then calls `onResolved()` on success (`components/admin/BlockedRowResolver.tsx:153-181`), while the spec allows Back to reset to idle in `cas_per_row` (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:107`). If the operator clicks Back during the pending resolver request, a late success can still call `run.runLoop()` and restart publish after dismissal. Needs guard/test coverage.
+
+- [MEDIUM] Blocking-state backdrop accessibility is underspecified. The spec says `race_row`/`cas_per_row` backdrop clicks are inert (`spec:105-107`) but also points implementers at modal shells that use a labelled button backdrop (`components/admin/wizard/Step3ReviewModal.tsx:570-577`). If copied, blocking dialogs may expose a “Close” control that does nothing. Spec should require a non-interactive/AT-hidden backdrop for blocking states, or test the accessible controls per state.
+
+- [MEDIUM] The R3 inert fix still lacks a focus-restore proof for the compound modal case. The spec claims focus restores into the underlying review modal after blocker unmount (`spec:151-156`), but `useDialogFocus` restores focus during cleanup (`lib/a11y/dialogFocus.ts:75-83`) and the new inert/aria-hidden cleanup ordering is not specified or asserted in §10.11 (`spec:204`). This is exactly where the new inert behavior can regress keyboard continuity.
+
+- [LOW] The test-breakage citation list is stale: §9 says affected `container.textContent` sites include `FinalizeButton.test.tsx:570-571`, but those lines are normal positive text assertions; the raw-code negatives are at `tests/components/admin/FinalizeButton.test.tsx:575-576`.
+
+VERDICT: NEEDS-ATTENTION

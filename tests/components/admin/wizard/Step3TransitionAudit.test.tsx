@@ -99,7 +99,12 @@ function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
   } as unknown as Response;
 }
 function appliedRow(dfid = "d-app"): Step3Row {
-  return { driveFileId: dfid, driveFileName: `${dfid}.gsheet`, status: "applied", parseResult: PARSE };
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "applied",
+    parseResult: PARSE,
+  };
 }
 
 afterEach(() => cleanup());

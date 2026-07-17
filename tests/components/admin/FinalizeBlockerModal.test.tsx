@@ -91,7 +91,10 @@ async function driveToCasPerRow(code = "SHOW_ARCHIVED_IMMUTABLE", dfid = "drive-
       }),
     )
     .mockResolvedValueOnce(
-      mockJsonResponse({ ok: false, code, per_row: [{ drive_file_id: dfid, code }] }, { status: 409 }),
+      mockJsonResponse(
+        { ok: false, code, per_row: [{ drive_file_id: dfid, code }] },
+        { status: 409 },
+      ),
     );
   const q = render(<FinalizeButton wizardSessionId={WSID} />);
   await act(async () => {
@@ -131,7 +134,12 @@ function pr(title = "Txn Show") {
   return { show: { title }, warnings: [] } as unknown as ParseResult;
 }
 function stagedRow(dfid: string, status: "staged" | "applied" = "staged") {
-  return { driveFileId: dfid, driveFileName: `${dfid}.gsheet`, status, parseResult: pr(dfid) } as Step3Row;
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status,
+    parseResult: pr(dfid),
+  } as Step3Row;
 }
 async function driveCompound(kind: "cas_per_row" | "error") {
   let resolveFinalize!: (r: Response) => void;
@@ -175,7 +183,9 @@ async function driveCompound(kind: "cas_per_row" | "error") {
     });
   } else {
     await act(async () => {
-      resolveFinalize(mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }));
+      resolveFinalize(
+        mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
+      );
     });
   }
   await q.findByTestId("wizard-finalize-blocker-modal");
@@ -260,7 +270,8 @@ describe("FinalizeBlockerModal — dismiss matrix", () => {
     async (via) => {
       const q = await driveToError();
       if (via === "escape") fireEvent.keyDown(document, { key: "Escape" });
-      else if (via === "backdrop") fireEvent.click(q.getByTestId("wizard-finalize-blocker-backdrop"));
+      else if (via === "backdrop")
+        fireEvent.click(q.getByTestId("wizard-finalize-blocker-backdrop"));
       else fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss"));
       await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
     },
@@ -304,7 +315,11 @@ describe("FinalizeBlockerModal — row recovery", () => {
         }),
       )
       .mockResolvedValueOnce(
-        mockJsonResponse({ status: "finalize_complete", wizard_session_id: WSID, watched_folder_id: "f" }),
+        mockJsonResponse({
+          status: "finalize_complete",
+          wizard_session_id: WSID,
+          watched_folder_id: "f",
+        }),
       );
     const btn = q.getByTestId("blocked-row-resolver-drive-archived-1");
     await act(async () => {
@@ -361,7 +376,8 @@ describe("FinalizeBlockerModal — focus + inert + compound", () => {
     });
   });
   afterAll(() => {
-    if (offsetParentDesc) Object.defineProperty(HTMLElement.prototype, "offsetParent", offsetParentDesc);
+    if (offsetParentDesc)
+      Object.defineProperty(HTMLElement.prototype, "offsetParent", offsetParentDesc);
     else delete (HTMLElement.prototype as unknown as { offsetParent?: unknown }).offsetParent;
   });
 

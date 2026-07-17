@@ -126,10 +126,14 @@ test.describe("finalize blocker modal — real-browser layout (spec §8)", () =>
     page,
   }) => {
     await openLive(page);
-    const idleHeight = await page.locator(FOOTER_INNER).evaluate((el) => el.getBoundingClientRect().height);
+    const idleHeight = await page
+      .locator(FOOTER_INNER)
+      .evaluate((el) => el.getBoundingClientRect().height);
     await page.locator(FLIP).click();
     await expect(page.locator(MODAL)).toBeVisible();
-    const openHeight = await page.locator(FOOTER_INNER).evaluate((el) => el.getBoundingClientRect().height);
+    const openHeight = await page
+      .locator(FOOTER_INNER)
+      .evaluate((el) => el.getBoundingClientRect().height);
     expect(Math.abs(openHeight - idleHeight)).toBeLessThanOrEqual(0.5);
   });
 

@@ -464,9 +464,7 @@ describe("FinalizeButton", () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
     );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
@@ -475,7 +473,9 @@ describe("FinalizeButton", () => {
         MESSAGE_CATALOG.ONBOARDING_NOT_RESOLVED.dougFacing!,
       );
     });
-    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
+    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain(
+      "ONBOARDING_NOT_RESOLVED",
+    );
   });
 
   test("on 409 CONCURRENT_FINALIZE_IN_FLIGHT renders Doug-facing copy", async () => {
@@ -572,8 +572,12 @@ describe("FinalizeButton", () => {
     // OK rows are filtered out.
     expect(text).not.toContain("drive-ok-1");
     // No raw §12.4 code leaks (invariant 5).
-    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_RESULT_CORRUPT");
-    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain(
+      "STAGED_PARSE_RESULT_CORRUPT",
+    );
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain(
+      "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    );
     // Renders INSTEAD OF (not in addition to) the generic error line.
     expect(queryByTestId("wizard-finalize-error")).toBeNull();
   });
@@ -616,7 +620,9 @@ describe("FinalizeButton", () => {
     const text = getByTestId("wizard-finalize-cas-per-row").textContent ?? "";
     expect(text).toContain("drive-outdated-1");
     expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_OUTDATED_AT_PHASE_D.dougFacing!);
-    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain(
+      "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    );
     expect(queryByTestId("wizard-finalize-error")).toBeNull();
   });
 
@@ -659,7 +665,9 @@ describe("FinalizeButton", () => {
     expect(text).toContain(MESSAGE_CATALOG.ROLE_MAPPINGS_OUTDATED_AT_PUBLISH.dougFacing!);
     // The heal is the re-scan; without this button the refusal is a dead end at this stage.
     expect(queryByTestId("rescan-sheet-button-drive-stale-roles-1")).not.toBeNull();
-    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
+    expect(getByTestId("wizard-finalize-cas-per-row").textContent ?? "").not.toContain(
+      "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+    );
   });
 
   test("Task 12: cas_per_row SHOW_ARCHIVED_IMMUTABLE renders BlockedRowResolver; STAGED_PARSE_OUTDATED_AT_PHASE_D STILL renders RescanSheetButton (freshness byte-parity)", async () => {
@@ -1215,7 +1223,9 @@ describe("FinalizeButton — streaming progress panel", () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await findByTestId("wizard-finalize-error");
-    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
+    expect(getByTestId("wizard-finalize-error").textContent ?? "").not.toContain(
+      "ONBOARDING_NOT_RESOLVED",
+    );
   });
 
   test("retry after an error starts the bar fresh (no stale accumulator inflating the denominator)", async () => {

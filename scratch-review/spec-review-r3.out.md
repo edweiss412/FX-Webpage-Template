@@ -1,0 +1,9 @@
+- [HIGH] Compound modal stack leaves two active `aria-modal="true"` dialogs in the DOM with no inert/`aria-hidden`/modal-stack handling. Spec §7a explicitly keeps `Step3ReviewModal` open under `FinalizeBlockerModal` (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:148-154`), while `Step3ReviewModal` itself remains `role="dialog" aria-modal="true"` (`components/admin/wizard/Step3ReviewModal.tsx:557-563`). The proposed test even asserts both dialogs remain present (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:202`). Keyboard focus may be trapped, but AT still sees conflicting modal roots.
+
+- [MEDIUM] The focus-trap contract is claimed but not actually pinned for the new modal. §6 says `useDialogFocus` traps Tab (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:120`), but §10 only tests initial focus and restore (`:196-197`), not Tab/Shift+Tab cycling across the blocker states. Existing modal tests show the needed pattern, including the jsdom `offsetParent` stub (`tests/components/admin/wizard/Step3ReviewModal.test.tsx:403-429`).
+
+- [MEDIUM] Transition spec is internally inconsistent and violates the token rule. §7 says the panel “rises on mobile / pops on desktop” but only specifies `sheet-rise_220ms...` (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:140`), which is a rise animation on all breakpoints and hardcodes `220ms`. `DESIGN.md` requires consuming duration tokens for reduced-motion discipline, not hardcoded ms (`DESIGN.md:245-255`, `DESIGN.md:333`).
+
+- [LOW] §8 still asks for a Playwright assertion “under a transformed ancestor” (`docs/superpowers/specs/2026-07-17-wizard-blocker-modal-design.md:198`) after §4.2 correctly says the transform framing is no longer the operative reason (`:81-88`). This is stale wording and could steer the layout test toward proving the wrong risk.
+
+VERDICT: NEEDS-ATTENTION
