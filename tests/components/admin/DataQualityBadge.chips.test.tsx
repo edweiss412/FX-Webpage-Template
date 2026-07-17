@@ -77,6 +77,29 @@ describe("DataQualityBadge — visible glyph+count chips (FLOW4-2/3)", () => {
     },
   );
 
+  // FLOW4-2/3-POLISH — glance-distinction: bigger glyph silhouette + wider inter-chip
+  // gap so the two same-hue chips don't momentarily conflate on a sunlit phone.
+  // Each assertion is scoped to its own element (glyph SVG / role=img span), so a
+  // partial edit (one glyph bumped, not the other; or size without gap) fails.
+  it("polish: both glyphs are size-4 (not size-3.5) and the badge inter-chip gap is gap-2 (not gap-1.5)", () => {
+    const dg = mkDataGaps({ UNKNOWN_FIELD: 3 });
+    render(
+      <DataQualityBadge slug="p" rosterShift={roster({ added: 1, renamed: 1 })} dataGaps={dg} />,
+    );
+    const badge = screen.getByRole("img");
+    expect(badge).toHaveClass("gap-2");
+    expect(badge).not.toHaveClass("gap-1.5");
+
+    const rosterGlyph = screen.getByTestId("dq-chip-roster").querySelector("svg.lucide-users");
+    const gapGlyph = screen.getByTestId("dq-chip-gap").querySelector("svg.lucide-triangle-alert");
+    expect(rosterGlyph).not.toBeNull();
+    expect(gapGlyph).not.toBeNull();
+    for (const g of [rosterGlyph!, gapGlyph!]) {
+      expect(g.classList.contains("size-4")).toBe(true);
+      expect(g.classList.contains("size-3.5")).toBe(false);
+    }
+  });
+
   it("aria-label / role=img / data-testid contract byte-preserved (both inputs, §6.5 order)", () => {
     const dg = mkDataGaps({ UNKNOWN_FIELD: 3 });
     render(
