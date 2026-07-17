@@ -76,7 +76,7 @@ test("one tap fires immediately — no armed intermediate state (guard withdrawn
 - [ ] **Step 2: Run it — verify it FAILS**
 
 Run: `cd /Users/ericweiss/FX-wt-withdraw-rescan-guard && pnpm vitest run tests/components/admin/RescanSheetButton.test.tsx -t "one tap fires immediately"`
-Expected: FAIL — against the current two-tap component the first click only arms (`fetchMock` called 0 times) and the armed label IS present, so both assertions fail.
+Expected: FAIL — against the current two-tap component the first click only arms, so `fetchMock` is never called and `waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))` times out and throws. The test stops at that timeout (the `queryByText` label assertion below it is not reached). That single failure is sufficient proof the guard is still present.
 
 - [ ] **Step 3: Remove the armed morph from `components/admin/RescanSheetButton.tsx`**
 
@@ -130,7 +130,7 @@ In `tests/e2e/step3-review-modal.interactions.spec.ts`:
 
 - [ ] **Step 7: Remove the meta-test registry row** in `tests/styles/_metaDestructiveConfirm.test.ts` — delete the `R("components/admin/RescanSheetButton.tsx", 0, "morph", "rescan-sheet-button-* armed branch (G3 two-tap guard)")` entry (~lines 54–58). Do NOT touch the G1/G2/G4 rows or the matcher.
 
-- [ ] **Step 8: Run the full affected suites — verify GREEN**
+- [ ] **Step 8: Run the affected vitest suites — verify GREEN**
 
 Run:
 ```
@@ -139,7 +139,23 @@ pnpm vitest run tests/components/admin/RescanSheetButton.test.tsx \
   tests/components/admin/wizard/Step3ReviewModal.test.tsx \
   tests/styles/_metaDestructiveConfirm.test.ts
 ```
-Expected: all PASS. Then confirm no orphan: `rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'` returns zero hits, and `rg -n "armed" components/admin/RescanSheetButton.tsx` returns zero hits.
+Expected: all PASS. (These are the vitest suites; the e2e spec runs in Step 8b — it is NOT part of `pnpm vitest`/`pnpm test`.) Then confirm no orphan armed morph — both commands must return **zero** hits:
+```
+rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'
+rg -n "armed" components/admin/RescanSheetButton.tsx
+```
+
+- [ ] **Step 8b: Run the converted e2e spec — verify GREEN (so the commit is green-verified end-to-end)**
+
+The e2e spec is edited in this same commit but is excluded from `pnpm test`; run it explicitly against its Playwright harness so Task 1's commit is not claimed green without proof:
+```
+pnpm test:e2e tests/e2e/step3-review-modal.interactions.spec.ts
+```
+Expected: the §K14 + §K14-at-390px specs PASS (single-tap now fires the overlay result). If the local Playwright harness cannot start (no browsers installed / no dev server), do NOT claim green from static inspection alone — install/boot the harness, or defer the commit's e2e proof explicitly and record it in the handoff so the CI Playwright job is the gating run. Also static-verify no two consecutive taps on the rescan testid remain (multiline-enabled `-U`, verified to match the pre-change doubles):
+```
+rg -U -n 'rescan-sheet-button-\$\{HARNESS_DFID\}[^\n]*\n\s*await page\.locator\(`\[data-testid="rescan-sheet-button-\$\{HARNESS_DFID\}' tests/e2e/step3-review-modal.interactions.spec.ts
+```
+Expected: zero hits after conversion.
 
 - [ ] **Step 9: Commit**
 
@@ -191,7 +207,7 @@ git commit --no-verify -m "docs(admin): record G3 re-scan guard withdrawal in la
 - [ ] `pnpm test` — full suite green (scoped runs miss cross-file regressions; a page/component rebuild fans out to source-scanning registries).
 - [ ] e2e: run the converted spec if the harness is available — `pnpm test:e2e tests/e2e/step3-review-modal.interactions.spec.ts` (or the repo's e2e command). If the e2e harness cannot run locally, static-verify no doubled `.click()` remains on the rescan testid and note it in the handoff.
 - [ ] Invariant 8: `/impeccable critique` + `/impeccable audit` on the diff; P0/P1 fixed or `DEFERRED.md`.
-- [ ] `rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'` → zero; `rg -rn "rescan-sheet-button" tests/ | rg "click.*\n.*click"` no doubled clicks remain.
+- [ ] `rg -n "Confirm re-scan: replaces this staged review" --glob '!docs/**'` → zero hits. No doubled clicks remain (multiline-enabled `-U`; default ripgrep does NOT match `\n`): `rg -U -n 'click\([^\n]*rescan-sheet-button[^\n]*\);\s*\n\s*[^\n]*click\([^\n]*rescan-sheet-button' tests/` → zero hits.
 
 ## Self-Review (against the spec)
 
