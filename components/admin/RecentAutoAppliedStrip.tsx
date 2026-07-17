@@ -23,7 +23,7 @@
 //   - data.kind === "infra_error" → a bounded, plain-language sentence; the raw
 //     kind token and internal message NEVER reach the DOM (invariant 5).
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { ChevronRight } from "lucide-react";
 import type {
   AutoAppliedGroup,
@@ -184,12 +184,16 @@ function GroupSection({
   group,
   actions,
   defaultExpanded,
+  groupHeadingTag,
 }: {
   group: AutoAppliedGroup;
   actions: RecentAutoAppliedStripActions;
   // Collapsed-by-default on the admin dashboard (defaultExpanded=false); a
   // show-scoped surface passes defaultExpanded so its single group opens flat.
   defaultExpanded: boolean;
+  // Heading tag for the group disclosure trigger — descends from the strip's own
+  // section heading level: "h5" under the dashboard's h4, "h3" under the page's h2.
+  groupHeadingTag: "h3" | "h5";
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
@@ -201,6 +205,8 @@ function GroupSection({
   const [pending, startTransition] = useTransition();
   const undoableCount = group.undoableIds.length;
   const panelId = `auto-applied-panel-${group.showId}`;
+  // Capitalized so JSX renders the string as an intrinsic tag, not a literal element.
+  const GroupHeading = groupHeadingTag;
 
   // Focus the safe "Keep changes" control when the confirm opens — mirrors
   // ReSyncButton's keepCurrentRef pattern (WCAG 2.4.3). Prevents a stray Enter
@@ -275,7 +281,7 @@ function GroupSection({
           "Needs attention" — so an h5 keeps the SR outline monotonic (h3→h4→h5).
           (The IgnoredSheetsDisclosure mirror legitimately uses h3 because it is a
           top-level section, not nested under a heading; the level is not portable.) */}
-      <h5 className="min-w-0">
+      <GroupHeading className="min-w-0">
         <button
           ref={toggleRef}
           type="button"
@@ -310,7 +316,7 @@ function GroupSection({
             {group.rows.length}
           </span>
         </button>
-      </h5>
+      </GroupHeading>
 
       {open ? (
         <div
@@ -410,6 +416,7 @@ export function RecentAutoAppliedStrip({
   data,
   actions,
   defaultExpanded = false,
+  headingLevel = 4,
 }: {
   data: RecentAutoApplied;
   actions: RecentAutoAppliedStripActions;
@@ -417,14 +424,31 @@ export function RecentAutoAppliedStrip({
   // group is collapsed by default; a show-scoped surface passes `defaultExpanded`
   // so its group renders flat (no click to reveal).
   defaultExpanded?: boolean;
+  // Section heading level. Dashboard (default 4) sits under the inbox's h3, so the
+  // strip's h4 + group h5 keep the outline monotonic. The mobile /admin/needs-attention
+  // page passes 2 (under the page h1) → h2 + group h3 (no h1→h4 skip, WCAG 1.3.1).
+  headingLevel?: 2 | 4;
 }) {
+  // Hooks + derivations BEFORE any early return (rules-of-hooks). The ternary
+  // yields a string-literal union assignable to a JSX intrinsic tag under strict TS;
+  // `h${headingLevel}` interpolation would widen to string and fail to typecheck.
+  const headingId = useId();
+  const SectionHeading = headingLevel === 2 ? "h2" : "h4";
+  const groupHeadingTag = headingLevel === 2 ? "h3" : "h5";
+
   if (data.kind === "infra_error") {
     // Bounded, plain-language fallback — never the raw kind token or internal
     // message (invariant 5). No error code is available at this layer to route
     // through ErrorExplainer, so we render a fixed sentence.
     return (
-      <section data-testid="recent-auto-applied-strip" className="flex flex-col gap-2">
-        <h4 className="text-sm font-semibold text-text-strong">Recently auto-applied</h4>
+      <section
+        data-testid="recent-auto-applied-strip"
+        className="flex flex-col gap-2"
+        aria-labelledby={headingId}
+      >
+        <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+          Recently auto-applied
+        </SectionHeading>
         <p
           role="status"
           data-testid="auto-applied-error"
@@ -443,9 +467,11 @@ export function RecentAutoAppliedStrip({
     <section
       data-testid="recent-auto-applied-strip"
       className="flex flex-col gap-2"
-      aria-label="Recently auto-applied changes"
+      aria-labelledby={headingId}
     >
-      <h4 className="text-sm font-semibold text-text-strong">Recently auto-applied</h4>
+      <SectionHeading id={headingId} className="text-sm font-semibold text-text-strong">
+        Recently auto-applied
+      </SectionHeading>
       <ul className="flex flex-col gap-2">
         {data.groups.map((group) => (
           <GroupSection
@@ -453,6 +479,7 @@ export function RecentAutoAppliedStrip({
             group={group}
             actions={actions}
             defaultExpanded={defaultExpanded}
+            groupHeadingTag={groupHeadingTag}
           />
         ))}
       </ul>

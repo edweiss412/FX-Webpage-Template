@@ -464,7 +464,7 @@ Source: invariant-8 impeccable v3 dual-gate on the NEW `OrphanedOverridesBlock` 
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-strip`. Verdict: critique 33/40 Good, audit 18/20 Strong, deterministic detector `[]` (0 findings), anti-patterns PASS, zero CRITICAL/P0. FIXED in-branch: Undo-all confirm now focuses the safe "Keep changes" control on open (`keepChangesRef` + `useEffect`, mirrors `ReSyncButton.tsx:76-78`; WCAG 2.4.3 — a stray Enter can no longer fire the destructive bulk undo) — this closed the one HIGH/P1 finding; heading rank inversion (`<h2>` under Dashboard's `<h3>Needs attention</h3>` → `<h4>`, WCAG 1.3.1); long-summary overflow (`wrap-break-word` on the row summary span, prevents unbroken `crew_email_changed` emails overflowing the ~320px inbox column). The entries below are deferred.
 
-### FLOW4-1 — [P1→deferred] No mobile parity for auto-applied disposition
+### FLOW4-1 — [✅ RESOLVED 2026-07-16] No mobile parity for auto-applied disposition — strip now mounts on `/admin/needs-attention` (the mobile full-list route the summary card links to, headingLevel=2) + the mobile summary card shows an "N auto-applied" backlog chip (renderedCount+overflowCount). Shipped in `feat/mobile-autoapplied-parity`.
 
 - **What:** `RecentAutoAppliedStrip` mounts only inside `dashboard-inbox-desktop` (`Dashboard.tsx:704`, `hidden min-[720px]:flex`); the `<720px` branch (`:701`) renders only `NeedsAttentionSummaryCard` with no auto-applied count. The roster-shift `DataQualityBadge` IS visible on mobile via `ShowsTable`, so Doug on the venue floor sees the amber signal but has no path to review/count/Accept/Undo.
 - **Why deferred:** Spec §8 scopes the strip's placement to the needs-attention inbox column, which is desktop-only by the EXISTING dashboard convention (the full `NeedsAttentionInbox` is already `<720px`-hidden; mobile gets the summary card for every needs-attention concern, not just this one). Dispositioning auto-applied diffs is inherently a desk task; the mobile badge is a deliberate awareness cue ("roster changed — review at desk"), and the strip's list self-heals on revalidate so nothing is lost. A mobile disposition surface is a net-new UI scope beyond this PR.
@@ -500,7 +500,7 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **Why deferred:** Soft — the strip revalidates and re-renders after the loop, so focus context changes anyway. Cheap to address alongside FLOW4-5 in a polish pass.
 - **Trigger:** bundled with FLOW4-5. Backlog: `BL-FLOW4-CONFIRM-DANGER-STYLE`.
 
-### FLOW4-7 — [P3→deferred] Section carries both aria-label and a matching heading
+### FLOW4-7 — [✅ RESOLVED 2026-07-16] Section carries both aria-label and a matching heading — replaced the strip's `aria-label` with `aria-labelledby` pointing at the (now `useId`-keyed) heading, applied in every render context (populated + infra_error). Single source of truth; accessible name follows the heading ("Recently auto-applied"). Shipped in `feat/mobile-autoapplied-parity`.
 
 - **What:** The strip `<section>` has `aria-label="Recently auto-applied changes"` AND a matching `<h4>`; `aria-labelledby` the heading would avoid the duplication.
 - **Why deferred:** Harmless (aria-label wins for the section's accessible name; the heading still contributes to the outline). Trivial nicety, not a defect.
@@ -621,3 +621,19 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/destructive-confirm-
 - **What:** `bulkUndoOutcome` renders only when `failed > 0`; an all-success bulk undo gives SR users no `role="status"` confirmation (the strip self-heals visually).
 - **Why deferred:** success feedback is a net-new affordance (spec §6 F2 ratified the failure-only alert); sighted feedback exists via row removal on revalidate.
 - **Trigger:** bundled with DESTRUCT-2, or an SR-user report. Backlog: `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS`.
+
+## Mobile auto-applied parity — impeccable dual-gate deferrals (2026-07-16)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/mobile-autoapplied-parity` (spec `docs/superpowers/specs/2026-07-16-mobile-autoapplied-parity.md`). Verdict: critique 33/40 (dual-agent), audit 19/20, deterministic detector `[]`, anti-patterns PASS, zero P0/P1. FIXED in-branch: audit P2 — the strip escaped the inbox's `max-w-3xl` cap on `/admin/needs-attention` (full-width sibling of the page's `flex w-full` div), rendering wider than the inbox cards above it on desktop; now wrapped in a `w-full max-w-3xl` container so the strip and inbox columns align. The entries below are the accepted/deferred P3s.
+
+### MOBILEPARITY-1 — [P3→deferred] Strip section heading renders at body size as a page `<h2>`
+
+- **What:** `RecentAutoAppliedStrip` keeps `text-sm font-semibold text-text-strong` on its section heading at BOTH `headingLevel` values. On `/admin/needs-attention` that heading is a semantic `<h2>` but renders at 14px, visually subordinate to the group cards beneath it.
+- **Why deferred (ratified):** spec §D3 ratifies the visual classes UNCHANGED across mount contexts — the strip looks identical on the dashboard (h4) and the page (h2); only the semantic level differs. A level-tied size would fork the strip's appearance between its two surfaces. Semantically correct (real `<h2>`); the size is a deliberate calm-secondary-section choice.
+- **Trigger:** a DESIGN.md decision to size the strip heading by level. Backlog: `BL-MOBILEPARITY-STRIP-HEADING-SIZE`.
+
+### MOBILEPARITY-2 — [P3→noted] Needs-attention inbox `<section>` carries only `aria-label`, no heading element
+
+- **What:** `page.tsx:70` the primary inbox `<section aria-label="Needs attention">` has no heading, so the page's first `<h2>` belongs to the (secondary) strip. A heading-navigation SR user reaches the strip's h2 before any inbox heading.
+- **Why noted (pre-existing, not diff-introduced):** the inbox's heading IS the page `<h1>` "Needs attention" (the page IS the inbox list); the strip is correctly a secondary `<h2>`. The `aria-label` on the section predates this diff. The diff ADDED the h2 (before it the page had only h1) — added structure, not a regression.
+- **Trigger:** a needs-attention page IA pass, if the inbox section ever needs a distinct in-outline heading. Backlog: none (accepted).

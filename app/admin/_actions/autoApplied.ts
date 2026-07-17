@@ -52,6 +52,10 @@ export async function acceptChangeAction(
   const result = await acknowledgeChanges(showId, [changeLogId]);
   if (result.ok) {
     revalidatePath("/admin", "page");
+    // Mobile parity: the strip also lives on /admin/needs-attention (spec
+    // 2026-07-16-mobile-autoapplied-parity §D2) — revalidate it so a disposition
+    // performed there doesn't leave a stale row.
+    revalidatePath("/admin/needs-attention", "page");
     // Durable forensic telemetry: committed-success branch only, fail-open,
     // POST-COMMIT (acknowledge_changes committed by the time the await resolved).
     try {
@@ -83,6 +87,10 @@ export async function acceptAllAction(
   const result = await acknowledgeChanges(showId, acceptableIds);
   if (result.ok) {
     revalidatePath("/admin", "page");
+    // Mobile parity: the strip also lives on /admin/needs-attention (spec
+    // 2026-07-16-mobile-autoapplied-parity §D2) — revalidate it so a disposition
+    // performed there doesn't leave a stale row.
+    revalidatePath("/admin/needs-attention", "page");
     try {
       await logAdminOutcome({
         code: "CHANGES_ACKNOWLEDGED",
@@ -111,6 +119,10 @@ export async function undoFromDashboardAction(
     // POST-COMMIT revalidate of the server-resolved show id (omitted if unresolved).
     if (result.showId) revalidateShow(result.showId);
     revalidatePath("/admin", "page");
+    // Mobile parity: the strip also lives on /admin/needs-attention (spec
+    // 2026-07-16-mobile-autoapplied-parity §D2) — revalidate it so a disposition
+    // performed there doesn't leave a stale row.
+    revalidatePath("/admin/needs-attention", "page");
     try {
       await logAdminOutcome({
         code: "CHANGE_UNDONE",
