@@ -208,6 +208,7 @@ export function pageElement(title: string = SHOWPAGE_TITLE): React.ReactElement 
     setPublished: NOOP_OK,
     isLive: true,
     lastSyncedAt: "2026-05-02T12:00:00.000Z",
+    lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
     alertCount: 2,

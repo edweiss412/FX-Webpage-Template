@@ -91,7 +91,7 @@ export function AdministratorsSection({
       >
         <p>
           {viewerIsDeveloper
-            ? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas."
+            ? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle gives that admin the same access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas."
             : "People who can sign in and manage shows here. Roster changes are managed by a developer."}
         </p>
       </HoverHelp>

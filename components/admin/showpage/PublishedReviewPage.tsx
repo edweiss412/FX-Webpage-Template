@@ -54,6 +54,7 @@ export type PublishedReviewPageProps = {
   setPublished: (next: boolean) => Promise<LifecycleResult>;
   isLive: boolean;
   lastSyncedAt: string | null;
+  lastCheckedAt: string | null;
   lastSyncStatus: string | null;
   now: Date;
   alertCount: number;
@@ -90,6 +91,7 @@ export function PublishedReviewPage(props: PublishedReviewPageProps) {
     setPublished,
     isLive,
     lastSyncedAt,
+    lastCheckedAt,
     lastSyncStatus,
     now,
     alertCount,
@@ -181,6 +183,7 @@ export function PublishedReviewPage(props: PublishedReviewPageProps) {
         setPublished={setPublished}
         isLive={isLive}
         lastSyncedAt={lastSyncedAt}
+        lastCheckedAt={lastCheckedAt}
         lastSyncStatus={lastSyncStatus}
         now={now}
         alertCount={alertCount}

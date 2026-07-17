@@ -117,7 +117,7 @@ function findConditionalLines(source: string): number[] {
 // the head site's count row and are proven instant by the blanket below.
 const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   "components/admin/showpage/PublishedReviewPage.tsx": 0, // railBadge is an object-spread conditional (asserted separately), not a JSX mount
-  "components/admin/showpage/StatusStrip.tsx": 6, // archived / control-divider / live / sync / alert / copy-link
+  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / alert / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
@@ -344,6 +344,7 @@ function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripP
     setPublished: vi.fn(async () => ({ ok: true }) as const),
     isLive: false,
     lastSyncedAt: "2026-07-16T11:48:00.000Z",
+    lastCheckedAt: "2026-07-16T11:58:00.000Z",
     lastSyncStatus: "ok",
     now: NOW,
     alertCount: 0,
@@ -396,6 +397,7 @@ function stagedData(): StagedSectionData {
     hotels: pr.hotelReservations,
     pullSheet: pr.pullSheet ?? [],
     archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+    pullSheetOverride: null,
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],

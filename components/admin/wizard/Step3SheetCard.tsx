@@ -603,6 +603,7 @@ export function Step3SheetCard({
             hotels,
             pullSheet,
             archivedPullSheetTabs,
+            pullSheetOverride: row.pullSheetOverride ?? null,
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),

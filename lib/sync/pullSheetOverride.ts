@@ -34,6 +34,41 @@ export function overrideSnapshot(
 }
 
 /**
+ * Validate an untyped `*.pull_sheet_override` jsonb value as a FULL audit-shape
+ * override. Returns null unless it is a non-array object with string `tabName`,
+ * `fingerprint`, `acceptedBy`, AND `acceptedAt`. This is the single validator the
+ * finalize gate and the Step-3 read both use, so "override active" means the same
+ * thing on both surfaces. (Moved here from app/api/admin/onboarding/finalize/route.ts.)
+ */
+export function coercePullSheetOverride(value: unknown): PullSheetOverride | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  if (
+    typeof o.tabName === "string" &&
+    typeof o.fingerprint === "string" &&
+    typeof o.acceptedBy === "string" &&
+    typeof o.acceptedAt === "string"
+  ) {
+    return {
+      tabName: o.tabName,
+      fingerprint: o.fingerprint,
+      acceptedBy: o.acceptedBy,
+      acceptedAt: o.acceptedAt,
+    };
+  }
+  return null;
+}
+
+/**
+ * Reduce a durable `pending_syncs.pull_sheet_override` jsonb value to an
+ * OverrideSnapshot using the SAME full-audit-shape validation finalize uses, then
+ * dropping the audit fields (§5.8). Partial/absent shape -> null, so Step-3
+ * "override active" agrees exactly with the finalize gate.
+ */
+export const coerceOverrideSnapshotFromRow = (value: unknown): OverrideSnapshot =>
+  overrideSnapshot(coercePullSheetOverride(value));
+
+/**
  * §5.8 / I4 finalize consistency gate outcome. Declarative: `ok:true` proceeds to the propagation
  * write; `ok:false` refuses BEFORE any mutation and surfaces the EXISTING cataloged code
  * `STAGED_PARSE_OUTDATED_AT_PHASE_D` (the override-snapshot mismatch is the same "staged parse

@@ -45,6 +45,7 @@ import {
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
+  Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
@@ -139,8 +140,10 @@ export function ShowReviewSurface({
   renderSectionExtras,
   bottomSlot,
   children,
+  isPublishRunActive = false,
 }: {
   data: SectionData;
+  isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
   scrollerRef: RefObject<HTMLElement | null>; // the scroll container the SHELL owns
   layout: "modal" | "page"; // modal: current <lg chip rail + ≥lg two-pane inside dialog; page: full-page two-pane
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
@@ -615,243 +618,245 @@ export function ShowReviewSurface({
   }
 
   return (
-    <div
-      data-testid={`wizard-step3-card-${dfid}-review-main`}
-      className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
-    >
-      {/* Side rail — two-pane mode only (§6.2). `relative` anchors the §A3
-          sliding indicator (first child below). */}
-      <nav
-        ref={railRef}
-        aria-label="Review sections"
-        data-testid={`wizard-step3-card-${dfid}-review-rail`}
-        className="relative hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
+    <Step3RunStateContext.Provider value={{ isPublishRunActive }}>
+      <div
+        data-testid={`wizard-step3-card-${dfid}-review-main`}
+        className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
       >
-        {/* §11 T6′: animated — the shared indicator slides via transition-[transform,height] duration-fast ease-out-quart (§A3/§A4) */}
-        {railIndicator !== null ? (
-          <span
-            aria-hidden="true"
-            data-testid={`wizard-step3-card-${dfid}-review-rail-indicator`}
-            className={`absolute top-0 left-0 w-1 rounded-r-pill bg-accent ${
-              indicatorTransitionsOn
-                ? "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none"
-                : ""
-            }`}
-            style={{
-              transform: `translateY(${railIndicator.y}px)`,
-              height: `${railIndicator.h}px`,
-            }}
-          />
-        ) : null}
-        {/* Spec §5.1: Overview is the FIRST rail item. No extras in the modal. */}
-        {extraSectionsBefore?.map(renderExtraRailItem)}
-        {STEP3_SECTION_GROUPS.map((group) => {
-          const groupSections = sections.filter((s) => s.group === group);
-          if (groupSections.length === 0) return null;
-          return (
-            <Fragment key={group}>
-              <div
-                data-rail-group={group}
-                className="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-              >
-                {group}
-              </div>
-              {groupSections.map((s) => {
-                const isActive = active === s.id;
-                return (
-                  <Fragment key={s.id}>
-                    <button
-                      type="button"
-                      ref={(el) => {
-                        if (el) railItemRefs.current.set(s.id, el);
-                        else railItemRefs.current.delete(s.id);
-                      }}
-                      data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
-                      aria-current={isActive ? "true" : undefined}
-                      onClick={() => handleNavClick(s.id)}
-                      className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left transition-colors duration-fast ${
-                        isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
-                      }`}
-                    >
-                      <s.Icon
-                        aria-hidden="true"
-                        className={`size-4 shrink-0 ${
-                          isActive ? "text-accent-on-bg" : "text-text-subtle"
-                        }`}
-                      />
-                      <span
-                        className={`min-w-0 flex-1 truncate text-sm font-medium ${
-                          isActive ? "text-text-strong" : "text-text"
+        {/* Side rail — two-pane mode only (§6.2). `relative` anchors the §A3
+          sliding indicator (first child below). */}
+        <nav
+          ref={railRef}
+          aria-label="Review sections"
+          data-testid={`wizard-step3-card-${dfid}-review-rail`}
+          className="relative hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
+        >
+          {/* §11 T6′: animated — the shared indicator slides via transition-[transform,height] duration-fast ease-out-quart (§A3/§A4) */}
+          {railIndicator !== null ? (
+            <span
+              aria-hidden="true"
+              data-testid={`wizard-step3-card-${dfid}-review-rail-indicator`}
+              className={`absolute top-0 left-0 w-1 rounded-r-pill bg-accent ${
+                indicatorTransitionsOn
+                  ? "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none"
+                  : ""
+              }`}
+              style={{
+                transform: `translateY(${railIndicator.y}px)`,
+                height: `${railIndicator.h}px`,
+              }}
+            />
+          ) : null}
+          {/* Spec §5.1: Overview is the FIRST rail item. No extras in the modal. */}
+          {extraSectionsBefore?.map(renderExtraRailItem)}
+          {STEP3_SECTION_GROUPS.map((group) => {
+            const groupSections = sections.filter((s) => s.group === group);
+            if (groupSections.length === 0) return null;
+            return (
+              <Fragment key={group}>
+                <div
+                  data-rail-group={group}
+                  className="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                >
+                  {group}
+                </div>
+                {groupSections.map((s) => {
+                  const isActive = active === s.id;
+                  return (
+                    <Fragment key={s.id}>
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          if (el) railItemRefs.current.set(s.id, el);
+                          else railItemRefs.current.delete(s.id);
+                        }}
+                        data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
+                        aria-current={isActive ? "true" : undefined}
+                        onClick={() => handleNavClick(s.id)}
+                        className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left transition-colors duration-fast ${
+                          isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
                         }`}
                       >
-                        {s.label}
-                      </span>
-                      {/* §11: instant — deliberate (rail count follows the static registry definition) */}
-                      {s.railCount !== null ? (
-                        <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
-                          {s.railCount(data)}
-                        </span>
-                      ) : null}
-                      {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
-                          the count so the accessible name reads "Rooms 2 — needs review". */}
-                      {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
-                      {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
-                      {!s.hideDot ? (
-                        <span
+                        <s.Icon
                           aria-hidden="true"
-                          data-testid={`wizard-step3-card-${dfid}-review-rail-dot-${s.id}`}
-                          className={dotClass(s.id)}
+                          className={`size-4 shrink-0 ${
+                            isActive ? "text-accent-on-bg" : "text-text-subtle"
+                          }`}
                         />
-                      ) : null}
-                    </button>
-                    {/* Rooms & scope sub-nav: one indented child per rendered
+                        <span
+                          className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                            isActive ? "text-text-strong" : "text-text"
+                          }`}
+                        >
+                          {s.label}
+                        </span>
+                        {/* §11: instant — deliberate (rail count follows the static registry definition) */}
+                        {s.railCount !== null ? (
+                          <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
+                            {s.railCount(data)}
+                          </span>
+                        ) : null}
+                        {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
+                            the count so the accessible name reads "Rooms 2 — needs review". */}
+                        {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
+                        {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                        {!s.hideDot ? (
+                          <span
+                            aria-hidden="true"
+                            data-testid={`wizard-step3-card-${dfid}-review-rail-dot-${s.id}`}
+                            className={dotClass(s.id)}
+                          />
+                        ) : null}
+                      </button>
+                      {/* Rooms & scope sub-nav: one indented child per rendered
                       room, scrolling the pane to that card. Rooms live inside
                       the "rooms" section, so these keep the parent active. */}
-                    {s.id === "rooms"
-                      ? data.rooms.slice(0, ROOMS_CAP).map((r, i) => (
-                          <button
-                            key={`room-nav-${r.name}-${i}`}
-                            type="button"
-                            data-testid={`wizard-step3-card-${dfid}-review-rail-room-${i}`}
-                            onClick={() => jumpToRoom(i)}
-                            className="flex min-h-tap-min w-full shrink-0 items-center rounded-sm py-1 pr-2 pl-9 text-left transition-colors duration-fast hover:bg-surface-sunken"
-                          >
-                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-subtle">
-                              {r.name || `Room ${i + 1}`}
-                            </span>
-                          </button>
-                        ))
-                      : null}
-                  </Fragment>
-                );
-              })}
-            </Fragment>
-          );
-        })}
-        {/* Spec §5.4: Changes is the LAST rail item. No extras in the modal. */}
-        {extraSectionsAfter?.map(renderExtraRailItem)}
-      </nav>
+                      {s.id === "rooms"
+                        ? data.rooms.slice(0, ROOMS_CAP).map((r, i) => (
+                            <button
+                              key={`room-nav-${r.name}-${i}`}
+                              type="button"
+                              data-testid={`wizard-step3-card-${dfid}-review-rail-room-${i}`}
+                              onClick={() => jumpToRoom(i)}
+                              className="flex min-h-tap-min w-full shrink-0 items-center rounded-sm py-1 pr-2 pl-9 text-left transition-colors duration-fast hover:bg-surface-sunken"
+                            >
+                              <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-subtle">
+                                {r.name || `Room ${i + 1}`}
+                              </span>
+                            </button>
+                          ))
+                        : null}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+          {/* Spec §5.4: Changes is the LAST rail item. No extras in the modal. */}
+          {extraSectionsAfter?.map(renderExtraRailItem)}
+        </nav>
 
-      {/* Chip rail — sheet + popup modes (§6.3): one horizontal scroll row
+        {/* Chip rail — sheet + popup modes (§6.3): one horizontal scroll row
           pinned above the content (shrink-0 in the flex column, NOT
           sticky — the content pane below is the scroll container). No
           counts on chips (mock's collapse behavior). */}
-      <nav
-        aria-label="Review sections"
-        data-testid={`wizard-step3-card-${dfid}-review-chiprail`}
-        className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-tile-pad py-2 lg:hidden"
-      >
-        {extraSectionsBefore?.map(renderExtraChipItem)}
-        {sections.map((s) => {
-          const isActive = active === s.id;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              data-testid={`wizard-step3-card-${dfid}-review-chip-item-${s.id}`}
-              aria-current={isActive ? "true" : undefined}
-              onClick={() => handleNavClick(s.id)}
-              className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
-                isActive
-                  ? "border-transparent bg-surface-sunken text-text-strong"
-                  : "border-border bg-surface text-text"
-              }`}
-            >
-              <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
-              {s.label}
-              {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
-              {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
-              {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
-              {!s.hideDot ? (
-                <span
-                  aria-hidden="true"
-                  data-testid={`wizard-step3-card-${dfid}-review-chip-dot-${s.id}`}
-                  className={dotClass(s.id)}
-                />
-              ) : null}
-            </button>
-          );
-        })}
-        {extraSectionsAfter?.map(renderExtraChipItem)}
-      </nav>
+        <nav
+          aria-label="Review sections"
+          data-testid={`wizard-step3-card-${dfid}-review-chiprail`}
+          className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-surface px-tile-pad py-2 lg:hidden"
+        >
+          {extraSectionsBefore?.map(renderExtraChipItem)}
+          {sections.map((s) => {
+            const isActive = active === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-testid={`wizard-step3-card-${dfid}-review-chip-item-${s.id}`}
+                aria-current={isActive ? "true" : undefined}
+                onClick={() => handleNavClick(s.id)}
+                className={`relative inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
+                  isActive
+                    ? "border-transparent bg-surface-sunken text-text-strong"
+                    : "border-border bg-surface text-text"
+                }`}
+              >
+                <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
+                {s.label}
+                {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). */}
+                {!s.hideDot ? <span className="sr-only">{dotStatusText(s.id)}</span> : null}
+                {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                {!s.hideDot ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid={`wizard-step3-card-${dfid}-review-chip-dot-${s.id}`}
+                    className={dotClass(s.id)}
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+          {extraSectionsAfter?.map(renderExtraChipItem)}
+        </nav>
 
-      {/* Content pane — the scroll container (§5.2 rhythm; §6.3a names it
+        {/* Content pane — the scroll container (§5.2 rhythm; §6.3a names it
           the scroll-spy root). Smooth glide is motion-safe CSS only. */}
-      <div
-        ref={scrollerRef as RefObject<HTMLDivElement>}
-        data-testid={`wizard-step3-card-${dfid}-review-content`}
-        className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-tile-pad motion-safe:scroll-smooth"
-      >
-        {/* Shell-owned TOP slot (the modal's §4.4 re-apply resolution body).
+        <div
+          ref={scrollerRef as RefObject<HTMLDivElement>}
+          data-testid={`wizard-step3-card-${dfid}-review-content`}
+          className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-tile-pad motion-safe:scroll-smooth"
+        >
+          {/* Shell-owned TOP slot (the modal's §4.4 re-apply resolution body).
             Renders ABOVE every rail section; nothing when the shell passes no
             children (byte-identical to the pre-extraction modal). */}
-        {children}
-        {/* Extra rail sections mounted before the registry (Phase 2: Overview).
+          {children}
+          {/* Extra rail sections mounted before the registry (Phase 2: Overview).
             Wrapped in a ref-carrying box so the scroll-spy can measure the
             section top by rail id. Phase 1 (the modal) passes none → nothing. */}
-        {extraSectionsBefore?.map(renderExtraPanel)}
-        {sections.map((s) => (
-          <section
-            key={s.id}
-            data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
-            ref={(el) => {
-              if (el) sectionElsRef.current.set(s.id, el);
-              else sectionElsRef.current.delete(s.id);
-            }}
-            className="flex min-w-0 flex-col"
-          >
-            {/* The provider makes the body render the §6.4 heading row +
+          {extraSectionsBefore?.map(renderExtraPanel)}
+          {sections.map((s) => (
+            <section
+              key={s.id}
+              data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
+              ref={(el) => {
+                if (el) sectionElsRef.current.set(s.id, el);
+                else sectionElsRef.current.delete(s.id);
+              }}
+              className="flex min-w-0 flex-col"
+            >
+              {/* The provider makes the body render the §6.4 heading row +
                 §5.2 panel card (see step3ReviewSections.tsx) — the body's
                 own count can never drift from the heading. */}
-            <Step3SectionChromeContext.Provider
-              value={{
-                Icon: s.Icon,
-                label: s.label,
-                flagged: flagged.has(s.id),
-                judgment: judgment.has(s.id),
-                getActiveSection,
-                dfid,
-                sectionId: s.id,
-                // Bug #316 item 3: the staged row's per-region source-sheet anchors,
-                // so each section's "In sheet" heading link opens at its cell range.
-                sourceAnchors: data.sourceAnchors ?? {},
-                // spec §8/§9a: staged use-raw decisions + session so the §E3
-                // judgment callout can render the per-warning use-raw toggle.
-                useRawDecisions: data.useRawDecisions,
-                // wizardSessionId is staged-only (spec §3.2); present in staged
-                // mode (byte-identical to the modal), ABSENT in published
-                // (exactOptional discipline: absent, never undefined).
-                ...(isStaged(data) ? { wizardSessionId: data.wizardSessionId } : {}),
-                // §E3: callout entries for every flagged section EXCEPT
-                // `warnings` (its body IS the warning list — circular).
-                // exactOptional discipline: ABSENT, never undefined.
-                // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
-                // the per-section `renderSectionExtras` list IS the warning
-                // surface, so the §E3 SectionFlagCallout preview would be a
-                // duplicate affordance (and its use-raw/role controls are
-                // wizardSession-gated → silent). Gating on `isStaged` keeps the
-                // modal byte-identical and hides the callout on the page.
-                ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
-                  ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
-                  : {}),
-              }}
-            >
-              {s.render(data)}
-            </Step3SectionChromeContext.Provider>
-            {/* Phase 2 hook: per-section warning controls under the panel.
+              <Step3SectionChromeContext.Provider
+                value={{
+                  Icon: s.Icon,
+                  label: s.label,
+                  flagged: flagged.has(s.id),
+                  judgment: judgment.has(s.id),
+                  getActiveSection,
+                  dfid,
+                  sectionId: s.id,
+                  // Bug #316 item 3: the staged row's per-region source-sheet anchors,
+                  // so each section's "In sheet" heading link opens at its cell range.
+                  sourceAnchors: data.sourceAnchors ?? {},
+                  // spec §8/§9a: staged use-raw decisions + session so the §E3
+                  // judgment callout can render the per-warning use-raw toggle.
+                  useRawDecisions: data.useRawDecisions,
+                  // wizardSessionId is staged-only (spec §3.2); present in staged
+                  // mode (byte-identical to the modal), ABSENT in published
+                  // (exactOptional discipline: absent, never undefined).
+                  ...(isStaged(data) ? { wizardSessionId: data.wizardSessionId } : {}),
+                  // §E3: callout entries for every flagged section EXCEPT
+                  // `warnings` (its body IS the warning list — circular).
+                  // exactOptional discipline: ABSENT, never undefined.
+                  // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
+                  // the per-section `renderSectionExtras` list IS the warning
+                  // surface, so the §E3 SectionFlagCallout preview would be a
+                  // duplicate affordance (and its use-raw/role controls are
+                  // wizardSession-gated → silent). Gating on `isStaged` keeps the
+                  // modal byte-identical and hides the callout on the page.
+                  ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
+                    ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
+                    : {}),
+                }}
+              >
+                {s.render(data)}
+              </Step3SectionChromeContext.Provider>
+              {/* Phase 2 hook: per-section warning controls under the panel.
                 Phase 1 passes no `renderSectionExtras` → renders nothing. */}
-            {renderSectionExtras?.(s.id, data)}
-          </section>
-        ))}
-        {/* Shell-owned BOTTOM slot (spec §5.3a): the modal passes
+              {renderSectionExtras?.(s.id, data)}
+            </section>
+          ))}
+          {/* Shell-owned BOTTOM slot (spec §5.3a): the modal passes
             RawUnrecognizedCallout — content the parser captured but couldn't
             understand. Renders after the registry sections, before
             extraSectionsAfter. Nothing when the shell passes none. */}
-        {bottomSlot}
-        {/* Extra rail sections mounted after the registry (Phase 2: Changes).
+          {bottomSlot}
+          {/* Extra rail sections mounted after the registry (Phase 2: Changes).
             Ref-wrapped for scroll-spy measurement. Phase 1 passes none. */}
-        {extraSectionsAfter?.map(renderExtraPanel)}
+          {extraSectionsAfter?.map(renderExtraPanel)}
+        </div>
       </div>
-    </div>
+    </Step3RunStateContext.Provider>
   );
 }

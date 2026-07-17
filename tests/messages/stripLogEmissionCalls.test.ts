@@ -118,4 +118,33 @@ describe("stripLogEmissionCalls", () => {
     const src = 'xlogAdminOutcome({ code: "NOT_STRIPPED" });';
     expect(codes(src)).toEqual(["NOT_STRIPPED"]);
   });
+
+  // persistAppEventStrict is the failure-visible app_events writer — its forensic `code:` literal
+  // (e.g. LEAD_ROLE_APPLIED) is written to app_events.code and must be stripped exactly like log.* /
+  // logAdminOutcome so it never registers in the §12.4 / internal-code-enum producer scans.
+  test("a persistAppEventStrict(...) span is stripped (its code: literal is gone)", () => {
+    const src = [
+      'await persistAppEventStrict({ level: "info", source: "s", code: "LEAD_ROLE_APPLIED", context: {} });',
+      'const real = { code: "REAL_PRODUCER" };',
+    ].join("\n");
+    expect(codes(src)).toEqual(["REAL_PRODUCER"]);
+  });
+
+  test("multi-line persistAppEventStrict with a nested call is balanced-stripped", () => {
+    const src = `
+      await persistAppEventStrict({
+        level: "info",
+        source: "s",
+        code: "LEAD_ROLE_APPLIED",
+        context: build({ code: "INNER" }),
+      });
+      keep({ code: "SURVIVOR" });
+    `;
+    expect(codes(src)).toEqual(["SURVIVOR"]);
+  });
+
+  test("an ident-prefixed xpersistAppEventStrict( is NOT treated as an emission (its code kept)", () => {
+    const src = 'xpersistAppEventStrict({ code: "NOT_STRIPPED" });';
+    expect(codes(src)).toEqual(["NOT_STRIPPED"]);
+  });
 });

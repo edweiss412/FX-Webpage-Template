@@ -55,6 +55,7 @@ import {
 } from "@/components/admin/wizard/step3ReviewSections";
 import type { StagedSectionData } from "@/components/admin/review/sectionData";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
+import { ArchivedTabOffer, deriveArchivedOffers } from "@/components/admin/wizard/archivedTabOffer";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import {
   allowedActionsFor,
@@ -152,6 +153,18 @@ export function Step3ReviewModal({
   isPublishRunActive?: boolean;
 }) {
   const { dfid, wizardSessionId } = data;
+  // Archived-tab pending offers (spec §4.2/§4.3) — the box appears for these even
+  // when there is no blocked re-apply resolution. Same shared derivation as
+  // Pack-list (parity invariant), incl. PSAT-1's durable-snapshot + S5 gating:
+  // a divergent (S5) or override-active row yields no offers, so the box shows an
+  // archived offer only in the true pending-S2/S4 case; S5 recovery + S3 revoke
+  // stay in the Pack-list section.
+  const archivedOffers = deriveArchivedOffers(
+    data.archivedPullSheetTabs,
+    wizardSessionId != null,
+    data.pullSheetOverride,
+  ).offers;
+  const hasPendingArchivedOffer = archivedOffers.length > 0;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const h2Id = useId();
@@ -747,6 +760,7 @@ export function Step3ReviewModal({
             → the rail model is byte-identical to the pre-extraction modal. */}
         <ShowReviewSurface
           data={data}
+          isPublishRunActive={isPublishRunActive}
           scrollerRef={scrollerRef}
           layout="modal"
           bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
@@ -755,67 +769,87 @@ export function Step3ReviewModal({
               panels when this is a blocked re-apply row. Tier-1/2 items are
               context/diagnostic lines; tier-3 items force a radio choice.
               §11: instant — deliberate (resolution presence follows data/props, no animation) */}
-          {resolution ? (
+          {resolution || hasPendingArchivedOffer ? (
             <section
               data-testid={`wizard-step3-card-${dfid}-review-resolution`}
               aria-label="Resolve before publishing"
               className="flex min-w-0 flex-col gap-4 rounded-md border border-border bg-surface-sunken p-tile-pad"
             >
               <h3 className="text-sm font-semibold text-text-strong">Resolve before publishing</h3>
-              {/* §11: instant — deliberate (corrupt-vs-items branch follows server truth, no animation) */}
-              {reviewItemsCorrupt ? (
-                <p
-                  data-testid={`wizard-step3-card-${dfid}-review-resolution-corrupt`}
-                  className="text-sm text-warning-text"
-                >
-                  We couldn&apos;t read the review details for this sheet. Re-scan it, or set it
-                  aside for this setup.
-                </p>
-              ) : (
-                resolutionItems.map((item) => {
-                  const tier = tierForItem(item);
-                  if (tier !== "tier3_radio") {
+              {/* Re-apply items render ONLY when a blocked re-apply resolution is
+                  present (spec §4.4 decoupling — the box may also appear for a
+                  pending archived-tab offer alone).
+                  §11: instant — deliberate (re-apply body follows server truth, no animation) */}
+              {resolution ? (
+                reviewItemsCorrupt ? (
+                  <p
+                    data-testid={`wizard-step3-card-${dfid}-review-resolution-corrupt`}
+                    className="text-sm text-warning-text"
+                  >
+                    We couldn&apos;t read the review details for this sheet. Re-scan it, or set it
+                    aside for this setup.
+                  </p>
+                ) : (
+                  resolutionItems.map((item) => {
+                    const tier = tierForItem(item);
+                    if (tier !== "tier3_radio") {
+                      return (
+                        <p
+                          key={item.id}
+                          data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
+                          className="text-sm text-text"
+                        >
+                          {describeItem(item)}
+                        </p>
+                      );
+                    }
+                    const allowed = allowedActionsFor(item);
                     return (
-                      <p
+                      <fieldset
                         key={item.id}
                         data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
-                        className="text-sm text-text"
+                        className="flex min-w-0 flex-col gap-2"
                       >
-                        {describeItem(item)}
-                      </p>
+                        <legend className="text-sm text-text">{describeItem(item)}</legend>
+                        {allowed.map((action) => {
+                          const selected = resolutionChoices.get(item.id) === action;
+                          return (
+                            <label
+                              key={action}
+                              className="flex min-h-tap-min items-center gap-2 text-sm text-text"
+                            >
+                              <input
+                                type="radio"
+                                name={`resolution-${item.id}`}
+                                checked={selected}
+                                disabled={isPublishRunActive}
+                                onChange={() => setResolutionChoice(item.id, action)}
+                                className="size-4 shrink-0 accent-accent"
+                              />
+                              <span>{actionLabel(action, item, true)}</span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
                     );
-                  }
-                  const allowed = allowedActionsFor(item);
-                  return (
-                    <fieldset
-                      key={item.id}
-                      data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
-                      className="flex min-w-0 flex-col gap-2"
-                    >
-                      <legend className="text-sm text-text">{describeItem(item)}</legend>
-                      {allowed.map((action) => {
-                        const selected = resolutionChoices.get(item.id) === action;
-                        return (
-                          <label
-                            key={action}
-                            className="flex min-h-tap-min items-center gap-2 text-sm text-text"
-                          >
-                            <input
-                              type="radio"
-                              name={`resolution-${item.id}`}
-                              checked={selected}
-                              disabled={isPublishRunActive}
-                              onChange={() => setResolutionChoice(item.id, action)}
-                              className="size-4 shrink-0 accent-accent"
-                            />
-                            <span>{actionLabel(action, item, true)}</span>
-                          </label>
-                        );
-                      })}
-                    </fieldset>
-                  );
-                })
-              )}
+                  })
+                )
+              ) : null}
+              {/* Archived-tab accept offer(s) (spec §4.3/§4.5b): pending offers
+                  render here even with no re-apply resolution. showDismiss={false}
+                  so the box region is a pure function of server offers (no local
+                  dismiss can strand an empty titled box). Not frozen during a
+                  publish run — identical mutation contract to the Pack-list offer. */}
+              {archivedOffers.map((tab) => (
+                <ArchivedTabOffer
+                  key={tab.tabName}
+                  dfid={data.driveFileId}
+                  wizardSessionId={wizardSessionId}
+                  tab={tab}
+                  showDismiss={false}
+                  testId={`wizard-step3-card-${dfid}-review-resolution-archived-${tab.tabName}`}
+                />
+              ))}
             </section>
           ) : null}
         </ShowReviewSurface>

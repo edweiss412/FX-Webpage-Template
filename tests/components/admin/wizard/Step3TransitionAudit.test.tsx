@@ -25,8 +25,10 @@
  * step3Page.transitions.test.tsx; this suite is the BEHAVIORAL half.
  */
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 
 vi.mock("next/navigation", () => ({
@@ -88,6 +90,23 @@ function isDisabled(el: Element | null): boolean {
   return el !== null && (el as HTMLButtonElement).disabled === true;
 }
 
+const fetchMock = vi.fn<typeof fetch>();
+function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
+  return {
+    ok: (init.status ?? 200) < 400,
+    status: init.status ?? 200,
+    json: async () => body,
+  } as unknown as Response;
+}
+function appliedRow(dfid = "d-app"): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "applied",
+    parseResult: PARSE,
+  };
+}
+
 afterEach(() => cleanup());
 
 describe("Step-3 consolidation transition inventory (spec §7 — all deliberately instant)", () => {
@@ -137,5 +156,76 @@ describe("Step-3 consolidation transition inventory (spec §7 — all deliberate
     expect(isDisabled(screen.getByRole("button", { name: /approve & apply/i }))).toBe(true);
     expect(isDisabled(screen.getByRole("button", { name: /re-scan this sheet/i }))).toBe(true);
     expect(isDisabled(screen.getByRole("button", { name: /ignore this sheet/i }))).toBe(true);
+  });
+});
+
+// The finalize BLOCKER MODAL (spec 2026-07-17 §7): running → blocker mounts the
+// portaled dialog with a CSS entrance (no framer). Enter = scrim fade + panel
+// rise, both token-timed and motion-reduce-collapsed. Exit = instant unmount.
+describe("Step-3 finalize blocker modal — entrance transition audit (spec §7)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  async function driveFooterToCasPerRow() {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WSID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "SHOW_ARCHIVED_IMMUTABLE",
+            per_row: [{ drive_file_id: "d-app", code: "SHOW_ARCHIVED_IMMUTABLE" }],
+          },
+          { status: 409 },
+        ),
+      );
+    const q = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WSID}
+        rows={[appliedRow()]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(q.getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument());
+    return q;
+  }
+
+  test("panel rises + scrim fades on enter (token-timed, motion-reduce collapses; keyframes exist)", async () => {
+    const q = await driveFooterToCasPerRow();
+    const panel = q.getByTestId("wizard-finalize-blocker-panel");
+    expect(panel.className).toMatch(/animate-\[sheet-rise/);
+    expect(panel.className).toContain("motion-reduce:animate-none");
+    const scrim = q.getByTestId("wizard-finalize-blocker-backdrop");
+    expect(scrim.className).toMatch(/animate-\[step3-details-scrim-in/);
+    expect(scrim.className).toContain("motion-reduce:animate-none");
+
+    // The referenced keyframes must EXIST in app/globals.css (a rename would
+    // silently no-op the entrance).
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    expect(css).toMatch(/@keyframes sheet-rise\b/);
+    expect(css).toMatch(/@keyframes step3-details-scrim-in\b/);
+  });
+
+  test("exit is instant — no AnimatePresence/exit wrapper and no framer appear id on the panel", async () => {
+    const q = await driveFooterToCasPerRow();
+    // Deliberately instant unmount: no framer presence machinery around the modal.
+    expect(document.querySelector("[data-framer-appear-id]")).toBeNull();
+    const panel = q.getByTestId("wizard-finalize-blocker-panel");
+    expect(panel.className).not.toMatch(/exit/i);
   });
 });

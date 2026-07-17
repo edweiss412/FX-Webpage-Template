@@ -38,6 +38,9 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 vi.mock("@/lib/log", () => ({ log: logMock }));
+// §3.4 per-caller topology: spy on the durable-event emitter so the staged-apply tail can be
+// asserted to co-emit LEAD_ROLE_APPLIED. No-op mock for every other applyStaged test.
+vi.mock("@/lib/log/emitLeadRoleApplied", () => ({ emitLeadRoleApplied: vi.fn() }));
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -262,6 +265,105 @@ describe("applyStaged live-scope", () => {
       "phase2",
       "lock:2:commit",
     ]);
+  });
+
+  // §3.4 / §6 per-caller MANDATORY: the staged-apply tail must co-emit the durable LEAD_ROLE_APPLIED
+  // event alongside the ROLE_FLAGS_NOTICE feed nudge. Failure mode caught: wiring the durable event
+  // on only the cron path, leaving staged LEAD grants silent.
+  test("a LEAD-bit change through staged apply co-emits the durable LEAD_ROLE_APPLIED event", async () => {
+    const { emitLeadRoleApplied } = await import("@/lib/log/emitLeadRoleApplied");
+    vi.mocked(emitLeadRoleApplied).mockClear();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const leadNotice = {
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE" as const,
+      context: {
+        drive_file_id: "drive-file-1",
+        changes: [{ crew_name: "Alice", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      },
+    };
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+        roleFlagsNotice: leadNotice,
+      })),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(emitLeadRoleApplied).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(emitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
+  });
+
+  // F1 (whole-diff review, HIGH): the durable LEAD audit must be attempted post-commit INDEPENDENTLY
+  // of the coalescing alert. If upsertAdminAlert (which throws on RPC failure) runs BEFORE the audit,
+  // a transient feed-write failure after the LEAD mutation already committed skips the authoritative
+  // audit precisely when the feed is degraded. Assert the audit still runs.
+  test("a throwing upsertAdminAlert does NOT skip the durable LEAD_ROLE_APPLIED event (staged)", async () => {
+    const { emitLeadRoleApplied } = await import("@/lib/log/emitLeadRoleApplied");
+    vi.mocked(emitLeadRoleApplied).mockClear();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const leadNotice = {
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE" as const,
+      context: {
+        drive_file_id: "drive-file-1",
+        changes: [{ crew_name: "Alice", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      },
+    };
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      upsertAdminAlert: vi.fn(async () => {
+        throw new Error("admin_alerts RPC down");
+      }),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+        roleFlagsNotice: leadNotice,
+      })),
+    });
+
+    await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    ).catch(() => undefined);
+
+    expect(emitLeadRoleApplied).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(emitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
   });
 
   test("wrapper aborts live Apply when staged_id changes between Drive verification and locked CAS", async () => {

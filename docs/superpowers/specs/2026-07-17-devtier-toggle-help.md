@@ -30,10 +30,10 @@ Before (developer arm, `:94`):
 
 After:
 
-> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.
+> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle gives that admin the same access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.
 
 - The four surface names are the **actual UI labels** the developer sees: nav item "Telemetry" (`components/admin/nav/navConfig.ts:42`), settings sections "Maintenance" (`app/admin/settings/page.tsx:237`) and "Diagnostics" (`:292`), and the "Developer tools" row (`components/admin/settings/DevToolsRow.tsx:43`). "managing admins (add, revoke, re-add, promote)" is the roster-management + `setDeveloperAction` promote power (the "promote" verb is the developer-bit toggle itself).
-- "same developer access you have" anchors the grant to the reading developer's own (well-defined) access rather than an open-ended "full" claim; "including …" keeps the surface list non-exhaustive. Roster management (add / revoke / re-add other admins, and promote to developer) is named because it is the most consequential developer-only grant — the controls are developer-gated at `AdministratorsSection.tsx:160` (Add), `:218` (Revoke), `:255` (Re-add), and the actions call `requireDeveloperIdentity()`.
+- "same access you have" anchors the grant to the reading developer's own (well-defined) access rather than an open-ended "full" claim; "including …" keeps the surface list non-exhaustive. Roster management (add / revoke / re-add other admins, and promote to developer) is named because it is the most consequential developer-only grant — the controls are developer-gated at `AdministratorsSection.tsx:160` (Add), `:218` (Revoke), `:255` (Re-add), and the actions call `requireDeveloperIdentity()`.
 - Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses commas and parentheses only.
 - Non-developer arm (`:95`) unchanged: "…Roster changes are managed by a developer."
 
@@ -58,11 +58,11 @@ A full sweep of every developer-gated surface (`requireDeveloper*` call sites + 
 4. **Diagnostics** — `app/admin/settings/page.tsx:292` section.
 5. **Developer tools** — `DevToolsRow.tsx:43` + `app/admin/dev/actions.ts` / `dev/page.tsx`.
 
-**Minor / sub-behaviors — covered by "the same developer access you have, including …" (NOT separately named; naming them would bloat a tooltip):** the bell DevFooter config + dev-only feed/count/config routes (`app/api/admin/alerts/bell/*`, `BellPanel.tsx` DevFooter), the AppHealthIndicator telemetry deep-link (`AppHealthIndicator.tsx`), the `dev/source-link-dim` + `dev/telemetry-dim` diagnostic sub-pages, dev-only health-alert bell audience (`lib/admin/healthAlerts.ts`), and `reap-stale-sessions` — each is a behavior OF a named surface or an internal route, not a distinct top-level destination a developer would look for.
+**Minor / sub-behaviors — covered by "the same access you have, including …" (NOT separately named; naming them would bloat a tooltip):** the bell DevFooter config + dev-only feed/count/config routes (`app/api/admin/alerts/bell/*`, `BellPanel.tsx` DevFooter), the AppHealthIndicator telemetry deep-link (`AppHealthIndicator.tsx`), the `dev/source-link-dim` + `dev/telemetry-dim` diagnostic sub-pages, dev-only health-alert bell audience (`lib/admin/healthAlerts.ts`), and `reap-stale-sessions` — each is a behavior OF a named surface or an internal route, not a distinct top-level destination a developer would look for.
 
 **Internal / not user-visible (never copy-relevant):** `lib/audit/authPrimitives.ts`, `lib/audit/trustDomains.ts`, `lib/auth/requireDeveloper.ts`, `app/admin/layout.tsx` (prop plumbing), catalog/generated files.
 
-The copy's `"same developer access you have, including …"` framing is deliberately non-exhaustive and accurate by construction: it anchors to the reading developer's own (complete) access and names the five principal surfaces. **Do not relitigate** by demanding every minor sub-behavior be enumerated — that was the intent of the "including" framing (ratified after Codex plan-R1/R2).
+The copy's `"same access you have, including …"` framing is deliberately non-exhaustive and accurate by construction: it anchors to the reading developer's own (complete) access and names the five principal surfaces. **Do not relitigate** by demanding every minor sub-behavior be enumerated — that was the intent of the "including" framing (ratified after Codex plan-R1/R2).
 
 ## Guard conditions
 
@@ -82,13 +82,13 @@ The copy's `"same developer access you have, including …"` framing is delibera
 
 New assertions in `tests/components/admin/settings/AdministratorsSection-developer.test.tsx` (has both `viewerIsDeveloper` true/false render helpers):
 
-The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle gives that admin/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it. The copy says "the same developer access you have, including …" (not "full") — deliberately non-exhaustive: it anchors the grant to the reading developer's own access and names the principal developer-only surfaces (roster management + the four dev areas), not every minor developer-gated behavior (e.g. the bell DevFooter or the AppHealthIndicator deep-link), so the claim stays accurate without enumerating trivia (Codex plan-R1/R2 findings).
+The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle gives that admin/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it. The copy says "the same access you have, including …" (not "full") — deliberately non-exhaustive: it anchors the grant to the reading developer's own access and names the principal developer-only surfaces (roster management + the four dev areas), not every minor developer-gated behavior (e.g. the bell DevFooter or the AppHealthIndicator deep-link), so the claim stays accurate without enumerating trivia (Codex plan-R1/R2 findings).
 
 Define one shared constant in the test module:
 
 ```
 const GRANT_COPY =
-  "The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
+  "The Developer toggle gives that admin the same access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
 const GRANT_CLAUSES = ["managing admins", "add, revoke, re-add, promote", "Telemetry", "Maintenance", "Diagnostics", "Developer tools"];
 ```
 

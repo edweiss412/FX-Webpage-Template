@@ -33,7 +33,10 @@ import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
-import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
+import {
+  coercePullSheetOverride,
+  evaluateFinalizeOverrideGate,
+} from "@/lib/sync/pullSheetOverride";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -287,25 +290,6 @@ function synthesizeDefaultChoices(items: TriggeredReviewItem[]): ReviewerChoice[
 // §5.5/I6 fail-safe coercion of the jsonb override columns read from pending_syncs. postgres.js
 // parses jsonb into an object; a well-shaped object is kept, anything else → null (the durable
 // override is a best-effort propagation — a corrupt value must never wedge a publish).
-function coercePullSheetOverride(value: unknown): PullSheetOverride | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const o = value as Record<string, unknown>;
-  if (
-    typeof o.tabName === "string" &&
-    typeof o.fingerprint === "string" &&
-    typeof o.acceptedBy === "string" &&
-    typeof o.acceptedAt === "string"
-  ) {
-    return {
-      tabName: o.tabName,
-      fingerprint: o.fingerprint,
-      acceptedBy: o.acceptedBy,
-      acceptedAt: o.acceptedAt,
-    };
-  }
-  return null;
-}
-
 function coerceOverrideSnapshot(value: unknown): OverrideSnapshot {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const o = value as Record<string, unknown>;

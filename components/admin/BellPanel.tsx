@@ -130,10 +130,25 @@ function rowTone(entry: BellEntry): RowTone {
   const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
   return severity === "info" ? "info" : "notice";
 }
-const TONE: Record<RowTone, { wrap: string; icon: LucideIcon; label: string }> = {
-  critical: { wrap: "bg-danger-bg text-status-degraded", icon: TriangleAlert, label: "Critical" },
-  notice: { wrap: "bg-warning-bg text-status-warn", icon: CircleAlert, label: "Warning" },
-  info: { wrap: "bg-accent-tint text-accent-on-bg", icon: Info, label: "Notice" },
+// Quiet-rail severity vocabulary (DESIGN.md §16): a thin left `rail` + an
+// on-surface stroke `glyph` (no fill circle), both the same tone color. Glyph
+// SHAPE is the color-blind-safe carrier — notice=TriangleAlert, critical=
+// CircleAlert, info=Info — so the §1 floor holds without the rail (the rail is
+// the §9 scoped side-stripe exception). `label` is the glyph's `title` tooltip.
+const TONE: Record<RowTone, { rail: string; glyph: string; icon: LucideIcon; label: string }> = {
+  critical: {
+    rail: "bg-status-degraded",
+    glyph: "text-status-degraded",
+    icon: CircleAlert,
+    label: "Critical",
+  },
+  notice: {
+    rail: "bg-status-warn",
+    glyph: "text-status-warn",
+    icon: TriangleAlert,
+    label: "Warning",
+  },
+  info: { rail: "bg-accent-on-bg", glyph: "text-accent-on-bg", icon: Info, label: "Notice" },
 };
 
 // The resolve route the entry posts to: show-scoped when the row carries a
@@ -145,26 +160,60 @@ function resolveUrl(entry: BellEntry): string {
     : `/api/admin/admin-alerts/${entry.alertId}/resolve`;
 }
 
-function OccurrenceChip({ occurrences }: { occurrences: number }) {
+// Occurrence repeat-chip (DESIGN.md §16, header right-group). Shown only when a
+// code has fired more than once. A compact rotate glyph + tabular count with a
+// hover/focus tooltip; the accessible name carries the full "Detected N times"
+// so the count is never a bare unlabeled number to AT. `occurrences <= 1 → null`.
+function OccurrenceChip({ occurrences, alertId }: { occurrences: number; alertId: string }) {
   if (typeof occurrences !== "number" || occurrences <= 1) return null;
+  const label = `Detected ${occurrences} times`;
   return (
-    <span className="inline-flex items-center gap-1 text-xs tabular-nums text-text-faint">
-      <RotateCcw aria-hidden="true" className="size-3 shrink-0" />
-      Detected {occurrences}×
+    // role="img" + aria-label: a non-interactive graphic that announces the full
+    // "Detected N times" (so it nests validly inside the toggle button and the
+    // count is never a bare number to AT). The tooltip is a mouse-hover nicety.
+    <span
+      data-testid={`bell-occurrence-${alertId}`}
+      role="img"
+      aria-label={label}
+      className="group/occ relative inline-flex items-center gap-0.5 text-[11.5px] tabular-nums text-text-faint"
+    >
+      <RotateCcw aria-hidden="true" className="size-2.5 shrink-0" />
+      <span aria-hidden="true">{occurrences}</span>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[11.5px] font-medium text-text opacity-0 shadow-popover transition-opacity duration-fast group-hover/occ:opacity-100 motion-reduce:transition-none"
+      >
+        {label}
+      </span>
     </span>
   );
 }
 
-function IdentityLine({ entry }: { entry: BellEntry }) {
+// At-a-glance identity as ONE bordered token chip (DESIGN.md §16) instead of a
+// plain text line. The resolver bakes any "+N more" overflow into the identity
+// value string, so it stays inside the chip (re-parsing it out would be fragile).
+function IdentityChip({ entry }: { entry: BellEntry }) {
   const text = entry.identity ? describeAlert(entry.identity, { includePii: true }) : null;
   if (!text) return null;
-  return <span className="mt-0.5 block wrap-break-word text-sm text-text-subtle">{text}</span>;
+  return (
+    <div className="mt-2.5">
+      <span
+        data-testid={`bell-identity-${entry.alertId}`}
+        className="inline-flex max-w-full items-center rounded-md border border-border-strong bg-surface-sunken px-2 py-0.5 text-xs tabular-nums text-text wrap-break-word"
+      >
+        {text}
+      </span>
+    </div>
+  );
 }
 
-// Shared chrome for the non-form action buttons/links (Dismiss, telemetry link,
-// action chip) — mirrors the banner's action-link affordance.
-const ACTION_CHROME =
-  "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
+// Leading text-link CTA (DESIGN.md §16): the action deep link / telemetry link.
+// Accent-on-bg, hover underline; keeps the 44px tap floor for the venue phone.
+const LINK_CTA =
+  "inline-flex min-h-tap-min items-center gap-1 rounded-sm text-[13px] font-semibold text-accent-on-bg transition-colors duration-fast hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+// Trailing ghost Dismiss (DESIGN.md §16): quiet by default, lifts on hover.
+const GHOST_DISMISS =
+  "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
 
 function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
@@ -188,17 +237,42 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
     onRefetch();
   }, [entry, onRefetch, resolving]);
 
+  // Layout (DESIGN.md §16): the primary link/affordance LEADS on the left, a
+  // spacer, then the trailing ghost Dismiss on the right. Health rows keep the
+  // telemetry-link-only contract (the global resolve route 403s health), so they
+  // have no Dismiss; auto-resolving rows show their note; watch keeps Retry.
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
       {entry.isHealth ? (
         <a
           href="/admin/dev/telemetry#health"
           data-testid={`bell-telemetry-${entry.alertId}`}
-          className={ACTION_CHROME}
+          className={LINK_CTA}
         >
-          View in telemetry
+          View in telemetry <span aria-hidden="true">↗</span>
         </a>
-      ) : entry.isAutoResolving ? (
+      ) : entry.action ? (
+        <a
+          href={entry.action.href}
+          data-testid={`bell-action-${entry.alertId}`}
+          {...(entry.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          className={LINK_CTA}
+        >
+          {entry.action.label}
+          {entry.action.external ? <span aria-hidden="true"> ↗</span> : null}
+        </a>
+      ) : null}
+      {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
+          Retry form (idempotent — no two-tap confirm). Pending state derives
+          from useFormStatus inside RetryWatchButton, so the button re-enables
+          when the Server Action returns even on a no-revalidate failure path. */}
+      {!entry.isHealth && isWatch ? (
+        <form action={retryWatchSubscriptionFormAction}>
+          <RetryWatchButton ringOffset="surface" />
+        </form>
+      ) : null}
+      <span className="flex-1" />
+      {entry.isHealth ? null : entry.isAutoResolving ? (
         <p
           data-testid={`bell-auto-note-${entry.alertId}`}
           className="wrap-break-word text-sm text-text-subtle"
@@ -212,31 +286,11 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           onClick={() => void onResolve()}
           disabled={resolving}
           aria-busy={resolving}
-          className={ACTION_CHROME}
+          className={GHOST_DISMISS}
         >
           {resolving ? "Dismissing…" : "Dismiss"}
         </button>
       )}
-      {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
-          Retry form (idempotent — no two-tap confirm). Pending state derives
-          from useFormStatus inside RetryWatchButton, so the button re-enables
-          when the Server Action returns even on a no-revalidate failure path. */}
-      {!entry.isHealth && isWatch ? (
-        <form action={retryWatchSubscriptionFormAction}>
-          <RetryWatchButton ringOffset="surface" />
-        </form>
-      ) : null}
-      {entry.action ? (
-        <a
-          href={entry.action.href}
-          data-testid={`bell-action-${entry.alertId}`}
-          {...(entry.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className={ACTION_CHROME}
-        >
-          {entry.action.label}
-          {entry.action.external ? <span aria-hidden="true"> ↗</span> : null}
-        </a>
-      ) : null}
     </div>
   );
 }
@@ -268,106 +322,108 @@ function ActiveRow({
     <div
       data-testid={`bell-entry-${entry.alertId}`}
       data-unread={dotVisible ? "true" : "false"}
-      className={`rounded-lg p-2.5 transition-colors motion-safe:duration-fast ${
-        dotVisible ? "bg-stale-tint" : "bg-transparent hover:bg-surface-sunken"
+      className={`relative flex gap-3 px-4 py-3.5 transition-colors motion-safe:duration-fast ${
+        dotVisible ? "bg-stale-tint" : "hover:bg-surface-sunken"
       }`}
     >
-      <div className="flex gap-3">
-        {/* Severity icon-circle (34px fixed — DI-4) with the unread pip pinned to
-            its top-right (DI-5). The pip KEEPS the prior dot contract: a size-2
-            (8px) element whose opacity flips on read, so no layout shift and every
-            existing dot test / e2e assertion still holds. */}
-        <span aria-hidden="true" className="relative shrink-0">
-          <span
-            data-testid={`bell-sev-${entry.alertId}`}
-            data-tone={tone}
-            title={TONE[tone].label}
-            className={`inline-flex size-[34px] items-center justify-center rounded-full ${TONE[tone].wrap}`}
-          >
-            <ToneIcon className="size-[17px]" />
-          </span>
-          <span className="absolute -right-0.5 -top-0.5 inline-flex size-2">
-            <span
-              data-testid={`bell-unread-dot-${entry.alertId}`}
-              className={`size-2 rounded-full bg-accent-on-bg ring-2 ring-surface motion-safe:transition-opacity motion-safe:duration-fast ${
-                dotVisible ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          </span>
+      {/* Severity rail (DESIGN.md §16 / §9 scoped side-stripe): a 3px tone-colored
+          left rail inset from the row padding. Redundant with the glyph + title,
+          never the sole severity carrier. */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-y-3.5 left-0 w-[3px] rounded-full ${TONE[tone].rail}`}
+      />
+      {/* On-surface stroke severity glyph (18px fixed — DI-4). The unread pip
+          rides its top-right corner (DI-5): a size-2 (8px) element whose opacity
+          flips on read, so no layout shift and every existing dot assertion holds.
+          Glyph SHAPE carries severity for the color-blind floor (DESIGN.md §16). */}
+      <span aria-hidden="true" className="relative mt-px shrink-0">
+        <span
+          data-testid={`bell-sev-${entry.alertId}`}
+          data-tone={tone}
+          title={TONE[tone].label}
+          className={`inline-flex ${TONE[tone].glyph}`}
+        >
+          <ToneIcon className="size-[18px]" />
         </span>
-        <div className="min-w-0 flex-1">
-          {/* min-h-tap-min: this is the primary per-row gesture (expand +
-              mark-read). A title-only row (no message/identity line) would
-              otherwise render the affordance well under the 44px floor
-              PRODUCT.md mandates for a phone on the venue floor. The button
-              owns the tap area; the surrounding row `p-2.5` is chrome.
-              flex-col + justify-center vertically centers the (block-flow)
-              title/message/identity stack within that min height. */}
-          <button
-            type="button"
-            data-testid={`bell-entry-toggle-${entry.alertId}`}
-            onClick={onToggle}
-            aria-expanded={expanded}
-            className="flex min-h-tap-min w-full flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            <span className="flex items-start justify-between gap-2">
-              {/* Title weight is CONSTANT across read/unread — a weight swap
-                  (semibold↔medium) changes glyph advance widths and can reflow a
-                  wrapping title by a full line on read (§14 no-layout-shift, the
-                  `bell-entry-toggle` header must keep its height across the read
-                  flip). Unread emphasis is carried by the pip + `bg-stale-tint`
-                  row background + the severity circle, never the title weight. */}
-              <span className="min-w-0 wrap-break-word font-semibold text-text-strong">
-                {title}
+        <span className="absolute -right-1 -top-1 inline-flex size-2">
+          <span
+            data-testid={`bell-unread-dot-${entry.alertId}`}
+            className={`size-2 rounded-full bg-accent-on-bg ring-2 ring-surface motion-safe:transition-opacity motion-safe:duration-fast ${
+              dotVisible ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        </span>
+      </span>
+      <div className="min-w-0 flex-1">
+        {/* min-h-tap-min: this is the primary per-row gesture (expand +
+            mark-read). A title-only row would otherwise render the affordance
+            well under the 44px floor PRODUCT.md mandates for a phone on the venue
+            floor. flex-col + justify-center vertically centers the title/message
+            stack within that min height. The identity chip + action row are
+            siblings BELOW the button so they are not inside the tap gesture. */}
+        <button
+          type="button"
+          data-testid={`bell-entry-toggle-${entry.alertId}`}
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex min-h-tap-min w-full flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          <span className="flex items-start justify-between gap-2.5">
+            {/* Title weight is CONSTANT across read/unread — a weight swap
+                (semibold↔medium) changes glyph advance widths and can reflow a
+                wrapping title by a full line on read (§14 no-layout-shift, the
+                `bell-entry-toggle` header must keep its height across the read
+                flip). Unread emphasis is carried by the pip + `bg-stale-tint`
+                row background + the rail, never the title weight. */}
+            <span className="min-w-0 wrap-break-word font-semibold text-text-strong">{title}</span>
+            {/* Header right-group (DESIGN.md §16): occurrence repeat-chip, then
+                the relative timestamp, then the disclosure caret. The occurrence
+                chip is a non-interactive role="img" (aria-label carries the full
+                "Detected N times"), so it nests validly inside the toggle button. */}
+            <span className="flex shrink-0 items-center gap-2.5">
+              <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
+              <span className="text-xs tabular-nums text-text-faint">
+                {raisedAtSuffix(entry.activityAt, now)}
               </span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="text-xs tabular-nums text-text-faint">
-                  {raisedAtSuffix(entry.activityAt, now)}
-                </span>
-                {/* BELL-1: disclosure caret, shown ONLY when the code carries
-                    helpfulContext (a context-less row expands to nothing beyond
-                    the dot clear, so a caret there would be a lie). The full-row
-                    toggle stays tappable on EVERY row (spec D3). Rotate is
-                    transform-only (no reflow), so §14 no-layout-shift holds. The
-                    message is NEVER clamped (spec §2, R4) — expansion only reveals
-                    the helpful-context box. */}
-                {helpful ? (
-                  <ChevronRight
-                    aria-hidden="true"
-                    data-testid={`bell-caret-${entry.alertId}`}
-                    className={`size-4 shrink-0 text-text-faint motion-safe:transition-transform motion-safe:duration-fast ${
-                      expanded ? "rotate-90" : ""
-                    }`}
-                  />
-                ) : null}
-              </span>
+              {/* BELL-1: disclosure caret, shown ONLY when the code carries
+                  helpfulContext (a context-less row expands to nothing beyond the
+                  dot clear, so a caret there would be a lie). The full-row toggle
+                  stays tappable on EVERY row (spec D3). Rotate is transform-only
+                  (no reflow), so §14 no-layout-shift holds. The message is NEVER
+                  clamped (spec §2, R4) — expansion only reveals the context box. */}
+              {helpful ? (
+                <ChevronRight
+                  aria-hidden="true"
+                  data-testid={`bell-caret-${entry.alertId}`}
+                  className={`size-4 shrink-0 text-text-faint motion-safe:transition-transform motion-safe:duration-fast ${
+                    expanded ? "rotate-90" : ""
+                  }`}
+                />
+              ) : null}
             </span>
-            {message ? (
-              <span className="mt-0.5 block wrap-break-word text-sm text-text-subtle">
-                {renderCatalogEmphasis(message, params)}
-              </span>
-            ) : null}
-            <IdentityLine entry={entry} />
-          </button>
-          {/* helpfulContext disclosure in a tinted box with a leading info glyph
-              (D6). Rendered only when expanded AND the catalog carries context. */}
-          {expanded && helpful ? (
-            <div
-              data-testid={`bell-context-${entry.alertId}`}
-              className="mt-2 flex gap-2 rounded-md bg-surface-sunken p-2.5 text-sm text-text-subtle"
-            >
-              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-text-faint" />
-              <span className="min-w-0 wrap-break-word">
-                {renderCatalogEmphasis(helpful, params)}
-              </span>
-            </div>
+          </span>
+          {message ? (
+            <span className="mt-1 block wrap-break-word text-sm text-text-subtle">
+              {renderCatalogEmphasis(message, params)}
+            </span>
           ) : null}
-          <div className="mt-2 flex items-center gap-3">
-            <OccurrenceChip occurrences={entry.occurrences} />
-            <span className="flex-1" />
-            <ActionCell entry={entry} onRefetch={onRefetch} />
+        </button>
+        {/* helpfulContext disclosure in a tinted box with a leading info glyph
+            (D6). Rendered only when expanded AND the catalog carries context. */}
+        {expanded && helpful ? (
+          <div
+            data-testid={`bell-context-${entry.alertId}`}
+            className="mt-2 flex gap-2 rounded-md bg-surface-sunken p-2.5 text-sm text-text-subtle"
+          >
+            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-text-faint" />
+            <span className="min-w-0 wrap-break-word">
+              {renderCatalogEmphasis(helpful, params)}
+            </span>
           </div>
-        </div>
+        ) : null}
+        <IdentityChip entry={entry} />
+        <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
     </div>
   );
@@ -741,30 +797,34 @@ export function BellPanel({
       body = (
         <>
           {active.length > 0 ? (
-            <section data-testid="bell-section-active" aria-label="Active notifications">
-              {/* BELL-2: visible count heading — an uppercase eyebrow label plus a
-                  small accent-tinted count pill (the number uses text-strong, not
-                  accent-on-bg, to clear the AA text floor on the tint — §3/R5).
-                  textContent still carries "Active" + the count for a11y/tests. */}
+            // Full-bleed (-mx negates the scroll container's px-2/px-2.5) so the
+            // severity rail hugs the card edge and the inter-row dividers span the
+            // full width — DESIGN.md §16.
+            <section
+              data-testid="bell-section-active"
+              aria-label="Active notifications"
+              className="-mx-2 sm:-mx-2.5"
+            >
+              {/* BELL-2: visible count eyebrow. textContent carries "Active" + the
+                  count for a11y/tests (DESIGN.md §16 eyebrow, "Active · N"). */}
               <h3
                 data-testid="bell-section-active-heading"
-                className="mb-1.5 flex items-center gap-2 px-1 text-xs font-bold uppercase tracking-wider text-text-faint"
+                className="px-4 pb-1 pt-1.5 text-xs font-bold uppercase tracking-wider text-text-faint tabular-nums"
               >
-                Active
-                <span className="inline-flex min-w-[18px] items-center justify-center rounded-pill bg-accent-tint px-1.5 text-[11px] font-bold tabular-nums text-text-strong">
-                  {active.length}
-                </span>
+                Active · {active.length}
               </h3>
-              {active.map((entry) => (
-                <ActiveRow
-                  key={entry.alertId}
-                  entry={entry}
-                  now={now}
-                  expanded={expandedIds.has(entry.alertId)}
-                  readCleared={readClearedIds.has(entry.alertId)}
-                  onToggle={() => handleToggle(entry)}
-                  onRefetch={() => void load(true)}
-                />
+              {active.map((entry, i) => (
+                <div key={entry.alertId}>
+                  {i > 0 ? <div aria-hidden="true" className="mx-4 h-px bg-border" /> : null}
+                  <ActiveRow
+                    entry={entry}
+                    now={now}
+                    expanded={expandedIds.has(entry.alertId)}
+                    readCleared={readClearedIds.has(entry.alertId)}
+                    onToggle={() => handleToggle(entry)}
+                    onRefetch={() => void load(true)}
+                  />
+                </div>
               ))}
             </section>
           ) : null}
