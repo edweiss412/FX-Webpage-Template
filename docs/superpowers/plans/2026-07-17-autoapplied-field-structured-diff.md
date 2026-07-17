@@ -256,19 +256,23 @@ function build(items: TriggeredReviewItem[]): Built {
   const types: string[] = [];
   let omitted = 0;
 
-  // MI-8 financial (financialFields order), note-only.
+  // MI-8 financial, note-only. Collect valid fields (count out-of-enum as malformed),
+  // then emit in FINANCIAL_ORDER (spec §3.1 ordering). Cast the tuple to readonly
+  // string[] so `.includes(string)` type-checks (a literal tuple narrows the arg type).
+  const financials = FINANCIAL_ORDER as readonly string[];
+  const mi8Fields: string[] = [];
+  for (const it of items) {
+    if (it.invariant !== "MI-8") continue;
+    const f = (it as { field?: unknown }).field;
+    if (typeof f === "string" && financials.includes(f)) mi8Fields.push(f);
+    else omitted++;
+  }
   for (const field of FINANCIAL_ORDER) {
-    for (const it of items) {
-      if (it.invariant !== "MI-8") continue;
-      const f = (it as { field?: unknown }).field;
+    for (const f of mi8Fields) {
       if (f !== field) continue;
       entries.push({ label: FIELD_DISPLAY_NAMES[field]!, from: null, to: null, note: "cleared on this sync" });
       if (!types.includes(FIELD_DISPLAY_NAMES[field]!)) types.push(FIELD_DISPLAY_NAMES[field]!);
     }
-  }
-  // Any MI-8 with an out-of-enum field → malformed.
-  for (const it of items) {
-    if (it.invariant === "MI-8" && !FINANCIAL_ORDER.includes((it as { field?: never }).field)) omitted++;
   }
   // MI-8b COI From→To. Skip if prior/next are not `string | null` (§3.6 guard),
   // or equal-after-normalize (mirrors the live fire condition priorCoi !== nextCoi).
@@ -515,12 +519,17 @@ describe("deriveFieldsDiff (read-side re-validation)", () => {
     expect(entries[entries.length - 1]!.label).toBe("Other changes");
   });
   it("a note-entry carrying a non-string from/to does NOT crash — treated as malformed", () => {
-    // isValidEntry must reject before boundEntry's capValue touches a number (F2).
+    // isValidEntry must reject before boundEntry's capValue touches a number (R1 F2).
     expect(() =>
       deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never),
     ).not.toThrow();
     const r = deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never);
     // the sole entry is malformed → all-malformed → Unavailable marker
+    expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
+    expect(r.invalid).toBe(true);
+  });
+  it("a from/to entry with blank strings is corrupt (no blank cell) → Unavailable (R2 F2)", () => {
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "COI status", from: "", to: "", note: null }] } as never);
     expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
     expect(r.invalid).toBe(true);
   });
@@ -575,8 +584,11 @@ function isValidEntry(e: unknown): e is FieldChangeEntry {
   // then crash capValue(42) at bound time (Codex plan-review R1 F2).
   if (typeof o.label !== "string" || o.label.trim() === "") return false;
   if (!strOrNull(o.from) || !strOrNull(o.to) || !strOrNull(o.note)) return false;
+  // A from/to branch requires BOTH non-empty (no blank cell, spec §7); a note branch
+  // requires a non-empty note. `{ from:"", to:"" }` is corrupt, not a valid entry.
   const hasNote = typeof o.note === "string" && o.note.trim() !== "";
-  const hasFromTo = typeof o.from === "string" && typeof o.to === "string";
+  const hasFromTo =
+    typeof o.from === "string" && o.from.trim() !== "" && typeof o.to === "string" && o.to.trim() !== "";
   return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
 }
 function boundEntry(e: FieldChangeEntry): FieldChangeEntry {
@@ -651,7 +663,9 @@ At the map call site (`:183`), replace with a warn-aware computation so a corrup
         }
         const { diff, invalid } = deriveFieldsDiff(r.after_image);
         if (invalid) {
-          log.warn("auto-applied field_changed row has an invalid fieldChanges payload", {
+          // Row-attributed forensic warn (the change-log row id is in the message so
+          // the corrupt row is findable via `observe events --q`; show_id in context).
+          log.warn(`auto-applied field_changed row ${r.id} has an invalid fieldChanges payload`, {
             code: FIELDCHANGES_INVALID_CODE,
             show_id: r.show_id,
           });
@@ -695,6 +709,19 @@ it("digest surfaces a role change by name and omits crew names", () => {
   expect(summary).toContain("Role");
   expect(summary).toContain("COI status");
   expect(summary).not.toContain("Alex");
+});
+
+it("digest-boundary: a valid+malformed row's summary carries the omission clause (spec §5)", () => {
+  // The digest reads scl.summary verbatim (monitorDigest.ts:64,230) — so the
+  // summary MUST encode the omission or the email hides a dropped change.
+  const summary = buildFieldChangesRow([
+    { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
+    { id: "b", invariant: "MI-8", field: "bogus" },
+  ] as unknown as TriggeredReviewItem[])!.summary;
+  expect(summary).toMatch(/\d+ more field change/);
+  // Feed it through the file's existing digest fixture builder + render, and assert
+  // the rendered digest line for that row contains the same clause (reuse the
+  // suite's existing render helper — the digest passes scl.summary through unchanged).
 });
 ```
 
