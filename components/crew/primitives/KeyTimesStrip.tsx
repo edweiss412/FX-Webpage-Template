@@ -137,6 +137,10 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
   const anchorClass = isRow
     ? "flex min-w-0 items-baseline justify-between gap-3 min-[720px]:flex-1 min-[720px]:flex-col min-[720px]:items-start min-[720px]:justify-start min-[720px]:gap-0.5 min-[720px]:px-4 min-[720px]:first:pl-0 min-[720px]:last:pr-0"
     : "flex items-baseline justify-between gap-3";
+  // The overflow disclosure is a vertical list regardless of the outer posture,
+  // so its disclosed rows always use the STACK row shape (never the row-layout
+  // `min-[720px]:flex-col` column form, which is meant for the equal-width strip).
+  const stackAnchorClass = "flex items-baseline justify-between gap-3";
 
   return (
     <dl data-testid="key-times-strip" data-layout={layout} className={containerClass}>
@@ -167,6 +171,10 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
         // bare <details>. The <dd> legally holds the disclosure, and the hidden
         // days nest under the "More show days" term as their definition, so a SR
         // reads them as a continuation of the key-times list, not a stray list.
+        // Stack-only affordance: in `layout="row"` (the ≥720px equal-width strip)
+        // a >8-show-day show renders this as a full-width block rather than an
+        // equal column — an accepted exception for a near-unreachable case
+        // (realistic max ~3 show days, cap 8); confirmed on the PR preview (D4).
         <div className="min-w-0">
           <dt className="sr-only">More show days</dt>
           <dd className="min-w-0">
@@ -203,7 +211,7 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
                   <AnchorRow
                     key={`show-${s.date}`}
                     row={{ rowKey: `show-${s.date}`, label: s.label, value: s.time, date: s.date }}
-                    anchorClass={anchorClass}
+                    anchorClass={stackAnchorClass}
                   />
                 ))}
               </dl>

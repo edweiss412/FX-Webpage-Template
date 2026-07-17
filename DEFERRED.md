@@ -25,7 +25,7 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `per-da
 
 - **What:** with the cap now 8, the worst realistic case is Set + up to 8 show rows + Strike (≤10 rows), or Set + 7 shows + the `<details>` summary + Strike when >8 shows, in the narrow "Daily call times" card (`ScheduleSection.tsx`, defaults to `stack`). The `<details>` keeps the DEFAULT compact (extras hidden until tapped), but a fully-visible ≤8-show list is denser than the old cap-5 worst case.
 - **Why still deferred:** requires a real browser render; the app could not boot in the gate environment.
-- **Trigger:** PR Vercel preview — capture the "Daily call times" card at 390px with an 8-show fixture (and a >8-show fixture to exercise the collapsed `<details>`), confirm no crowding/clip. If dense, lower the visible cap before overflow.
+- **Trigger:** PR Vercel preview — capture the "Daily call times" card at 390px with an 8-show fixture (and a >8-show fixture to exercise the collapsed `<details>`), confirm no crowding/clip. If dense, lower the visible cap before overflow. **Also** confirm the `layout="row"` Today "Key times" card with a >8-show fixture: the overflow disclosure is a documented stack-only full-width block there (not an equal column) — verify it reads acceptably or gate it to `stack`. (impeccable audit P3.)
 
 ### D5 — [P3] Per-day date as `<time>`; middot speech — ✅ RESOLVED (`<time>`)
 
