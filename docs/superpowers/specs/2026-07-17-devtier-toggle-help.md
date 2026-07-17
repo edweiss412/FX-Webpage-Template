@@ -6,7 +6,13 @@
 
 ## Problem
 
-The per-row Developer toggle (`components/admin/settings/DeveloperToggleButton.tsx`) renders only a bare "Developer" label. Granting the developer bit gives that admin Activity nav + Maintenance + Diagnostics + the Dev-tools row + the power to promote/demote other admins' developer status — with **no inline explanation of that blast radius**. Sibling privilege surfaces carry help (the Administrators `HoverHelp` at `components/admin/settings/AdministratorsSection.tsx:86-97`, `NotifyToggle` description). Surfaced as impeccable **critique P2** on branch `feat/developer-tier`.
+The per-row Developer toggle (`components/admin/settings/DeveloperToggleButton.tsx`) renders only a bare "Developer" label (`:146` interactive arm / `:112` locked arm). Granting the developer bit unlocks:
+
+- **Developer-only nav items** (Activity, etc.) — hidden for non-developers by `components/admin/nav/AdminNav.tsx:62` (`NAV.filter((item) => !item.developerOnly || viewerIsDeveloper)`; safe-default `viewerIsDeveloper = false` at `:38`).
+- **The Dev-tools row** (Maintenance / Diagnostics entry) — `components/admin/settings/DevToolsRow.tsx:30` (`if (!DEV_PANEL_PRESENT || !isDeveloper) return null;`).
+- **The power to promote/demote other admins' developer bit** — `setDeveloperAction` gated by `requireDeveloperIdentity()` (`app/admin/settings/admins/developerActions.ts:22`).
+
+…with **no inline explanation of that blast radius**. The sibling privilege help on the same heading — the Administrators `HoverHelp` (`components/admin/settings/AdministratorsSection.tsx:86-97`) — says nothing about the Developer toggle. Surfaced as impeccable **critique P2** on branch `feat/developer-tier` (`DEFERRED.md` DEVTIER-1).
 
 ## Scope (single change)
 
@@ -32,14 +38,14 @@ After:
 The extended copy renders **only for developers**. Two independent gates guarantee it:
 
 1. The sentence lives in the `viewerIsDeveloper ? … : …` **developer arm** (`:93-94`), so the string is not even in the tree for a non-developer viewer.
-2. The Developer toggle it describes is itself developer-only (`AdministratorsSection.tsx:224-230`, gated on `viewerIsDeveloper`; safe-default `viewerIsDeveloper=false`, `:37/:47`), verified server-side absent for normal admins (`AdminNav:36`, `DevToolsRow:30`).
+2. The Developer toggle it describes is itself developer-only (`AdministratorsSection.tsx:224-230`, gated on `viewerIsDeveloper`; safe-default `viewerIsDeveloper = false` at `:37`, prop declared `:47`), and the whole developer surface is absent for normal admins (`AdminNav.tsx:62` nav filter, `DevToolsRow.tsx:30` runtime gate).
 
 So only a viewer who can actually use the toggle ever sees the grant explanation. This is the core acceptance criterion.
 
 ## Guard conditions
 
 - **`viewerIsDeveloper` false / omitted:** developer arm not rendered → grant sentence absent (asserted). Non-developer copy unchanged.
-- **`result.kind === "infra_error"`:** the early-return branch (`:55-79`) renders the cataloged `ADMIN_EMAIL_LIST_FAILED` copy and never reaches the heading `HoverHelp` — unaffected.
+- **`result.kind === "infra_error"`:** the early-return branch (`:52`) renders the cataloged `ADMIN_EMAIL_LIST_FAILED` copy and never reaches the heading `HoverHelp` — unaffected.
 - **Empty active list:** heading (and its `HoverHelp`) still render; grant copy still developer-gated. Unaffected.
 
 ## Invariant / contract check
@@ -54,8 +60,20 @@ So only a viewer who can actually use the toggle ever sees the grant explanation
 
 New assertions in `tests/components/admin/settings/AdministratorsSection-developer.test.tsx` (has both `viewerIsDeveloper` true/false render helpers):
 
-1. **Developer viewer → grant sentence present.** `render(<AdministratorsSection … viewerIsDeveloper={true} />)`; the `HoverHelp` body stays in the DOM when closed (`HoverHelp.tsx` SR contract), so assert `getByText(/The Developer toggle grants full developer access/)` resolves. Failure mode caught: someone edits the wrong ternary arm or drops the sentence.
-2. **Non-developer viewer → grant sentence ABSENT.** `viewerIsDeveloper={false}`; assert `queryByText(/Developer toggle grants full developer access/)` is `null` AND the non-developer copy (`/Roster changes are managed by a developer/`) is present. Failure mode caught: the sentence leaks to the non-developer arm (violates the user-ratified developer-only constraint). This is the anti-tautology guard — it pins visibility to the audience, not just "text exists somewhere."
+The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle grants full developer access/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it.
+
+Define one shared constant in the test module:
+
+```
+const GRANT_COPY =
+  "The Developer toggle grants full developer access: Activity, Maintenance, and Diagnostics, plus making other admins developers.";
+const GRANT_CLAUSES = ["Activity", "Maintenance", "Diagnostics", "making other admins developers"];
+```
+
+1. **Developer viewer → full grant sentence + every clause present.** `render(<AdministratorsSection … viewerIsDeveloper={true} />)`; the `HoverHelp` body stays in the DOM when closed (`HoverHelp.tsx` SR contract). Assert the **exact** full sentence resolves — locate the heading help paragraph (scope to `getByTestId("admins-help")`'s owned body, not the whole tree) and assert its `textContent` **contains `GRANT_COPY` verbatim**; then assert each of `GRANT_CLAUSES` appears in that same paragraph. Failure mode caught: wrong ternary arm, dropped sentence, OR a shortened sentence that omits a privilege (e.g. drops "Diagnostics" or "making other admins developers").
+2. **Non-developer viewer → grant sentence + every clause ABSENT, non-developer copy present.** `viewerIsDeveloper={false}`; assert `queryByText((_, el) => el?.textContent?.includes(GRANT_COPY) ?? false)` is `null`, assert **none** of `GRANT_CLAUSES` appear via the developer sentence (scope the absence to the heading help paragraph so an unrelated "Activity" nav string elsewhere can't false-pass — clone/scope per the anti-tautology rule), AND the non-developer copy (`/Roster changes are managed by a developer/`) is present. Failure mode caught: the sentence (or any clause of it) leaks to the non-developer arm — violates the user-ratified developer-only constraint.
+
+Both derive expected text from the single `GRANT_COPY`/`GRANT_CLAUSES` constants, and the implementation string in `AdministratorsSection.tsx:94` must equal `GRANT_COPY` — one source of truth, no drift between test and code.
 
 ## Also in this branch (housekeeping)
 
