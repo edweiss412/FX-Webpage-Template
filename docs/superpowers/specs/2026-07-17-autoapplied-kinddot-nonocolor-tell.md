@@ -105,4 +105,4 @@ Live-code verification found three entries stale on `origin/main` (plus KINDDOT-
 
 New explicit deferral row (§4): **KINDDOT-DIM-1 — [N/A] real-browser dimension assertion for the `size-2` minus-bar marker — DEFERRED-AS-N/A** (CSS-literal dims, no stretch dependency; jsdom class-pin; cites DQ-1/OUX-1/REDESIGN-1 precedent).
 
-Backlog `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` → mark SHIPPED.
+Backlog: `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` was **never filed** as a real BACKLOG row (the DEFERRED KINDDOT-1 entry named it aspirationally) — KINDDOT-1 is closed directly in DEFERRED, no BACKLOG edit for it. Separately, the three BACKLOG rows whose DEFERRED twins this PR marks resolved-by-supersession are reconciled to `✅ RESOLVED-BY-SUPERSESSION`: `BL-AUTOAPPLIED-SINGLETON-FLATTEN` (REDESIGN-2), `BL-AUTOAPPLIED-COLLAPSED-KIND-HINT` (COLLAPSE-1), `BL-DISCLOSURE-FAMILY-HEIGHT-MORPH` (COLLAPSE-2 — all three named disclosures now use the height-morphing `CollapsePanel`).

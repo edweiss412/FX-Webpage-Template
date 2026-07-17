@@ -139,13 +139,13 @@ git commit --no-verify -m "fix(admin): non-color tell for destructive crew_remov
 
 **Files:**
 - Modify: `DEFERRED.md` (KINDDOT-1, AUTOAPPLIED-COLLAPSE-1, AUTOAPPLIED-COLLAPSE-2, AUTOAPPLIED-REDESIGN-2 → resolved; add KINDDOT-DIM-1 N/A row)
-- Modify: `BACKLOG.md` (`BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` → SHIPPED)
+- Modify: `BACKLOG.md` (reconcile the three now-shipped rows the resolved DEFERRED twins reference: `BL-AUTOAPPLIED-SINGLETON-FLATTEN`, `BL-AUTOAPPLIED-COLLAPSED-KIND-HINT`, `BL-DISCLOSURE-FAMILY-HEIGHT-MORPH`). Note: `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` was never filed as a real row — KINDDOT-1 is closed directly in DEFERRED, no BACKLOG edit for it.
 
-- [ ] **Step 1: Mark KINDDOT-1 resolved** — append a `✅ RESOLVED 2026-07-17 (branch fix/autoapplied-kinddot-tell)` note citing the minus-bar (`RecentAutoAppliedStrip.tsx` `shown.map`) + the 3 new tests.
-- [ ] **Step 2: Mark COLLAPSE-1, COLLAPSE-2, REDESIGN-2 RESOLVED-BY-SUPERSESSION** — each with the live-code citation from spec §8 (KindDotCluster :143; CollapsePanel height-morph :38-54 / strip :357; singleton-flatten test).
-- [ ] **Step 3: Add KINDDOT-DIM-1 DEFERRED-AS-N/A row** — real-browser dimension assertion for the `size-2` minus-bar; CSS-literal dims, no stretch dependency; jsdom class-pin; cites DQ-1/OUX-1/REDESIGN-1 precedent.
-- [ ] **Step 4: BACKLOG** — mark `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` SHIPPED.
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Mark KINDDOT-1 resolved** — append a `✅ RESOLVED 2026-07-17 (branch fix/autoapplied-kinddot-tell)` note citing the minus-bar (`RecentAutoAppliedStrip.tsx` `shown.map`) + the 3 new tests.
+- [x] **Step 2: Mark COLLAPSE-1, COLLAPSE-2, REDESIGN-2 RESOLVED-BY-SUPERSESSION** — each with the live-code citation from spec §8 (KindDotCluster comment; CollapsePanel height-morph; singleton-flatten test).
+- [x] **Step 3: Add KINDDOT-DIM-1 DEFERRED-AS-N/A row** — real-browser dimension assertion for the `size-2` minus-bar; CSS-literal dims, no stretch dependency; jsdom class-pin; cites DQ-1/OUX-1/REDESIGN-1 precedent.
+- [x] **Step 4: BACKLOG reconcile** — `BL-AUTOAPPLIED-SINGLETON-FLATTEN`, `BL-AUTOAPPLIED-COLLAPSED-KIND-HINT`, `BL-DISCLOSURE-FAMILY-HEIGHT-MORPH` → `✅ RESOLVED-BY-SUPERSESSION` (their DEFERRED twins shipped: singleton flatten, KindDotCluster collapsed-header hint, CollapsePanel family height-morph). No `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL` row exists — nothing to mark there.
+- [x] **Step 5: Commit**
 
 ```bash
 git add DEFERRED.md BACKLOG.md
@@ -156,9 +156,20 @@ git commit --no-verify -m "docs(plan): mark KINDDOT-1 shipped; COLLAPSE-1/2 + RE
 
 ### Task 3: Invariant-8 impeccable dual-gate + full suite
 
-- [ ] **Step 1:** `/impeccable critique` + `/impeccable audit` on the `KindDotCluster` diff (setup gates: `context.mjs` → register reference). P0/P1 fixed-in-diff or DEFERRED.md entry. Record findings + dispositions in the spec/handoff.
-- [ ] **Step 2:** `pnpm test` (full suite), `pnpm typecheck`, `pnpm lint`, `pnpm format:check` before push (scoped gates miss regressions; `--no-verify` bypasses hooks).
-- [ ] **Step 3:** whole-diff cross-model review to APPROVE → push → real CI green → `gh pr merge --merge`.
+- [x] **Step 1:** `/impeccable critique` + `/impeccable audit` on the `KindDotCluster` diff (setup gates: `context.mjs` → register `product`). **Recorded results (§12 below).**
+- [x] **Step 2:** `pnpm test` (full suite), `pnpm typecheck`, `pnpm lint`, `pnpm format:check` before push. typecheck/lint (0 errors, pre-existing warnings only)/format all clean; component suite 55/55; full suite green except the 2 pre-existing `tests/cross-cutting/pg-cron-coverage.test.ts` local-DB-pollution failures (orphan `fxav_cron_%` job in the shared local DB from concurrent worktrees — identical on `origin/main`'s own test version; zero relation to this view+docs diff; real CI fresh-DB is the arbiter).
+- [x] **Step 3:** whole-diff cross-model review (Codex) → push → real CI green → `gh pr merge --merge`.
+
+## 12. Invariant-8 impeccable dual-gate — results + dispositions
+
+Ran on `git diff origin/main -- components/admin/RecentAutoAppliedStrip.tsx` (register **product**; `context.mjs` PRODUCT.md + DESIGN.md §1 loaded; independent-evaluator attestation).
+
+- **Critique: PASS.** The minus-bar is the correct fix — directly realizes PRODUCT.md's "pair color with text or icon for any state signal" / "color-blind crew exist," and DESIGN.md §1.3's shape-channel direction. `crew_removed` (`bg-status-warn`) vs `crew_renamed` (`bg-status-review`) are near-identical amber hues; the minus glyph ("−" = removed) adds a genuine non-color channel. Box stays 8px → aligns with sibling discs, no reflow.
+- **Audit: PASS.** a11y improved (adds a non-color channel; aria-hidden subtree + aria-label naming "Removed" intact — authoritative AT channel unaffected). Theming clean both modes (warn dot ≥3:1 light/dark). Responsive/perf clean. Dimensional: explicit CSS-literal dims, inner width == wrapper width, no overflow, no stretch dependency.
+- **Findings:** no P0 / P1 / P2.
+  - **P3 (critique) — shape-vocab consistency:** minus-bar is a third shape beyond §1.3's filled-disc/hollow-ring pair. **Disposition: fixed-in-diff** — added a §1.3 DESIGN.md note documenting the minus-bar shape channel + why the minus semantic beats a ring for "removed."
+  - **P3 (critique) — `field_changed` + `crew_email_changed` share `bg-status-idle` dots:** pre-existing, both non-destructive neutral, disambiguated by aria-label + expanded `KindPill`. **Disposition: out of scope** (KINDDOT-1 scoped to the destructive kind).
+  - **P3 (audit) — 2px bar salience:** contrast passes; an `h-[3px]` bump is optional. **Disposition: declined** — `h-0.5` (2px) is a design token; `h-[3px]` would be an untokenized arbitrary value, and the audit rated the 2px non-failure.
 
 ## Self-review
 
