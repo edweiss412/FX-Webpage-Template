@@ -87,10 +87,13 @@ describe("AdministratorsSection (Task 6.2)", () => {
     // 2 active rows seeded → 2 rows rendered in the active region.
     expect(within(active).getAllByTestId("admin-allowlist-row")).toHaveLength(2);
 
-    // Disclosure: the add form is ABSENT initially, present after the trigger.
-    expect(screen.queryByTestId("mock-add-admin-form")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("admin-add-admin-trigger"));
+    // Disclosure: the add-form region is present-but-inert initially (always-mounted
+    // height-morph), and becomes active after the trigger.
+    const addRegion = screen.getByTestId("admin-settings-add-admin");
+    expect(addRegion).toHaveAttribute("inert");
     expect(screen.getByTestId("mock-add-admin-form")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("admin-add-admin-trigger"));
+    expect(addRegion).not.toHaveAttribute("inert");
 
     const revoked = screen.getByTestId("admin-revoked-list");
     expect(within(revoked).getAllByTestId("admin-allowlist-revoked-row")).toHaveLength(1);
