@@ -223,9 +223,15 @@ git commit --no-verify -m "feat(admin): control/signal divider in status strip (
 
 - [ ] **Step 1: Add the backlog row**
 
-Append a `BL-CASP2-STRIP-POLISH` entry to `BACKLOG.md` (match the file's existing `BL-*` row format — read a neighbor row first). Content, scoped to item 1 only:
+Append a `BL-CASP2-STRIP-POLISH` entry to `BACKLOG.md` using the file's real row format (a `## BL-NAME — title` heading, then a `**Filed:** … · **Class:** … · **Effort:** …` metadata line, then the description — see `BACKLOG.md:7-13`). Content, scoped to item 1 only:
 
-> **`BL-CASP2-STRIP-POLISH`** (P3) — StatusStrip finalize-popover persistent overlay. The calm finalize banner in the inline `PublishedToggle` persists for the whole finalize window (a transient server state) and deliberately shares the `POPOVER_POSITION` mechanism with the error skin. WAI, not a defect; bundle on a future strip pass if the finalize UX is revisited. Items 2 (two-orange → control divider) and 3 (alert-badge focus-ring offset) of CASP2-4 shipped on branch `feat/casp2-strip-polish` (2026-07-17). Origin: DEFERRED.md CASP2-4.
+```markdown
+## BL-CASP2-STRIP-POLISH — StatusStrip finalize-popover persistent overlay
+
+**Filed:** 2026-07-17 (CASP2-4 residual, `DEFERRED.md` CASP2-4) · **Class:** UI polish (transient-state overlay) · **Effort:** S (bundle on a future strip pass)
+
+The calm finalize banner in the inline `PublishedToggle` (`components/admin/PublishedToggle.tsx`, `POPOVER_POSITION` finalize skin) persists as an absolute overlay for the whole finalize window — a transient server state — and deliberately shares the `POPOVER_POSITION` mechanism with the error skin (one source, pinned equal by tests). WAI, not a defect; revisit only if the finalize UX is reworked. Items 2 (two-orange → control divider) and 3 (alert-badge focus-ring offset) of CASP2-4 shipped on `feat/casp2-strip-polish` (2026-07-17); this row is the sole open residual.
+```
 
 - [ ] **Step 2: Update DEFERRED.md CASP2-4**
 
@@ -251,10 +257,18 @@ git commit --no-verify -m "docs: mark CASP2-4 items 2+3 resolved; file BL-CASP2-
 
 ---
 
+### Task 5: Adversarial review (cross-model)
+
+**Files:** none (review gate; findings loop back to the relevant task).
+
+Per AGENTS.md — the mandatory cross-model adversarial review of the whole implementation diff. Reviewer = Codex (implementer is Opus/Claude), fresh-eyes posture, REVIEWER ONLY. Iterate until APPROVE, no round budget. Triage findings via deferral discipline (land-now → fix in Task 1/2/3; else `DEFERRED.md` / `BACKLOG.md`). This is the Stage-4 close-out gate referenced by the self-review below.
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
-- §3 divider → Task 2. §4 focus ring → Task 1. §9.1 unit tests → Tasks 1+2. §9.2 real-browser → Task 2 Step 5. §12 docs → Task 3. AC-5 token-drift → Task 4 Step 4. AC-6 impeccable + adversarial → Task 4 Step 1 + Stage 4. All spec sections mapped.
+- §3 divider → Task 2. §4 focus ring → Task 1. §9.1 unit tests → Tasks 1+2. §9.2 real-browser → Task 2 Step 5. §12 docs → Task 3. AC-5 token-drift → Task 4 Step 4. AC-6 impeccable → Task 4 Step 1; AC-6 adversarial review → Task 5. All spec sections mapped.
 
 **Placeholder scan:** the e2e Step 5 skeleton intentionally defers the exact mount call to the harness read — this is a real instruction ("read `_statusStripToggleHarness.tsx`, adapt to its helper"), not a TODO, because inventing a mount API would be worse than reading the one that exists. All other steps carry literal code.
 
