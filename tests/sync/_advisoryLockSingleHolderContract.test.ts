@@ -83,6 +83,13 @@ const lockHolderRegistry = [
     key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
   },
   {
+    path: "app/api/admin/onboarding/resolve-blocker/route.ts",
+    holder: "handleResolveBlocker",
+    layer:
+      "bootstraps session/show read-only, then ONE blocking show lock in-route before dispatching _unarchive_show_apply or the real applyRescanDecisionUnderLock core; no second holder",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
     holder: "handleExtractAgenda",
     layer:
@@ -436,6 +443,7 @@ describe("M6 advisory-lock single-holder contract", () => {
       "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
       "app/api/admin/onboarding/finalize-cas/route.ts",
       "app/api/admin/onboarding/finalize/route.ts",
+      "app/api/admin/onboarding/resolve-blocker/route.ts",
       "lib/sync/lockedPromoteTx.ts",
       "lib/sync/lockedShowTx.ts",
     ]);

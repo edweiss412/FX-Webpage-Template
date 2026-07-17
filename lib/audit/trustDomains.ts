@@ -110,6 +110,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/admin/pending-ingestions/[id]/retry/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/onboarding/finalize/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/onboarding/finalize-cas/route.ts", chain: ["requireAdmin"] },
+  // Wizard blocker inline resolution — same admin chokepoint as finalize-cas;
+  // handleResolveBlocker calls requireAdminIdentity() before parsing the body
+  // (route.ts imports realRequireAdminIdentity from lib/auth/requireAdmin).
+  { path: "app/api/admin/onboarding/resolve-blocker/route.ts", chain: ["requireAdmin"] },
   // Agenda-PDF async extraction endpoint — admin-gated like its finalize sibling
   // (mirrors finalize's requireAdminIdentity precedence).
   {

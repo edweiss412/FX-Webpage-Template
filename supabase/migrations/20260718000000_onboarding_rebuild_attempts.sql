@@ -10,8 +10,13 @@ create table if not exists public.onboarding_rebuild_attempts (
   primary key (wizard_session_id, drive_file_id)
 );
 
--- PostgREST DML lockdown (AGENTS.md cross-cutting rule): writes flow ONLY through the
--- resolve-blocker/finalize-cas routes' privileged postgres.js connection. Include PUBLIC
--- per the class-wide default-ACL reason (tests/db/postgrest-dml-lockdown.test.ts).
-revoke insert, update, delete on public.onboarding_rebuild_attempts from public, anon, authenticated;
-revoke select on public.onboarding_rebuild_attempts from public, anon, authenticated;
+-- PostgREST DML lockdown (AGENTS.md cross-cutting rule): writes (and reads) flow ONLY
+-- through the resolve-blocker route's privileged postgres.js connection. Mirrors the
+-- show_share_tokens pattern (20260523000002_show_share_tokens.sql:43-44) rather than a
+-- per-privilege revoke: `revoke all ... from public, anon, authenticated` closes every
+-- privilege (including truncate/references/trigger/maintain), and the explicit
+-- `grant all ... to service_role` makes service_role's ALL access an EXPLICIT grant
+-- rather than a default-ACL assumption — robust regardless of how a fresh DB bootstrap
+-- wires up default privileges (tests/db/postgrest-dml-lockdown.test.ts Layer 1).
+revoke all on table public.onboarding_rebuild_attempts from public, anon, authenticated;
+grant all privileges on table public.onboarding_rebuild_attempts to service_role;
