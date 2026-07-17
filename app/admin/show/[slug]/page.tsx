@@ -315,7 +315,19 @@ export default async function AdminShowPage({
   const alertSlot = (
     <PerShowAlertSection showId={showId} slug={slug} highlightAlertId={sp.alert_id ?? null} />
   );
-  const shareSlot = (
+  // Serialization gate (old-page parity, page.tsx merge-base:792): build the
+  // share-&-access cluster ONLY when the crew link is eligible (published &&
+  // !archived). The cluster subtree (rotate + per-member picker-reset actions)
+  // carries live server-action references; the reset RPC has no archived/
+  // published/finalize lifecycle guard (reset_crew_member_selection is
+  // admin-only but lifecycle-agnostic — BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD),
+  // so those affordances must not be SERIALIZED into the RSC payload for a show
+  // the UI presents read-only — hiding them client-side (OverviewSection's
+  // isCrewLinkActive branch) is not enough. OverviewSection renders its inactive-
+  // share notice for the null case, driven by the published/archived flags (not
+  // slot presence). (Archive/unarchive are NOT gated here: archive_show carries
+  // its own finalize-owned refusal server-side — defense-in-depth backstop.)
+  const shareSlot = isShowEligibleForCrewLink ? (
     <CurrentShareLinkPanel
       showId={showId}
       slug={slug}
@@ -324,7 +336,7 @@ export default async function AdminShowPage({
       isCrewLinkActive={isShowEligibleForCrewLink}
       resetSlot={<PickerResetControl showId={showId} crew={pickerCrew} />}
     />
-  );
+  ) : null;
 
   return (
     <ShareTokenProvider

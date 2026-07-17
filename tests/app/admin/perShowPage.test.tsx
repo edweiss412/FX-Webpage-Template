@@ -18,6 +18,7 @@
  *   - the ADMIN_SHOW_* slug-correlation structural guard.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isValidElement, type ReactElement } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -195,13 +196,26 @@ function baseSnapshot(overrides: Partial<Record<string, unknown>> = {}): ShowRev
   };
 }
 
-async function renderPage() {
+async function buildPageElement(): Promise<ReactElement> {
   const mod = await import("@/app/admin/show/[slug]/page");
-  const ui = await mod.default({
+  return (await mod.default({
     params: Promise.resolve({ slug: "rpas" }),
     searchParams: Promise.resolve({}),
-  });
-  render(ui);
+  })) as ReactElement;
+}
+
+async function renderPage() {
+  render(await buildPageElement());
+}
+
+// The page returns <ShareTokenProvider><PublishedReviewPage shareSlot=… /></…>.
+// Read the shareSlot prop the server page hands the client shell — the RSC
+// serialization boundary — WITHOUT rendering (rendered-tree assertions can't
+// distinguish "withheld from the payload" from "hidden client-side", since
+// OverviewSection hides the slot for ineligible shows either way).
+function shareSlotProp(ui: ReactElement): unknown {
+  const shell = (ui.props as { children: ReactElement }).children;
+  return (shell.props as { shareSlot: unknown }).shareSlot;
 }
 
 beforeEach(() => {
@@ -318,6 +332,35 @@ describe("consolidated per-show page — share panel gating (§5.1/§6)", () => 
     state.token = "s3cr3ttokenvalue9f8e7d6c5b4a";
     await renderPage();
     expect(document.body.innerHTML).not.toContain(state.token);
+  });
+});
+
+describe("consolidated per-show page — share-cluster serialization gate (§6, server-side)", () => {
+  // The share cluster (CurrentShareLinkPanel + PickerResetControl) carries live
+  // server-action refs (rotate share-token + per-member picker reset). For an
+  // ineligible show OverviewSection HIDES it client-side, but the server page
+  // must ALSO withhold the slot from the RSC payload — hiding is not enough
+  // because reset_crew_member_selection has no archived/published/finalize
+  // lifecycle guard (admin-only but lifecycle-agnostic). Assert the shareSlot
+  // PROP is null for archived AND unpublished (withheld, not merely hidden), and
+  // a real element for published+active. Old-page parity (merge-base page.tsx:792
+  // gated the cluster with isShowEligibleForCrewLink server-side).
+
+  it("published+active: the share cluster IS serialized (a real element slot)", async () => {
+    const ui = await buildPageElement();
+    expect(isValidElement(shareSlotProp(ui))).toBe(true);
+  });
+
+  it("unpublished (held): shareSlot withheld from the payload (null, not merely hidden)", async () => {
+    state.snapshot = baseSnapshot({ published: false, archived: false });
+    const ui = await buildPageElement();
+    expect(shareSlotProp(ui)).toBeNull();
+  });
+
+  it("archived: shareSlot withheld from the payload (null, not merely hidden)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
+    const ui = await buildPageElement();
+    expect(shareSlotProp(ui)).toBeNull();
   });
 });
 
