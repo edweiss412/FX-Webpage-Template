@@ -11,8 +11,13 @@
 
 The Drive-connection health badge (admin `/admin/settings`) and the crew-page
 `StaleFooter` both derive "sync health" from the **age of `shows.last_synced_at`**.
-But `last_synced_at` is bumped **only on a real content apply**. A healthy cron
-watermark-skip (Drive polled every 5 min, nothing changed) does **not** touch it.
+But `last_synced_at` advances only when the cron reaches a **terminal per-file
+outcome** — an apply, a `pending_review` stage (`:1130`), or an error status
+(`parse_error` `:1087` / `sheet_unavailable` `:1150` / `drive_error` `:1176`). A
+healthy cron **watermark-skip** (Drive polled every 5 min, nothing changed) and a
+`shrink_held` hold (`:1104`, deliberate per audit #3) do **not** touch it. So on a
+folder whose sheets aren't being edited — every pass a watermark-skip —
+`last_synced_at` never advances.
 
 Consequence: on a folder whose sheets simply are not being edited, every active
 show's `last_synced_at` ages past the freshness thresholds and both surfaces
@@ -29,8 +34,11 @@ badge = "Syncing, but 7 shows need attention".
 
 Introduce a real **"we successfully reached Drive and evaluated this show"**
 timestamp, `shows.last_checked_at`, and base the **age tiers** of both health
-surfaces on it. `last_synced_at` keeps its apply-only meaning (still drives the
-crew cache/version token and the admin content-recency sort).
+surfaces on it. `last_synced_at`'s existing write behavior is **untouched** — it
+still advances on apply / `pending_review`-stage / error statuses (never on
+watermark-skip or `shrink_held`) and still drives the crew version token and the
+admin recency sort. "Content-recency" elsewhere in this spec is shorthand for
+this write-set, not a claim that `last_synced_at` is apply-only.
 
 Idle-but-healthy show (checked 5 min ago, content 3h old) → **positive / subtle,
 no warning**. A genuinely stalled sync (cron/watch stopped reaching Drive) still
@@ -39,8 +47,8 @@ escalates, because `last_checked_at` then ages.
 Non-goals: **no change to `last_synced_at` write behavior** — this spec ADDS no
 `last_synced_at` write and REMOVES none. In particular the existing
 `last_synced_at = now()` bumps on the error writers (`parse_error` `:1087`,
-`sheet_unavailable` `:1150`, `drive_error` `:1176`) stay exactly as they are;
-this spec does not touch them. No change to the crew version/high-water-mark
+`sheet_unavailable` `:1150`, `drive_error` `:1176`) AND on the `pending_review`
+stage writer (`:1130`) stay exactly as they are; this spec does not touch them. No change to the crew version/high-water-mark
 token; no change to status-based tiers (`watch_*`,
 `drive_error`, `sheet_unavailable`, `parse_error`, `shrink_held`, `sync_unknown`);
 no new alert codes; no CHECK/enum change.
@@ -187,8 +195,12 @@ Every edit lands in the SAME commit across all three, or `x1-catalog-parity`
 | `SYNC_DELAYED_MODERATE` trigger prose (spec `:2977`) | "`last_synced_at` is between 1h and 6h old…" | "`last_checked_at` is between 1h and 6h old…" |
 | `SYNC_DELAYED_SEVERE` trigger prose (spec `:2978`) | "`last_synced_at` is more than 6h old…" | "`last_checked_at` is more than 6h old…" |
 | `StaleFooter` hardcoded no-code branch (`StaleFooter.tsx:98`) | "Last synced {relative} ago" | "Last checked {relative} ago" |
+| `ADMIN_DRIVE_HEALTH_UNAVAILABLE` internal prose — §12.4 trigger column (spec `:3000`), §12.4 helpfulContext (spec `:3277`), `catalog.ts:2519` helpfulContext | "…a watch-status, active-shows count, or **last_synced_at** read returned/threw…" | "…or **last_checked_at** read returned/threw…" (the max-read moves to `last_checked_at` per §5.1) |
 
-`SYNC_DELAYED_SEVERE.crewFacing` ("This page hasn't updated recently…") and
+The `ADMIN_DRIVE_HEALTH_UNAVAILABLE` **dougFacing** user copy ("Couldn't read
+sync status right now…") does NOT name a column and is unchanged — only the
+internal trigger/helpfulContext prose updates. `SYNC_DELAYED_SEVERE.crewFacing`
+("This page hasn't updated recently…") and
 `dougFacing`/`helpfulContext` ("hasn't synced from Drive in over 6 hours…
 something is stalled") are **kept as-is** — they read correctly under the new
 meaning (a >6h check gap genuinely IS a stall), and leaving them out of the edit
