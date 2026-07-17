@@ -12,6 +12,7 @@ The per-row Developer toggle (`components/admin/settings/DeveloperToggleButton.t
 - **The developer-only "Maintenance" and "Diagnostics" settings sections** — `app/admin/settings/page.tsx:237` and `:292` (both gated on the developer bit).
 - **The "Developer tools" row** — `components/admin/settings/DevToolsRow.tsx:43` (`<h3>Developer tools</h3>`), runtime-gated at `:30` (`if (!DEV_PANEL_PRESENT || !isDeveloper) return null;`).
 - **The power to promote/demote other admins' developer bit** — `setDeveloperAction` gated by `requireDeveloperIdentity()` (`app/admin/settings/admins/developerActions.ts:22`).
+- **Admin-roster management** — Add / Revoke / Re-add controls are developer-only (`AdministratorsSection.tsx:160` Add via `AddAdminDisclosure`, `:218-219` Revoke, `:255` Re-add), and `addAdminAction` / `revokeAdminAction` call `requireDeveloperIdentity()`. This is the most consequential grant (controls who can access the system) and MUST be named in the copy (Codex plan-R2 finding).
 
 …with **no inline explanation of that blast radius**. The sibling privilege help on the same heading — the Administrators `HoverHelp` (`components/admin/settings/AdministratorsSection.tsx:86-97`) — says nothing about the Developer toggle. Surfaced as impeccable **critique P2** on branch `feat/developer-tier` (`DEFERRED.md` DEVTIER-1).
 
@@ -29,10 +30,11 @@ Before (developer arm, `:94`):
 
 After:
 
-> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers.
+> People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own. The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.
 
-- The four surface names are the **actual UI labels** the developer sees: nav item "Telemetry" (`components/admin/nav/navConfig.ts:42`), settings sections "Maintenance" (`app/admin/settings/page.tsx:237`) and "Diagnostics" (`:292`), and the "Developer tools" row (`components/admin/settings/DevToolsRow.tsx:43`). "…making other admins developers" is the `setDeveloperAction` promote/demote power.
-- Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses commas only.
+- The four surface names are the **actual UI labels** the developer sees: nav item "Telemetry" (`components/admin/nav/navConfig.ts:42`), settings sections "Maintenance" (`app/admin/settings/page.tsx:237`) and "Diagnostics" (`:292`), and the "Developer tools" row (`components/admin/settings/DevToolsRow.tsx:43`). "managing admins (add, revoke, re-add, promote)" is the roster-management + `setDeveloperAction` promote power (the "promote" verb is the developer-bit toggle itself).
+- "same developer access you have" anchors the grant to the reading developer's own (well-defined) access rather than an open-ended "full" claim; "including …" keeps the surface list non-exhaustive. Roster management (add / revoke / re-add other admins, and promote to developer) is named because it is the most consequential developer-only grant — the controls are developer-gated at `AdministratorsSection.tsx:160` (Add), `:218` (Revoke), `:255` (Re-add), and the actions call `requireDeveloperIdentity()`.
+- Curly apostrophe `’` (U+2019) matches the existing string. No em dash (impeccable absolute ban); the sentence uses commas and parentheses only.
 - Non-developer arm (`:95`) unchanged: "…Roster changes are managed by a developer."
 
 ## Developer-only visibility (the user-ratified constraint)
@@ -62,19 +64,19 @@ So only a viewer who can actually use the toggle ever sees the grant explanation
 
 New assertions in `tests/components/admin/settings/AdministratorsSection-developer.test.tsx` (has both `viewerIsDeveloper` true/false render helpers):
 
-The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle grants developer access/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it. The copy says "including …" (not "full") — deliberately non-exhaustive: it names the principal developer-only surfaces, not every minor developer-gated behavior (e.g. the bell DevFooter or the AppHealthIndicator deep-link), so the claim stays accurate without enumerating trivia (Codex plan-R1 finding).
+The two positive/absence tests assert the copy at **clause granularity**, not by prefix — a prefix-only match (`/The Developer toggle gives that admin/`) would let an implementation drop the concrete privilege list and still pass, only partially closing DEVTIER-1 (Codex R1 finding). The blast-radius list IS the fix, so the test pins it. The copy says "the same developer access you have, including …" (not "full") — deliberately non-exhaustive: it anchors the grant to the reading developer's own access and names the principal developer-only surfaces (roster management + the four dev areas), not every minor developer-gated behavior (e.g. the bell DevFooter or the AppHealthIndicator deep-link), so the claim stays accurate without enumerating trivia (Codex plan-R1/R2 findings).
 
 Define one shared constant in the test module:
 
 ```
 const GRANT_COPY =
-  "The Developer toggle grants developer access, including the Telemetry, Maintenance, Diagnostics, and Developer tools areas, plus making other admins developers.";
-const GRANT_CLAUSES = ["Telemetry", "Maintenance", "Diagnostics", "Developer tools", "making other admins developers"];
+  "The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
+const GRANT_CLAUSES = ["managing admins", "add, revoke, re-add, promote", "Telemetry", "Maintenance", "Diagnostics", "Developer tools"];
 ```
 
 **Scope target:** `HoverHelp` renders its body as `${testId}-body` (`components/admin/HoverHelp.tsx:182`); with `testId="admins-help"` (`AdministratorsSection.tsx:88`) the copy `<p>` lives in `data-testid="admins-help-body"` (the wrapper is `rootTestId="help-affordance--settings-administrators--tooltip"` at `:89` / `HoverHelp.tsx:154`). There is NO bare `admins-help` node — all assertions read `screen.getByTestId("admins-help-body")`. The body stays in the DOM when closed (`HoverHelp.tsx` SR contract), so no interaction is needed.
 
-1. **Developer viewer → full grant sentence + every clause present.** `render(<AdministratorsSection … viewerIsDeveloper={true} />)`; `const body = screen.getByTestId("admins-help-body")`. Assert `body.textContent` **contains `GRANT_COPY` verbatim**; then assert each of `GRANT_CLAUSES` appears in `body.textContent`. Failure mode caught: wrong ternary arm, dropped sentence, OR a shortened sentence that omits a privilege (e.g. drops "Diagnostics" or "making other admins developers").
+1. **Developer viewer → full grant sentence + every clause present.** `render(<AdministratorsSection … viewerIsDeveloper={true} />)`; `const body = screen.getByTestId("admins-help-body")`. Assert `body.textContent` **contains `GRANT_COPY` verbatim**; then assert each of `GRANT_CLAUSES` appears in `body.textContent`. Failure mode caught: wrong ternary arm, dropped sentence, OR a shortened sentence that omits a privilege (e.g. drops "Diagnostics" or "managing admins").
 2. **Non-developer viewer → grant sentence + every clause ABSENT, non-developer copy present.** `viewerIsDeveloper={false}`; `const body = screen.getByTestId("admins-help-body")` (the heading + help still render in the non-developer arm). Assert `body.textContent` does NOT include `GRANT_COPY` and includes **none** of `GRANT_CLAUSES` — scoping the absence to `admins-help-body` (not the whole document) so an unrelated "Activity"/"Maintenance" string elsewhere in the tree can't false-pass (anti-tautology rule). AND assert `body.textContent` includes the non-developer copy (`Roster changes are managed by a developer`). Failure mode caught: the sentence (or any clause of it) leaks to the non-developer arm — violates the user-ratified developer-only constraint.
 
 Both derive expected text from the single `GRANT_COPY`/`GRANT_CLAUSES` constants, and the implementation string in `AdministratorsSection.tsx:94` must equal `GRANT_COPY` — one source of truth, no drift between test and code.
