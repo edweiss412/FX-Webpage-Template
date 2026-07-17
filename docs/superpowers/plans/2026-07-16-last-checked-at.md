@@ -425,7 +425,41 @@ git commit --no-verify -m "feat(messages): SYNC_DELAYED + ADMIN_DRIVE_HEALTH cop
 
 ---
 
-### Task 7: Close-out — UI dual-gate, full suite, audits
+### Task 7: e2e stale-sync fixture → `last_checked_at`
+
+**Files:**
+- Modify: `tests/e2e/empty-state-reachability.spec.ts` (`:26-29` doc, `:61` const, `:68-70` Snapshot type, `:72-90` `snapshot()`, `:93-104` `restore()`, `:206-220` category-4 test)
+
+**Why this is its own task:** e2e Playwright specs are EXCLUDED from `pnpm test` (memory: env-bound/e2e excluded), so the full suite in Task 8 does NOT cover this. The category-4 stale-sync test drives the crew `StaleFooter` by mutating `last_synced_at` — after Task 5, `StaleFooter` reads `last_checked_at`, so this fixture would set the wrong column and the SYNC_DELAYED_SEVERE assertion would fail.
+
+- [ ] **Step 1: Switch the fixture column to `last_checked_at`**
+
+- `snapshot()` select (`:75`): add `last_checked_at` → `"id, slug, venue, event_details, last_synced_at, last_checked_at, last_sync_status"`.
+- `Snapshot` type (`:68`): add `originalLastCheckedAt: string | null;`.
+- `snapshot()` return (`:88`): add `originalLastCheckedAt: (showRes.data.last_checked_at as string | null) ?? null,` (keep `originalLastSyncedAt`).
+- `restore()` update (`:99`): add `last_checked_at: s.originalLastCheckedAt,` (keep `last_synced_at`).
+- category-4 test (`:212`): change `.update({ last_synced_at: stale, last_sync_status: "ok" })` → `.update({ last_checked_at: stale, last_sync_status: "ok" })`. Keep the `data-code="SYNC_DELAYED_SEVERE"` assertion (`:219`).
+- Update the doc comment (`:26-29`) "`shows.last_synced_at` is more than 6 hours old" → "`shows.last_checked_at`".
+
+- [ ] **Step 2: Run the e2e stale-sync test**
+
+Run: `pnpm test:e2e -- empty-state-reachability.spec.ts` (or the project's e2e runner; needs `TEST_DATABASE_URL` + a running app).
+Expected: category-4 PASS — footer shows `data-code="SYNC_DELAYED_SEVERE"` driven by the 7h-old `last_checked_at`.
+
+- [ ] **Step 3: Screenshot baseline check**
+
+`SYNC_DELAYED_SEVERE.crewFacing` ("This page hasn't updated recently…") has NO `<time>` placeholder and is UNCHANGED by this feature, so `category-4-stale-sync-severe.png` is byte-stable — no rebaseline expected. IF any screenshot diff appears (or a subtle/moderate "Last checked" footer is captured elsewhere), regenerate the baseline FROM THE PINNED PLAYWRIGHT DOCKER IMAGE with `--platform linux/amd64` (byte-comparison discipline — never from this arm64 host), else the CI image-diff gate fails.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/e2e/empty-state-reachability.spec.ts
+git commit --no-verify -m "test(crew-page): e2e stale-sync fixture drives last_checked_at"
+```
+
+---
+
+### Task 8: Close-out — UI dual-gate, full suite, audits
 
 **Files:** none (verification).
 
@@ -452,6 +486,6 @@ git add -A && git commit --no-verify -m "chore(sync): last_checked_at close-out 
 
 ## Self-review notes
 
-- **Spec coverage:** §3 Task 1; §4 Tasks 2-3; §5.1 Task 4; §5.2/5.3 Task 5; §5.5 (admin per-show LEAVE) — no task, correct; §6 Task 6; §9 tests folded into Tasks 2-5; §10 Task 7.
-- **Advisory note carried:** existing tests seeding `last_synced_at` are re-seeded to `last_checked_at` in Tasks 4-5; the e2e stale-sync fixture (if it drives StaleFooter) is checked in Task 7's full suite.
+- **Spec coverage:** §3 Task 1; §4 Tasks 2-3; §5.1 Task 4; §5.2/5.3 Task 5; §5.5 (admin per-show LEAVE) — no task, correct; §6 Task 6; §9 tests folded into Tasks 2-5 + e2e Task 7; §10 Task 8.
+- **Advisory note carried:** existing unit tests seeding `last_synced_at` are re-seeded to `last_checked_at` in Tasks 4-5; the e2e stale-sync fixture is migrated in Task 7 (e2e is excluded from `pnpm test`, so it gets its own task, not folded into the Task 8 suite).
 - **Type consistency:** `lastCheckedAt` used uniformly across StaleFooter/Footer/_CrewShell/getShowForViewer; `readMaxLastCheckedAt` renamed at def + call site.
