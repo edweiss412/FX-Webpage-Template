@@ -8,7 +8,7 @@ import {
 } from "@/tests/db/_b2Helpers";
 
 // Task 3 (wizard blocker in-wizard resolution, 2026-07-16 spec §3.2): behavior-preservation safety net
-// for the unarchive_show -> _unarchive_show_apply extraction (supabase/migrations/20260717000001_
+// for the unarchive_show -> _unarchive_show_apply extraction (supabase/migrations/20260718000001_
 // unarchive_show_apply_gate_free.sql). This test is written and run GREEN against the PRE-refactor
 // unarchive_show (20260602000002_b2_r8_unarchive_returns_transition_flag.sql) as a baseline, then run
 // again unchanged, still green, after the migration lands — proving the delegation is behavior-preserving.

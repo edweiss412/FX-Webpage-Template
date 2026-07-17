@@ -196,7 +196,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "onboarding_rebuild_attempts",
-    closed_at: "supabase/migrations/20260717000000_onboarding_rebuild_attempts.sql",
+    closed_at: "supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
