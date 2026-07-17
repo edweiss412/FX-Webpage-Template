@@ -598,25 +598,28 @@ test("§DI-1 venue map region height === text column height @ popup 800px", asyn
   ).toBeLessThanOrEqual(TOL);
 });
 
-test("§DI-2 venue map img fills its region box (no letterbox) @ popup 800px", async ({ page }) => {
+test("§DI-2 venue map fill layer (stripe base) fills its region box (no letterbox) @ popup 800px", async ({
+  page,
+}) => {
   await openHarness(page, { width: 800, height: 900 });
-  const img = await rect(page, '[data-testid="venue-map-img"]');
-  // The img is `absolute inset-0` inside the map region, so it fills the region's
-  // CONTENT box (inside the 1px border-l divider). Compare to the region's client
-  // box (excludes borders) — h-full w-full object-cover means an exact fill, so a
-  // collapsed/auto-sized/letterboxed img is caught, while the divider is not a
-  // false failure.
+  // The <img> is client-only post-VCR-2 (mount-gated on the resolved theme) and
+  // absent from this static (renderToStaticMarkup) harness. The stripe base
+  // (venue-map-fallback) is `absolute inset-0` — it pins all four edges, so it
+  // fills the region's CONTENT box (inside the 1px border-l divider) exactly,
+  // carrying the same no-letterbox invariant theme-independently. Compare to the
+  // region's client box (excludes borders) so the divider is not a false failure.
+  const base = await rect(page, '[data-testid="venue-map-fallback"]');
   const contentBox = await page
     .locator('[data-testid="venue-map-region"]')
     .evaluate((el) => ({ w: el.clientWidth, h: el.clientHeight }));
   expect(contentBox.w, "map region content box rendered").toBeGreaterThan(0);
   expect(
-    Math.abs(img.width - contentBox.w),
-    `img w ${img.width} === region content w ${contentBox.w}`,
+    Math.abs(base.width - contentBox.w),
+    `base w ${base.width} === region content w ${contentBox.w}`,
   ).toBeLessThanOrEqual(TOL);
   expect(
-    Math.abs(img.height - contentBox.h),
-    `img h ${img.height} === region content h ${contentBox.h}`,
+    Math.abs(base.height - contentBox.h),
+    `base h ${base.height} === region content h ${contentBox.h}`,
   ).toBeLessThanOrEqual(TOL);
 });
 

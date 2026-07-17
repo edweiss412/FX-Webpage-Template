@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, fireEvent } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 
 afterEach(() => {
@@ -56,5 +57,24 @@ describe("VenueMapTile", () => {
     const { container } = render(<VenueMapTile query="X" mapHref={null} />);
     const img = container.querySelector('[data-testid="venue-map-img"]') as HTMLImageElement;
     expect(img.getAttribute("src")).toContain("theme=dark");
+  });
+
+  test("VCR-2 SSR: server markup paints the stripe base but NO <img> / proxy URL (no first-paint fetch)", () => {
+    // renderToStaticMarkup never runs effects, so theme stays null → no <img>.
+    // Load-bearing proof the light→dark double-fetch is gone at the source: the
+    // browser's first paint requests no map image in any theme.
+    const html = renderToStaticMarkup(<VenueMapTile query="X" mapHref={null} />);
+    expect(html).toContain('data-testid="venue-map-fallback"'); // stripe base painted
+    expect(html).not.toContain('data-testid="venue-map-img"'); // no <img> at first paint
+    expect(html).not.toContain("/api/admin/venue-map"); // no proxy URL fetched
+  });
+
+  test("VCR-2 post-hydration: exactly one <img>, correct theme; dark never preceded by a light src", () => {
+    document.documentElement.dataset.theme = "dark";
+    const { container } = render(<VenueMapTile query="X" mapHref={null} />);
+    const imgs = container.querySelectorAll('[data-testid="venue-map-img"]');
+    expect(imgs.length).toBe(1);
+    expect((imgs[0] as HTMLImageElement).getAttribute("src")).toContain("theme=dark");
+    expect((imgs[0] as HTMLImageElement).getAttribute("src")).not.toContain("theme=light");
   });
 });

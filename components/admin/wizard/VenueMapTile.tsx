@@ -23,17 +23,17 @@ export function VenueMapTile({
   query: string;
   mapHref: string | null;
 }): ReactElement | null {
-  // SSR/first-render is "light" to match the server; the applied theme was
-  // stamped on <html> by the NO_FOUC_SCRIPT before hydration, so this reads it
-  // once post-mount (mirrors ThemeToggle.tsx:104's post-hydration read).
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  // SSR + first client render are `null` (no <img>) until the post-hydration
+  // effect resolves the applied theme (stamped on <html> by the NO_FOUC_SCRIPT
+  // before hydration; same dataset.theme read as ThemeToggle.tsx:69). Gating the
+  // <img> on a resolved theme means no wrong-theme raster is fetched at first
+  // paint (VCR-2), with no hydration mismatch (server and first render agree).
+  const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(readTheme());
   }, []);
   if (!query) return null;
-
-  const src = `/api/admin/venue-map?q=${encodeURIComponent(query)}&theme=${theme}`;
 
   const inner = (
     <>
@@ -55,27 +55,32 @@ export function VenueMapTile({
       >
         map
       </span>
-      {/* (2) real map overlay — hides itself on error, instantly. §8 declares
-          no fade on image load or on the error swap; an opacity animation would
-          be inert here since nothing tweens. Plain <img>, not next/image: the
-          src is our same-origin proxy (key-safe) and we need the native onError
-          to reveal the stripe fallback — next/image would obscure that path. */}
-      {/* eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback */}
-      <img
-        data-testid="venue-map-img"
-        src={src}
-        alt=""
-        loading="lazy"
-        onError={(e) => {
-          e.currentTarget.style.visibility = "hidden";
-        }}
-        onLoad={(e) => {
-          // A theme-driven src change re-fetches; if a prior src errored (hidden)
-          // and the new one loads, un-hide so a good map is never left invisible.
-          e.currentTarget.style.visibility = "visible";
-        }}
-        className="absolute inset-0 size-full object-cover"
-      />
+      {/* (2) real map overlay — mounted only once the post-hydration effect
+          resolves the theme (theme !== null). At SSR + first client render theme
+          is null → no <img>, so no wrong-theme raster is fetched at first paint
+          (VCR-2). §8 declares no fade on image load or on the error swap; an
+          opacity animation would be inert here since nothing tweens. Plain <img>,
+          not next/image: the src is our same-origin proxy (key-safe) and we need
+          the native onError to reveal the stripe fallback. The src is built
+          inline here so `theme` is guaranteed non-null (no `theme=null` URL). */}
+      {theme !== null ? (
+        // eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback
+        <img
+          data-testid="venue-map-img"
+          src={`/api/admin/venue-map?q=${encodeURIComponent(query)}&theme=${theme}`}
+          alt=""
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.style.visibility = "hidden";
+          }}
+          onLoad={(e) => {
+            // A theme-driven src change re-fetches; if a prior src errored (hidden)
+            // and the new one loads, un-hide so a good map is never left invisible.
+            e.currentTarget.style.visibility = "visible";
+          }}
+          className="absolute inset-0 size-full object-cover"
+        />
+      ) : null}
       {/* (3) Directions visual — only for a real URL. Decorative span (the
           ANCHOR is the whole tile, testid venue-map-tile, and is the 44px
           target); this span carries venue-directions so tests can assert its
