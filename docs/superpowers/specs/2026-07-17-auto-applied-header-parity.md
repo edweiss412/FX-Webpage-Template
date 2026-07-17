@@ -214,13 +214,14 @@ The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_chan
 **Meta-tests touched (declared per writing-plans rule):**
 - `tests/help/_affordance-matrix-shape.test.ts` — EXTENDED (new row in sorted list + count 18→19). Fails-by-default if the row/count drift.
 - `tests/help/_metaAffordanceMatrixParity.test.ts` — auto-covers the new `<HoverHelp>` call site (must reference the live matrix testid). No edit needed; passes once the row + call site both land.
-- `tests/e2e/deep-link-walker.spec.ts` — the new concrete row is auto-registered via `allWalkableRows`; walks at desktop, asserts the tooltip visible on `/admin` and its "Learn more →" resolves to `#re-stage`. Requires the walker seed (§4.4).
+- `tests/e2e/deep-link-walker.spec.ts` — the new concrete row is auto-registered via `allWalkableRows`; walks at desktop, asserts the tooltip visible on `/admin` and its "Learn more →" resolves to `#re-stage`. Requires the walker seed (§4.4). NOT edited.
+- `tests/e2e/help-docs-setup.ts` — EDITED: add a seed-postcondition assertion (exactly one eligible sentinel `show_change_log` row: `created_by='seed-fixture:walker-auto-applied'` AND `source='auto_apply'` AND `status='applied'` AND `acknowledged_at IS NULL`) so an ineffective seed fails BEFORE the walker, closing the "walker false-passes via infra_error branch" gap (Codex R5).
 - `tests/db/seed-restage-fixture.test.ts` — NOT touched (no `WALKER_DRIVE_FILE_IDS` change); must stay green (regression check).
 
 **New / updated unit tests (TDD):**
 - `RecentAutoAppliedStrip.test.tsx` — (a) dashboard header (`headingLevel={4}`) renders `recent-auto-applied-count-chip` with `renderedCount + overflowCount`; (b) dashboard header renders the HoverHelp with `rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"` and `learnMore` href `/help/admin/review-queues#re-stage`; (c) dashboard `infra_error` branch renders the help but NO count chip; (d) `headingLevel={2}` (needs-attention page) renders NEITHER chip NOR help (queryByTestId null) AND the `Recently auto-applied` heading is NOT wrapped in a `flex items-center gap-2` div — assert its `parentElement` is the strip `<section>`, not a flex wrapper (bare-DOM contract, Codex R4 finding 2); (e) existing per-group `auto-applied-count-${showId}` badges unaffected.
   - Anti-tautology: assert the chip text equals `renderedCount + overflowCount` derived from the fixture (e.g. `4 + 3 = 7`), not a hardcoded literal divorced from the fixture.
-- `NeedsAttentionInbox` gap: a real-browser (Playwright) assertion at desktop (≥1240px) with a populated inbox + a rendered strip, asserting the strip section's `getBoundingClientRect().top` is within a small tolerance of the inbox's `bottom + gap-3` (12px) — i.e. no detached band. jsdom cannot compute layout, so this is a Playwright test (project rule). Concrete failure mode it catches: reintroducing `h-full` (or `flex-1`) on the inbox re-opens the gap.
+- `NeedsAttentionInbox` gap: a real-browser (Playwright) assertion at desktop (≥1240px) with a populated inbox + a rendered strip, asserting the strip section's `getBoundingClientRect().top` is within a small tolerance of the inbox's `bottom + gap-3` (12px) — i.e. no detached band. **Also asserts the ok-path rendered: `recent-auto-applied-count-chip` visible AND `auto-applied-error` absent (Codex R5)** — so this real-browser test doubly proves the seeded backlog renders via `data.kind==="ok"`, not the error fallback. jsdom cannot compute layout, so this is a Playwright test (project rule). Concrete failure mode it catches: reintroducing `h-full` (or `flex-1`) on the inbox re-opens the gap.
 
 **Full-suite + gates:**
 - `pnpm test` (Vitest) green.
@@ -247,7 +248,8 @@ The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_chan
 | `supabase/seedWalkerFixtures.ts` | +`autoAppliedSeedSql()` + sentinel const, composed into the seeder SQL. |
 | `supabase/seed.ts` | +1 cleanup delete for `created_by like 'seed-fixture:%'`. |
 | `tests/components/admin/RecentAutoAppliedStrip.test.tsx` | Header parity assertions (TDD). |
-| `tests/e2e/<gap>.spec.ts` or existing layout spec | Real-browser inbox↔strip adjacency assertion (TDD). |
+| `tests/e2e/admin-nav-layout-dimensions.spec.ts` | Real-browser inbox↔strip adjacency + ok-path assertion (TDD); self-seeds fixtures per `:161` convention. |
+| `tests/e2e/help-docs-setup.ts` | Seed-postcondition assertion for the sentinel row (Codex R5). |
 
 No migration (`show_change_log` already exists); no `validation-schema-parity` impact.
 
