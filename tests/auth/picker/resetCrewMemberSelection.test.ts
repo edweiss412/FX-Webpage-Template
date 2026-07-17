@@ -157,7 +157,10 @@ describe("resetCrewMemberSelection", () => {
 
   test("P0001 with a NON-sentinel message → treated as infra (warns once)", async () => {
     // Proves the match is (code === 'P0001' AND sentinel), not code alone or message-substring alone.
-    rpc.mockResolvedValueOnce({ data: null, error: { code: "P0001", message: "some other raise" } });
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: "P0001", message: "some other raise" },
+    });
     await expect(
       resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
     ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
@@ -165,7 +168,10 @@ describe("resetCrewMemberSelection", () => {
   });
 
   test("a non-P0001 error carrying a sentinel-looking message still warns (match requires P0001)", async () => {
-    rpc.mockResolvedValueOnce({ data: null, error: { code: "57014", message: "SHOW_ARCHIVED_IMMUTABLE" } });
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: "57014", message: "SHOW_ARCHIVED_IMMUTABLE" },
+    });
     await resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID });
     expect(mockWarn).toHaveBeenCalledTimes(1);
   });

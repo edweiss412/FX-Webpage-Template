@@ -29,7 +29,10 @@ function q(sql: string): string[] {
 }
 
 // Anchored DML-immediately-on-a-target-table (POSIX [[:space:]], NOT \s), OR picker_epoch via update…shows.
-const DIRECT_MUTATOR = `(pg_get_functiondef(p.oid) ~* '(insert into|update|delete from)[[:space:]]+(only[[:space:]]+)?(public\\.)?(crew_members|crew_member_auth|show_share_tokens)'
+// Target tables = crew_members + show_share_tokens. (The M9.5-era crew-auth table was dropped in the
+// cutover 20260523000099 and no longer exists, so it is not part of the live target set — including its
+// name here is both a no-op and a forbidden legacy reference per tests/cross-cutting/no-m9-5-surfaces.)
+const DIRECT_MUTATOR = `(pg_get_functiondef(p.oid) ~* '(insert into|update|delete from)[[:space:]]+(only[[:space:]]+)?(public\\.)?(crew_members|show_share_tokens)'
   or (pg_get_functiondef(p.oid) ~* 'picker_epoch' and pg_get_functiondef(p.oid) ~* 'update[[:space:]]+(public\\.)?shows'))`;
 const REACHABLE = `(has_function_privilege('authenticated',p.oid,'EXECUTE') or has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('service_role',p.oid,'EXECUTE'))`;
 const IS_TRIGGER = `p.prorettype = 'pg_catalog.trigger'::regtype`;
@@ -55,15 +58,29 @@ const EXEMPT = new Set([
 ]);
 
 const GUARD_TOKENS: Record<string, string[]> = {
-  reset_crew_member_selection: ["SHOW_ARCHIVED_IMMUTABLE", "readfinalizeowned_b2", "SHOW_NOT_PUBLISHED"],
-  reset_picker_epoch_atomic: ["SHOW_ARCHIVED_IMMUTABLE", "readfinalizeowned_b2", "SHOW_NOT_PUBLISHED"],
-  rotate_show_share_token: ["SHOW_ARCHIVED_IMMUTABLE", "readfinalizeowned_b2", "SHOW_NOT_PUBLISHED"],
+  reset_crew_member_selection: [
+    "SHOW_ARCHIVED_IMMUTABLE",
+    "readfinalizeowned_b2",
+    "SHOW_NOT_PUBLISHED",
+  ],
+  reset_picker_epoch_atomic: [
+    "SHOW_ARCHIVED_IMMUTABLE",
+    "readfinalizeowned_b2",
+    "SHOW_NOT_PUBLISHED",
+  ],
+  rotate_show_share_token: [
+    "SHOW_ARCHIVED_IMMUTABLE",
+    "readfinalizeowned_b2",
+    "SHOW_NOT_PUBLISHED",
+  ],
   undo_change: ["UNDO_SHOW_ARCHIVED", "UNDO_FINALIZE_OWNED"],
 };
 
 describe("crew/share RPC lifecycle-guard meta (whole-class, fails-by-default)", () => {
   test("Step A: private target-mutating helpers == PRIVATE_HELPERS registry", () => {
-    const rows = q(`select p.proname ${FROM} and ${DIRECT_MUTATOR} and not ${REACHABLE} and not (${IS_TRIGGER}) order by 1`);
+    const rows = q(
+      `select p.proname ${FROM} and ${DIRECT_MUTATOR} and not ${REACHABLE} and not (${IS_TRIGGER}) order by 1`,
+    );
     expect(new Set(rows)).toEqual(PRIVATE_HELPERS);
   });
 
@@ -81,12 +98,16 @@ describe("crew/share RPC lifecycle-guard meta (whole-class, fails-by-default)", 
 
   test("delegation arm fires: archive_show/unarchive_show enter VIA helper-call, not direct DML", () => {
     const directOnly = new Set(
-      q(`select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and ${DIRECT_MUTATOR} order by 1`),
+      q(
+        `select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and ${DIRECT_MUTATOR} order by 1`,
+      ),
     );
     expect(directOnly.has("archive_show")).toBe(false);
     expect(directOnly.has("unarchive_show")).toBe(false);
     const withDelegation = new Set(
-      q(`select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and (${DIRECT_MUTATOR} or ${HELPER_CALL}) order by 1`),
+      q(
+        `select p.proname ${FROM} and p.prosecdef and not (${IS_TRIGGER}) and ${REACHABLE} and (${DIRECT_MUTATOR} or ${HELPER_CALL}) order by 1`,
+      ),
     );
     expect(withDelegation.has("archive_show")).toBe(true);
     expect(withDelegation.has("unarchive_show")).toBe(true);

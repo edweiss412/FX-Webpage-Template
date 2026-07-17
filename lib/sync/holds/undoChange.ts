@@ -78,7 +78,9 @@ export async function undoChange(changeLogId: string): Promise<UndoChangeResult>
       // best-effort cache-bust read: a returned {error} OR a thrown fault both resolve to null
       // (the undo already committed; the show's unstable_cache TTL backstop refreshes) — explicit,
       // NOT a silent {data}-only swallow (invariant 9). NOT mapped to SYNC_INFRA_ERROR: undo succeeded.
-      resolvedShowId = error ? null : ((data as { show_id?: string | null } | null)?.show_id ?? null);
+      resolvedShowId = error
+        ? null
+        : ((data as { show_id?: string | null } | null)?.show_id ?? null);
     } catch {
       resolvedShowId = null;
     }

@@ -29,7 +29,11 @@ afterAll(async () => {
 });
 
 /** Seed a Live show + Bob, auto-apply adding Carol (a crew_added / Direction-B change), return the log id. */
-async function seedCrewAddedRow(): Promise<{ showId: string; driveFileId: string; addedId: string }> {
+async function seedCrewAddedRow(): Promise<{
+  showId: string;
+  driveFileId: string;
+  addedId: string;
+}> {
   const { showId, driveFileId } = await seedShowWithCrew([BOB]);
   await runAutoApply(driveFileId, { crew: [BOB, CAROL] });
   const added = await readChangeLog(showId, { change_kind: "crew_added", entity_ref: CAROL.name });

@@ -84,7 +84,8 @@ describe("reset_crew_member_selection — DEF-1 lifecycle guard", () => {
     expect(() =>
       callReset(
         d,
-        `update public.shows set published=false where drive_file_id=${s(d)};` + finalizeOwnedSql(d),
+        `update public.shows set published=false where drive_file_id=${s(d)};` +
+          finalizeOwnedSql(d),
         ALICE(d),
       ),
     ).toThrow(/FINALIZE_OWNED_SHOW/);
@@ -93,7 +94,11 @@ describe("reset_crew_member_selection — DEF-1 lifecycle guard", () => {
   test("Held → SHOW_NOT_PUBLISHED", () => {
     const d = `rg-held-${randomUUID()}`;
     expect(() =>
-      callReset(d, `update public.shows set published=false where drive_file_id=${s(d)};`, ALICE(d)),
+      callReset(
+        d,
+        `update public.shows set published=false where drive_file_id=${s(d)};`,
+        ALICE(d),
+      ),
     ).toThrow(/SHOW_NOT_PUBLISHED/);
   });
 
@@ -111,9 +116,10 @@ describe("reset_crew_member_selection — DEF-1 lifecycle guard", () => {
 
   test("loses the race to a concurrent Archive → REFUSES post-lock (R32 TOCTOU)", async () => {
     const { showId, driveFileId } = await seedLiveShowWithToken();
-    const [{ id: crewId }] = await sqlClient<{ id: string }[]>`
+    const [crewRow] = await sqlClient<{ id: string }[]>`
       insert into public.crew_members (show_id, name, role)
       values (${showId}::uuid, 'Alice', 'A2') returning id`;
+    const crewId = crewRow!.id;
     try {
       const { concurrentThrew } = await archivedImmutabilityRaceReset(showId, crewId);
       expect(concurrentThrew).toBe(true); // reset refused after the archive committed

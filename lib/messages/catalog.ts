@@ -984,7 +984,8 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_SHOW_ARCHIVED: {
     code: "UNDO_SHOW_ARCHIVED",
-    dougFacing: "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
+    dougFacing:
+      "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
     crewFacing: null,
     followUp: "Doug → unarchive",
     helpfulContext:
