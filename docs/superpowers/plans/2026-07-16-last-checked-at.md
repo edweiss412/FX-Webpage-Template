@@ -238,15 +238,23 @@ const logged = await lock(driveFileId, async (lockedTx) => {
   // Non-error skip (watermark / deferred_modtime / deferred_permanent) = a successful Drive
   // check that applied nothing. Advance last_checked_at so idle-but-healthy shows stay fresh
   // for the age tiers. Rides THIS single held show-lock tx (invariant 2); last_synced_at untouched.
-  await lockedTx.query(
-    "update public.shows set last_checked_at = now() where drive_file_id = $1",
+  await lockedTx.queryOne<{ updated: true } | undefined>(
+    "update public.shows set last_checked_at = now() where drive_file_id = $1 returning true as updated",
     [driveFileId],
   );
   await logSync(deps, driveFileId, prepared.result, prepared.payload);
   return prepared.result;
 });
 ```
-(Implementer: match `lockedTx`'s actual query method — the same one `logSync`/`readShowArchived_unlocked` use on the tx handle. Error outcomes never reach this skip branch — `parse_error`/`drive_error`/`sheet_unavailable` are `gate.proceed` → error writers in Task 2's file, which the spec leaves NOT bumping `last_checked_at`.)
+(API note — verified: the tx handle is `LockableSyncTx` whose ONLY method is
+`queryOne<T>(sql, params)` (`lib/sync/lockedShowTx.ts:5-7`); it tolerates zero
+rows by typing `T | undefined` and using `returning …` — the exact shape
+`readShowArchived_unlocked` (`lib/sync/lifecycleGuards.ts:12`) and `logSync`'s
+writers (`runScheduledCronSync.ts:220-228`) use. A missing show row —
+`deferred_permanent` for a non-show file — returns `undefined`, no throw. Do NOT
+use `.query(...)`; it does not exist. Error outcomes never reach this skip branch:
+`parse_error`/`drive_error`/`sheet_unavailable` are `gate.proceed`, handled by the
+Task-2 error writers, which the spec leaves NOT bumping `last_checked_at`.)
 
 - [ ] **Step 4: Run — expect PASS** (both new cases + all Task 2 cases still green).
 
