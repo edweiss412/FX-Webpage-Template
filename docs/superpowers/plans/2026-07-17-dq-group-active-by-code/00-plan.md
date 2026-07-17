@@ -223,11 +223,14 @@ describe("BulkIgnoreControls (grouped active list)", () => {
 
   test("every group renders an eyebrow with its label + its cards; only bulk-eligible groups get a chip", () => {
     render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup(), singletonGroup()]} />);
-    // eyebrow labels (plain-language, never the raw code)
-    expect(screen.getByText("Unrecognized row in sheet")).toBeInTheDocument();
-    expect(screen.getByText("removed section")).toBeInTheDocument();
-    expect(screen.queryByText("UNKNOWN_FIELD")).toBeNull(); // invariant 5: raw code never printed
-    expect(screen.queryByText("BLOCK_DISAPPEARED")).toBeNull();
+    // eyebrow labels asserted on the EYEBROW subtree (dedicated testid), NOT the whole
+    // group — the card slot would otherwise also carry the catalog title and mask a
+    // missing eyebrow (anti-tautology; spec §5.4 / spec test-scope rule).
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe("Unrecognized row in sheet");
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe("removed section");
+    // invariant 5: the raw code is never printed in the eyebrow
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain("UNKNOWN_FIELD");
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain("BLOCK_DISAPPEARED");
     // cards slotted through
     expect(screen.getByTestId("cards-UNKNOWN_FIELD")).toBeInTheDocument();
     expect(screen.getByTestId("cards-BLOCK_DISAPPEARED")).toBeInTheDocument();
@@ -620,7 +623,10 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
           >
             <div className="flex items-center gap-2">
               {group.label ? (
-                <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                <span
+                  data-testid={`dq-group-label-${group.code}`}
+                  className="whitespace-nowrap text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                >
                   {group.label}
                 </span>
               ) : null}
@@ -700,10 +706,12 @@ cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreCon
 (a) Replace the body assertions of the existing `it("shows an 'Ignore all N' control …")` (`:971-975`) with eyebrow-vs-chip scoping:
 
 ```tsx
-    const group = screen.getByTestId("dq-active-group-UNKNOWN_FIELD");
-    // the plain-language type label now lives on the group's eyebrow, never the raw code (invariant 5)
-    expect(group.textContent).toContain("Unrecognized row in sheet");
-    expect(group.textContent).not.toContain("UNKNOWN_FIELD");
+    // Scope the label assertion to the EYEBROW subtree (its own testid), NOT the group
+    // wrapper — the cards render the same catalog title, so a whole-group assertion would
+    // pass even with a missing eyebrow (anti-tautology; spec test-scope rule).
+    const eyebrow = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
+    expect(eyebrow.textContent).toBe("Unrecognized row in sheet");
+    expect(eyebrow.textContent).not.toContain("UNKNOWN_FIELD"); // invariant 5
     // the chip reads only the count now (label moved to the eyebrow)
     const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
     expect(btn.textContent).toBe("Ignore all 2");
@@ -724,7 +732,7 @@ cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreCon
 (c) Add a new multi-code grouped-render test at the end of the DQIGNORE-2 describe block (self-contained fixtures; a bulk-eligible code + a singleton non-`UNKNOWN_FIELD` code, proving grouping generalizes):
 
 ```tsx
-  it("renders active warnings grouped by code — one eyebrow group per code, chip only on bulk-eligible groups (DQIGNORE-6)", async () => {
+  it("renders active warnings grouped by code — eyebrow per code (incl. non-ignorable BLOCK_DISAPPEARED), chip only on bulk-eligible groups (DQIGNORE-6)", async () => {
     state.showsInternal = {
       show_id: "s1",
       parse_warnings: [
@@ -736,16 +744,28 @@ cd /Users/ericweiss/FX-dq-group-active && git add components/admin/BulkIgnoreCon
           message: 'Unrecognized section "Rigging" — its rows were not parsed.',
           rawSnippet: "Rigging", // lone UNKNOWN_SECTION_HEADER → singleton, no chip
         },
+        {
+          severity: "warn" as const,
+          code: "BLOCK_DISAPPEARED",
+          message: "The Hotel section was present last time but is now empty — 3 entries dropped.",
+          blockRef: { kind: "hotel" }, // NO rawSnippet → non-ignorable, always active, never a chip
+        },
       ],
     };
     await renderPage();
-    // two distinct codes → two group wrappers → two active <ul>s
+    // three distinct active codes → three group wrappers → three active <ul>s
     expect(screen.getByTestId("dq-active-group-UNKNOWN_FIELD")).toBeInTheDocument();
     expect(screen.getByTestId("dq-active-group-UNKNOWN_SECTION_HEADER")).toBeInTheDocument();
-    expect(screen.getAllByTestId("per-show-actionable-warnings")).toHaveLength(2);
+    expect(screen.getByTestId("dq-active-group-BLOCK_DISAPPEARED")).toBeInTheDocument();
+    expect(screen.getAllByTestId("per-show-actionable-warnings")).toHaveLength(3);
     // chip only on the bulk-eligible group
     expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
     expect(screen.queryByTestId("dq-bulk-ignore-UNKNOWN_SECTION_HEADER")).toBeNull();
+    expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
+    // the non-ignorable group is labeled through the page's real bulkGroupLabel path:
+    // no catalog title → DATA_GAP_CLASS_LABELS → "removed section" (scoped to the eyebrow)
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe("removed section");
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain("BLOCK_DISAPPEARED");
   });
 ```
 
