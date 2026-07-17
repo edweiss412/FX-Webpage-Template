@@ -304,7 +304,7 @@ describe("AdministratorsSection — management controls gated on developer (Part
 // verbatim (single source of truth); the clauses pin the blast radius so a
 // shortened sentence can't silently drop a privilege (anti-tautology).
 const GRANT_COPY =
-  "The Developer toggle gives that admin the same developer access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
+  "The Developer toggle gives that admin the same access you have, including managing admins (add, revoke, re-add, promote) and the Telemetry, Maintenance, Diagnostics, and Developer tools areas.";
 const GRANT_CLAUSES = [
   "managing admins",
   "add, revoke, re-add, promote",

@@ -182,7 +182,7 @@ export function HoverHelp({
         data-testid={`${testId}-body`}
         onPointerEnter={openNow}
         onPointerLeave={scheduleClose}
-        className={`absolute z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+        className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
           placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
         } ${
           open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
