@@ -420,10 +420,12 @@ Then **remove `overrideActive` from the `PackListBreakdown` props** (both the de
 
 If `ArchivedPullSheetTab` is now imported only for types elsewhere in the file, keep its existing import. Do NOT remove `useRouter`/`useState` imports from `step3ReviewSections.tsx` unless a post-edit `pnpm lint` flags them unused (other components in that file use them).
 
-- [ ] **Step 4b: Re-run the new-module test (now passes) + the Pack-list regression**
+**Do NOT touch the JSX render guards (F1 narrowing).** `PackListBreakdown` renders the offer/note inside `wizardSessionId != null` guards today — `{overrideActive && includedTab && wizardSessionId != null ? <ArchivedTabIncludedNote wizardSessionId={wizardSessionId} .../> : null}` (`step3ReviewSections.tsx:1974`) and `{wizardSessionId != null ? offers.map((tab, i) => <ArchivedTabOffer wizardSessionId={wizardSessionId} .../>) : null}` (`:1982`). `PackListBreakdown`'s prop is `wizardSessionId?: string` (`string | undefined`); the `!= null` ternary **narrows it to `string`** at each JSX site, satisfying the components' `wizardSessionId: string` requirement. These guards are UNCHANGED — only the two derivation lines above them are replaced. (The `overrideActive` in the IncludedNote guard now comes from the `deriveArchivedOffers` destructure instead of the removed prop; same value.)
 
-Run: `pnpm vitest run tests/components/admin/wizard/archivedTabOffer.render.test.tsx`
-Expected: PASS (3 tests) — the module now exports `ArchivedTabOffer` with `showDismiss`.
+- [ ] **Step 4b: Re-run the new-module tests (now passes) + the Pack-list regression**
+
+Run: `pnpm vitest run tests/components/admin/wizard/archivedTabOffer.render.test.tsx tests/components/admin/wizard/archivedTabOffer.derive.test.ts`
+Expected: PASS (render: 3 tests; derive: 4 tests). Re-running the **derive** test here (F2) confirms the Task-1 pure test still passes after the module gained top-level `"use client"` + `next/navigation`/`react` imports — a module-load regression would surface now, not late in Task 4.
 
 The Pack-list regression is the pre-existing `packListBreakdownStates.test.tsx` (asserts the S2/S3/S4 states incl. "Keep skipped" via default `showDismiss`); it must stay green in Step 5.
 
@@ -577,9 +579,13 @@ it("does not freeze the box accept during an active publish run", () => {
 
 // 7. Combined mode (§5 row 2): re-apply items AND the archived offer both render.
 it("renders both the re-apply items and the archived offer when resolution + offer coexist", () => {
+  // The sentinel fixture follows this file's existing convention (mi6Item/mi13Item
+  // at lines ~60-70 use the same `as unknown as TriggeredReviewItem` cast). If the
+  // ONBOARDING_SCAN_REVIEW member has a fully-typed minimal shape, prefer it; the
+  // cast is acceptable only because it matches the file's established fixtures.
+  const sentinel = { id: "i1", invariant: "ONBOARDING_SCAN_REVIEW" } as unknown as TriggeredReviewItem;
   renderModalWith({
-    // a resolution with a single tier-1 sentinel item, plus a pending archived tab
-    resolution: resWith([{ id: "i1", invariant: "ONBOARDING_SCAN_REVIEW" } as unknown as TriggeredReviewItem]),
+    resolution: resWith([sentinel]),
     archivedPullSheetTabs: [archivedTab],
   });
   const box = screen.getByLabelText("Resolve before publishing");
