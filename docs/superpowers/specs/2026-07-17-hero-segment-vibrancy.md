@@ -46,23 +46,25 @@ Inactive segments (`bg-border`) are **unchanged** — they were never the sub-co
 
 The load-bearing boundary is the **edge** (`--color-accent-edge`). All values are the ratified DESIGN.md §1.2 pairs (`DESIGN.md:35,62`), which govern this identical token pairing on the toggles.
 
-### Light mode (edge `#7a3d00`, fill `#ff8c1a`, surface `#ffffff`, inactive `#e5e4e0`)
+### Light mode (edge `#7a3d00`, fill `#ff8c1a`, inactive `#e5e4e0`)
+
+The progress bar renders only in non-degraded states, so its background is the hero's `bg-surface` (`#ffffff`), not `--color-bg` (`#fafaf9`). Both are cited; the `#fafaf9` value is the conservative DESIGN.md-ratified one.
 
 | Adjacency (required relation) | Pair | Ratio | Floor | Pass |
 |---|---|---|---|---|
-| Edge vs surface bg (segment boundary is perceivable) | `#7a3d00` / bg | **8.06:1** (DESIGN.md:35) | 3.0 | ✅ |
+| Edge vs the hero surface (segment boundary is perceivable) | `#7a3d00` / `#ffffff` surface | **8.42:1** (8.06:1 vs `#fafaf9`, DESIGN.md:35) | 3.0 | ✅ |
 | Edge vs its own orange fill (edge readable on the fill) | `#7a3d00` / `#ff8c1a` | **3.61:1** (DESIGN.md:35,62) | 3.0 | ✅ |
-| Edge vs inactive fill (active segment distinguished from inactive across the 6px gap) | `#7a3d00` / `#e5e4e0` | **6.6:1** | 3.0 | ✅ |
+| Edge vs inactive fill (active segment distinguished from inactive across the 6px gap) | `#7a3d00` / `#e5e4e0` | **6.62:1** | 3.0 | ✅ |
 
-The active segment is a bounded object whose 8.06:1 edge is perceivable against the surface and whose edge is 6.6:1 against the inactive segments — so "which segments are filled" (the load-bearing info) clears 3:1 by the edge alone, independent of the fill's 2.23:1. The vibrant `#ff8c1a` fill is restored without carrying any contrast burden.
+The active segment is a bounded object whose 8.42:1 edge is perceivable against the surface and whose edge is 6.62:1 against the inactive segments — so "which segments are filled" (the load-bearing info) clears 3:1 by the edge alone, independent of the fill's 2.23:1. The vibrant `#ff8c1a` fill is restored without carrying any contrast burden.
 
 ### Dark mode (edge `#ffa047`, fill `#ff8c1a`, surface `#16171c`, inactive `#2a2b30`)
 
 | Adjacency | Pair | Ratio | Floor | Pass |
 |---|---|---|---|---|
-| Active fill vs surface bg (fill already clears) | `#ff8c1a` / `#16171c` | **~7.8:1** | 3.0 | ✅ |
-| Active fill vs inactive segment | `#ff8c1a` / `#2a2b30` | **~6.4:1** | 3.0 | ✅ |
-| Edge vs surface bg | `#ffa047` / `#16171c` | **8.16:1** (DESIGN.md:35) | 3.0 | ✅ |
+| Active fill vs hero surface (fill already clears) | `#ff8c1a` / `#16171c` | **7.69:1** | 3.0 | ✅ |
+| Active fill vs inactive segment | `#ff8c1a` / `#2a2b30` | **6.07:1** | 3.0 | ✅ |
+| Edge vs hero surface | `#ffa047` / `#16171c` | **8.84:1** (8.16:1 vs `#0f1014`, DESIGN.md:35) | 3.0 | ✅ |
 
 In dark mode the vibrant fill itself already clears 3:1 on both relations (dark `#ff8c1a` was never the sub-contrast case — only light was). The dark edge `#ffa047` is decorative-consistency with the toggles (DESIGN.md §1.2 already documents the dark edge as decorative: "the track itself is the boundary"). No dark regression.
 
@@ -138,4 +140,4 @@ Append "active show-day progress segment" to the accent-edge row's consumer list
 
 ## 10. Numeric sweep (self-consistency)
 
-Every literal in this spec: `#ff8c1a` (fill, both themes), `#7a3d00` (light edge), `#ffa047` (dark edge), `#a65000` (the OLD darkened fill being replaced), `#e5e4e0` (inactive light), `#16171c`/`#2a2b30` (dark surface/inactive), `6px`/`h-1.5`, `1px`/`border`, `gap-1.5`. Contrast literals `8.06`, `3.61`, `8.16`, `2.23`, `6.6`, `~7.8`, `~6.4` — the first three are cited verbatim from DESIGN.md:35,62; the rest are same-token derivations. Occurrence index `1` (active segment), `0` (live-dot). All consistent across §2/§3/§5/§6.
+Every literal in this spec: `#ff8c1a` (fill, both themes), `#7a3d00` (light edge), `#ffa047` (dark edge), `#a65000` (the OLD darkened fill being replaced), `#e5e4e0` (inactive light), `#16171c`/`#2a2b30` (dark surface/inactive), `6px`/`h-1.5`, `1px`/`border`, `gap-1.5`. Contrast literals `8.42`/`8.06`, `3.61`, `8.84`/`8.16`, `2.23`, `6.62`, `7.69`, `6.07` — the DESIGN.md-anchored ones (`8.06`, `3.61`, `8.16`, `2.23`) are cited verbatim from DESIGN.md:35,62; the surface-specific ones (`8.42`, `8.84`, `6.62`, `7.69`, `6.07`) are same-token derivations against the hero's actual `bg-surface`, all ≥3.0. Occurrence index `1` (active segment), `0` (live-dot). All consistent across §2/§3/§5/§6.
