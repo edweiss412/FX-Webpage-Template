@@ -56,6 +56,42 @@ fetchMock
     per_row: [{ drive_file_id: "drive-archived-1", code: "SHOW_ARCHIVED_IMMUTABLE" }] }, { status: 409 }));
 // resolver control testid: `blocked-row-resolver-drive-archived-1`; it is TWO-TAP (arm, then confirm) → POST /api/admin/onboarding/resolve-blocker (BlockedRowResolver.tsx:186-198,210).
 // review modal testid (compound tests): `wizard-step3-card-<dfid>-review-modal` (Step3ReviewModal.tsx:559).
+
+// EXECUTABLE drive helpers (define once in FinalizeBlockerModal.test.tsx; every test calls one — no "drive to X" prose):
+async function driveToError() {
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }));
+  const q = render(<FinalizeButton wizardSessionId={WSID} />);
+  await act(async () => { fireEvent.click(q.getByTestId("wizard-finalize-button")); });
+  await q.findByTestId("wizard-finalize-blocker-modal");
+  return q;
+}
+async function driveToRaceRow() {
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 1,
+    per_row: [{ drive_file_id: "drive-failed-1", wizard_session_id: WSID, code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE", re_apply_url: `/admin/onboarding/staged/${WSID}/drive-failed-1` }] }));
+  const q = render(<FinalizeButton wizardSessionId={WSID} />);
+  await act(async () => { fireEvent.click(q.getByTestId("wizard-finalize-button")); });
+  await q.findByTestId("wizard-finalize-blocker-modal");
+  return q;
+}
+async function driveToCasPerRow(code = "SHOW_ARCHIVED_IMMUTABLE", dfid = "drive-archived-1") {
+  fetchMock
+    .mockResolvedValueOnce(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 0, per_row: [] }))
+    .mockResolvedValueOnce(mockJsonResponse({ ok: false, code, per_row: [{ drive_file_id: dfid, code }] }, { status: 409 }));
+  const q = render(<FinalizeButton wizardSessionId={WSID} />);
+  await act(async () => { fireEvent.click(q.getByTestId("wizard-finalize-button")); });
+  await q.findByTestId("wizard-finalize-blocker-modal");
+  return q;
+}
+async function driveToComplete() {
+  fetchMock
+    .mockResolvedValueOnce(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 0, per_row: [] }))
+    .mockResolvedValueOnce(mockJsonResponse({ status: "finalize_complete", wizard_session_id: WSID, watched_folder_id: "folder-xyz" }));
+  const q = render(<FinalizeButton wizardSessionId={WSID} />);
+  await act(async () => { fireEvent.click(q.getByTestId("wizard-finalize-button")); });
+  await q.findByTestId("wizard-finalize-publish-complete");
+  return q;
+}
+// Rescannable cas_per_row (RescanSheetButton path): driveToCasPerRow("STAGED_PARSE_OUTDATED_AT_PHASE_D", "drive-outdated-1").
 ```
 
 Entering `cas_per_row`/`error`/`race_row` ALREADY consumes finalize calls (`/finalize` and, for cas, `/finalize-cas`) — assertions about "no restart" must SNAPSHOT the `/finalize` call count and assert it is UNCHANGED after the late event, never assert zero.
@@ -125,17 +161,30 @@ export? function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {   // NOT 
 - [ ] **Step 1 — failing tests** (new, in `FinalizeBlockerModal.test.tsx`) + legacy updates (in `FinalizeButton.test.tsx`):
 
 ```tsx
-// NEW — dialog semantics + complete inline
-test("error renders a role=dialog with aria-modal and a resolved accessible name", async () => {
-  fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }));
-  render(<FinalizeButton wizardSessionId={WSID} />);
-  await act(async () => { fireEvent.click(screen.getByTestId("wizard-finalize-button")); });
-  const dialog = await screen.findByTestId("wizard-finalize-blocker-modal");
+// NEW — dialog semantics
+test("error renders role=dialog + aria-modal with a resolved accessible name", async () => {
+  const q = await driveToError();
+  const dialog = q.getByTestId("wizard-finalize-blocker-modal");
+  expect(dialog).toHaveAttribute("role", "dialog");
   expect(dialog).toHaveAttribute("aria-modal", "true");
   expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)!.textContent).toBeTruthy();
-  expect(screen.getByTestId("wizard-finalize-error")).toBeInTheDocument();
+  expect(q.getByTestId("wizard-finalize-error")).toBeInTheDocument();
 });
-test("complete stays inline (no dialog)", async () => { /* drive to complete via finalize_complete recipe; assert publish-complete present, blocker-modal null */ });
+// §10.5 — body scroll lock while open, restored on close
+test("body overflow is hidden while the modal is open and restored on close", async () => {
+  expect(document.body.style.overflow).not.toBe("hidden");
+  const q = await driveToError();
+  expect(document.body.style.overflow).toBe("hidden");
+  fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Close → idle → unmount
+  await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+  expect(document.body.style.overflow).not.toBe("hidden");
+});
+// §10.9 — complete stays inline
+test("complete stays inline (no dialog)", async () => {
+  const q = await driveToComplete();
+  expect(q.getByTestId("wizard-finalize-publish-complete")).toBeInTheDocument();
+  expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
+});
 ```
 Legacy updates in `FinalizeButton.test.tsx`:
 - `:1298` focus assertion → `expect(document.activeElement).toBe(getByTestId("wizard-finalize-blocker-dismiss"))`.
@@ -156,25 +205,23 @@ Legacy updates in `FinalizeButton.test.tsx`:
 - [ ] **Step 1 — failing tests** (BOTH blocking states + error):
 
 ```tsx
-test("error: Escape, backdrop, and Close all dismiss to idle", async () => {
-  /* drive to error */
-  fireEvent.keyDown(document, { key: "Escape" });
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
-  /* re-drive; */ fireEvent.click(screen.getByTestId("wizard-finalize-blocker-backdrop"));
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
-  /* re-drive; */ fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss"));
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+test.each([["escape"], ["backdrop"], ["close"]])("error dismisses via %s → idle", async (via) => {
+  const q = await driveToError();
+  if (via === "escape") fireEvent.keyDown(document, { key: "Escape" });
+  else if (via === "backdrop") fireEvent.click(q.getByTestId("wizard-finalize-blocker-backdrop"));
+  else fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss"));
+  await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
 });
-test.each(["race_row", "cas_per_row"])("%s: Escape + backdrop are inert; backdrop has no button role; only Back dismisses", async (kind) => {
-  /* drive to <kind> */
-  const backdrop = screen.getByTestId("wizard-finalize-blocker-backdrop");
+test.each([["race_row"], ["cas_per_row"]])("%s: Escape + backdrop are inert; backdrop is a non-interactive div; only Back dismisses", async (kind) => {
+  const q = kind === "race_row" ? await driveToRaceRow() : await driveToCasPerRow();
+  const backdrop = q.getByTestId("wizard-finalize-blocker-backdrop");
   expect(backdrop.tagName).toBe("DIV");
   expect(backdrop).toHaveAttribute("aria-hidden", "true");
   fireEvent.keyDown(document, { key: "Escape" });
   fireEvent.click(backdrop);
-  expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument();
-  fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss")); // Back
-  await waitFor(() => expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
+  expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // still open
+  fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back
+  await waitFor(() => expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull());
 });
 ```
 
@@ -192,31 +239,37 @@ test.each(["race_row", "cas_per_row"])("%s: Escape + backdrop are inert; backdro
 - [ ] **Step 1 — failing tests:**
 
 ```tsx
+const finalizeCount = () => fetchMock.mock.calls.filter(c => c[0] === "/api/admin/onboarding/finalize").length;
 test("BlockedRowResolver resolve continues the loop (re-POSTs /finalize)", async () => {
-  /* drive to cas_per_row (SHOW_ARCHIVED_IMMUTABLE) + queue post-resolve finalize/finalize-cas success (recipe from FinalizeButton.test.tsx:730-745) */
-  const btn = screen.getByTestId("blocked-row-resolver-drive-archived-1");
+  const q = await driveToCasPerRow(); // SHOW_ARCHIVED_IMMUTABLE, drive-archived-1
+  // queue the post-resolve success chain (FinalizeButton.test.tsx:730-745): resolve ok, then finalize clean, then finalize_complete
+  fetchMock
+    .mockResolvedValueOnce(mockJsonResponse({ ok: true, status: "resolved" }))
+    .mockResolvedValueOnce(mockJsonResponse({ status: "all_batches_complete", wizard_session_id: WSID, remaining_count: 0, unresolved_manifest_count: 0, per_row: [] }))
+    .mockResolvedValueOnce(mockJsonResponse({ status: "finalize_complete", wizard_session_id: WSID, watched_folder_id: "f" }));
+  const btn = q.getByTestId("blocked-row-resolver-drive-archived-1");
   await act(async () => { fireEvent.click(btn); }); // arm
   await act(async () => { fireEvent.click(btn); }); // confirm → /resolve-blocker
-  await waitFor(() => expect(fetchMock.mock.calls.filter(c => c[0] === "/api/admin/onboarding/finalize").length).toBeGreaterThanOrEqual(2));
+  await waitFor(() => expect(finalizeCount()).toBeGreaterThanOrEqual(2)); // onResolved → runLoop re-POSTs /finalize
 });
 test("RescanSheetButton success leaves the blocker modal mounted (router.refresh only, no runLoop)", async () => {
-  /* drive to cas_per_row with a RESCANNABLE code (STAGED_PARSE_OUTDATED_AT_PHASE_D) so RescanSheetButton renders; mock /rescan-sheet ok:true */
-  fireEvent.click(screen.getByTestId("rescan-sheet-button-drive-outdated-1"));
+  const q = await driveToCasPerRow("STAGED_PARSE_OUTDATED_AT_PHASE_D", "drive-outdated-1"); // RESCANNABLE → RescanSheetButton renders
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: true }));
+  fireEvent.click(q.getByTestId("rescan-sheet-button-drive-outdated-1"));
   await waitFor(() => expect(refreshMock).toHaveBeenCalled());
-  expect(screen.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // still open
+  expect(q.getByTestId("wizard-finalize-blocker-modal")).toBeInTheDocument(); // STILL open (state unchanged)
 });
 test("Back during a PENDING resolver request suppresses the late runLoop", async () => {
+  const q = await driveToCasPerRow();
   let resolveFetch!: (v: Response) => void;
-  const deferred = new Promise<Response>((r) => { resolveFetch = r; });
-  /* drive to cas_per_row; then make the NEXT /resolve-blocker call return `deferred` */
-  const btn = screen.getByTestId("blocked-row-resolver-drive-archived-1");
+  fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolveFetch = r; })); // next /resolve-blocker hangs
+  const btn = q.getByTestId("blocked-row-resolver-drive-archived-1");
   await act(async () => { fireEvent.click(btn); }); await act(async () => { fireEvent.click(btn); }); // resolver pending
-  const finalizeBefore = fetchMock.mock.calls.filter(c => c[0] === "/api/admin/onboarding/finalize").length;
-  fireEvent.click(screen.getByTestId("wizard-finalize-blocker-dismiss")); // Back → idle
-  await act(async () => { resolveFetch(mockJsonResponse({ ok: true, status: "resolved" })); });
-  const finalizeAfter = fetchMock.mock.calls.filter(c => c[0] === "/api/admin/onboarding/finalize").length;
-  expect(finalizeAfter).toBe(finalizeBefore); // NO restart
-  expect(screen.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
+  const before = finalizeCount();
+  fireEvent.click(q.getByTestId("wizard-finalize-blocker-dismiss")); // Back → idle → unmount
+  await act(async () => { resolveFetch(mockJsonResponse({ ok: true, status: "resolved" })); }); // late success
+  expect(finalizeCount()).toBe(before); // NO restart
+  expect(q.queryByTestId("wizard-finalize-blocker-modal")).toBeNull();
 });
 ```
 
@@ -236,10 +289,15 @@ test("Back during a PENDING resolver request suppresses the late runLoop", async
 ```tsx
 beforeAll(() => { Object.defineProperty(HTMLElement.prototype, "offsetParent", { configurable: true, get() { return this.parentNode; } }); }); // jsdom visibility (Step3ReviewModal.test.tsx:403-429)
 test("focus lands on the dismiss control; Tab cycles within the modal", async () => {
-  /* drive to race_row (multi-control: re-apply link + Back) */
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("wizard-finalize-blocker-dismiss")));
-  const focusables = within(screen.getByTestId("wizard-finalize-blocker-modal")).getAllByRole("link").concat(screen.getByTestId("wizard-finalize-blocker-dismiss"));
-  // Tab from last → first and Shift+Tab from first → last (fireEvent.keyDown on the panel; assert activeElement wraps)
+  const q = await driveToRaceRow(); // multi-control: a re-apply link + Back
+  await waitFor(() => expect(document.activeElement).toBe(q.getByTestId("wizard-finalize-blocker-dismiss")));
+  const link = q.getByTestId("wizard-finalize-reapply-drive-failed-1");
+  const back = q.getByTestId("wizard-finalize-blocker-dismiss");
+  const panel = q.getByTestId("wizard-finalize-blocker-panel");
+  back.focus(); fireEvent.keyDown(panel, { key: "Tab" });            // from last (Back) → wraps to first (link)
+  await waitFor(() => expect(document.activeElement).toBe(link));
+  link.focus(); fireEvent.keyDown(panel, { key: "Tab", shiftKey: true }); // Shift+Tab from first → wraps to last (Back)
+  await waitFor(() => expect(document.activeElement).toBe(back));
 });
 // Compound harness (template: step3Page.transitions.test.tsx:33-41 fixtures + :183-208 T8-b flow).
 // The order matters: the review modal must be OPEN before the finalize terminal fires. Use a DEFERRED
@@ -309,7 +367,7 @@ test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the revi
 
 ## Task 7: Real-browser layout (Playwright, live esbuild harness)
 
-**Spec:** §8, §10.7. **Files:** Create `tests/e2e/wizard-blocker-modal.layout.spec.ts`; Modify `tests/e2e/standalone.config.ts` (add `wizard-blocker-modal\.layout` to the `testMatch` regex allowlist).
+**Spec:** §8, §10.7. **Files:** Create `tests/e2e/wizard-blocker-modal.layout.spec.ts` (the spec) AND `tests/e2e/_wizardBlockerModalLiveEntry.tsx` (the esbuild ENTRY the spec bundles — mirrors `tests/e2e/_blockedRowResolverLiveEntry.tsx`, referenced by `blocked-row-resolver-transitions.spec.ts:29,83`); Modify `tests/e2e/standalone.config.ts` (add `wizard-blocker-modal\.layout` to the `testMatch` regex allowlist).
 
 **Template:** `tests/e2e/blocked-row-resolver-transitions.spec.ts` (LIVE esbuild-bundled admin tree) — NOT the static `renderToStaticMarkup` harness (it cannot drive state). Mount through the EXPORTED `FinalizeStatusRegion` (single-lever contract — `FinalizeBlockerModal` stays module-private and is exercised through `FinalizeStatusRegion`, per the exports at `FinalizeButton.tsx:498,572`). Harness page:
 - a REAL `<WizardFooter primary={<span/>} center={<FinalizeStatusRegion run={stubRun}/>} />` (WizardFooter is light — `createPortal` + flex, no heavy deps), so the modal mounts through the actual footer-center slot and the footer's `z-40` body portal — the production composition the spec §8 requires.
@@ -321,7 +379,7 @@ test("compound ERROR: single root; Escape DISMISSES the blocker but NOT the revi
 - [ ] **Step 2 — run, expect FAIL** (harness/spec not built / not in allowlist): `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-blocker-modal.layout.spec.ts`
 - [ ] **Step 3 — implement** the harness + spec; add the allowlist regex entry.
 - [ ] **Step 4 — run, expect PASS.**
-- [ ] **Step 5 — commit** (new spec file → `git add` explicitly): `git add tests/e2e/wizard-blocker-modal.layout.spec.ts tests/e2e/standalone.config.ts tests/e2e/_*Harness* && git commit --no-verify -m "test(admin): real-browser layout — blocker modal viewport-pinned, no footer shift"`
+- [ ] **Step 5 — commit** (new files → `git add` explicitly by name): `git add tests/e2e/wizard-blocker-modal.layout.spec.ts tests/e2e/_wizardBlockerModalLiveEntry.tsx tests/e2e/standalone.config.ts && git commit --no-verify -m "test(admin): real-browser layout — blocker modal viewport-pinned, no footer shift"`
 
 ---
 
