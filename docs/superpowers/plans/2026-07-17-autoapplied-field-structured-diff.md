@@ -136,7 +136,7 @@ describe("buildFieldChangesRow", () => {
     ]);
   });
 
-  it("malformed item → skipped + incompleteness marker appended after valid entries", () => {
+  it("malformed item → skipped + incompleteness marker + summary encodes the omission", () => {
     const bad = { id: "b", invariant: "MI-8", field: "bogus" } as unknown as TriggeredReviewItem;
     const row = buildFieldChangesRow([mi8b("pending", "received"), bad])!;
     const entries = row.afterImage.fieldChanges;
@@ -145,6 +145,19 @@ describe("buildFieldChangesRow", () => {
       label: "Other changes", from: null, to: null,
       note: "1 other field change(s) on this sync — details unavailable",
     });
+    // summary-only digest MUST also see the omission (spec §5, Codex plan-review F3)
+    expect(row.summary).toBe("COI status and 1 more field change(s) changed on this sync");
+  });
+
+  it("type-malformed MI-8b/MI-9 (non-string prior, non-string flags) are SKIPPED, never coerced", () => {
+    // MI-8b with a numeric prior → not `string | null` → skipped (not "(none)→x")
+    const badCoi = { id: "c", invariant: "MI-8b", prior: 42, next: "received" } as unknown as TriggeredReviewItem;
+    // MI-9 with non-string flag elements → not an array of strings → skipped (no fake role entry)
+    const badRole = { id: "d", invariant: "MI-9", crew_name: "X", prior_flags: [1, 2], new_flags: ["LEAD"] } as unknown as TriggeredReviewItem;
+    const row = buildFieldChangesRow([mi8b("pending", "received"), badCoi, badRole])!;
+    const entries = row.afterImage.fieldChanges;
+    expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
+    expect(entries[1]!.note).toBe("2 other field change(s) on this sync — details unavailable");
   });
 
   it("all-malformed → structured Unavailable marker row (NOT null after_image)", () => {
@@ -222,13 +235,19 @@ function coerce(x: unknown, sentinel: string): string {
 export function capValue(s: string): string {
   return s.length > VALUE_CAP ? s.slice(0, VALUE_CAP - 1) + "…" : s;
 }
-/** Sorted, comma-joined flag tokens; "(none)" for empty (spec §3.4b). */
-export function joinFlags(flags: unknown): string {
-  if (!Array.isArray(flags)) return "(none)";
-  const toks = flags.filter((f): f is string => typeof f === "string" && f.trim() !== "").map((f) => f.trim());
+/** Sorted, comma-joined flag tokens; "(none)" for empty (spec §3.4b).
+ *  Caller guarantees `flags` is a string[] (isStrArr) — this only sorts/joins/caps. */
+export function joinFlags(flags: string[]): string {
+  const toks = flags.filter((f) => f.trim() !== "").map((f) => f.trim());
   if (toks.length === 0) return "(none)";
   return capValue([...toks].sort().join(", "));
 }
+
+/** MI-8b/MI-9 field type guards (spec §3.6: prior/next are `string | null`;
+ *  prior_flags/new_flags are each an ARRAY OF STRINGS). A value failing these is
+ *  MALFORMED → skip + omittedCount++, never coerced into a fake concrete entry. */
+const isStrOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
+const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 
 type Built = { entries: FieldChangeEntry[]; omitted: number; types: string[] };
 
@@ -251,11 +270,12 @@ function build(items: TriggeredReviewItem[]): Built {
   for (const it of items) {
     if (it.invariant === "MI-8" && !FINANCIAL_ORDER.includes((it as { field?: never }).field)) omitted++;
   }
-  // MI-8b COI From→To (skip invalid shape or equal-after-normalize).
+  // MI-8b COI From→To. Skip if prior/next are not `string | null` (§3.6 guard),
+  // or equal-after-normalize (mirrors the live fire condition priorCoi !== nextCoi).
   for (const it of items) {
     if (it.invariant !== "MI-8b") continue;
     const raw = it as { prior?: unknown; next?: unknown };
-    if (!("prior" in raw) || !("next" in raw)) { omitted++; continue; }
+    if (!isStrOrNull(raw.prior) || !isStrOrNull(raw.next)) { omitted++; continue; }
     const from = coerce(raw.prior, "(none)");
     const to = coerce(raw.next, "(none)");
     if (from === to) { omitted++; continue; }
@@ -276,12 +296,14 @@ function build(items: TriggeredReviewItem[]): Built {
     entries.push({ label: "Pull sheet", from: null, to: null, note: capValue(MI8C_MODE_SENTENCES[mode]!(n)) });
     if (!types.includes("Pull sheet")) types.push("Pull sheet");
   }
-  // MI-9 role (existing-crew items only ever arrive; one per crew).
+  // MI-9 role (existing-crew items only ever arrive; one per crew). Skip if
+  // crew_name is not a non-empty string, or prior_flags/new_flags are not each
+  // an ARRAY OF STRINGS (§3.6 guard) — never coerce a corrupt item into a fake role entry.
   for (const it of items) {
     if (it.invariant !== "MI-9") continue;
     const raw = it as { crew_name?: unknown; prior_flags?: unknown; new_flags?: unknown };
     const name = typeof raw.crew_name === "string" && raw.crew_name.trim() !== "" ? raw.crew_name.trim() : null;
-    if (name === null || !Array.isArray(raw.prior_flags) || !Array.isArray(raw.new_flags)) { omitted++; continue; }
+    if (name === null || !isStrArr(raw.prior_flags) || !isStrArr(raw.new_flags)) { omitted++; continue; }
     entries.push({
       label: capValue(`Role — ${name}`),
       from: joinFlags(raw.prior_flags),
@@ -492,6 +514,16 @@ describe("deriveFieldsDiff (read-side re-validation)", () => {
     expect(entries[0]!.label).toBe("COI status");
     expect(entries[entries.length - 1]!.label).toBe("Other changes");
   });
+  it("a note-entry carrying a non-string from/to does NOT crash — treated as malformed", () => {
+    // isValidEntry must reject before boundEntry's capValue touches a number (F2).
+    expect(() =>
+      deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never),
+    ).not.toThrow();
+    const r = deriveFieldsDiff({ fieldChanges: [{ label: "X", note: "hi", from: 42, to: null }] } as never);
+    // the sole entry is malformed → all-malformed → Unavailable marker
+    expect((r.diff as { entries: Array<{ label: string }> }).entries[0]!.label).toBe("Unavailable");
+    expect(r.invalid).toBe(true);
+  });
 });
 ```
 
@@ -537,8 +569,12 @@ export type FieldsDiff = { kind: "none" } | { kind: "fields"; entries: FieldChan
 function isValidEntry(e: unknown): e is FieldChangeEntry {
   if (!e || typeof e !== "object") return false;
   const o = e as Record<string, unknown>;
-  const label = typeof o.label === "string" && o.label.trim() !== "";
-  if (!label) return false;
+  const strOrNull = (v: unknown) => v == null || typeof v === "string";
+  // ALL of label/from/to/note must be well-typed BEFORE boundEntry touches them —
+  // otherwise a note-entry carrying a numeric `from` would pass the XOR check and
+  // then crash capValue(42) at bound time (Codex plan-review R1 F2).
+  if (typeof o.label !== "string" || o.label.trim() === "") return false;
+  if (!strOrNull(o.from) || !strOrNull(o.to) || !strOrNull(o.note)) return false;
   const hasNote = typeof o.note === "string" && o.note.trim() !== "";
   const hasFromTo = typeof o.from === "string" && typeof o.to === "string";
   return hasNote !== hasFromTo; // exactly one branch (note XOR from/to)
