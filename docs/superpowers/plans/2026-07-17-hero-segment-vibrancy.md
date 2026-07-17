@@ -164,6 +164,13 @@ git commit --no-verify -m "docs(plan): record impeccable dual-gate results (§12
 - **Type consistency:** N/A (no new types; className strings only). Occurrence index `1` used consistently (spec §6.2, plan Task 1 Step 6).
 - **Anti-tautology:** the component test scopes to the `[data-segment-active="true"]` node's own class set, not a container that renders both segments — a bug leaving the inactive segment wrong or the active un-edged fails.
 
-## §12 — Impeccable dual-gate results
+## §12 — Impeccable dual-gate results (invariant 8)
 
-_(filled during Task 2.)_
+Run on the `feat/hero-segment-vibrancy` diff (`RightNowHero.tsx` active segment + `DESIGN.md` §1.2), 2026-07-17.
+
+**`/impeccable critique` — PASS.** Method: dual-agent (A: design review, B: detector + real-browser). AI-slop verdict: **intentional craft** (token-disciplined reuse of the ratified `border-accent-edge bg-accent` toggle recipe; DESIGN.md §1.2 already names the segment a consumer). Banned-pattern check CLEAR — this is a full 1px enclosing border on a `rounded-pill`, NOT a side-stripe >1px. Detector `detect.mjs --json` exit 0, findings `[]`. No P0/P1/P2.
+- **P3 (A) — RESOLVED by B.** "Does the 1px `#7a3d00` stroke on a 6px (`h-1.5`) pill read as a crisp hairline or a heavy frame?" B's real-browser render (Playwright chromium, 390px@2x, 4 cells = {light,dark}×{surface,stale-tint}) confirms: crisp hairline, fill not swallowed (border-box holds 6px), vibrant orange clearly distinguishable from inactive `bg-border` on all four cells, dark `#ffa047` rim visible, no muddying. Screenshots: `bar-light.png` / `bar-dark.png` (scratchpad). Not a defect.
+
+**`/impeccable audit` — PASS, 20/20.** A11y 4 (1.4.11 3:1 via edge on every surface/theme; role="img"+aria-label unchanged; no interactive-target change) · Performance 4 (static border; no animation/thrash/re-render/import) · Theming 4 (tokens only, both modes browser-verified) · Responsive 4 (`flex-1`+border-box, no shift/overflow at 390px) · Anti-patterns 4 (detector `[]`, full-border not side-stripe, accent used sparingly). No P0/P1/P2/P3.
+
+**Disposition:** no findings to fix or defer. `HERO-VIBRANCY-DIM-1` (real-browser dimension assertion) stays DEFERRED-AS-N/A — the hairline visual it would have covered is confirmed by this gate's real-browser pass.
