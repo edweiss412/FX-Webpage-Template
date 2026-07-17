@@ -139,7 +139,7 @@ git commit --no-verify -m "feat(admin): CollapsePanel height-morph disclosure pr
 
 **Files:**
 - Modify: `components/admin/RecentAutoAppliedStrip.tsx` (`:26` import; `:292` aria-controls; `:321-410` panel body)
-- Test: `tests/components/admin/RecentAutoAppliedStrip.test.tsx` (flip collapsed-state assertions `:96-101`)
+- Test: `tests/components/admin/RecentAutoAppliedStrip.test.tsx` (flip collapsed-state assertions `:96-101`, strengthen `:103-110`, flip the collapse-unmount assertion `:473`)
 
 **Interfaces:**
 - Consumes: `CollapsePanel` from Task 1.
@@ -174,6 +174,37 @@ it("expanding a group clears inert on its panel region", () => {
 });
 ```
 
+**Also strengthen the existing `:103-110` "expands a group on toggle click"**
+test — under always-mounted, `getByTestId("auto-applied-row-r1").toBeInTheDocument()`
+now passes even before the click (row always in DOM), making it presence-only.
+Add an `inert`-flip assertion so it still proves the reveal:
+
+```tsx
+// before click: region inert; after click: not inert (real reveal, not mere presence)
+const region = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+expect(region).toHaveAttribute("inert");
+fireEvent.click(toggle);
+expect(region).not.toHaveAttribute("inert");
+```
+
+**MANDATORY flip — the missed collapse-unmount assertion at `:463-479`**
+("alert persists across collapse → re-expand"): line `:473` currently asserts
+`queryByTestId(auto-applied-bulk-undo-alert-${FIN_ID}).toBeNull()` **after
+collapsing** the group (`:472`). That passed only because collapse *unmounted*
+the panel. Under CollapsePanel the alert node stays mounted-but-`inert`, so
+`.toBeNull()` FAILS. Flip `:473` to:
+
+```tsx
+fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // collapse
+// alert node persists (always-mounted) but its region is inert while collapsed
+expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
+expect(screen.getByTestId(`auto-applied-panel-${FIN_ID}`)).toHaveAttribute("inert");
+fireEvent.click(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)); // re-expand
+expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`).textContent).toContain("Couldn't undo 1 of");
+```
+
+(This better matches the test's own name — the alert genuinely persists now.)
+
 - [ ] **Step 2: Run — expect FAIL** (`aria-controls` conditional; panel unmounted when collapsed).
 
 Run: `pnpm vitest run tests/components/admin/RecentAutoAppliedStrip.test.tsx -t "collapses every group"`
@@ -199,7 +230,18 @@ Replace the panel body (`:321-410`) `{open ? (<div id={panelId} data-testid={pan
 - [ ] **Step 4: Run — expect PASS** (this test + the full strip file).
 
 Run: `pnpm vitest run tests/components/admin/RecentAutoAppliedStrip.test.tsx`
-Expected: PASS. (Confirm confirm-panel / bulk-alert `toBeNull` assertions at `:386,:433-473,:522,:550` still pass — those gate on `confirming`/`failed`, unaffected by the mount change. If any assumed collapse-unmount, fix to `not.toBeVisible()` / inert-scoped `within`.)
+Expected: PASS. **Collapse-unmount audit (do NOT skip):** exactly ONE existing
+assertion assumed collapse *unmounts* the panel — `:473` in "alert persists
+across collapse → re-expand" — and it is flipped above. The other `toBeNull`
+bulk-alert assertions are safe because their panel stays EXPANDED throughout:
+`:433` (no undo run yet → no outcome), `:447` (reopen clears the outcome via
+`setBulkUndoOutcome(null)`), `:460` (second all-success run → `failed===0` → the
+*failure* alert is null; note the new sr-only *success* status is a DIFFERENT
+testid, so this still passes). Confirm-panel `toBeNull` at `:386,:522,:550` gate
+on `confirming` (unaffected). Do NOT use `not.toBeVisible()` for any of these —
+jsdom computes no layout, so the `0fr`/`overflow-hidden` clamp is not a
+visibility signal there; `inert` presence is the only valid closed-state
+assertion.
 
 - [ ] **Step 5: Commit**
 
@@ -231,11 +273,11 @@ And keep `:79` `aria-controls` assertion (now unconditional — already `"ignore
 Run: `pnpm vitest run tests/components/admin/IgnoredSheetsDisclosure.test.tsx`
 Expected: FAIL (panel not mounted when closed).
 
-- [ ] **Step 3: Implement** — import `CollapsePanel`; trigger `aria-controls={open ? "ignored-sheets-panel" : undefined}` (`:63`) → `aria-controls="ignored-sheets-panel"`; replace `{open ? (<div id="ignored-sheets-panel" data-testid="ignored-sheets-panel" role="region" aria-label="Ignored sheets list">{children}</div>) : null}` with:
+- [ ] **Step 3: Implement** — import `CollapsePanel`; **remove `gap-3` from the section wrapper** (`:49` `flex w-full max-w-4xl flex-col gap-3` → `flex w-full max-w-4xl flex-col`, per spec §1.3 B parent-gap fix — else the always-mounted 0-height panel leaves a ~12px phantom gap below the header when closed); trigger `aria-controls={open ? "ignored-sheets-panel" : undefined}` (`:63`) → `aria-controls="ignored-sheets-panel"`; replace `{open ? (<div id="ignored-sheets-panel" data-testid="ignored-sheets-panel" role="region" aria-label="Ignored sheets list">{children}</div>) : null}` with:
 
 ```tsx
 <CollapsePanel open={open} id="ignored-sheets-panel" label="Ignored sheets list">
-  {children}
+  <div className="pt-3">{children}</div>
 </CollapsePanel>
 ```
 
@@ -270,7 +312,7 @@ expect(screen.getByTestId("mock-add-admin-form")).toBeInTheDocument();
 Run: `pnpm vitest run tests/components/admin/settings/AdministratorsSection.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — import `CollapsePanel`; replace `{open ? (<div id="admin-settings-add-admin" className="flex flex-col gap-3"><AddAdminForm /></div>) : null}` (`:64-68`) with:
+- [ ] **Step 3: Implement** — import `CollapsePanel`; **remove `gap-3` from the card** (`:61` `flex flex-col gap-3 rounded-md border border-border bg-surface p-4` → `flex flex-col rounded-md border border-border bg-surface p-4`, per spec §1.3 C parent-gap fix — the always-mounted 0-height panel would otherwise leave a ~12px phantom gap below the list when closed); replace `{open ? (<div id="admin-settings-add-admin" className="flex flex-col gap-3"><AddAdminForm /></div>) : null}` (`:64-68`) with:
 
 ```tsx
 <CollapsePanel open={open} id="admin-settings-add-admin" label="Add administrator form">
@@ -280,7 +322,7 @@ Expected: FAIL.
 </CollapsePanel>
 ```
 
-(`AddAdminTrigger` `aria-controls="admin-settings-add-admin"` at `:29` already unconditional — target now genuinely always exists.)
+(`AddAdminTrigger` `aria-controls="admin-settings-add-admin"` at `:29` already unconditional — target now genuinely always exists. The inner `pt-3` provides open-state separation from `{list}`, clipped when closed.)
 
 - [ ] **Step 4: Run — expect PASS.**
 
@@ -332,6 +374,43 @@ it("kind-dot cluster with an unknown kind → single fallback dot, label 'Change
   const cluster = screen.getByTestId("auto-applied-kind-dots");
   expect(cluster).toHaveAttribute("aria-label", expect.stringContaining("Change"));
   expect(cluster.textContent ?? "").not.toContain("weird_new_kind");
+});
+
+// helper to build a single-group fixture with the given change kinds
+function groupData(kinds: string[]): RecentAutoApplied {
+  return {
+    kind: "ok", renderedCount: kinds.length, overflowCount: 0, rosterShiftByShow: {},
+    groups: [{
+      showId: "g", slug: "g", showName: "G", acceptableIds: kinds.map((_, i) => `k${i}`), undoableIds: [],
+      rows: kinds.map((k, i) => ({ id: `k${i}`, changeKind: k, summary: "s", occurredAt: "2026-07-07T00:00:00Z", undoable: false, diff: { kind: "none" as const } })),
+    }],
+  };
+}
+
+it("kind-dot cluster: destructive crew_removed renders and is ordered first (safety hint)", () => {
+  // COLLAPSE-1 is specifically about the destructive Removed being surfaced pre-expand
+  render(<RecentAutoAppliedStrip data={groupData(["crew_added", "crew_removed"])} actions={noopActions()} />);
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const label = cluster.getAttribute("aria-label") ?? "";
+  expect(label).toContain("Removed");
+  expect(label).toContain("Added");
+  // KIND_ORDER puts crew_removed before crew_added → "Removed" precedes "Added"
+  expect(label.indexOf("Removed")).toBeLessThan(label.indexOf("Added"));
+});
+
+it("kind-dot cluster: >4 distinct kinds → 4 dots + a +N overflow marker", () => {
+  // 5 known + 1 unknown = 6 distinct → 4 dots + "+2"
+  render(<RecentAutoAppliedStrip data={groupData(["crew_removed", "crew_renamed", "crew_added", "field_changed", "crew_email_changed", "weird"])} actions={noopActions()} />);
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const dots = [...cluster.querySelectorAll("span[aria-hidden='true']")];
+  const dotEls = dots.filter((el) => el.className.includes("rounded-full"));
+  expect(dotEls.length).toBe(4);
+  expect(cluster.textContent ?? "").toContain("+2");
+});
+
+it("kind-dot cluster: empty rows → renders nothing", () => {
+  render(<RecentAutoAppliedStrip data={groupData([])} actions={noopActions()} />);
+  expect(screen.queryByTestId("auto-applied-kind-dots")).toBeNull();
 });
 ```
 
@@ -474,7 +553,34 @@ it("partial-failure bulk undo shows the failure alert, no success status (preced
   expect(await screen.findByTestId(`auto-applied-bulk-undo-alert-${FIN_ID}`)).toBeInTheDocument();
   expect(screen.queryByTestId(`auto-applied-bulk-undo-success-${FIN_ID}`)).toBeNull();
 });
+
+it("all-success bulk undo with a single undoable row → singular 'change' copy", async () => {
+  const SID = "solo";
+  const data: RecentAutoApplied = {
+    kind: "ok", renderedCount: 1, overflowCount: 0, rosterShiftByShow: {},
+    groups: [{
+      showId: SID, slug: "solo", showName: "Solo", acceptableIds: ["u1"], undoableIds: ["u1"],
+      rows: [{ id: "u1", changeKind: "crew_added", summary: "added", occurredAt: "2026-07-07T00:00:00Z", undoable: true, diff: { kind: "single", caption: "Added", value: "X" } }],
+    }],
+  };
+  render(<RecentAutoAppliedStrip data={data} actions={{ ...noopActions(), undoFromDashboardAction: vi.fn().mockResolvedValue({ ok: true }) }} defaultExpanded />);
+  fireEvent.click(screen.getByTestId(`auto-applied-undo-all-${SID}`));
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`auto-applied-undo-all-confirm-go-${SID}`));
+  });
+  const status = await screen.findByTestId(`auto-applied-bulk-undo-success-${SID}`);
+  expect(status.textContent).toContain("Undid all 1 change");
+  expect(status.textContent).not.toContain("1 changes"); // singular, not plural
+});
 ```
+
+**Also rename the now-stale existing test at `:450`** ("failure alert then a later
+all-success run: alert stays gone after settle (completion writes null)") — its
+`(completion writes null)` clause misdescribes the new always-write behavior.
+Rename to `(completion writes {failed:0,total} → sr-only success, no failure alert)`
+and add `expect(screen.getByTestId(\`auto-applied-bulk-undo-success-${FIN_ID}\`)).toBeInTheDocument()`
+after the existing `alert.toBeNull()` at `:460` so it also pins the success node
+now rendered on the all-success second run (subagent Finding 2).
 
 - [ ] **Step 2: Run — expect FAIL** (success testid never rendered; code sets `null` on success).
 
@@ -509,7 +615,9 @@ git commit --no-verify -m "feat(admin): sr-only status on all-success bulk undo 
 **Files:**
 - Create: `tests/e2e/collapsePanelMorph.spec.ts` (Playwright) OR a standalone esbuild+Playwright harness per the committed real-browser harness pattern (`reference_standalone_realbrowser_layout_harness`).
 
-**Interfaces:** mounts a `CollapsePanel` consumer (simplest: a minimal harness page rendering `CollapsePanel` with a toggle button), asserts region height at settled state.
+**Interfaces:** mounts a `CollapsePanel` consumer (a minimal harness page rendering `CollapsePanel` with a toggle button), asserts region height at settled state.
+
+**CRITICAL — harness MUST load the real compiled app CSS** (Codex plan-review §6.6). The morph depends on `grid-rows-[0fr]`/`grid-rows-[1fr]`, `overflow-hidden`, `transition-[grid-template-rows]`, `duration-normal`, and the `prefers-reduced-motion` token collapse — all defined by the project's Tailwind build + `app/globals.css`. A bare harness that renders `CollapsePanel` without that stylesheet leaves the utilities unstyled, so the region height would be its natural (non-clamped) height in BOTH states and the test would pass/fail for CSS-absence reasons, not the morph. The harness page MUST inline or `<link>` the project's compiled CSS (the same Tailwind+globals output the app ships). Add a pre-assertion CSS sanity guard.
 
 - [ ] **Step 1: Write the failing test** — mount a page with a `CollapsePanel` (id `morph-probe`) toggled by a button; assert:
 
@@ -517,8 +625,12 @@ git commit --no-verify -m "feat(admin): sr-only status on all-success bulk undo 
 // Deterministic: reduced-motion collapses --duration-normal to 0ms (globals.css)
 // so the toggle is instantaneous — no mid-transition sampling / flake.
 await page.emulateMedia({ reducedMotion: "reduce" });
-// … navigate to the probe page …
+// … navigate to the probe page (which loads the compiled Tailwind+globals CSS) …
 const region = page.getByTestId("morph-probe"); // the overflow-hidden role=region grid-item
+// CSS sanity guard: the morph utilities actually resolved (not an unstyled harness)
+const track = region.locator("xpath=.."); // the outer grid track
+expect(await track.evaluate((el) => getComputedStyle(el).display)).toBe("grid");
+// Height contract
 expect(await region.evaluate((el) => el.getBoundingClientRect().height)).toBe(0); // closed
 await page.getByTestId("morph-toggle").click();
 expect(await region.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(0); // open, instant
@@ -526,7 +638,7 @@ expect(await region.evaluate((el) => el.getBoundingClientRect().height)).toBeGre
 
 - [ ] **Step 2: Run — expect FAIL** (harness/spec absent).
 
-- [ ] **Step 3: Implement** the harness page + spec (follow the committed real-browser harness: tsx static markup, pinned esbuild bundle, `data-testid` probes).
+- [ ] **Step 3: Implement** the harness page + spec (follow the committed real-browser harness: tsx static markup, pinned esbuild bundle, `data-testid` probes) — and ensure the harness HTML pulls in the project's compiled CSS so the Tailwind utilities + `--duration-*` tokens + reduced-motion media query exist. If wiring the full Tailwind build into a standalone harness is disproportionate, instead point the Playwright probe at a REAL app route that renders a `CollapsePanel` consumer under the dev server (e.g. the dashboard's IgnoredSheetsDisclosure), where the real CSS is guaranteed — and toggle that disclosure.
 
 - [ ] **Step 4: Run — expect PASS.** (Env-bound e2e: excluded from `pnpm test`; run explicitly. Confirm it is not referenced by removed-testid grep gates.)
 
