@@ -21,6 +21,11 @@
  *     open-sheet) · Archive.
  *   - Unpublished (held)                          → alert · INACTIVE-share notice · sheet/sync
  *     (still resyncable/archivable — held is not archived) · Archive.
+ *   - Publishing… (finalize-owned, !archived)     → the show is immutable while the finalize job
+ *     holds it (spec §6): the Archive control is SUPPRESSED (matching the old page, which only
+ *     rendered its lifecycle section for archived||held). The archive server action carries its
+ *     own finalize-ownership refusal as the backstop, but we don't render a control the server
+ *     would reject. Every other affordance renders per the published/held mode above.
  *   - Archived (read-only)                        → alert · INACTIVE-share notice · Re-sync-PAUSED
  *     notice (no Re-sync button, no callout) · UNARCHIVE (the only lifecycle control).
  *
@@ -30,6 +35,7 @@
  * Guard conditions (spec §11):
  *   - `openSheetHref` null → the open-sheet link is omitted (never a dead "Open sheet ↗").
  *   - actionable-warnings 0 → a standalone Re-sync (no correction-loop callout).
+ *   - `finalizeOwned` true (and not archived) → the Archive control is hidden (Publishing… window).
  */
 
 import type { ReactNode } from "react";
@@ -51,6 +57,9 @@ export type OverviewSectionProps = {
   archived: boolean;
   /** Publish state: an unpublished (held) show shows the inactive-share notice. */
   published: boolean;
+  /** Finalize-owned ("Publishing…") window (spec §6): the show is immutable, so the Archive
+   *  control is suppressed. Same value the StatusStrip freezes the publish toggle on. */
+  finalizeOwned: boolean;
   /** Google Sheet deep link (built by `buildSheetDeepLink`); null → link omitted. */
   openSheetHref: string | null;
   /** ≥1 active actionable parse warning → Re-sync is framed by the correction-loop callout. */
@@ -71,6 +80,7 @@ export function OverviewSection({
   showId,
   archived,
   published,
+  finalizeOwned,
   openSheetHref,
   hasActionableWarnings,
   archiveAction,
@@ -140,11 +150,12 @@ export function OverviewSection({
       </div>
 
       {/* Archive lifecycle — an archived show offers only Unarchive (read-only); a live or held
-          show offers Archive. */}
+          show offers Archive. During the finalize-owned "Publishing…" window the show is immutable
+          (spec §6), so the Archive control is suppressed — the row renders empty. */}
       <div data-testid="overview-archive-row" className="flex flex-wrap items-start gap-3">
         {archived ? (
           <UnarchiveShowButton showId={showId} unarchiveAction={unarchiveAction} />
-        ) : (
+        ) : finalizeOwned ? null : (
           <ArchiveShowButton archiveAction={archiveAction} compact />
         )}
       </div>

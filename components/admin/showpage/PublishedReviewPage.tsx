@@ -138,6 +138,7 @@ export function PublishedReviewPage(props: PublishedReviewPageProps) {
         showId={showId}
         archived={archived}
         published={published}
+        finalizeOwned={finalizeOwned}
         openSheetHref={openSheetHref}
         hasActionableWarnings={hasActionableWarnings}
         archiveAction={archiveAction}

@@ -53,6 +53,7 @@ function baseProps(overrides: Partial<OverviewSectionProps> = {}): OverviewSecti
     showId: SHOW_ID,
     archived: false,
     published: true,
+    finalizeOwned: false,
     openSheetHref: SHEET_HREF,
     hasActionableWarnings: false,
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
@@ -125,6 +126,26 @@ describe("OverviewSection", () => {
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
+  });
+
+  it("Publishing… (finalize-owned, !archived): Archive suppressed; Re-sync + share panel stay", () => {
+    render(<OverviewSection {...baseProps({ finalizeOwned: true })} />);
+    // Immutable window (spec §6): the Archive control is hidden — not merely disabled.
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    // The row wrapper still renders (empty), and no Unarchive leaks in (show is not archived).
+    expect(screen.getByTestId("overview-archive-row")).toBeTruthy();
+    expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
+    // Every other affordance is unaffected by the finalize window.
+    expect(screen.getByTestId("admin-resync-button")).toBeTruthy();
+    expect(screen.getByTestId("mock-share-slot")).toBeTruthy();
+  });
+
+  it("finalize-owned is ignored once archived: Unarchive shown, Archive still absent", () => {
+    render(
+      <OverviewSection {...baseProps({ archived: true, published: false, finalizeOwned: true })} />,
+    );
+    expect(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
   });
 
   it("null open-sheet href: the open-sheet link is omitted (no dead link)", () => {

@@ -12,13 +12,13 @@
  *   - the PublishedToggle enable/disable states across finalize-ownership (spec
  *     §3.2 / R3): held → OFF-enabled, publishing → OFF-disabled, live+finalize →
  *     ON-disabled, live → ON-enabled;
- *   - archived → Unarchive present, toggle absent; held/live → Archive present.
+ *   - archived → Unarchive present, toggle absent; held/live → Archive present;
+ *   - Publishing… (finalize-owned) → Archive SUPPRESSED (the show is immutable, spec §6),
+ *     matching the old page whose lifecycle section only rendered for archived||held.
  *
- * NOTE (whole-diff watchpoint): the old page suppressed the Archive button during
- * the finalize-owned "Publishing…" window (its lifecycle section only rendered
- * for archived||held). The consolidated OverviewSection renders Archive whenever
- * !archived; the strip toggle is still frozen (finalizeOwned), and the archive
- * server action carries its own finalize-ownership refusal. Flagged for review.
+ * The Archive-hidden-during-Publishing behavior (dropped in the Task 13 rebuild, restored
+ * per the Task 13 review Finding 1) is owned by OverviewSection's `finalizeOwned` prop; the
+ * strip toggle is independently frozen and the archive server action still refuses.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -176,13 +176,17 @@ describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
     expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
   });
 
-  it("Publishing… (!published + finalize-owned): toggle OFF-DISABLED (frozen mid-publish)", async () => {
+  it("Publishing… (!published + finalize-owned): toggle OFF-DISABLED + Archive SUPPRESSED", async () => {
     state.snapshot = snapshotFor({ published: false, archived: false });
     state.finalizeOwned = true;
     await renderPage();
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(true);
+    // Restored (Task 13 review Finding 1): the show is immutable mid-publish, so the Archive
+    // control is hidden — not archived, so no Unarchive either.
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
   });
 
   it("Live + finalize-owned (pending-changes finalize, spec R3): toggle ON-DISABLED before any click", async () => {
