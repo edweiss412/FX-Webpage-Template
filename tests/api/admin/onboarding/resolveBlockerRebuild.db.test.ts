@@ -185,7 +185,9 @@ function scanReturning(outcome: OutcomeKind): typeof ScanFn {
       case "not_staged":
         return {
           outcome: "completed",
-          processed: [{ driveFileId: DRIVE, name: "rebuild-test-sheet", outcome: "skipped_non_sheet" }],
+          processed: [
+            { driveFileId: DRIVE, name: "rebuild-test-sheet", outcome: "skipped_non_sheet" },
+          ],
         };
       case "hard_failed":
         return {

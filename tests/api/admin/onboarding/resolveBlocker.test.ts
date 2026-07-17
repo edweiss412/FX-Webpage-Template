@@ -58,7 +58,12 @@ const adminDeps = { requireAdminIdentity: async () => ({ email: ADMIN_EMAIL }) }
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(LOCAL_URL, { max: 2, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(LOCAL_URL, {
+    max: 2,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;
@@ -165,13 +170,27 @@ describe("POST /api/admin/onboarding/resolve-blocker — body guards (no DB)", (
   });
 
   test.each([
-    ["missing action", { wizardSessionId: SESSION, driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE }],
+    [
+      "missing action",
+      { wizardSessionId: SESSION, driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE },
+    ],
     ["missing code", { wizardSessionId: SESSION, driveFileId: DRIVE_FILE_ID, action: "unarchive" }],
-    ["missing driveFileId", { wizardSessionId: SESSION, code: SHOW_ARCHIVED_IMMUTABLE, action: "unarchive" }],
-    ["missing wizardSessionId", { driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE, action: "unarchive" }],
+    [
+      "missing driveFileId",
+      { wizardSessionId: SESSION, code: SHOW_ARCHIVED_IMMUTABLE, action: "unarchive" },
+    ],
+    [
+      "missing wizardSessionId",
+      { driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE, action: "unarchive" },
+    ],
     [
       "empty-string wizardSessionId",
-      { wizardSessionId: "", driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE, action: "unarchive" },
+      {
+        wizardSessionId: "",
+        driveFileId: DRIVE_FILE_ID,
+        code: SHOW_ARCHIVED_IMMUTABLE,
+        action: "unarchive",
+      },
     ],
     [
       "non-string code",
@@ -179,7 +198,12 @@ describe("POST /api/admin/onboarding/resolve-blocker — body guards (no DB)", (
     ],
     [
       "unrecognized action",
-      { wizardSessionId: SESSION, driveFileId: DRIVE_FILE_ID, code: SHOW_ARCHIVED_IMMUTABLE, action: "delete" },
+      {
+        wizardSessionId: SESSION,
+        driveFileId: DRIVE_FILE_ID,
+        code: SHOW_ARCHIVED_IMMUTABLE,
+        action: "delete",
+      },
     ],
     ["no body at all", undefined],
   ])("bad_request when %s", async (_label, body) => {

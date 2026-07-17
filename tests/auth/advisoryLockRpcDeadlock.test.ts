@@ -723,9 +723,10 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
     // or resolveRebuild depending on `action` — both call sites must be textually AFTER the
     // lock acquisition (the lock is taken once, before either dispatch branch).
     const lockAt = dispatchBody!.search(/pg_advisory_xact_lock\s*\(/);
-    expect(lockAt, `${ROUTE}: handleResolveBlocker never calls pg_advisory_xact_lock`).toBeGreaterThan(
-      -1,
-    );
+    expect(
+      lockAt,
+      `${ROUTE}: handleResolveBlocker never calls pg_advisory_xact_lock`,
+    ).toBeGreaterThan(-1);
     const unarchiveDispatchAt = dispatchBody!.search(/resolveUnarchive\s*\(/);
     const rebuildDispatchAt = dispatchBody!.search(/resolveRebuild\s*\(/);
     expect(
