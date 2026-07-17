@@ -482,11 +482,11 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const available = item.available && !failedKeys.has(item.key);
+              const available = item.available && !failedKeys.has(item.id);
               const isActive = i === activeIndex;
               return (
                 <figure
-                  key={item.key}
+                  key={item.id}
                   className="flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
                   {available ? (
@@ -678,9 +678,9 @@ export function GalleryLightbox({
                               controlsSlotRef.current?.resetTransform();
                               setActiveScale(1);
                               setFailedKeys((prev) => {
-                                if (prev.has(item.key)) return prev;
+                                if (prev.has(item.id)) return prev;
                                 const next = new Set(prev);
-                                next.add(item.key);
+                                next.add(item.id);
                                 return next;
                               });
                             }}
@@ -707,9 +707,9 @@ export function GalleryLightbox({
                         decoding="async"
                         onError={() =>
                           setFailedKeys((prev) => {
-                            if (prev.has(item.key)) return prev;
+                            if (prev.has(item.id)) return prev;
                             const next = new Set(prev);
-                            next.add(item.key);
+                            next.add(item.id);
                             return next;
                           })
                         }
