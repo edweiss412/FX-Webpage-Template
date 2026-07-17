@@ -209,6 +209,8 @@ The header flex row (`flex items-center gap-2`) has no fixed-dimension parent wi
 
 The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_change_log` seed insert is on an unlocked table (invariant 2's set is `shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`). `WALKER_DRIVE_FILE_IDS` and its sorted-order lock sweep (`seedWalkerFixtures.ts:33-53`, pinned by `tests/db/seed-restage-fixture.test.ts`) are **unchanged** — no new drive_file_id, no lock reorder. The base-seed cleanup delete on `show_change_log` also needs no lock. `tests/auth/advisoryLockRpcDeadlock.test.ts` is not extended (no new lock surface).
 
+**No new `pending_syncs`/locked-table write anywhere, including tests (Codex R4/R6).** The gap adjacency test does NOT insert `pending_syncs`; it runs under `help-docs-desktop` and READS `/admin`, where the inbox is already populated by the pre-existing locked `seed-fixture:walker-first-seen` `pending_syncs` row (seeded inside `seedWalkerFixtures.ts`'s advisory-lock transaction) and the strip is rendered by the sentinel `auto_apply` `show_change_log` row. Zero new mutation → no lock-topology surface added.
+
 ## 8. Meta-test inventory + test plan
 
 **Meta-tests touched (declared per writing-plans rule):**
@@ -221,7 +223,7 @@ The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_chan
 **New / updated unit tests (TDD):**
 - `RecentAutoAppliedStrip.test.tsx` — (a) dashboard header (`headingLevel={4}`) renders `recent-auto-applied-count-chip` with `renderedCount + overflowCount`; (b) dashboard header renders the HoverHelp with `rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"` and `learnMore` href `/help/admin/review-queues#re-stage`; (c) dashboard `infra_error` branch renders the help but NO count chip; (d) `headingLevel={2}` (needs-attention page) renders NEITHER chip NOR help (queryByTestId null) AND the `Recently auto-applied` heading is NOT wrapped in a `flex items-center gap-2` div — assert its `parentElement` is the strip `<section>`, not a flex wrapper (bare-DOM contract, Codex R4 finding 2); (e) existing per-group `auto-applied-count-${showId}` badges unaffected.
   - Anti-tautology: assert the chip text equals `renderedCount + overflowCount` derived from the fixture (e.g. `4 + 3 = 7`), not a hardcoded literal divorced from the fixture.
-- `NeedsAttentionInbox` gap: a real-browser (Playwright) assertion at desktop (≥1240px) with a populated inbox + a rendered strip, asserting the strip section's `getBoundingClientRect().top` is within a small tolerance of the inbox's `bottom + gap-3` (12px) — i.e. no detached band. **Also asserts the ok-path rendered: `recent-auto-applied-count-chip` visible AND `auto-applied-error` absent (Codex R5)** — so this real-browser test doubly proves the seeded backlog renders via `data.kind==="ok"`, not the error fallback. jsdom cannot compute layout, so this is a Playwright test (project rule). Concrete failure mode it catches: reintroducing `h-full` (or `flex-1`) on the inbox re-opens the gap.
+- `NeedsAttentionInbox` gap: a real-browser (Playwright) test added to `deep-link-walker.spec.ts` (runs under `help-docs-desktop`, 1280×800). It READS `/admin` — inbox populated by the pre-existing locked `walker-first-seen` `pending_syncs` seed, strip rendered by the sentinel `auto_apply` seed — and asserts the strip section's `getBoundingClientRect().top` is within a small tolerance of the inbox's `bottom + gap-3` (12px) — i.e. no detached band. **Also asserts the ok-path rendered: `recent-auto-applied-count-chip` visible AND `auto-applied-error` absent (Codex R5).** No new DB write (Codex R6). jsdom cannot compute layout, so this is a Playwright test (project rule). Concrete failure mode it catches: reintroducing `h-full` (or `flex-1`) on the inbox re-opens the gap.
 
 **Full-suite + gates:**
 - `pnpm test` (Vitest) green.
@@ -248,7 +250,7 @@ The plan touches `pg_advisory*` **only** by NOT adding to it: the new `show_chan
 | `supabase/seedWalkerFixtures.ts` | +`autoAppliedSeedSql()` + sentinel const, composed into the seeder SQL. |
 | `supabase/seed.ts` | +1 cleanup delete for `created_by like 'seed-fixture:%'`. |
 | `tests/components/admin/RecentAutoAppliedStrip.test.tsx` | Header parity assertions (TDD). |
-| `tests/e2e/admin-nav-layout-dimensions.spec.ts` | Real-browser inbox↔strip adjacency + ok-path assertion (TDD); self-seeds fixtures per `:161` convention. |
+| `tests/e2e/deep-link-walker.spec.ts` | New real-browser inbox↔strip adjacency + ok-path test, reusing existing locked seeds (no new DB write). |
 | `tests/e2e/help-docs-setup.ts` | Seed-postcondition assertion for the sentinel row (Codex R5). |
 
 No migration (`show_change_log` already exists); no `validation-schema-parity` impact.
@@ -262,4 +264,4 @@ No migration (`show_change_log` already exists); no `validation-schema-parity` i
 - **Chip + help are dashboard-only (Codex R1 finding 2):** the shared strip also renders on `/admin/needs-attention` (`headingLevel={2}`); gating the new chrome on `headingLevel === 4` keeps a `dashboard`-named affordance on the dashboard, avoids duplicating that page's existing header help, and matches the single desktop matrix row. Not a scope cut — the request was dashboard-header parity.
 - **Seeded fixture is non-undoable (Codex R1 finding 1):** `field_changed` avoids the broken-Undo path a `crew_added` fixture would create (undo RPC keys on `entity_ref`→`crew_members`, which the fixture wouldn't populate). The walker only needs the strip + tooltip visible.
 - **`StripHeader` returns the BARE heading when `!showAffordances` (Codex R4 finding 2):** no wrapper `div` on `/admin/needs-attention` → that shared route's DOM is byte-for-byte unchanged. The flex chrome is dashboard-only; the needs-attention page is not brought into scope.
-- **Gap-test `pending_syncs` fixture is lock-free by established convention (Codex R4 finding 1):** invariant 2 governs runtime mutation paths, not e2e fixtures; the test reuses the already-shipped lock-free service-role fixture in `admin-nav-layout-dimensions.spec.ts:161`. Not a new mutation surface.
+- **Gap test adds ZERO new DB writes (Codex R4/R6):** it does not insert `pending_syncs`; it runs under `help-docs-desktop` and READS `/admin`, where the inbox is populated by the pre-existing locked `walker-first-seen` seed and the strip by the sentinel `auto_apply` seed. No lock-topology surface added — the earlier "lock-free fixture is fine" argument is withdrawn in favor of adding no mutation at all.
