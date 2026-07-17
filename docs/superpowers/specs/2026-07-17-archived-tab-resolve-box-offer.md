@@ -78,7 +78,7 @@ Add an **optional** `showDismiss?: boolean` (default `true`) to `ArchivedTabOffe
 
 Why: `ArchivedTabOffer` returns `null` once its local `dismissed` state is set (`step3ReviewSections.tsx:2137`). But `hasPendingArchivedOffer` / `offers` derive from **server** data, which a local dismiss does not change. On an archived-only row with a single offer, a box-local "Keep skipped" would unmount the sole child while the section stays mounted (`offers.length > 0`), leaving a **bare titled "Resolve before publishing" box** (Codex spec-R2-2). Suppressing the local dismiss in the box makes the box's archived region a **pure function of server `offers`**: it appears while an offer is pending and disappears only when accept → `router.refresh()` recomputes `offers = []`. No empty-box state exists. "Keep skipped" is not lost to the admin — it remains on the Pack-list instance, and skipping is also the default outcome (not accepting leaves the gear out). This is a rendering prop, not a mutation-path change, so it does not reintroduce the §4.5 asymmetry.
 
-`onDismissFocus` becomes **optional**, invoked only when `showDismiss` is true; the box omits it.
+The prop shape is a **discriminated union** so the focus contract is not weakened: `{ showDismiss?: true; onDismissFocus: () => void } | { showDismiss: false; onDismissFocus?: never }`. A dismissible offer (default/`true`) still **requires** `onDismissFocus` (Pack-list unchanged); only `showDismiss={false}` (the box) may omit it. This prevents a future callsite from rendering a dismissible offer without a WCAG focus handoff.
 
 ### 4.7 Concurrency safety (two live entry points)
 Two mounted `ArchivedTabOffer` instances (box + Pack-list) can each fire an accept `POST` before `router.refresh()`. This is **safe by the route's existing compare-and-set contract**, no shared client pending-state required:
@@ -112,6 +112,7 @@ Because the box passes `showDismiss={false}` (§4.5b), the box offer has **no** 
 | mixed `[{included:true},{included:false}]` | `overrideActive = true` → `offers = []` → no box offer, **identical to Pack-list** (§4.2 parity; pre-existing single-override contract, not changed here). |
 | multiple non-included tabs (none included) | `offers.map(...)` renders each (mirror Pack-list; no cap — matches existing unbounded map). |
 | box-local "Keep skipped" dismissed | **not possible** — box passes `showDismiss={false}` (§4.5b); the box offer has no dismiss button, so the box region is a pure function of server `offers` and never strands an empty titled box. |
+| Pack-list "Keep skipped" dismissed while box duplicate present | deliberate: Pack-list dismiss is instance-local (`dismissed` state), so it hides only the Pack-list card; the box offer remains (server-derived `offers` unchanged). Accepted — the box is the canonical "resolve before publishing" surface; a Pack-list-only local hide does not resolve the server decision, so the box correctly still shows it. Not a stale-UI bug. |
 | `reviewItemsCorrupt === true` | corrupt copy renders (unchanged) **and** archived offer renders below if pending (independent branches). |
 | `tab.contentChangedSinceAccept === true` (S4) | `ArchivedTabOffer` renders its own S4 re-confirm tone (unchanged component behavior). |
 | `isPublishRunActive === true` | offer stays live (no freeze — §4.5); server CAS + finalize override-gate guard correctness. Same as the existing Pack-list offer. |
@@ -131,7 +132,9 @@ Two visual states for the box's archived region: **absent** ↔ **offer present*
 | offer present → offer removed (accept success → refresh → `overrideActive` true → `offers=[]`) | instant — server-truth reconciliation, no animation. |
 | accept fails (409 stale_review / network) → error note | instant — the component's preexisting `error` state renders inline; unchanged behavior. |
 
-The box offer has **no** "Keep skipped" dismiss (`showDismiss={false}`, §4.5b), so no box-local dismiss transition exists; the box region transitions only on server-truth (`offers` recompute after refresh). The Pack-list instance keeps its unchanged dismiss transition. `ArchivedTabOffer`'s internal `pending`/`error` states are preexisting and unchanged. No `disabled`/publish-run compound transition exists — the offer is never frozen (§4.5).
+The box offer has **no** "Keep skipped" dismiss (`showDismiss={false}`, §4.5b), so no box-local dismiss transition exists; the box region transitions only on server-truth (`offers` recompute after refresh). The Pack-list instance keeps its unchanged dismiss transition.
+
+**Cross-instance pending (compound):** clicking accept sets the local `pending` state on **only that instance**; the peer (box or Pack-list) stays enabled until the winning accept's `router.refresh()` unmounts both. A duplicate accept fired on the peer in that window is reconciled by the route's existing 409 CAS handling (§4.7) — no client coordination. `ArchivedTabOffer`'s internal `pending`/`error` states are preexisting and unchanged. No `disabled`/publish-run compound transition exists — the offer is never frozen (§4.5).
 
 ## 9. Testing (failure mode per test)
 
