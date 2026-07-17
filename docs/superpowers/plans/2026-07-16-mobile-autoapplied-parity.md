@@ -49,10 +49,9 @@ Execution order: **1 → 2 → 3 → 4 → 5 → 6 → 7**. Task 1 (strip `headi
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/components/admin/RecentAutoAppliedStrip.test.tsx` (reuse the file's existing fixture builders; if none, construct a minimal `RecentAutoApplied` inline). The fixture MUST include one group with rows so the populated branch renders.
+Add to `tests/components/admin/RecentAutoAppliedStrip.test.tsx` (reuse the file's existing fixture builders; if none, construct a minimal `RecentAutoApplied` inline). The fixture MUST include one group with rows so the populated branch renders. Do NOT add any new React import — the test references only Testing-Library APIs.
 
 ```tsx
-import { useId } from "react"; // (only if not already imported by the file)
 // Minimal ok fixture with one group (adapt to the file's existing helper if present):
 const okData = {
   kind: "ok" as const,
@@ -297,6 +296,19 @@ it("passes publishedShowIds:[] to loadRecentAutoApplied", async () => {
   raState.result = okData;
   render(await NeedsAttentionPage());
   expect(raState.calls[0]).toEqual({ publishedShowIds: [] });
+});
+
+it("strip is a SIBLING AFTER the needs-attention section (DOM order, not nested)", async () => {
+  state.result = successResult;
+  raState.result = okData;
+  render(await NeedsAttentionPage());
+  // The inbox <section aria-label="Needs attention"> has implicit role=region.
+  const inbox = screen.getByRole("region", { name: "Needs attention" });
+  const strip = screen.getByTestId("recent-auto-applied-strip");
+  // Same parent → siblings (strip NOT nested inside the inbox section).
+  expect(strip.parentElement).toBe(inbox.parentElement);
+  // strip follows the inbox in document order (below, not above).
+  expect(inbox.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 it("strip infra_error renders degraded copy while inbox is healthy", async () => {
@@ -670,8 +682,8 @@ and FLOW4-7 (`:503`) to:
 
 - [ ] **Step 2: Verify no BACKLOG edit needed**
 
-Run: `grep -rn "BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY" BACKLOG.md docs/superpowers/plans/BACKLOG.md || echo "no backlog row (expected)"`
-Expected: `no backlog row (expected)` — the DEFERRED ref was a forward-looking id never filed.
+Run: `grep -rn "BL-FLOW4" BACKLOG.md docs/superpowers/plans/BACKLOG.md || echo "no backlog row (expected)"`
+Expected: `no backlog row (expected)` — the DEFERRED ref was a forward-looking id never filed (spec §9 verified NO `BL-FLOW4-*` row exists in either file). If a row IS found, mark it shipped in the same commit instead of skipping.
 
 - [ ] **Step 3: format:check the docs**
 
