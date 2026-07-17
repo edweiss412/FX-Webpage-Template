@@ -405,7 +405,19 @@ function GroupSection({
         </button>
       </GroupHeading>
 
-      <CollapsePanel open={open} id={panelId} label={`Auto-applied changes for ${group.showName}`}>
+      {/* region={false}: the strip can render up to STRIP_RENDER_CAP=50 groups, so
+          a region landmark per group would swamp the AT landmark list (WAI-APG
+          cautions against many regions). The toggle above already names + controls
+          this panel (aria-expanded + aria-controls={panelId}, show-name as its
+          accessible name), so the landmark adds nothing. The two singleton
+          disclosures (IgnoredSheets, AddAdmin) keep region=true. See
+          COLLAPSE-REGION-1 / BL-COLLAPSEPANEL-REGION-OPTOUT. */}
+      <CollapsePanel
+        open={open}
+        region={false}
+        id={panelId}
+        label={`Auto-applied changes for ${group.showName}`}
+      >
         <div>
           {/* Bulk actions sit on their OWN row underneath the show name, not beside
               it — and outside the toggle <button> (a11y: no nested interactives). */}
