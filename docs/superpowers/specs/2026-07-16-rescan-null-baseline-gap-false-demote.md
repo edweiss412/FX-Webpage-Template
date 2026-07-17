@@ -30,7 +30,7 @@ const gapRegressed = (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
 | C | Corrupt Flow-B shadow (unreadable payload) | `true` | `null` | `:139-145` | caller's `:288` clause force-dirties — gate irrelevant |
 | D | No prior row at all (first-seen OR pending row consumed by finalize) | `false` | `null` | `:148-154` | gate off → `gapRegressed=false` → clean path (correct) |
 
-Safety: shapes A and C keep demoting via the caller's independent `priorParse === null` clause (`:288`), so gating the gap gate never weakens the corrupt-prior protection. Shapes B and D are the intended fix targets — a re-scan with **no comparable baseline** must not manufacture a gap regression from a standing warning. At the `computeRescanDecision` unit boundary all four shapes present identical inputs `(priorParse=null, refreshed, priorDataGaps=null)` — the `priorReady` distinction lives in the caller — so one unit test over the null-baseline input covers the decision behavior for A–D, and the caller's `:288` clause (already pinned by `tests/onboarding/applyRescanDecisionUnderLock.test.ts`) covers the A/C force-dirty.
+Safety: shapes A and C keep demoting via the caller's independent `priorParse === null` clause (`:288`), so gating the gap gate never weakens the corrupt-prior protection. Shapes B and D are the intended fix targets — a re-scan with **no comparable baseline** must not manufacture a gap regression from a standing warning. At the `computeRescanDecision` unit boundary all four shapes present identical inputs `(priorParse=null, refreshed, priorDataGaps=null)` — the `priorReady` distinction lives in the caller — so one unit test over the null-baseline input covers the decision behavior for A–D, and the caller's `:288` clause covers the A/C force-dirty (the approved-corrupt-pending force-dirty is pinned by `tests/onboarding/rescanWizardSheet.db.test.ts:620-648`).
 
 **Proven reproduction (read-only, validation project `vzakgrxqwcalbmagufjh`, show "RFI & PC Chicago", `drive_file_id 1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg`):** the sheet carries a permanent `PULL_SHEET_ON_ARCHIVED_TAB` warning (its `OLD PULL SHEET` tab — a fixed property of the sheet, `lib/parser/dataGaps.ts:57`, non-ambiguity per `lib/parser/ambiguityCodes.ts:19-24`). Running the exact decision inputs:
 
@@ -72,7 +72,7 @@ const gapRegressed =
   );
 ```
 
-`summarizeDataGaps` (`lib/parser/dataGaps.ts:232`) seeds from `zeroClasses()` (`:91`) and returns that all-keys-zeroed `classes` record on every path (`:134`, `:143`, `:236`, `:246`), so once `priorGaps != null`, `priorGaps[cls]` is always a number — the `?? 0` becomes dead and is removed. A genuine all-zero baseline (prior had no gaps) still correctly catches a 0→1 regression because that baseline is a non-null record.
+`summarizeDataGaps` (`lib/parser/dataGaps.ts:232`) seeds `classes` from `zeroClasses()` (`:91`, `:235`) and returns that all-keys-zeroed record on both its null-warnings (`:236`) and normal (`:246`) paths, so once `priorGaps != null`, `priorGaps[cls]` is always a number — the `?? 0` becomes dead and is removed. A genuine all-zero baseline (prior had no gaps) still correctly catches a 0→1 regression because that baseline is a non-null record.
 
 ### Guard conditions (every input)
 
