@@ -17,7 +17,7 @@ No change. The new `show_change_log` seed insert + base-seed cleanup delete are 
 
 ## Task order (TDD, one commit each)
 
-Ordering rationale: the matrix row (Task 2) must precede the `<HoverHelp>` call site (Task 3) or the parity meta-test fails on the call site with no live testid.
+Ordering rationale: the affordance matrix row and the `<HoverHelp>` call site MUST land in the SAME commit. `_metaAffordanceMatrixParity.test.ts:100-114` requires every live concrete testid to occur EXACTLY ONCE across `components/`+`app/` (the matrix file itself is excluded from that scan). Adding the row alone → testid occurs zero times → fail; adding the call site alone → references a non-live testid → fail. So the matrix row + `StripHeader` (with the HoverHelp) are one task/commit (Task 2), with the parity meta-test expected RED until both sides land together.
 
 ### Task 1 — Gap fix (`fix(admin): …`)
 
@@ -25,29 +25,29 @@ Ordering rationale: the matrix row (Task 2) must precede the `<HoverHelp>` call 
 - **Implementation:** `components/admin/NeedsAttentionInbox.tsx:182` — remove `h-full` from the populated-branch root (`flex h-full flex-col gap-2` → `flex flex-col gap-2`). Empty-state branch (:170) untouched.
 - **Verify:** the new Playwright assertion green; `Dashboard.test.tsx` still green.
 
-### Task 2 — Affordance matrix row (`feat(admin): …` or `test(help): …`)
+### Task 2 — Strip header parity + affordance row (ONE commit) (`feat(admin): …`)
 
-- **Test first:** in `tests/help/_affordance-matrix-shape.test.ts`, add `"help-affordance--dashboard-recently-auto-applied--tooltip"` to the sorted expected array (:42-72) and bump `toHaveLength(18)` → `19` (:102) with the comment extended (`+1 recently-auto-applied strip header help`). Runs RED (row absent).
-- **Implementation:** add the concrete row to `AFFORDANCE_MATRIX` (`app/help/_affordanceMatrix.ts`) exactly per spec §4.3 (`sourceRoute:"/admin"`, `target:"/help/admin/review-queues#re-stage"`, `visibleAt:"desktop"`).
-- **Verify:** `pnpm test tests/help/_affordance-matrix-shape.test.ts` green. `_metaAffordanceMatrixParity.test.ts` still green (a live testid with no call site yet is allowed — the reverse requirement is the e2e walker, run in Task 4).
+The matrix row and the HoverHelp call site land together (parity occurrence-uniqueness rule above). Shape-test edit + strip-component test are the red phase; matrix row + `StripHeader` are the green.
 
-### Task 3 — Strip header parity, dashboard-only (`feat(admin): …`)
-
-- **Test first:** `tests/components/admin/RecentAutoAppliedStrip.test.tsx` — add cases per spec §8:
-  (a) `headingLevel={4}` + `ok` fixture (`renderedCount:4, overflowCount:3`) → `recent-auto-applied-count-chip` has text `7` (**derived** `4+3`, not a bare literal — assert against the summed fixture fields);
-  (b) `headingLevel={4}` → HoverHelp root `help-affordance--dashboard-recently-auto-applied--tooltip` present, its "Learn more" link href = `/help/admin/review-queues#re-stage`;
-  (c) `headingLevel={4}` + `infra_error` → help present, `recent-auto-applied-count-chip` null;
-  (d) `headingLevel={2}` + `ok` → BOTH `recent-auto-applied-count-chip` AND `help-affordance--dashboard-recently-auto-applied--tooltip` null (queryByTestId);
-  (e) existing per-group `auto-applied-count-${showId}` badge assertions unchanged (regression).
-- **Implementation:** `components/admin/RecentAutoAppliedStrip.tsx` — add `StripHeader` sub-component (spec §4.2), render it in both `ok` and `infra_error` returns replacing the bare `<SectionHeading>`, passing `showAffordances={headingLevel === 4}` and `count`. Import `HoverHelp`.
-- **Impeccable note:** this is the primary UI surface — the invariant-8 dual-gate (Task 6) reviews this diff.
-- **Verify:** strip test file green; `pnpm test tests/help/_metaAffordanceMatrixParity.test.ts` green (call site now references the live row).
+- **Test first (RED — all four features absent):**
+  - `tests/help/_affordance-matrix-shape.test.ts` — add `"help-affordance--dashboard-recently-auto-applied--tooltip"` to the sorted expected array (:42-72) and bump `toHaveLength(18)` → `19` (:102), comment extended (`+1 recently-auto-applied strip header help`).
+  - `tests/components/admin/RecentAutoAppliedStrip.test.tsx` — add cases per spec §8:
+    (a) `headingLevel={4}` + `ok` fixture (`renderedCount:4, overflowCount:3`) → `recent-auto-applied-count-chip` text `7` (**derived** `4+3` from the summed fixture fields, not a bare literal);
+    (b) `headingLevel={4}` → HoverHelp root `help-affordance--dashboard-recently-auto-applied--tooltip` present, its "Learn more" link href = `/help/admin/review-queues#re-stage`;
+    (c) `headingLevel={4}` + `infra_error` → help present, `recent-auto-applied-count-chip` null;
+    (d) `headingLevel={2}` + `ok` → BOTH `recent-auto-applied-count-chip` AND the help root null (queryByTestId);
+    (e) existing per-group `auto-applied-count-${showId}` badge assertions unchanged (regression).
+- **Implementation (GREEN — both sides together):**
+  - `app/help/_affordanceMatrix.ts` — add the concrete row per spec §4.3 (`sourceRoute:"/admin"`, `target:"/help/admin/review-queues#re-stage"`, `visibleAt:"desktop"`).
+  - `components/admin/RecentAutoAppliedStrip.tsx` — add `StripHeader` (spec §4.2), render it in both `ok` and `infra_error` returns replacing the bare `<SectionHeading>`, passing `showAffordances={headingLevel === 4}` + `count`. Import `HoverHelp`.
+- **Verify:** `pnpm test tests/help/_affordance-matrix-shape.test.ts tests/help/_metaAffordanceMatrixParity.test.ts tests/components/admin/RecentAutoAppliedStrip.test.tsx` all green (parity occurrence-uniqueness satisfied only because both sides landed in this commit).
+- **Impeccable note:** the primary UI surface — the invariant-8 dual-gate (Task 6) reviews this diff.
 
 ### Task 4 — Walker seed + capture-isolation cleanup (`test(infra): …` then `feat(infra): …`)
 
 The deep-link walker (`deep-link-walker.spec.ts`) IS the behavioral test; it auto-registered the new row in Task 2. TDD red→green is made explicit here:
 
-- **RED (prove the gap first, BEFORE any seed edit):** with Tasks 1-3 landed and the DB seeded base-only (`pnpm db:seed` + `pnpm dlx tsx supabase/seedWalkerFixtures.ts` WITHOUT the new `autoAppliedSeedSql`), run the help-docs-desktop walker filtered to the new row:
+- **RED (prove the gap first, BEFORE any seed edit):** with Tasks 1-2 landed and the DB seeded base-only (`pnpm db:seed` + `pnpm dlx tsx supabase/seedWalkerFixtures.ts` WITHOUT the new `autoAppliedSeedSql`), run the help-docs-desktop walker filtered to the new row:
   `pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts --project=help-docs-desktop -g "recently-auto-applied"`.
   It MUST FAIL with the strip/tooltip absent (`help-affordance--dashboard-recently-auto-applied--tooltip should be visible on /admin`) — no `auto_apply` `show_change_log` row exists, so the strip returns `null`. Record the red output. (This is the failing test that pins the seed's necessity — the walker row alone is red until the fixture exists.)
 - **GREEN (implement the seed):**
@@ -62,7 +62,12 @@ The deep-link walker (`deep-link-walker.spec.ts`) IS the behavioral test; it aut
 
 ### Task 6 — Impeccable dual-gate (invariant 8)
 
-`/impeccable critique` AND `/impeccable audit` on the UI diff (`NeedsAttentionInbox.tsx`, `RecentAutoAppliedStrip.tsx`). Canonical v3 setup gates (context.mjs → register read). P0/P1 findings fixed or `DEFERRED.md`'d BEFORE cross-model close-out. Findings + dispositions recorded for the handoff.
+`/impeccable critique` AND `/impeccable audit` on the FULL affected UI diff. Per the project rule, UI surface = any file under `app/` (except `app/api/**`) or `components/`, so the gate scope is ALL THREE changed such files:
+- `components/admin/RecentAutoAppliedStrip.tsx` — primary visual surface (new header row, chip, help).
+- `components/admin/NeedsAttentionInbox.tsx` — the gap fix.
+- `app/help/_affordanceMatrix.ts` — under `app/`, so in scope by the letter of the rule; it is a NON-VISUAL data registry (no rendered output — it wires an already-designed `HoverHelp`), so its disposition is "no visual finding possible; reviewed for correctness of the row's route/target/testid only." Recorded explicitly rather than silently excluded.
+
+Canonical v3 setup gates (context.mjs → register read). P0/P1 findings fixed or `DEFERRED.md`'d BEFORE cross-model close-out. Findings + dispositions recorded for the handoff.
 
 ### Task 7 — Screenshot drift check (screenshots-drift NOT required)
 
