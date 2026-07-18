@@ -48,7 +48,7 @@
  * state renders `ALERT_BELL_FEED_FAILED`. An uncataloged row code falls back to
  * a generic title (never the raw code string).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   Check,
@@ -71,7 +71,11 @@ import {
 } from "@/lib/messages/lookup";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
-import { BELL_BOLD_IDENTITY_TOKENS } from "@/lib/adminAlerts/deriveMessageParams";
+import {
+  BELL_BOLD_IDENTITY_TOKENS,
+  parseChanges,
+  roleChangeLines,
+} from "@/lib/adminAlerts/deriveMessageParams";
 import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
@@ -317,6 +321,45 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
   );
 }
 
+// Message-text renderer (WI-3 + WI-4). ROLE_FLAGS_NOTICE with ≥2 structured
+// changes renders a real <ul> of body-weight items (illegal inside the removed
+// <button>, legal here as a header sibling): split the template on the literal
+// `<role-changes>` token, bold the identity prefix/suffix (WI-3), and render the
+// structured lines from roleChangeLines. Every other case (single/zero change,
+// a future template without the token, or a non-ROLE_FLAGS code) falls back to
+// the ordinary identity-bold render — never crash on a template shape change.
+function renderMessageBody(
+  entry: BellEntry,
+  message: string,
+  params: MessageParams | undefined,
+): ReactNode {
+  if (entry.code === "ROLE_FLAGS_NOTICE" && message.includes("<role-changes>")) {
+    const changes = parseChanges(entry.context);
+    if (changes.length >= 2) {
+      const [prefix = "", suffix = ""] = message.split("<role-changes>");
+      const lines = roleChangeLines(changes);
+      return (
+        <>
+          {renderCatalogEmphasis(prefix, params, BELL_BOLD_IDENTITY_TOKENS)}
+          {lines.header}
+          <ul className="mt-1 list-disc pl-5 text-sm text-text-subtle">
+            {lines.items.map((it, i) => (
+              <li key={i} className="wrap-break-word">
+                {it}
+              </li>
+            ))}
+          </ul>
+          {lines.overflow ? (
+            <p className="mt-1 text-xs text-text-faint">{lines.overflow}</p>
+          ) : null}
+          {renderCatalogEmphasis(suffix, params, BELL_BOLD_IDENTITY_TOKENS)}
+        </>
+      );
+    }
+  }
+  return <>{renderCatalogEmphasis(message, params, BELL_BOLD_IDENTITY_TOKENS)}</>;
+}
+
 function ActiveRow({
   entry,
   now,
@@ -467,9 +510,7 @@ function ActiveRow({
             data-testid={`bell-msg-${entry.alertId}`}
             className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle"
           >
-            {message && messageResolved ? (
-              <span>{renderCatalogEmphasis(message, params, BELL_BOLD_IDENTITY_TOKENS)}</span>
-            ) : null}
+            {message && messageResolved ? renderMessageBody(entry, message, params) : null}
             {helpHref ? (
               <>
                 {message && messageResolved ? " " : null}

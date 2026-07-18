@@ -515,6 +515,77 @@ describe("WI-3 BellPanel identity-bold wiring", () => {
   });
 });
 
+describe("WI-4 BellPanel multi-change <ul> split render", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const mkChanges = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      crew_name: `C${i}`,
+      prior_flags: ["A"],
+      new_flags: ["A", "B"],
+    }));
+  // Resolved params keep messageResolved true (so the message block renders the body).
+  const resolvedParams = {
+    "sheet-name": "'East Coast'",
+    "role-changes": "placeholder resolved",
+    "lead-hint": "",
+  };
+
+  const roleFlags4 = makeEntry({
+    alertId: "rf4",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(4) },
+    messageParams: resolvedParams,
+  });
+  const roleFlags2 = makeEntry({
+    alertId: "rf2",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(2) },
+    messageParams: resolvedParams,
+  });
+  const roleFlagsSingle = makeEntry({
+    alertId: "rfs",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(1) },
+    messageParams: resolvedParams,
+  });
+
+  it("multi-change ROLE_FLAGS_NOTICE renders a real <ul> of body-weight items + overflow, not in the button", async () => {
+    await renderRow(roleFlags4);
+    const block = screen.getByTestId("bell-msg-rf4");
+    const ul = block.querySelector("ul");
+    expect(ul).not.toBeNull();
+    expect(ul!.querySelectorAll("li")).toHaveLength(3);
+    for (const li of ul!.querySelectorAll("li")) {
+      expect(li.className).not.toMatch(/font-(semibold|bold)/);
+    }
+    expect(block.textContent).toContain("+1 more");
+    expect(block.textContent).not.toContain("see show page");
+    // <ul> is NOT inside the toggle button.
+    expect(screen.getByTestId("bell-entry-toggle-rf4").querySelector("ul")).toBeNull();
+    // sheet-name in the prefix is still bold.
+    expect(block.querySelector("strong")).not.toBeNull();
+  });
+
+  it("2..3 changes render <ul> without overflow", async () => {
+    await renderRow(roleFlags2);
+    const ul = screen.getByTestId("bell-msg-rf2").querySelector("ul");
+    expect(ul!.querySelectorAll("li")).toHaveLength(2);
+    // No "+N more" overflow line at ≤3 changes (the "Learn more" link is separate).
+    expect(screen.getByTestId("bell-msg-rf2").textContent).not.toMatch(/\+\d+ more/);
+  });
+
+  it("template missing <role-changes> or <2 changes falls back to ordinary render (no <ul>, no crash)", async () => {
+    await renderRow(roleFlagsSingle);
+    expect(screen.getByTestId("bell-msg-rfs").querySelector("ul")).toBeNull();
+  });
+});
+
 describe("BellPanel — triage severity grouping (BELL-2)", () => {
   // n notice rows (default code) with distinct descending activityAt.
   function noticeRows(n: number, prefix = "n"): BellEntry[] {
