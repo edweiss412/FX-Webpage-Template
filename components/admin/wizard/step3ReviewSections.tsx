@@ -496,8 +496,10 @@ export const Step3RunStateContext = createContext<{ isPublishRunActive: boolean 
 export const CALLOUT_MAX_ENTRIES = 3;
 
 /**
- * Spec 2026-07-16 §4.4: the ONE decision matcher both actionable render sites
- * (§E3 callout + WarningsBreakdown) share. Matches the persisted decision by
+ * Spec 2026-07-16 §4.4: the decision matcher for the actionable render site
+ * (WarningsBreakdown). Since 2026-07-17 (USE-RAW-FULL-LIST-1) the §E3 callout is
+ * a preview and mounts no controls, so WarningsBreakdown is the sole caller.
+ * Matches the persisted decision by
  * (code, resolution.contentHash) — never by target; a warning without a
  * resolvable resolution never matches.
  */
@@ -2382,9 +2384,10 @@ export function WarningsBreakdown({
                       ) : null;
                     })()}
                     {/* spec 2026-07-16 §4.3: the complete-list render site for the
-                        use-raw + recognize-role controls (live-page parity; the §E3
-                        callout stays a capped, actionable preview). Both boundaries
-                        self-hide out-of-scope warnings. */}
+                        use-raw + recognize-role controls (live-page parity). Since
+                        2026-07-17 (USE-RAW-FULL-LIST-1) this is the SOLE actionable
+                        site — the §E3 callout is a non-actionable preview. Both
+                        boundaries self-hide out-of-scope warnings. */}
                     {wizardSessionId && dfid ? (
                       <UseRawControlBoundary
                         surface="wizard"

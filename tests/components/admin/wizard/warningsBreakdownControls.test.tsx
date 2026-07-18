@@ -7,6 +7,8 @@
  * reorder-stable keys at both actionable render sites, and the §4.6
  * stale-sibling contract for duplicate role controls.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -259,6 +261,28 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     // …and did NOT migrate to the inserted warning now at index 1.
     const inserted = q.getByTestId(`wizard-step3-card-${DFID}-warning-1`);
     expect(within(inserted).queryByTestId("role-recognize-panel-list")).toBeNull();
+  });
+});
+
+describe("callout demotion — structural guard (USE-RAW-FULL-LIST-1)", () => {
+  // The behavioral removal proofs below can only assert the CURRENT preview
+  // renders no controls; they cannot reconstruct the pre-demotion mount because
+  // its precondition (`wizardSessionId`/`useRawDecisions`) was type-removed from
+  // Step3SectionChrome in this same change, so no test fixture can supply it.
+  // This source-scan is the regression guard that actually BITES a re-add:
+  // the two boundaries mounted in the callout with `site="callout"`; the ONLY
+  // surviving mounts (WarningsBreakdown) use `site="list"`. Re-adding a callout
+  // control mount necessarily reintroduces `site="callout"` → this fails.
+  test('SectionFlagCallout mounts no control boundary — no site="callout" in the module', () => {
+    // vitest runs from the repo root, so resolve the component from cwd.
+    const src = readFileSync(
+      join(process.cwd(), "components/admin/wizard/step3ReviewSections.tsx"),
+      "utf8",
+    );
+    expect(src).not.toContain('site="callout"');
+    // Sanity: the list mounts DO survive (guards against the scan passing because
+    // ALL control mounts were deleted, not just the callout ones).
+    expect(src).toContain('site="list"');
   });
 });
 
