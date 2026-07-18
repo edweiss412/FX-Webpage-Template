@@ -9,9 +9,15 @@
 
 ## 0. Intent & scope
 
-The bell panel's active section renders one flat, server-ordered list under a single `Active · N` eyebrow. At high volume (a 9+ badge) it opens as an undifferentiated wall — no triage structure. This feature adds **threshold-gated severity grouping**: below a threshold the list stays flat (zero change to today's calm low-volume UX); at or above it, the list re-sections into fixed-order severity groups so "what is on fire" reads first.
+The bell panel's active section renders one flat, server-ordered list under a single `Active · N` eyebrow. At high volume it opens as an undifferentiated wall — no triage structure. This feature adds **threshold-gated severity grouping**: below a threshold the list stays flat (zero change to today's calm low-volume UX); at or above it, the list re-sections into fixed-order severity groups so "what is on fire" reads first.
 
-**This is a display-only re-section of already-loaded, already-ordered entries.** No feed/API/DB/realtime/badge/catalog change. Severity is already computed per-row client-side (`rowTone`, `BellPanel.tsx:128-132`).
+**This is a display-only re-section of already-loaded, already-ordered entries, PLUS one prerequisite severity-correctness fix** (§1.6). No feed/API/DB/realtime/badge change. Severity is computed per-row client-side (`rowTone`, `BellPanel.tsx:128-132`), which this feature both **groups by** and **corrects**.
+
+### Prerequisite pulled into scope: `rowTone` notice-weight health fix (closes a BACKLOG twin)
+
+`rowTone` short-circuits `if (entry.isHealth) return "critical"` (`BellPanel.tsx:129`) BEFORE consulting the health weight, so all **9** `audience:"health"` + `healthWeight:"notice"` codes (`NOTICE_HEALTH_CODES` — `WIZARD_SESSION_SUPERSEDED_RACE`, `ASSET_RECOVERY_REVISION_DRIFT`, `ASSET_RECOVERY_DRIFT_COOLDOWN`, `REPORT_ORPHANED_LOST_LEASE`, `REPORT_LOOKUP_INCONCLUSIVE`, `STALE_ORPHAN_REPORT`, `PICKER_SELECTION_RACE`, `OAUTH_IDENTITY_CLAIMED`, `CALLBACK_CLAIM_THREW`) render a red `CircleAlert`/critical rail even though the health rollup weights them amber. This is the open backlog item `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` (`BACKLOG.md:543`), whose stated trigger is **"next bell/health-panel UI pass"** — i.e. this feature.
+
+Grouping by the uncorrected `rowTone` would bake the misclassification into triage (a notice-weight health alert grouped under **Critical**), and since grouping and the per-row glyph share the same `rowTone`, the group header and the row glyph would be consistently-but-wrongly red. Correcting `rowTone` first makes both the glyph AND the grouping correct in one pass. **This closes `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` and the remaining `BELL-2` in the same PR (a DEFERRED↔BACKLOG twin reconciliation).**
 
 ### Already shipped (NOT this scope — the DEFERRED open-queue line is stale on these)
 
@@ -32,8 +38,8 @@ The genuinely-remaining BELL-2 scope = **the grouping itself**. "Show grouping" 
 - Let `activeCount = active.length` where `active = feed.entries.filter((e) => e.state === "active")` (`BellPanel.tsx:776`).
 - `activeCount < GROUP_THRESHOLD` → **flat mode** (today's render, byte-for-byte).
 - `activeCount >= GROUP_THRESHOLD` → **grouped mode**.
-- `GROUP_THRESHOLD = 9`, a module-level `const` in `BellPanel.tsx`. Rationale: anchors to the badge's `9+` display cap (`NotifBell.tsx:81`, `count > 9 ? "9+"`) — the same "9+" the DEFERRED entry frames the wall around. Single source of truth; referenced by both the render branch and its tests (tests import the constant, never re-literal `9`).
-- **Threshold semantics — deliberate (disagreement-loop preempt):** the threshold is on the **active-entry count** (`active.length`), NOT the unread badge count. The badge counts unseen alerts (`NotifBell.tsx:68`); the panel groups the active LIST. These differ (a read alert stays active). The grouping is a property of the list being triaged, not of unread-ness, so `active.length` is correct. The `9+` badge value is only the mnemonic anchor for the literal `9`, not a data dependency.
+- `GROUP_THRESHOLD = 9`, a module-level `const` in `BellPanel.tsx`. **Rationale — explicit product decision, NOT derived from the badge:** the `BELL-2` ticket frames the wall as "at 9+", read as **nine-or-more active entries** — the point where a flat activity-ordered list stops being glanceable and triage structure earns its keep. Single source of truth; referenced by both the render branch and its tests (tests import the constant, never re-literal `9`).
+- **NOT anchored to the badge cap (disagreement-loop preempt, corrected in spec R2):** an earlier draft claimed the threshold "anchors to the badge's `9+` cap." That was wrong on two counts: (a) `NotifBell.tsx:81` renders `count > 9 ? "9+"`, so the badge shows `9+` starting at **10**, not 9; (b) the badge counts **unseen/unread** alerts (`NotifBell.tsx:68`) while the panel groups the **active LIST** (a read alert stays active) — different populations. The badge is therefore not a valid anchor. `9` is a deliberate product choice for the active-list count; the boundary test (§5) proves grouping begins at exactly 9 so no future edit can silently drift it.
 - **No collision with truncation:** `feedCap` min is 10 (`bellConfig.ts:6`), so a feed can never truncate below 9 active rows — the threshold sits inside every possible loaded window. If `feed.truncated`, grouping applies to the loaded rows exactly as flat mode renders the loaded rows; the truncation row (`bell-truncation-row`, `BellPanel.tsx:846`) is unchanged and still the honest "there are more" signal.
 
 ### 1.2 Grouping (grouped mode only)
@@ -42,7 +48,7 @@ The genuinely-remaining BELL-2 scope = **the grouping itself**. "Show grouping" 
 - **Partition is stable, not a re-sort:** `active` arrives server-ordered `activityAt DESC` (ratified §7.2). Grouping is a stable partition — within each tier, rows keep their incoming relative order (still `activityAt DESC`). Implementation: `TIER_ORDER.map((tone) => ({ tone, rows: active.filter((e) => rowTone(e) === tone) }))` — `filter` preserves order; no comparator. Never re-sort within or across tiers.
 - **Empty tiers are omitted:** a tier with `rows.length === 0` renders nothing (no header, no empty state).
 - **Single-tier case:** if all `activeCount` rows share one tone, exactly one tier section renders (e.g. `Warning · 11`). Still grouped mode — the tier header is still triage information. No fallback to flat.
-- **Every active entry lands in exactly one tier:** `rowTone` is total over `RowTone` (`BellPanel.tsx:128-132` — `isHealth → critical`; catalog `severity === "info" → info`; else `notice`, including codes absent from the catalog where `isMessageCode` is false). No "other/uncategorized" bucket is possible or needed.
+- **Every active entry lands in exactly one tier:** `rowTone` is total over `RowTone` (after the §1.6 fix — `isHealth` → `critical` iff `DEGRADED_HEALTH_CODES.includes(code)` else `notice`; non-health catalog `severity === "info"` → `info`; else `notice`, including codes absent from the catalog). No "other/uncategorized" bucket is possible or needed.
 
 ### 1.3 Rendered elements (grouped mode)
 
@@ -78,6 +84,34 @@ Inside the existing `<section data-testid="bell-section-active">` (`BellPanel.ts
 | `<ActiveRow>` rows | ✅ (one `active.map`) | ✅ (one map per tier) |
 | inter-row hairline | between all rows (`i>0`) | between rows **within** a tier (`j>0`); tier header separates tiers |
 | mark-all-read, history section, truncation row, dev footer | ✅ unchanged | ✅ unchanged |
+
+### 1.6 `rowTone` severity-correctness fix (prerequisite)
+
+**Before** (`BellPanel.tsx:128-132`):
+
+```ts
+function rowTone(entry: BellEntry): RowTone {
+  if (entry.isHealth) return "critical";
+  const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
+  return severity === "info" ? "info" : "notice";
+}
+```
+
+**After:**
+
+```ts
+function rowTone(entry: BellEntry): RowTone {
+  if (entry.isHealth) return DEGRADED_HEALTH_CODES.includes(entry.code) ? "critical" : "notice";
+  const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
+  return severity === "info" ? "info" : "notice";
+}
+```
+
+- `DEGRADED_HEALTH_CODES` is imported from `@/lib/adminAlerts/audience` (`audience.ts:19` — `audience:"health"` ∧ `healthWeight:"degraded"`, 16 codes). `BellPanel` already imports `isMessageCode`/`messageFor` from `lib/messages`; this adds one import from `audience.ts` (a client-safe pure catalog-derived module — no server-only imports; verify at plan time it is import-safe from a `"use client"` component).
+- **Effect on tone:** the 9 `NOTICE_HEALTH_CODES` move `critical → notice` (both the per-row rail/glyph color red→amber AND their grouping tier Critical→Warning). The 16 `DEGRADED_HEALTH_CODES` stay `critical`. Non-health codes are unaffected. A health code that were ever weightless (neither set) resolves to `notice` — the safe, non-over-escalating direction.
+- **This is a per-row visual change** (glyph/rail color) independent of the ≥9 grouping — it applies in flat mode too. It is therefore a UI-surface change under invariant 8; the impeccable dual-gate already required by the grouping covers it.
+- **No token/contrast regression:** the `TONE` map (`BellPanel.tsx:139-151`) is unchanged — only which tone a given code maps to changes. The `status-token-contrast` pairs are untouched.
+- **Guard:** `entry.code` is always a string on `BellEntry` (`bellFeed.ts` shape); `DEGRADED_HEALTH_CODES.includes` on an uncataloged/empty code returns `false` → `notice`. `rowTone` still never throws.
 
 ---
 
@@ -119,10 +153,15 @@ None added. Tier headers are static. The flat↔grouped switch is an instant re-
 
 All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-literal `9`.
 
+0. **`rowTone` correctness (`tests/components/bellPanelRedesign.test.tsx`, extend the existing `derives data-tone` test at `:98-111`):**
+   - A `NOTICE_HEALTH_CODES` member (e.g. `STALE_ORPHAN_REPORT`) with `isHealth: true` → `bell-sev-*` `data-tone === "notice"` (the fix; **fails on the pre-fix `isHealth → critical` short-circuit** — this is the TDD red).
+   - A `DEGRADED_HEALTH_CODES` member (e.g. `WEBHOOK_TOKEN_INVALID`) with `isHealth: true` → `data-tone === "critical"`.
+   - **Non-regression fixture update:** the existing critical case at `:100` (`makeEntry({ alertId: "crit", isHealth: true })` with the default non-health code) currently passes only because of the short-circuit; after the fix a non-health `isHealth` fixture resolves to `notice`. Update that fixture to a real `DEGRADED_HEALTH_CODES` member so the "critical" assertion stays meaningful (production `isHealth` is always a health code — `bellFeed.ts:126` — so an `isHealth:true` + non-health-code fixture is not a real shape anyway). Assert tier membership derives from `DEGRADED_HEALTH_CODES`, not a hardcoded map (anti-tautology).
 1. **Component (`tests/components/bellPanelRedesign.test.tsx` or `bellPanelDeferrals.test.tsx`, extend):**
    - **Flat below threshold:** a feed with `GROUP_THRESHOLD - 1` active entries → no `bell-section-active-tier-*` headers present; `Active · N` present with N = count; rows render in feed order.
    - **Grouped at threshold:** a fixture of `GROUP_THRESHOLD` active entries spanning ≥2 tones (mix of `isHealth`, an `info`-severity code, and a default/notice code) → tier headers present for exactly the non-empty tones, in `critical → notice → info` DOM order; each header text is `` `${TONE[tone].label} · ${count}` `` with counts derived **from the fixture's per-tone partition** (not hardcoded — anti-tautology: compute expected counts by partitioning the fixture with the same `rowTone` logic, assert the rendered header matches). `Active · N` shows the TOTAL.
    - **Within-tier order preserved:** assert the rendered `alertId` order inside a tier equals the fixture's `activityAt DESC` order for that tier (assert against the partitioned fixture data source, not the rendered container alone).
+   - **Notice-weight health lands in Warning (not Critical):** a 9+ fixture including a `NOTICE_HEALTH_CODES` member (`isHealth: true`) → that row is rendered under `bell-section-active-tier-notice` (Warning), NOT under `bell-section-active-tier-critical`. Directly guards the §1.6 fix at the grouping layer (the concrete failure mode: the pre-fix tone would place it in Critical).
    - **Empty tier omitted:** a 9+ fixture with zero `info` rows → no `bell-section-active-tier-info` header.
    - **Single-tier:** a 9+ fixture all `notice` → exactly one header `Warning · 9`, no other tier headers, still no flat fallback.
    - **Boundary flip:** at exactly `GROUP_THRESHOLD` → grouped; at `GROUP_THRESHOLD - 1` → flat. (The concrete failure mode: an off-by-one `>` vs `>=` — this test catches it.)
@@ -152,7 +191,9 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 
 - Active/history split: `active = feed.entries.filter((e) => e.state === "active")` `components/admin/BellPanel.tsx:776`; `history` `:777`.
 - Active section render: `<section data-testid="bell-section-active">` `:804`; `Active · {active.length}` heading `bell-section-active-heading` `:811-815`; `active.map((entry, i) => ...)` with `i > 0` hairline `mx-4 h-px bg-border` `:816-827`.
-- Tone: `type RowTone = "critical" | "notice" | "info"` `:127`; `rowTone(entry)` `:128-132` (`isHealth → critical`; `messageFor(entry.code).severity === "info" → info`; else `notice`); `TONE` label map `:139-151` (`critical:"Critical"`, `notice:"Warning"`, `info:"Notice"`).
+- Tone: `type RowTone = "critical" | "notice" | "info"` `:127`; `rowTone(entry)` `:128-132` (CURRENT: `isHealth → critical`; `messageFor(entry.code).severity === "info" → info`; else `notice`); `TONE` label map `:139-151` (`critical:"Critical"`, `notice:"Warning"`, `info:"Notice"`). `isHealth = HEALTH_CODES.includes(r.code)` `lib/admin/bellFeed.ts:126`.
+- Health-code sets (for the §1.6 fix): `HEALTH_CODES` `lib/adminAlerts/audience.ts:14` (25 codes), `DEGRADED_HEALTH_CODES` `:19` (16), `NOTICE_HEALTH_CODES` `:24` (9) — all catalog-derived from `audience:"health"` + `healthWeight` (`healthWeight?: "degraded" | "notice"` `lib/messages/catalog.ts:19`). Exemplars verified: `WEBHOOK_TOKEN_INVALID` (`catalog.ts:353`, `audience:"health"`+`healthWeight:"degraded"`); `STALE_ORPHAN_REPORT`/`WIZARD_SESSION_SUPERSEDED_RACE` (in `NOTICE_HEALTH_CODES` at runtime). NOTE: the backlog item's named examples `SYNC_STALLED`/`WATCH_CHANNEL_ORPHANED` are actually `audience:"doug"` (`catalog.ts:2284`,`:338`), NOT health — stale examples; the 9-code class is real regardless (enumerated §0).
+- Backlog twin: `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` `BACKLOG.md:543` (trigger: "next bell/health-panel UI pass"). BELL-2 open entry `DEFERRED.md:23`.
 - mark-all-read (unchanged): `markRead` `:674`; `activeUnread` `:886-889`; `showMarkAll` `:890`; `onMarkAllRead` `:892`; button testid `bell-mark-all-read` `:948`.
 - Truncation row: `bell-truncation-row` `:846`.
 - Badge cap anchor: `count > 9 ? "9+"` `components/admin/nav/NotifBell.tsx:81`.
@@ -165,7 +206,8 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 
 - **Grouping axis = severity, not show.** Considered show-grouping; rejected — many codes are show-less system alerts (no slug), forcing an "Other/System" bucket, and severity answers the triage question ("what is on fire") more directly. Severity is also already computed (`rowTone`), so it is zero-new-data. **Do not relitigate show-grouping** — it was a deliberate shape-pass rejection, filed nowhere as pending.
 - **Static dividers, not collapsible sections.** Collapsible severity sections were considered and rejected to avoid new per-section collapse state, a caret-rotation transition inventory, and a heavier §13/§14 re-entry — for a panel that already scrolls, static labeled dividers deliver the triage win at a fraction of the surface. **Do not propose adding collapse** — deliberate.
-- **Threshold on `active.length`, not unread count** — see §1.1. Deliberate; the `9+` badge is a mnemonic anchor for the literal, not a data dependency.
+- **Threshold on `active.length`, not unread count; value 9 is a product choice, NOT a badge anchor** — see §1.1 (corrected in spec R2). The `9+` badge counts unread and caps at ≥10; it is explicitly not the anchor.
+- **`rowTone` fix is in scope, not scope creep** — it is the ratified trigger of `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` (BACKLOG.md:543) and a prerequisite for correct grouping (§0/§1.6). Grouping by an uncorrected tone would ship visibly-wrong triage. **Do not relitigate as out-of-scope.**
 - **Flat↔grouped is instant (no animation)** — see §3/§4. Deliberate craft choice, not an oversight.
 - **`GROUP_THRESHOLD = 9`** is the only magic number; single-sourced as a `const` and imported by tests.
 
@@ -173,4 +215,9 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 
 ## 9. Out of scope
 
-Server feed shape, `get_bell_feed_rows` RPC, resolve-route semantics, realtime transport, badge sources, catalog copy, DB, mark-all-read behavior, per-row severity derivation, history-section rendering, truncation behavior. Any of these surfacing in review → open a question, do not silently expand.
+Server feed shape, `get_bell_feed_rows` RPC, resolve-route semantics, realtime transport, badge sources, catalog copy/`healthWeight` assignments (consumed as-is, not edited), DB, mark-all-read behavior, history-section rendering, truncation behavior. Per-row severity **derivation** IS in scope (§1.6) but the underlying catalog `audience`/`healthWeight` data is NOT edited — only how `rowTone` reads it. Any out-of-scope item surfacing in review → open a question, do not silently expand.
+
+## 10. Ledger reconciliation (lands in this PR)
+
+- `DEFERRED.md` `BELL-2` (`:23`): move the full entry to `DEFERRED-archive.md` marked RESOLVED (severity grouping + the already-shipped count/mark-all-read now all closed).
+- `BACKLOG.md` `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` (`:543`): mark SHIPPED (resolved by §1.6) — the twin closes with BELL-2 per the DEFERRED↔BACKLOG twin rule.
