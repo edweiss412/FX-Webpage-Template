@@ -69,7 +69,10 @@ test("callout renders NO role-recognize control (demoted to preview); list still
   expect(within(box).queryByTestId("role-recognize-control-callout")).toBeNull();
   expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
   expect(within(box).queryByTestId("role-recognize-panel-callout")).toBeNull();
-  // Static preview affordances remain (transition-audit: instant, no animated mount).
+  // Anti-overstrip (spec §11): the preview STILL renders the entry title +
+  // "View details" jump. Title is DERIVED from the fixture (not hardcoded) —
+  // import reviewWarningTitle from the same module as BreakdownSection.
+  expect(within(box).getByText(reviewWarningTitle(w))).toBeTruthy();
   expect(within(box).getByText(/View details/)).toBeTruthy();
   cleanup();
   // list host — the sole actionable site keeps the control
@@ -78,6 +81,8 @@ test("callout renders NO role-recognize control (demoted to preview); list still
   expect(within(row).getByTestId("role-recognize-control-list")).toBeTruthy();
 });
 ```
+
+Add `reviewWarningTitle` to the existing import from `@/components/admin/wizard/step3ReviewSections` (exported at `:2276`).
 
 (Reuse the `calloutHost` helper defined at `:280` — it mounts the callout via `Step3SectionChromeContext` with `calloutEntries`; its chrome value comes from `chromeValue()` at `:267`. Both are role-token-agnostic — they render whatever entries you pass.)
 
@@ -88,6 +93,9 @@ Invert the callout assertion at `:405`:
 ```tsx
 // was: expect(within(box).getByTestId("use-raw-control-callout")).toBeTruthy();
 expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
+// Anti-overstrip (spec §11): preview still renders title + View details for this fixture too.
+expect(within(box).getByText(reviewWarningTitle(w))).toBeTruthy();
+expect(within(box).getByText(/View details/)).toBeTruthy();
 ```
 
 (`use-raw-control` IS the control root, `UseRawControl.tsx:412/427/474` — no separate root/leaf split, so this single query is the full proof.) Keep the list assertions (`:399-400`) unchanged (list still mounts `use-raw-control-list`). Leave the `localCalloutHost` chrome fields (`wizardSessionId`, `useRawDecisions`) in place for now — Task 2 removes them once the `Step3SectionChrome` type drops them.
@@ -140,16 +148,16 @@ each still mounting on the list."
 - Consumes: Task 1's narrowed `SectionFlagCallout` (no longer reads chrome `useRawDecisions`/`wizardSessionId`).
 - Produces: `Step3SectionChrome` without `useRawDecisions`/`wizardSessionId` fields. `data.useRawDecisions` / `data.wizardSessionId` on `SectionData` are **retained** (WarningsBreakdown reads them via the `render: (s) => ...` closure at `:3719-3720`).
 
-- [ ] **Step 1: Confirm the chrome fields are now orphaned (grep, RED-by-typecheck setup)**
+- [ ] **Step 1: Delete the chrome-type fields FIRST (produces the RED)**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-callout-preview-demotion && grep -n "chrome.useRawDecisions\|chrome.wizardSessionId" components/admin/wizard/step3ReviewSections.tsx`
-Expected: no matches (Task 1 removed the only consumers at the old `:766-771`). This confirms the fields are safe to delete.
+In `Step3SectionChrome` (`step3ReviewSections.tsx`), delete the `useRawDecisions?: UseRawDecision[]` + `wizardSessionId?: string` fields (`:491-492`) and their doc comment (`:483-490`). Do NOT yet touch the provider or fixtures — the point is to make the type-consumers break.
 
-- [ ] **Step 2: Delete the chrome-type fields**
+- [ ] **Step 2: Run typecheck — verify it FAILS (RED)**
 
-In `Step3SectionChrome` (`step3ReviewSections.tsx`), delete the `useRawDecisions?: UseRawDecision[]` + `wizardSessionId?: string` fields (`:491-492`) and their doc comment (`:483-490`).
+Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-callout-preview-demotion && pnpm typecheck`
+Expected: FAIL. The **fresh object literals** assigned to `Step3SectionChromeContext.Provider value=` now carry excess properties that no longer exist on the type — errors at `ShowReviewSurface.tsx:824/:828` (provider) and `warningsBreakdownControls.test.tsx:383-384` (`localCalloutHost` inline literal). NOTE: `chromeValue()` at `:271-272` will NOT error (unannotated return → excess-property check skipped; structural subtyping allows extra source fields) — that is exactly why Step 4 removes it by hand, not via typecheck.
 
-- [ ] **Step 3: Delete the chrome-provider assignments**
+- [ ] **Step 3: Delete the chrome-provider assignments (start of GREEN)**
 
 In `ShowReviewSurface.tsx`, delete from the `Step3SectionChromeContext.Provider` value:
 - `useRawDecisions: data.useRawDecisions,` (`:824`) and its comment (`:822-823`).
@@ -157,21 +165,19 @@ In `ShowReviewSurface.tsx`, delete from the `Step3SectionChromeContext.Provider`
 
 **KEEP** the `calloutEntries`/`onJumpToWarning` spread (`:838-840`) and its `isStaged(data)` gate — the preview still needs entries + the jump callback, and stays staged-only (spec §5.3).
 
-- [ ] **Step 4: Fix BOTH chrome fixtures**
+- [ ] **Step 4: Delete the fields from BOTH chrome fixtures (incl. the typecheck-invisible one)**
 
-There are TWO chrome-object fixtures carrying the removed fields — delete `wizardSessionId: …,` and `useRawDecisions: …,` from EACH:
-- `chromeValue()` helper (`:271-272`, `wizardSessionId: WSID` + `useRawDecisions: []`) — feeds `calloutHost` (`:280`).
-- `localCalloutHost` inline chrome value (`:383-384`, same two fields).
-
-⚠️ `chromeValue()` returns an **unannotated** object, so excess-property checking does NOT fire when it's assigned to the typed Provider `value` (structural subtyping allows a source with extra fields) — `pnpm typecheck` will NOT flag the stale fields (Codex plan-R1). They must be removed by hand. After removal, grep to confirm zero survivors:
+Delete `wizardSessionId: …,` and `useRawDecisions: …,` from EACH:
+- `localCalloutHost` inline chrome value (`:383-384`) — this one caused the RED in Step 2.
+- `chromeValue()` helper (`:271-272`, `wizardSessionId: WSID` + `useRawDecisions: []`) — feeds `calloutHost` (`:280`). ⚠️ This one is **typecheck-invisible** (unannotated return), so it will NOT have errored in Step 2. Remove it by hand or the stale plumbing survives silently (Codex plan-R1). After removal, grep to confirm zero survivors in a chrome value:
 
 Run: `grep -n "wizardSessionId\|useRawDecisions" tests/components/admin/wizard/warningsBreakdownControls.test.tsx`
-Expected: only references inside `renderBreakdown`/`WarningsBreakdown` list context (which reads them from `SectionData`, valid) or the `-list` test bodies — NONE inside a `Step3SectionChromeContext` chrome value.
+Expected: any surviving references are inside `renderBreakdown` calls / `WarningsBreakdown` list props (the list reads them from `SectionData` — valid) — NONE inside a `Step3SectionChromeContext` chrome value / `chromeValue()` / `localCalloutHost`.
 
 - [ ] **Step 5: Typecheck + run the callout suite — verify GREEN**
 
 Run: `pnpm typecheck && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx`
-Expected: typecheck clean (no orphan-field references); the whole file's tests pass (incl. the `:324-368` list/list duplicate-token tests, unchanged).
+Expected: typecheck clean (RED resolved); the whole file's tests pass (incl. the `:324-368` list/list duplicate-token tests, unchanged).
 
 - [ ] **Step 6: Commit**
 
@@ -201,8 +207,8 @@ Expected: `NONE — static preview confirmed`.
 
 - [ ] **Step 2: Confirm the static conditionals remain (deliberate, instant)**
 
-Run: `sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "isJudgment ?\|extra > 0 ?" | head`
-Expected: two matches — the judgment lead + "+N more" overflow ternaries (spec §8 keeps them; they are instant static conditionals, NOT animated mounts).
+Run: `sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "isJudgment ?\|extra > 0 ?"`
+Expected: **three** matches — `const EntryIcon = isJudgment ? Info : AlertTriangle` (icon select, `:566`), the judgment lead ternary (`:577`), and the "+N more" overflow ternary (`:636`). All three are instant static conditionals (spec §8 keeps them), NOT animated mounts. (Codex plan-R2 corrected the earlier "two matches" expectation — the EntryIcon select is the third.)
 
 No commit — this task gates on the two greps only. Its assertion of the render is carried by Task 1's committed test.
 
@@ -221,13 +227,16 @@ No commit — this task gates on the two greps only. Its assertion of the render
 Run:
 ```bash
 cd /Users/ericweiss/fxav-worktrees/use-raw-callout-preview-demotion
-grep -rn "use-raw-control-callout\|role-recognize-.*-callout\|flag-callout.*button\|flag-callout\b" tests/components tests/e2e
+grep -rn "use-raw-control-callout\|role-recognize-.*-callout\|flag-callout.*button\|flag-callout\b\|site=\"callout\"" tests/components tests/e2e
 ```
-For each hit, classify: (a) asserts a callout **control** → must invert to expect-absent or move to the list; (b) merely renders the callout / targets the "View details" jump or the container → no change.
+For each hit, classify into THREE buckets:
+- **(a) Wizard-callout mount** — a test that renders the callout via `SectionFlagCallout` / `Step3SectionChromeContext` (chrome context with `calloutEntries`) and asserts a callout **control** is present → **invert** to expect-absent, or retarget to the list.
+- **(b) Callout preview / container** — merely renders the callout or targets the "View details" jump / the `flag-callout` container → **no change**.
+- **(c) ⚠️ STANDALONE control tests — DO NOT TOUCH.** `tests/components/UseRawControl.test.tsx` (e.g. `:830-855`) and `tests/components/RoleRecognizeControl.test.tsx` render `<UseRawControl … site="callout">` / `<RoleRecognizeControl … site="callout">` **directly** to test the #454 site-scoping mechanism. Spec §2 (`docs/superpowers/specs/2026-07-17-...md:30`) explicitly RETAINS the `"callout"` enum value and these tests — the standalone control still accepts `site="callout"`. These are NOT the wizard callout mount and must stay unchanged. (Codex plan-R2: the invert rule must not rewrite them.)
 
 - [ ] **Step 2: Update any component test that asserts callout controls**
 
-Apply the same inversion as Task 1 (expect `queryByTestId("...-callout")` null for control testids). If a test's whole premise was "callout is actionable," retarget it to the list or delete if now redundant with Task 1's proof. Show the exact edit per file inline in the commit.
+**Only bucket (a)** — wizard-callout mounts. Apply the same inversion as Task 1 (expect `queryByTestId("...-callout")` null for control testids). If a test's whole premise was "callout is actionable," retarget it to the list or delete if now redundant with Task 1's proof. **Leave bucket (b) and bucket (c) untouched** — never edit the standalone `UseRawControl`/`RoleRecognizeControl` site-scoping tests. Show the exact edit per file inline in the commit.
 
 - [ ] **Step 3: Check the two e2e specs for button-index/count shift**
 
