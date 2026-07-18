@@ -108,6 +108,18 @@ The audit walks every entry in the runtime `MESSAGE_CATALOG` and, for each field
 - Current classification (7 rendered-prose + 7 excluded = 14 fields, the full `MessageCatalogEntry` surface) matches §2.1.
 - Fail message names `CODE.field` + the offending value slice, matching the file's existing violation-report style.
 
+### 6.1a Existing exact-copy test assertions break when catalog values change
+
+Some tests hardcode catalog copy **substrings** and will fail the moment the swept value changes — this is implementation-blocking, not bookkeeping. The known ARC-1 breaker (grep-verified):
+
+- **`tests/messages/fullSweepCopy.test.ts`** — the `dougFacingSubstring` fixtures at `:38` (`"No action needed — newer selections were left intact"`, code `PICKER_SELECTION_RACE`) and `:220` (`"is stuck — crew pages are still protected"`, code `PENDING_SNAPSHOT_DELETE_STUCK`). Both substrings live verbatim in a catalog `dougFacing` value, so sweeping the catalog breaks these assertions. Update each substring to the swept punctuation in the SAME commit.
+
+**Discriminator — which em-dash test assertions are ARC-1 breakers vs. not** (grep-classified, so the implementer doesn't over-edit):
+- **BREAKS (update):** any assertion whose expected string is a verbatim substring of a swept `catalog.ts` rendered-prose value. Confirmed: `fullSweepCopy.test.ts:38,220`.
+- **Does NOT break (leave):** assertions of parser titles (`"Strike — GS"`), fixture show/sheet names (`"II — FinTech…"`, `"Validation — Normal day (R1)"`), `describeAlert` output, aria-labels (`"Notifications — 3 unseen"`), and `deriveMessageParams` role-change strings (`"+2 more — see show page."`, `"…changed — see the show page."` — these are `lib/adminAlerts/deriveMessageParams.ts:27,244`, i.e. ARC-2 territory, NOT `catalog.ts`). `not.toContain("—")` assertions (e.g. `RescanSheetButton`, `perShowAlertDataGaps`) stay green or validate the sweep.
+
+**Catch-all: the full `pnpm test` run is authoritative.** Because a verbatim-substring enumeration can miss a test, the implementation MUST run the full suite after the sweep and update EVERY exact-copy assertion that breaks (each fails loudly with the old vs new string), landing those test edits in the sweep commit. `fullSweepCopy.test.ts` is the known set; anything else the full run surfaces is added.
+
 ### 6.1 Guard: the test must actually be RED before the fix; authoritative baseline count
 
 TDD order — land the widened audit test FIRST and observe it fail on the current 179 occurrences (RED), then sweep to GREEN. This proves the test exercises the real catalog, not a tautology.
@@ -136,7 +148,7 @@ The widened audit test in §6 IS this same runtime-walk asserted to be 0, so the
 ## 8. Test plan
 
 1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` to assert no `—` AND no `--` across the `AUDITED_FIELDS` set → RED on em dashes (179 failures); the `--` half is green from the start (0 today) and guards the sweep.
-2. `fix(messages)`: sweep em dashes — catalog.ts (all seven rendered-prose fields; dougSummary 0 today) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
+2. `fix(messages)`: sweep em dashes — catalog.ts (all seven rendered-prose fields; dougSummary 0 today) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` + update existing exact-copy assertions that embed a swept value (known: `tests/messages/fullSweepCopy.test.ts:38,220`; plus any surfaced by the full run — §6.1a) → GREEN.
 3. Gates that must stay green: `test:audit:x1-catalog-parity` (catalog↔§12.4), the new hygiene audit, `tests/notify/templates.test.ts`, full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 
 ## 9. Files touched
@@ -144,5 +156,6 @@ The widened audit test in §6 IS this same runtime-walk asserted to be 0, so the
 - `lib/messages/catalog.ts` (edit — 179 substitutions across the 6 fields that carry em dashes: dougFacing 47, helpfulContext 69, longExplanation 52, title 5, crewFacing 4, followUp 2; dougSummary is audited but has 0)
 - `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (edit — §12.4 table + appendix, coupled fields dougFacing/crewFacing/followUp/helpfulContext only)
 - `lib/messages/__generated__/spec-codes.ts` (regenerated, committed)
-- `tests/messages/_metaCatalogCopyHygiene.test.ts` (edit — add rendered-field em-dash audit)
+- `tests/messages/_metaCatalogCopyHygiene.test.ts` (edit — add compiler-exhaustive rendered-field `—`/`--` audit)
+- `tests/messages/fullSweepCopy.test.ts` (edit — update `dougFacingSubstring` fixtures :38, :220 to swept punctuation; §6.1a) + any other exact-copy assertion the full `pnpm test` run surfaces
 - `DEFERRED.md` / `DEFERRED-archive.md` (move `ALERT-COPY-EMDASH-1` on completion)
