@@ -70,7 +70,12 @@ import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
-import { rowTone, type RowTone } from "@/lib/admin/bellTriage";
+import {
+  GROUP_THRESHOLD,
+  groupActiveBySeverity,
+  rowTone,
+  type RowTone,
+} from "@/lib/admin/bellTriage";
 
 const FEED_ENDPOINT = "/api/admin/alerts/bell/feed";
 const OPEN_ENDPOINT = "/api/admin/alerts/bell/open";
@@ -808,19 +813,55 @@ export function BellPanel({
               >
                 Active · {active.length}
               </h3>
-              {active.map((entry, i) => (
-                <div key={entry.alertId}>
-                  {i > 0 ? <div aria-hidden="true" className="mx-4 h-px bg-border" /> : null}
-                  <ActiveRow
-                    entry={entry}
-                    now={now}
-                    expanded={expandedIds.has(entry.alertId)}
-                    readCleared={readClearedIds.has(entry.alertId)}
-                    onToggle={() => handleToggle(entry)}
-                    onRefetch={() => void load(true)}
-                  />
-                </div>
-              ))}
+              {active.length >= GROUP_THRESHOLD && feed.activeTruncated === false ? (
+                // Grouped mode (spec §1.2/§1.3): static severity dividers, one
+                // per non-empty tier in Critical→Warning→Notice order. Fail-closed
+                // (§1.1 R5): strict `=== false`, so a missing/non-boolean
+                // activeTruncated renders flat. Suppressed on an active-truncated
+                // feed (§1.1 R3/R4): a recency-capped active window cannot honor
+                // severity-completeness, so the flat list + truncation row is the
+                // honest signal. activityAt-DESC order is preserved within tiers.
+                groupActiveBySeverity(active).map((group) => (
+                  <div key={group.tone}>
+                    <h4
+                      data-testid={`bell-section-active-tier-${group.tone}`}
+                      className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint tabular-nums"
+                    >
+                      {TONE[group.tone].label} · {group.rows.length}
+                    </h4>
+                    {group.rows.map((entry, j) => (
+                      <div key={entry.alertId}>
+                        {j > 0 ? (
+                          <div aria-hidden="true" className="mx-4 h-px bg-border" />
+                        ) : null}
+                        <ActiveRow
+                          entry={entry}
+                          now={now}
+                          expanded={expandedIds.has(entry.alertId)}
+                          readCleared={readClearedIds.has(entry.alertId)}
+                          onToggle={() => handleToggle(entry)}
+                          onRefetch={() => void load(true)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))
+              ) : (
+                // Flat mode (unchanged from today): single activity-ordered list.
+                active.map((entry, i) => (
+                  <div key={entry.alertId}>
+                    {i > 0 ? <div aria-hidden="true" className="mx-4 h-px bg-border" /> : null}
+                    <ActiveRow
+                      entry={entry}
+                      now={now}
+                      expanded={expandedIds.has(entry.alertId)}
+                      readCleared={readClearedIds.has(entry.alertId)}
+                      onToggle={() => handleToggle(entry)}
+                      onRefetch={() => void load(true)}
+                    />
+                  </div>
+                ))
+              )}
             </section>
           ) : null}
           {history.length > 0 ? (

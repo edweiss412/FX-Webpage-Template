@@ -18,7 +18,8 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import { BellPanel } from "@/components/admin/BellPanel";
 import { lookupHelpfulContext, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-import { DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { GROUP_THRESHOLD, groupActiveBySeverity } from "@/lib/admin/bellTriage";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 
 const ALL_CODES = Object.keys(MESSAGE_CATALOG) as MessageCode[];
@@ -26,9 +27,10 @@ const ALL_CODES = Object.keys(MESSAGE_CATALOG) as MessageCode[];
 // (drives "notice"). Derived from the live catalog so they can't drift.
 const INFO_CODE = ALL_CODES.find((c) => messageFor(c).severity === "info")!;
 const NOTICE_CODE = "ADMIN_ALERT_COUNT_FAILED"; // no `severity` → notice tone
-// A degraded-weight health code (isHealth + degraded → critical). Strict
-// tsconfig: narrow the [0] index to a `string`.
+// Health codes by weight (isHealth + degraded → critical; isHealth + notice →
+// notice, §1.6). Strict tsconfig: narrow the [0] index to a `string`.
 const DEGRADED0: string = DEGRADED_HEALTH_CODES[0]!;
+const NOTICE_HEALTH0: string = NOTICE_HEALTH_CODES[0]!;
 // A code WITH helpful context (caret present) — for the message/clamp test.
 const CODE_WITH_HELP = ALL_CODES.find((c) => lookupHelpfulContext(c) !== null)!;
 
@@ -71,6 +73,7 @@ function feedBody(over: Record<string, unknown> = {}) {
     entries: [],
     unseenCount: 0,
     truncated: false,
+    activeTruncated: false,
     historyDays: 14,
     feedCap: 50,
     seenThrough: "2026-07-05T10:00:00.000Z",
@@ -239,5 +242,202 @@ describe("BellPanel redesign — message never clamped (R4)", () => {
     // content is a hidden (clamped) message with no affordance. This pins the
     // premise behind dropping message clamping from scope.
     expect(orphans).toEqual([]);
+  });
+});
+
+describe("BellPanel — triage severity grouping (BELL-2)", () => {
+  // n notice rows (default code) with distinct descending activityAt.
+  function noticeRows(n: number, prefix = "n"): BellEntry[] {
+    return Array.from({ length: n }, (_, i) =>
+      makeEntry({
+        alertId: `${prefix}${i}`,
+        code: NOTICE_CODE,
+        activityAt: `2026-07-05T${String(23 - i).padStart(2, "0")}:00:00.000Z`,
+      }),
+    );
+  }
+  const tierHeaders = (panel: HTMLElement) =>
+    Array.from(panel.querySelectorAll('[data-testid^="bell-section-active-tier-"]'));
+
+  it("a) flat below threshold: GROUP_THRESHOLD-1 active → no tier headers", async () => {
+    routeFetch(feedBody({ entries: noticeRows(GROUP_THRESHOLD - 1) }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    expect(tierHeaders(panel)).toHaveLength(0);
+    expect(within(panel).getByTestId("bell-section-active-heading").textContent).toContain(
+      `Active · ${GROUP_THRESHOLD - 1}`,
+    );
+  });
+
+  it("b) grouped at threshold: tier headers for non-empty tones in critical→notice→info order, counts from the partition", async () => {
+    const entries = [
+      ...Array.from({ length: 2 }, (_, i) =>
+        makeEntry({ alertId: `c${i}`, isHealth: true, code: DEGRADED0 }),
+      ),
+      ...noticeRows(4),
+      ...Array.from({ length: 3 }, (_, i) => makeEntry({ alertId: `i${i}`, code: INFO_CODE })),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    // DOM order critical → notice → info.
+    expect(tierHeaders(panel).map((h) => h.getAttribute("data-testid"))).toEqual([
+      "bell-section-active-tier-critical",
+      "bell-section-active-tier-notice",
+      "bell-section-active-tier-info",
+    ]);
+    // Header text/counts derived from the partition (anti-tautology).
+    const groups = groupActiveBySeverity(entries);
+    const labelFor: Record<string, string> = {
+      critical: "Critical",
+      notice: "Warning",
+      info: "Notice",
+    };
+    for (const g of groups) {
+      expect(
+        within(panel).getByTestId(`bell-section-active-tier-${g.tone}`).textContent,
+      ).toContain(`${labelFor[g.tone]} · ${g.rows.length}`);
+    }
+    // Active · N is the TOTAL.
+    expect(within(panel).getByTestId("bell-section-active-heading").textContent).toContain(
+      `Active · ${entries.length}`,
+    );
+  });
+
+  it("c) within-tier alertId order equals the fixture (server) order for that tone", async () => {
+    const entries = [
+      makeEntry({ alertId: "c0", isHealth: true, code: DEGRADED0 }),
+      ...noticeRows(8),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    const noticeTone = groupActiveBySeverity(entries).find((g) => g.tone === "notice")!;
+    const expectedOrder = noticeTone.rows.map((r) => r.alertId);
+    const rendered = Array.from(
+      within(panel)
+        .getByTestId("bell-section-active-tier-notice")
+        .parentElement!.querySelectorAll('[data-testid^="bell-entry-"]'),
+    )
+      .map((el) => el.getAttribute("data-testid")!)
+      // exclude the nested bell-entry-toggle-* elements; keep only the row ids
+      .filter((tid) => !tid.startsWith("bell-entry-toggle-"))
+      .map((tid) => tid.replace("bell-entry-", ""));
+    expect(rendered).toEqual(expectedOrder);
+  });
+
+  it("d) notice-weight health lands under Warning, NOT Critical (§1.6 at the grouping layer)", async () => {
+    const entries = [makeEntry({ alertId: "nh", isHealth: true, code: NOTICE_HEALTH0 }), ...noticeRows(8)];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    expect(within(panel).queryByTestId("bell-section-active-tier-critical")).toBeNull();
+    const noticeSection = within(panel).getByTestId("bell-section-active-tier-notice").parentElement!;
+    expect(noticeSection.querySelector('[data-testid="bell-entry-nh"]')).not.toBeNull();
+  });
+
+  it("e) empty tier omitted: no info rows → no info tier header", async () => {
+    const entries = [
+      makeEntry({ alertId: "c0", isHealth: true, code: DEGRADED0 }),
+      ...noticeRows(8),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    expect(within(panel).queryByTestId("bell-section-active-tier-info")).toBeNull();
+  });
+
+  it("f) single-tier: all notice → one Warning · N header, no flat fallback", async () => {
+    routeFetch(feedBody({ entries: noticeRows(GROUP_THRESHOLD) }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    const headers = tierHeaders(panel);
+    expect(headers).toHaveLength(1);
+    expect(headers[0]!.getAttribute("data-testid")).toBe("bell-section-active-tier-notice");
+    expect(headers[0]!.textContent).toContain(`Warning · ${GROUP_THRESHOLD}`);
+  });
+
+  it("g) boundary: exactly GROUP_THRESHOLD → grouped; GROUP_THRESHOLD-1 → flat", async () => {
+    routeFetch(feedBody({ entries: noticeRows(GROUP_THRESHOLD) }));
+    const r1 = renderPanel();
+    const p1 = r1.getByTestId("bell-panel");
+    await within(p1).findByTestId("bell-section-active");
+    expect(tierHeaders(p1).length).toBeGreaterThan(0);
+    cleanup();
+
+    routeFetch(feedBody({ entries: noticeRows(GROUP_THRESHOLD - 1) }));
+    const r2 = renderPanel();
+    const p2 = r2.getByTestId("bell-panel");
+    await within(p2).findByTestId("bell-section-active");
+    expect(tierHeaders(p2)).toHaveLength(0);
+  });
+
+  it("h) activeTruncated → flat even at ≥threshold; truncation row present", async () => {
+    routeFetch(
+      feedBody({ entries: noticeRows(GROUP_THRESHOLD), activeTruncated: true, truncated: true }),
+    );
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    expect(tierHeaders(panel)).toHaveLength(0);
+    expect(within(panel).getByTestId("bell-truncation-row")).toBeTruthy();
+  });
+
+  it("i) history-only truncation (activeTruncated false, truncated true) STILL groups", async () => {
+    routeFetch(
+      feedBody({ entries: noticeRows(GROUP_THRESHOLD), activeTruncated: false, truncated: true }),
+    );
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    expect(tierHeaders(panel).length).toBeGreaterThan(0);
+  });
+
+  it("j) fail-closed: omitted / non-boolean activeTruncated → flat", async () => {
+    // omitted
+    const body = feedBody({ entries: noticeRows(GROUP_THRESHOLD) }) as Record<string, unknown>;
+    delete body.activeTruncated;
+    routeFetch(body);
+    const r1 = renderPanel();
+    const p1 = r1.getByTestId("bell-panel");
+    await within(p1).findByTestId("bell-section-active");
+    expect(tierHeaders(p1)).toHaveLength(0);
+    cleanup();
+
+    // non-boolean
+    routeFetch(feedBody({ entries: noticeRows(GROUP_THRESHOLD), activeTruncated: "nope" }));
+    const r2 = renderPanel();
+    const p2 = r2.getByTestId("bell-panel");
+    await within(p2).findByTestId("bell-section-active");
+    expect(tierHeaders(p2)).toHaveLength(0);
+  });
+
+  // (k) set-preservation across a real grouped→flat transition needs a driven
+  // refetch (resolve/realtime) — covered in the real-browser transition audit
+  // (tests/e2e/bell-panel-layout.spec.ts, spec §3 compound), not jsdom.
+
+  it("l) mark-all-read leaves tier headers + counts unchanged", async () => {
+    const entries = [
+      ...Array.from({ length: 2 }, (_, i) =>
+        makeEntry({ alertId: `c${i}`, isHealth: true, code: DEGRADED0, unread: true }),
+      ),
+      ...noticeRows(7).map((e) => ({ ...e, unread: true })),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+    const before = tierHeaders(panel).map((h) => h.textContent);
+    fireEvent.click(within(panel).getByTestId("bell-mark-all-read"));
+    await waitFor(() => {
+      expect(tierHeaders(panel).map((h) => h.textContent)).toEqual(before);
+    });
   });
 });
