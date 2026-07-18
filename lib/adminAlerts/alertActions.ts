@@ -150,7 +150,7 @@ export function resolveAlertActions(
   const single = resolveAlertAction(code, context, opts);
   if (code === "ROLE_FLAGS_NOTICE") {
     const showPage: AlertActionLink | null = opts.slug
-      ? { label: "Review in show page", href: `/admin/show/${opts.slug}`, external: false }
+      ? { label: "Review in show page", href: `/admin/show/${encodeURIComponent(opts.slug)}`, external: false }
       : null;
     return [showPage, single].filter((a): a is AlertActionLink => a !== null);
   }
