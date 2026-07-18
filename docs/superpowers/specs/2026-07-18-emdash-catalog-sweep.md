@@ -29,7 +29,7 @@ A catalog field is in scope iff its value is rendered in the UI. Confirmed rende
 
 ### 2.1 Completeness — the rendered-prose field set is type-derived (not ad hoc)
 
-Enumerated against the full `MessageCatalogEntry` type (`lib/messages/catalog.ts:1-24`) so the audit provably covers every rendered-prose field:
+Enumerated against the full `MessageCatalogEntry` type (`lib/messages/catalog.ts:1-40`, the complete `export type … = { … };` block) so the audit provably covers every rendered-prose field:
 
 - **Rendered prose (audited, 7):** `dougFacing`, `crewFacing`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `dougSummary`.
 - **Not prose (excluded):** `code` (identifier), `helpHref` (URL — an em dash in a URL is a different bug class, not §9 rendered-prose; the 4 `helpHref` em-dash attributions in raw greps are trailing comments).
