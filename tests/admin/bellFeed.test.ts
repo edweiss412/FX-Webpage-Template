@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AUTO_RESOLVING_CODES, HEALTH_CODES, autoResolveNote } from "@/lib/adminAlerts/audience";
-import { ALERT_ACTION_CODES, resolveAlertAction } from "@/lib/adminAlerts/alertActions";
+import { ALERT_ACTION_CODES, resolveAlertActions } from "@/lib/adminAlerts/alertActions";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 
 type Row = {
@@ -112,6 +112,7 @@ const state = vi.hoisted(() => ({
   rpcThrows: false,
   crewMembersThrows: false,
   rpcCalls: [] as unknown[],
+  showsRow: null as { id: string; slug: string; title: string } | null,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -144,7 +145,19 @@ vi.mock("@/lib/supabase/server", () => ({
             }),
           };
         }
-        // shows / any other table the identity resolver may touch: harmless empty.
+        if (table === "shows") {
+          return {
+            select: () => ({
+              in: () => ({
+                limit: async () => ({
+                  data: state.showsRow ? [state.showsRow] : [],
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        // any other table the identity resolver may touch: harmless empty.
         return {
           select: () => ({
             in: () => ({
@@ -180,6 +193,7 @@ beforeEach(() => {
   state.rpcThrows = false;
   state.crewMembersThrows = false;
   state.rpcCalls = [];
+  state.showsRow = null;
 });
 
 describe("shapeBellEntries", () => {
@@ -418,7 +432,7 @@ describe("shapeBellEntries", () => {
     expect(second.entries.find((e) => e.alertId === "a-oldest")?.unread).toBe(true);
   });
 
-  test("10. isAutoResolving/autoResolveNote/action/isHealth from catalog-derived helpers", () => {
+  test("10. isAutoResolving/autoResolveNote/actions/isHealth from catalog-derived helpers", () => {
     expect(AUTO_RESOLVING_CODES.length).toBeGreaterThan(0);
     expect(ALERT_ACTION_CODES.length).toBeGreaterThan(0);
     expect(HEALTH_CODES.length).toBeGreaterThan(0);
@@ -444,7 +458,7 @@ describe("shapeBellEntries", () => {
 
     expect(auto.isAutoResolving).toBe(true);
     expect(auto.autoResolveNote).toBe(autoResolveNote(autoCode));
-    expect(action.action).toEqual(resolveAlertAction(actionCode, null, { slug: "east-coast" }));
+    expect(action.actions).toEqual(resolveAlertActions(actionCode, null, { slug: "east-coast" }));
     expect(health.isHealth).toBe(true);
     expect(plain.isHealth).toBe(false);
   });
@@ -484,8 +498,8 @@ describe("loadBellFeed", () => {
     expect(result.historyDays).toBe(45);
     expect(result.feedCap).toBe(20);
     expect(result.entries).toHaveLength(1);
-    expect(result.entries[0]?.action).toEqual(
-      resolveAlertAction("SHOW_FIRST_PUBLISHED", null, { slug: "east-coast" }),
+    expect(result.entries[0]?.actions).toEqual(
+      resolveAlertActions("SHOW_FIRST_PUBLISHED", null, { slug: "east-coast" }),
     );
     // SHOW_FIRST_PUBLISHED is a { kind: "global" } identity-map entry — no
     // crew/show lookups needed, resolves to an empty-segments global identity.
@@ -563,6 +577,42 @@ describe("loadBellFeed", () => {
     // per row on infra fault — identity is additive/never-gating, but the
     // row itself is never dropped nor does its identity become undefined.
     expect(result.entries[0]?.identity).toEqual({ segments: [], global: false });
+  });
+
+  test("attaches messageParams (identity-derived) and an ordered actions list", async () => {
+    state.rpcRows = [
+      metaRow(),
+      activeRow({
+        id: "a1",
+        code: "ROLE_FLAGS_NOTICE",
+        slug: "ria-forum",
+        show_id: "22222222-2222-2222-2222-222222222222",
+        context: {
+          drive_file_id: "df1",
+          changes: [{ crew_name: "Doug Larson", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+        },
+      }),
+    ];
+    state.showsRow = {
+      id: "22222222-2222-2222-2222-222222222222",
+      slug: "ria-forum",
+      title: "II - RIA Investment Forum",
+    };
+
+    const result = await loadBellFeed("admin@fxav.test", false);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    const entry = result.entries.find((e) => e.code === "ROLE_FLAGS_NOTICE")!;
+    expect(entry.messageParams["sheet-name"]).toBe("'II - RIA Investment Forum'");
+    expect(entry.messageParams["role-changes"]).toBe(
+      "Doug Larson's role changed from A1 to A1 + LEAD.",
+    );
+    expect(entry.messageParams["lead-hint"]).toBe(
+      " Lead changes must be confirmed in the show page.",
+    );
+    expect(entry.actions.map((a) => a.label)).toEqual(["Review in show page", "Open in Sheet"]);
+    expect(entry).not.toHaveProperty("action");
   });
 });
 

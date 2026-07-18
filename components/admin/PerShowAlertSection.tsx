@@ -22,6 +22,8 @@ import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
 import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
+import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
@@ -59,6 +61,13 @@ type AdminAlertRow = {
    * Definite field (exactOptionalPropertyTypes) — never optional-undefined.
    */
   identityText: string | null;
+  /**
+   * Read-time template params (spec 2026-07-17-condensed-alert-copy-design
+   * §4.1): raw producer context scalars merged with derived, always-resolving
+   * keys (sheet-name/show-name/role-changes/lead-hint) computed from the
+   * already-resolved identity. Drives `safeDougFacingTemplate`'s render pass.
+   */
+  messageParams: MessageParams;
 };
 
 type PerShowAlertSectionProps = {
@@ -103,12 +112,8 @@ function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSu
 // unresolved <placeholder> token. The caller renders the template via
 // renderCatalogEmphasis so param values (sheet names!) are inserted as
 // opaque text after emphasis parsing, never parsed as markup (Codex R1).
-function safeDougFacingTemplate(
-  code: string,
-  context: Record<string, unknown> | null,
-): string | null {
+function safeDougFacingTemplate(code: string, params: MessageParams | undefined): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  const params = (context as MessageParams | null) ?? undefined;
   const template = messageFor(code as MessageCode).dougFacing;
   if (!template) return null;
   const interpolated = messageFor(code as MessageCode, params).dougFacing;
@@ -136,7 +141,7 @@ export async function fetchPerShowAlerts(
   // SEPARATE step below with its own try/catch — mirroring AlertBanner's Task
   // 10 structure (read in its own try, resolve after) — so the additive
   // resolve block never lengthens the read's try body.
-  let rows: Omit<AdminAlertRow, "identityText">[];
+  let rows: Omit<AdminAlertRow, "identityText" | "messageParams">[];
   try {
     // alert-audience-split §5: exclude `audience: "health"` codes from the
     // per-show Doug surface (they flow to the app-health indicator instead).
@@ -222,7 +227,8 @@ export async function fetchPerShowAlerts(
   return rows.map((r) => {
     const identity = identities.get(r.id);
     const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
-    return { ...r, identityText };
+    const messageParams = deriveAlertMessageParams(r.code, r.context, identity ?? null);
+    return { ...r, identityText, messageParams };
   });
 }
 
@@ -293,7 +299,7 @@ export async function PerShowAlertSection({
       </div>
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
-          const copyTemplate = safeDougFacingTemplate(alert.code, alert.context);
+          const copyTemplate = safeDougFacingTemplate(alert.code, alert.messageParams);
           // Plain-language explanation, rendered ALWAYS-VISIBLE below the alert
           // title (no "What does this mean?" disclosure toggle, no "Learn more →"
           // link — the former per-row <HelpAffordance>). Unknown/log-only codes
@@ -334,12 +340,9 @@ export async function PerShowAlertSection({
                 isHighlighted ? "ring-2 ring-focus-ring ring-offset-2" : ""
               }`}
             >
-              <p className="text-sm font-semibold text-text-strong">
+              <p className="wrap-break-word whitespace-pre-line text-sm font-semibold text-text-strong">
                 {copyTemplate
-                  ? renderCatalogEmphasis(
-                      copyTemplate,
-                      (alert.context as MessageParams | null) ?? undefined,
-                    )
+                  ? renderCatalogEmphasis(copyTemplate, alert.messageParams)
                   : "Something needs your attention on this show."}
               </p>
               {helpfulContext ? (
@@ -388,9 +391,14 @@ export async function PerShowAlertSection({
                   crew/show/email/count string. Muted sub-line tone mirrors the
                   failedKeys/dataGaps detail lines above (text-xs text-text-subtle,
                   no new token). Suppressed entirely when identityText is null
-                  (global / empty / unknown code / degraded resolve). The <p>
-                  contains ONLY the identity string. */}
-              {alert.identityText ? (
+                  (global / empty / unknown code / degraded resolve), AND ALSO
+                  when the code names its entity inline in the resolved message
+                  (spec 2026-07-17-condensed-alert-copy-design §5 — INLINE_IDENTITY_CODES,
+                  `copyTemplate !== null` is the "message resolved" signal so the
+                  chip never drops when the template failed to interpolate). The
+                  <p> contains ONLY the identity string. */}
+              {alert.identityText &&
+              !(INLINE_IDENTITY_CODES.has(alert.code) && copyTemplate !== null) ? (
                 <p
                   data-testid="per-show-alert-identity"
                   className="wrap-break-word text-xs text-text-subtle"

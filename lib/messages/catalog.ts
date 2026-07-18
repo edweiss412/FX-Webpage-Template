@@ -259,7 +259,7 @@ export const MESSAGE_CATALOG = {
     healthWeight: "notice",
     dougSummary: "Two setup sessions overlapped, and the app kept the newer one. Nothing was lost.",
     dougFacing:
-      "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+      "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     crewFacing: null,
     followUp: "Doug → continue in the active wizard tab",
     helpfulContext:
@@ -868,13 +868,11 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     severity: "info",
-    dougFacing:
-      "A crew member's role flags changed and were applied automatically — this entry is here for your audit. If the change included LEAD status (which grants admin/ops/financials access), confirm it was intentional.",
+    dougFacing: "In <sheet-name>, <role-changes><lead-hint>",
     crewFacing: null,
     followUp: "none (informational)",
-    helpfulContext:
-      "A crew member's role flags changed and were applied automatically — a sheet edit or an admin role mapping is a deliberate action, so it applies without holding. This entry is raised when a change affects a CAPABILITY role: LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface). Those are worth a quick confirm; a durable audit record also captures each one. Department/scope flags only change which tile the crew member sees on their own page. No action needed; if a capability change was a mistake, correct it in the sheet (or the mapping).",
-    title: null,
+    helpfulContext: null,
+    title: "Role change applied",
     longExplanation: null,
     helpHref: null,
   },
@@ -2051,7 +2049,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A behind-the-scenes diagram update is taking longer than expected to finish. The developer can clear it; your published shows are unaffected.",
     dougFacing:
-      "A diagram snapshot promotion has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
+      "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-promote-repair admin tool",
     helpfulContext:
@@ -2069,7 +2067,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A diagram change is waiting to roll back cleanly. The developer handles this; your live shows keep working.",
     dougFacing:
-      "A diagram snapshot rollback stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
+      "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-rollback-repair admin tool",
     helpfulContext:
@@ -2087,7 +2085,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A developer safety setting drifted from its expected value. This is a code-side check the developer will restore.",
     dougFacing:
-      "Branch protection no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
+      "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     crewFacing: null,
     followUp: "Eric → restore branch protection per X.6 contract",
     helpfulContext:
@@ -2105,7 +2103,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The tool that watches developer safety settings couldn't sign in. The developer will reconnect it.",
     dougFacing:
-      "Branch-protection monitoring cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
+      "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     crewFacing: null,
     followUp: "Eric → rotate GH App / PAT within 24h",
     helpfulContext:
@@ -2305,7 +2303,7 @@ export const MESSAGE_CATALOG = {
       "A notification email couldn't be sent. The system keeps retrying, and the developer will check the email setup.",
     severity: "warning",
     dougFacing:
-      "We couldn't send a notification email. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
+      "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     crewFacing: null,
     followUp: "Eric → check provider key / verified sending domain",
     helpfulContext:
@@ -2402,7 +2400,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A bug-report cleanup step tidied up an abandoned record on its own. Nothing you filed was affected.",
     dougFacing:
-      "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window.",
+      "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     crewFacing: null,
     followUp: "Eric → review orphan, tune lease window if recurring",
     helpfulContext:
@@ -2438,7 +2436,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The bug-report system retried a step several times in a row. The developer will look; reports still go through.",
     dougFacing:
-      "Bug-report processing is thrashing on this show — retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
+      "Bug-report processing is thrashing on <show-name> — retries are racing against leases. This usually means the lease window needs tuning.",
     crewFacing: null,
     followUp: "Eric → tune lease window",
     helpfulContext:
@@ -2861,7 +2859,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The bug-report system found two records that look the same and paused to stay safe. The developer will sort it out.",
     dougFacing:
-      "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
+      "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     crewFacing: null,
     followUp: "Eric → inspect duplicate report issues and close the incorrect one",
     helpfulContext:
@@ -2893,7 +2891,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A bug-report lookup wasn't certain and stayed cautious. Crew can simply try again.",
     dougFacing:
-      "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+      "We couldn't confirm whether a report for <show-name> went through. Try again in a few minutes.",
     crewFacing:
       "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     followUp: "Eric → review GitHub issue lookup and retry state",
@@ -2912,7 +2910,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A bug report ended up in an unusual state the developer needs to review. Nothing you filed was lost.",
     dougFacing:
-      "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
+      "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     crewFacing: null,
     followUp: "Eric → inspect the labeled issue",
     helpfulContext:
@@ -3081,7 +3079,7 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "An old, unfinished bug-report reservation was cleared automatically during routine cleanup. No action needed.",
     dougFacing:
-      "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
+      "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     crewFacing: null,
     followUp: "Eric → inspect report-reaper logs if this recurs",
     helpfulContext:

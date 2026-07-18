@@ -134,3 +134,29 @@ export function resolveAlertAction(
   if (!REGISTERED.has(code)) return null;
   return ALERT_ACTIONS[code as AlertActionCode](context, opts);
 }
+
+/**
+ * Ordered action list for surfaces that can render more than one link (bell
+ * panel — spec 2026-07-17 §3.4). resolveAlertAction keeps its single-link
+ * signature untouched for its other callers (HealthAlertsPanel). For
+ * ROLE_FLAGS_NOTICE the internal show-page review link LEADS and the sheet
+ * deep link stays second; every other code delegates to the single resolver.
+ */
+export function resolveAlertActions(
+  code: string,
+  context: Record<string, unknown> | null,
+  opts: { slug: string | null },
+): AlertActionLink[] {
+  const single = resolveAlertAction(code, context, opts);
+  if (code === "ROLE_FLAGS_NOTICE") {
+    const showPage: AlertActionLink | null = opts.slug
+      ? {
+          label: "Review in show page",
+          href: `/admin/show/${encodeURIComponent(opts.slug)}`,
+          external: false,
+        }
+      : null;
+    return [showPage, single].filter((a): a is AlertActionLink => a !== null);
+  }
+  return single ? [single] : [];
+}

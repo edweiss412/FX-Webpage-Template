@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 
 import {
   MESSAGE_CATALOG,
@@ -160,6 +161,23 @@ describe("message catalog", () => {
   // StagedReviewCard's own copy (components/admin/StagedReviewCard.tsx:178)
   // and the parser warning text (lib/sync/enrichWithDrivePins.ts:134). If a
   // renderer ever consumes this dougFacing, split the variants first.
+  //
+  // INLINE_IDENTITY_CODES (imported above, from
+  // lib/adminAlerts/alertIdentityMap.ts — the production chip-suppression
+  // registry added in commit 6876068e3) is allowlisted from the wrapper
+  // check ONLY — the annotation and wrapping-quotes checks above still apply
+  // to these rows in full. ROLE_FLAGS_NOTICE plus the other 12 codes woven
+  // with identity placeholders in §6 all carry BARE `<token>` placeholders
+  // by design: they're resolved at render time by deriveAlertMessageParams
+  // (lib/adminAlerts/deriveMessageParams.ts) before the string ever reaches
+  // ErrorExplainer/AlertBanner, so an unresolved wrapper is never rendered
+  // literally the way it would be for the emphasis-styled rows this check
+  // otherwise pins. `<role-changes>` (ROLE_FLAGS_NOTICE) is also MULTILINE
+  // (bulleted lines), so a symmetric emphasis wrapper can't apply to it at
+  // all. This allowlist does not relax the check for typos on any other
+  // row — it only recognizes that bare placeholders here are deliberate.
+  // Importing the registry directly (rather than re-typing the code list)
+  // keeps this allowlist and the production set in lockstep by construction.
   test("no rendered copy carries spec-authoring annotations, wrapping quotes, or mismatched placeholder wrappers", () => {
     const UNRENDERED_SCENARIO_VARIANT_ROWS = new Set(["DIAGRAMS_EMBEDDED_NONE_FOUND"]);
     const SYMMETRIC_WRAPPERS = new Set(["_", "*", "`"]);
@@ -175,6 +193,7 @@ describe("message catalog", () => {
         if (copy.startsWith('"') && copy.endsWith('"')) {
           offenders.push(`${code}.${surface}: literal wrapping quotes around entire copy`);
         }
+        if (INLINE_IDENTITY_CODES.has(code)) continue;
         // Placeholder wrappers must be a symmetric pair from the allowed set;
         // anything else abutting `<token>` is a typo (e.g. `*<minutes>_`).
         for (const match of copy.matchAll(/(.)?<([a-zA-Z][a-zA-Z0-9_-]*)>(.)?/g)) {
@@ -204,9 +223,19 @@ describe("message catalog", () => {
 describe("helpfulContext × dougFacing coverage", () => {
   const entries = Object.values(MESSAGE_CATALOG) as readonly MessageCatalogEntry[];
 
+  // ROLE_FLAGS_NOTICE is exempted per condensed-alert-copy design spec
+  // (docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md D3):
+  // the caret/longform helpfulContext is replaced by the show-page action
+  // link, so this code intentionally carries a non-null dougFacing with a
+  // null helpfulContext. Mirrors the identical exemption already applied to
+  // the §12.4 doc-parity check (scripts/extract-spec-codes.ts, see
+  // INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT).
+  const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set(["ROLE_FLAGS_NOTICE"]);
+
   test("every dougFacing-non-null code has non-null helpfulContext", () => {
     const violations = entries
       .filter((entry) => entry.dougFacing !== null && entry.helpfulContext === null)
+      .filter((entry) => !INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT.has(entry.code))
       .map((entry) => entry.code);
     expect(violations).toEqual([]);
   });

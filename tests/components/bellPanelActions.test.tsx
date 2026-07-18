@@ -67,7 +67,8 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
     identity: null,
     isAutoResolving: false,
     autoResolveNote: null,
-    action: null,
+    actions: [],
+    messageParams: {},
     isHealth: false,
     ...over,
   };
@@ -258,20 +259,20 @@ describe("BellPanel — non-resolve action cells (spec §7.3)", () => {
     expect(within(row).getByTestId("admin-alert-retry-button")).toBeTruthy();
   });
 
-  it("action chip renders when entry.action is non-null; absent when null", async () => {
+  it("action chip renders when entry.actions is non-empty; absent when empty", async () => {
     const withAction = makeEntry({
       alertId: "act-1",
       state: "active",
-      action: { href: "/admin/settings", label: "Open settings", external: false },
+      actions: [{ href: "/admin/settings", label: "Open settings", external: false }],
     });
-    const noAction = makeEntry({ alertId: "act-0", state: "active", action: null });
+    const noAction = makeEntry({ alertId: "act-0", state: "active", actions: [] });
     routeFetch({ feed: () => feedBody({ entries: [withAction, noAction] }) });
     const { getByTestId } = renderPanel();
 
-    const chip = await within(getByTestId("bell-panel")).findByTestId("bell-action-act-1");
+    const chip = await within(getByTestId("bell-panel")).findByTestId("bell-action-act-1-0");
     expect(chip.getAttribute("href")).toBe("/admin/settings");
     expect(chip.textContent).toContain("Open settings");
-    expect(within(getByTestId("bell-entry-act-0")).queryByTestId("bell-action-act-0")).toBeNull();
+    expect(within(getByTestId("bell-entry-act-0")).queryByTestId("bell-action-act-0-0")).toBeNull();
   });
 });
 

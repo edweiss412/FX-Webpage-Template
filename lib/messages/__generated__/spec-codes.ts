@@ -208,13 +208,13 @@ export const SPEC_CODES = {
   },
   "BRANCH_PROTECTION_DRIFT": {
     "crewFacing": null,
-    "dougFacing": "Branch protection no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
+    "dougFacing": "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     "followUp": "Eric → restore branch protection per X.6 contract",
     "helpfulContext": "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the eight required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
   },
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED": {
     "crewFacing": null,
-    "dougFacing": "Branch-protection monitoring cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
+    "dougFacing": "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     "followUp": "Eric → rotate GH App / PAT within 24h",
     "helpfulContext": "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required X.* checks. Rotate the GitHub App token or fallback PAT, then confirm the scheduled branch-protection job succeeds again; otherwise drift could go undetected until the reader check's freshness window expires.",
   },
@@ -334,7 +334,7 @@ export const SPEC_CODES = {
   },
   "EMAIL_DELIVERY_FAILED": {
     "crewFacing": null,
-    "dougFacing": "We couldn't send a notification email. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
+    "dougFacing": "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     "followUp": "Eric → check provider key / verified sending domain",
     "helpfulContext": "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
   },
@@ -778,13 +778,13 @@ export const SPEC_CODES = {
   },
   "PENDING_SNAPSHOT_PROMOTE_STUCK": {
     "crewFacing": null,
-    "dougFacing": "A diagram snapshot promotion has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
+    "dougFacing": "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-promote-repair admin tool",
     "helpfulContext": "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
   },
   "PENDING_SNAPSHOT_ROLLBACK_STUCK": {
     "crewFacing": null,
-    "dougFacing": "A diagram snapshot rollback stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
+    "dougFacing": "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-rollback-repair admin tool",
     "helpfulContext": "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
   },
@@ -946,7 +946,7 @@ export const SPEC_CODES = {
   },
   "REPORT_DUPLICATE_LIVE_MATCHES": {
     "crewFacing": null,
-    "dougFacing": "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
+    "dougFacing": "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     "followUp": "Eric → inspect duplicate report issues and close the incorrect one",
     "helpfulContext": "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
   },
@@ -958,25 +958,25 @@ export const SPEC_CODES = {
   },
   "REPORT_LEASE_THRASHING": {
     "crewFacing": null,
-    "dougFacing": "Bug-report processing is thrashing on this show — retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
+    "dougFacing": "Bug-report processing is thrashing on <show-name> — retries are racing against leases. This usually means the lease window needs tuning.",
     "followUp": "Eric → tune lease window",
     "helpfulContext": "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
   },
   "REPORT_LOOKUP_INCONCLUSIVE": {
     "crewFacing": "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
-    "dougFacing": "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+    "dougFacing": "We couldn't confirm whether a report for <show-name> went through. Try again in a few minutes.",
     "followUp": "Eric → review GitHub issue lookup and retry state",
     "helpfulContext": "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
   },
   "REPORT_OPEN_ORPHAN_LABEL": {
     "crewFacing": null,
-    "dougFacing": "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
+    "dougFacing": "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     "followUp": "Eric → inspect the labeled issue",
     "helpfulContext": "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
   },
   "REPORT_ORPHANED_LOST_LEASE": {
     "crewFacing": null,
-    "dougFacing": "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window.",
+    "dougFacing": "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     "followUp": "Eric → review orphan, tune lease window if recurring",
     "helpfulContext": "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this code keeps appearing, the developer needs to extend the lease window.",
   },
@@ -1018,9 +1018,9 @@ export const SPEC_CODES = {
   },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
-    "dougFacing": "A crew member's role flags changed and were applied automatically — this entry is here for your audit. If the change included LEAD status (which grants admin/ops/financials access), confirm it was intentional.",
+    "dougFacing": "In <sheet-name>, <role-changes><lead-hint>",
     "followUp": "none (informational)",
-    "helpfulContext": "A crew member's role flags changed and were applied automatically — a sheet edit or an admin role mapping is a deliberate action, so it applies without holding. This entry is raised when a change affects a CAPABILITY role: LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface). Those are worth a quick confirm; a durable audit record also captures each one. Department/scope flags only change which tile the crew member sees on their own page. No action needed; if a capability change was a mistake, correct it in the sheet (or the mapping).",
+    "helpfulContext": null,
   },
   "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
     "crewFacing": null,
@@ -1324,7 +1324,7 @@ export const SPEC_CODES = {
   },
   "STALE_ORPHAN_REPORT": {
     "crewFacing": null,
-    "dougFacing": "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
+    "dougFacing": "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     "followUp": "Eric → inspect report-reaper logs if this recurs",
     "helpfulContext": "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
   },
@@ -1618,7 +1618,7 @@ export const SPEC_CODES = {
   },
   "WIZARD_SESSION_SUPERSEDED_RACE": {
     "crewFacing": null,
-    "dougFacing": "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    "dougFacing": "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     "followUp": "Doug → continue in the active wizard tab",
     "helpfulContext": "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
   },

@@ -14,10 +14,11 @@
  * panel renders standalone so no sibling can satisfy an assertion.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
 import { lookupHelpfulContext, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { GROUP_THRESHOLD, groupActiveBySeverity } from "@/lib/admin/bellTriage";
 import type { BellEntry } from "@/lib/admin/bellFeed";
@@ -62,7 +63,8 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
     identity: null,
     isAutoResolving: false,
     autoResolveNote: null,
-    action: null,
+    actions: [],
+    messageParams: {},
     isHealth: false,
     ...over,
   } as BellEntry;
@@ -235,13 +237,113 @@ describe("BellPanel redesign — message never clamped (R4)", () => {
 
   it("catalog invariant: no message-bearing code lacks helpful context — the orphaned-hidden-message case (R4) cannot arise", () => {
     const orphans = (Object.keys(MESSAGE_CATALOG) as MessageCode[]).filter(
-      (c) => messageFor(c).dougFacing != null && lookupHelpfulContext(c) === null,
+      (c) =>
+        messageFor(c).dougFacing != null &&
+        lookupHelpfulContext(c) === null &&
+        // Spec 2026-07-17 §D3: INLINE_IDENTITY_CODES weave identity directly
+        // into dougFacing, so the caret-gated helpfulContext box is redundant
+        // for them by design (ROLE_FLAGS_NOTICE is the one live case that
+        // actually drops helpfulContext to null). Excluded here, not an
+        // orphan — the message itself carries the full context, never hidden.
+        !INLINE_IDENTITY_CODES.has(c),
     );
-    // Every code that renders a message also carries a caret-gated helpful
-    // context, so even without the no-clamp guarantee there is no row whose only
-    // content is a hidden (clamped) message with no affordance. This pins the
-    // premise behind dropping message clamping from scope.
+    // Every OTHER code that renders a message also carries a caret-gated
+    // helpful context, so even without the no-clamp guarantee there is no row
+    // whose only content is a hidden (clamped) message with no affordance.
+    // This pins the premise behind dropping message clamping from scope.
     expect(orphans).toEqual([]);
+  });
+});
+
+describe("condensed inline-context rows (spec 2026-07-17)", () => {
+  const roleFlagsEntry = makeEntry({
+    alertId: "role-1",
+    code: "ROLE_FLAGS_NOTICE",
+    context: {
+      changes: [{ crew_name: "Doug Larson", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+    },
+    messageParams: {
+      "sheet-name": "'II - RIA Investment Forum'",
+      "role-changes": "Doug Larson's role changed from A1 to A1 + LEAD.",
+      "lead-hint": " Lead changes must be confirmed in the show page.",
+    },
+    actions: [
+      { label: "Review in show page", href: "/admin/show/ria-forum", external: false },
+      { label: "Open in Sheet", href: "https://docs.google.com/x", external: true },
+    ],
+  });
+
+  async function renderPanelWith(entries: BellEntry[]) {
+    routeFetch(feedBody({ entries }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  it("renders the interpolated one-line message and suppresses the identity chip", async () => {
+    await renderPanelWith([roleFlagsEntry]);
+    expect(
+      screen.getByText(
+        "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByTestId(`bell-identity-${roleFlagsEntry.alertId}`)).toBeNull();
+    expect(screen.queryByTestId(`bell-caret-${roleFlagsEntry.alertId}`)).toBeNull(); // helpfulContext now null
+  });
+
+  it("renders both action links in order", async () => {
+    await renderPanelWith([roleFlagsEntry]);
+    const first = screen.getByTestId(`bell-action-${roleFlagsEntry.alertId}-0`);
+    const second = screen.getByTestId(`bell-action-${roleFlagsEntry.alertId}-1`);
+    expect(first.textContent).toContain("Review in show page");
+    expect(first.getAttribute("href")).toBe("/admin/show/ria-forum");
+    expect(first.hasAttribute("target")).toBe(false);
+    expect(second.textContent).toContain("Open in Sheet");
+    expect(second.getAttribute("target")).toBe("_blank");
+  });
+
+  it("guard path: unresolved placeholder drops the message line and KEEPS the chip", async () => {
+    const broken = makeEntry({
+      alertId: "broken-1",
+      code: "ROLE_FLAGS_NOTICE",
+      messageParams: {}, // sheet-name/role-changes missing → template unresolved
+      identity: {
+        segments: [{ label: "Sheet", value: "II - RIA Investment Forum" }],
+        global: false,
+      },
+      actions: [],
+    });
+    await renderPanelWith([broken]);
+    expect(screen.queryByText(/In <sheet-name>/)).toBeNull();
+    expect(screen.getByTestId(`bell-identity-${broken.alertId}`)).toBeTruthy();
+  });
+
+  it("multi-line message span carries whitespace-pre-line", async () => {
+    const multi = makeEntry({
+      alertId: "multi-1",
+      code: "ROLE_FLAGS_NOTICE",
+      messageParams: {
+        "sheet-name": "'X'",
+        "role-changes": "2 role changes:\n• A: A1 → LEAD + A1\n• B: added with FINANCIALS",
+        "lead-hint": "",
+      },
+      actions: [],
+    });
+    await renderPanelWith([multi]);
+    const span = screen.getByText(/2 role changes:/);
+    expect(span.className).toContain("whitespace-pre-line");
+  });
+
+  it("non-member codes keep their chip exactly as before", async () => {
+    const watch = makeEntry({
+      alertId: "watch-1",
+      code: "WATCH_CHANNEL_ORPHANED",
+      messageParams: {},
+      identity: { segments: [{ label: "Folder", value: "fxav-test-shows" }], global: false },
+      actions: [],
+    });
+    await renderPanelWith([watch]);
+    expect(screen.getByTestId(`bell-identity-${watch.alertId}`)).toBeTruthy();
   });
 });
 

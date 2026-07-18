@@ -15,13 +15,15 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { bellExcludedCodes } from "@/lib/admin/bellAudience";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import { isAutoResolving, autoResolveNote, HEALTH_CODES } from "@/lib/adminAlerts/audience";
-import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
+import { resolveAlertActions } from "@/lib/adminAlerts/alertActions";
+import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
 import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
 import {
   resolveAlertIdentities,
   type AlertIdentitiesResult,
 } from "@/lib/adminAlerts/resolveAlertIdentities";
 import type { SerializedAlertIdentity } from "@/lib/adminAlerts/identityTypes";
+import type { MessageParams } from "@/lib/messages/lookup";
 import { log } from "@/lib/log";
 
 export type BellEntry = {
@@ -42,7 +44,10 @@ export type BellEntry = {
   identity: SerializedAlertIdentity | null;
   isAutoResolving: boolean;
   autoResolveNote: string | null;
-  action: { href: string; label: string; external: boolean } | null;
+  /** Ordered action links (spec 2026-07-17 §3.4) — 0..n; first leads. */
+  actions: { href: string; label: string; external: boolean }[];
+  /** Merged copy params (raw context scalars + identity-derived — spec §4.1/§4.2). */
+  messageParams: MessageParams;
   isHealth: boolean;
 };
 
@@ -125,7 +130,10 @@ export function shapeBellEntries(
       unread: r.is_active ? readAt === null || readAt < activityAt : false,
       isAutoResolving: isAutoResolving(r.code!),
       autoResolveNote: isAutoResolving(r.code!) ? autoResolveNote(r.code!) : null,
-      action: resolveAlertAction(r.code!, r.context, { slug: r.slug }),
+      actions: resolveAlertActions(r.code!, r.context, { slug: r.slug }),
+      // Placeholder — stamped with the identity-derived value once
+      // resolveAlertIdentities resolves (loadBellFeed, below).
+      messageParams: {},
       isHealth: HEALTH_CODES.includes(r.code!),
     };
   });
@@ -277,10 +285,18 @@ export async function loadBellFeed(
     log.error("bell identity resolve degraded", { source: "admin.bellFeed", error: err });
   }
 
-  const entries: BellEntry[] = shaped.entries.map((e) => ({
-    ...e,
-    identity: identities.get(e.alertId) ?? null,
-  }));
+  const entries: BellEntry[] = shaped.entries.map((e) => {
+    const identity = identities.get(e.alertId) ?? null;
+    return {
+      ...e,
+      identity,
+      messageParams: deriveAlertMessageParams(
+        e.code,
+        contextByAlertId.get(e.alertId) ?? null,
+        identity,
+      ),
+    };
+  });
 
   return {
     kind: "ok",
