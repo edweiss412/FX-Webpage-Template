@@ -4,7 +4,7 @@
  * (consolidated-admin-show-page spec §9 — Transition inventory, MANDATORY audit)
  *
  * The transition audit for the NEW consolidated-page components:
- *   PublishedReviewPage · StatusStrip · OverviewSection · ChangesSection ·
+ *   PublishedReviewModal · StatusStrip · OverviewSection · ChangesSection ·
  *   sectionWarningExtras — plus the surface's page-layout extra rail/chip items
  *   (ShowReviewSurface `renderExtraRailItem`/`renderExtraChipItem`).
  *
@@ -116,8 +116,12 @@ function findConditionalLines(source: string): number[] {
 // ternary arms (`) : cond ? (`) are not separately counted — they are covered by
 // the head site's count row and are proven instant by the blanket below.
 const PAGE_COMPONENT_COUNTS: Record<string, number> = {
-  "components/admin/showpage/PublishedReviewPage.tsx": 0, // railBadge is an object-spread conditional (asserted separately), not a JSX mount
-  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / alert / copy-link
+  // admin-show-modal Task 7: PublishedReviewPage was replaced by the modal
+  // consumer. Its ONE JSX-mount conditional is the header sheet deep-link
+  // (`openSheetHref !== null` — §6.2 guard, instant omit/mount); the Overview
+  // railBadge stays an object-spread conditional (asserted separately).
+  "components/admin/showpage/PublishedReviewModal.tsx": 1,
+  "components/admin/showpage/StatusStrip.tsx": 8, // renderTitle(+divider) / archived / control-divider / live / sync / edited / alert / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
@@ -144,11 +148,11 @@ describe("§9 source enumeration — every conditional in the new page component
     });
   }
 
-  // PublishedReviewPage's ONE conditional the JSX-mount regex can't see: the
+  // PublishedReviewModal's ONE conditional the JSX-mount regex can't see: the
   // Overview rail badge is added via an object-spread ternary producing a plain
   // <span> (instant — a conditional prop, never an animated presence).
-  it("PublishedReviewPage adds the Overview railBadge via a plain object-spread conditional (instant)", () => {
-    const s = src("components/admin/showpage/PublishedReviewPage.tsx");
+  it("PublishedReviewModal adds the Overview railBadge via a plain object-spread conditional (instant)", () => {
+    const s = src("components/admin/showpage/PublishedReviewModal.tsx");
     expect(s).toMatch(/\.\.\.\(alertCount > 0/);
     expect(s).toMatch(/data-testid="overview-rail-badge"/);
   });

@@ -91,7 +91,7 @@ describe("PreviewBanner (§9.3)", () => {
     expect(screen.getByTestId("admin-preview-banner-name").textContent).toBe("Eric Weiss");
     expect(screen.getByTestId("admin-preview-banner-role").textContent).toBe("A1");
     const exit = screen.getByTestId("admin-preview-banner-exit") as HTMLAnchorElement;
-    expect(exit.getAttribute("href")).toBe("/admin/show/rpas-central-2026");
+    expect(exit.getAttribute("href")).toBe("/admin?show=rpas-central-2026");
     // No reference to /admin/dev anywhere — build-gated-routes-never-fallback rule.
     const banner = screen.getByTestId("admin-preview-banner");
     expect(banner.innerHTML).not.toContain("/admin/dev");

@@ -73,7 +73,10 @@ export async function mi11ApproveAction(
     // approveMi11Hold resolved, so revalidateShow here is POST-COMMIT. showId is the server-resolved
     // id (from the hold row); skip the data-cache bust only if it could not be resolved.
     if (result.showId) revalidateShow(result.showId);
-    revalidatePath("/admin/show/[slug]", "page");
+    // admin-show-modal Task 10 (spec §4): the feed renders inside the /admin?show= modal —
+    // revalidate /admin so the modal flips the entry's status (the old show route is a pure
+    // redirect now; its stale revalidation is dropped where touched).
+    revalidatePath("/admin", "page");
     // Durable forensic telemetry: emitted ONLY on the committed-success branch (the self-locking
     // gate RPC committed by the time approveMi11Hold resolved) — never on a refusal. Fail-open at
     // the callsite (a logger throw must not fail a committed mutation). actorEmail is already
@@ -106,7 +109,9 @@ export async function mi11RejectAction(
     // change — the crew page was already showing the OLD identity, so the crew-facing
     // getShowForViewer projection is UNCHANGED (no `show-${id}` bust). Only the admin feed flips the
     // entry's status, which revalidatePath covers. (rejectMi11Hold never surfaces a showId.)
-    revalidatePath("/admin/show/[slug]", "page");
+    // admin-show-modal Task 10 (spec §4): revalidate /admin for modal freshness (dead
+    // show-route revalidation dropped).
+    revalidatePath("/admin", "page");
     // Durable forensic telemetry: committed-success branch only, fail-open. rejectMi11Hold never
     // surfaces a showId, so showId is omitted (not a false null audit field).
     try {
@@ -139,7 +144,9 @@ export async function undoChangeAction(
     // (crew_members + a tombstone) — rendered crew DATA. POST-COMMIT revalidate of the
     // server-resolved show id.
     if (result.showId) revalidateShow(result.showId);
-    revalidatePath("/admin/show/[slug]", "page");
+    // admin-show-modal Task 10 (spec §4): revalidate /admin for modal freshness (dead
+    // show-route revalidation dropped).
+    revalidatePath("/admin", "page");
     // Durable forensic telemetry: committed-success branch only, fail-open. showId is the
     // server-resolved id from the change-log row (omitted if unresolved).
     try {

@@ -48,6 +48,13 @@ import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
+// admin-show-modal: the per-show surface is the /admin?show= review modal. The
+// Suspense SKELETON shares the shell testIdBase, and both frames transiently
+// coexist during the streaming swap — scope to the LOADED modal (the skeleton
+// renders no title node) so the twin never trips Playwright strict mode.
+const LOADED_REVIEW_MODAL =
+  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+
 // The components changed/created by Phase 6–8 whose §3.4 pairs must stay instant.
 const CHANGED_COMPONENTS = [
   "components/admin/DashboardBucketSegmentedControl.tsx",
@@ -119,12 +126,16 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("archive confirm resting↔armed is an instant ternary swap (no crossfade)", async ({
     page,
   }) => {
-    await page.goto(`/admin/show/${held.slug}`);
-    const resting = page.getByTestId("archive-show-button");
+    // admin-show-modal: the per-show surface is now the dashboard modal; the
+    // archive control lives in the modal's Overview section.
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const resting = modal.getByTestId("archive-show-button");
     await expect(resting).toBeVisible();
 
     await resting.click();
-    const confirm = page.getByTestId("archive-show-confirm-button");
+    const confirm = modal.getByTestId("archive-show-confirm-button");
     // Instant: the confirm is visible essentially immediately (small timeout —
     // an entrance animation would delay visibility / opacity ramp).
     await expect(confirm).toBeVisible({ timeout: 500 });
@@ -142,13 +153,15 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("archive confirm reverts armed→resting after the 4s idle window (instant)", async ({
     page,
   }) => {
-    await page.goto(`/admin/show/${held.slug}`);
-    await page.getByTestId("archive-show-button").click();
-    await expect(page.getByTestId("archive-show-confirm-button")).toBeVisible();
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    await modal.getByTestId("archive-show-button").click();
+    await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 
     // After 4s idle the component setStates back to resting. Allow margin.
-    await expect(page.getByTestId("archive-show-button")).toBeVisible({ timeout: 6000 });
-    await expect(page.getByTestId("archive-show-confirm-button")).toHaveCount(0);
+    await expect(modal.getByTestId("archive-show-button")).toBeVisible({ timeout: 6000 });
+    await expect(modal.getByTestId("archive-show-confirm-button")).toHaveCount(0);
   });
 
   // ── (B3) Active ↔ Archived segment swap: instant content swap on URL-param
@@ -200,16 +213,18 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("compound: Archive armed while another action refreshes → no torn state", async ({
     page,
   }) => {
-    await page.goto(`/admin/show/${held.slug}`);
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
 
     // Arm Archive.
-    await page.getByTestId("archive-show-button").click();
-    await expect(page.getByTestId("archive-show-confirm-button")).toBeVisible();
+    await modal.getByTestId("archive-show-button").click();
+    await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 
     // Dispatch the OTHER action (the Published toggle, which replaced the Held
-    // Publish button) while Archive is armed. Its form action runs the server
-    // action then router.refresh() on success.
-    const toggle = page.getByTestId("published-toggle");
+    // Publish button — in the modal's StatusStrip header) while Archive is
+    // armed. Its form action runs the server action then router.refresh().
+    const toggle = modal.getByTestId("published-toggle");
     await expect(toggle).toBeVisible();
     await toggle.click();
 
@@ -222,17 +237,17 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     //   - Publish was blocked (no refresh) → the armed confirm is still the
     //     single control.
     // In NO case may BOTH a resting and a confirm Archive button coexist.
-    const restingCount = await page.getByTestId("archive-show-button").count();
-    const confirmCount = await page.getByTestId("archive-show-confirm-button").count();
+    const restingCount = await modal.getByTestId("archive-show-button").count();
+    const confirmCount = await modal.getByTestId("archive-show-confirm-button").count();
     expect(
       restingCount + confirmCount,
       `Archive control is coherent (resting=${restingCount}, confirm=${confirmCount}) — never both, never torn`,
     ).toBeLessThanOrEqual(1);
     // And whichever single control is mounted is itself consistent (visible).
     if (restingCount === 1) {
-      await expect(page.getByTestId("archive-show-button")).toBeVisible();
+      await expect(modal.getByTestId("archive-show-button")).toBeVisible();
     } else if (confirmCount === 1) {
-      await expect(page.getByTestId("archive-show-confirm-button")).toBeVisible();
+      await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
     }
   });
 
@@ -244,16 +259,18 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     try {
       const crewUrl = `/show/${seeded.slug}/${seeded.shareToken}`;
 
-      // Flip OFF from the admin page.
-      await page.goto(`/admin/show/${seeded.slug}`);
-      const toggle = page.getByTestId("published-toggle");
+      // Flip OFF from the admin review modal (the per-show surface).
+      await page.goto(`/admin?show=${seeded.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const toggle = modal.getByTestId("published-toggle");
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "false");
       // CASP-2: the compact inline StatusStrip toggle no longer carries a subline; the
       // paused-state copy now lives once in the Overview #share-access inactive notice
       // (the single source — the inline variant dropped its duplicate subline).
-      await expect(page.getByTestId("admin-share-link-inactive")).toContainText(
+      await expect(modal.getByTestId("admin-share-link-inactive")).toContainText(
         "The crew link is inactive while this show is unpublished.",
       );
 

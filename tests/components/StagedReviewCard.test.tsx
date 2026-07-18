@@ -26,9 +26,13 @@ import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedRevie
 import { mkDataGaps } from "../helpers/dataGapsFixture";
 
 const refreshMock = vi.fn();
+const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: refreshMock }),
+  useRouter: () => ({ refresh: refreshMock, push: pushMock }),
   usePathname: () => "/",
+  // admin-show-modal Task 11 (D9): the first-seen success push builds a
+  // param-preserving modal href from the current search params.
+  useSearchParams: () => new URLSearchParams("bucket=archived"),
 }));
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -418,6 +422,24 @@ describe("StagedReviewCard", () => {
     fireEvent.click(getByTestId("staged-review-apply"));
     await waitFor(() => expect(onMutated).toHaveBeenCalled());
     expect(refreshMock).toHaveBeenCalled();
+  });
+
+  test("first-seen apply success pushes the /admin?show= modal href, preserving current params (D9)", async () => {
+    // Failure mode caught: pushing the dead /admin/show/<slug> path (an extra
+    // 307 that drops ambient params) or a fixed literal that loses bucket=archived.
+    pushMock.mockClear();
+    fetchMock.mockResolvedValue({
+      json: async () => ({ slug: "fresh-show" }),
+    } as unknown as Response);
+    const row: StagedRow = {
+      ...baseRow,
+      triggeredReviewItems: [{ id: "fs-item", invariant: "FIRST_SEEN_REVIEW" }],
+    };
+    const { getByTestId } = render(<StagedReviewCard row={row} mode="first_seen" />);
+    fireEvent.click(getByTestId("staged-review-apply"));
+    await waitFor(() => expect(pushMock).toHaveBeenCalled());
+    expect(pushMock).toHaveBeenCalledWith("/admin?bucket=archived&show=fresh-show");
+    expect(refreshMock).not.toHaveBeenCalled(); // push replaces the refresh on this branch
   });
 
   test("network throw surfaces SYNC_INFRA_ERROR copy", async () => {

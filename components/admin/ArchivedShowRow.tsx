@@ -71,8 +71,11 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
       {/* Actions — Unarchive + Open. self-center keeps them within row height. */}
       <div className="flex shrink-0 items-center gap-3 self-center">
         <UnarchiveShowButton showId={row.id} unarchiveAction={unarchiveAction} />
+        {/* admin-show-modal spec §3.1 / D9: server-rendered — embeds its own bucket
+            context so archived context survives the open/close round-trip. */}
         <Link
-          href={`/admin/show/${encodeURIComponent(row.slug)}`}
+          href={`/admin?bucket=archived&show=${encodeURIComponent(row.slug)}`}
+          scroll={false}
           data-testid={`archived-show-open-${row.slug}`}
           className="inline-flex min-h-tap-min items-center justify-center self-center px-3 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >

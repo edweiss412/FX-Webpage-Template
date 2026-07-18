@@ -7,8 +7,18 @@
 // overflowCount>0. Preserves ActiveShowsPanel empty-state + null-title (V3).
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+
+// admin-show-modal Task 11 (spec §3.1 / D9): ShowsTable is a client island and
+// builds param-preserving modal hrefs from the CURRENT search params — the mock
+// is mutable so tests can vary the ambient params per case.
+let mockSearchParams = new URLSearchParams();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => mockSearchParams,
+}));
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
@@ -45,15 +55,32 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
 }
 
 describe("ShowsTable", () => {
-  it("row links to /admin/show/{slug}; renders Show/Dates/Crew/Sync + chevron", () => {
+  it("row links to the /admin?show= modal URL; renders Show/Dates/Crew/Sync + chevron", () => {
+    mockSearchParams = new URLSearchParams();
     render(
       <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
     );
     const link = screen.getByTestId("shows-table-row-rpas");
-    expect(link.getAttribute("href")).toBe("/admin/show/rpas");
+    expect(link.getAttribute("href")).toBe("/admin?show=rpas");
     expect(screen.getByTestId("shows-sync-rpas")).toBeInTheDocument();
     expect(screen.getByTestId("shows-chevron-rpas")).toBeInTheDocument();
     expect(link.textContent).toContain("4 crew");
+  });
+
+  it("row href preserves current params (bucket=archived survives opening a show — D9)", () => {
+    // Failure mode caught: a fixed `/admin?show=` literal (or the old
+    // /admin/show/<slug> path) would drop the archived-bucket context, so
+    // closing the modal would dump the admin back on the active bucket.
+    mockSearchParams = new URLSearchParams("bucket=archived");
+    try {
+      render(
+        <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+      );
+      const link = screen.getByTestId("shows-table-row-rpas");
+      expect(link.getAttribute("href")).toBe("/admin?bucket=archived&show=rpas");
+    } finally {
+      mockSearchParams = new URLSearchParams();
+    }
   });
 
   it("sync column uses syncStatusBucket ordered priority (drive_error -> warn 'Couldn't reach Drive', not synced)", () => {

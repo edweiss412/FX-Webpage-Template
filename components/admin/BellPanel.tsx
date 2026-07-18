@@ -34,7 +34,7 @@
  *     (fail-quiet, §4). The toggle has no expand/collapse state of its own —
  *     it is a mark-read-only gesture (spec §4.1, Task 7 chevron rework).
  *   - Show-page chevron (spec §4.1): a row whose alert carries a slug renders
- *     a `ChevronRight` nav link to `/admin/show/<slug>`, a DOM SIBLING of the
+ *     a `ChevronRight` nav link to `/admin?show=<slug>` (the review modal), a DOM SIBLING of the
  *     toggle button (never nested inside it — nested-interactive a11y). Hidden
  *     exactly when `entry.slug` is null (global alerts, health rows).
  *   - Dev footer (`viewerIsDeveloper` only): the live window/cap plus an inline
@@ -451,7 +451,7 @@ function ActiveRow({
               chevron. Plain nav, no toggle behavior of its own. */}
           {entry.slug !== null ? (
             <a
-              href={`/admin/show/${encodeURIComponent(entry.slug)}`}
+              href={`/admin?show=${encodeURIComponent(entry.slug)}`}
               data-testid={`bell-caret-${entry.alertId}`}
               aria-label="Open show page"
               className={SHOW_PAGE_LINK}

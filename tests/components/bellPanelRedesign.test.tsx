@@ -259,7 +259,7 @@ describe("BellPanel redesign — message never clamped (R4) / chevron is a slug 
 
     const chevron = within(panel).getByTestId("bell-caret-sl");
     expect(chevron.tagName).toBe("A");
-    expect(chevron.getAttribute("href")).toBe(`/admin/show/${encodeURIComponent("a b/c")}`);
+    expect(chevron.getAttribute("href")).toBe(`/admin?show=${encodeURIComponent("a b/c")}`);
     expect(chevron.getAttribute("aria-label")).toBe("Open show page");
     expect(queryByTestId("bell-caret-ns")).toBeNull();
   });
@@ -313,7 +313,7 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
       "lead-hint": " Lead changes must be confirmed in the show page.",
     },
     actions: [
-      { label: "Review in show page", href: "/admin/show/ria-forum", external: false },
+      { label: "Review in show page", href: "/admin?show=ria-forum", external: false },
       { label: "Open in Sheet", href: "https://docs.google.com/x", external: true },
     ],
   });
@@ -341,7 +341,7 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
     const first = screen.getByTestId(`bell-action-${roleFlagsEntry.alertId}-0`);
     const second = screen.getByTestId(`bell-action-${roleFlagsEntry.alertId}-1`);
     expect(first.textContent).toContain("Review in show page");
-    expect(first.getAttribute("href")).toBe("/admin/show/ria-forum");
+    expect(first.getAttribute("href")).toBe("/admin?show=ria-forum");
     expect(first.hasAttribute("target")).toBe(false);
     expect(second.textContent).toContain("Open in Sheet");
     expect(second.getAttribute("target")).toBe("_blank");

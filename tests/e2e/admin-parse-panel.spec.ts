@@ -23,8 +23,8 @@
  * Apply-SUCCESS is intentionally OUT OF SCOPE (it requires a real Drive
  * re-verify the seed cannot satisfy — unchanged from the original spec). Covered
  * here: render, discard, stale-staged-id error, local MISSING_REVIEWER_CHOICE
- * validation, and the per-show Re-sync button wiring (still on /admin/show/[slug]
- * via the Overview section).
+ * validation, and the per-show Re-sync button wiring (now inside the
+ * `/admin?show=<slug>` review modal's Overview section — admin-show-modal).
  */
 import { randomUUID } from "node:crypto";
 import { test, expect, type Request } from "@playwright/test";
@@ -32,6 +32,13 @@ import { admin } from "./helpers/supabaseAdmin";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+// admin-show-modal: the per-show surface is the /admin?show= review modal. The
+// Suspense SKELETON shares the shell testIdBase, and both frames transiently
+// coexist during the streaming swap — scope to the LOADED modal (the skeleton
+// renders no title node) so the twin never trips Playwright strict mode.
+const LOADED_REVIEW_MODAL =
+  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
 
 /**
  * Self-derive a seeded EXISTING show for the Re-sync test (used only there).
@@ -238,7 +245,10 @@ test.describe("admin staged-review card — /admin/show/staged/[stagedId] (first
     const seed = await lookupSeed();
 
     await signInAs(page, ADMIN_FIXTURE);
-    await page.goto(`/admin/show/${seed.slug}`);
+    // admin-show-modal: the per-show surface is now the dashboard modal.
+    await page.goto(`/admin?show=${seed.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
 
     const responses: { url: string; status: number }[] = [];
     page.on("response", (res) => {
@@ -258,10 +268,10 @@ test.describe("admin staged-review card — /admin/show/staged/[stagedId] (first
     // 126-137) — either standalone or wrapped in a CorrectionLoopCallout when the show
     // has actionable warnings, but exactly one <ReSyncButton> renders there. Scope to
     // that container so the click is unambiguous under Playwright strict mode.
-    const sheetSync = page.getByTestId("overview-sheet-sync");
+    const sheetSync = modal.getByTestId("overview-sheet-sync");
     await expect(sheetSync).toBeVisible();
     await sheetSync.getByTestId("admin-resync-button").click();
-    await expect(page.getByTestId("admin-resync-error")).toBeVisible({ timeout: 15_000 });
+    await expect(modal.getByTestId("admin-resync-error")).toBeVisible({ timeout: 15_000 });
 
     expect(responses.length).toBeGreaterThan(0);
     expect(responses[0]!.url).toContain(`/api/admin/sync/${encodeURIComponent(seed.slug)}`);

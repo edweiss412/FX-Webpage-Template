@@ -18,7 +18,7 @@
  * Precision: it flags a call `name(` of a value binding imported (non-`type`)
  * from a resolved `"use client"` module. Rendering the binding as JSX (`<Name`)
  * is NOT a call and is intentionally allowed — that is the supported RSC pattern
- * (the page renders `<PublishedReviewPage />` from a client module, which is
+ * (the loader renders `<PublishedReviewModal />` from a client module, which is
  * fine; it must not CALL a client function).
  */
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
@@ -27,6 +27,11 @@ import { describe, expect, test } from "vitest";
 
 const ROOT = process.cwd();
 const AUDIT_ROOT = "app/admin/show";
+// admin-show-modal Task 7: the per-show page body moved into the ShowReviewModal
+// server loader at app/admin/_showReviewModal.tsx — OUTSIDE the walked root, so
+// it is appended explicitly (a hardcoded `app/admin/show` walk alone would
+// silently drop the moved server surface from coverage).
+const EXTRA_AUDIT_FILES = ["app/admin/_showReviewModal.tsx"];
 
 function walk(relDir: string): string[] {
   return readdirSync(join(ROOT, relDir))
@@ -112,7 +117,7 @@ function offendersIn(rel: string): string[] {
 }
 
 describe("server files under app/admin/show never CALL a use-client import", () => {
-  const files = walk(AUDIT_ROOT);
+  const files = [...walk(AUDIT_ROOT), ...EXTRA_AUDIT_FILES];
 
   test("the audit tree is non-empty (walk resolves)", () => {
     expect(files.length).toBeGreaterThan(0);
@@ -135,7 +140,7 @@ describe("server files under app/admin/show never CALL a use-client import", () 
   // a JSX render of the same client import (the supported RSC pattern).
   test("control: detects a call but not a JSX render of a client import", () => {
     const clientMod = resolveModule(
-      join(ROOT, "app/admin/show/[slug]/page.tsx"),
+      join(ROOT, "app/admin/_showReviewModal.tsx"),
       "@/components/admin/wizard/step3ReviewSections",
     );
     expect(clientMod).not.toBeNull();
@@ -148,9 +153,9 @@ describe("server files under app/admin/show never CALL a use-client import", () 
     expect(/\bstep3Sections\s*\(/.test(callSrc)).toBe(true);
 
     const renderSrc = stripComments(
-      `import { PublishedReviewPage } from "@/components/admin/showpage/PublishedReviewPage";\n` +
-        `return <PublishedReviewPage data={data} />;`,
+      `import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";\n` +
+        `return <PublishedReviewModal data={data} />;`,
     );
-    expect(/\bPublishedReviewPage\s*\(/.test(renderSrc)).toBe(false);
+    expect(/\bPublishedReviewModal\s*\(/.test(renderSrc)).toBe(false);
   });
 });

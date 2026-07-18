@@ -112,6 +112,29 @@ vi.mock("@/app/admin/_scanManifestCount", () => ({
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: () => <div data-testid="admin-dashboard-placeholder" />,
 }));
+
+// admin-show-modal §4: `?show=` mounts the ShowReviewModal server loader inside
+// a Suspense boundary after DashboardWithHeader. The loader is an async server
+// component (real Supabase reads) — stub it to a sync spy so the dispatch tests
+// assert the MOUNT + normalized props, not the loader's internals (covered by
+// tests/app/admin/showReviewModalLoader.test.tsx). The skeleton is stubbed so
+// the Suspense fallback is identifiable without rendering the shell chrome.
+const showReviewModalSpy = vi.fn();
+vi.mock("@/app/admin/_showReviewModal", () => ({
+  ShowReviewModal: (props: { slug: string; alertId: string | null }) => {
+    showReviewModalSpy(props);
+    return (
+      <div
+        data-testid="show-review-modal-spy"
+        data-slug={props.slug}
+        data-alert-id={props.alertId ?? "null"}
+      />
+    );
+  },
+}));
+vi.mock("@/components/admin/showpage/ShowReviewModalSkeleton", () => ({
+  ShowReviewModalSkeleton: () => <div data-testid="show-review-modal-skeleton" />,
+}));
 // bell notification center §8: AlertBanner is retired — DashboardWithHeader no
 // longer mounts it, so no banner stub is needed here.
 
@@ -173,6 +196,7 @@ beforeEach(() => {
   // Default: an empty manifest (no reviewable scan rows) so routing tests are
   // unaffected; the wizard-resume tests override this per-case.
   readScanManifestCountMock.mockResolvedValue({ kind: "value", count: 0 });
+  showReviewModalSpy.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -391,6 +415,95 @@ describe("AdminPage Phase 2 routing", () => {
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
     const [props] = onboardingWizardSpy.mock.calls[0]! as [{ searchParams: { step?: string } }];
     expect(props.searchParams.step).toBe("2");
+  });
+
+  test("settled + ?show=<slug> renders the dashboard AND the review-modal mount (admin-show-modal §4)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: SETTLED_SETTINGS, rotated: false });
+    const { getByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: "east-coast-summit" }) }),
+    );
+    // The dashboard still paints (the modal mounts OVER it, not instead of it).
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
+    const spy = getByTestId("show-review-modal-spy");
+    expect(spy.dataset.slug).toBe("east-coast-summit");
+    expect(spy.dataset.alertId).toBe("null");
+  });
+
+  test("settled without ?show renders no modal mount", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: SETTLED_SETTINGS, rotated: false });
+    const { queryByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    expect(queryByTestId("show-review-modal-spy")).toBeNull();
+    expect(showReviewModalSpy).not.toHaveBeenCalled();
+  });
+
+  test("?show + ?alert_id threads the first alert_id value into the loader (§6.2 guard table)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: SETTLED_SETTINGS, rotated: false });
+    const { getByTestId } = render(
+      await AdminPage({
+        searchParams: Promise.resolve({ show: "rpas", alert_id: ["alert-1", "alert-2"] }),
+      }),
+    );
+    expect(getByTestId("show-review-modal-spy").dataset.alertId).toBe("alert-1");
+  });
+
+  test('?show="" is treated as absent — no modal mounts (§6.2 guard table)', async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: SETTLED_SETTINGS, rotated: false });
+    const { queryByTestId, getByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: "" }) }),
+    );
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
+    expect(queryByTestId("show-review-modal-spy")).toBeNull();
+    expect(showReviewModalSpy).not.toHaveBeenCalled();
+  });
+
+  test("?show=a&show=b (array) → the FIRST element wins (§6.2 guard table)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: SETTLED_SETTINGS, rotated: false });
+    const { getByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: ["show-a", "show-b"] }) }),
+    );
+    expect(getByTestId("show-review-modal-spy").dataset.slug).toBe("show-a");
+  });
+
+  test("wizard mode (first-visit fresh) ignores ?show — no modal on wizard surfaces", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({ settings: FRESH_SETTINGS, rotated: false });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: "rpas" }) }),
+    );
+    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
+    expect(queryByTestId("show-review-modal-spy")).toBeNull();
+    expect(showReviewModalSpy).not.toHaveBeenCalled();
+  });
+
+  test("wizard mid-flight (pending session, no checkpoint) ignores ?show", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: "rpas" }) }),
+    );
+    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
+    expect(queryByTestId("show-review-modal-spy")).toBeNull();
+    expect(showReviewModalSpy).not.toHaveBeenCalled();
+  });
+
+  test("defensive final_cas_done Dashboard branch ALSO mounts the modal for ?show (both DashboardWithHeader sites)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue({
+      status: "final_cas_done",
+      batches_completed: 100,
+      last_processed_drive_file_id: "drive-100",
+      last_processed_at: new Date().toISOString(),
+    });
+    const { getByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({ show: "rpas" }) }),
+    );
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
+    expect(getByTestId("show-review-modal-spy").dataset.slug).toBe("rpas");
   });
 
   test("calls requireAdmin/requireAdminIdentity before purgeAndRotateIfStale", async () => {

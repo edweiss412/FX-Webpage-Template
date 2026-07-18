@@ -260,7 +260,7 @@ export async function loadNeedsAttention(opts: {
 
   // Map rows → sync-problem inputs; skip (with a warn) any row whose shows!inner
   // embed is missing a slug — a defensive guard against an FK-integrity gap that
-  // would otherwise produce a dead /admin/show/undefined link.
+  // would otherwise produce a dead /admin?show=undefined link.
   const syncProblems: NeedsAttentionSyncProblemInput[] = syncProblemRows.flatMap((r) => {
     const embed = r.shows as
       | { slug?: string; title?: string | null }

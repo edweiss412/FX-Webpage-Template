@@ -23,6 +23,9 @@ import type { StagedRow, StagedReviewCardProps } from "@/components/admin/Staged
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
   usePathname: () => "/",
 }));

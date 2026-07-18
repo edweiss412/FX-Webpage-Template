@@ -78,6 +78,11 @@ export type StatusStripProps = {
   now: Date;
   /** Open `admin_alerts` count for this show; 0 → the badge is hidden. */
   alertCount: number;
+  /** admin-show-modal spec §6.1: `false` suppresses the internal `<h1>` title AND its
+   *  immediately-following divider (no orphan leading separator — the strip then starts
+   *  at the publish toggle). The modal header owns the title as an `<h2>`, so the dialog
+   *  contains exactly one title node and no `<h1>`. Default `true` (page behavior). */
+  renderTitle?: boolean;
 };
 
 export function StatusStrip({
@@ -93,6 +98,7 @@ export function StatusStrip({
   lastSyncStatus,
   now,
   alertCount,
+  renderTitle = true,
 }: StatusStripProps) {
   const { token } = useShareToken();
 
@@ -136,14 +142,31 @@ export function StatusStrip({
       data-testid="show-status-strip"
       className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6"
     >
-      {/* The rebuild dropped AdminPageHeader, so the sticky strip title IS the page's
-          top-level heading — an <h1> (not a <span>), or screen readers get no h1 landmark. */}
-      <h1
-        data-testid="strip-title"
-        className="min-w-0 truncate text-base font-semibold text-text-strong"
-      >
-        {title ?? slug}
-      </h1>
+      {/* admin-show-modal spec §6.1: the title block (h1 + its adjacent divider) is one
+          conditional — the modal passes renderTitle={false} so its <h2> header stays the
+          dialog's only title node and the strip starts at the publish toggle. */}
+      {renderTitle ? (
+        <>
+          {/* The rebuild dropped AdminPageHeader, so the sticky strip title IS the page's
+              top-level heading — an <h1> (not a <span>), or screen readers get no h1 landmark. */}
+          <h1
+            data-testid="strip-title"
+            className="min-w-0 truncate text-base font-semibold text-text-strong"
+          >
+            {title ?? slug}
+          </h1>
+          {/* Title↔toggle divider: only when a toggle follows (¬archived). Lives inside the
+              renderTitle block (covered by its count row) so suppressing the title can never
+              leave an orphan leading separator. */}
+          {archived ? null : (
+            <span
+              aria-hidden="true"
+              data-testid="strip-title-divider"
+              className="hidden h-5 w-px shrink-0 bg-border sm:block"
+            />
+          )}
+        </>
+      ) : null}
 
       {archived ? (
         <span
@@ -153,18 +176,15 @@ export function StatusStrip({
           Archived · read-only
         </span>
       ) : (
-        <>
-          <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-border sm:block" />
-          <div data-testid="strip-publish-toggle" className="shrink-0">
-            <PublishedToggle
-              slug={slug}
-              variant="inline"
-              published={published}
-              finalizeOwned={finalizeOwned}
-              setPublished={setPublished}
-            />
-          </div>
-        </>
+        <div data-testid="strip-publish-toggle" className="shrink-0">
+          <PublishedToggle
+            slug={slug}
+            variant="inline"
+            published={published}
+            finalizeOwned={finalizeOwned}
+            setPublished={setPublished}
+          />
+        </div>
       )}
 
       {showControlDivider ? (

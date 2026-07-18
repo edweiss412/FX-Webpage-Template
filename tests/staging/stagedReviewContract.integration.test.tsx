@@ -30,6 +30,9 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn() }),
   usePathname: () => "/",
 }));

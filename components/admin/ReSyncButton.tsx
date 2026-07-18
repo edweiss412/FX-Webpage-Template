@@ -3,7 +3,8 @@
 /**
  * components/admin/ReSyncButton.tsx (M6 §B Task 6.11 — UI portion)
  *
- * Per-show "Re-sync" CTA mounted at the top of `/admin/show/[slug]`.
+ * Per-show "Re-sync" CTA mounted at the top of the show review modal
+ * (`/admin?show=<slug>`).
  * POSTs to §A's manual-sync route (Pin-stop 2 extension @ ddafda3):
  *
  *   POST /api/admin/sync/[slug]

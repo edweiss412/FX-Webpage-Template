@@ -162,7 +162,7 @@ describe("POST outcome rendering in place (client form + mocked server action)",
       ),
     ).toBeInTheDocument();
     const adminLink = screen.getByRole("link", { name: /open it in the admin/i });
-    expect(adminLink).toHaveAttribute("href", "/admin/show/client-show");
+    expect(adminLink).toHaveAttribute("href", "/admin?show=client-show");
     expect(screen.queryByRole("button")).toBeNull();
     // The form payload carried token + r through (R9: POST re-validation input).
     expect(actionMock.calls).toHaveLength(1);

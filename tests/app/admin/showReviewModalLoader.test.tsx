@@ -1,21 +1,21 @@
 // @vitest-environment jsdom
 /**
- * tests/app/admin/perShowPage.test.tsx
- * (consolidated-admin-show-page spec §4–§6, §10–§11 — Task 13 page rebuild)
+ * tests/app/admin/showReviewModalLoader.test.tsx
+ * (admin-show-modal spec §4 / §7 — Task 7 loader retarget of perShowPage.test.tsx)
  *
- * The consolidated per-show admin page: the snapshot-RPC read path
- * (`readShowReviewSnapshot`) feeds the mode-agnostic PublishedSectionData; the
- * page renders the pinned StatusStrip over the shared ShowReviewSurface with
- * Overview first / Changes last. This replaces the pre-consolidation page tests
- * (AdminPageHeader + per-show-crew-col + flat data-quality panel), preserving the
- * load-bearing behaviors the old suite pinned:
- *   - auth/lookup gates: missing show → notFound; snapshot not_admin_or_missing →
- *     notFound; snapshot infra_error → throw (error boundary, no raw code in UI).
- *   - archived read-only posture (strip archived badge, no toggle, Overview
- *     Unarchive + inactive share notice).
- *   - share-panel gating on published && !archived (shareSlot vs inactive notice).
- *   - Preview-As gating on published && !archived.
- *   - the ADMIN_SHOW_* slug-correlation structural guard.
+ * The `ShowReviewModal({ slug, alertId })` server loader (`app/admin/
+ * _showReviewModal.tsx`): the transplanted per-show page body feeding the
+ * snapshot-RPC read path (`readShowReviewSnapshot`) into the client
+ * `PublishedReviewModal` inside the `ReviewModalShell` chrome. Every scenario
+ * from the retired per-show page suite is preserved, with exactly the D8 gate
+ * deltas the spec ratifies:
+ *   - absent row + snapshot not_admin_or_missing → `redirect("/admin")`
+ *     (were the two `notFound()` sites);
+ *   - infra faults (client construction, lookup returned-error, lookup throw,
+ *     snapshot infra_error) still THROW to the error boundary, unchanged;
+ *   - archived read-only posture, share-panel gating, Preview-As gating,
+ *     roster cap, finalize-owned invariant-9 fault coverage, and the
+ *     ADMIN_SHOW_* slug-correlation structural guard all transplant verbatim.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isValidElement, type ReactElement } from "react";
@@ -57,12 +57,18 @@ vi.mock("@/lib/log", () => ({ log: logSpy }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-14T18:00:00.000Z") }));
+// D8: `redirect` throws a sentinel (Next semantics — redirect() never returns);
+// the client hooks back the modal shell + useShowModalNav consume in jsdom.
 vi.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  },
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/admin/show/rpas",
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams("show=rpas"),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -127,7 +133,7 @@ vi.mock("@/components/admin/PerShowAlertSection", () => ({
 }));
 
 // CurrentShareLinkPanel is an async Server shell — stub it, exposing the wired
-// props so the page's threading (crewEmails/showTitle/isCrewLinkActive) is
+// props so the loader's threading (crewEmails/showTitle/isCrewLinkActive) is
 // assertable and the resetSlot passthrough is observable.
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
   const React = await import("react");
@@ -196,26 +202,26 @@ function baseSnapshot(overrides: Partial<Record<string, unknown>> = {}): ShowRev
   };
 }
 
-async function buildPageElement(): Promise<ReactElement> {
-  const mod = await import("@/app/admin/show/[slug]/page");
-  return (await mod.default({
-    params: Promise.resolve({ slug: "rpas" }),
-    searchParams: Promise.resolve({}),
-  })) as ReactElement;
+async function buildLoaderElement(alertId: string | null = null): Promise<ReactElement> {
+  const mod = await import("@/app/admin/_showReviewModal");
+  return (await mod.ShowReviewModal({ slug: "rpas", alertId })) as ReactElement;
 }
 
-async function renderPage() {
-  render(await buildPageElement());
+async function renderLoader() {
+  render(await buildLoaderElement());
 }
 
-// The page returns <ShareTokenProvider><PublishedReviewPage shareSlot=… /></…>.
-// Read the shareSlot prop the server page hands the client shell — the RSC
+// The loader returns <ShareTokenProvider><PublishedReviewModal shareSlot=… /></…>.
+// Read the shareSlot prop the server loader hands the client shell — the RSC
 // serialization boundary — WITHOUT rendering (rendered-tree assertions can't
 // distinguish "withheld from the payload" from "hidden client-side", since
 // OverviewSection hides the slot for ineligible shows either way).
-function shareSlotProp(ui: ReactElement): unknown {
+function modalProps(ui: ReactElement): Record<string, unknown> {
   const shell = (ui.props as { children: ReactElement }).children;
-  return (shell.props as { shareSlot: unknown }).shareSlot;
+  return shell.props as Record<string, unknown>;
+}
+function shareSlotProp(ui: ReactElement): unknown {
+  return modalProps(ui).shareSlot;
 }
 
 beforeEach(() => {
@@ -242,37 +248,81 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("consolidated per-show page — lookup + snapshot gates (§6/§11)", () => {
-  it("missing show (slug lookup returns no row) → notFound()", async () => {
+describe("show review modal loader — lookup + snapshot gates (§4, D8)", () => {
+  it("missing show (slug lookup returns no row) → redirect('/admin') (was notFound)", async () => {
     state.showIdRow = null;
-    await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(renderLoader()).rejects.toThrow("NEXT_REDIRECT:/admin");
   });
 
   it("slug lookup returned error → throws (error boundary), not a silent render", async () => {
     state.showIdError = { message: "db down" };
-    await expect(renderPage()).rejects.toThrow("show_lookup_failed");
+    await expect(renderLoader()).rejects.toThrow("show_lookup_failed");
+    const call = logSpy.error.mock.calls.find(
+      (c) => (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_LOOKUP_FAILED",
+    );
+    expect(call, "returned-error path must emit ADMIN_SHOW_LOOKUP_FAILED").toBeTruthy();
   });
 
-  it("snapshot not_admin_or_missing → notFound()", async () => {
+  it("slug lookup threw → ADMIN_SHOW_LOOKUP_THREW + throws (error boundary)", async () => {
+    // A non-`show_lookup_failed` throw from the awaited builder exercises the
+    // catch's distinct "threw" branch.
+    state.showIdRow = null;
+    state.showIdError = null;
+    const mod = await import("@/lib/supabase/server");
+    vi.spyOn(mod, "createSupabaseServerClient").mockResolvedValueOnce({
+      from() {
+        const builder: Record<string, unknown> = {};
+        const pass = () => builder;
+        builder.select = pass;
+        builder.eq = pass;
+        builder.limit = pass;
+        builder.maybeSingle = async () => {
+          throw new Error("META: lookup await fault");
+        };
+        return builder;
+      },
+      rpc: async () => ({ data: null, error: null }),
+    } as never);
+    await expect(renderLoader()).rejects.toThrow("show_lookup_failed");
+    const call = logSpy.error.mock.calls.find(
+      (c) => (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_LOOKUP_THREW",
+    );
+    expect(call, "thrown path must emit ADMIN_SHOW_LOOKUP_THREW").toBeTruthy();
+  });
+
+  it("snapshot not_admin_or_missing → redirect('/admin') (was notFound)", async () => {
     state.snapshotKind = "not_admin_or_missing";
-    await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(renderLoader()).rejects.toThrow("NEXT_REDIRECT:/admin");
   });
 
   it("snapshot infra_error → throws to the error boundary (no raw code rendered)", async () => {
     state.snapshotKind = "infra_error";
-    await expect(renderPage()).rejects.toThrow("show_review_snapshot_failed");
+    await expect(renderLoader()).rejects.toThrow("show_review_snapshot_failed");
+  });
+
+  it("supabase client construction throw → throws supabase_client_construction_failed + emit", async () => {
+    const mod = await import("@/lib/supabase/server");
+    vi.spyOn(mod, "createSupabaseServerClient").mockRejectedValueOnce(
+      new Error("META: construction fault"),
+    );
+    await expect(renderLoader()).rejects.toThrow("supabase_client_construction_failed");
+    const call = logSpy.error.mock.calls.find(
+      (c) =>
+        (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
+    );
+    expect(call, "construction path must emit ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED").toBeTruthy();
   });
 });
 
-describe("consolidated per-show page — shell + rail sections (§4/§5)", () => {
-  it("renders the status strip with the show title and the page container", async () => {
-    await renderPage();
-    expect(screen.getByTestId("admin-show-page")).toBeTruthy();
-    expect(screen.getByTestId("strip-title").textContent).toBe("RPAS Central");
+describe("show review modal loader — shell + rail sections (§4/§6)", () => {
+  it("renders the open modal shell with the show title in the h2 header", async () => {
+    await renderLoader();
+    expect(screen.getByTestId("published-show-review-modal")).toBeTruthy();
+    expect(screen.getByTestId("published-show-review-title").textContent).toBe("RPAS Central");
   });
 
   it("mounts Overview first and Changes last as rail sections", async () => {
-    await renderPage();
+    await renderLoader();
     const overview = screen.getByTestId("overview-section");
     const changes = screen.getByTestId("changes-section");
     expect(overview).toBeTruthy();
@@ -291,22 +341,30 @@ describe("consolidated per-show page — shell + rail sections (§4/§5)", () =>
   });
 
   it("published+active: strip publish toggle present, no archived badge", async () => {
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("strip-publish-toggle")).toBeTruthy();
     expect(screen.queryByTestId("strip-archived-badge")).toBeNull();
   });
+
+  it("threads alertId through to the PublishedReviewModal (§3 one-shot highlight)", async () => {
+    const ui = await buildLoaderElement("alert-77");
+    expect(modalProps(ui).alertId).toBe("alert-77");
+    // Absent param → explicit null (no highlight, modal opens at top — §6.2).
+    const uiNull = await buildLoaderElement(null);
+    expect(modalProps(uiNull).alertId).toBeNull();
+  });
 });
 
-describe("consolidated per-show page — share panel gating (§5.1/§6)", () => {
+describe("show review modal loader — share panel gating (§5.1/§6)", () => {
   it("published+active: Overview shows the share panel, NOT the inactive notice", async () => {
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("admin-current-share-link-panel")).toBeTruthy();
     expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
   });
 
   it("unpublished (held): Overview shows the inactive notice, no share panel", async () => {
     state.snapshot = baseSnapshot({ published: false, archived: false });
-    await renderPage();
+    await renderLoader();
     expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
     expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
   });
@@ -318,7 +376,7 @@ describe("consolidated per-show page — share panel gating (§5.1/§6)", () => 
       { id: "c2", name: "Bob", role: "A2", email: null },
       { id: "c3", name: "Cal", role: "V1", email: "cal@example.com" },
     ];
-    await renderPage();
+    await renderLoader();
     const panel = screen.getByTestId("admin-current-share-link-panel");
     expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([
       "ann@example.com",
@@ -330,15 +388,15 @@ describe("consolidated per-show page — share panel gating (§5.1/§6)", () => 
   it("ineligible (unpublished) show never serializes the real token to the client", async () => {
     state.snapshot = baseSnapshot({ published: false, archived: false });
     state.token = "s3cr3ttokenvalue9f8e7d6c5b4a";
-    await renderPage();
+    await renderLoader();
     expect(document.body.innerHTML).not.toContain(state.token);
   });
 });
 
-describe("consolidated per-show page — share-cluster serialization gate (§6, server-side)", () => {
+describe("show review modal loader — share-cluster serialization gate (§6, server-side)", () => {
   // The share cluster (CurrentShareLinkPanel + PickerResetControl) carries live
   // server-action refs (rotate share-token + per-member picker reset). For an
-  // ineligible show OverviewSection HIDES it client-side, but the server page
+  // ineligible show OverviewSection HIDES it client-side, but the server loader
   // must ALSO withhold the slot from the RSC payload — hiding is not enough
   // because reset_crew_member_selection has no archived/published/finalize
   // lifecycle guard (admin-only but lifecycle-agnostic). Assert the shareSlot
@@ -347,27 +405,27 @@ describe("consolidated per-show page — share-cluster serialization gate (§6, 
   // gated the cluster with isShowEligibleForCrewLink server-side).
 
   it("published+active: the share cluster IS serialized (a real element slot)", async () => {
-    const ui = await buildPageElement();
+    const ui = await buildLoaderElement();
     expect(isValidElement(shareSlotProp(ui))).toBe(true);
   });
 
   it("unpublished (held): shareSlot withheld from the payload (null, not merely hidden)", async () => {
     state.snapshot = baseSnapshot({ published: false, archived: false });
-    const ui = await buildPageElement();
+    const ui = await buildLoaderElement();
     expect(shareSlotProp(ui)).toBeNull();
   });
 
   it("archived: shareSlot withheld from the payload (null, not merely hidden)", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
-    const ui = await buildPageElement();
+    const ui = await buildLoaderElement();
     expect(shareSlotProp(ui)).toBeNull();
   });
 });
 
-describe("consolidated per-show page — archived read-only posture (§6)", () => {
+describe("show review modal loader — archived read-only posture (§6)", () => {
   it("archived: strip archived badge, no publish toggle, Overview Unarchive + inactive notice", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
     expect(screen.queryByTestId("strip-publish-toggle")).toBeNull();
     expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
@@ -377,18 +435,18 @@ describe("consolidated per-show page — archived read-only posture (§6)", () =
 
   it("archived: no Preview-As links (gate published && !archived)", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
-    await renderPage();
+    await renderLoader();
     expect(screen.queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
   });
 });
 
-describe("consolidated per-show page — Preview-As gating (§5.5)", () => {
+describe("show review modal loader — Preview-As gating (§5.5)", () => {
   it("published+!archived: crew row shows a Preview-As link", async () => {
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("admin-show-preview-as-link-c1")).toBeTruthy();
   });
 
-  it("roster over CREW_ROSTER_READ_CAP → Preview-As links blanked + empty crewEmails", async () => {
+  it("roster over CREW_ROSTER_READ_CAP → Preview-As links blanked + empty crewEmails + overflow emit", async () => {
     state.snapshot = baseSnapshot();
     state.snapshot.crew_members = Array.from({ length: CREW_ROSTER_READ_CAP + 5 }, (_, i) => ({
       id: `c${i}`,
@@ -396,37 +454,41 @@ describe("consolidated per-show page — Preview-As gating (§5.5)", () => {
       role: "A1",
       email: `crew${i}@example.com`,
     }));
-    await renderPage();
+    await renderLoader();
     expect(screen.queryByTestId("admin-show-preview-as-link-c0")).toBeNull();
     const panel = screen.getByTestId("admin-current-share-link-panel");
     expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
+    const call = logSpy.warn.mock.calls.find(
+      (c) => (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
+    );
+    expect(call, "over-cap roster must emit ADMIN_SHOW_CREW_ROSTER_OVERFLOW").toBeTruthy();
   });
 });
 
-describe("consolidated per-show page — Changes + alerts (§5.4/§5.1)", () => {
+describe("show review modal loader — Changes + alerts (§5.4/§5.1)", () => {
   it("Changes section renders the calm empty state when there are no changes", async () => {
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("changes-section")).toBeTruthy();
     expect(screen.getByTestId("change-feed-empty")).toBeTruthy();
   });
 
-  it("feed SyncInfraError degrades to a calm notice inside Changes", async () => {
+  it("feed SyncInfraError degrades to a calm notice inside Changes (feed=null render)", async () => {
     state.feedThrows = true;
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("change-feed-infra-error")).toBeTruthy();
     expect(screen.queryByTestId("change-feed-empty")).toBeNull();
   });
 
   it("open alerts → strip alert badge shows the count; zero → no badge", async () => {
     state.alerts = [{ id: "a1" }, { id: "a2" }];
-    await renderPage();
+    await renderLoader();
     const badge = screen.getByTestId("strip-alert-badge");
     expect(badge.textContent).toMatch(/2/);
   });
 
   it("no open alerts → no strip alert badge", async () => {
     state.alerts = [];
-    await renderPage();
+    await renderLoader();
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
   });
 });
@@ -437,10 +499,8 @@ describe("consolidated per-show page — Changes + alerts (§5.4/§5.1)", () => 
 // slug) and BOTH fail toward NOT-finalize-owned (fail-open). The observable
 // fail-open proof: a published+!archived show whose finalize read faults still
 // renders the Archive control (finalizeOwned true would suppress it, §6), rather
-// than freezing the affordance on a transient blip. The prior page silently
-// yielded finalize=false on the returned-error branch with ZERO telemetry — the
-// P0 this pins.
-describe("consolidated per-show page — finalize-owned read fault (invariant 9)", () => {
+// than freezing the affordance on a transient blip.
+describe("show review modal loader — finalize-owned read fault (invariant 9)", () => {
   const finalizeErrorCall = () =>
     logSpy.error.mock.calls.find(
       (c) =>
@@ -449,7 +509,7 @@ describe("consolidated per-show page — finalize-owned read fault (invariant 9)
 
   it("readfinalizeowned_b2 returned error → fail-open (Archive control renders) + logged, not silent", async () => {
     state.finalizeError = { message: "rpc boom" };
-    await renderPage();
+    await renderLoader();
     // fail-open: finalizeOwned=false, so the Archive affordance is NOT frozen.
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     // NOT silent: the returned-error path emits the forensic code with source+slug.
@@ -466,7 +526,7 @@ describe("consolidated per-show page — finalize-owned read fault (invariant 9)
 
   it("readfinalizeowned_b2 threw → fail-open (Archive control renders) + logged (distinct 'threw' path)", async () => {
     state.finalizeThrows = true;
-    await renderPage();
+    await renderLoader();
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     const call = finalizeErrorCall();
     expect(call, "thrown path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED").toBeTruthy();
@@ -476,7 +536,7 @@ describe("consolidated per-show page — finalize-owned read fault (invariant 9)
 
   it("healthy finalize=true (no fault) suppresses the Archive control — proves the affordance is finalize-gated", async () => {
     state.finalizeOwned = true;
-    await renderPage();
+    await renderLoader();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
     expect(finalizeErrorCall()).toBeUndefined();
   });
@@ -484,12 +544,12 @@ describe("consolidated per-show page — finalize-owned read fault (invariant 9)
 
 // Structural guard (carried over): every ADMIN_SHOW_* read-fault emit carries a
 // top-level slug correlator, so a future edit that drops it fails here.
-describe("consolidated per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () => {
+describe("show review modal loader — ADMIN_SHOW_* emits all carry slug (structural)", () => {
   it("every ADMIN_SHOW_* read-fault log call has a top-level slug field", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const ts = (await import("typescript")).default;
-    const file = join(process.cwd(), "app/admin/show/[slug]/page.tsx");
+    const file = join(process.cwd(), "app/admin/_showReviewModal.tsx");
     const src = readFileSync(file, "utf8");
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 

@@ -85,9 +85,9 @@ describe("HealthAlertsPanel (Task 8 reachability)", () => {
     expect(panel.textContent ?? "").not.toContain("WEBHOOK_TOKEN_INVALID");
     // weight chip
     expect(within(panel).getByTestId("health-alert-weight-a1")).toHaveTextContent(/degraded/i);
-    // show link to /admin/show/rpas
+    // show link to /admin?show=rpas (modal URL)
     const showLink = within(panel).getByTestId("health-alert-show-link-a1");
-    expect(showLink).toHaveAttribute("href", expect.stringContaining("/admin/show/rpas"));
+    expect(showLink).toHaveAttribute("href", expect.stringContaining("/admin?show=rpas"));
     // occurrence_count surfaced
     expect(panel).toHaveTextContent("4");
     // raised_at rendered inside a <time>

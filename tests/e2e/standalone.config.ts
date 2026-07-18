@@ -17,12 +17,15 @@ import { defineConfig, devices } from "@playwright/test";
  * on the REAL component tree), step3-review-modal.interactions (Task 11 — LIVE
  * esbuild-bundled tree: §10 drag, §6.3a scroll-spy, §16 Tab audit),
  * blocked-row-resolver-transitions (Task 12 — LIVE esbuild-bundled
- * BlockedRowResolver tree: idle -> armed -> pending -> resolved transition audit).
+ * BlockedRowResolver tree: idle -> armed -> pending -> resolved transition audit),
+ * published-review-modal.layout (admin-show-modal Task 12 — §6.6 panel-column
+ * equations on the REAL PublishedReviewModal tree; successor to the retired
+ * showPageLayout spec).
  */
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|showPageLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|packlist-rescan-recovery|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|packlist-rescan-recovery|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

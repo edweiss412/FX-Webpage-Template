@@ -45,6 +45,13 @@ import { admin } from "./helpers/supabaseAdmin";
 // on a non-default port; CI always uses the default.
 const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
 
+// admin-show-modal: the per-show surface is the /admin?show= review modal. The
+// Suspense SKELETON shares the shell testIdBase, and both frames transiently
+// coexist during the streaming swap — scope to the LOADED modal (the skeleton
+// renders no title node) so the twin never trips Playwright strict mode.
+const LOADED_REVIEW_MODAL =
+  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+
 // Track seeded shows for teardown so a failed run doesn't accrete rows.
 const seededDriveFileIds: string[] = [];
 function track(show: SeededShow): SeededShow {
@@ -298,8 +305,10 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     const page = await ctx.newPage();
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
 
-    // 3+4: admin show page renders the current share-link panel with the URL.
-    await page.goto(`/admin/show/${show.slug}`, { waitUntil: "networkidle" });
+    // 3+4: the admin review modal renders the current share-link panel with the
+    // URL (admin-show-modal: /admin?show=<slug> replaced the per-show page).
+    await page.goto(`/admin?show=${show.slug}`, { waitUntil: "networkidle" });
+    await expect(page.locator(LOADED_REVIEW_MODAL)).toBeVisible();
     await expect(page.getByTestId("admin-current-share-link-panel")).toBeVisible();
     await expect(page.getByTestId("admin-current-share-link-url")).toContainText(show.shareToken);
 
@@ -330,7 +339,8 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     await expect(page.getByTestId("crew-shell")).toBeVisible();
 
     // 10+11: reset picker selections (two-tap) -> success banner.
-    await page.goto(`/admin/show/${show.slug}`, { waitUntil: "networkidle" });
+    await page.goto(`/admin?show=${show.slug}`, { waitUntil: "networkidle" });
+    await expect(page.locator(LOADED_REVIEW_MODAL)).toBeVisible();
     await page.getByTestId("admin-reset-picker-epoch-button").click();
     await page.getByTestId("admin-reset-picker-epoch-confirm-button").click();
     await expect(page.getByTestId("admin-reset-picker-epoch-ok")).toHaveText(

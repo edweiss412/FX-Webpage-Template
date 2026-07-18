@@ -4,7 +4,7 @@
  * Static real-browser harness for the compact inline PublishedToggle inside the
  * sticky StatusStrip. jsdom computes NO layout, so the mobile strip-height +
  * popover-containment invariants (CASP-2 §7/§8.10) MUST be measured end-to-end.
- * Modelled on _showPageLayoutHarness.tsx: `tsx` runs this file's main-guard OUT
+ * Modelled on _publishedReviewModalHarness.tsx: `tsx` runs this file's main-guard OUT
  * of process (its JSX + the imported real component tree break react-dom/server
  * under Playwright's test transform) and writes the rendered markup as JSON; the
  * spec compiles the token CSS, serves the markup, and measures rects at 390px.
