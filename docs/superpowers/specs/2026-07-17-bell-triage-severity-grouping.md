@@ -36,10 +36,11 @@ The genuinely-remaining BELL-2 scope = **the grouping itself**. "Show grouping" 
 ### 1.1 Threshold
 
 - Let `activeCount = active.length` where `active = feed.entries.filter((e) => e.state === "active")` (`BellPanel.tsx:776`).
-- Grouped mode engages iff **`activeCount >= GROUP_THRESHOLD && !feed.activeTruncated`**. Otherwise **flat mode** (today's render, byte-for-byte).
+- Grouped mode engages iff **`activeCount >= GROUP_THRESHOLD && feed.activeTruncated === false`** (strict `=== false`, **fail-closed**). Otherwise **flat mode** (today's render, byte-for-byte).
+- **Fail-closed on a missing/non-boolean field (spec R5):** `BellPanel` casts the feed JSON with no runtime validation (`body = (await res.json()) as BellFeedBody`, `BellPanel.tsx:620`), so a stale-deploy / malformed / mock response could omit `activeTruncated`. A loose `!feed.activeTruncated` would then be `!undefined === true` and render groups on a possibly-capped feed — the exact false-completeness this gate exists to prevent. The predicate therefore requires `activeTruncated === true|false` and groups **only** on an explicit `false`; any other value (`undefined`, non-boolean) is treated as truncated → flat. Worst case is a false FLAT (honest, "more exist"), never a false-complete grouped view. The `ready`-arm type makes `activeTruncated` a required `boolean` (§below), so a current server always sends it; the strict check defends only the cross-version / mock edge.
 - **Truncation gate (spec R3/R4 — active-completeness honesty):** the server orders active alerts by `greatest(raised_at, last_seen_at) desc limit p_cap` (`get_bell_feed_rows.sql:76-77`) — a **recency** window, severity-blind. So when the ACTIVE list is capped, an older **critical** alert can sit OUTSIDE the loaded window; a severity-grouped view whose `Critical` section is absent would then falsely read as "nothing critical." Grouping's per-severity headers imply severity-**completeness**, which a recency-capped active window cannot honor. Therefore **grouping is suppressed and the list renders flat when the active list is capped** — the flat list + `bell-truncation-row` is the honest signal. This mirrors the shipped mark-all-read truncation gate (`BellPanel.tsx:890`; redesign D3/R3: a partial action "would lie").
 - **Gate on ACTIVE-specific truncation, not the global flag (spec R4):** `feed.truncated` (`bellFeed.ts:143-146`) is a GLOBAL OR of `active_hit_cap || history_hit_cap || (slice dropped rows)`. History-only capping (`history_hit_cap`) sets `truncated` true even when the **active** list is complete — gating grouping on the global bit would kill the triage feature exactly under high history volume. The correct signal is active-completeness. This feature therefore **adds a derived `activeTruncated: boolean` field to the client feed result** (`lib/admin/bellFeed.ts` shaped/ready shapes), computed as `Boolean(meta.active_hit_cap)` — a value the RPC ALREADY returns (`get_bell_feed_rows.sql:59-67`, the `p_cap+1` active probe). **No RPC/DB/SQL change** (§9). Active-completeness ⟺ `!meta.active_hit_cap`: the active CTE is capped at `limit p_cap` so `active.length <= feedCap`, and the combined `shaped.slice(0, feedCap)` sorts active-first (`bellFeed.ts:129-141`), so the slice only ever drops HISTORY rows — an active row is dropped only when `active_hit_cap` is already true.
-- `GROUP_THRESHOLD = 9`, a module-level `const` in `BellPanel.tsx`. **Rationale — explicit product decision, NOT derived from the badge:** the `BELL-2` ticket frames the wall as "at 9+", read as **nine-or-more active entries** — the point where a flat activity-ordered list stops being glanceable and triage structure earns its keep. Single source of truth; referenced by both the render branch and its tests (tests import the constant, never re-literal `9`).
+- `GROUP_THRESHOLD = 9`, exported from a new client-safe pure module `lib/admin/bellTriage.ts` (§1.7), NOT from `BellPanel.tsx`. **Rationale — explicit product decision, NOT derived from the badge:** the `BELL-2` ticket frames the wall as "at 9+", read as **nine-or-more active entries** — the point where a flat activity-ordered list stops being glanceable and triage structure earns its keep. Single source of truth; referenced by both the render branch and its tests (tests import the constant, never re-literal `9`).
 - **NOT anchored to the badge cap (disagreement-loop preempt, corrected in spec R2):** an earlier draft claimed the threshold "anchors to the badge's `9+` cap." That was wrong on two counts: (a) `NotifBell.tsx:81` renders `count > 9 ? "9+"`, so the badge shows `9+` starting at **10**, not 9; (b) the badge counts **unseen/unread** alerts (`NotifBell.tsx:68`) while the panel groups the **active LIST** (a read alert stays active) — different populations. The badge is therefore not a valid anchor. `9` is a deliberate product choice for the active-list count; the boundary test (§5) proves grouping begins at exactly 9 so no future edit can silently drift it.
 - **Threshold vs cap:** `feedCap` min is 10 (`bellConfig.ts:6`), so an active-complete feed can hold ≥9 active rows and reach grouped mode. `activeTruncated` and grouping are mutually exclusive by the gate above — an active-capped feed always renders flat regardless of count. A feed with capped HISTORY but a complete active list of ≥9 **still groups** (that is the whole point of gating on `activeTruncated`, not the global `truncated`).
 
@@ -89,6 +90,8 @@ Inside the existing `<section data-testid="bell-section-active">` (`BellPanel.ts
 
 ### 1.6 `rowTone` severity-correctness fix (prerequisite)
 
+(`rowTone` relocates to `lib/admin/bellTriage.ts` per §1.7; the fix below applies as it moves.)
+
 **Before** (`BellPanel.tsx:128-132`):
 
 ```ts
@@ -114,6 +117,19 @@ function rowTone(entry: BellEntry): RowTone {
 - **This is a per-row visual change** (glyph/rail color) independent of the ≥9 grouping — it applies in flat mode too. It is therefore a UI-surface change under invariant 8; the impeccable dual-gate already required by the grouping covers it.
 - **No token/contrast regression:** the `TONE` map (`BellPanel.tsx:139-151`) is unchanged — only which tone a given code maps to changes. The `status-token-contrast` pairs are untouched.
 - **Guard:** `entry.code` is always a string on `BellEntry` (`bellFeed.ts` shape); `DEGRADED_HEALTH_CODES.includes` on an uncataloged/empty code returns `false` → `notice`. `rowTone` still never throws.
+
+### 1.7 Module layout — extract a client-safe triage module (spec R5)
+
+`BellPanel.tsx` imports a `"use server"` action (`retryWatchSubscriptionFormAction` from `@/app/admin/actions`, `BellPanel.tsx:69`), so importing the component just to read a constant drags a server-action dependency chain into node/Playwright tests (existing component tests already mock around it). Requiring e2e/unit tests to `import { GROUP_THRESHOLD } from BellPanel` would risk CI failures or push implementers to re-literal `9`, defeating the single-source rule.
+
+**Create `lib/admin/bellTriage.ts`** — a pure, client-safe module (no React, no server-only imports; may import the catalog-derived `lib/messages` + `lib/adminAlerts/audience`, both already client-safe). It exports:
+
+- `GROUP_THRESHOLD = 9`
+- `type RowTone = "critical" | "notice" | "info"` and `rowTone(entry): RowTone` (moved verbatim from `BellPanel.tsx:127-132`, with the §1.6 fix applied)
+- `TIER_ORDER: readonly RowTone[] = ["critical", "notice", "info"]`
+- `groupActiveBySeverity(active: BellEntry[]): { tone: RowTone; rows: BellEntry[] }[]` — the stable partition (§1.2), returning only non-empty tiers in `TIER_ORDER`.
+
+`BellPanel.tsx` imports all of the above from `bellTriage.ts` (the `TONE` display map with its lucide icons STAYS in `BellPanel.tsx` — it is not pure). Tests (component, e2e, and a new `tests/admin/bellTriage.test.ts` unit) import from `bellTriage.ts`, never re-literal `9`. This is a pure refactor of existing `rowTone` plus the new grouping helper; no behavior change beyond §1.6.
 
 ---
 
@@ -168,17 +184,24 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
    - **Single-tier:** a 9+ fixture all `notice` → exactly one header `Warning · 9`, no other tier headers, still no flat fallback.
    - **Boundary flip:** at exactly `GROUP_THRESHOLD` (non-truncated) → grouped; at `GROUP_THRESHOLD - 1` → flat. (The concrete failure mode: an off-by-one `>` vs `>=` — this test catches it.)
    - **Active truncation suppresses grouping (completeness-honesty, spec R3):** an `activeTruncated: true` feed with `>= GROUP_THRESHOLD` active rows spanning multiple tones → **no** `bell-section-active-tier-*` headers (flat render); `bell-truncation-row` present. Concrete failure mode: a cap-evicted critical alert producing a false-empty Critical section — the flat fallback prevents the misleading "nothing critical" read.
-   - **History-only truncation does NOT suppress grouping (spec R4):** a feed with `activeTruncated: false` but the global `truncated: true` (history capped) and `>= GROUP_THRESHOLD` complete active rows → grouping STILL renders (tier headers present). Concrete failure mode this catches: gating on the global `truncated` bit would kill triage under high history volume. Also add a `bellFeed` unit test: a shaped result derives `activeTruncated` from `meta.active_hit_cap` independently of `history_hit_cap` (feed a meta row with `active_hit_cap:false, history_hit_cap:true` → `activeTruncated === false`, `truncated === true`).
+   - **History-only truncation does NOT suppress grouping (spec R4):** a feed with `activeTruncated: false` but the global `truncated: true` (history capped) and `>= GROUP_THRESHOLD` complete active rows → grouping STILL renders (tier headers present). Concrete failure mode this catches: gating on the global `truncated` bit would kill triage under high history volume.
+   - **Fail-closed on missing `activeTruncated` (spec R5):** a ready feed whose body OMITS `activeTruncated` (cast-through, cross-version/mock shape) with `>= GROUP_THRESHOLD` active rows → **flat** (no tier headers). Concrete failure mode: `!undefined === true` grouping a possibly-capped feed and falsely implying Critical completeness. Assert the strict `=== false` predicate by feeding `activeTruncated: undefined` AND a non-boolean.
    - **Set preservation across flip:** render grouped with one row pre-expanded; re-render (rerender with a feed one shorter that drops below threshold) → the still-present expanded row stays expanded (expanded Set survives the grouped→flat switch because keys are stable `alertId`).
    - **mark-all-read stability:** grouped fixture with unread rows → click `bell-mark-all-read` → tier headers and their counts unchanged (unread markers clear, grouping does not move).
    - **Non-regression:** existing flat-mode / dot / mark-all-read / severity-glyph assertions stay green unchanged.
 
-2. **Layout e2e (`tests/e2e/bell-panel-layout.spec.ts`, extend):** seed a 9+ active feed spanning tones; open panel; real-browser `getBoundingClientRect`:
+2. **Feed pipeline (`tests/admin/bellFeed*.test.ts` — extend/add):**
+   - `activeTruncated` derives from `meta.active_hit_cap` **independently** of `history_hit_cap`: a meta row with `active_hit_cap:false, history_hit_cap:true` → `activeTruncated === false` while global `truncated === true`; `active_hit_cap:true` → `activeTruncated === true`.
+   - **Route/body proof:** `app/api/admin/alerts/bell/feed/route.ts` returns `activeTruncated` in the JSON body (guards the field actually reaches the client — a spec R5 ask). Assert the serialized body includes a boolean `activeTruncated`.
+
+3. **Triage module unit (`tests/admin/bellTriage.test.ts` — new):** `rowTone` tone mapping incl. the §1.6 notice-health fix (asserted against `DEGRADED_HEALTH_CODES`, not hardcoded); `groupActiveBySeverity` returns tiers in `TIER_ORDER`, omits empty tiers, preserves within-tier input order (stable partition), and `GROUP_THRESHOLD === 9`.
+
+4. **Layout e2e (`tests/e2e/bell-panel-layout.spec.ts`, extend):** seed a 9+ active feed spanning tones; open panel; real-browser `getBoundingClientRect`:
    - tier headers exist in `Critical → Warning → Notice` document order (compare `getBoundingClientRect().top` ascending);
    - a row's severity glyph box stays 18px and its left edge matches the flat-mode left edge (no horizontal shift introduced by headers);
    - panel scroll container shows no horizontal overflow at both breakpoints (639/640, reusing the existing boundary harness).
 
-3. **Transition audit (in the same e2e or a component test):** assert the flat↔grouped switch adds no `AnimatePresence`/transition wrapper (grep the grouped render for animation props — there should be none on tier headers); the compound "resolve mid-expand across the threshold" preserves the expanded row.
+5. **Transition audit (in the same e2e or a component test):** assert the flat↔grouped switch adds no `AnimatePresence`/transition wrapper (grep the grouped render for animation props — there should be none on tier headers); the compound "resolve mid-expand across the threshold" preserves the expanded row.
 
 **Meta-test inventory:** **None created or extended.** This is a display-only component render change — it adds no Supabase call boundary, no admin-alert catalog row, no advisory-lock surface, no mutation surface, no email boundary, no §12.4 code. Declared explicitly per the writing-plans meta-test-inventory rule.
 
@@ -200,6 +223,7 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 - Backlog twin: `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` `BACKLOG.md:543` (trigger: "next bell/health-panel UI pass"). BELL-2 open entry `DEFERRED.md:23`.
 - mark-all-read (unchanged): `markRead` `:674`; `activeUnread` `:886-889`; `showMarkAll` `:890`; `onMarkAllRead` `:892`; button testid `bell-mark-all-read` `:948`.
 - Truncation row: `bell-truncation-row` `:846`.
+- Module extraction: `BellPanel` imports `retryWatchSubscriptionFormAction` from `@/app/admin/actions` (`"use server"`) `components/admin/BellPanel.tsx:69`; feed body raw cast `body = (await res.json()) as BellFeedBody` `:620`; `BellFeedBody = Omit<Extract<BellFeedResult,{kind:"ok"}>,"kind">` `:82`. New module `lib/admin/bellTriage.ts` (does not exist yet — created by this feature).
 - Feed truncation shape: `BellFeedResult` ready arm `lib/admin/bellFeed.ts:49-57` (`truncated`, `feedCap`, `seenThrough`); global `truncated = Boolean(meta.active_hit_cap) || Boolean(meta.history_hit_cap) || sliced.length < shaped.length` `:143-146`; meta fields `active_hit_cap`/`history_hit_cap` `:70-71`; active-first sort + `slice(0, feedCap)` `:129-141`; public map `:280`. Active `p_cap+1` probe (active-specific hit-cap) `supabase/migrations/20260705100001_get_bell_feed_rows.sql:59-77`.
 - Badge cap anchor: `count > 9 ? "9+"` `components/admin/nav/NotifBell.tsx:81`.
 - Feed cap floor: `feedCap: { min: 10, max: 200, default: 50 }` `lib/admin/bellConfig.ts:6`.
@@ -215,6 +239,8 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 - **Grouping gated on ACTIVE-completeness (`activeTruncated`), not the global `truncated` bit (spec R3/R4)** — an active-capped recency window (`get_bell_feed_rows.sql:76-77`) can hide an older critical alert, so severity sections would falsely imply completeness → suppress to flat (mirrors the shipped mark-all-read gate `BellPanel.tsx:890`). But history-only capping must NOT suppress grouping, so the gate uses a new derived `activeTruncated` (`= Boolean(meta.active_hit_cap)`, no RPC/DB change). Server-side critical-priority-before-cap is out of scope (RPC/DB). **Do not relitigate** as "grouping should still apply to loaded rows," "the feed should prioritize critical," or "use the existing `truncated` flag" (it is not active-specific).
 - **mark-all-read keeps using the global `truncated` flag — deliberately unchanged.** It is out of scope (§9) and its global-flag gate is strictly MORE conservative (hides slightly more often under history-only capping), never wrong. Retrofitting it onto `activeTruncated` is a separate nicety, intentionally not bundled. **Do not relitigate** the asymmetry.
 - **`rowTone` fix is in scope, not scope creep** — it is the ratified trigger of `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` (BACKLOG.md:543) and a prerequisite for correct grouping (§0/§1.6). Grouping by an uncorrected tone would ship visibly-wrong triage. **Do not relitigate as out-of-scope.**
+- **Fail-closed on missing `activeTruncated` is deliberate (spec R5)** — the feed body is a raw `as` cast (`BellPanel.tsx:620`), so the predicate is strict `=== false`; a missing/non-boolean value renders flat, never a false-complete grouped view. **Do not relitigate** as "use `!activeTruncated`."
+- **Triage constants live in `lib/admin/bellTriage.ts`, not `BellPanel.tsx` (spec R5)** — because BellPanel imports a `"use server"` action (`:69`) that would leak into node/e2e tests. Single-source `GROUP_THRESHOLD`. **Do not relitigate** the module split.
 - **Flat↔grouped is instant (no animation)** — see §3/§4. Deliberate craft choice, not an oversight.
 - **`GROUP_THRESHOLD = 9`** is the only magic number; single-sourced as a `const` and imported by tests.
 
