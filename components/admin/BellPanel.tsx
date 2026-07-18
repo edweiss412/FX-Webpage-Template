@@ -27,17 +27,23 @@
  *   - Auto-resolving rows show `autoResolveNote` instead of a button; health
  *     rows show a "View in telemetry" deep link (the global route 403s health
  *     by design); `WATCH_CHANNEL_ORPHANED` carries the banner's Retry form.
- *   - Read gesture (spec §3.1/D3): the FIRST expand of a row POSTs `/bell/read`
- *     with the SERVER `activityAt` as `seenActivityAt` and clears the unread
- *     dot optimistically (opacity flip, fixed slot — no layout shift). A failed
- *     read POST leaves the dot cleared for the session (fail-quiet, §4).
+ *   - Read gesture (spec §3.1/D3): the FIRST tap of a row's toggle POSTs
+ *     `/bell/read` with the SERVER `activityAt` as `seenActivityAt` and clears
+ *     the unread dot optimistically (opacity flip, fixed slot — no layout
+ *     shift). A failed read POST leaves the dot cleared for the session
+ *     (fail-quiet, §4). The toggle has no expand/collapse state of its own —
+ *     it is a mark-read-only gesture (spec §4.1, Task 7 chevron rework).
+ *   - Show-page chevron (spec §4.1): a row whose alert carries a slug renders
+ *     a `ChevronRight` nav link to `/admin/show/<slug>`, a DOM SIBLING of the
+ *     toggle button (never nested inside it — nested-interactive a11y). Hidden
+ *     exactly when `entry.slug` is null (global alerts, health rows).
  *   - Dev footer (`viewerIsDeveloper` only): the live window/cap plus an inline
  *     two-input edit that POSTs `/bell/config`; a 400 renders the response's
  *     bounds (no silent clamp), a success refetches the feed.
  *
- * Copy (invariant 5 — no raw codes in the DOM): titles/messages/helpful context
- * come from the catalog via `messageFor`/`lookupHelpfulContext`/`isMessageCode`;
- * auto notes come from the feed's catalog-derived `autoResolveNote`; button and
+ * Copy (invariant 5 — no raw codes in the DOM): titles/messages come from the
+ * catalog via `messageFor`/`isMessageCode`; auto notes come from the feed's
+ * catalog-derived `autoResolveNote`; button and
  * footer labels are UI chrome (uncataloged, like "Dismiss"/"Retry"). The error
  * state renders `ALERT_BELL_FEED_FAILED`. An uncataloged row code falls back to
  * a generic title (never the raw code string).
@@ -59,7 +65,6 @@ import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import {
   getRequiredDougFacing,
   isMessageCode,
-  lookupHelpfulContext,
   messageFor,
   plainCatalogText,
   type MessageParams,
@@ -112,12 +117,6 @@ const FALLBACK_TITLE = "Notification";
 function rowCopy(code: string): { title: string; message: string | null } {
   const entry = isMessageCode(code) ? messageFor(code) : null;
   return { title: entry?.title ?? FALLBACK_TITLE, message: entry?.dougFacing ?? null };
-}
-
-function rowHelpfulContext(code: string): string | null {
-  // Raw helpfulContext template. Presence (non-null) is unchanged by params, so
-  // the caret/disclosure gating keying on this stays correct.
-  return isMessageCode(code) ? lookupHelpfulContext(code) : null;
 }
 
 // Narrowing for the render sites: entry.context is a producer-supplied jsonb
@@ -216,6 +215,12 @@ const LINK_CTA =
 // Trailing ghost Dismiss (DESIGN.md §16): quiet by default, lifts on hover.
 const GHOST_DISMISS =
   "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
+// Show-page nav chevron (spec §4.1): reuses LINK_CTA's accent color + focus-ring
+// vocabulary, but sized as an icon-only affordance (`size-tap-min`, the same
+// square-tap-target pattern the `bell-panel-close` button uses) rather than
+// LINK_CTA's text-link padding.
+const SHOW_PAGE_LINK =
+  "inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 
 function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
@@ -303,20 +308,17 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
 function ActiveRow({
   entry,
   now,
-  expanded,
   readCleared,
-  onToggle,
+  onMarkRead,
   onRefetch,
 }: {
   entry: BellEntry;
   now: Date;
-  expanded: boolean;
   readCleared: boolean;
-  onToggle: () => void;
+  onMarkRead: () => void;
   onRefetch: () => void;
 }) {
   const { title, message } = rowCopy(entry.code);
-  const helpful = rowHelpfulContext(entry.code);
   // Params source (spec 2026-07-17 §4.1/§4.2): the merged, identity-derived
   // messageParams the feed carries; contextParams(entry.context) is the
   // legacy raw-jsonb fallback for entries the field is absent on.
@@ -373,72 +375,68 @@ function ActiveRow({
         </span>
       </span>
       <div className="min-w-0 flex-1">
-        {/* min-h-tap-min: this is the primary per-row gesture (expand +
-            mark-read). A title-only row would otherwise render the affordance
-            well under the 44px floor PRODUCT.md mandates for a phone on the venue
-            floor. flex-col + justify-center vertically centers the title/message
-            stack within that min height. The identity chip + action row are
-            siblings BELOW the button so they are not inside the tap gesture. */}
-        <button
-          type="button"
-          data-testid={`bell-entry-toggle-${entry.alertId}`}
-          onClick={onToggle}
-          aria-expanded={expanded}
-          className="flex min-h-tap-min w-full flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-        >
-          <span className="flex items-start justify-between gap-2.5">
-            {/* Title weight is CONSTANT across read/unread — a weight swap
-                (semibold↔medium) changes glyph advance widths and can reflow a
-                wrapping title by a full line on read (§14 no-layout-shift, the
-                `bell-entry-toggle` header must keep its height across the read
-                flip). Unread emphasis is carried by the pip + `bg-stale-tint`
-                row background + the rail, never the title weight. */}
-            <span className="min-w-0 wrap-break-word font-semibold text-text-strong">{title}</span>
-            {/* Header right-group (DESIGN.md §16): occurrence repeat-chip, then
-                the relative timestamp, then the disclosure caret. The occurrence
-                chip is a non-interactive role="img" (aria-label carries the full
-                "Detected N times"), so it nests validly inside the toggle button. */}
-            <span className="flex shrink-0 items-center gap-2.5">
-              <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
-              <span className="text-xs tabular-nums text-text-faint">
-                {raisedAtSuffix(entry.activityAt, now)}
-              </span>
-              {/* BELL-1: disclosure caret, shown ONLY when the code carries
-                  helpfulContext (a context-less row expands to nothing beyond the
-                  dot clear, so a caret there would be a lie). The full-row toggle
-                  stays tappable on EVERY row (spec D3). Rotate is transform-only
-                  (no reflow), so §14 no-layout-shift holds. The message is NEVER
-                  clamped (spec §2, R4) — expansion only reveals the context box. */}
-              {helpful ? (
-                <ChevronRight
-                  aria-hidden="true"
-                  data-testid={`bell-caret-${entry.alertId}`}
-                  className={`size-4 shrink-0 text-text-faint motion-safe:transition-transform motion-safe:duration-fast ${
-                    expanded ? "rotate-90" : ""
-                  }`}
-                />
-              ) : null}
-            </span>
-          </span>
-          {message && messageResolved ? (
-            <span className="mt-1 block whitespace-pre-line wrap-break-word text-sm text-text-subtle">
-              {renderCatalogEmphasis(message, params)}
-            </span>
-          ) : null}
-        </button>
-        {/* helpfulContext disclosure in a tinted box with a leading info glyph
-            (D6). Rendered only when expanded AND the catalog carries context. */}
-        {expanded && helpful ? (
-          <div
-            data-testid={`bell-context-${entry.alertId}`}
-            className="mt-2 flex gap-2 rounded-md bg-surface-sunken p-2.5 text-sm text-text-subtle"
+        {/* Row header: the mark-read toggle button LEADS; the show-page chevron
+            (rendered only when entry.slug is non-null — spec §4.1) is a DOM
+            SIBLING to its right, never nested inside the button (a link nested
+            inside a button is a nested-interactive a11y violation). items-start
+            keeps both pinned to the row's top regardless of how many lines the
+            title/message wrap to. */}
+        <div className="flex items-start gap-1">
+          {/* min-h-tap-min: this is the primary per-row gesture (mark-read). A
+              title-only row would otherwise render the affordance well under
+              the 44px floor PRODUCT.md mandates for a phone on the venue
+              floor. flex-col + justify-center vertically centers the
+              title/message stack within that min height. The identity chip +
+              action row are siblings BELOW the button so they are not inside
+              the tap gesture. */}
+          <button
+            type="button"
+            data-testid={`bell-entry-toggle-${entry.alertId}`}
+            onClick={onMarkRead}
+            className="flex min-h-tap-min min-w-0 flex-1 flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-text-faint" />
-            <span className="min-w-0 wrap-break-word">
-              {renderCatalogEmphasis(helpful, params)}
+            <span className="flex items-start justify-between gap-2.5">
+              {/* Title weight is CONSTANT across read/unread — a weight swap
+                  (semibold↔medium) changes glyph advance widths and can reflow a
+                  wrapping title by a full line on read (§14 no-layout-shift, the
+                  `bell-entry-toggle` header must keep its height across the read
+                  flip). Unread emphasis is carried by the pip + `bg-stale-tint`
+                  row background + the rail, never the title weight. */}
+              <span className="min-w-0 wrap-break-word font-semibold text-text-strong">
+                {title}
+              </span>
+              {/* Header right-group (DESIGN.md §16): occurrence repeat-chip, then
+                  the relative timestamp. The occurrence chip is a non-interactive
+                  role="img" (aria-label carries the full "Detected N times"), so
+                  it nests validly inside the toggle button. */}
+              <span className="flex shrink-0 items-center gap-2.5">
+                <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
+                <span className="text-xs tabular-nums text-text-faint">
+                  {raisedAtSuffix(entry.activityAt, now)}
+                </span>
+              </span>
             </span>
-          </div>
-        ) : null}
+            {message && messageResolved ? (
+              <span className="mt-1 block whitespace-pre-line wrap-break-word text-sm text-text-subtle">
+                {renderCatalogEmphasis(message, params)}
+              </span>
+            ) : null}
+          </button>
+          {/* Show-page nav chevron (spec §4.1): a SLUG predicate, not an
+              identity-map-kind predicate — e.g. BRANCH_PROTECTION_* codes carry
+              repo-segment identity but upsert with null show → null slug → no
+              chevron. Plain nav, no toggle behavior of its own. */}
+          {entry.slug !== null ? (
+            <a
+              href={`/admin/show/${encodeURIComponent(entry.slug)}`}
+              data-testid={`bell-caret-${entry.alertId}`}
+              aria-label="Open show page"
+              className={SHOW_PAGE_LINK}
+            >
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </a>
+          ) : null}
+        </div>
         {suppressChip ? null : <IdentityChip entry={entry} />}
         <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
@@ -600,10 +598,9 @@ export function BellPanel({
   // before seeing (spec §7.2 — the watermark advances only to what was seen).
   const loadSeqRef = useRef(0);
 
-  // Per-row expand state and optimistic read-clear state. Both persist across
-  // refetches (session-scoped Sets) so a resolve refetch never un-clears a dot
-  // and the read POST fires at most once per row (first expand only).
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  // Optimistic read-clear state. Persists across refetches (session-scoped Set)
+  // so a resolve refetch never un-clears a dot and the read POST fires at most
+  // once per row (first tap only).
   const [readClearedIds, setReadClearedIds] = useState<Set<string>>(() => new Set());
   const readFiredRef = useRef<Set<string>>(new Set());
 
@@ -681,13 +678,13 @@ export function BellPanel({
     [onOpened],
   );
 
-  // Read side, DECOUPLED from expansion (spec D3 / Codex R7). Fires the
-  // `/bell/read` POST once with the SERVER activityAt and clears the unread
-  // marker optimistically, WITHOUT touching `expandedIds`. Shared by first-expand
-  // (handleToggle) and mark-all-read, so mark-all-read clears markers without
-  // ever expanding/collapsing a row (no panel-jump / state clobber). Fail-quiet
-  // (spec §4): a failed POST leaves the marker cleared for the session; the
-  // readFiredRef guard keeps it at exactly once per row.
+  // Fires the `/bell/read` POST once with the SERVER activityAt and clears the
+  // unread marker optimistically. Shared by the row toggle's onClick (spec
+  // §3.1/D3, Task 7: the toggle is mark-read-only, no expand/collapse state)
+  // and mark-all-read (no per-row navigation side effect either way — no
+  // panel-jump / state clobber). Fail-quiet (spec §4): a failed POST leaves the
+  // marker cleared for the session; the readFiredRef guard keeps it at exactly
+  // once per row.
   const markRead = useCallback((entry: BellEntry) => {
     if (readFiredRef.current.has(entry.alertId)) return;
     readFiredRef.current.add(entry.alertId);
@@ -704,20 +701,6 @@ export function BellPanel({
       }
     })();
   }, []);
-
-  // First expand of a row toggles its disclosure AND marks it read (spec §3.1/D3).
-  const handleToggle = useCallback(
-    (entry: BellEntry) => {
-      setExpandedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(entry.alertId)) next.delete(entry.alertId);
-        else next.add(entry.alertId);
-        return next;
-      });
-      markRead(entry);
-    },
-    [markRead],
-  );
 
   // Mount-once load + unmount invalidation (R4 Finding 1). didLoadRef keeps the
   // load (and its exactly-once open POST) from double-firing within a live
@@ -745,7 +728,7 @@ export function BellPanel({
   // A realtime `changed` while the panel is open advances `pingSignal`; we
   // refetch the feed in place via the SAME path the resolve/save settle uses
   // (`load(true)` → BELL-3 "Notifications updated" announce, session-scoped
-  // read/expand Sets preserved, openedForRef guard suppresses a duplicate
+  // read-cleared Set preserved, openedForRef guard suppresses a duplicate
   // /bell/open for an already-stamped snapshot). Ref-compare skips the initial
   // mount value so only a genuine post-mount push triggers a refetch — the
   // effect must not double-fire alongside the mount-once load above.
@@ -861,9 +844,8 @@ export function BellPanel({
                           <ActiveRow
                             entry={entry}
                             now={now}
-                            expanded={expandedIds.has(entry.alertId)}
                             readCleared={readClearedIds.has(entry.alertId)}
-                            onToggle={() => handleToggle(entry)}
+                            onMarkRead={() => markRead(entry)}
                             onRefetch={() => void load(true)}
                           />
                         </div>
@@ -877,9 +859,8 @@ export function BellPanel({
                       <ActiveRow
                         entry={entry}
                         now={now}
-                        expanded={expandedIds.has(entry.alertId)}
                         readCleared={readClearedIds.has(entry.alertId)}
-                        onToggle={() => handleToggle(entry)}
+                        onMarkRead={() => markRead(entry)}
                         onRefetch={() => void load(true)}
                       />
                     </div>
@@ -938,7 +919,7 @@ export function BellPanel({
   // Mark-all-read (spec D3): visible ONLY when there are unread active rows AND
   // the feed is not truncated (a truncated feed hides unread rows the client
   // cannot reach, so "mark all" would lie — R3/R4). Clears each via the decoupled
-  // markRead (no expand mutation — R7); the button hides the instant the last
+  // markRead (no navigation side effect — R7); the button hides the instant the last
   // marker clears (activeUnread recomputes empty → showMarkAll false).
   const readyFeed = state.status === "ready" ? state.feed : null;
   const activeUnread = readyFeed

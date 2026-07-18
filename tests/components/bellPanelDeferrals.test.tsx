@@ -3,25 +3,24 @@
  * BellPanel — impeccable dual-gate deferrals BELL-1..3 (bell notification center,
  * user-directed ship 2026-07-05). jsdom + RTL. `global.fetch` is stubbed per test.
  *
- *  - BELL-1: an expand caret rendered ONLY for codes whose catalog carries
- *    helpfulContext, rotating on expand (the full-row toggle stays tappable on
- *    every row — the caret is a visual affordance, not a gate).
+ *  - BELL-1 (spec §4.1, Task 7 chevron rework): the show-page chevron
+ *    (`bell-caret-{id}`) is a plain nav `<a>` rendered iff `entry.slug` is
+ *    non-null — a slug predicate, independent of the row's catalog copy. No
+ *    expand/collapse state remains; the full-row toggle is mark-read-only.
  *  - BELL-2: a visible "Active (N)" count heading on the active section,
  *    mirroring the history heading style. Count derived from active length.
  *  - BELL-3: a persistent sr-only role=status live region present from mount in
  *    every panel state, announcing the load count and post-refetch completion.
  *
  * Anti-tautology (AGENTS.md): assertions scope to `within(getByTestId("bell-panel"))`
- * (the panel renders standalone, no sibling admin surfaces); the BELL-1 codes are
- * DERIVED from the live catalog (with/without helpfulContext) rather than
- * hardcoded, and the BELL-2 count is derived from the seeded active length.
+ * (the panel renders standalone, no sibling admin surfaces); the BELL-2 count is
+ * derived from the seeded active length.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import { lookupHelpfulContext } from "@/lib/messages/lookup";
 
 // The retry Server Action is an RPC reference at runtime — stub it so importing
 // BellPanel does not drag `app/admin/actions` (server-only) into jsdom.
@@ -48,15 +47,14 @@ function jsonErr(status: number, body: unknown = { error: "unavailable" }) {
   return { ok: false, status, json: async () => body } as unknown as Response;
 }
 
-// A live code WITH catalog helpfulContext and one WITHOUT — derived so the caret
-// fixture can never silently drift as the catalog changes.
+// A generic live code — the chevron is a slug predicate (spec §4.1), not
+// code-driven, so this file no longer needs a with/without-helpfulContext pair.
 const ALL_CODES = Object.keys(MESSAGE_CATALOG) as MessageCode[];
-const CODE_WITH_CONTEXT = ALL_CODES.find((c) => lookupHelpfulContext(c) !== null)!;
-const CODE_WITHOUT_CONTEXT = ALL_CODES.find((c) => lookupHelpfulContext(c) === null)!;
+const DEFAULT_CODE = ALL_CODES[0]!;
 
 function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
   return {
-    code: CODE_WITH_CONTEXT,
+    code: DEFAULT_CODE,
     showId: null,
     slug: null,
     state: "active",
@@ -122,49 +120,59 @@ function callsTo(fragment: string) {
   return fetchMock.mock.calls.filter((c) => String(c[0]).includes(fragment));
 }
 
-describe("BellPanel — BELL-1 expand caret", () => {
-  it("caret renders for a code WITH helpfulContext, absent for one WITHOUT", async () => {
+describe("BellPanel — BELL-1 show-page chevron (spec §4.1, Task 7)", () => {
+  it("chevron renders for a row WITH a slug, absent for one WITHOUT — independent of code", async () => {
     const entries = [
-      makeEntry({ alertId: "with", state: "active", code: CODE_WITH_CONTEXT }),
-      makeEntry({ alertId: "without", state: "active", code: CODE_WITHOUT_CONTEXT }),
+      makeEntry({ alertId: "with", state: "active", slug: "east-coast" }),
+      makeEntry({ alertId: "without", state: "active", slug: null }),
     ];
     routeFetch(feedBody({ entries }));
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     await within(panel).findByTestId("bell-section-active");
 
+    const chevron = within(panel).getByTestId("bell-caret-with");
+    expect(chevron.tagName).toBe("A");
+    expect(chevron.getAttribute("href")).toBe("/admin/show/east-coast");
+    expect(within(panel).queryByTestId("bell-caret-without")).toBeNull();
+  });
+
+  it("the toggle fires the read POST regardless of whether the row carries a chevron (mark-read is unaffected by slug)", async () => {
+    // The chevron is a plain nav link with no state of its own (spec §4.1) — it
+    // must never gate or interfere with the toggle's read gesture (spec D3).
+    const entries = [
+      makeEntry({ alertId: "with", state: "active", slug: "east-coast", unread: true }),
+      makeEntry({ alertId: "without", state: "active", slug: null, unread: true }),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-with"));
+    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-without"));
+    await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(2));
+
+    // Clicking the toggle never mutates the chevron: still present/absent exactly
+    // as the fixture's slug dictates.
     expect(within(panel).getByTestId("bell-caret-with")).toBeTruthy();
     expect(within(panel).queryByTestId("bell-caret-without")).toBeNull();
   });
 
-  it("caret rotation class flips on expand; the row stays tappable regardless of context", async () => {
-    // A context-LESS row must still expand (fire the read POST) — the caret is a
-    // visual affordance, never a gate on the read gesture (spec D3).
+  it("clicking the chevron link itself does NOT fire the toggle's mark-read POST (sibling placement, not nested)", async () => {
     const entries = [
-      makeEntry({ alertId: "with", state: "active", code: CODE_WITH_CONTEXT, unread: true }),
-      makeEntry({ alertId: "without", state: "active", code: CODE_WITHOUT_CONTEXT, unread: true }),
+      makeEntry({ alertId: "c1", state: "active", slug: "east-coast", unread: true }),
     ];
     routeFetch(feedBody({ entries }));
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     await within(panel).findByTestId("bell-section-active");
 
-    const caret = within(panel).getByTestId("bell-caret-with");
-    expect(caret.getAttribute("aria-hidden")).toBe("true");
-    // The caret is an <svg> — read the class attribute string, not the
-    // SVGAnimatedString `.className` object.
-    expect(caret.getAttribute("class")).not.toContain("rotate-90");
-
-    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-with"));
-    await waitFor(() =>
-      expect(within(panel).getByTestId("bell-caret-with").getAttribute("class")).toContain(
-        "rotate-90",
-      ),
-    );
-
-    // Context-less row still fires the read POST on expand (tappable everywhere).
-    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-without"));
-    await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(2));
+    fireEvent.click(within(panel).getByTestId("bell-caret-c1"));
+    // jsdom does not navigate on an <a> click, so this only proves the click
+    // never bubbles into a mark-read POST (the chevron is a DOM sibling of the
+    // toggle button, not nested inside it — no shared click handler to fire).
+    expect(callsTo("/bell/read")).toHaveLength(0);
   });
 });
 
@@ -207,7 +215,7 @@ describe("BellPanel — BELL-3 persistent sr-only live region", () => {
     const feedGate = new Promise<void>((r) => {
       releaseFeed = r;
     });
-    const entry = makeEntry({ alertId: "g-1", state: "active", code: CODE_WITH_CONTEXT });
+    const entry = makeEntry({ alertId: "g-1", state: "active" });
     fetchMock.mockImplementation((url: string) => {
       const u = String(url);
       if (u.includes("/bell/feed"))

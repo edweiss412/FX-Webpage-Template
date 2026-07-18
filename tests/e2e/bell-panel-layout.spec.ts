@@ -15,9 +15,9 @@
  *      vs cleared), and the dot's slot offset WITHIN the header
  *      (`bell-entry-toggle-<id>`) plus the header's height are unchanged across
  *      the flip (so the adjacent title never reflows). Absolute position is NOT
- *      asserted: clicking also expands the row (a separate §13 disclosure
- *      transition) which re-lays-out the vertically-centered popover — expected,
- *      and isolated from the dot by measuring header-relative offsets.
+ *      asserted: the popover's absolute placement can shift for unrelated
+ *      reasons (other rows mounting/unmounting), so the dot signal is isolated
+ *      from that by measuring header-relative offsets instead.
  *   2. Panel width + placement (redesign D1 / DI-1 / DI-2). Verified across a
  *      width sweep crossing BOTH the 420px cap and the 640px sm breakpoint
  *      (639/640 pins the boundary):
@@ -94,17 +94,17 @@
  *   - ActiveRow dot `dotVisible ? opacity-100 : opacity-0` with
  *     `motion-safe:transition-opacity motion-safe:duration-fast` (U→R)
  *       → opacity fade, fixed slot, no layout shift. Tested: HERE (invariant 1).
- *   - ActiveRow disclosure `expanded && helpful ? bell-context : null`
- *       → collapsed→expanded height auto-expand (banner ErrorExplainer parity).
- *         Tested: HERE (context appears on expand; header rect unchanged).
- *   - ActiveRow caret (BELL-1) `helpful ? <ChevronRight bell-caret> : null`
- *       → rotate on expand (`rotate-90`, transform-only — NO reflow), rendered
- *         only when the code carries helpfulContext. Independent of read state, so
- *         it never shifts the dot slot or row geometry between unread/read.
- *         Tested: HERE (SEED_CODE has helpfulContext → caret present; rotation is
- *         transform-only so the §14 header-height no-shift assertion below still
- *         holds) + unit (present-with-context / absent-without; rotation class
- *         flips on expand).
+ *   - ActiveRow show-page chevron (BELL-1, spec §4.1, Task 7 chevron rework)
+ *     `entry.slug !== null ? <a bell-caret> : null`
+ *       → instant conditional render, no animation (a plain nav link, not a
+ *         disclosure). The toggle button no longer has expand/collapse state
+ *         of its own — it is mark-read-only, and the chevron is a DOM sibling
+ *         of it, never nested inside. Every alert this spec seeds is GLOBAL
+ *         (`seedGlobal` — `show_id: null`), so `entry.slug` is always null and
+ *         the chevron never renders here; its presence/href/aria-label and
+ *         sibling-not-nested DOM shape are pinned at the unit level instead
+ *         (`tests/components/bellPanelRedesign.test.tsx`,
+ *         `tests/components/bellPanelDeferrals.test.tsx`).
  *   - ActionCell `isHealth ? telemetry : isAutoResolving ? auto-note : Resolve`
  *     (+ `isWatch` retry form, `entry.action` link)
  *       → instant conditional content. Tested: HERE (SYNC_DELAYED_SEVERE is
@@ -151,8 +151,8 @@ const VP_HEIGHT = 900;
 
 // Non-health, non-inbox-routed, non-auto-resolving code (catalog.ts: no
 // `audience`/`adminSurface`/`resolution` fields → in NONE of the bell exclusion
-// sets → reaches EVERY admin feed, dev or non-dev) with both a `title` and
-// `helpfulContext` (so the row renders a title and the expand-disclosure).
+// sets → reaches EVERY admin feed, dev or non-dev) with a `title` (so the row
+// renders realistic content height for the layout checks).
 const SEED_CODE = "SYNC_DELAYED_SEVERE";
 // Two more bell-eligible codes (same non-health/non-inbox/non-auto criteria).
 // DISTINCT codes are REQUIRED for multiple GLOBAL alerts: the partial unique
@@ -334,16 +334,16 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     const dotOffBeforeX = dotBefore.left - toggleBefore.left;
     const dotOffBeforeY = dotBefore.top - toggleBefore.top;
 
-    // The read gesture: clicking the row expands it AND fires /bell/read; the dot
-    // clears OPTIMISTICALLY (opacity → 0) regardless of the POST (no realtime dep).
+    // The read gesture: clicking the row fires /bell/read; the dot clears
+    // OPTIMISTICALLY (opacity → 0) regardless of the POST (no realtime dep).
+    // The toggle has no expand/collapse state of its own (spec §4.1, Task 7
+    // chevron rework) — mark-read is its only effect, so no `bell-context-*`
+    // node ever exists to assert against.
     await toggle.click();
     await expect
       .poll(async () => opacityOf(dot), { message: "dot opacity settles to 0 after read" })
       .toBeLessThanOrEqual(0.02);
     await settleAnimations(dot);
-    // The helpfulContext disclosure grew (below the header) — proves the row DID
-    // expand, so the header-rect stability below is a real no-shift signal.
-    await expect(page.getByTestId(`bell-context-${id}`)).toBeVisible();
 
     // AFTER: the dot still occupies its 8×8 slot (opacity, not display, changed).
     const dotAfter = await rectOf(dot);
@@ -355,8 +355,10 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
 
     // No layout shift from the dot flip: the dot's slot keeps its exact position
     // WITHIN the header (so the adjacent title never reflows), and the header row
-    // keeps its height. Absolute position may change because the row expanded —
-    // that is the disclosure transition, not the dot.
+    // keeps its height. Relative (header-scoped) offsets, not absolute position,
+    // are the true signal here — the panel's absolute placement can still shift
+    // for unrelated reasons (e.g. the vertically-centered popover repositioning
+    // as OTHER rows mount/unmount elsewhere in the list).
     const toggleAfter = await rectOf(toggle);
     const dotOffAfterX = dotAfter.left - toggleAfter.left;
     const dotOffAfterY = dotAfter.top - toggleAfter.top;

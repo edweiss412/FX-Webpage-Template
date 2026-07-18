@@ -18,7 +18,6 @@ import { BellPanel } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 import { AUTO_RESOLVING_CODES, HEALTH_CODES, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import { lookupHelpfulContext } from "@/lib/messages/lookup";
 
 // The retry Server Action is an RPC reference at runtime — stub it so importing
 // BellPanel does not drag `app/admin/actions` (server-only) into jsdom.
@@ -242,6 +241,21 @@ describe("BellPanel — non-resolve action cells (spec §7.3)", () => {
     expect(link.getAttribute("href")).toBe("/admin/dev/telemetry#health");
   });
 
+  it("health row (dev view) → no show-page chevron (slug null — spec §4.1: the developer bell's health rows follow the same slug predicate as every other row)", async () => {
+    const entry = makeEntry({
+      alertId: "h-2",
+      state: "active",
+      code: HEALTH_CODE,
+      isHealth: true,
+      slug: null,
+    });
+    routeFetch({ feed: () => feedBody({ entries: [entry] }) });
+    const { getByTestId, queryByTestId } = renderPanel({ viewerIsDeveloper: true });
+    await within(getByTestId("bell-panel")).findByTestId("bell-entry-h-2");
+
+    expect(queryByTestId("bell-caret-h-2")).toBeNull();
+  });
+
   it("WATCH_CHANNEL_ORPHANED row → Retry affordance carried over from the banner", async () => {
     const entry = makeEntry({
       alertId: "w-1",
@@ -276,8 +290,8 @@ describe("BellPanel — non-resolve action cells (spec §7.3)", () => {
   });
 });
 
-describe("BellPanel — read gesture (spec §7.3 / D3)", () => {
-  it("first expand → helpfulContext discloses AND POST /bell/read with the SERVER activityAt; dot clears with no layout shift", async () => {
+describe("BellPanel — read gesture (spec §7.3 / D3, Task 7: toggle is mark-read-only)", () => {
+  it("first tap → POST /bell/read with the SERVER activityAt; dot clears with no layout shift; NO bell-context node ever renders", async () => {
     const activityAt = "2026-07-05T09:15:00.000Z";
     const entry = makeEntry({
       alertId: "u-1",
@@ -287,7 +301,7 @@ describe("BellPanel — read gesture (spec §7.3 / D3)", () => {
       activityAt,
     });
     routeFetch({ feed: () => feedBody({ entries: [entry] }) });
-    const { getByTestId } = renderPanel();
+    const { getByTestId, queryByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     const toggle = await within(panel).findByTestId("bell-entry-toggle-u-1");
 
@@ -296,12 +310,6 @@ describe("BellPanel — read gesture (spec §7.3 / D3)", () => {
     expect(dot.className).toContain("opacity-100");
 
     fireEvent.click(toggle);
-
-    // Disclosure opens with the catalog helpfulContext.
-    await within(panel).findByTestId("bell-context-u-1");
-    expect(within(panel).getByTestId("bell-context-u-1").textContent).toContain(
-      lookupHelpfulContext(MANUAL_CODE as MessageCode)!,
-    );
 
     // Read POST fires exactly once with the server-provided activityAt (never Date.now()).
     await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(1));
@@ -314,6 +322,10 @@ describe("BellPanel — read gesture (spec §7.3 / D3)", () => {
       expect(within(panel).getByTestId("bell-unread-dot-u-1").className).toContain("opacity-0"),
     );
     expect(within(panel).getByTestId("bell-unread-dot-u-1")).toBeTruthy();
+
+    // The helpfulContext disclosure box was removed in the chevron rework
+    // (spec §4.1, Task 7) — tapping the toggle never renders one.
+    expect(queryByTestId("bell-context-u-1")).toBeNull();
   });
 
   it("read POST failure → dot stays cleared this session, no error UI (fail-quiet, spec §4)", async () => {
@@ -333,17 +345,17 @@ describe("BellPanel — read gesture (spec §7.3 / D3)", () => {
     expect(within(panel).queryByTestId("bell-error")).toBeNull();
   });
 
-  it("re-collapsing then re-expanding fires the read POST only once (first expand only)", async () => {
+  it("repeated taps of the toggle fire the read POST only once (first tap only)", async () => {
     const entry = makeEntry({ alertId: "u-3", state: "active", unread: true });
     routeFetch({ feed: () => feedBody({ entries: [entry] }) });
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     const toggle = await within(panel).findByTestId("bell-entry-toggle-u-3");
 
-    fireEvent.click(toggle); // expand
+    fireEvent.click(toggle);
     await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(1));
-    fireEvent.click(toggle); // collapse
-    fireEvent.click(toggle); // expand again
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
     // Still exactly one read POST.
     await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(1));
   });
