@@ -57,7 +57,7 @@ Removing the two mounts orphans a plumbing chain. Every deletion below was grep-
 | 4.3 | `step3ReviewSections.tsx:557-558` | Drop the `decisionFor` local (calls `findUseRawDecision`) | Only fed the removed use-raw mount. `findUseRawDecision` itself stays — `WarningsBreakdown:2439` still calls it |
 | 4.4 | `step3ReviewSections.tsx:766-770` | Drop the two `{...(chrome.useRawDecisions…)}` / `{...(chrome.wizardSessionId…)}` spreads in the `ModalSectionChrome`→`SectionFlagCallout` caller | Only pass point into the callout |
 | 4.5 | `step3ReviewSections.tsx:483-492` | Drop `useRawDecisions` + `wizardSessionId` **fields** from the `Step3SectionChrome` type + their doc comment | grep: chrome-level fields consumed **only** at `:766-770` |
-| 4.6 | `ShowReviewSurface.tsx:822-828` | Drop the `useRawDecisions: data.useRawDecisions` assignment + the `...(isStaged(data) ? { wizardSessionId } : {})` spread from the chrome-context provider value + comment | These populated only the now-removed chrome fields |
+| 4.6 | `ShowReviewSurface.tsx:824` (+ spread `:828`) | Drop the `useRawDecisions: data.useRawDecisions` assignment (`:824`) + the `...(isStaged(data) ? { wizardSessionId: data.wizardSessionId } : {})` spread (`:828`) + their comment block (`:822-827`) from the chrome-context provider value | These populated only the now-removed chrome fields |
 
 **KEEP (not orphaned):**
 - `Step3SectionChrome.calloutEntries` + `onJumpToWarning` (`:463`, provider `ShowReviewSurface.tsx:838-840`) — the preview still needs entries + the jump callback.
@@ -104,7 +104,7 @@ Unchanged: `CALLOUT_MAX_ENTRIES = 3` (`:506`). `shown = entries.slice(0, 3)`; ov
 - Flagged ↔ judgment: instant (variant is fixed per section render; no in-place toggle). Unchanged.
 - **Removed transitions:** the role-recognize panel expand/collapse and use-raw radiogroup state changes no longer exist in the callout (they persist in `WarningsBreakdown`, unchanged).
 
-The plan's transition-audit task confirms `SectionFlagCallout` contains **no** `AnimatePresence` / conditional-mount after the removal (it never did; the removed boundaries did their own).
+The plan's transition-audit task confirms `SectionFlagCallout` contains **no `AnimatePresence` and no animated conditional mount** after the removal (it never did; the removed boundaries did their own). It does **not** assert "no conditional render" — the judgment lead line (`isJudgment ? … : null`, `:577`) and the "+N more" overflow (`extra > 0 ? … : null`, `:636`) are **deliberate static, instant** conditionals that stay; the audit confirms each is instant (no animation), not that it is absent.
 
 ## 9. Dimensional invariants
 
@@ -116,17 +116,17 @@ No boolean config flag added or removed. The `wizardSessionId` prop was a **pres
 
 ## 11. Test plan (anti-tautology)
 
-**Core behavioral proof (new / reworked).** A real-browser (Playwright) or JSDOM render — see note — of a staged `ShowReviewSurface` (or the local `calloutHost` in `warningsBreakdownControls.test.tsx:280`) with a warning that is BOTH in the first-3 callout AND in the list must assert:
+**Core behavioral proof (the reworked `:369-408` test below).** A JSDOM render — see note — of the callout host (`localCalloutHost`, `warningsBreakdownControls.test.tsx:372`) and the list (`renderBreakdown`) for the same in-scope warning must assert:
 - The callout box (`wizard-step3-card-<dfid>-section-<sectionId>-flag-callout`) contains **zero** `use-raw-control*` and **zero** `role-recognize-*` testids. Failure mode caught: a re-added control mount reintroducing divergence.
 - The callout still renders the entry title text and a "View details" jump button. Failure mode caught: over-stripping the preview (Option B regression).
 - The `WarningsBreakdown` list still mounts `use-raw-control-list` + `role-recognize-*-list` for the same warning. Failure mode caught: accidentally stripping the wrong site.
 
 Assertions scope to the **callout container** vs the **list container** separately (clone/`within`), never a shared ancestor — the two sites emit site-scoped testids (`-callout` / `-list`, #454), so a container-scoped query cannot pass by matching the sibling.
 
-**Reworked existing tests** in `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`:
-- `:294-315` (callout role-recognize panel expand) — **invert**: assert the callout has no `role-recognize-trigger-callout`. The panel-state behavior it proved now lives only in the list.
-- `:324-368` ("duplicate role-control siblings, §4.6 stale-sibling contract") — the **two-mounted-siblings-in-the-wizard** scenario no longer exists; remove/retarget. The action-level idempotent (set-equal) / benign-conflict (different-grants) resolution stays covered where the action is tested; if that coverage lived only here, port it to a single-site action test so we don't lose it. (Plan enumerates the exact port.)
-- `:394-405` ("distinct non-colliding testids at callout + list") — **invert** the callout assertion (`:405`) to expect **no** `use-raw-control-callout`; keep the list assertion.
+**Existing tests in `tests/components/admin/wizard/warningsBreakdownControls.test.tsx` — precise classification (verified against live code):**
+- `:294-321` (callout role-recognize panel expand — mounts the callout WITH a `role-recognize-*-callout` control) — **breaks on removal**. Rework/remove: the callout no longer renders `role-recognize-trigger-callout`. The panel-state behavior it proved is unchanged in the list (`RoleRecognizeControl.test.tsx` covers the panel at the control level).
+- `:324-368` ("duplicate role-control siblings, §4.6 stale-sibling contract") — **KEEP UNCHANGED.** This is a **list/list** scenario, NOT callout/list: `twin()` renders two warnings with the **same** token in `WarningsBreakdown` (per-occurrence emission, `lib/parser/personalization.ts:346-353`) → two live `-list` controls (`role-recognize-trigger-list`, `role-recognize-saved-list`, `role-recognize-conflict-list`). It never touches the callout, so callout demotion does not affect it. Its own header comment (`:327-328`) already notes the ACTION layer (set-equal idempotent / different-grants conflict) is pinned by `tests/admin/mapRoleTokenStagedAction.test.ts:160,:171` — so this contract is doubly safe. (This corrects an earlier draft that wrongly listed it for removal.)
+- `:369-408` ("cross-site testid distinctness", "one warning rendered at callout + list yields distinct, non-colliding control testids") — **THE breaking test.** `localCalloutHost` (`:372-392`) mounts the callout via chrome context WITH `useRawDecisions: []` + `wizardSessionId`, and `:405` asserts `within(box).getByTestId("use-raw-control-callout")` is truthy. After demotion the callout mounts **no** control → **invert `:405` to expect `queryByTestId("use-raw-control-callout")` to be null**, keep the list assertion (`:399-400`). The `localCalloutHost` chrome value at `:383-384` still passes `wizardSessionId`/`useRawDecisions` — after §4.5 removes those chrome fields, drop them from this fixture too (they no longer exist on `Step3SectionChrome`). This reworked test IS the core behavioral proof above.
 - `:147` ("every in-scope warning gets a use-raw control — beyond the callout cap") — about the **list**; unchanged.
 
 **Other callout tests to sweep** (grep `flag-callout` / callout control testids): `tests/components/admin/wizard/step3ReviewSections.test.tsx`, `rawUnrecognizedCallout.test.tsx`, `Step3ReviewModal.test.tsx`, `step3ReviewModal.transitions.test.tsx`, `publishedNoStagedTraffic.test.tsx`. The plan's pre-draft pass enumerates which assert callout controls (update to preview-only) vs. merely render the callout (no change).
@@ -156,5 +156,5 @@ Assertions scope to the **callout container** vs the **list container** separate
 
 - Invariant 5 (no raw error codes in UI): unchanged — `reviewWarningTitle` still hardens titles.
 - Invariant 8 (impeccable dual-gate): UI surface (`components/**`) — `/impeccable critique` + `/impeccable audit` run on the diff before cross-model review; P0/P1 fixed or `DEFERRED.md`-deferred.
-- Invariants 1 (TDD), 6 (commit-per-task): honored in the plan.
+- Invariants 1 (TDD), 6 (commit-per-task): honored during Stage-2 planning + Stage-3 TDD implementation (the plan file does not exist yet at spec time — it is written after this spec reaches APPROVE).
 - Invariants 2, 3, 4, 9, 10: **N/A** — no advisory lock, no email boundary, no sync cursor, no Supabase call, no mutation surface added (this is a render-only removal).
