@@ -194,29 +194,17 @@ describe("Catalog meta-test (test #2 — helpHref shape sanity)", () => {
 });
 
 describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.13 per r6)", () => {
-  // ROLE_FLAGS_NOTICE is classified non-predicate by `predicate()` (severity
-  // "info"), whose non-predicate branch requires title === null. Per the
-  // condensed-alert-copy design spec
-  // (docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md §3),
-  // this code intentionally carries title "Role change applied" — it
-  // replaces BellPanel's generic "Notification" fallback
-  // (components/admin/BellPanel.tsx:95) with a real title while keeping
-  // severity "info" and helpfulContext null (D3). The exemption is scoped to
-  // ONLY the title violation for ONLY this code; longExplanation and
-  // helpHref stay pinned null for every other non-predicate row, including
-  // this one.
-  const NON_PREDICATE_TITLE_EXEMPT_ROWS = new Set(["ROLE_FLAGS_NOTICE"]);
-
+  // Full-sweep copy plan (Task 6): the ROLE_FLAGS_NOTICE title-only exemption
+  // is gone. `predicate()` (lib/messages/catalogDocsValidator.ts) now
+  // classifies every admin_alerts code as a predicate entry regardless of
+  // severity (see its doc comment), and all 45 ADMIN_ALERTS_CODES —
+  // including ROLE_FLAGS_NOTICE and SHOW_FIRST_PUBLISHED, both
+  // severity:"info" — carry non-null title/longExplanation/helpHref, so no
+  // per-code carve-out is needed here anymore.
   it("every live entry satisfies the spec §5.2 full contract", () => {
     const lines: string[] = [];
     for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
-      const violations = contractViolations(entry).filter(
-        (v) =>
-          !(
-            NON_PREDICATE_TITLE_EXEMPT_ROWS.has(code) &&
-            v === "non-predicate entry: title must be null"
-          ),
-      );
+      const violations = contractViolations(entry);
       if (violations.length > 0) {
         for (const v of violations) lines.push(`${code}: ${v}`);
       }

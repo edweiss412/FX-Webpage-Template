@@ -74,71 +74,31 @@ const M115_RETIRED_CATALOG_CODES = new Set([
 // context were rewritten to the pure-unpublish (paused link) semantics, so the
 // archive-era override would have pinned stale prose over the live spec.
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
-// Codes whose dougFacing text is a fully self-contained inline-context
-// template (condensed-alert-copy design, spec 2026-07-17 §3.1) — the message
-// itself names the sheet/show/changes at read time via deriveAlertMessageParams
+// Structural rule (full-sweep copy plan, Task 6): every registered
+// admin_alerts code is exempt from the §12.4 appendix helpfulContext
+// requirement. The full-sweep copy plan converted every admin_alerts
+// dougFacing template into a fully self-contained inline-context string
+// (condensed-alert-copy design, spec 2026-07-17 §3.1) — the message itself
+// names the sheet/show/changes at read time via deriveAlertMessageParams
 // (lib/adminAlerts/deriveMessageParams.ts), so no expandable helpfulContext /
-// "?" caret is rendered and the §12.4 appendix intentionally omits an entry.
-// Adding a code here is a deliberate UX decision (verified: the code has no
-// <ErrorExplainer>/messageFor(...).dougFacing render site requiring the
-// caret), not an oversight the appendix-parity invariant should catch.
-//
-// interim — replaced in Task 6 (full-sweep copy plan
-// docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md): the
-// batch-A codes below (Task 2, §6.a) also null out helpfulContext in favor of
-// self-contained inline-context dougFacing + a longExplanation/helpHref pair,
-// but Task 6 is what replaces this per-code exemption set with the
-// structural rule (predicate() already covers the longExplanation/helpHref
-// side; this appendix-parity exemption is the remaining piece).
-const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set([
-  "ROLE_FLAGS_NOTICE",
-  "AMBIGUOUS_EMAIL_BINDING",
-  "OAUTH_IDENTITY_CLAIMED",
-  "PICKER_BOOTSTRAP_RPC_FAILED",
-  "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
-  "CALLBACK_CLAIM_THREW",
-  "PICKER_SELECTION_RACE",
-  "PICKER_EPOCH_RESET",
-  "WIZARD_SESSION_SUPERSEDED_RACE",
-  "ONBOARDING_SHEET_UNREADABLE",
-  "WATCH_CHANNEL_ORPHANED",
-  "WEBHOOK_TOKEN_INVALID",
-  "GITHUB_BOT_LOGIN_MISSING",
-  // batch-B (Task 3, §6.b)
-  "LIVE_ROW_CONFLICT",
-  "DRIVE_FETCH_FAILED",
-  "PARSE_ERROR_LAST_GOOD",
-  "SHEET_UNAVAILABLE",
-  "RESYNC_SHRINK_HELD",
-  "RESYNC_QUALITY_REGRESSED",
-  "SYNC_STALLED",
-  "ASSET_RECOVERY_BYTES_EXCEEDED",
-  "ASSET_RECOVERY_REVISION_DRIFT",
-  "ASSET_RECOVERY_DRIFT_COOLDOWN",
-  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
-  "EMBEDDED_ASSET_DRIFTED",
-  "REEL_DRIFTED",
-  "OPENING_REEL_PERMISSION_DENIED",
-  "OPENING_REEL_NOT_VIDEO",
-  // batch-C (Task 4, §6.c) — interim, replaced in Task 6
-  "SHOW_FIRST_PUBLISHED",
-  "SHOW_UNPUBLISHED",
-  "EMAIL_DELIVERY_FAILED",
-  "EMAIL_NOT_CONFIGURED",
-  "PENDING_SNAPSHOT_PROMOTE_STUCK",
-  "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-  "PENDING_SNAPSHOT_DELETE_STUCK",
-  "REPORT_ORPHANED_LOST_LEASE",
-  "REPORT_LOOKUP_INCONCLUSIVE",
-  "REPORT_DUPLICATE_LIVE_MATCHES",
-  "REPORT_OPEN_ORPHAN_LABEL",
-  "REPORT_LEASE_THRASHING",
-  "STALE_ORPHAN_REPORT",
-  "TILE_SERVER_RENDER_FAILED",
-  "TILE_PROJECTION_FETCH_FAILED",
-  "BRANCH_PROTECTION_DRIFT",
-  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-]);
+// "?" caret is ever rendered and the §12.4 appendix intentionally omits an
+// entry for these codes. Reading tests/messages/adminAlertsRegistry.ts
+// directly (fs + regex, mirroring the pattern in
+// tests/messages/_metaAlertActionsContract.test.ts:185-189) keeps this
+// exemption and the production admin-alert set in lockstep by
+// construction — a newly registered admin_alerts code is exempted the
+// moment it's added to the registry, with no hand-list to fall out of sync.
+const ADMIN_ALERTS_REGISTRY_PATH = "tests/messages/adminAlertsRegistry.ts";
+
+function readAdminAlertsCodes(): ReadonlySet<string> {
+  const source = readFileSync(ADMIN_ALERTS_REGISTRY_PATH, "utf8");
+  const block = source.match(/export const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
+  const body = block?.[1] ?? "";
+  if (body.length === 0) {
+    throw new Error(`Could not parse ADMIN_ALERTS_CODES from ${ADMIN_ALERTS_REGISTRY_PATH}`);
+  }
+  return new Set(Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""));
+}
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -407,6 +367,7 @@ export function extractSpecCodesFromMarkdown(
   const helpfulContext = parseHelpfulContextAppendix(section);
   const specCodes: Record<string, SpecCodePayload> = {};
   const invariantErrors: string[] = [];
+  const adminAlertsCodes = readAdminAlertsCodes();
 
   for (const key of Object.keys(helpfulContext)) {
     if (!(key in tableCodes)) {
@@ -416,11 +377,7 @@ export function extractSpecCodesFromMarkdown(
 
   for (const [code, payload] of Object.entries(tableCodes)) {
     const context = helpfulContext[code] ?? null;
-    if (
-      payload.dougFacing !== null &&
-      context === null &&
-      !INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT.has(code)
-    ) {
+    if (payload.dougFacing !== null && context === null && !adminAlertsCodes.has(code)) {
       invariantErrors.push(
         `§12.4 helpfulContext appendix missing entry for code ${code} (dougFacing is non-null)`,
       );
