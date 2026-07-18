@@ -80,6 +80,7 @@ import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
+import { useDismissibleOnce } from "@/components/admin/useDismissibleOnce";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
 import {
@@ -95,6 +96,10 @@ const READ_ENDPOINT = "/api/admin/alerts/bell/read";
 const CONFIG_ENDPOINT = "/api/admin/alerts/bell/config";
 
 const WATCH_CODE = "WATCH_CHANNEL_ORPHANED";
+
+// WI-5: one-time dismissible hint flagging the chevron behavior change
+// (expand → navigate, PR #472). Persisted per browser profile in localStorage.
+const CHEVRON_HINT_KEY = "fxav:bell-chevron-hint:v1";
 
 // The wire shape the feed route returns (kind stripped — feed/route.ts).
 type BellFeedBody = Omit<Extract<BellFeedResult, { kind: "ok" }>, "kind">;
@@ -667,6 +672,16 @@ export function BellPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null);
   useDialogFocus(containerRef, closeRef);
 
+  // WI-5 chevron hint: mount-gated + throwing-safe. Banner renders ONLY when the
+  // storage probe succeeded (status "available") and it has not been dismissed;
+  // "checking" (pre-effect, avoids a hydration flash) and "unavailable" (storage
+  // blocked/throwing) both suppress it (fail-safe cosmetic hint).
+  const {
+    status: hintStatus,
+    dismissed: hintDismissed,
+    dismiss: dismissHint,
+  } = useDismissibleOnce(CHEVRON_HINT_KEY);
+
   const [state, setState] = useState<PanelState>({ status: "loading" });
   // BELL-3: text for the persistent sr-only live region. Empty at mount (nothing
   // announced yet); the initial load stamps the active count, a refetch stamps a
@@ -902,6 +917,35 @@ export function BellPanel({
               >
                 Active · {active.length}
               </h3>
+              {/* WI-5 chevron hint (spec §4.5): a single panel-level in-flow note
+                  at the top of the active list, shown once until dismissed, only
+                  when at least one active row has a chevron (slug non-null). In-flow
+                  (not absolute) so it never clips in the scroll container and its
+                  dismiss button is always within the panel. The dismiss button is a
+                  top-level control, never nested inside the chevron <a>. */}
+              {hintStatus === "available" &&
+              !hintDismissed &&
+              active.some((e) => e.slug !== null) ? (
+                <div
+                  role="note"
+                  data-testid="bell-chevron-hint"
+                  className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"
+                >
+                  <span>
+                    The <span aria-hidden="true">⌄</span> chevron now opens the show page
+                  </span>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    data-testid="bell-chevron-hint-dismiss"
+                    aria-label="Dismiss hint"
+                    onClick={dismissHint}
+                    className={GHOST_DISMISS}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : null}
               {active.length >= GROUP_THRESHOLD && feed.activeTruncated === false
                 ? // Grouped mode (spec §1.2/§1.3): static severity dividers, one
                   // per non-empty tier in Critical→Warning→Notice order. Fail-closed

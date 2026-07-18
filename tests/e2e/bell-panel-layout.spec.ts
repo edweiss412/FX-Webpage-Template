@@ -670,4 +670,70 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       if (seededDrive) await deleteSeededShow(seededDrive);
     }
   });
+
+  // ── WI-5 chevron-hint banner geometry (spec §6/§7): with a chevron row present
+  // and a fresh (undismissed) localStorage, the one-time in-flow hint renders at
+  // the top of the active list. Assert (real browser, mobile ≤420px + desktop):
+  // no horizontal overflow, banner + dismiss rects within the panel, dismiss is a
+  // ≥44px tap target whose click unmounts the banner, and the banner sits ABOVE
+  // the first active row (in-flow, non-overlapping). ──
+  for (const width of [390, 1280]) {
+    test(`chevron-hint geometry @ ${width}px (${width <= PANEL_MAX ? "mobile" : "desktop"})`, async ({
+      page,
+    }) => {
+      let seededDrive: string | null = null;
+      try {
+        const show = await seedShowWithCrew();
+        seededDrive = show.driveFileId;
+        const showAlertId = await seedShowScoped(SEED_CODE_2, show.showId);
+
+        await page.setViewportSize({ width, height: VP_HEIGHT });
+        // Fresh profile: clear the hint key so the banner is not pre-dismissed.
+        await page.addInitScript(() => {
+          try {
+            window.localStorage.removeItem("fxav:bell-chevron-hint:v1");
+          } catch {
+            /* ignore */
+          }
+        });
+        await gotoAdmin(page);
+        const panel = await openPanel(page);
+        await settleAnimations(panel);
+
+        const hint = page.getByTestId("bell-chevron-hint");
+        const dismiss = page.getByTestId("bell-chevron-hint-dismiss");
+        await expect(hint).toBeVisible();
+        await expect(dismiss).toBeVisible();
+
+        const panelR = await rectOf(panel);
+        const hintR = await rectOf(hint);
+        const dismissR = await rectOf(dismiss);
+        const firstRowR = await rectOf(page.getByTestId(`bell-entry-${showAlertId}`));
+
+        // (a) no horizontal overflow inside the panel scroll container.
+        const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow, `panel no horizontal overflow @ ${width}px`).toBeLessThanOrEqual(TOL);
+        // (b) banner + dismiss rects fully within the panel rect.
+        expect(hintR.left, "hint left within panel").toBeGreaterThanOrEqual(panelR.left - TOL);
+        expect(hintR.right, "hint right within panel").toBeLessThanOrEqual(panelR.right + TOL);
+        expect(dismissR.left, "dismiss left within panel").toBeGreaterThanOrEqual(panelR.left - TOL);
+        expect(dismissR.right, "dismiss right within panel").toBeLessThanOrEqual(panelR.right + TOL);
+        expect(dismissR.top, "dismiss top within panel").toBeGreaterThanOrEqual(panelR.top - TOL);
+        expect(dismissR.bottom, "dismiss bottom within panel").toBeLessThanOrEqual(
+          panelR.bottom + TOL,
+        );
+        // (c) dismiss is a ≥44px tap target and clicking it unmounts the banner.
+        expect(dismissR.height, "dismiss ≥ 44px tap target").toBeGreaterThanOrEqual(44 - TOL);
+        // (d) banner bottom ≤ first active row top (in-flow, non-overlapping).
+        expect(hintR.bottom, "banner bottom ≤ first row top (in-flow)").toBeLessThanOrEqual(
+          firstRowR.top + TOL,
+        );
+
+        await dismiss.click();
+        await expect(page.getByTestId("bell-chevron-hint")).toHaveCount(0);
+      } finally {
+        if (seededDrive) await deleteSeededShow(seededDrive);
+      }
+    });
+  }
 });
