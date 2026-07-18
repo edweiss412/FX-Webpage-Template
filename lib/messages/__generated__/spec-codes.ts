@@ -160,9 +160,9 @@ export const SPEC_CODES = {
   },
   "AMBIGUOUS_EMAIL_BINDING": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
-    "dougFacing": "Two crew rows share the same email, so Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
+    "dougFacing": "In <show-name>, <email> is shared by <crew-row-count>, so Google login can't safely tell who's who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.",
     "followUp": "Doug → fix sheet duplicate; if persistent, Eric",
-    "helpfulContext": "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block. Usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
+    "helpfulContext": null,
   },
   "APPLY_PROMOTE_PENDING": {
     "crewFacing": null,
@@ -220,9 +220,9 @@ export const SPEC_CODES = {
   },
   "CALLBACK_CLAIM_THREW": {
     "crewFacing": null,
-    "dougFacing": "The OAuth callback claim step threw before it could finish. The next show visit will retry through picker bootstrap.",
+    "dougFacing": "The OAuth callback's claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.",
     "followUp": "Eric → inspect callback claim logs",
-    "helpfulContext": "The OAuth callback encountered an unexpected exception while attempting to stamp crew identity claims. The callback does not mint picker cookies; the bootstrap route can retry the claim on the next show visit.",
+    "helpfulContext": null,
   },
   "CLEANUP_REQUIRES_STALE_SESSION": {
     "crewFacing": null,
@@ -394,9 +394,9 @@ export const SPEC_CODES = {
   },
   "GITHUB_BOT_LOGIN_MISSING": {
     "crewFacing": null,
-    "dougFacing": "GitHub bot login is unconfigured — the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username.",
+    "dougFacing": "GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot's GitHub username and redeploy.",
     "followUp": "Eric → configure env var",
-    "helpfulContext": "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts. The `GITHUB_BOT_LOGIN` environment variable isn't set. Configure it on the deployment and redeploy.",
+    "helpfulContext": null,
   },
   "GOOGLE_NO_CREW_MATCH": {
     "crewFacing": "Your email isn't on the crew list for this show. Text Doug to get added.",
@@ -646,9 +646,9 @@ export const SPEC_CODES = {
   },
   "OAUTH_IDENTITY_CLAIMED": {
     "crewFacing": null,
-    "dougFacing": "A crew identity was claimed through Google sign-in.",
+    "dougFacing": "In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     "followUp": "Informational",
-    "helpfulContext": "The OAuth claim path stamped a crew row as claimed by a signed-in user. Future picker attempts for that row must route through Google sign-in.",
+    "helpfulContext": null,
   },
   "OAUTH_REDIRECT_INVALID": {
     "crewFacing": "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
@@ -706,9 +706,9 @@ export const SPEC_CODES = {
   },
   "ONBOARDING_SHEET_UNREADABLE": {
     "crewFacing": null,
-    "dougFacing": "Some sheets in your show folder couldn't be read, so they were skipped — the affected sheets are named on this alert. Fix or remove them in Drive and this alert clears on its own; you can also dismiss it now.",
+    "dougFacing": "Some sheets in your show folder couldn't be read and were skipped: <failed-sheet-names>. Fix or remove them in Drive and this clears on its own — you can also dismiss it now.",
     "followUp": "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
-    "helpfulContext": "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The first few affected sheets are named on this alert. Fix the sheet's layout in Drive (most often a missing or renamed section header) or remove the file from the folder — the live sync notices on its own and this alert clears automatically. Re-running setup from Settings also works and gives a guided list. You can dismiss this alert at any time.",
+    "helpfulContext": null,
   },
   "OPENING_REEL_NOT_VIDEO": {
     "crewFacing": "Opening reel link is not a video file",
@@ -796,15 +796,15 @@ export const SPEC_CODES = {
   },
   "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED": {
     "crewFacing": "Couldn't sign you in. Please try again in a moment.",
-    "dougFacing": "Google picker bootstrap could not resolve the show link before session validation. The user saw a retry page.",
+    "dougFacing": "Google picker bootstrap couldn't resolve the show link before session validation, so the visitor saw a retry page.",
     "followUp": "Crew → retry; Eric → inspect resolve_show_by_slug_and_token",
-    "helpfulContext": "The picker-bootstrap route failed while resolving the tokenized show URL before it had a user email. The alert context is intentionally email-less and excludes the bearer share token.",
+    "helpfulContext": null,
   },
   "PICKER_BOOTSTRAP_RPC_FAILED": {
     "crewFacing": "Couldn't sign you in. Please try again in a moment.",
-    "dougFacing": "Google picker bootstrap could not claim the signed-in user's crew identity. The user saw a retry page.",
+    "dougFacing": "In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.",
     "followUp": "Crew → retry; Eric → inspect claim_oauth_identity",
-    "helpfulContext": "The picker-bootstrap route had a valid Google session but the claim_oauth_identity RPC returned an error or threw. The route returned a terminal 502 instead of redirecting in a loop.",
+    "helpfulContext": null,
   },
   "PICKER_CREW_MEMBER_NOT_FOUND": {
     "crewFacing": "That crew member was just removed from this show. Pick yourself from the current roster.",
@@ -826,9 +826,9 @@ export const SPEC_CODES = {
   },
   "PICKER_EPOCH_RESET": {
     "crewFacing": null,
-    "dougFacing": "Picker selections were reset for this show. Crew will be asked to pick themselves again on their next visit.",
+    "dougFacing": "Picker selections for <show-name> were reset. Crew will be asked to pick themselves again on their next visit.",
     "followUp": "Doug → re-share the show link if needed",
-    "helpfulContext": "An admin reset bumped the show's picker epoch, invalidating saved per-device picker selections without changing the public share link. Existing open tabs will re-prompt on refresh or realtime invalidation.",
+    "helpfulContext": null,
   },
   "PICKER_EPOCH_STALE_BANNER": {
     "crewFacing": "Doug reset access for this show — pick yourself again.",
@@ -880,9 +880,9 @@ export const SPEC_CODES = {
   },
   "PICKER_SELECTION_RACE": {
     "crewFacing": null,
-    "dougFacing": "A stale saved picker selection was cleaned up after the show access state changed.",
+    "dougFacing": "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed — newer selections were left intact.",
     "followUp": "Informational; Eric if frequent",
-    "helpfulContext": "A browser submitted cleanup for a picker cookie entry whose epoch or crew member no longer matched the current show state. The compare-and-delete path removed only the stale entry and left newer selections intact.",
+    "helpfulContext": null,
   },
   "PICKER_SHOW_UNAVAILABLE": {
     "crewFacing": "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
@@ -1554,7 +1554,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     "followUp": "Auto-retry hourly; admin Retry now; Eric if escalated",
-    "helpfulContext": "The connection that makes sheet edits show up instantly couldn't be set up or renewed. Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear. We retry the connection automatically every hour, and you can use Retry now to try immediately. If it keeps failing, we'll flag it for support.",
+    "helpfulContext": null,
   },
   "WEBHOOK_HEADERS_MISSING": {
     "crewFacing": null,
@@ -1572,7 +1572,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     "followUp": "Eric → investigate",
-    "helpfulContext": "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
+    "helpfulContext": null,
   },
   "WIZARD_FINALIZE_BATCHES_PENDING": {
     "crewFacing": null,
@@ -1620,7 +1620,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     "followUp": "Doug → continue in the active wizard tab",
-    "helpfulContext": "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+    "helpfulContext": null,
   },
 } as const satisfies Record<string, SpecCodePayload>;
 

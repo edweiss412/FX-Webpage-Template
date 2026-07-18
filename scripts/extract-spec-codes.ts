@@ -82,7 +82,29 @@ const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
 // Adding a code here is a deliberate UX decision (verified: the code has no
 // <ErrorExplainer>/messageFor(...).dougFacing render site requiring the
 // caret), not an oversight the appendix-parity invariant should catch.
-const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set(["ROLE_FLAGS_NOTICE"]);
+//
+// interim — replaced in Task 6 (full-sweep copy plan
+// docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md): the
+// batch-A codes below (Task 2, §6.a) also null out helpfulContext in favor of
+// self-contained inline-context dougFacing + a longExplanation/helpHref pair,
+// but Task 6 is what replaces this per-code exemption set with the
+// structural rule (predicate() already covers the longExplanation/helpHref
+// side; this appendix-parity exemption is the remaining piece).
+const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set([
+  "ROLE_FLAGS_NOTICE",
+  "AMBIGUOUS_EMAIL_BINDING",
+  "OAUTH_IDENTITY_CLAIMED",
+  "PICKER_BOOTSTRAP_RPC_FAILED",
+  "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+  "CALLBACK_CLAIM_THREW",
+  "PICKER_SELECTION_RACE",
+  "PICKER_EPOCH_RESET",
+  "WIZARD_SESSION_SUPERSEDED_RACE",
+  "ONBOARDING_SHEET_UNREADABLE",
+  "WATCH_CHANNEL_ORPHANED",
+  "WEBHOOK_TOKEN_INVALID",
+  "GITHUB_BOT_LOGIN_MISSING",
+]);
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();

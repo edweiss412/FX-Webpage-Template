@@ -55,14 +55,13 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "Two crew rows share the same email, so Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
+      "In <show-name>, <email> is shared by <crew-row-count>, so Google login can't safely tell who's who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Doug → fix sheet duplicate; if persistent, Eric",
-    helpfulContext:
-      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block. Usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
+    helpfulContext: null,
     title: "Two crew rows share an email",
     longExplanation:
-      "Two rows in the CREW block share the same email address, so we can't safely tell who is logging in. Usually one of the two emails is a typo or paste mistake. Fix the duplicate in the sheet, then mark this alert resolved from the affected show's page.",
+      "This appears when two crew rows in a show's sheet share the same email address, so the app can't safely tell which row a Google sign-in should map to. The duplicate-email check in the parser should normally catch this during a sync — seeing this alert usually means a recent edit introduced the duplicate, often a typo or a paste mistake in one of the two email cells. Look at the most recent edits to the crew block, correct the duplicate, and the next sync clears it. You can also mark the alert resolved from the show's page once it's fixed.",
     helpHref: "/help/errors#AMBIGUOUS_EMAIL_BINDING",
   },
   SESSION_IDLE_TIMEOUT: {
@@ -262,11 +261,10 @@ export const MESSAGE_CATALOG = {
       "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     crewFacing: null,
     followUp: "Doug → continue in the active wizard tab",
-    helpfulContext:
-      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+    helpfulContext: null,
     title: "Stale wizard action cancelled",
     longExplanation:
-      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over; the older action was cancelled before it could change the new wizard's state, and any setup-scan leftovers from the old tab are inert and cleaned up automatically. Continue working in the active wizard tab.",
+      "This appears when two setup-wizard sessions overlap — for instance, two browser tabs both mid-setup for the same sheet — and the app keeps the newer one. An action from the older tab (retry, defer, ignore, or discard) raced the newer wizard that had just taken over, so it's cancelled before it can change the new wizard's state. Any setup-scan leftovers from the old tab are inert and get cleaned up automatically; this alert exists purely so you know the old tab's attempt was seen. Continue working in the active wizard tab.",
     helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED_RACE",
   },
   // Onboarding-fixups F4 (Task 4.5) — the admin clean-up-old-setup-leftovers
@@ -342,11 +340,10 @@ export const MESSAGE_CATALOG = {
       "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     crewFacing: null,
     followUp: "Auto-retry hourly; admin Retry now; Eric if escalated",
-    helpfulContext:
-      "The connection that makes sheet edits show up instantly couldn't be set up or renewed. Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear. We retry the connection automatically every hour, and you can use Retry now to try immediately. If it keeps failing, we'll flag it for support.",
+    helpfulContext: null,
     title: "Live updates need attention",
     longExplanation:
-      "The connection that makes sheet edits show up instantly couldn't be set up or renewed. Shows still sync on the normal schedule; at worst, edits take a few minutes to appear. The connection is retried automatically every hour, and an admin can retry immediately from the dashboard or Settings. If it keeps failing, it's flagged for support automatically.",
+      "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost — at worst, edits take a few minutes longer to appear instead of showing up instantly. The system retries the connection automatically every hour, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
     helpHref: "/help/errors#WATCH_CHANNEL_ORPHANED",
   },
   WEBHOOK_TOKEN_INVALID: {
@@ -360,11 +357,10 @@ export const MESSAGE_CATALOG = {
       "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     crewFacing: null,
     followUp: "Eric → investigate",
-    helpfulContext:
-      "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
+    helpfulContext: null,
     title: "Drive webhook failed verification",
     longExplanation:
-      "A push notification from Google Drive arrived carrying the wrong verification token. Usually this means a stale subscription is still firing or someone is probing the endpoint. The developer has been notified.",
+      "This appears when a push notification arrives from Google Drive carrying the wrong verification token. It usually means a stale subscription is still firing, or that someone is attempting to spoof the webhook endpoint. The developer is notified automatically and will rotate the token if needed.",
     helpHref: "/help/errors#WEBHOOK_TOKEN_INVALID",
   },
   WEBHOOK_NOOP_ALREADY_SYNCED: {
@@ -873,8 +869,9 @@ export const MESSAGE_CATALOG = {
     followUp: "none (informational)",
     helpfulContext: null,
     title: "Role change applied",
-    longExplanation: null,
-    helpHref: null,
+    longExplanation:
+      "This appears when a crew member's role flags change and get applied automatically — either from a sheet edit or an admin role mapping, both deliberate actions that apply without holding for review. It's specifically raised for changes to a CAPABILITY role, LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface); those are worth a quick confirm, and a durable audit record captures every one. Department/scope flags, by contrast, only change which tile the crew member sees on their own page and don't raise this alert. No action is needed unless a capability change turns out to be a mistake — if so, correct it in the sheet or the role mapping.",
+    helpHref: "/help/errors#ROLE_FLAGS_NOTICE",
   },
   MI11_TARGET_MOVED: {
     code: "MI11_TARGET_MOVED",
@@ -2017,15 +2014,14 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "Some sheets in your show folder couldn't be read, so they were skipped — the affected sheets are named on this alert. Fix or remove them in Drive and this alert clears on its own; you can also dismiss it now.",
+      "Some sheets in your show folder couldn't be read and were skipped: <failed-sheet-names>. Fix or remove them in Drive and this clears on its own — you can also dismiss it now.",
     crewFacing: null,
     followUp:
       "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
-    helpfulContext:
-      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The first few affected sheets are named on this alert. Fix the sheet's layout in Drive (most often a missing or renamed section header) or remove the file from the folder — the live sync notices on its own and this alert clears automatically. Re-running setup from Settings also works and gives a guided list. You can dismiss this alert at any time.",
+    helpfulContext: null,
     title: "Some sheets couldn't be read",
     longExplanation:
-      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them. They aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name; after setup, re-run setup from Settings to see them again. Fix the sheet's layout in Drive, then re-scan.",
+      "This appears when a setup scan of your Drive show folder finds one or more files it can't read as a show sheet, so it skips them — they're never staged and never appear on any crew page. The alert names the first few affected sheets. The usual fix is correcting the sheet's layout in Drive, most often a missing or renamed section header, or removing the file from the folder entirely; the next live sync notices the fix on its own and the alert clears automatically. Re-running setup from Settings also works and walks through a guided list. You can dismiss this alert at any time without fixing anything.",
     helpHref: "/help/errors#ONBOARDING_SHEET_UNREADABLE",
   },
   WIZARD_ISOLATION_INDEXES_MISSING: {
@@ -2418,14 +2414,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A developer tool for bug reports isn't fully set up. Reporting still works; the developer will finish the connection.",
     dougFacing:
-      "GitHub bot login is unconfigured — the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username.",
+      "GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot's GitHub username and redeploy.",
     crewFacing: null,
     followUp: "Eric → configure env var",
-    helpfulContext:
-      "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts. The `GITHUB_BOT_LOGIN` environment variable isn't set. Configure it on the deployment and redeploy.",
+    helpfulContext: null,
     title: "GitHub bot login not configured",
     longExplanation:
-      "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts. The GITHUB_BOT_LOGIN environment variable isn't set; configure it on the deployment and redeploy.",
+      "This appears when the bug-report recovery path needs the bot account's GitHub username, to find issues created by previous recovery attempts, but the GITHUB_BOT_LOGIN environment variable isn't set on the deployment. Configure it and redeploy to restore full recovery-path coverage.",
     helpHref: "/help/errors#GITHUB_BOT_LOGIN_MISSING",
   },
   REPORT_LEASE_THRASHING: {
@@ -3129,14 +3124,13 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "Picker selections were reset for this show. Crew will be asked to pick themselves again on their next visit.",
+      "Picker selections for <show-name> were reset. Crew will be asked to pick themselves again on their next visit.",
     crewFacing: null,
     followUp: "Doug → re-share the show link if needed",
-    helpfulContext:
-      "An admin reset bumped the show's picker epoch, invalidating saved per-device picker selections without changing the public share link. Existing open tabs will re-prompt on refresh or realtime invalidation.",
+    helpfulContext: null,
     title: "Picker selections reset",
     longExplanation:
-      "The show's picker epoch was bumped by an admin reset. Saved picker choices on crew devices are no longer accepted, so crew will choose themselves again the next time the page resolves.",
+      "This appears after an admin reset bumps a show's picker epoch, which invalidates every saved per-device picker selection without changing the public share link itself. Crew members are asked to pick themselves again the next time they open the link. Any tabs already open re-prompt automatically on refresh or the next realtime update.",
     helpHref: "/help/errors#PICKER_EPOCH_RESET",
   },
   PICKER_SELECTION_RACE: {
@@ -3147,14 +3141,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "Two show-picker actions overlapped, and the app sorted it out automatically. No action needed.",
     dougFacing:
-      "A stale saved picker selection was cleaned up after the show access state changed.",
+      "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed — newer selections were left intact.",
     crewFacing: null,
     followUp: "Informational; Eric if frequent",
-    helpfulContext:
-      "A browser submitted cleanup for a picker cookie entry whose epoch or crew member no longer matched the current show state. The compare-and-delete path removed only the stale entry and left newer selections intact.",
+    helpfulContext: null,
     title: "Stale picker selection cleaned",
     longExplanation:
-      "The app cleaned a stale picker-cookie entry after detecting that it no longer matched the current show access state. This is expected after resets or roster changes; repeated alerts may indicate churn.",
+      "This appears when a browser submits cleanup for a picker cookie entry whose epoch or crew member no longer matches the show's current access state — typically after an admin reset or a roster change. The compare-and-delete cleanup path removes only that one stale entry and leaves any newer, still-valid selections untouched. No action is needed.",
     helpHref: "/help/errors#PICKER_SELECTION_RACE",
   },
   PICKER_EPOCH_STALE_BANNER: {
@@ -3326,14 +3319,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The show-picker had trouble starting up for someone. It usually recovers on retry; the developer can check if it persists.",
     dougFacing:
-      "Google picker bootstrap could not claim the signed-in user's crew identity. The user saw a retry page.",
+      "In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect claim_oauth_identity",
-    helpfulContext:
-      "The picker-bootstrap route had a valid Google session but the claim_oauth_identity RPC returned an error or threw. The route returned a terminal 502 instead of redirecting in a loop.",
+    helpfulContext: null,
     title: "Picker bootstrap claim failed",
     longExplanation:
-      "Google sign-in succeeded, but the database claim step failed. The app stopped on a retry page and emitted this alert so the failed claim can be investigated.",
+      "This appears when the picker-bootstrap route has a valid Google session but the crew-identity claim step returns an error or throws partway through. Rather than redirect the visitor in a loop, the route returns a terminal retry page so they can try again cleanly. If this keeps recurring for the same show, it may point to a deeper claim-path problem worth a developer look.",
     helpHref: "/help/errors#PICKER_BOOTSTRAP_RPC_FAILED",
   },
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
@@ -3344,14 +3336,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The show-picker couldn't match a show once. It typically resolves on the next try; the developer can review it.",
     dougFacing:
-      "Google picker bootstrap could not resolve the show link before session validation. The user saw a retry page.",
+      "Google picker bootstrap couldn't resolve the show link before session validation, so the visitor saw a retry page.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect resolve_show_by_slug_and_token",
-    helpfulContext:
-      "The picker-bootstrap route failed while resolving the tokenized show URL before it had a user email. The alert context is intentionally email-less and excludes the bearer share token.",
+    helpfulContext: null,
     title: "Picker bootstrap show resolve failed",
     longExplanation:
-      "The bootstrap route could not resolve the show from the tokenized URL before checking the Google session. It failed closed with a retry page and emitted an email-less alert.",
+      "This appears when the picker-bootstrap route fails while resolving the tokenized show URL, before it even has a signed-in visitor's email to work with. Because no identity is available yet at this point, the alert intentionally carries no email and excludes the bearer share token from its context. The visitor sees a retry page and can try the link again.",
     helpHref: "/help/errors#PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
   },
   OAUTH_IDENTITY_CLAIMED: {
@@ -3361,14 +3352,14 @@ export const MESSAGE_CATALOG = {
     healthWeight: "notice",
     dougSummary:
       "A sign-in identity was already linked, and the app handled it automatically. No action needed.",
-    dougFacing: "A crew identity was claimed through Google sign-in.",
+    dougFacing:
+      "In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     crewFacing: null,
     followUp: "Informational",
-    helpfulContext:
-      "The OAuth claim path stamped a crew row as claimed by a signed-in user. Future picker attempts for that row must route through Google sign-in.",
+    helpfulContext: null,
     title: "Crew identity claimed",
     longExplanation:
-      "A signed-in user's canonical email matched a crew row and the row was stamped as claimed. This prevents other devices from selecting that identity through bypass picker flow.",
+      "This appears when a crew row's identity gets claimed through the OAuth claim path after a Google sign-in. The claim stamps that crew row as claimed by the specific signed-in user, so on future visits picker attempts for that row route straight through Google sign-in instead of showing the picker again. No action is needed — this is a routine record of a successful claim.",
     helpHref: "/help/errors#OAUTH_IDENTITY_CLAIMED",
   },
   CALLBACK_CLAIM_THREW: {
@@ -3378,14 +3369,13 @@ export const MESSAGE_CATALOG = {
     healthWeight: "notice",
     dougSummary: "A sign-in step hit a hiccup and will retry on the next visit. No action needed.",
     dougFacing:
-      "The OAuth callback claim step threw before it could finish. The next show visit will retry through picker bootstrap.",
+      "The OAuth callback's claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.",
     crewFacing: null,
     followUp: "Eric → inspect callback claim logs",
-    helpfulContext:
-      "The OAuth callback encountered an unexpected exception while attempting to stamp crew identity claims. The callback does not mint picker cookies; the bootstrap route can retry the claim on the next show visit.",
+    helpfulContext: null,
     title: "OAuth claim threw",
     longExplanation:
-      "The callback's claim-stamp block threw unexpectedly. The user may still be signed in, and the lazy picker bootstrap path is responsible for retrying the claim safely.",
+      "This appears when the OAuth callback hits an unexpected exception while trying to stamp a crew identity claim. The callback itself never mints picker cookies, so nothing is left in a half-claimed state — the bootstrap route simply retries the claim automatically on the visitor's next show visit.",
     helpHref: "/help/errors#CALLBACK_CLAIM_THREW",
   },
   SIGN_IN_OR_SKIP_PROMPT: {
