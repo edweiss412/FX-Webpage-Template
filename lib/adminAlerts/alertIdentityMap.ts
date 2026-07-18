@@ -281,3 +281,27 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
     ],
   },
 };
+
+/**
+ * Codes whose dougFacing template names the entity inline (spec
+ * docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md §5).
+ * Render surfaces suppress the separate identity chip for these codes when
+ * the message rendered (interpolation succeeded); on the guard path the chip
+ * renders as before so identity is never lost. Pinned bidirectionally by
+ * tests/adminAlerts/_metaInlineIdentityContract.test.ts.
+ */
+export const INLINE_IDENTITY_CODES: ReadonlySet<string> = new Set([
+  "ROLE_FLAGS_NOTICE",
+  "REPORT_ORPHANED_LOST_LEASE",
+  "REPORT_LOOKUP_INCONCLUSIVE",
+  "REPORT_DUPLICATE_LIVE_MATCHES",
+  "REPORT_OPEN_ORPHAN_LABEL",
+  "REPORT_LEASE_THRASHING",
+  "STALE_ORPHAN_REPORT",
+  "PENDING_SNAPSHOT_PROMOTE_STUCK",
+  "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+  "EMAIL_DELIVERY_FAILED",
+  "WIZARD_SESSION_SUPERSEDED_RACE",
+  "BRANCH_PROTECTION_DRIFT",
+  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+]);
