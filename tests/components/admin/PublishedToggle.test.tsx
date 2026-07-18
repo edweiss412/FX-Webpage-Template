@@ -215,16 +215,31 @@ describe("PublishedToggle — inline variant", () => {
     expect(pop.textContent).toContain("That didn’t go through. Refresh and try again.");
   });
 
-  it("S4 finalize: disabled switch + calm popover (NOT role=alert), aria-describedby wired", () => {
+  it("S4a finalize (published): in-flow chip, role-less, aria-describedby wired, visible 'Finalizing…' + full sr-only copy", () => {
     renderInline({ published: true, finalizeOwned: true });
     const sw = screen.getByTestId("published-toggle");
     expect(sw.hasAttribute("disabled")).toBe(true);
-    const pop = popover()!;
-    expect(pop).not.toBeNull();
-    expect(pop.getAttribute("role")).not.toBe("alert");
-    expect(pop.textContent).toContain("Changes are being finalized");
-    expect(sw.getAttribute("aria-describedby")).toBe(pop.getAttribute("id"));
-    expect(pop.getAttribute("id")).toBe("published-toggle-popover-s1");
+    const chip = popover()!;
+    expect(chip).not.toBeNull();
+    expect(chip.hasAttribute("role")).toBe(false); // role-less, calm (NOT status/note/alert)
+    const cls = chip.className.split(/\s+/);
+    expect(cls).not.toContain("absolute"); // in-flow, not an absolute overlay
+    expect(cls).toContain("bg-surface-sunken");
+    expect(chip.textContent).toContain("Finalizing…"); // compact visible label
+    expect(chip.textContent).toContain("Changes are being finalized"); // full copy (sr-only span)
+    expect(sw.getAttribute("aria-describedby")).toBe(chip.getAttribute("id"));
+    expect(chip.getAttribute("id")).toBe("published-toggle-popover-s1");
+  });
+
+  it("S4b finalize (not published): visible 'Publishing…' + 'A publish is finishing' sr-only, role-less, aria-describedby wired", () => {
+    renderInline({ published: false, finalizeOwned: true });
+    const sw = screen.getByTestId("published-toggle");
+    expect(sw.hasAttribute("disabled")).toBe(true);
+    const chip = popover()!;
+    expect(chip.hasAttribute("role")).toBe(false);
+    expect(chip.textContent).toContain("Publishing…");
+    expect(chip.textContent).toContain("A publish is finishing");
+    expect(sw.getAttribute("aria-describedby")).toBe(chip.getAttribute("id"));
   });
 
   it("S5: a refusal preserved across a finalize flip keeps the ERROR popover (error wins), switch disabled", async () => {
@@ -267,7 +282,7 @@ describe("PublishedToggle — inline variant", () => {
     expect(setPublished).toHaveBeenCalledWith(false); // flipped from published:true
   });
 
-  it("error and finalize popovers share the EXACT positioning class set; only skin/role differ", async () => {
+  it("error skin keeps the absolute banner; finalize skin is an in-flow chip (mechanism split)", async () => {
     const POSITION = [
       "absolute",
       "inset-x-0",
@@ -279,27 +294,39 @@ describe("PublishedToggle — inline variant", () => {
       "p-2",
       "text-sm",
       "shadow-tile",
-    ]; // === POPOVER_POSITION tokens (CASP2-2: full-strip-width banner)
+    ]; // === POPOVER_POSITION tokens (ERROR banner only, post-split)
     const ERROR_SKIN = new Set([
       "border",
       "border-border-strong",
       "bg-warning-bg",
       "text-warning-text",
     ]);
-    const FINALIZE_SKIN = new Set([
-      "border",
-      "border-border-strong",
-      "bg-surface-sunken",
-      "text-text-subtle",
-    ]);
-    // CASP2-2: the banner must span the full strip (inset-x-0). Forbid single-side anchors
-    // (left-0/right-0), any positive edge offset, and ANY width cap (w-max / w-N / max-w-* /
-    // min-w-*) — reintroducing one would shrink the banner back to a disconnected right box.
-    const FORBIDDEN = /^(left-0|right-0|left-\d|right-\d|w-max|w-\d|max-w-|min-w-|translate-x-)$/;
+    // Finalize chip must carry NONE of the absolute-geometry tokens (it is in-flow, CASP2-4 item 1).
+    const ABSOLUTE_GEOMETRY = ["absolute", "inset-x-0", "top-full", "z-40", "mt-1"];
+    const FINALIZE_SKIN = ["bg-surface-sunken", "border-border", "text-xs", "text-text-subtle"];
+    // Fixed FORBIDDEN (prior test anchored `$` right after `max-w-`/`min-w-`, so a real `max-w-60`
+    // never matched): prefix-match width caps + single-side anchors so any regression trips it.
+    const FORBIDDEN =
+      /^(left-0|right-0|left-\d|right-\d|w-max|w-\d+|max-w-\S+|min-w-\S+|translate-x-)/;
 
+    // Finalize chip (in-flow).
     const { unmount } = renderInline({ published: true, finalizeOwned: true });
-    const finalizeTokens = popover()!.className.split(/\s+/).filter(Boolean);
+    const chipTokens = popover()!.className.split(/\s+/).filter(Boolean);
+    for (const t of ABSOLUTE_GEOMETRY) {
+      expect(chipTokens, `finalize chip must be in-flow, not carry ${t}`).not.toContain(t);
+    }
+    for (const t of FINALIZE_SKIN) {
+      expect(chipTokens, `finalize chip missing skin token ${t}`).toContain(t);
+    }
+    expect(popover()!.hasAttribute("role"), "finalize chip is role-less (calm)").toBe(false);
+    // Transition-audit: the finalize chip is INSTANT (spec §6) — no animation utility on it.
+    expect(
+      chipTokens.some((t) => t.startsWith("animate-")),
+      "finalize chip must not animate",
+    ).toBe(false);
     unmount();
+
+    // Error banner (absolute full-width, unchanged).
     const setPublished = vi.fn(async () => ({
       ok: false as const,
       code: "PUBLISH_BLOCKED_PENDING_REVIEW",
@@ -309,17 +336,13 @@ describe("PublishedToggle — inline variant", () => {
       fireEvent.click(screen.getByTestId("published-toggle"));
     });
     const errorTokens = popover()!.className.split(/\s+/).filter(Boolean);
-
     for (const t of POSITION) {
-      expect(finalizeTokens, `finalize missing ${t}`).toContain(t);
-      expect(errorTokens, `error missing ${t}`).toContain(t);
+      expect(errorTokens, `error banner missing ${t}`).toContain(t);
     }
-    const finalizeExtra = finalizeTokens.filter((t) => !POSITION.includes(t));
     const errorExtra = errorTokens.filter((t) => !POSITION.includes(t));
-    expect(new Set(finalizeExtra)).toEqual(FINALIZE_SKIN);
     expect(new Set(errorExtra)).toEqual(ERROR_SKIN);
-    for (const t of [...finalizeTokens, ...errorTokens]) {
-      expect(t, `forbidden geometry class ${t}`).not.toMatch(FORBIDDEN);
+    for (const t of errorTokens) {
+      expect(t, `forbidden geometry class ${t} on error banner`).not.toMatch(FORBIDDEN);
     }
   });
 });

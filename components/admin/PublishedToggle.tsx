@@ -44,19 +44,30 @@ const KNOWN_REFUSAL_CODES = new Set([
 // the card has always rendered inline, now centralized to one const so both variants stay identical.
 const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 
-// Inline popover positioning — one source, carried identically by BOTH the error and finalize
-// skins (pinned equal by tests). The inline container is intentionally NOT `relative`, so the
-// popover's containing block is the nearest positioned ancestor — the sticky StatusStrip
-// (`sticky` is a positioned element). `inset-x-0`/`top-full` therefore render it as a FULL-STRIP-
-// WIDTH banner spanning the strip's padding box, just below it (CASP2-2 fix, BL-CASP2-POPOVER-
-// PROXIMITY): a full-width banner reads as belonging to the strip, restoring Gestalt proximity —
-// the pre-fix right-anchored max-w-60 box sat at the strip's right edge while a long title wrapped
-// the toggle far-left, so the box pointed at a phantom edge. The banner is in-viewport at 390px
-// BY CONSTRUCTION (it hugs the strip's content edges) and its x-position is invariant to where the
-// toggle flex-wraps — both verified by the real-browser §8.10c gate. break-words caps long
-// ErrorExplainer/HelpAffordance tokens so copy grows only vertically, never overflowing (§4.4 / §8.10).
+// Inline ERROR popover positioning — the error/generic-retry skin is an absolutely-positioned
+// FULL-STRIP-WIDTH banner (CASP2-2 fix, BL-CASP2-POPOVER-PROXIMITY). The inline container is
+// intentionally NOT `relative`, so the popover's containing block is the nearest positioned
+// ancestor — the sticky StatusStrip (`sticky` is a positioned element); `inset-x-0`/`top-full`
+// render it as a banner spanning the strip's padding box just below it. A full-width banner reads
+// as belonging to the strip (the pre-fix right-anchored max-w-60 box sat at a phantom right edge
+// while a long title wrapped the toggle far-left). break-words caps long ErrorExplainer/
+// HelpAffordance tokens so copy grows only vertically, never overflowing at 390px (§4.4 / §8.10d).
+// This is ERROR-ONLY: errors are momentary. The finalize skin split off to the in-flow
+// FINALIZE_CHIP below (CASP2-4 item 1, BL-CASP2-STRIP-POLISH) so it never overlays the rail
+// content below the strip during the longer-lived finalize window.
 const POPOVER_POSITION =
   "absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile";
+
+// Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the
+// `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
+// longer-lived server state, so an absolute banner would float over the rail content below the
+// sticky strip for the whole window; an in-flow chip stays inside the strip's own flow (CASP2-4
+// item 1). Calm sunken plate reads as a strip-chrome-adjacent signal, distinct from the strip's
+// own bg-surface via the fill step; `border-border` matches the sibling strip badges (archived /
+// alert), not the heavier `border-strong` the old full-width banner needed. whitespace-nowrap +
+// shrink-0 keep it on one line.
+const FINALIZE_CHIP =
+  "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle";
 
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */
@@ -137,17 +148,13 @@ export function PublishedToggle({
             )}
           </div>
         ) : showFinalize ? (
-          <div
-            id={popoverId}
-            data-testid="published-toggle-popover"
-            // Calm (finalize) skin uses the SUNKEN plate + strong border, not bg-surface: the
-            // host StatusStrip is itself bg-surface, so a bg-surface banner would read as strip
-            // chrome instead of a distinct message (impeccable critique P2). The error skin below
-            // already separates via bg-warning-bg.
-            className={`${POPOVER_POSITION} border border-border-strong bg-surface-sunken text-text-subtle`}
-          >
-            {subline}
-          </div>
+          <span id={popoverId} data-testid="published-toggle-popover" className={FINALIZE_CHIP}>
+            {/* Compact visible label (mode-dependent); the full explanation is the sr-only copy so
+                the aria-describedby announcement + the S4 substring assertion carry the whole
+                sentence without a long visible strip chip. */}
+            <span aria-hidden="true">{published ? "Finalizing…" : "Publishing…"}</span>
+            <span className="sr-only">{subline}</span>
+          </span>
         ) : null}
       </div>
     );

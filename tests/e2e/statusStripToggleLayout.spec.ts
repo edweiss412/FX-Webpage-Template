@@ -13,20 +13,21 @@
  *   3. serve over node:http; measure getBoundingClientRect() at 390px.
  *
  * Invariants (spec §8.10):
- *   (a) height-invariance: strip height(idle) === height(finalize) ±0.5px — the
- *       popover is position:absolute, so it adds zero flow height.
+ *   (a) in-flow containment (CASP2-4 item 1): the finalize CHIP's box is fully within
+ *       the strip's box at 390px (chip.top ≥ strip.top, chip.bottom ≤ strip.bottom) — it
+ *       never overhangs, so it can never overlay the rail content below the sticky strip.
+ *       AND at ≥sm the chip fits the switch row, so strip height(finalize) === height(idle)
+ *       ±0.5px (bounds finalize-state growth; baseline from the idle render, not hardcoded).
  *   (b) compaction: inline idle strip height < card-variant strip height by
  *       > 20px (one text-line) — proves real compaction, baseline from the card
  *       render in the same harness (never a hardcoded pixel).
- *   (c) full-strip-width banner (CASP2-2): the finalize popover spans the strip's
- *       content box (its left/right hug the strip padding-box edges, width > 300px —
- *       NOT the pre-fix right-anchored max-w-60 box), stays within [0, 390] with no
- *       document h-scroll, and its x-position is IDENTICAL at the short and long
- *       title (strip-anchored → toggle wrap-x can't disconnect it). The banner-belongs-
- *       to-strip geometry is what restores Gestalt proximity.
+ *   (c) compact chip: the finalize chip is an in-viewport pill (left ≥ 0, right ≤ 390, no
+ *       document h-scroll) sitting right of the switch, width < 200px — NOT a full-strip
+ *       banner. The overlay residual (BL-CASP2-STRIP-POLISH) is gone: an in-flow chip
+ *       cannot float over content the way the pre-change absolute banner did.
  *   (d) error-content banner: the REAL ErrorExplainer+HelpAffordance content in the
  *       full-width break-words banner stays in-viewport with no h-scroll — the long
- *       error copy (unlike the short finalize hint) grows only vertically.
+ *       error copy (the error skin keeps the absolute full-width banner) grows only vertically.
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
@@ -148,12 +149,41 @@ async function noHorizontalOverflow(page: import("@playwright/test").Page): Prom
 }
 
 test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () => {
-  test("(a) the absolute popover adds zero strip-flow height (idle === finalize)", async ({
+  test("(a) the in-flow finalize chip is contained in the strip (no overlay) and does not grow the strip at ≥sm", async ({
     page,
   }) => {
-    const idle = await rectOf(page, "idleShort", "show-status-strip");
-    const finalize = await rectOf(page, "finalizeShort", "show-status-strip");
-    expect(Math.abs(idle.height - finalize.height)).toBeLessThanOrEqual(0.5);
+    // CI-1 (390px): the chip's box is fully WITHIN the strip's box — proves in-flow, no overhang
+    // over the rail content below the sticky strip (the pre-change absolute banner had bottom > strip.bottom).
+    await page.setViewportSize(MOBILE);
+    await page.goto(`${baseUrl}finalizeShort.html`);
+    const stripBox = await page.getByTestId("show-status-strip").evaluate((n) => {
+      const r = n.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    });
+    const chipBox = await page.getByTestId("published-toggle-popover").evaluate((n) => {
+      const r = n.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    });
+    expect(chipBox.top, "chip top within strip").toBeGreaterThanOrEqual(stripBox.top - 0.5);
+    expect(chipBox.bottom, "chip bottom within strip (no overhang)").toBeLessThanOrEqual(
+      stripBox.bottom + 0.5,
+    );
+
+    // CI-1b (≥sm, 800px): the chip fits the switch's row, so the strip height is unchanged vs idle
+    // (baseline derived from the idle render, never hardcoded) — bounds finalize-state strip growth.
+    const DESKTOP = { width: 800, height: 900 };
+    await page.setViewportSize(DESKTOP);
+    await page.goto(`${baseUrl}idleShort.html`);
+    const idleH = await page
+      .getByTestId("show-status-strip")
+      .evaluate((n) => n.getBoundingClientRect().height);
+    await page.goto(`${baseUrl}finalizeShort.html`);
+    const finalizeH = await page
+      .getByTestId("show-status-strip")
+      .evaluate((n) => n.getBoundingClientRect().height);
+    expect(Math.abs(idleH - finalizeH), "chip does not grow the strip at ≥sm").toBeLessThanOrEqual(
+      0.5,
+    );
   });
 
   test("(b) the inline strip is materially shorter than the pre-CASP-2 card strip", async ({
@@ -165,54 +195,27 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     expect(card.height - inline.height).toBeGreaterThan(20);
   });
 
-  test("(c) the finalize popover is a full-strip-width banner: in-viewport, hugs the strip padding box, stable across title length", async ({
+  test("(c) the finalize chip is a compact in-viewport pill right of the switch (not a full-strip banner)", async ({
     page,
   }) => {
-    const measured: Record<string, { left: number; right: number; width: number }> = {};
-    for (const key of ["finalizeShort", "finalizeLong"]) {
-      await page.setViewportSize(MOBILE);
-      await page.goto(`${baseUrl}${key}.html`);
-      const strip = await page
-        .getByTestId("show-status-strip")
-        .evaluate((n): { left: number; right: number; width: number } => {
-          const r = n.getBoundingClientRect();
-          return { left: r.left, right: r.right, width: r.width };
-        });
-      const pop = page.getByTestId("published-toggle-popover");
-      await expect(pop).toBeVisible();
-      const box = await pop.evaluate((n) => {
-        const r = n.getBoundingClientRect();
-        return { left: r.left, right: r.right, width: r.width };
-      });
-      measured[key] = box;
-
-      // in-viewport, no page h-scroll
-      expect(box.left, `${key}: popover left edge`).toBeGreaterThanOrEqual(0);
-      expect(box.right, `${key}: popover right edge`).toBeLessThanOrEqual(390);
-      expect(await noHorizontalOverflow(page), `${key}: no document h-scroll`).toBe(true);
-
-      // full-strip-width banner — inset-x-0 anchors to the strip's padding box (the strip has
-      // no left/right border), so the banner hugs the strip's own left/right edges, NOT the
-      // pre-fix right-anchored max-w-60 (240px) box.
-      expect(Math.abs(box.left - strip.left), `${key}: banner left hugs strip`).toBeLessThanOrEqual(
-        1,
-      );
-      expect(
-        Math.abs(box.right - strip.right),
-        `${key}: banner right hugs strip`,
-      ).toBeLessThanOrEqual(1);
-      expect(box.width, `${key}: banner spans the strip (not a 240px right box)`).toBeGreaterThan(
-        300,
-      );
-    }
-
-    // Strip-anchored → the banner x-position is IDENTICAL regardless of where the toggle
-    // flex-wraps (the CASP2-2 proximity fix: it can never disconnect to a phantom edge).
-    const short = measured.finalizeShort;
-    const long = measured.finalizeLong;
-    if (!short || !long) throw new Error("both finalize states must be measured");
-    expect(Math.abs(short.left - long.left)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(short.right - long.right)).toBeLessThanOrEqual(0.5);
+    await page.setViewportSize(MOBILE);
+    await page.goto(`${baseUrl}finalizeShort.html`);
+    const chip = await page.getByTestId("published-toggle-popover").evaluate((n) => {
+      const r = n.getBoundingClientRect();
+      return { left: r.left, right: r.right, width: r.width };
+    });
+    const sw = await page.getByTestId("published-toggle").evaluate((n) => {
+      const r = n.getBoundingClientRect();
+      return { right: r.right };
+    });
+    // CI-2: in-viewport, no page h-scroll.
+    expect(chip.left, "chip left in viewport").toBeGreaterThanOrEqual(0);
+    expect(chip.right, "chip right in viewport").toBeLessThanOrEqual(390);
+    expect(await noHorizontalOverflow(page), "no document h-scroll").toBe(true);
+    // CI-3: sits after the switch in flow, and is a compact pill (NOT the >300px full-strip
+    // banner the old finalize skin was).
+    expect(chip.left, "chip sits right of the switch").toBeGreaterThanOrEqual(sw.right - 0.5);
+    expect(chip.width, "chip is a compact pill, not a full-strip banner").toBeLessThan(200);
   });
 
   test("(d) the real error-popover content stays in the viewport as a full-width banner", async ({

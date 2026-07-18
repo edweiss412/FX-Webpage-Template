@@ -11,7 +11,7 @@
  *
  * States emitted (spec §8.10):
  *   idle      — StatusStrip inline S1 (published, not finalize-owned): no popover.
- *   finalize  — StatusStrip inline S4 (finalizeOwned): the real finalize popover
+ *   finalize  — StatusStrip inline S4 (finalizeOwned): the real in-flow finalize CHIP
  *               renders from the prop (no test-only forced-error path).
  *   card      — a strip-width row holding <PublishedToggle variant="card"> — the
  *               pre-CASP-2 baseline, for the compaction delta (height only).
