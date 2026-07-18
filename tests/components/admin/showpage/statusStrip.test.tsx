@@ -174,6 +174,49 @@ describe("StatusStrip", () => {
     });
   });
 
+  describe("renderTitle (admin-show-modal spec §6.1 — modal header suppression)", () => {
+    it("default (prop omitted): renders the h1 title and its adjacent divider exactly as today", () => {
+      renderStrip();
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading.getAttribute("data-testid")).toBe("strip-title");
+      expect(screen.getByTestId("strip-title-divider")).toBeTruthy();
+    });
+
+    it("renderTitle={false}: no h1, no title text node, no leading divider", () => {
+      renderStrip({ renderTitle: false });
+      expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+      expect(screen.queryByTestId("strip-title")).toBeNull();
+      // The title TEXT must not sneak in via another node (the modal's h2 owns it).
+      const strip = screen.getByTestId("show-status-strip");
+      expect(within(strip).queryByText("East Coast Broadcast Summit")).toBeNull();
+      // No orphan leading separator — the strip starts at the publish toggle.
+      expect(screen.queryByTestId("strip-title-divider")).toBeNull();
+    });
+
+    it("renderTitle={false}: PublishedToggle, live badge, and copy-link are untouched", () => {
+      renderStrip({ renderTitle: false, isLive: true, published: true }, { token: "TOK" });
+      const wrapper = screen.getByTestId("strip-publish-toggle");
+      expect(within(wrapper).getByTestId("published-toggle").getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      expect(screen.getByTestId("strip-live-badge")).toBeTruthy();
+      expect(screen.getByTestId("strip-copy-link")).toBeTruthy();
+    });
+
+    it("renderTitle={false} + archived: badge renders, still no h1 and no divider", () => {
+      renderStrip({ renderTitle: false, archived: true, published: false });
+      expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
+      expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+      expect(screen.queryByTestId("strip-title-divider")).toBeNull();
+    });
+
+    it("archived with the title rendered: no title divider (badge follows the h1 directly)", () => {
+      renderStrip({ archived: true, published: false });
+      expect(screen.getByTestId("strip-title")).toBeTruthy();
+      expect(screen.queryByTestId("strip-title-divider")).toBeNull();
+    });
+  });
+
   describe("archived (read-only)", () => {
     it("shows the archived badge and hides the toggle, copy-link, and live badge", () => {
       renderStrip({ archived: true, published: false, isLive: true }, { token: "TOK" });
