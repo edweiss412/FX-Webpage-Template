@@ -57,7 +57,7 @@ Ellipsis is the `…` character (U+2026), consistent with the existing curly-pun
 - **`finalizeOwned === true` + error present** (S5) → `showError` true suppresses `showFinalize`; the absolute **error** banner renders, chip does not. Error-wins precedence intact.
 - **`published` null** → not possible at this callsite (`published: boolean`, server-computed, never null — `PublishedToggleProps.published`, `PublishedToggle.tsx:65`). The `published` boolean only selects which of the two visible labels shows.
 - **`variant` = `"card"` (default) or omitted** → the entire inline branch (and the chip) does not render; the card row renders its own in-flow subline/error blocks, byte-unchanged by this spec. The chip is inline-variant-only. (`variant`, `PublishedToggle.tsx:72`.)
-- **`slug`** → still required and non-empty at this callsite; it composes the chip's stable `popoverId` = `` `published-toggle-popover-${_slug}` `` (`PublishedToggle.tsx:110`) that `aria-describedby` targets. Unchanged by this spec.
+- **`slug`** → typed `string` (`PublishedToggleProps.slug`, `PublishedToggle.tsx:63`); no non-empty CHECK is asserted at this component boundary (the DB column is `slug text not null unique`, but the prop is not re-validated here). It composes the chip's `popoverId` = `` `published-toggle-popover-${_slug}` `` (`PublishedToggle.tsx:110`). **Empty-string guard:** if `slug === ""`, `popoverId` becomes the literal `"published-toggle-popover-"` — still a valid, non-user-visible id, and the switch's `aria-describedby` still targets the chip (the linkage holds regardless of slug content). Unchanged by this spec.
 - **`setPublished`** → its `{ ok } | { ok:false; code }` result still drives `showError`/`genericError` (success → `router.refresh()`; known refusal → `errorCode`; else → `genericError`). The chip only renders in the `showFinalize` branch, which is orthogonal to `setPublished`'s result path. Unchanged.
 - **Empty/zero copy** → labels are constant literals, never empty.
 
@@ -74,24 +74,26 @@ Parent→child dimension relationships: the chip is a flex child of `published-t
 
 ## 6. Transition inventory
 
-`PublishedToggle` inline has three mutually-exclusive display states for the popover region: **none** (idle), **error banner** (absolute), **finalize chip** (in-flow). All transitions are **instant — no animation** (matches today; the component imports no motion library and this change adds none):
+`PublishedToggle` inline has four mutually-exclusive display states for the popover region: **none** (idle), **error banner** (absolute), **finalize chip / `Finalizing…`** (in-flow, `published` true), **finalize chip / `Publishing…`** (in-flow, `!published`). The two finalize sub-states differ only in the chip's text (visible label + `sr-only` copy) — same mount site, same skin. For N=4 states, all 6 pairs are **instant — no animation** (matches today; the component imports no motion library and this change adds none):
 
 | From → To | Treatment |
 | --- | --- |
-| none → finalize chip | instant (chip mounts) |
-| finalize chip → none | instant (chip unmounts when finalize completes) |
+| none → finalize `Finalizing…` | instant (chip mounts) |
+| none → finalize `Publishing…` | instant (chip mounts) |
+| finalize (either) → none | instant (chip unmounts when finalize completes) |
+| finalize `Finalizing…` ↔ finalize `Publishing…` | instant — pure text swap inside the already-mounted chip (a `router.refresh()` that flips `published` while `finalizeOwned` stays true, e.g. an unpublish finishing → OFF; no mount/unmount, no animation) |
 | none → error banner | instant (unchanged) |
 | error banner → none | instant (unchanged) |
-| finalize chip → error banner | instant — error-wins precedence swaps the branch (S5 compound: error preserved across a finalize flip; the chip never co-renders with the banner) |
-| error banner → finalize chip | not reachable in practice (error clears only on next toggle, which also re-evaluates finalize) — if it occurred it is an instant branch swap |
+| finalize (either) → error banner | instant — error-wins precedence swaps the branch (S5 compound: error preserved across a finalize flip; the chip never co-renders with the banner) |
+| error banner → finalize (either) | not reachable in practice (error clears only on next toggle, which also re-evaluates finalize) — if it occurred it is an instant branch swap |
 
-No `AnimatePresence`, no `exit`/`initial`/`animate` props, no `animate-*` utility. The `showError`/`showFinalize` ternary count in `PublishedToggle.tsx` is unchanged (the finalize arm's markup changes, the conditional does not).
+No `AnimatePresence`, no `exit`/`initial`/`animate` props, no `animate-*` utility. The `showError`/`showFinalize` popover-region mount/unmount conditional count in `PublishedToggle.tsx` is unchanged (the finalize arm's markup changes and gains a text-selection expression, but no mount/unmount conditional is added).
 
 ## 7. Test plan (TDD)
 
 ### 7.1 Unit — `tests/components/admin/PublishedToggle.test.tsx`
 
-- **S4 (L218) — extended, still green in spirit.** Keep: disabled switch, `role != "alert"`, `aria-describedby` → chip `id`, `id === "published-toggle-popover-s1"`, textContent contains `"Changes are being finalized"` (now satisfied via the `sr-only` full-copy span). **Add:** the chip's className contains **none** of `absolute`/`top-full`/`inset-x-0` (proves in-flow), and contains the `FINALIZE_CHIP` skin tokens (`bg-surface-sunken`, `border-border-strong`, `text-xs`). Add a `!published` finalize case asserting visible `Publishing…` + sr-only `"A publish is finishing"`.
+- **S4 (L218) — extended, still green in spirit.** Keep: disabled switch, `role != "alert"`, `aria-describedby` → chip `id`, `id === "published-toggle-popover-s1"`, textContent contains `"Changes are being finalized"` (now satisfied via the `sr-only` full-copy span). **Add:** the chip's className contains **none** of `absolute`/`top-full`/`inset-x-0` (proves in-flow), and contains the `FINALIZE_CHIP` skin tokens (`bg-surface-sunken`, `border-border-strong`, `text-xs`). Add a `!published` finalize case asserting visible `Publishing…` + sr-only `"A publish is finishing"`, AND — like the published S4 path — that the disabled switch's `aria-describedby` equals the chip's `id` (both finalize modes must prove the SR linkage, not just the published one).
 - **Parity test (L270) — rewritten.** Its premise ("error and finalize share the EXACT positioning class set") is now false by design. Replace with two assertions:
   1. **Error skin** still carries every `POPOVER_POSITION` token (`absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile`) + `ERROR_SKIN`, and no forbidden geometry (single-side anchor / width cap) — the CASP2-2 banner invariant is preserved for errors. **Fix the `FORBIDDEN` regex while rewriting** (`PublishedToggle.test.tsx:298`): the current `/^(…|max-w-|min-w-|…)$/` anchors `$` immediately after `max-w-`/`min-w-`, so a real width cap like `max-w-60` is NOT caught (only the bare literal `max-w-` would be). Replace those alternatives with prefix-matching forms — `max-w-\S+`, `min-w-\S+`, and `w-\d+` — so an actual width-cap token trips the assertion (a `.some(t => FORBIDDEN.test(t))` scan, or per-token as today). This is a real gap in the current test, not just a mechanical port.
   2. **Finalize chip** carries **none** of `{absolute, inset-x-0, top-full, z-40, mt-1}` (in-flow) and carries the `FINALIZE_CHIP` tokens. Anti-tautology: extract tokens from the rendered chip className (the data source), not from a container.
