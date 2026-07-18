@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
+import {
+  deriveAlertMessageParams,
+  IDENTITY_PARAM_TOKENS,
+} from "@/lib/adminAlerts/deriveMessageParams";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 
 const identity = (segments: Array<{ label: string | null; value: string }>): AlertIdentity => ({
@@ -121,6 +124,229 @@ describe("deriveAlertMessageParams — identity params", () => {
     );
     expect(p.file_name).toBe("II - East Coast 2026");
     expect(p.attempted_action).toBe("retry");
+  });
+});
+
+describe("deriveAlertMessageParams — identity-segment param mapping (full sweep)", () => {
+  it("exports IDENTITY_PARAM_TOKENS with exactly the 9 identity-derived tokens", () => {
+    expect(IDENTITY_PARAM_TOKENS).toEqual(
+      new Set([
+        "sheet-name",
+        "show-name",
+        "repo",
+        "file-name",
+        "role-changes",
+        "crew-name",
+        "email",
+        "crew-row-count",
+        "failed-sheet-names",
+      ]),
+    );
+  });
+
+  describe("crew-name", () => {
+    it("identity Crew segment wins over conflicting context", () => {
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [{ label: "Crew", value: "Doug Larson" }],
+      };
+      const p = deriveAlertMessageParams(
+        "OAUTH_IDENTITY_CLAIMED",
+        { crew_name: "Wrong Name" },
+        identity,
+      );
+      expect(p["crew-name"]).toBe("'Doug Larson'");
+    });
+
+    it("context wins when identity null", () => {
+      expect(
+        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", { crew_name: "Ann" }, null)["crew-name"],
+      ).toBe("Ann");
+    });
+
+    it("fallback when both absent", () => {
+      expect(deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null)["crew-name"]).toBe(
+        "a crew member",
+      );
+    });
+
+    it("does not conflate ROLE_FLAGS_NOTICE's Crew-labeled contextField (role_change_crew_names) with the crewName kind", () => {
+      // alertIdentityMap.ts:149 declares a `contextField` spec labeled "Crew"
+      // for ROLE_FLAGS_NOTICE — a DIFFERENT SegmentSpec kind than `crewName`.
+      // Only `crewName`-kind segments may populate crew-name; label alone is
+      // not sufficient (the ordered walk keys off spec.kind).
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [
+          { label: "Sheet", value: "II - RIA Investment Forum" },
+          { label: "Crew", value: "Doug Larson, Jane Doe" },
+          { label: null, value: "2 role changes" },
+        ],
+      };
+      const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", null, identity);
+      expect(p["crew-name"]).toBe("a crew member");
+    });
+  });
+
+  describe("email", () => {
+    it("identity-supplied (non-pii) label-less email-shaped segment wins over context", () => {
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [{ label: null, value: "doug@example.com" }],
+      };
+      const p = deriveAlertMessageParams(
+        "OAUTH_IDENTITY_CLAIMED",
+        { email: "wrong@example.com" },
+        identity,
+      );
+      expect(p["email"]).toBe("doug@example.com");
+    });
+
+    it("context wins when identity lacks the segment", () => {
+      expect(
+        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", { email: "ann@example.com" }, null)[
+          "email"
+        ],
+      ).toBe("ann@example.com");
+    });
+
+    it("fallback when both absent", () => {
+      expect(deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null)["email"]).toBe(
+        "an email address",
+      );
+    });
+
+    it("pii segment never surfaces the raw value — falls through to context, then fallback", () => {
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [{ label: null, value: "doug@example.com", pii: true }],
+      };
+      const withContext = deriveAlertMessageParams(
+        "OAUTH_IDENTITY_CLAIMED",
+        { email: "context@example.com" },
+        identity,
+      );
+      expect(withContext["email"]).toBe("context@example.com");
+      expect(withContext["email"]).not.toContain("doug@example.com");
+
+      const withoutContext = deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, identity);
+      expect(withoutContext["email"]).toBe("an email address");
+    });
+  });
+
+  describe("crew-row-count", () => {
+    it("identity-supplied count segment wins over context (unquoted numeric phrase)", () => {
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [
+          { label: "Show", value: "II - East Coast 2026" },
+          { label: null, value: "doug@example.com" },
+          { label: null, value: "2 crew rows" },
+        ],
+      };
+      const p = deriveAlertMessageParams(
+        "AMBIGUOUS_EMAIL_BINDING",
+        { crew_row_count: "wrong" },
+        identity,
+      );
+      expect(p["crew-row-count"]).toBe("2 crew rows");
+    });
+
+    it("context wins when identity lacks the segment", () => {
+      expect(
+        deriveAlertMessageParams(
+          "AMBIGUOUS_EMAIL_BINDING",
+          { crew_row_count: "3 crew rows" },
+          null,
+        )["crew-row-count"],
+      ).toBe("3 crew rows");
+    });
+
+    it("fallback when both absent", () => {
+      expect(
+        deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, null)["crew-row-count"],
+      ).toBe("two or more crew rows");
+    });
+
+    it("ordered-walk-with-skips: absent Show segment does not shift email/count onto the wrong param", () => {
+      // AMBIGUOUS_EMAIL_BINDING declares [showName, email, count]. With the
+      // Show segment unresolved, resolveAlertIdentities only pushes the
+      // email + count segments it could build — a naive positional zip would
+      // pair spec[0]=showName with segments[0]=email (wrong) and
+      // spec[1]=email with segments[1]=count (wrong), losing the count
+      // entirely. The cursor walk must skip the absent showName spec and
+      // still land email/count on the correct segments.
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [
+          { label: null, value: "doug@example.com" },
+          { label: null, value: "2 crew rows" },
+        ],
+      };
+      const p = deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, identity);
+      expect(p["email"]).toBe("doug@example.com");
+      expect(p["crew-row-count"]).toBe("2 crew rows");
+    });
+  });
+
+  describe("failed-sheet-names", () => {
+    it("identity-supplied Sheet-labeled contextField segment wins over context", () => {
+      const identity: AlertIdentity = {
+        global: false,
+        segments: [{ label: "Sheet", value: "Sheet1, Sheet2 +1 more" }],
+      };
+      const p = deriveAlertMessageParams(
+        "ONBOARDING_SHEET_UNREADABLE",
+        { failed_sheet_names: "wrong" },
+        identity,
+      );
+      expect(p["failed-sheet-names"]).toBe("Sheet1, Sheet2 +1 more");
+    });
+
+    it("context wins when identity lacks the segment", () => {
+      expect(
+        deriveAlertMessageParams(
+          "ONBOARDING_SHEET_UNREADABLE",
+          { failed_sheet_names: "Sheet3" },
+          null,
+        )["failed-sheet-names"],
+      ).toBe("Sheet3");
+    });
+
+    it("fallback when both absent", () => {
+      expect(
+        deriveAlertMessageParams("ONBOARDING_SHEET_UNREADABLE", null, null)["failed-sheet-names"],
+      ).toBe("some sheets");
+    });
+  });
+
+  describe("crew-count (no identity segments — plain context ?? fallback)", () => {
+    it("context wins when present", () => {
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: "5" }, null)["crew-count"],
+      ).toBe("5");
+    });
+
+    it("fallback when absent, even with an (irrelevant) identity present", () => {
+      const identity: AlertIdentity = { global: true, segments: [] };
+      expect(deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, identity)["crew-count"]).toBe(
+        "some",
+      );
+    });
+  });
+
+  describe("show-date (no identity segments — plain context ?? fallback)", () => {
+    it("context wins when present", () => {
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { show_date: "Aug 1" }, null)["show-date"],
+      ).toBe("Aug 1");
+    });
+
+    it("fallback when absent", () => {
+      expect(deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, null)["show-date"]).toBe(
+        "an upcoming date",
+      );
+    });
   });
 });
 
