@@ -20,23 +20,25 @@ A catalog field is in scope iff its value is rendered in the UI. Confirmed rende
 | `dougFacing` | admin Doug-facing alert copy (`safeDougFacingTemplate`, BellPanel, PerShowAlertSection) | **YES** | 45 |
 | `helpfulContext` | expand/education copy (`components/messages/ErrorExplainer.tsx`, BellPanel expand, `HelpAffordance`) | **YES** | 65 |
 | `crewFacing` | crew mobile page copy | **YES** | 4 |
+| `followUp` | developer health-alert row body (`components/admin/telemetry/HealthAlertsPanel.tsx:81,111-113` renders `raw?.followUp` via `renderCatalogEmphasis`) | **YES** | 2 |
 | `title` | alert titles (BellPanel `rowCopy`, `/help/errors` `<h3>`) | no | 5 |
 | `longExplanation` | `/help/errors` `<p>` (`app/help/errors/page.tsx:93`) | no | 51 |
 
-**In scope for the sweep: 170 occurrences** across those five fields.
+**In scope for the sweep: 172 occurrences** across those six fields.
+
+> Round-1 correction (Codex): `followUp` was initially scoped out as "never rendered." That was wrong — `HealthAlertsPanel` renders it (line 111-113), and two values carry em dashes (`ROLE_TOKEN_MAPPED`/`ALERT_BELL_FEED_FAILED`: `"none — informational"`, `"none — transient read failure"`). It is now in scope AND is a §12.4-coupled field (present in `SpecCodePayload`), so it rides the three-way lockstep. `HealthAlertsPanel` renders only `title`, `dougFacing`, and `followUp` — all now in scope, no further field missed.
 
 **Explicitly OUT of scope:**
-- `followUp` (2 em dashes) — developer-facing forensic string (`SpecCodePayload.followUp`); never rendered in any UI surface, so §9 (which governs *rendered* copy) does not reach it. Its em dashes — including `→`-style operator arrows and whole-cell `—` null markers in §12.4 — stay untouched.
 - `helpHref` (URLs) and file comments — not copy.
 - `--` (double hyphen). §9 also bans `--`, but DEFERRED `ALERT-COPY-EMDASH-1` is scoped to em dashes; `--` is a separate, unfiled concern. Not swept here (noted so a reviewer doesn't relitigate: intentional scope boundary).
 - En dash (`–`, U+2013) and hyphen (`-`) — not banned, not touched.
 
-## 3. §12.4 three-way lockstep (dougFacing, helpfulContext, crewFacing)
+## 3. §12.4 three-way lockstep (dougFacing, helpfulContext, crewFacing, followUp)
 
-The x1-catalog-parity gate (`tests/cross-cutting/codes.test.ts:68-90`) deep-compares the runtime catalog against `SPEC_CODES` (generated from master spec §12.4) for **exactly** `dougFacing`, `crewFacing`, `followUp`, `helpfulContext`. So an em-dash edit to any of `dougFacing`/`helpfulContext`/`crewFacing` requires the ratified three-way lockstep landing in one commit:
+The x1-catalog-parity gate (`tests/cross-cutting/codes.test.ts:68-90`) deep-compares the runtime catalog against `SPEC_CODES` (generated from master spec §12.4) for **exactly** `dougFacing`, `crewFacing`, `followUp`, `helpfulContext`. So an em-dash edit to any of `dougFacing`/`helpfulContext`/`crewFacing`/`followUp` requires the ratified three-way lockstep landing in one commit:
 
 1. **Master spec** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4:
-   - `dougFacing`, `crewFacing` — the pipe-table cells (`| CODE | trigger | dougFacing | crewFacing | followUp |`).
+   - `dougFacing`, `crewFacing`, `followUp` — the pipe-table cells (`| CODE | trigger | dougFacing | crewFacing | followUp |`). Note the `followUp` cell also uses whole-cell `—` as its null marker (§3.1 hazard) — only the two `followUp` strings that carry mid-text em dashes are edited.
    - `helpfulContext` — the appendix lines below the `<!-- §12.4 helpfulContext appendix` anchor (format `CODE: "text"`).
 2. `pnpm gen:spec-codes` → regenerate `lib/messages/__generated__/spec-codes.ts`.
 3. `lib/messages/catalog.ts` — the matching field value.
@@ -70,15 +72,15 @@ Each `—` is replaced with the context-appropriate substitute per §9 (comma, c
 
 ## 6. Widened audit test (the deliverable that pins the class closed)
 
-Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home). It walks every entry in the runtime `MESSAGE_CATALOG` and, for each **rendered** field `[dougFacing, crewFacing, helpfulContext, title, longExplanation]`, asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the three coupled fields, an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on those fields too (no separate spec-side audit needed).
+Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home). It walks every entry in the runtime `MESSAGE_CATALOG` and, for each **rendered** field `[dougFacing, crewFacing, helpfulContext, followUp, title, longExplanation]`, asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
 
-- `followUp` and `developer` fields are excluded from the walk (not rendered).
+- `developer` and `helpHref`/comment content are excluded from the walk (not rendered copy). `followUp` IS included (it renders in HealthAlertsPanel).
 - Fail message names `CODE.field` + the offending value slice, matching the file's existing violation-report style.
 - Test is **fails-by-default**: a future catalog addition with an em dash in a rendered field trips it.
 
 ### 6.1 Guard: the test must actually be RED before the fix
 
-TDD order — land the widened audit test FIRST and observe it fail on the current 170 occurrences (RED), then sweep to GREEN. This proves the test exercises the real catalog, not a tautology.
+TDD order — land the widened audit test FIRST and observe it fail on the current 172 occurrences (RED), then sweep to GREEN. This proves the test exercises the real catalog, not a tautology.
 
 ## 7. Out of scope / non-goals
 
@@ -89,14 +91,14 @@ TDD order — land the widened audit test FIRST and observe it fail on the curre
 
 ## 8. Test plan
 
-1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (170 failures).
-2. `fix(messages)`: sweep em dashes — catalog.ts (all five fields) + master spec §12.4 (dougFacing/crewFacing cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
+1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (172 failures).
+2. `fix(messages)`: sweep em dashes — catalog.ts (all six rendered fields) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
 3. Gates that must stay green: `test:audit:x1-catalog-parity` (catalog↔§12.4), the new hygiene audit, `tests/notify/templates.test.ts`, full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 
 ## 9. Files touched
 
-- `lib/messages/catalog.ts` (edit — 170 substitutions across 5 fields)
-- `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (edit — §12.4 table + appendix, coupled fields only)
+- `lib/messages/catalog.ts` (edit — 172 substitutions across 6 rendered fields)
+- `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (edit — §12.4 table + appendix, coupled fields dougFacing/crewFacing/followUp/helpfulContext only)
 - `lib/messages/__generated__/spec-codes.ts` (regenerated, committed)
 - `tests/messages/_metaCatalogCopyHygiene.test.ts` (edit — add rendered-field em-dash audit)
 - `DEFERRED.md` / `DEFERRED-archive.md` (move `ALERT-COPY-EMDASH-1` on completion)
