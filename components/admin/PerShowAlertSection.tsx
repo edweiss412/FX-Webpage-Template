@@ -350,7 +350,7 @@ export async function PerShowAlertSection({
                   href={action.href}
                   data-testid={`per-show-alert-action-${alert.id}`}
                   {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
                   {action.label}
                   {action.external ? <span aria-hidden="true"> ↗</span> : null}
@@ -365,7 +365,7 @@ export async function PerShowAlertSection({
                 <a
                   href={helpHref}
                   data-testid={`per-show-alert-help-link-${alert.id}`}
-                  className="self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  className="inline-flex min-h-tap-min items-center self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   aria-label={`Learn more about ${
                     (alert.code in MESSAGE_CATALOG &&
                       messageFor(alert.code as MessageCode).title) ||
