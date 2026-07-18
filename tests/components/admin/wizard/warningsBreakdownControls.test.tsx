@@ -274,8 +274,6 @@ describe("SectionFlagCallout preview — no controls (USE-RAW-FULL-LIST-1 demoti
       dfid: DFID,
       calloutEntries: entries,
       onJumpToWarning: () => {},
-      wizardSessionId: WSID,
-      useRawDecisions: [],
     };
   }
   function calloutHost(entries: { warning: ParseWarning; index: number }[]) {
@@ -358,7 +356,8 @@ describe("duplicate role-control siblings (spec §4.6 stale-sibling contract, UI
 
 describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
   // Local callout host (the callout mounts via ModalSectionChrome when the chrome
-  // context carries calloutEntries; useRawDecisions: [] so the use-raw boundary mounts).
+  // context carries calloutEntries). The callout is preview-only (no controls), so
+  // no wizardSessionId/useRawDecisions thread here (spec 2026-07-17 USE-RAW-FULL-LIST-1).
   function localCalloutHost(entries: { warning: ParseWarning; index: number }[]) {
     return (
       <Step3SectionChromeContext.Provider
@@ -370,8 +369,6 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
           dfid: DFID,
           calloutEntries: entries,
           onJumpToWarning: () => {},
-          wizardSessionId: WSID,
-          useRawDecisions: [],
         }}
       >
         <BreakdownSection testId="callout-host" label="Crew" count={null}>

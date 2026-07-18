@@ -819,22 +819,18 @@ export function ShowReviewSurface({
                   // Bug #316 item 3: the staged row's per-region source-sheet anchors,
                   // so each section's "In sheet" heading link opens at its cell range.
                   sourceAnchors: data.sourceAnchors ?? {},
-                  // spec §8/§9a: staged use-raw decisions + session so the §E3
-                  // judgment callout can render the per-warning use-raw toggle.
-                  useRawDecisions: data.useRawDecisions,
-                  // wizardSessionId is staged-only (spec §3.2); present in staged
-                  // mode (byte-identical to the modal), ABSENT in published
-                  // (exactOptional discipline: absent, never undefined).
-                  ...(isStaged(data) ? { wizardSessionId: data.wizardSessionId } : {}),
                   // §E3: callout entries for every flagged section EXCEPT
                   // `warnings` (its body IS the warning list — circular).
                   // exactOptional discipline: ABSENT, never undefined.
                   // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
                   // the per-section `renderSectionExtras` list IS the warning
                   // surface, so the §E3 SectionFlagCallout preview would be a
-                  // duplicate affordance (and its use-raw/role controls are
-                  // wizardSession-gated → silent). Gating on `isStaged` keeps the
-                  // modal byte-identical and hides the callout on the page.
+                  // duplicate affordance. Gating on `isStaged` keeps the modal
+                  // byte-identical and hides the callout on the page.
+                  // (spec 2026-07-17 USE-RAW-FULL-LIST-1: the callout is a PREVIEW —
+                  // it mounts no use-raw/recognize-role controls, so no staged
+                  // decisions/session need thread here; WarningsBreakdown reads
+                  // them from SectionData as the sole actionable site.)
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
                     : {}),

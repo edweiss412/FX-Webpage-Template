@@ -480,16 +480,6 @@ export type Step3SectionChrome = {
    * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
-  /**
-   * spec 2026-07-10-structural-transform-use-raw §8/§9a: the staged use-raw
-   * decisions + the wizard session id, so the §E3 judgment callout can render the
-   * per-warning use-raw toggle (`setStagedUseRawDecisionAction(wizardSessionId, …)`).
-   * The modal (sole production provider) always passes both; optional so
-   * standalone/section-test provider mounts stay valid (exactOptionalPropertyTypes:
-   * present or ABSENT, never `undefined`). Absent → no toggle rendered.
-   */
-  useRawDecisions?: UseRawDecision[];
-  wizardSessionId?: string;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
