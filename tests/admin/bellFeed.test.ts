@@ -351,6 +351,27 @@ describe("shapeBellEntries", () => {
     expect(truncated).toBe(false);
   });
 
+  test("8d. activeTruncated tracks active_hit_cap INDEPENDENTLY of history_hit_cap (spec §1.1 R4)", () => {
+    // Active complete, history capped: global truncated true, activeTruncated FALSE.
+    const historyOnly = shapeBellEntries(
+      [metaRow({ active_hit_cap: false, history_hit_cap: true }), activeRow()],
+      50,
+    );
+    expect(historyOnly.activeTruncated).toBe(false);
+    expect(historyOnly.truncated).toBe(true);
+
+    // Active capped: activeTruncated TRUE.
+    const activeCapped = shapeBellEntries(
+      [metaRow({ active_hit_cap: true, history_hit_cap: false }), activeRow()],
+      50,
+    );
+    expect(activeCapped.activeTruncated).toBe(true);
+
+    // Neither capped: activeTruncated FALSE.
+    const neither = shapeBellEntries([metaRow(), activeRow()], 50);
+    expect(neither.activeTruncated).toBe(false);
+  });
+
   test("9. unseenCount: activityAt > openedAt entries only; openedAt null → all count", () => {
     const rows = [
       metaRow({ viewer_opened_at: "2026-07-02T00:00:00.000Z" }),

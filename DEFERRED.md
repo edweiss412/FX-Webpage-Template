@@ -8,20 +8,10 @@ Last reconciled: 2026-07-17 (every other `###` entry from the prior file was alr
 
 ---
 
-## Bell notification center (2026-07-05)
+## Wizard callout preview (2026-07-17)
 
-### BELL-2 — [P2] No triage structure at 9+ (severity/show grouping + mark-all-read)
+### CALLOUT-PREVIEW-ACTION-CUE-1 — [critique P1 → dispositioned P2] Demoted preview may read as FYI; no cue the fix lives in Parse warnings
 
-- **What:** the active section renders a flat activity-ordered list; a 9+ badge opens as an undifferentiated wall. (The count heading was originally part of this entry and already shipped — see archive BELL-2.)
-- **Why deferred:** §7.2 grouping is a design change (collapse per (show,code), activityAt DESC is ratified) that needs its own shape pass, not a gate fix.
-- **Trigger:** D4 calibration — once real alert volume is observed, run `/impeccable shape` on panel triage (grouping, mark-all-read) as its own feature.
-
----
-
-## Wizard use-raw full-list controls (2026-07-16)
-
-### USE-RAW-FULL-LIST-1 — [P1→ratified] Callout + full-list both render live role controls; siblings diverge until navigation
-
-- **What:** a warning in the first 3 of its section's callout has two live control instances (callout preview + complete list). Recognize-role does no client refresh (2026-07-15 §8.1 timing contract), so recognizing a role via one instance leaves the sibling in create mode until navigation — Doug could re-submit from the sibling.
-- **Status — not an oversight:** ratified keep-both (spec §2.1 / §4.6, 2026-07-16). No data risk — a stale-sibling save resolves via the action's EXISTING-ROW-first branch (set-equal → idempotent success; different grants → benign conflict notice; never a raw code). Lowest urgency.
-- **Trigger:** a Doug report of double-recognizing roles from the two sites, OR a decision to demote the callout to a pure preview (title + jump only), which revisits the ratified keep-both decision. Backlog twin: `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION`.
+- **What:** USE-RAW-FULL-LIST-1 was resolved by demoting `SectionFlagCallout` to a preview (spec/plan `2026-07-17-use-raw-callout-preview-demotion`). The invariant-8 impeccable critique (2026-07-17) flagged that with the inline controls gone, the judgment lead ("We made a judgment call reading this. Worth a glance.") + a generic "View details" may read as passive/FYI, so Doug (single admin, no onboarding) could treat a flagged section as no-action. Visibility-of-status heuristic scored 2/4.
+- **Why deferred:** the actionable Parse-warnings list IS visible in the same modal and "View details" jumps straight to the row, so the fix is discoverable, not stranded. The ratified demotion (spec §2) explicitly accepted losing the act-from-callout shortcut, and action-forward wording would revisit the §3.10 copy-pinned judgment-lead line — out of this removal-only diff's scope. Audit scored 20/20; the tap-target concern (critique P1b) was refuted by the passing §15 real-browser audit (≥44px).
+- **Trigger:** Doug reports treating flagged sections as no-action / missing the fix path, OR the next wizard copy pass — reword "View details" → action-forward (e.g. "Fix in Parse warnings") and/or add a subtle actionable cue. Related resolved twin: `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION`.

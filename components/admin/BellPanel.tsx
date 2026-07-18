@@ -72,6 +72,12 @@ import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
+import {
+  GROUP_THRESHOLD,
+  groupActiveBySeverity,
+  rowTone,
+  type RowTone,
+} from "@/lib/admin/bellTriage";
 
 const FEED_ENDPOINT = "/api/admin/alerts/bell/feed";
 const OPEN_ENDPOINT = "/api/admin/alerts/bell/open";
@@ -120,18 +126,12 @@ function contextParams(context: Record<string, unknown> | null): MessageParams |
   return (context ?? undefined) as MessageParams | undefined;
 }
 
-// Severity tone for a row, derived CLIENT-SIDE (no feed/wire change) from the
-// same signals the row already carries: `isHealth` (app-health degraded) →
-// critical; catalog per-code `severity==="info"` → info; everything else →
-// notice. Color REINFORCES; the icon shape + the row title carry the meaning,
-// so the DESIGN.md §1 color-blind floor holds (never color-alone). `critical`
-// is the only red, scoped to health rows (DESIGN.md §1.3 red-only-for-degraded).
-type RowTone = "critical" | "notice" | "info";
-function rowTone(entry: BellEntry): RowTone {
-  if (entry.isHealth) return "critical";
-  const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
-  return severity === "info" ? "info" : "notice";
-}
+// Severity tone (`rowTone`), the grouping threshold, tier order, and the
+// grouping partition live in `lib/admin/bellTriage.ts` (pure, client-safe) so
+// tests import them without BellPanel's "use server" chain (spec §1.7). Color
+// REINFORCES; the icon shape + the row title carry the meaning, so the
+// DESIGN.md §1 color-blind floor holds. `critical` is the only red, scoped to
+// degraded-weight health rows (DESIGN.md §1.3; spec §1.6).
 // Quiet-rail severity vocabulary (DESIGN.md §16): a thin left `rail` + an
 // on-surface stroke `glyph` (no fill circle), both the same tone color. Glyph
 // SHAPE is the color-blind-safe carrier — notice=TriangleAlert, critical=
@@ -830,19 +830,60 @@ export function BellPanel({
               >
                 Active · {active.length}
               </h3>
-              {active.map((entry, i) => (
-                <div key={entry.alertId}>
-                  {i > 0 ? <div aria-hidden="true" className="mx-4 h-px bg-border" /> : null}
-                  <ActiveRow
-                    entry={entry}
-                    now={now}
-                    expanded={expandedIds.has(entry.alertId)}
-                    readCleared={readClearedIds.has(entry.alertId)}
-                    onToggle={() => handleToggle(entry)}
-                    onRefetch={() => void load(true)}
-                  />
-                </div>
-              ))}
+              {active.length >= GROUP_THRESHOLD && feed.activeTruncated === false
+                ? // Grouped mode (spec §1.2/§1.3): static severity dividers, one
+                  // per non-empty tier in Critical→Warning→Notice order. Fail-closed
+                  // (§1.1 R5): strict `=== false`, so a missing/non-boolean
+                  // activeTruncated renders flat. Suppressed on an active-truncated
+                  // feed (§1.1 R3/R4): a recency-capped active window cannot honor
+                  // severity-completeness, so the flat list + truncation row is the
+                  // honest signal. activityAt-DESC order is preserved within tiers.
+                  groupActiveBySeverity(active).map((group) => (
+                    <div key={group.tone}>
+                      {/* Subordinate to the section's uppercase "Active · N"
+                          eyebrow: sentence-case, non-tracked, text-subtle (AA on
+                          surface) so two stacked uppercase-tracked label tiers
+                          don't read as competing eyebrows (impeccable critique
+                          P2). 12px matches the shipped eyebrow size. `label`
+                          from TONE: critical→"Critical", notice→"Warning",
+                          info→"Notice" (display vocab; see TONE map). */}
+                      <h4
+                        data-testid={`bell-section-active-tier-${group.tone}`}
+                        className="px-4 pb-1 pt-2 text-xs font-semibold text-text-subtle tabular-nums"
+                      >
+                        {TONE[group.tone].label} · {group.rows.length}
+                      </h4>
+                      {group.rows.map((entry, j) => (
+                        <div key={entry.alertId}>
+                          {j > 0 ? (
+                            <div aria-hidden="true" className="mx-4 h-px bg-border" />
+                          ) : null}
+                          <ActiveRow
+                            entry={entry}
+                            now={now}
+                            expanded={expandedIds.has(entry.alertId)}
+                            readCleared={readClearedIds.has(entry.alertId)}
+                            onToggle={() => handleToggle(entry)}
+                            onRefetch={() => void load(true)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                : // Flat mode (unchanged from today): single activity-ordered list.
+                  active.map((entry, i) => (
+                    <div key={entry.alertId}>
+                      {i > 0 ? <div aria-hidden="true" className="mx-4 h-px bg-border" /> : null}
+                      <ActiveRow
+                        entry={entry}
+                        now={now}
+                        expanded={expandedIds.has(entry.alertId)}
+                        readCleared={readClearedIds.has(entry.alertId)}
+                        onToggle={() => handleToggle(entry)}
+                        onRefetch={() => void load(true)}
+                      />
+                    </div>
+                  ))}
             </section>
           ) : null}
           {history.length > 0 ? (

@@ -480,16 +480,6 @@ export type Step3SectionChrome = {
    * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
-  /**
-   * spec 2026-07-10-structural-transform-use-raw §8/§9a: the staged use-raw
-   * decisions + the wizard session id, so the §E3 judgment callout can render the
-   * per-warning use-raw toggle (`setStagedUseRawDecisionAction(wizardSessionId, …)`).
-   * The modal (sole production provider) always passes both; optional so
-   * standalone/section-test provider mounts stay valid (exactOptionalPropertyTypes:
-   * present or ABSENT, never `undefined`). Absent → no toggle rendered.
-   */
-  useRawDecisions?: UseRawDecision[];
-  wizardSessionId?: string;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -506,8 +496,10 @@ export const Step3RunStateContext = createContext<{ isPublishRunActive: boolean 
 export const CALLOUT_MAX_ENTRIES = 3;
 
 /**
- * Spec 2026-07-16 §4.4: the ONE decision matcher both actionable render sites
- * (§E3 callout + WarningsBreakdown) share. Matches the persisted decision by
+ * Spec 2026-07-16 §4.4: the decision matcher for the actionable render site
+ * (WarningsBreakdown). Since 2026-07-17 (USE-RAW-FULL-LIST-1) the §E3 callout is
+ * a preview and mounts no controls, so WarningsBreakdown is the sole caller.
+ * Matches the persisted decision by
  * (code, resolution.contentHash) — never by target; a warning without a
  * resolvable resolution never matches.
  */
@@ -535,8 +527,6 @@ function SectionFlagCallout({
   entries,
   onJump,
   variant = "flagged",
-  useRawDecisions,
-  wizardSessionId,
 }: {
   dfid: string;
   sectionId: SectionId;
@@ -545,17 +535,11 @@ function SectionFlagCallout({
   /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
    *  informational tone + a lead "we made a judgment call" line. Default flagged. */
   variant?: "flagged" | "judgment";
-  /** spec 2026-07-10 §8/§9a: staged use-raw decisions + wizard session, so each
-   *  in-scope entry renders the use-raw toggle. Absent (section-test mounts) → no
-   *  toggle (the boundary needs a session to bind the staged action). */
-  useRawDecisions?: UseRawDecision[];
-  wizardSessionId?: string;
 }) {
-  // spec §8: match the persisted decision by (code, resolution.contentHash) — never
-  // by target. The `<UseRawControl>` inside the boundary self-hides out-of-scope /
-  // unresolvable warnings, so it is rendered for every entry when a session exists.
-  const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
-    findUseRawDecision(w, useRawDecisions);
+  // spec 2026-07-17 (USE-RAW-FULL-LIST-1): the callout is a PREVIEW — title +
+  // "View details" jump only. It mounts NO use-raw / recognize-role controls;
+  // WarningsBreakdown is the sole actionable site, so a warning has exactly one
+  // live control instance (no stale-sibling divergence across two mounts).
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
   // spec 2026-07-16 §4.3.1 (class-sweep): identity keys, not full-array indices —
   // an upstream insertion shifts every index and would migrate expanded role-panel
@@ -604,31 +588,10 @@ function SectionFlagCallout({
                 View details<span className="sr-only"> for {title}</span>
               </button>
             </div>
-            {/* spec §8: use-raw toggle for the 3 recoverable structural-transform
-                warnings; self-hides (null) for every other code. Needs a wizard
-                session to bind the staged action. */}
-            {wizardSessionId ? (
-              <UseRawControlBoundary
-                surface="wizard"
-                wizardSessionId={wizardSessionId}
-                driveFileId={dfid}
-                warning={warning}
-                decision={decisionFor(warning)}
-                site="callout"
-              />
-            ) : null}
-            {/* spec 2026-07-15 §8.1: recognize-role control for
-                UNKNOWN_ROLE_TOKEN warnings; self-hides (null) otherwise. Needs a
-                wizard session to bind the staged action. */}
-            {wizardSessionId ? (
-              <RoleRecognizeControlBoundary
-                surface="wizard"
-                wizardSessionId={wizardSessionId}
-                driveFileId={dfid}
-                warning={warning}
-                site="callout"
-              />
-            ) : null}
+            {/* spec 2026-07-17 (USE-RAW-FULL-LIST-1): NO controls here — the
+                callout is preview-only. The use-raw / recognize-role controls
+                live solely in WarningsBreakdown (reached via "View details"),
+                so each warning has exactly one live control instance. */}
           </div>
         );
       })}
@@ -763,12 +726,6 @@ function ModalSectionChrome({
             entries={chrome.calloutEntries}
             onJump={chrome.onJumpToWarning}
             variant={judgment ? "judgment" : "flagged"}
-            {...(chrome.useRawDecisions !== undefined
-              ? { useRawDecisions: chrome.useRawDecisions }
-              : {})}
-            {...(chrome.wizardSessionId !== undefined
-              ? { wizardSessionId: chrome.wizardSessionId }
-              : {})}
           />
         ) : null}
         {children}
@@ -2427,9 +2384,10 @@ export function WarningsBreakdown({
                       ) : null;
                     })()}
                     {/* spec 2026-07-16 §4.3: the complete-list render site for the
-                        use-raw + recognize-role controls (live-page parity; the §E3
-                        callout stays a capped, actionable preview). Both boundaries
-                        self-hide out-of-scope warnings. */}
+                        use-raw + recognize-role controls (live-page parity). Since
+                        2026-07-17 (USE-RAW-FULL-LIST-1) this is the SOLE actionable
+                        site — the §E3 callout is a non-actionable preview. Both
+                        boundaries self-hide out-of-scope warnings. */}
                     {wizardSessionId && dfid ? (
                       <UseRawControlBoundary
                         surface="wizard"
