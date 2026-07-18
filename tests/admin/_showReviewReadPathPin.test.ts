@@ -38,7 +38,12 @@ const WALKED_DIR_ROOTS = [
   "components/admin/showpage",
   "components/admin/review",
 ];
-const WALKED_FILE_ROOTS = ["lib/admin/readShowReviewSnapshot.ts"];
+const WALKED_FILE_ROOTS = [
+  "lib/admin/readShowReviewSnapshot.ts",
+  // Task 7 (admin-show-modal): the per-show page body moved verbatim into the
+  // ShowReviewModal server loader — the review read surface now lives there.
+  "app/admin/_showReviewModal.tsx",
+];
 
 const REVIEW_TABLES = [
   "crew_members",
@@ -129,6 +134,9 @@ describe("published-review read-path pin", () => {
     // in WALKED_DIR_ROOTS fails loud instead of quietly walking nothing.
     expect(relFiles).toContain("components/admin/review/sectionData.ts");
     expect(relFiles).toContain("app/admin/show/[slug]/page.tsx");
+    // Task 7: the transplanted server loader is IN the walk (non-vacuous — the
+    // whole review read path now flows through it).
+    expect(relFiles).toContain("app/admin/_showReviewModal.tsx");
   });
 
   test("no walked file reads a review table via .from(), except allowlisted pre-existing reads", () => {

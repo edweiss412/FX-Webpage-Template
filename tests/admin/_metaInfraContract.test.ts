@@ -402,9 +402,11 @@ const grepShapeRegistry = [
       contract: r.contract,
     })),
   {
-    surface: "app/admin/show/[slug]/page.tsx",
+    // Task 7 (admin-show-modal): the per-show page body moved verbatim into the
+    // ShowReviewModal server loader — same reads, same contract, new path.
+    surface: "app/admin/_showReviewModal.tsx",
     contract:
-      "supabase client construction + shows slug→id lookup await each wrapped in try/catch; the finalize-owned RPC read (readfinalizeowned_b2, §3.2) destructures { data, error } and surfaces BOTH the returned-error path AND the thrown path as distinct log.error emits (code ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED + slug), failing toward NOT-finalize-owned (fail-open — the mutation server actions independently refuse during finalize, so a read fault is a logged cosmetic exposure, never a silent finalize=false NOR an admin lockout; invariant 9). Behavioral returned-error + thrown coverage in tests/app/admin/perShowPage.test.tsx",
+      "supabase client construction + shows slug→id lookup await each wrapped in try/catch; the finalize-owned RPC read (readfinalizeowned_b2, §3.2) destructures { data, error } and surfaces BOTH the returned-error path AND the thrown path as distinct log.error emits (code ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED + slug), failing toward NOT-finalize-owned (fail-open — the mutation server actions independently refuse during finalize, so a read fault is a logged cosmetic exposure, never a silent finalize=false NOR an admin lockout; invariant 9). Behavioral returned-error + thrown coverage in tests/app/admin/showReviewModalLoader.test.tsx",
   },
   // validationReset.ts intentionally omitted from grepShapeRegistry:
   // the file carries a `not-subject-to-meta` annotation and uses named client

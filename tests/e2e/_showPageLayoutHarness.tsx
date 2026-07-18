@@ -32,7 +32,11 @@ import {
   AppRouterContext,
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { PublishedReviewPage } from "@/components/admin/showpage/PublishedReviewPage";
+// Task 7 shim: PublishedReviewPage was deleted (its body lives on as the modal
+// consumer). The full modal-harness rebuild is Task 12; until then this harness
+// only has to TYPECHECK, so it renders PublishedReviewModal with the same prop
+// payload (+ alertId).
+import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -194,7 +198,8 @@ export function pageElement(title: string = SHOWPAGE_TITLE): React.ReactElement 
   // children folded into props (not positional) — both providers type `children`
   // as required, which createElement's positional-children overload does not
   // satisfy under this project's tsconfig.
-  const page = React.createElement(PublishedReviewPage, {
+  const page = React.createElement(PublishedReviewModal, {
+    alertId: null,
     data,
     bySection,
     slug: SHOWPAGE_SLUG,
