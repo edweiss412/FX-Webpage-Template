@@ -47,7 +47,11 @@ function expectedMembers(prior: Crew[], applied: Crew[], renames: Rename[]): Set
   return out;
 }
 
-async function writerMembers(prior: Crew[], applied: Crew[], renames: Rename[]): Promise<Set<string>> {
+async function writerMembers(
+  prior: Crew[],
+  applied: Crew[],
+  renames: Rename[],
+): Promise<Set<string>> {
   const { port, names } = capturingPort();
   await writeRoleChangeLogRows(
     port,
@@ -64,8 +68,16 @@ async function writerMembers(prior: Crew[], applied: Crew[], renames: Rename[]):
 const FIXTURES: { label: string; prior: Crew[]; applied: Crew[]; renames: Rename[] }[] = [
   {
     label: "scope-tile + capability changes on existing members",
-    prior: [{ name: "A", role_flags: ["A1"] }, { name: "B", role_flags: ["LEAD"] }, { name: "C", role_flags: ["V1"] }],
-    applied: [{ name: "A", role_flags: ["V1"] }, { name: "B", role_flags: ["LEAD"] }, { name: "C", role_flags: ["V1", "FINANCIALS"] }],
+    prior: [
+      { name: "A", role_flags: ["A1"] },
+      { name: "B", role_flags: ["LEAD"] },
+      { name: "C", role_flags: ["V1"] },
+    ],
+    applied: [
+      { name: "A", role_flags: ["V1"] },
+      { name: "B", role_flags: ["LEAD"] },
+      { name: "C", role_flags: ["V1", "FINANCIALS"] },
+    ],
     renames: [],
   },
   {
@@ -89,21 +101,30 @@ const FIXTURES: { label: string; prior: Crew[]; applied: Crew[]; renames: Rename
   {
     label: "new-crew (roster arm b) — no role row",
     prior: [{ name: "A", role_flags: ["A1"] }],
-    applied: [{ name: "A", role_flags: ["A1"] }, { name: "New", role_flags: ["LEAD"] }],
+    applied: [
+      { name: "A", role_flags: ["A1"] },
+      { name: "New", role_flags: ["LEAD"] },
+    ],
     renames: [],
   },
   {
     label: "removed-capability-member (roster arm c) — no role row",
-    prior: [{ name: "A", role_flags: ["A1"] }, { name: "Gone", role_flags: ["FINANCIALS"] }],
+    prior: [
+      { name: "A", role_flags: ["A1"] },
+      { name: "Gone", role_flags: ["FINANCIALS"] },
+    ],
     applied: [{ name: "A", role_flags: ["A1"] }],
     renames: [],
   },
 ];
 
 describe("writeRoleChangeLogRows coverage parity (spec §2.4)", () => {
-  test.each(FIXTURES)("writer row set == has-a-prior role-delta set: $label", async ({ prior, applied, renames }) => {
-    const writer = await writerMembers(prior, applied, renames);
-    const expected = expectedMembers(prior, applied, renames);
-    expect(writer).toEqual(expected);
-  });
+  test.each(FIXTURES)(
+    "writer row set == has-a-prior role-delta set: $label",
+    async ({ prior, applied, renames }) => {
+      const writer = await writerMembers(prior, applied, renames);
+      const expected = expectedMembers(prior, applied, renames);
+      expect(writer).toEqual(expected);
+    },
+  );
 });

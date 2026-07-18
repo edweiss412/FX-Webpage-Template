@@ -801,30 +801,33 @@ describe("runPhase2 destructive snapshot", () => {
   test.each([
     { label: "removed LEAD holder", flags: ["LEAD", "A1"] as CrewMemberRow["role_flags"] },
     { label: "removed FINANCIALS holder", flags: ["FINANCIALS"] as CrewMemberRow["role_flags"] },
-  ])("arm (c): a removed capability holder produces a ROLE_FLAGS_NOTICE loss: $label", async ({ flags }) => {
-    const tx = new FakePhase2Tx();
-    tx.shows.set("file-1", {
-      id: "show-1",
-      driveFileId: "file-1",
-      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
-      lastSyncStatus: "ok",
-      lastSyncError: null,
-      crewNames: ["Alice", "Bob"],
-      crewMembers: [crewWithFlags("Alice", ["A1"]), crewWithFlags("Bob", flags)],
-    });
+  ])(
+    "arm (c): a removed capability holder produces a ROLE_FLAGS_NOTICE loss: $label",
+    async ({ flags }) => {
+      const tx = new FakePhase2Tx();
+      tx.shows.set("file-1", {
+        id: "show-1",
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        crewNames: ["Alice", "Bob"],
+        crewMembers: [crewWithFlags("Alice", ["A1"]), crewWithFlags("Bob", flags)],
+      });
 
-    const result = await runWith(tx, {
-      parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", ["A1"])] }),
-    });
+      const result = await runWith(tx, {
+        parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", ["A1"])] }),
+      });
 
-    expect(result).toMatchObject({
-      outcome: "applied",
-      roleFlagsNotice: {
-        code: "ROLE_FLAGS_NOTICE",
-        context: { changes: [{ crew_name: "Bob", prior_flags: flags, new_flags: [] }] },
-      },
-    });
-  });
+      expect(result).toMatchObject({
+        outcome: "applied",
+        roleFlagsNotice: {
+          code: "ROLE_FLAGS_NOTICE",
+          context: { changes: [{ crew_name: "Bob", prior_flags: flags, new_flags: [] }] },
+        },
+      });
+    },
+  );
 
   test("arm (c): a removed scope-tile-only member produces no ROLE_FLAGS_NOTICE", async () => {
     const tx = new FakePhase2Tx();

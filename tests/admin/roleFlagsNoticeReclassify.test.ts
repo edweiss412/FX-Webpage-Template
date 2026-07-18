@@ -21,9 +21,13 @@ describe("ROLE_FLAGS_NOTICE reclassify (audience health → doug)", () => {
   });
 
   test("carries the openSheet action (sheet deep-link) when context has a drive_file_id", () => {
-    const action = resolveAlertAction("ROLE_FLAGS_NOTICE", { drive_file_id: "sheet-abc" }, {
-      slug: null,
-    });
+    const action = resolveAlertAction(
+      "ROLE_FLAGS_NOTICE",
+      { drive_file_id: "sheet-abc" },
+      {
+        slug: null,
+      },
+    );
     expect(action).not.toBeNull();
     expect(action!.external).toBe(true);
   });

@@ -103,7 +103,10 @@ describe("writeRoleChangeLogRows (spec §2.4)", () => {
   });
 
   test("a removed member writes NO role row (never iterated — it is a crew_removed)", async () => {
-    const rows = await run([prev("Alice", ["A1"]), prev("Gone", ["LEAD"])], [next("Alice", ["A1"])]);
+    const rows = await run(
+      [prev("Alice", ["A1"]), prev("Gone", ["LEAD"])],
+      [next("Alice", ["A1"])],
+    );
     expect(rows).toHaveLength(0);
   });
 
