@@ -231,9 +231,6 @@ const HELP_LINK =
 function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
   const isWatch = entry.code === WATCH_CODE;
-  // helpHref (impeccable critique P1): the catalog's longform education link
-  // for this code, or null when uncataloged/no helpHref is set.
-  const helpHref = isMessageCode(entry.code) ? messageFor(entry.code).helpHref : null;
 
   const onResolve = useCallback(async () => {
     if (resolving) return; // guard against double-fire (no form action here)
@@ -258,7 +255,10 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
   // telemetry-link-only contract (the global resolve route 403s health), so they
   // have no Dismiss; auto-resolving rows show their note; watch keeps Retry.
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+    <div
+      data-testid={`bell-action-cell-${entry.alertId}`}
+      className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1"
+    >
       {entry.isHealth ? (
         <a
           href="/admin/dev/telemetry#health"
@@ -290,19 +290,8 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           <RetryWatchButton ringOffset="surface" />
         </form>
       ) : null}
-      {/* Learn more (impeccable critique P1): last item in the leading actions
-          group, low-emphasis so it never competes with Dismiss/Retry/View in
-          telemetry. helpHref null (uncataloged or no catalog helpHref) hides it. */}
-      {helpHref ? (
-        <a
-          href={helpHref}
-          data-testid={`bell-help-${entry.alertId}`}
-          className={HELP_LINK}
-          aria-label={`Learn more about ${rowCopy(entry.code).title}`}
-        >
-          Learn more
-        </a>
-      ) : null}
+      {/* Learn-more moved to the message block (WI-2) — it renders inline after
+          the message text there, not in this action cell. */}
       <span className="flex-1" />
       {entry.isHealth ? null : entry.isAutoResolving ? (
         <p
@@ -341,6 +330,10 @@ function ActiveRow({
   onRefetch: () => void;
 }) {
   const { title, message } = rowCopy(entry.code);
+  // helpHref (WI-2): the catalog's longform education link, moved from ActionCell
+  // into the message block below so it renders inline after the message text (and
+  // survives a suppressed message — orphan guard). null when uncataloged/unset.
+  const helpHref = isMessageCode(entry.code) ? messageFor(entry.code).helpHref : null;
   // Params source (spec 2026-07-17 §4.1/§4.2): the merged, identity-derived
   // messageParams the feed carries; contextParams(entry.context) is the
   // legacy raw-jsonb fallback for entries the field is absent on.
@@ -397,58 +390,61 @@ function ActiveRow({
         </span>
       </span>
       <div className="min-w-0 flex-1">
-        {/* Row header: the mark-read toggle button LEADS; the show-page chevron
-            (rendered only when entry.slug is non-null — spec §4.1) is a DOM
-            SIBLING to its right, never nested inside the button (a link nested
-            inside a button is a nested-interactive a11y violation). items-center
-            (impeccable critique P2) optically centers the chevron against the
-            title/timestamp line instead of pinning it to the row's top, which
-            read crowded/off-baseline next to the header's top-right micro-text. */}
-        <div className="flex items-center gap-1">
+        {/* Row header (WI-1): the title-only mark-read button LEADS (flex-1);
+            the right-group (occurrence chip + timestamp) and the show-page
+            chevron are DOM SIBLINGS to its right, never nested inside the button
+            (a link nested inside a button is a nested-interactive a11y
+            violation, and the message/`<ul>`/`<a>` below are illegal inside a
+            <button> per the HTML content model). `items-start` keeps the
+            right-group top-aligned with the title's first line; the meta group's
+            `shrink-0` sits it flush against the chevron / row content right edge
+            (DI-1/DI-2). */}
+        <div data-testid={`bell-header-${entry.alertId}`} className="flex items-start gap-2">
           {/* min-h-tap-min: this is the primary per-row gesture (mark-read). A
-              title-only row would otherwise render the affordance well under
-              the 44px floor PRODUCT.md mandates for a phone on the venue
-              floor. flex-col + justify-center vertically centers the
-              title/message stack within that min height. The identity chip +
-              action row are siblings BELOW the button so they are not inside
-              the tap gesture. */}
+              title-only row would otherwise render the affordance well under the
+              44px floor PRODUCT.md mandates for a phone on the venue floor.
+              flex-1 min-w-0 lets the title take the remaining width and
+              wrap/truncate rather than push the right-group off-row. The message
+              block, identity chip, and action row are SIBLINGS below the header,
+              so they are outside the tap gesture (WI-1 ratified: clicking the
+              message no longer marks read). */}
           <button
             type="button"
             data-testid={`bell-entry-toggle-${entry.alertId}`}
             onClick={onMarkRead}
-            className="flex min-h-tap-min min-w-0 flex-1 flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            className="flex min-h-tap-min min-w-0 flex-1 items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            <span className="flex items-start justify-between gap-2.5">
-              {/* Title weight is CONSTANT across read/unread — a weight swap
-                  (semibold↔medium) changes glyph advance widths and can reflow a
-                  wrapping title by a full line on read (§14 no-layout-shift, the
-                  `bell-entry-toggle` header must keep its height across the read
-                  flip). Unread emphasis is carried by the pip + `bg-stale-tint`
-                  row background + the rail, never the title weight. */}
-              <span className="min-w-0 wrap-break-word font-semibold text-text-strong">
-                {title}
-              </span>
-              {/* Header right-group (DESIGN.md §16): occurrence repeat-chip, then
-                  the relative timestamp. The occurrence chip is a non-interactive
-                  role="img" (aria-label carries the full "Detected N times"), so
-                  it nests validly inside the toggle button. */}
-              <span className="flex shrink-0 items-center gap-2.5">
-                <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
-                <span className="text-xs tabular-nums text-text-faint">
-                  {raisedAtSuffix(entry.activityAt, now)}
-                </span>
-              </span>
-            </span>
-            {message && messageResolved ? (
-              <span className="mt-1 block whitespace-pre-line wrap-break-word text-sm text-text-subtle">
-                {renderCatalogEmphasis(message, params)}
-              </span>
-            ) : null}
+            {/* Title weight is CONSTANT across read/unread — a weight swap
+                (semibold↔medium) changes glyph advance widths and can reflow a
+                wrapping title by a full line on read (§14 no-layout-shift).
+                Unread emphasis is carried by the pip + `bg-stale-tint` row
+                background + the rail, never the title weight. */}
+            <span className="min-w-0 wrap-break-word font-semibold text-text-strong">{title}</span>
           </button>
+          {/* Header right-group (DESIGN.md §16, WI-1): occurrence repeat-chip,
+              then the relative timestamp. Moved OUT of the button into the header
+              flex row so its right edge sits flush against the chevron / row
+              content right edge (the timestamp right-flush screenshot fix).
+              `pt-0.5` optically aligns the micro-text with the title's cap line.
+              OccurrenceChip renders unconditionally (own `occurrences<=1→null`
+              guard) — it is NOT gated on suppressChip. */}
+          <span
+            data-testid={`bell-meta-${entry.alertId}`}
+            className="flex shrink-0 items-center gap-2.5 pt-0.5"
+          >
+            <OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} />
+            <span
+              data-testid={`bell-time-${entry.alertId}`}
+              className="text-xs tabular-nums text-text-faint"
+            >
+              {raisedAtSuffix(entry.activityAt, now)}
+            </span>
+          </span>
           {/* Show-page nav chevron (spec §4.1): a SLUG predicate, not an
               identity-map-kind predicate — e.g. BRANCH_PROTECTION_* codes carry
               repo-segment identity but upsert with null show → null slug → no
-              chevron. Plain nav, no toggle behavior of its own. */}
+              chevron. Plain nav, no toggle behavior of its own. Last flex child,
+              flush to the row content right edge (DI-2). */}
           {entry.slug !== null ? (
             <a
               href={`/admin/show/${encodeURIComponent(entry.slug)}`}
@@ -460,6 +456,32 @@ function ActiveRow({
             </a>
           ) : null}
         </div>
+        {/* Message block (WI-1/WI-2): a real sibling BELOW the header so the
+            inline Learn-more <a> (and the WI-4 multi-change <ul>) are legal
+            content. Renders when the message resolves OR helpHref exists — the
+            block must survive a suppressed message when helpHref is present, so
+            the Learn-more affordance is never orphan-dropped (WI-2 guard). */}
+        {(message && messageResolved) || helpHref ? (
+          <div
+            data-testid={`bell-msg-${entry.alertId}`}
+            className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle"
+          >
+            {message && messageResolved ? <span>{renderCatalogEmphasis(message, params)}</span> : null}
+            {helpHref ? (
+              <>
+                {message && messageResolved ? " " : null}
+                <a
+                  href={helpHref}
+                  data-testid={`bell-help-${entry.alertId}`}
+                  className={HELP_LINK}
+                  aria-label={`Learn more about ${rowCopy(entry.code).title}`}
+                >
+                  Learn more
+                </a>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         {suppressChip ? null : <IdentityChip entry={entry} />}
         <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>

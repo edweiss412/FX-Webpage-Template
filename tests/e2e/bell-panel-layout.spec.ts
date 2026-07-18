@@ -142,6 +142,7 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import { seedShowWithCrew, deleteSeededShow } from "./helpers/seedShowWithCrew";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 const TOL = 0.5;
@@ -222,6 +223,25 @@ async function resetBellState(): Promise<void> {
   if (reads.error) throw new Error(`resetBellState admin_alert_reads: ${reads.error.message}`);
   const stateRow = await admin.from("admin_bell_state").delete().eq("admin_email", FIXTURE_EMAIL);
   if (stateRow.error) throw new Error(`resetBellState admin_bell_state: ${stateRow.error.message}`);
+}
+
+/** Seed one unresolved SHOW-SCOPED alert on `showId`; returns its id (the feed
+ * joins the show slug → the row renders a chevron). */
+async function seedShowScoped(code: string, showId: string, ageMs = 5 * 3600_000): Promise<string> {
+  const { data, error } = await admin
+    .from("admin_alerts")
+    .insert({
+      show_id: showId,
+      code,
+      context: {},
+      raised_at: new Date(Date.now() - ageMs).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(`seedShowScoped(${code}) failed: ${error?.message ?? "no row returned"}`);
+  }
+  return data.id as string;
 }
 
 /** Seed one unresolved GLOBAL alert; returns its id. `ageMs` back-dates raised_at. */
@@ -552,6 +572,102 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     for (const header of [critHeader, noticeHeader]) {
       const running = await header.evaluate((el) => el.getAnimations({ subtree: false }).length);
       expect(running, "tier headers are static (no animation)").toBe(0);
+    }
+  });
+
+  // ── WI-1 Dimensional Invariants (spec §5, DI-1..DI-4): the header restructure
+  // moves the occurrence chip + timestamp OUT of the mark-read button into the
+  // header flex row so they sit FLUSH to the chevron / row content right edge.
+  // Asserted in a real browser (Tailwind v4 does NOT default .flex to
+  // align-items:stretch; jsdom computes no layout) with a chevron-PRESENT
+  // (show-scoped) and a chevron-ABSENT (global) fixture row. DI-1 asserts ACTUAL
+  // FLUSH (gap-equality when the chevron is present, 0.5px content-edge when
+  // absent) — a permissive `<=` would bless the far-left-timestamp screenshot bug. ──
+  test("DI-1..DI-4: chevron-present (show-scoped) + chevron-absent (global) right-flush @ 1280px", async ({
+    page,
+  }) => {
+    const globalId = await seedGlobal(SEED_CODE);
+    let seededDrive: string | null = null;
+    try {
+      const show = await seedShowWithCrew();
+      seededDrive = show.driveFileId;
+      const showAlertId = await seedShowScoped(SEED_CODE_2, show.showId);
+
+      await page.setViewportSize({ width: 1280, height: VP_HEIGHT });
+      await gotoAdmin(page);
+      const inner = await openPanel(page);
+      await expect(page.getByTestId(`bell-entry-${showAlertId}`)).toBeVisible();
+      await expect(page.getByTestId(`bell-entry-${globalId}`)).toBeVisible();
+      await settleAnimations(inner);
+
+      // Header content-right edge = header.right − paddingRight (the true row
+      // content right edge the meta group / chevron must reach).
+      const contentRightOf = (loc: Locator): Promise<number> =>
+        loc.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return r.right - Number.parseFloat(getComputedStyle(el).paddingRight);
+        });
+
+      // ── chevron-PRESENT row (DI-1 flush, DI-2, DI-3, DI-4) ──
+      const caret = page.getByTestId(`bell-caret-${showAlertId}`);
+      await expect(caret).toBeVisible();
+      const headerContentRight = await contentRightOf(page.getByTestId(`bell-header-${showAlertId}`));
+      const metaR = await rectOf(page.getByTestId(`bell-meta-${showAlertId}`));
+      const caretR = await rectOf(caret);
+      const timeR = await rectOf(page.getByTestId(`bell-time-${showAlertId}`));
+      const toggleR = await rectOf(page.getByTestId(`bell-entry-toggle-${showAlertId}`));
+
+      // DI-1 (actual flush): the meta group sits ONE header flex gap (gap-2 = 8px)
+      // left of the chevron — flush, not stopped short in the title column.
+      expect(
+        caretR.left - metaR.right,
+        "DI-1 present: meta one flex gap (8px ±1) left of the chevron",
+      ).toBeGreaterThan(8 - 1);
+      expect(
+        caretR.left - metaR.right,
+        "DI-1 present: meta one flex gap (8px ±1) left of the chevron",
+      ).toBeLessThan(8 + 1);
+      // DI-2: chevron flush to the row content right edge.
+      expect(
+        Math.abs(caretR.right - headerContentRight),
+        "DI-2: chevron flush to row content right edge",
+      ).toBeLessThanOrEqual(TOL);
+      // DI-3: title button keeps a ≥44px tap target and does not overflow the header.
+      expect(toggleR.height, "DI-3: toggle height ≥ 44px").toBeGreaterThanOrEqual(44 - TOL);
+      expect(
+        toggleR.right,
+        "DI-3: toggle does not overflow the header content right edge",
+      ).toBeLessThanOrEqual(headerContentRight + TOL);
+      // DI-4: timestamp sits to the RIGHT of the title column.
+      expect(
+        timeR.right,
+        "DI-4: timestamp right edge ≥ title button right edge",
+      ).toBeGreaterThanOrEqual(toggleR.right - TOL);
+
+      // ── chevron-ABSENT row (DI-1 content-edge flush) ──
+      expect(
+        await page.getByTestId(`bell-caret-${globalId}`).count(),
+        "global row (slug null) has no chevron",
+      ).toBe(0);
+      const gContentRight = await contentRightOf(page.getByTestId(`bell-header-${globalId}`));
+      const gMetaR = await rectOf(page.getByTestId(`bell-meta-${globalId}`));
+      const gToggleR = await rectOf(page.getByTestId(`bell-entry-toggle-${globalId}`));
+      const gTimeR = await rectOf(page.getByTestId(`bell-time-${globalId}`));
+      expect(
+        Math.abs(gContentRight - gMetaR.right),
+        "DI-1 absent: meta group flush to the row content right edge",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        gTimeR.right,
+        "DI-4 absent: timestamp right edge ≥ title button right edge",
+      ).toBeGreaterThanOrEqual(gToggleR.right - TOL);
+
+      // No document horizontal overflow with both rows present.
+      expect(await horizontalOverflow(page), "no document horizontal overflow").toBeLessThanOrEqual(
+        TOL,
+      );
+    } finally {
+      if (seededDrive) await deleteSeededShow(seededDrive);
     }
   });
 });

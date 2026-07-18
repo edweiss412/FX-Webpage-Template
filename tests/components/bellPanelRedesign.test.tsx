@@ -375,8 +375,11 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
       actions: [],
     });
     await renderPanelWith([multi]);
-    const span = screen.getByText(/2 role changes:/);
-    expect(span.className).toContain("whitespace-pre-line");
+    // whitespace-pre-line now lives on the message block wrapper (WI-1 restructure),
+    // which hosts the message text + inline Learn-more as siblings.
+    const block = screen.getByTestId("bell-msg-multi-1");
+    expect(block.className).toContain("whitespace-pre-line");
+    expect(block.textContent).toContain("2 role changes:");
   });
 
   it("non-member codes keep their chip exactly as before", async () => {
@@ -389,6 +392,81 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
     });
     await renderPanelWith([watch]);
     expect(screen.getByTestId(`bell-identity-${watch.alertId}`)).toBeTruthy();
+  });
+});
+
+describe("WI-1/WI-2 ActiveRow restructure — message out of button, right-flush meta, orphan-safe block", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const withMessage = makeEntry({ alertId: "wm", code: "ADMIN_ALERT_COUNT_FAILED" });
+  const withMessageTitle = messageFor("ADMIN_ALERT_COUNT_FAILED").title!;
+  // helpHref present, message unresolved (empty params leave <sheet-name>…) → orphan guard.
+  const helpHrefNoMessage = makeEntry({
+    alertId: "hh",
+    code: "ROLE_FLAGS_NOTICE",
+    messageParams: {},
+    context: null,
+  });
+  // Uncataloged code → FALLBACK_TITLE, null message, null helpHref → no block.
+  const noMessageNoHelp = makeEntry({
+    alertId: "nn",
+    code: "SOME_UNCATALOGED_CODE" as unknown as MessageCode,
+  });
+  const inlineIdentityRepeated = makeEntry({
+    alertId: "ir",
+    code: "ROLE_FLAGS_NOTICE",
+    occurrences: 3,
+    messageParams: {
+      "sheet-name": "'X'",
+      "role-changes": "Doug Larson's role changed from A1 to A1 + LEAD.",
+      "lead-hint": "",
+    },
+  });
+
+  it("message is not inside the mark-read button; button name is title only", async () => {
+    await renderRow(withMessage);
+    const btn = screen.getByTestId("bell-entry-toggle-wm");
+    expect(btn.querySelector('[data-testid="bell-msg-wm"]')).toBeNull();
+    expect(btn.querySelector("ul")).toBeNull();
+    expect(btn.textContent).toBe(withMessageTitle);
+  });
+
+  it("Learn-more survives a suppressed message (orphan guard)", async () => {
+    await renderRow(helpHrefNoMessage);
+    const block = screen.getByTestId("bell-msg-hh");
+    expect(block.querySelector('[data-testid="bell-help-hh"]')).not.toBeNull();
+    expect(
+      screen.queryByTestId("bell-action-cell-hh")?.querySelector('[data-testid="bell-help-hh"]'),
+    ).toBeFalsy();
+  });
+
+  it("block omitted only when both message and helpHref absent", async () => {
+    await renderRow(noMessageNoHelp);
+    expect(screen.queryByTestId("bell-msg-nn")).toBeNull();
+  });
+
+  it("timestamp + chip live in the row-level right-group, not the button", async () => {
+    await renderRow(withMessage);
+    const btn = screen.getByTestId("bell-entry-toggle-wm");
+    expect(btn.querySelector('[data-testid="bell-time-wm"]')).toBeNull();
+    expect(
+      screen.getByTestId("bell-meta-wm").querySelector('[data-testid="bell-time-wm"]'),
+    ).not.toBeNull();
+  });
+
+  it("occurrence chip survives inline-identity codes (suppressChip gates only IdentityChip)", async () => {
+    await renderRow(inlineIdentityRepeated);
+    // Occurrence chip STILL renders in the meta group (repeat-count evidence not lost).
+    expect(
+      screen.getByTestId("bell-meta-ir").querySelector('[data-testid="bell-occurrence-ir"]'),
+    ).not.toBeNull();
+    // The separate IdentityChip IS suppressed for this inline code.
+    expect(screen.queryByTestId("bell-identity-ir")).toBeNull();
   });
 });
 
