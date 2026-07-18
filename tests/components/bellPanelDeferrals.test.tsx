@@ -68,7 +68,8 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
     identity: null,
     isAutoResolving: false,
     autoResolveNote: null,
-    action: null,
+    actions: [],
+    messageParams: {},
     isHealth: false,
     ...over,
   };

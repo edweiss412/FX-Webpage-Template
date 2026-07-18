@@ -61,10 +61,12 @@ import {
   isMessageCode,
   lookupHelpfulContext,
   messageFor,
+  plainCatalogText,
   type MessageParams,
 } from "@/lib/messages/lookup";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
@@ -251,16 +253,19 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
         >
           View in telemetry <span aria-hidden="true">↗</span>
         </a>
-      ) : entry.action ? (
-        <a
-          href={entry.action.href}
-          data-testid={`bell-action-${entry.alertId}`}
-          {...(entry.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className={LINK_CTA}
-        >
-          {entry.action.label}
-          {entry.action.external ? <span aria-hidden="true"> ↗</span> : null}
-        </a>
+      ) : entry.actions.length > 0 ? (
+        entry.actions.map((action, i) => (
+          <a
+            key={action.href}
+            href={action.href}
+            data-testid={`bell-action-${entry.alertId}-${i}`}
+            {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            className={LINK_CTA}
+          >
+            {action.label}
+            {action.external ? <span aria-hidden="true"> ↗</span> : null}
+          </a>
+        ))
       ) : null}
       {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
           Retry form (idempotent — no two-tap confirm). Pending state derives
@@ -312,7 +317,20 @@ function ActiveRow({
 }) {
   const { title, message } = rowCopy(entry.code);
   const helpful = rowHelpfulContext(entry.code);
-  const params = contextParams(entry.context);
+  // Params source (spec 2026-07-17 §4.1/§4.2): the merged, identity-derived
+  // messageParams the feed carries; contextParams(entry.context) is the
+  // legacy raw-jsonb fallback for entries the field is absent on.
+  const params =
+    Object.keys(entry.messageParams ?? {}).length > 0
+      ? entry.messageParams
+      : contextParams(entry.context);
+  // Spec 2026-07-17 §4.3/§4.5: render the message only when the template fully
+  // interpolates; a leftover <placeholder> (defense-in-depth — derived params
+  // always resolve) drops the message line and keeps the identity chip.
+  const UNRESOLVED = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
+  const messageResolved =
+    message !== null && !UNRESOLVED.test(plainCatalogText(message, params));
+  const suppressChip = INLINE_IDENTITY_CODES.has(entry.code) && messageResolved;
   // Dot shows only while genuinely unread AND not yet optimistically cleared
   // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
   const dotVisible = entry.unread && !readCleared;
@@ -403,8 +421,8 @@ function ActiveRow({
               ) : null}
             </span>
           </span>
-          {message ? (
-            <span className="mt-1 block wrap-break-word text-sm text-text-subtle">
+          {message && messageResolved ? (
+            <span className="mt-1 block whitespace-pre-line wrap-break-word text-sm text-text-subtle">
               {renderCatalogEmphasis(message, params)}
             </span>
           ) : null}
@@ -422,7 +440,7 @@ function ActiveRow({
             </span>
           </div>
         ) : null}
-        <IdentityChip entry={entry} />
+        {suppressChip ? null : <IdentityChip entry={entry} />}
         <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
     </div>
