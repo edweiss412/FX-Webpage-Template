@@ -1,7 +1,7 @@
 # Condensed inline-context admin alert copy — design
 
 **Date:** 2026-07-17
-**Status:** Approved design (user), pre-adversarial-review
+**Status:** Approved design (user). Cross-model adversarial review UNAVAILABLE this round: `codex exec` v0.142.5→v0.144.5 dies mid-run on a models-cache TTL-renewal parse bug (5 attempts, 2026-07-17); per the documented fallback ladder this spec ran an extended structural self-review instead (render-surface leak audit §6, meta-test collision sweep §7), the cross-model gate is deferred to the whole-diff review stage, and real CI remains the hard gate.
 **Scope:** Admin alert copy condensation: fold at-a-glance identity into the alert message text, drop the separate identity chip for converted codes, add actionable links. Bell panel + per-show alert cards only.
 
 ## 1. Problem
@@ -109,6 +109,7 @@ Pure function, no I/O — identity resolution already happened at both call site
 
 - **Bell feed** (`lib/admin/bellFeed.ts:241-254`): after `resolveAlertIdentities`, attach `messageParams: deriveAlertMessageParams(code, context, identity)` to each `BellEntry`. `BellPanel` passes `entry.messageParams` (falling back to `entry.context` only if absent — transitional safety) to `renderCatalogEmphasis`.
 - **Per-show section** (`components/admin/PerShowAlertSection.tsx:296, 338-343`): same helper output replaces the raw `alert.context` params passed to `safeDougFacingTemplate` + `renderCatalogEmphasis`.
+- **Telemetry health panel** (`components/admin/telemetry/HealthAlertsPanel.tsx:73` — currently passes raw `row.context`): passes `deriveAlertMessageParams(row.code, row.context, null)` instead. **Load-bearing (self-review finding R1):** all 12 sweep codes are `audience: "health"` (`lib/adminAlerts/audience.ts:14-16` derives `HEALTH_CODES` from the catalog), so they ALL render on this panel, which has no identity resolution — without this call, `<show-name>`/`<sheet-name>` would leak as literal tokens there. The identity-less call yields the fallback phrases ("this show"/"this sheet"), which read no worse than today's generic copy. No chip/layout change on this surface; param plumbing only.
 
 ### 4.3 Unresolved-placeholder guard
 
@@ -147,6 +148,8 @@ Params: `<show-name>`/`<sheet-name>` derived (§4.1); `<repo>`, `<file-name>`, `
 | BRANCH_PROTECTION_DRIFT (2089) | `Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.` |
 | BRANCH_PROTECTION_MONITOR_AUTH_FAILED (2107) | `Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.` |
 
+**Other render surfaces (leak audit, 2026-07-17):** the help/errors page (`app/help/errors/page.tsx:24-31`) renders raw dougFacing templates for entries passing its predicate — existing placeholder codes already do this (`SHEET_UNAVAILABLE`, `lib/messages/catalog.ts:122-136`), so sweep codes showing `<show-name>` there is established documentation-context behavior, not a leak. Same for `pnpm observe codes` (offline template print). `ErrorExplainer` (`components/messages/ErrorExplainer.tsx:88`) accepts params from callers and none of the 13 codes flow through it without context. `needsAttention.ts` / `sectionWarningModel.ts` do not consume these codes.
+
 Fallback phrasing note: `EMAIL_DELIVERY_FAILED` fires with no `show_id` sometimes (identity map surfaces the segment only when present — `alertIdentityMap.ts:173-177`); fallback reads `A notification email for this show couldn't be sent.` — acceptable degradation, pinned in tests. Same pattern for every derived param. `<repo>`/`<file-name>`/`<attempted-action>` come straight from producer context; if absent the guard (§4.3) restores today's layout (generic copy impossible here since the template would be partially unresolved → message line dropped, chip shown).
 
 ## 7. Lockstep + test surface
@@ -160,6 +163,8 @@ Fallback phrasing note: `EMAIL_DELIVERY_FAILED` fires with no `show_id` sometime
 - EXTENDS bell feed/panel tests (actions array, messageParams, chip suppression, whitespace-pre-line class, guard fallback).
 - EXTENDS per-show section tests (derived params, chip suppression, guard fallback).
 - Unit tests for `deriveAlertMessageParams`: all §3.3 arms, cap boundary (3, 4), malformed changes (missing name, non-array flags, empty array, non-array `changes`), lead-hint condition (gain, loss, FINANCIALS-only → no hint), quote fallbacks.
+- EXTENDS `tests/components/healthAlertsPanel.test.tsx`: for each converted code, rendering with empty context produces no unresolved `<placeholder>` in the DOM (fallback-phrase path).
+- Existing pins to sweep at plan time: `tests/admin/roleFlagsNoticeReclassify.test.ts`, `tests/adminAlerts/alertActions.test.ts`, `tests/adminAlerts/alertIdentityMatrix.test.ts`, `tests/components/PerShowAlertSection.test.tsx`, `tests/admin/healthAlerts.test.ts` — plus D7 banned-vocabulary check (`tests/messages/_metaCatalogCopyHygiene.test.ts:122`) against the new ROLE_FLAGS_NOTICE title/template.
 - `_metaCatalogCopyHygiene.test.ts` / `_metaEmphasisRenderContract.test.ts`: verify unaffected or extend if placeholder copy trips them (checked at plan time).
 
 **Other invariants:** no DB change; no advisory-lock surface; no new mutation surface (invariant 10 N/A); no raw codes in UI (invariant 5 — fallback title/copy paths preserve it); UI diff → impeccable v3 critique + audit dual-gate before close-out (invariant 8).
