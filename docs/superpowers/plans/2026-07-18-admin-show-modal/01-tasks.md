@@ -78,19 +78,23 @@ if (el) el.scrollIntoView();
 
 ### Task 5: `useShowModalNav` (spec §3, D9)
 
-**Files:** Create `components/admin/useShowModalNav.ts`; Test: `tests/components/admin/useShowModalNav.test.tsx`.
+**Files:** Create `lib/admin/showModalParams.ts` (SERVER-SAFE pure module — no hooks, no "use client"); Create `components/admin/useShowModalNav.ts` (client hook module importing the pure helpers); Tests: `tests/lib/admin/showModalParams.test.ts`, `tests/components/admin/useShowModalNav.test.tsx`.
 
 **Interfaces — Produces:**
 ```ts
+// lib/admin/showModalParams.ts — importable from RSC (app/admin/page.tsx) AND client
 export function buildShowModalHref(slug: string, currentParams: URLSearchParams): string;
 // preserves all params except `show`/`alert_id` (replaced/removed), sets show=slug
+export function firstParam(v: string | string[] | undefined): string | null;
+// array → first element; ""/undefined → null   (§6.2 guard table)
+
+// components/admin/useShowModalNav.ts — "use client"
 export function useShowModalNav(): {
   openHref: (slug: string) => string;      // buildShowModalHref over useSearchParams()
   close: () => void;                        // router.push minus show/alert_id, { scroll:false }
 };
-export function firstParam(v: string | string[] | undefined): string | null;
-// array → first element; ""/undefined → null   (§6.2 guard table)
 ```
+The split exists because `app/admin/page.tsx` is an RSC — importing a hook-bearing client module for `firstParam` is exactly the class `tests/admin/serverNoClientValueCall.test.ts:4-22` guards against.
 
 - [ ] **Step 1: failing tests:** `buildShowModalHref("x", new URLSearchParams("bucket=archived"))` → `/admin?bucket=archived&show=x`; replaces existing `show`, strips `alert_id`; encodes slug. `firstParam`: `["a","b"]→"a"`, `""→null`, `undefined→null`, `"v"→"v"`. `close()` pushes current params minus `show`/`alert_id` with `{scroll:false}` (mock `useRouter`/`useSearchParams` from `next/navigation`).
 - [ ] **Step 2: FAIL → Step 3: implement (pure param logic + thin hooks) → Step 4: PASS.**
@@ -123,8 +127,8 @@ export function firstParam(v: string | string[] | undefined): string | null;
 - Delete: `components/admin/showpage/PublishedReviewPage.tsx`
 - Tests: create `tests/app/admin/showReviewModalLoader.test.tsx` (retarget of `tests/app/admin/perShowPage.test.tsx`), modify `tests/app/admin/` dashboard page suite, delete `tests/app/admin/perShowPage.test.tsx`
 
-- [ ] **Step 1: failing loader tests** — copy `perShowPage.test.tsx` scenarios, retargeted (§7): client-construction throw → throws `supabase_client_construction_failed` + `ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED` emit; lookup returned-error → `ADMIN_SHOW_LOOKUP_FAILED` + **`redirect("/admin")`** (was `notFound()` — D8); lookup throw → `ADMIN_SHOW_LOOKUP_THREW`; missing row → `redirect("/admin")`; snapshot `not_admin_or_missing` → `redirect("/admin")`; `infra_error` → throw; feed `SyncInfraError` → renders with `feed=null`; roster over `CREW_ROSTER_READ_CAP` → blanked previewRoster/crewEmails + `ADMIN_SHOW_CREW_ROSTER_OVERFLOW`; eligible gating of shareSlot/token. Mock `next/navigation` `redirect` to throw a sentinel (Next semantics).
-- [ ] **Step 2: FAIL → Step 3: implement loader** — transplant `app/admin/show/[slug]/page.tsx:87-380` VERBATIM into `ShowReviewModal({ slug, alertId })` with exactly these deltas: `notFound()` → `redirect("/admin")` (both sites); drop `params`/`searchParams` plumbing (direct args); render `<PublishedReviewModal … alertId={alertId}>` instead of `<PublishedReviewPage>`; keep `ShareTokenProvider key={showId}` wrapper and every read/log/gate untouched. `ShowReviewModalSkeleton` = open `ReviewModalShell` frame (non-interactive: `onClose` no-op, `open`, empty focus ref target) with loading blocks mirroring the deleted `loading.tsx` skeleton.
+- [ ] **Step 1: failing loader tests** — copy `perShowPage.test.tsx` scenarios, retargeted (§7): client-construction throw → throws `supabase_client_construction_failed` + `ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED` emit; lookup returned-error → `ADMIN_SHOW_LOOKUP_FAILED` + **THROW** (infra fault — error boundary, unchanged from today, `page.tsx:114-122`); lookup throw → `ADMIN_SHOW_LOOKUP_THREW` + THROW; **`redirect("/admin")` ONLY for**: absent row (`maybeSingle` returns null) and snapshot `not_admin_or_missing` (D8 — these were the two `notFound()` sites); snapshot `infra_error` → throw; feed `SyncInfraError` → renders with `feed=null`; roster over `CREW_ROSTER_READ_CAP` → blanked previewRoster/crewEmails + `ADMIN_SHOW_CREW_ROSTER_OVERFLOW`; eligible gating of shareSlot/token. Mock `next/navigation` `redirect` to throw a sentinel (Next semantics).
+- [ ] **Step 2: FAIL → Step 3: implement loader** — transplant `app/admin/show/[slug]/page.tsx:87-380` VERBATIM into `ShowReviewModal({ slug, alertId })` with exactly these deltas: `notFound()` → `redirect("/admin")` (both sites); drop `params`/`searchParams` plumbing (direct args); render `<PublishedReviewModal … alertId={alertId}>` instead of `<PublishedReviewPage>`; keep `ShareTokenProvider key={showId}` wrapper and every read/log/gate untouched. `ShowReviewModalSkeleton` = a CLIENT component (`components/admin/showpage/ShowReviewModalSkeleton.tsx`, `"use client"`) that owns its own no-op `onClose` and local ref internally and renders the shell frame with loading blocks mirroring the deleted `loading.tsx` skeleton — an RSC cannot pass functions/refs as props to the client shell, so the skeleton must close over them client-side; the server loader/page renders `<ShowReviewModalSkeleton />` with zero props.
 - [ ] **Step 4: dashboard mount** in `app/admin/page.tsx`: searchParams type `{ step?: string; show_finalize?: string; bucket?: string; show?: string | string[]; alert_id?: string | string[] }`; after `DashboardWithHeader` (`:187,222` branch only — wizard branches ignore `show`):
 ```tsx
 const showSlug = firstParam(sp.show);
@@ -134,17 +138,11 @@ const showSlug = firstParam(sp.show);
   </Suspense>
 ) : null}
 ```
-- [ ] **Step 5: dashboard page tests** — `?show=x` renders Suspense-mounted modal region; wizard-mode + `?show` → no modal; `show=""` / `show=["a","b"]` per guard table. Delete `perShowPage.test.tsx`. Run loader + dashboard suites → PASS. `pnpm typecheck` (PublishedReviewPage deletion fan-out — fix imports: `tests/e2e/_showPageLayoutHarness.tsx` retarget happens in Task 12, so keep that harness compiling by switching its import to `PublishedReviewModal` NOW with minimal prop shim).
-- [ ] **Step 6: commit** `feat(admin): ShowReviewModal server loader + dashboard ?show= mount (kills PublishedReviewPage)`
+- [ ] **Step 5: registry/meta-test retargeting — SAME task, BEFORE the commit** (spec §7; the pin suites break the moment `page.tsx` content moves, so the retargets land in this commit to keep the per-task-green invariant): `tests/admin/_showReviewReadPathPin.test.ts` (:36-42 walk roots + :129-137 non-vacuous list += `app/admin/_showReviewModal.tsx`), `tests/admin/_metaInfraContract.test.ts:405-407` (surface → `app/admin/_showReviewModal.tsx`), `tests/log/_metaAdminOutcomeContract.test.ts:216-249` (every `app/admin/show/[slug]/page.tsx` `file:` → `app/admin/_showReviewModal.tsx`), `tests/admin/_metaBoundedReads.test.ts:31-56` (row move), `tests/components/admin/transitionAudit.test.tsx:34-41` (page row stays until Task 9 rewrites the page — update its count only if the transplant changes it; add `PublishedReviewModal.tsx` + `ReviewModalShell.tsx` rows with audited counts), `tests/admin/serverNoClientValueCall.test.ts:29,114-151` (audit list += `app/admin/_showReviewModal.tsx`; control assertions → loader). No contract text weakened — paths only, plus the two NEW transitionAudit rows.
+- [ ] **Step 6: dashboard page tests** — `?show=x` renders Suspense-mounted modal region; wizard-mode + `?show` → no modal; `show=""` / `show=["a","b"]` per guard table. Delete `perShowPage.test.tsx`. Run loader + dashboard suites + ALL SIX pin suites → PASS. `pnpm typecheck` (PublishedReviewPage deletion fan-out — fix imports: `tests/e2e/_showPageLayoutHarness.tsx` retarget happens in Task 12, so keep that harness compiling by switching its import to `PublishedReviewModal` NOW with minimal prop shim).
+- [ ] **Step 7: commit** `feat(admin): ShowReviewModal server loader + dashboard mount + pin retargets (kills PublishedReviewPage)`
 
-### Task 8: registry/meta-test retargeting (spec §7)
-
-**Files:** Modify `tests/admin/_showReviewReadPathPin.test.ts` (:36-42 walk roots + :129-137 non-vacuous list += `app/admin/_showReviewModal.tsx`), `tests/admin/_metaInfraContract.test.ts:405-407` (surface → `app/admin/_showReviewModal.tsx`), `tests/log/_metaAdminOutcomeContract.test.ts:216-249` (every `app/admin/show/[slug]/page.tsx` `file:` → `app/admin/_showReviewModal.tsx`), `tests/admin/_metaBoundedReads.test.ts:31-56` (row move), `tests/components/admin/transitionAudit.test.tsx:34-41` (page row → redirect reality; add `PublishedReviewModal.tsx` + `ReviewModalShell.tsx` rows with audited counts), `tests/admin/serverNoClientValueCall.test.ts:29,114-151` (audit list += `app/admin/_showReviewModal.tsx`; control assertions → loader).
-
-- [ ] **Step 1: run each named suite — observe the CURRENT failures** (they fail after Task 7's moves; this task is the paired retarget).
-- [ ] **Step 2: apply the §7 matrix edits above. No contract text weakened — paths only, plus the two NEW transitionAudit rows.**
-- [ ] **Step 3: run all six suites → PASS. Also `pnpm vitest run tests/log tests/admin` for collateral.**
-- [ ] **Step 4: commit** `test(admin): retarget read-path/infra/outcome/bounded/transition/serverNoClientValue pins to modal loader`
+### Task 8: FOLDED INTO TASK 7 (retargeting must be atomic with the move — no separate commit)
 
 ### Task 9: redirect page (spec §3)
 
@@ -172,15 +170,15 @@ export default async function AdminShowRedirect({ params, searchParams }: {
   redirect(`/admin?${q.toString()}`);
 }
 ```
-- [ ] **Step 4: PASS; re-run Task 8's six suites (read-path pin non-vacuous list still sees `page.tsx`) → green.**
+- [ ] **Step 4: PASS; re-run Task 7's six pin suites (read-path pin non-vacuous list still sees `page.tsx`; transitionAudit page row now reflects the redirect rewrite — update its count in THIS commit) → green.**
 - [ ] **Step 5: commit** `feat(admin): /admin/show/[slug] → /admin?show= redirect (param passthrough, requireAdmin kept)`
 
 ### Task 10: feed.ts `/admin` revalidation (spec §4)
 
 **Files:** Modify `app/admin/show/[slug]/_actions/feed.ts` (`mi11ApproveAction` :75-76, `mi11RejectAction` :109, `undoChangeAction` :141-142); Test: extend the existing feed-action suite (locate via `grep -rl "mi11ApproveAction" tests/`).
 
-- [ ] **Step 1: failing tests:** each of the three actions calls `revalidatePath("/admin", "page")` on success (spy on `next/cache`), alongside the existing `"/admin/show/[slug]"` call.
-- [ ] **Step 2: FAIL → Step 3: add the three calls → Step 4: PASS** (+ `tests/log/adminOutcomeBehavior.test.ts` collateral).
+- [ ] **Step 1: failing tests:** each of the three actions calls `revalidatePath("/admin", "page")` on success AND no longer calls `revalidatePath("/admin/show/[slug]", "page")` (spec §4: stale show-route revalidations are DROPPED where touched — same rule applies to `acceptChangeAction`/`acceptAllAction` `:183,219` and the path-string calls in `archive.ts:37`/`setPublished.ts:36` are left alone, they're not touched by this task).
+- [ ] **Step 2: FAIL → Step 3: swap the calls in the three actions → Step 4: PASS** (+ `tests/log/adminOutcomeBehavior.test.ts` collateral).
 - [ ] **Step 5: commit** `fix(admin): mi11 approve/reject + undo revalidate /admin for modal freshness`
 
 ### Task 11: link-site migration + alertActions (spec §3.1, D7, D9)
@@ -196,7 +194,7 @@ export default async function AdminShowRedirect({ params, searchParams }: {
 **Files:**
 - Rewrite: `tests/e2e/_showPageLayoutHarness.tsx` → `_publishedReviewModalHarness.tsx` (render `PublishedReviewModal` open, real data fixtures); `tests/e2e/showPageLayout.spec.ts` → `published-review-modal.layout.spec.ts`
 - Create: `tests/e2e/published-review-modal.interactions.spec.ts`, `tests/e2e/published-review-modal.deeplink.spec.ts`
-- Modify: `_statusStripToggleHarness.tsx:39` (import path only), URL constructions in `admin-lifecycle-layout.spec.ts:211`, `admin-lifecycle-transitions.spec.ts:122-248`, `picker-flow.spec.ts:302,333`, `admin-changes-feed-layout.spec.ts:119`, `admin-parse-panel.spec.ts:115-241`, `admin-route-boundaries.spec.ts:146,158` (`/admin/show/<slug>` → `/admin?show=<slug>`; selectors scoped inside `[data-testid="published-show-review-modal"]`)
+- Modify: `_statusStripToggleHarness.tsx:39` (import path only), URL constructions in `admin-lifecycle-layout.spec.ts:211`, `admin-lifecycle-transitions.spec.ts:122-248`, `picker-flow.spec.ts:302,333`, `admin-changes-feed-layout.spec.ts:119`, `admin-parse-panel.spec.ts:115-241` (`/admin/show/<slug>` → `/admin?show=<slug>`; selectors scoped inside `[data-testid="published-show-review-modal"]`). `admin-route-boundaries.spec.ts:140-158` is NOT rewritten — those are staged/preview route-boundary cases (untouched scope); the legacy-redirect behavior is covered by the deeplink spec. Also modify `tests/e2e/standalone.config.ts:24-25`: the testMatch/entry that names `showPageLayout` must name the renamed `published-review-modal.layout.spec.ts`, or the mandatory layout-dimensions spec silently drops out of the standalone harness suite.
 
 **Layout spec (mandatory layout-dimensions task — spec §6.6 Dimensional Invariants verbatim):** at 375×812 and 1280×900, `getBoundingClientRect` within 0.5px:
 - sheet `<sm`: `grab.height + header.height + main.height === panel.clientHeight`

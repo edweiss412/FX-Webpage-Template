@@ -31,8 +31,8 @@
 | 4 | StatusStrip `renderTitle` | 01-tasks.md |
 | 5 | `useShowModalNav` client helper | 01-tasks.md |
 | 6 | PublishedReviewModal composition | 01-tasks.md |
-| 7 | Server loader `_showReviewModal.tsx` + dashboard mount + skeleton | 01-tasks.md |
-| 8 | Registry/meta-test retargeting | 01-tasks.md |
+| 7 | Server loader `_showReviewModal.tsx` + dashboard mount + skeleton + registry retargets (atomic) | 01-tasks.md |
+| 8 | — folded into Task 7 (pin retargets must be atomic with the move) | 01-tasks.md |
 | 9 | Redirect page + loading deletion | 01-tasks.md |
 | 10 | feed.ts `/admin` revalidation ×3 | 01-tasks.md |
 | 11 | Link-site migration + alertActions | 01-tasks.md |
@@ -40,4 +40,4 @@
 | 13 | Help copy (affordance matrix + per-show-panel mdx) | 01-tasks.md |
 | 14 | Close-out gates (full suite, build, impeccable dual-gate, drift) | 01-tasks.md |
 
-Ordering: 1→7 build the surface bottom-up (each independently green); 8–13 are the blast-radius sweep; 14 gates. Task 8 MUST land in the same PR-window as 7/9 (meta-tests fail between retargets otherwise — run them only at task boundaries as written, each task leaves the tree green).
+Ordering: 1→7 build the surface bottom-up; 9–13 are the blast-radius sweep; 14 gates. Every task leaves the tree green at its commit — Task 7 carries its registry retargets in the same commit as the move for exactly this reason.
