@@ -169,7 +169,7 @@ None added. Tier headers are static. The flat↔grouped switch is an instant re-
 
 ## 5. Test strategy (TDD)
 
-All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-literal `9`.
+All new assertions import `GROUP_THRESHOLD` from `lib/admin/bellTriage.ts` (§1.7) — NEVER from `BellPanel` (drags the `"use server"` chain) and never re-literal `9`.
 
 0. **`rowTone` correctness (`tests/components/bellPanelRedesign.test.tsx`, extend the existing `derives data-tone` test at `:98-111`):**
    - A `NOTICE_HEALTH_CODES` member (e.g. `STALE_ORPHAN_REPORT`) with `isHealth: true` → `bell-sev-*` `data-tone === "notice"` (the fix; **fails on the pre-fix `isHealth → critical` short-circuit** — this is the TDD red).
