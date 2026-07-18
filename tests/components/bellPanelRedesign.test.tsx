@@ -277,6 +277,24 @@ describe("BellPanel redesign — message never clamped (R4) / chevron is a slug 
     expect(chevron.parentElement).toBe(toggle.parentElement);
   });
 
+  it("mark-read button's accessible name conveys the action AND contains the visible title (WCAG 2.5.3, impeccable P2)", async () => {
+    const entry = makeEntry({ alertId: "mr", state: "active", code: MESSAGE_CODE, slug: "east" });
+    routeFetch(feedBody({ entries: [entry] }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    const toggle = within(panel).getByTestId("bell-entry-toggle-mr");
+    const visibleTitle = (toggle.textContent ?? "").trim();
+    expect(visibleTitle.length).toBeGreaterThan(0);
+    const accName = toggle.getAttribute("aria-label") ?? "";
+    // Title-only visible content left no cue that tapping marks read; the
+    // aria-label prepends the action while still containing the visible title
+    // (label-in-name), so the accessible name is a strict superset.
+    expect(accName).toMatch(/^Mark as read: /);
+    expect(accName).toContain(visibleTitle);
+  });
+
   it("no bell-context-* node ever renders — the helpfulContext disclosure box was removed (Task 7)", async () => {
     const entry = makeEntry({ alertId: "nc", state: "active", code: MESSAGE_CODE, slug: "east" });
     routeFetch(feedBody({ entries: [entry] }));

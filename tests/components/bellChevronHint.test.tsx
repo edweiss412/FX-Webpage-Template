@@ -101,6 +101,18 @@ describe("WI-5 chevron-hint banner", () => {
     expect(screen.getAllByTestId("bell-chevron-hint")).toHaveLength(1);
   });
 
+  it("hint glyph matches the affordance: renders a ChevronRight icon, never the down-caret ⌄", async () => {
+    // impeccable P2: the banner MUST depict the SAME glyph as the real
+    // affordance (a right-pointing ChevronRight `›`), not a decorative down
+    // caret `⌄` — otherwise Doug scans for the wrong shape. Lock both the
+    // positive (an <svg> icon is present) and the negative (no `⌄` literal).
+    renderPanel(feedWithChevronRows());
+    const banner = await screen.findByTestId("bell-chevron-hint");
+    expect(banner.querySelector("svg")).not.toBeNull();
+    expect(banner.textContent ?? "").not.toContain("⌄");
+    expect(banner.textContent ?? "").toContain("show page");
+  });
+
   it("absent when all rows lack a slug (asserted AFTER the storage effect runs)", async () => {
     const spy = vi.spyOn(Storage.prototype, "getItem");
     renderPanel(feedNoSlugs());

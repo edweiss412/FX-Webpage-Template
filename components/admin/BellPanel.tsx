@@ -354,7 +354,13 @@ function renderMessageBody(
               </li>
             ))}
           </ul>
-          {lines.overflow ? <p className="mt-1 text-xs text-text-faint">{lines.overflow}</p> : null}
+          {lines.overflow ? (
+            // text-subtle (not text-faint): the overflow lands on unread
+            // `bg-stale-tint` rows where text-faint is only 2.86:1 (below its
+            // own 3:1 floor + WCAG 1.4.3 AA). text-subtle is 5.77:1 there and
+            // matches the <ul> items' weight above (impeccable audit P2).
+            <p className="mt-1 text-xs text-text-subtle">{lines.overflow}</p>
+          ) : null}
           {renderCatalogEmphasis(suffix, params, BELL_BOLD_IDENTITY_TOKENS)}
         </>
       );
@@ -459,6 +465,12 @@ function ActiveRow({
             type="button"
             data-testid={`bell-entry-toggle-${entry.alertId}`}
             onClick={onMarkRead}
+            // Title-only visible content (message moved out per WI-1) left the
+            // accessible name as just the title, with no cue that tapping marks
+            // read (impeccable A11y P2). aria-label prepends the action and still
+            // CONTAINS the visible title (WCAG 2.5.3 label-in-name). One-way
+            // action, so aria-pressed is deliberately absent (not a toggle).
+            aria-label={`Mark as read: ${title}`}
             className="flex min-h-tap-min min-w-0 flex-1 items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             {/* Title weight is CONSTANT across read/unread — a weight swap
@@ -930,7 +942,12 @@ export function BellPanel({
                   className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"
                 >
                   <span>
-                    The <span aria-hidden="true">⌄</span> chevron now opens the show page
+                    The{" "}
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="inline size-4 align-text-bottom text-accent-on-bg"
+                    />{" "}
+                    on each alert now opens its show page
                   </span>
                   <span className="flex-1" />
                   <button
