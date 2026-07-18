@@ -2,6 +2,14 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Catalog-wide em-dash sweep (2026-07-18)
+
+### ALERT-COPY-EMDASH-1 — [P3] Legacy em dashes remain in catalog copy despite DESIGN.md §9 ban — ✅ RESOLVED
+
+- **What:** DESIGN.md §9 bans em dashes in rendered copy, but enforcement was pinned only on notify-rendered strings (`tests/notify/templates.test.ts`) and specific component exact-string tests. PR #472 fixed the 2 notify-reachable codes (SHEET_UNAVAILABLE, DRIVE_FETCH_FAILED); ~151 occurrences (authoritative runtime count 179 across the seven rendered-prose fields) remained across the catalog (mostly longExplanation/helpfulContext-era prose), pre-existing on main.
+- **Un-defer trigger (was):** next §12.4 copy batch touching affected rows (sweep opportunistically, lockstep per batch), or a decision to extend the em-dash audit catalog-wide (then fix all at once + widen the test).
+- **Resolution:** ✅ RESOLVED 2026-07-18 by the EMDASH-1 catalog sweep (`fix(messages): sweep em dashes from rendered catalog copy (EMDASH-1)`; spec + plan `docs/superpowers/{specs,plans}/2026-07-18-emdash-catalog-sweep`). All 179 em dashes were swept from the rendered-prose catalog fields (dougFacing 47, helpfulContext 69, longExplanation 52, title 5, crewFacing 4, followUp 2) with per-occurrence §9 punctuation, coupled fields riding the §12.4 three-way lockstep (x1 parity green). The class is pinned closed by a compiler-exhaustive copy-hygiene audit at `tests/messages/_metaCatalogCopyHygiene.test.ts` (rejects `—` and `--` across a `Record<keyof MessageCatalogEntry, FieldPolicy>`-derived rendered-prose field set, so a future rendered field fails typecheck until classified).
+
 ## Wizard callout preview action cue (2026-07-18)
 
 ### CALLOUT-PREVIEW-ACTION-CUE-1 — [critique P1 → dispositioned P2] Demoted preview read as FYI; no cue the fix lives in Parse warnings — ✅ RESOLVED
