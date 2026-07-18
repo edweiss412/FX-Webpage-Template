@@ -25,7 +25,7 @@ function toAppEventRow(r: Record<string, unknown>): AppEventRow {
     actorHash: (r.actor_hash as string | null) ?? null,
     context: (r.context as Record<string, unknown>) ?? {},
     showTitle: (r.shows as { title?: string } | null)?.title ?? null,
-    // link by SLUG — the admin show route is /admin/show/[slug] (.eq("slug", slug)), NOT by UUID.
+    // link by SLUG — the review modal URL is /admin?show=<slug> (.eq("slug", slug)), NOT by UUID.
     showSlug: (r.shows as { slug?: string } | null)?.slug ?? null,
   };
 }

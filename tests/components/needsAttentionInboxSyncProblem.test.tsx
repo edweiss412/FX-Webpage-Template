@@ -33,7 +33,7 @@ describe("NeedsAttentionInbox sync_problem card", () => {
     const link = screen
       .getByTestId("needs-attention-item-sync-problem-a1")
       .querySelector("a") as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/admin/show/east-coast?alert_id=a1");
+    expect(link.getAttribute("href")).toBe("/admin?show=east-coast&alert_id=a1");
     expect(link.getAttribute("aria-label")).toBe("Check sync problem for East Coast (east-coast)");
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText("East Coast isn't in your folder anymore.")).toBeInTheDocument();

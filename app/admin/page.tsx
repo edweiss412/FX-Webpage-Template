@@ -38,6 +38,7 @@
  * No build-gated routes reachable from this page (memory
  * `feedback_build_gated_routes_never_fallback_target`).
  */
+import { Suspense } from "react";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { purgeAndRotateIfStale } from "@/lib/onboarding/sessionLifecycle";
 import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
@@ -51,12 +52,21 @@ import {
 } from "@/app/admin/_finalizeCheckpoint";
 import { readScanManifestCount } from "@/app/admin/_scanManifestCount";
 import { nowDate } from "@/lib/time/now";
+import { ShowReviewModal } from "@/app/admin/_showReviewModal";
+import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
+import { firstParam } from "@/lib/admin/showModalParams";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · FXAV" };
 
 type AdminPageProps = {
-  searchParams: Promise<{ step?: string; show_finalize?: string; bucket?: string }>;
+  searchParams: Promise<{
+    step?: string;
+    show_finalize?: string;
+    bucket?: string;
+    show?: string | string[];
+    alert_id?: string | string[];
+  }>;
 };
 
 function CheckpointInfraErrorPlaceholder() {
@@ -148,6 +158,18 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   // defaults to the Active segment.
   const dashboardBucket: "active" | "archived" = sp.bucket === "archived" ? "archived" : "active";
 
+  // admin-show-modal §4: `?show=<slug>` mounts the published review modal OVER
+  // the settled dashboard (DashboardWithHeader branches ONLY — the wizard
+  // surfaces below ignore it). §6.2 guard table via firstParam(): empty string
+  // or absent → no modal; repeated param → first element wins. The dashboard
+  // paints immediately; the loader streams behind the skeleton frame.
+  const showSlug = firstParam(sp.show);
+  const showReviewModal = showSlug ? (
+    <Suspense fallback={<ShowReviewModalSkeleton />}>
+      <ShowReviewModal slug={showSlug} alertId={firstParam(sp.alert_id)} />
+    </Suspense>
+  ) : null;
+
   // Precedence 1: wizard session minted — read the checkpoint to decide
   // which surface to render (finalize re-entry or wizard inline).
   if (settings.pending_wizard_session_id !== null) {
@@ -184,7 +206,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         // §M10 Task 10.1 finding 2 dispatch logic rather than strand the
         // operator on a wizard surface.
         return (
-          <DashboardWithHeader bucket={dashboardBucket} folderName={settings.watched_folder_name} />
+          <>
+            <DashboardWithHeader
+              bucket={dashboardBucket}
+              folderName={settings.watched_folder_name}
+            />
+            {showReviewModal}
+          </>
         );
       }
     }
@@ -219,5 +247,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   // Precedence 3: settled (post-onboarding steady state). Thread the watched
   // Drive folder name so the shows table is titled with it (matches the
   // defensive final_cas_done branch above) — the everyday dashboard render path.
-  return <DashboardWithHeader bucket={dashboardBucket} folderName={settings.watched_folder_name} />;
+  return (
+    <>
+      <DashboardWithHeader bucket={dashboardBucket} folderName={settings.watched_folder_name} />
+      {showReviewModal}
+    </>
+  );
 }

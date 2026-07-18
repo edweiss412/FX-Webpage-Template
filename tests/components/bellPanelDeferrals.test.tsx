@@ -133,7 +133,7 @@ describe("BellPanel — BELL-1 show-page chevron (spec §4.1, Task 7)", () => {
 
     const chevron = within(panel).getByTestId("bell-caret-with");
     expect(chevron.tagName).toBe("A");
-    expect(chevron.getAttribute("href")).toBe("/admin/show/east-coast");
+    expect(chevron.getAttribute("href")).toBe("/admin?show=east-coast");
     expect(within(panel).queryByTestId("bell-caret-without")).toBeNull();
   });
 

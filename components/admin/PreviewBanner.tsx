@@ -13,7 +13,7 @@
  * vertical bar so the rendered DOM stays compliant. The role chip
  * preserves the visual hierarchy the spec sample shows.
  *
- * Exit affordance: a link back to /admin/show/[slug]. Distinct from
+ * Exit affordance: a link back to the show's review modal (/admin?show=). Distinct from
  * /admin/dev or any build-gated route (memory:
  * feedback_build_gated_routes_never_fallback_target).
  *
@@ -113,7 +113,7 @@ export function PreviewBanner({
           />
           <Link
             data-testid="admin-preview-banner-exit"
-            href={`/admin/show/${encodeURIComponent(slug)}`}
+            href={`/admin?show=${encodeURIComponent(slug)}`}
             className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:bg-warning-text/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
             Exit preview

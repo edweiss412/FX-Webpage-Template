@@ -98,7 +98,7 @@ describe("PerShowAlertSection action links", () => {
     await renderSection(slug);
     const row = screen.getByTestId("per-show-alert-a3");
     const link = within(row).getByTestId("per-show-alert-action-a3");
-    expect(link).toHaveAttribute("href", `/admin/show/${encodeURIComponent(slug)}#share-access`);
+    expect(link).toHaveAttribute("href", `/admin?show=${encodeURIComponent(slug)}#share-access`);
     expect(link).not.toHaveAttribute("target");
     expect(link.textContent).toContain("Go to Published toggle");
   });

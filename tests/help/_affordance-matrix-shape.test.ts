@@ -130,7 +130,10 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     expect(templateRows).toHaveLength(1);
     expect(templateRows[0]).toMatchObject({
       sourceSurface: expect.stringContaining("messageFor(code)"),
-      sourceRoute: expect.stringMatching(/^\/admin(?:\/|$)/),
+      // admin-show-modal: the representative error surface is the /admin?show=
+      // review modal (query form), so the admin-tree pin accepts /admin plus a
+      // path OR query suffix.
+      sourceRoute: expect.stringMatching(/^\/admin(?:[/?]|$)/),
       affordance: "Learn more →",
       testidPattern: "help-affordance--error-message--<code>--learn-more",
       targetPattern: "/help/errors#<code>",

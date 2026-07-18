@@ -10,10 +10,19 @@
  * heading's accessible name.
  */
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 import { ShowsTableHeading } from "@/components/admin/ShowsTableHeading";
+
+// admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
+// read the current search params (param-preserving modal hrefs) — stub the
+// app-router hooks jsdom has no router for.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 afterEach(() => cleanup());
 

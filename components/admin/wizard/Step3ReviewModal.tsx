@@ -15,7 +15,11 @@
  * (`useDialogFocus` — initial focus on the close button, Tab trap,
  * restore-to-trigger), Esc on document, body scroll lock, and CSS-driven
  * entrance animation hooks ([data-step3-review-scrim]/[data-step3-review-panel]
- * in app/globals.css, reduced-motion collapse included).
+ * in app/globals.css, reduced-motion collapse included). That chrome —
+ * portal/scrim/panel/grab/drag/Esc/scroll-lock/inert — now lives in the
+ * extracted ReviewModalShell (admin-show-modal spec §5); this module consumes
+ * it with `dataAttrPrefix="step3-review"` and keeps every header/body/footer
+ * slot byte-identical.
  *
  * Heading-safe title (spec §9.1/§15): the dialog's accessible name comes from
  * `aria-labelledby` → the `<h2>` that contains ONLY the plain title text. The
@@ -33,18 +37,9 @@
  * are interaction thresholds, not painted px (documented in DESIGN.md §5
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
-import { createPortal } from "react-dom";
+import { useId, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
-import { useDialogFocus } from "@/lib/a11y/dialogFocus";
-import { useHasMounted } from "@/lib/a11y/useHasMounted";
+import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
 import {
@@ -89,22 +84,16 @@ export type Step3ReviewResolution = {
 // Behavioral thresholds, not rendered visual values — they never paint a px.
 // The scroll-spy rule + its constants (SCROLL_SPY_OFFSET_PX, NAV_SCROLL_SETTLE_*,
 // INDICATOR_INSET_PX, `activeSectionFor`) moved with the rail/content body into
-// ShowReviewSurface.tsx and are re-exported below so existing importers keep
-// resolving them from this module (Task 4 owns the import codemod). Only the
-// sheet drag-dismiss + warning-flash constants stay DEFINED here.
-/** Sheet-mode drag distance past which release dismisses the modal (§10). */
-export const DRAG_DISMISS_THRESHOLD_PX = 110;
-/** Max pointer travel still treated as a tap (click) rather than a drag (§10). */
-export const DRAG_SLOP_PX = 6;
-/** transitionend fallback timer for the dismiss transition (§10, §11 T5) —
- *  mirrors `--duration-normal: 220ms` (app/globals.css). Kept as an explicit
- *  constant (not read from CSS at runtime) so a token change is CAUGHT by the
- *  structural test in Step3ReviewModal.test.tsx rather than drifting silently. */
-export const DURATION_NORMAL_FALLBACK_MS = 220;
-/** transitionend fallback timer for the spring-back settle (§10, §11 T4) —
- *  mirrors `--duration-fast: 120ms` (app/globals.css). Same drift-guard
- *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
-export const DURATION_FAST_FALLBACK_MS = 120;
+// ShowReviewSurface.tsx; the sheet drag-dismiss + fallback-timer constants
+// moved with the drag machinery into ReviewModalShell.tsx. Both sets are
+// re-exported below so existing importers keep resolving them from this
+// module's public path. Only the warning-flash constant stays DEFINED here.
+export {
+  DRAG_DISMISS_THRESHOLD_PX,
+  DRAG_SLOP_PX,
+  DURATION_NORMAL_FALLBACK_MS,
+  DURATION_FAST_FALLBACK_MS,
+} from "@/components/admin/review/ReviewModalShell";
 /** §E4 one-shot warning-row highlight duration (follow-ups spec §2/§H N3).
  *  MUST equal the 1600ms literal in app/globals.css's
  *  `[data-step3-warning-flash]` keyframe (the transitions test pins the
@@ -165,14 +154,8 @@ export function Step3ReviewModal({
     data.pullSheetOverride,
   ).offers;
   const hasPendingArchivedOffer = archivedOffers.length > 0;
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const h2Id = useId();
-  // §S3C-2: portal the fixed-overlay dialog to document.body on the client so
-  // the background admin shell can be inerted (below) and the modal escapes any
-  // transformed ancestor (PageTransition) that would confine `position: fixed`.
-  // Server/hydration render in place first (identical markup), portal after mount.
-  const mounted = useHasMounted();
   const [publishState, setPublishState] = useState<PublishState>("idle");
 
   // ── Re-apply resolution state (spec §4.4) — active only when `resolution` is
@@ -299,247 +282,6 @@ export function Step3ReviewModal({
   // pane and attaches the deterministic scroll listener to it.
   const scrollerRef = useRef<HTMLElement | null>(null);
 
-  // Initial focus → close button; Tab-trap inside the panel; restore focus to
-  // the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
-  useDialogFocus(panelRef, closeRef);
-
-  // Lock background scroll while the overlay is open; restore the prior value
-  // on close/unmount (the card unmounts this component to close).
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
-
-  // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
-  // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
-  // beyond `aria-modal`, which browse-mode readers honor inconsistently). The
-  // modal is portaled to <body> (above), a SIBLING of `[data-inert-root]`, so
-  // inerting the shell never inerts the dialog. Restore prior state on unmount
-  // (== close). Runs client-only (effects never fire on the server).
-  useEffect(() => {
-    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-inert-root]"));
-    const prev = roots.map((el) => ({
-      el,
-      hadInert: el.hasAttribute("inert"),
-      ariaHidden: el.getAttribute("aria-hidden"),
-    }));
-    for (const el of roots) {
-      el.setAttribute("inert", "");
-      el.setAttribute("aria-hidden", "true");
-    }
-    return () => {
-      for (const { el, hadInert, ariaHidden } of prev) {
-        if (!hadInert) el.removeAttribute("inert");
-        if (ariaHidden === null) el.removeAttribute("aria-hidden");
-        else el.setAttribute("aria-hidden", ariaHidden);
-      }
-    };
-  }, []);
-
-  // Escape closes. The focus hook traps Tab but defers Esc to the dialog
-  // (lib/a11y/dialogFocus.ts contract). Listen on document so the key is
-  // caught wherever focus currently sits inside the trap.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
-  // All drag state lives in refs (no re-renders while the pointer moves); the
-  // panel is manipulated via INLINE styles only — which is exactly why the C6
-  // matchMedia cleanup below must exist (CSS mode classes can't clear them).
-  // The drag's `target` is captured at pointerdown (not read via a ref) because the
-  // unmount cleanup below runs AFTER React has already detached the element
-  // refs — releasing capture there needs the element itself.
-  const dragRef = useRef<{
-    pointerId: number;
-    startY: number;
-    maxDy: number;
-    target: HTMLButtonElement;
-  } | null>(null);
-  /** Set when a pointer sequence travelled past DRAG_SLOP_PX — the click the
-   *  browser synthesizes after pointerup belongs to the DRAG, so the grab
-   *  button's onClick swallows it. One-shot: cleared on the next tick. */
-  const dragConsumedClickRef = useRef(false);
-  /** True once a past-threshold release committed to the dismiss transition —
-   *  no new drag may start against a departing panel. */
-  const dismissingRef = useRef(false);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /** Return the panel to stylesheet control (entrance keyframes, mode classes). */
-  function clearPanelDragStyles() {
-    const panel = panelRef.current;
-    if (!panel) return;
-    panel.style.transform = "";
-    panel.style.transition = "";
-    panel.style.animation = "";
-  }
-
-  function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (dismissingRef.current) return;
-    // A new drag takes over from a still-settling spring-back.
-    if (settleTimerRef.current !== null) {
-      clearTimeout(settleTimerRef.current);
-      settleTimerRef.current = null;
-    }
-    // jsdom has no pointer capture; every real browser does.
-    if (typeof event.currentTarget.setPointerCapture === "function") {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      maxDy: 0,
-      target: event.currentTarget,
-    };
-    const panel = panelRef.current;
-    if (panel) {
-      // C1: neutralize BOTH — the entrance is a CSS *animation* (sheet-rise),
-      // so `transition: none` alone would not hand control to the inline
-      // transform mid-entrance.
-      panel.style.transition = "none";
-      panel.style.animation = "none";
-    }
-  }
-
-  function handleGrabPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    const drag = dragRef.current;
-    if (drag === null || event.pointerId !== drag.pointerId) return;
-    const dy = event.clientY - drag.startY;
-    // Slop tracks the MAX travel in either direction: a wiggle past the slop
-    // that returns near the origin is still a drag, never a tap.
-    if (Math.abs(dy) > drag.maxDy) drag.maxDy = Math.abs(dy);
-    const panel = panelRef.current;
-    // Downward only — the sheet never rises above its resting position (§10).
-    if (panel) panel.style.transform = `translateY(${Math.max(0, dy)}px)`;
-  }
-
-  function handleGrabPointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
-    const drag = dragRef.current;
-    if (drag === null || event.pointerId !== drag.pointerId) return;
-    dragRef.current = null;
-    if (typeof event.currentTarget.releasePointerCapture === "function") {
-      event.currentTarget.releasePointerCapture(drag.pointerId);
-    }
-    const dy = event.clientY - drag.startY;
-    const wasDrag = Math.max(drag.maxDy, Math.abs(dy)) > DRAG_SLOP_PX;
-    if (wasDrag) {
-      // Swallow the click the browser synthesizes right after this pointerup.
-      dragConsumedClickRef.current = true;
-      setTimeout(() => {
-        dragConsumedClickRef.current = false;
-      }, 0);
-    }
-    const panel = panelRef.current;
-    if (!panel) return;
-    if (dy > DRAG_DISMISS_THRESHOLD_PX) {
-      // T5: transition off-screen, close on transitionend — with a setTimeout
-      // fallback matched to the `--duration-normal` token (220ms) in case the
-      // transitionend never fires (display:none ancestors, reduced motion
-      // collapsing the duration to 0ms, dropped events).
-      dismissingRef.current = true;
-      panel.style.transition = "transform var(--duration-normal) var(--ease-out-quart)";
-      panel.style.transform = "translateY(100%)";
-      let closed = false;
-      const finish = () => {
-        if (closed) return;
-        closed = true;
-        panel.removeEventListener("transitionend", onTransitionEnd);
-        if (dismissTimerRef.current !== null) {
-          clearTimeout(dismissTimerRef.current);
-          dismissTimerRef.current = null;
-        }
-        onClose();
-      };
-      const onTransitionEnd = (ev: TransitionEvent) => {
-        if (ev.target === panel && ev.propertyName === "transform") finish();
-      };
-      panel.addEventListener("transitionend", onTransitionEnd);
-      dismissTimerRef.current = setTimeout(finish, DURATION_NORMAL_FALLBACK_MS);
-    } else if (wasDrag) {
-      // T4: spring back at the fast token, then clear the inline styles so
-      // the stylesheet governs again (same fallback-timer pattern, matched to
-      // `--duration-fast` = 120ms).
-      panel.style.transition = "transform var(--duration-fast) var(--ease-out-quart)";
-      panel.style.transform = "translateY(0px)";
-      let settled = false;
-      const settle = () => {
-        if (settled) return;
-        settled = true;
-        panel.removeEventListener("transitionend", onTransitionEnd);
-        if (settleTimerRef.current !== null) {
-          clearTimeout(settleTimerRef.current);
-          settleTimerRef.current = null;
-        }
-        // Don't fight a drag that restarted mid-settle.
-        if (dragRef.current === null) clearPanelDragStyles();
-      };
-      const onTransitionEnd = (ev: TransitionEvent) => {
-        if (ev.target === panel && ev.propertyName === "transform") settle();
-      };
-      panel.addEventListener("transitionend", onTransitionEnd);
-      settleTimerRef.current = setTimeout(settle, DURATION_FAST_FALLBACK_MS);
-    } else {
-      // Tap (dy ≤ slop): restore stylesheet control immediately; the
-      // synthesized click that follows closes the modal (§10).
-      clearPanelDragStyles();
-    }
-  }
-
-  // Mode-boundary + unmount drag hygiene (spec §10, §11 C6). ONE
-  // matchMedia('(min-width: 640px)') change listener for the sheet→popup
-  // boundary (the `sm` token): entering ≥sm cancels any drag in progress —
-  // releases pointer capture, clears the panel's INLINE
-  // transform/transition/animation (mode CSS cannot), resets the drag ref.
-  // The same cleanup runs on unmount (C2: Esc/scrim during a drag unmounts
-  // immediately — no capture leak, no late fallback-timer onClose).
-  useEffect(() => {
-    function releaseDrag() {
-      const drag = dragRef.current;
-      if (drag === null) return;
-      if (typeof drag.target.releasePointerCapture === "function") {
-        drag.target.releasePointerCapture(drag.pointerId);
-      }
-      dragRef.current = null;
-    }
-
-    let mql: MediaQueryList | null = null;
-    let onChange: ((ev: MediaQueryListEvent) => void) | null = null;
-    // Guard: jsdom implements no matchMedia; every target browser does.
-    if (typeof window.matchMedia === "function") {
-      mql = window.matchMedia("(min-width: 640px)");
-      onChange = (ev: MediaQueryListEvent) => {
-        if (!ev.matches) return; // only ENTERING ≥sm strands inline styles
-        releaseDrag();
-        if (settleTimerRef.current !== null) {
-          clearTimeout(settleTimerRef.current);
-          settleTimerRef.current = null;
-        }
-        // Mid-dismiss the panel is already committed to closing (the fallback
-        // timer still fires) — don't yank it back on-screen.
-        if (!dismissingRef.current) clearPanelDragStyles();
-      };
-      mql.addEventListener("change", onChange);
-    }
-    return () => {
-      if (mql && onChange) mql.removeEventListener("change", onChange);
-      releaseDrag();
-      if (dismissTimerRef.current !== null) clearTimeout(dismissTimerRef.current);
-      if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
-    };
-    // clearPanelDragStyles touches refs only — safe to omit from deps.
-  }, []);
-
   // ── Header derivations (spec §9.1) ─────────────────────────────────────────
   // title/clientLabel are composed in the staged builder (Task 4); the modal reads
   // the mode-agnostic SectionCore fields.
@@ -600,66 +342,19 @@ export function Step3ReviewModal({
   // this pair is the unchecked publish CTA's only.
   const publishLabel = pendingOp === "publish" ? "Selecting…" : "Publish this show";
 
-  const tree = (
-    <div
-      data-testid={`wizard-step3-card-${dfid}-review-modal`}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={h2Id}
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
-    >
-      {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
-          order (tabIndex -1) so the focus trap never lands on it; Escape + the
-          visible close button are the keyboard/AT exits. Deliberately NOT
-          aria-hidden — aria-hidden on an interactive control is an a11y
-          footgun. (Pattern carried from Step3DetailsDialog / ReportModal.) */}
-      <button
-        type="button"
-        data-testid={`wizard-step3-card-${dfid}-review-backdrop`}
-        data-step3-review-scrim=""
-        aria-label="Close"
-        tabIndex={-1}
-        onClick={onClose}
-        className="absolute inset-0 bg-overlay-scrim"
-      />
-
-      {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
-          does NOT default `.flex` to align-items:stretch (DESIGN.md §7).
-          Header/footer/grab are shrink-0; the body region is min-h-0 flex-1. */}
-      <div
-        ref={panelRef}
-        data-step3-review-panel=""
-        className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
-      >
-        {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
-            visual affordance is the small inner pill. A plain tap (travel ≤
-            DRAG_SLOP_PX) closes via the click; a real drag consumes the
-            synthesized click (§10). `touch-none` keeps the browser from
-            claiming the gesture for scrolling (§11 C5). */}
-        <button
-          type="button"
-          data-testid={`wizard-step3-card-${dfid}-review-grab`}
-          aria-label="Drag down or tap to close"
-          onClick={() => {
-            if (dragConsumedClickRef.current) return; // the drag ate this click
-            onClose();
-          }}
-          onPointerDown={handleGrabPointerDown}
-          onPointerMove={handleGrabPointerMove}
-          onPointerUp={handleGrabPointerEnd}
-          onPointerCancel={handleGrabPointerEnd}
-          className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-        >
-          <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-        </button>
-
-        {/* Header (spec §9.1): min-w-0 flex-1 text block + shrink-0 actions,
-            so a long unbroken title wraps and never pushes the chip/close
-            off-screen. */}
-        <header
-          data-testid={`wizard-step3-card-${dfid}-review-header`}
-          className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-        >
+  return (
+    <ReviewModalShell
+      open
+      onClose={onClose}
+      labelledBy={h2Id}
+      dataAttrPrefix="step3-review"
+      testIdBase={`wizard-step3-card-${dfid}-review`}
+      initialFocusRef={closeRef}
+      header={
+        <>
+          {/* Header (spec §9.1): min-w-0 flex-1 text block + shrink-0 actions,
+              so a long unbroken title wraps and never pushes the chip/close
+              off-screen. */}
           <div className="min-w-0 flex-1">
             <div className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
               Review before publishing
@@ -749,122 +444,13 @@ export function Step3ReviewModal({
               <X aria-hidden="true" className="size-5" />
             </button>
           </div>
-        </header>
-
-        {/* Review body (spec §5.1.2/§5.1.3, §6.2-§6.4, §9.4): the extracted
-            source-agnostic surface owns the side rail + chip rail + section-panel
-            column + deterministic scroll-spy. The modal (shell) owns the scroll
-            container (`scrollerRef`), and passes the §4.4 re-apply resolution
-            body as the content-pane TOP slot (children) and the §C raw-
-            unrecognized callout as the BOTTOM slot. No extras arrays are passed
-            → the rail model is byte-identical to the pre-extraction modal. */}
-        <ShowReviewSurface
-          data={data}
-          isPublishRunActive={isPublishRunActive}
-          scrollerRef={scrollerRef}
-          layout="modal"
-          bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
-        >
-          {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
-              panels when this is a blocked re-apply row. Tier-1/2 items are
-              context/diagnostic lines; tier-3 items force a radio choice.
-              §11: instant — deliberate (resolution presence follows data/props, no animation) */}
-          {resolution || hasPendingArchivedOffer ? (
-            <section
-              data-testid={`wizard-step3-card-${dfid}-review-resolution`}
-              aria-label="Resolve before publishing"
-              className="flex min-w-0 flex-col gap-4 rounded-md border border-border bg-surface-sunken p-tile-pad"
-            >
-              <h3 className="text-sm font-semibold text-text-strong">Resolve before publishing</h3>
-              {/* Re-apply items render ONLY when a blocked re-apply resolution is
-                  present (spec §4.4 decoupling — the box may also appear for a
-                  pending archived-tab offer alone).
-                  §11: instant — deliberate (re-apply body follows server truth, no animation) */}
-              {resolution ? (
-                reviewItemsCorrupt ? (
-                  <p
-                    data-testid={`wizard-step3-card-${dfid}-review-resolution-corrupt`}
-                    className="text-sm text-warning-text"
-                  >
-                    We couldn&apos;t read the review details for this sheet. Re-scan it, or set it
-                    aside for this setup.
-                  </p>
-                ) : (
-                  resolutionItems.map((item) => {
-                    const tier = tierForItem(item);
-                    if (tier !== "tier3_radio") {
-                      return (
-                        <p
-                          key={item.id}
-                          data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
-                          className="text-sm text-text"
-                        >
-                          {describeItem(item)}
-                        </p>
-                      );
-                    }
-                    const allowed = allowedActionsFor(item);
-                    return (
-                      <fieldset
-                        key={item.id}
-                        data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
-                        className="flex min-w-0 flex-col gap-2"
-                      >
-                        <legend className="text-sm text-text">{describeItem(item)}</legend>
-                        {allowed.map((action) => {
-                          const selected = resolutionChoices.get(item.id) === action;
-                          return (
-                            <label
-                              key={action}
-                              className="flex min-h-tap-min items-center gap-2 text-sm text-text"
-                            >
-                              <input
-                                type="radio"
-                                name={`resolution-${item.id}`}
-                                checked={selected}
-                                disabled={isPublishRunActive}
-                                onChange={() => setResolutionChoice(item.id, action)}
-                                className="size-4 shrink-0 accent-accent"
-                              />
-                              <span>{actionLabel(action, item, true)}</span>
-                            </label>
-                          );
-                        })}
-                      </fieldset>
-                    );
-                  })
-                )
-              ) : null}
-              {/* Archived-tab accept offer(s) (spec §4.3/§4.5b): pending offers
-                  render here even with no re-apply resolution. showDismiss={false}
-                  so the box region is a pure function of server offers (no local
-                  dismiss can strand an empty titled box). Not frozen during a
-                  publish run — identical mutation contract to the Pack-list offer. */}
-              {archivedOffers.map((tab) => (
-                <ArchivedTabOffer
-                  key={tab.tabName}
-                  dfid={data.driveFileId}
-                  wizardSessionId={wizardSessionId}
-                  tab={tab}
-                  showDismiss={false}
-                  testId={`wizard-step3-card-${dfid}-review-resolution-archived-${tab.tabName}`}
-                />
-              ))}
-            </section>
-          ) : null}
-        </ShowReviewSurface>
-
-        {/* Footer (spec §9.1). Sheet-mode bottom padding adds the device safe
-            area so the controls are never covered by the iOS home indicator;
-            ≥sm restores the plain token padding. `relative` is load-bearing:
-            below sm the RescanSheetButton overlay result anchors to the FOOTER
-            (its own wrapper is `sm:relative` only) so a coded result spans
-            from the footer's left edge instead of clipping off-screen at
-            390px (impeccable audit P1 — see RescanSheetButton.tsx). */}
-        <footer
-          data-testid={`wizard-step3-card-${dfid}-review-footer`}
-          className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-        >
+        </>
+      }
+      footer={
+        <>
+          {/* Footer (spec §9.1): rendered inside the shell's footer wrapper
+              (safe-area padding + the load-bearing `relative` for the
+              RescanSheetButton overlay result — see ReviewModalShell.tsx). */}
           {/* Re-apply resolution footer (spec §4.4): the ONLY resolution path
               for a blocked re-apply row. Approve & apply (primary) + Re-scan +
               Ignore. All three freeze during an active publish run (R8).
@@ -1008,13 +594,111 @@ export function Step3ReviewModal({
               )}
             </>
           )}
-        </footer>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {/* Review body (spec §5.1.2/§5.1.3, §6.2-§6.4, §9.4): the extracted
+            source-agnostic surface owns the side rail + chip rail + section-panel
+            column + deterministic scroll-spy. The modal (shell) owns the scroll
+            container (`scrollerRef`), and passes the §4.4 re-apply resolution
+            body as the content-pane TOP slot (children) and the §C raw-
+            unrecognized callout as the BOTTOM slot. No extras arrays are passed
+            → the rail model is byte-identical to the pre-extraction modal. */}
+      <ShowReviewSurface
+        data={data}
+        isPublishRunActive={isPublishRunActive}
+        scrollerRef={scrollerRef}
+        layout="modal"
+        bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
+      >
+        {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
+              panels when this is a blocked re-apply row. Tier-1/2 items are
+              context/diagnostic lines; tier-3 items force a radio choice.
+              §11: instant — deliberate (resolution presence follows data/props, no animation) */}
+        {resolution || hasPendingArchivedOffer ? (
+          <section
+            data-testid={`wizard-step3-card-${dfid}-review-resolution`}
+            aria-label="Resolve before publishing"
+            className="flex min-w-0 flex-col gap-4 rounded-md border border-border bg-surface-sunken p-tile-pad"
+          >
+            <h3 className="text-sm font-semibold text-text-strong">Resolve before publishing</h3>
+            {/* Re-apply items render ONLY when a blocked re-apply resolution is
+                  present (spec §4.4 decoupling — the box may also appear for a
+                  pending archived-tab offer alone).
+                  §11: instant — deliberate (re-apply body follows server truth, no animation) */}
+            {resolution ? (
+              reviewItemsCorrupt ? (
+                <p
+                  data-testid={`wizard-step3-card-${dfid}-review-resolution-corrupt`}
+                  className="text-sm text-warning-text"
+                >
+                  We couldn&apos;t read the review details for this sheet. Re-scan it, or set it
+                  aside for this setup.
+                </p>
+              ) : (
+                resolutionItems.map((item) => {
+                  const tier = tierForItem(item);
+                  if (tier !== "tier3_radio") {
+                    return (
+                      <p
+                        key={item.id}
+                        data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
+                        className="text-sm text-text"
+                      >
+                        {describeItem(item)}
+                      </p>
+                    );
+                  }
+                  const allowed = allowedActionsFor(item);
+                  return (
+                    <fieldset
+                      key={item.id}
+                      data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
+                      className="flex min-w-0 flex-col gap-2"
+                    >
+                      <legend className="text-sm text-text">{describeItem(item)}</legend>
+                      {allowed.map((action) => {
+                        const selected = resolutionChoices.get(item.id) === action;
+                        return (
+                          <label
+                            key={action}
+                            className="flex min-h-tap-min items-center gap-2 text-sm text-text"
+                          >
+                            <input
+                              type="radio"
+                              name={`resolution-${item.id}`}
+                              checked={selected}
+                              disabled={isPublishRunActive}
+                              onChange={() => setResolutionChoice(item.id, action)}
+                              className="size-4 shrink-0 accent-accent"
+                            />
+                            <span>{actionLabel(action, item, true)}</span>
+                          </label>
+                        );
+                      })}
+                    </fieldset>
+                  );
+                })
+              )
+            ) : null}
+            {/* Archived-tab accept offer(s) (spec §4.3/§4.5b): pending offers
+                  render here even with no re-apply resolution. showDismiss={false}
+                  so the box region is a pure function of server offers (no local
+                  dismiss can strand an empty titled box). Not frozen during a
+                  publish run — identical mutation contract to the Pack-list offer. */}
+            {archivedOffers.map((tab) => (
+              <ArchivedTabOffer
+                key={tab.tabName}
+                dfid={data.driveFileId}
+                wizardSessionId={wizardSessionId}
+                tab={tab}
+                showDismiss={false}
+                testId={`wizard-step3-card-${dfid}-review-resolution-archived-${tab.tabName}`}
+              />
+            ))}
+          </section>
+        ) : null}
+      </ShowReviewSurface>
+    </ReviewModalShell>
   );
-
-  // §S3C-2: portal to body once mounted (client). Pre-mount (SSR/hydration)
-  // render in place with identical markup — no hydration mismatch; the modal is
-  // client-interaction-only, so nothing is lost before the post-mount portal.
-  return mounted ? createPortal(tree, document.body) : tree;
 }

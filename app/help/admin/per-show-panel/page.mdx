@@ -1,15 +1,16 @@
 # Per-show panel
 
-The per-show panel (`/admin/show/<slug>`) is what one show looks like to the app. You land here from the dashboard, by opening a show row or following a **Changes to review** badge.
+The per-show panel (`/admin?show=<slug>`) is what one show looks like to the app. It opens as show details over the dashboard when you open a show row or follow a **Changes to review** badge; close it with the X, a tap outside, or Esc (on a phone, swipe it down) and you're back on the dashboard exactly where you left it.
 
 The panel's main parts:
 
-- **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced at the top.
+- **Status strip.** Right under the title: the publish toggle, the Live badge when the show is running, the sync status, and the copy-link for the crew URL.
+- **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced in the Overview section.
 - **Crew & share access.** The crew roster (each row has a **Preview as** link), the show's share-link, and the share-token controls.
 - **Sheet changes.** The show's feed of what synced recently: edits applied on their own, plus anything waiting for your OK. ([Jump](#changes-feed).)
-- **[Sync-status footer](#sync-health).** A quiet line at the bottom showing how the last sync went.
+- **[Sync health](#sync-health).** The status strip's quiet sync line, with **Re-sync from Drive** in the Overview section.
 
-On a quiet show the Sheet changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
+There is no footer bar: publishing lives in the status strip, and archiving is a row in the Overview section. On a quiet show the Sheet changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
 
 <h2 id="changes-feed">The Sheet changes feed</h2>
 
@@ -24,9 +25,9 @@ Brand-new sheets are different: a sheet the app has never published waits for yo
 
 <h2 id="sync-health">Sync health</h2>
 
-Sync health lives in a quiet footer at the bottom of the show page: a single status line that tells you how the last sync with this show's sheet went. It reads **"Last synced …"** with how long ago when everything is fine, or a plain-language problem label when it isn't (the same labels the dashboard's [Sync status column](/help/admin/dashboard#active-shows) uses). The small **?** next to the line opens a short explanation and links back here.
+Sync health lives in the status strip at the top of the show details: a health dot beside two quiet lines, **"Synced …"** (the last time the app reached the sheet) and **"Edited …"** (the last time the sheet's content changed). When something is off, the line shows a plain-language problem label instead (the same labels the dashboard's [Sync status column](/help/admin/dashboard#active-shows) uses).
 
-The page-level actions sit on the right side of the same footer. **Re-sync from Drive** makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
+The **Re-sync from Drive** button sits in the Overview section, next to the **Open sheet** link. It makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
 
 - You've just edited the sheet and want the change to land now.
 - You're fixing a cell a previous sync complained about.
@@ -57,7 +58,7 @@ A read-only entry point that opens the show through a specific crew member's eye
 
 ## Parse warnings
 
-The alerts area at the top of the panel is where the app surfaces any soft signals it flagged on the latest sync. These are not hard failures: the sync still applied and crew can still see the page. For the catalog of warning meanings and what to do about each one, see [Parse warnings](/help/admin/parse-warnings).
+The alerts area in the Overview section is where the app surfaces any soft signals it flagged on the latest sync. These are not hard failures: the sync still applied and crew can still see the page. For the catalog of warning meanings and what to do about each one, see [Parse warnings](/help/admin/parse-warnings).
 
 <h2 id="crew-preview-links">Crew section and share access</h2>
 

@@ -18,6 +18,9 @@ import { ParsePanel } from "@/components/admin/ParsePanel";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: () => {} }),
 }));
 

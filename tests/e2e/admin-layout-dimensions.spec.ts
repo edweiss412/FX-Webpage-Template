@@ -305,10 +305,10 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
   // two-column layout was dissolved when the /admin/show/[slug] route was
   // rebuilt into <PublishedReviewPage> (pinned <StatusStrip> over a shared
   // <ShowReviewSurface layout="page"> — a side-rail + panel-column two-pane).
-  // Their successor real-browser assertions live in
-  // tests/e2e/showPageLayout.spec.ts:
-  //   - desktop two-pane equal-height  → §8.1 (rail.height === content.height)
-  //   - mobile presentation            → §8.3 (side rail hidden, chip rail is a
-  //     single horizontal-scroll row)
+  // Their successor real-browser assertions now live in
+  // tests/e2e/published-review-modal.layout.spec.ts (admin-show-modal §6.6 —
+  // the page itself was replaced by the /admin?show= review modal; the
+  // two-pane rail/content geometry inside the shell is pinned by
+  // tests/e2e/step3-review-modal.layout.spec.ts §5.1.2).
   // The dashboard (/admin) tests above are UNAFFECTED by the rebuild and stay.
 });

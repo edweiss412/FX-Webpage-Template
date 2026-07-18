@@ -87,7 +87,7 @@ describe("NeedsAttentionInbox", () => {
     expect(fs.getAttribute("href")).toBe("/admin/show/staged/s1");
     // existing_staged → per-show review link
     const es = screen.getByTestId("needs-attention-link-known-show");
-    expect(es.getAttribute("href")).toBe("/admin/show/known-show");
+    expect(es.getAttribute("href")).toBe("/admin?show=known-show");
   });
 
   // M12.12 follow-up + Codex R2 MEDIUM — the "Review →" / "Open show →"
@@ -324,7 +324,7 @@ describe("NeedsAttentionInbox", () => {
       />,
     );
     expect(screen.getByTestId("needs-attention-link-archived-one").getAttribute("href")).toBe(
-      "/admin/show/archived-one",
+      "/admin?show=archived-one",
     );
   });
 

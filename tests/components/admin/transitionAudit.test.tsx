@@ -39,6 +39,14 @@ const SERVER_RENDERED = [
   "app/admin/show/[slug]/page.tsx",
   "components/admin/PublishedToggle.tsx",
   "components/admin/PerShowAlertSection.tsx",
+  // admin-show-modal Task 7: the published review modal surface. All three are
+  // client components but deliberately motion-free in SOURCE — the modal's
+  // entrance/exit animation lives in app/globals.css keyframes hooked via
+  // data-review-modal-scrim/-panel attributes (pinned by the shell's own
+  // transition suite), never framer/AnimatePresence or mount-animation classes.
+  "components/admin/showpage/PublishedReviewModal.tsx",
+  "components/admin/review/ReviewModalShell.tsx",
+  "components/admin/showpage/ShowReviewModalSkeleton.tsx",
 ];
 
 describe("transition audit (§10)", () => {

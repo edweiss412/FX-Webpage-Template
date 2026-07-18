@@ -56,8 +56,12 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  },
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/admin/show/x",
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams("show=rpas"),
 }));
 vi.mock("@/app/admin/show/[slug]/_actions", () => ({
   archiveShowAction: async () => ({ ok: true }),
@@ -137,12 +141,13 @@ function snapshotFor(show: Partial<Record<string, unknown>>): ShowReviewSnapshot
   };
 }
 
+// admin-show-modal Task 7: the consolidated review body moved verbatim into the
+// ShowReviewModal server loader; the lifecycle presentation now lives in the
+// `/admin?show=` modal. Render the loader directly (the route page is a thin
+// delegate until Task 9 rewrites it as a redirect).
 async function renderPage() {
-  const mod = await import("@/app/admin/show/[slug]/page");
-  const ui = await mod.default({
-    params: Promise.resolve({ slug: "rpas" }),
-    searchParams: Promise.resolve({}),
-  });
+  const mod = await import("@/app/admin/_showReviewModal");
+  const ui = await mod.ShowReviewModal({ slug: "rpas", alertId: null });
   render(ui);
 }
 

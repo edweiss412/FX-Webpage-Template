@@ -14,8 +14,9 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: () => requireAdminIdentity(),
 }));
 const revalidateTag = vi.fn();
+const revalidatePath = vi.fn();
 vi.mock("next/cache", () => ({
-  revalidatePath: vi.fn(),
+  revalidatePath: (...a: unknown[]) => revalidatePath(...a),
   revalidateTag: (...a: unknown[]) => revalidateTag(...a),
 }));
 
@@ -95,6 +96,56 @@ it("undoChangeAction forwards changeLogId to the undo helper", async () => {
   // via useActionState and surface typed failures.
   await undoChangeAction(null, fd);
   expect(spy).toHaveBeenCalledWith("cl-9");
+});
+
+// admin-show-modal Task 10 (spec §4): the modal renders on /admin, so a success
+// MUST revalidate "/admin" (page) or the modal UI goes stale after the action —
+// and the stale show-route revalidation is DROPPED where touched (the
+// /admin/show/[slug] route is now a pure redirect; revalidating it is dead).
+// Failure mode caught: an action that still (only) revalidates the dead show
+// route leaves the open modal showing the pre-action feed until a full reload.
+it("mi11ApproveAction success revalidates /admin (page) and no longer touches the dead show route", async () => {
+  revalidatePath.mockClear();
+  vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true, showId: "show-77" });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  fd.set("expectedBaseModifiedTime", "");
+  await mi11ApproveAction(null, fd);
+  expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+  expect(revalidatePath).not.toHaveBeenCalledWith("/admin/show/[slug]", expect.anything());
+});
+
+it("mi11RejectAction success revalidates /admin (page) and no longer touches the dead show route", async () => {
+  revalidatePath.mockClear();
+  vi.spyOn(gate, "rejectMi11Hold").mockResolvedValue({ ok: true });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  fd.set("expectedBaseModifiedTime", "");
+  await mi11RejectAction(null, fd);
+  expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+  expect(revalidatePath).not.toHaveBeenCalledWith("/admin/show/[slug]", expect.anything());
+});
+
+it("undoChangeAction success revalidates /admin (page) and no longer touches the dead show route", async () => {
+  revalidatePath.mockClear();
+  vi.spyOn(undo, "undoChange").mockResolvedValue({ ok: true, showId: "show-77" });
+  const fd = new FormData();
+  fd.set("changeLogId", "cl-9");
+  await undoChangeAction(null, fd);
+  expect(revalidatePath).toHaveBeenCalledWith("/admin", "page");
+  expect(revalidatePath).not.toHaveBeenCalledWith("/admin/show/[slug]", expect.anything());
+});
+
+it("a refusal never revalidates any path (no cache churn on {ok:false})", async () => {
+  revalidatePath.mockClear();
+  vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({
+    ok: false,
+    code: "IDENTITY_WOULD_COLLIDE",
+  });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  await mi11ApproveAction(null, fd);
+  expect(revalidatePath).not.toHaveBeenCalled();
 });
 
 it("requireAdminIdentity gates every action (called before delegation)", async () => {

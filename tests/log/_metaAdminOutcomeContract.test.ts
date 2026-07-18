@@ -213,7 +213,7 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
     anchor: '"requireAdmin returned but canonicalized email is null"',
   },
   {
-    file: "app/admin/show/[slug]/page.tsx",
+    file: "app/admin/_showReviewModal.tsx",
     code: "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
     level: "error",
     anchor: '"supabase client construction threw:"',
@@ -224,25 +224,25 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
     // the snapshot RPC (readShowReviewSnapshot logs its own faults under source
     // "admin.showReview.snapshot"), so the CREW_LOOKUP_*/INTERNAL_PARSE_WARNINGS_*
     // forensic codes were retired with those direct reads.
-    file: "app/admin/show/[slug]/page.tsx",
+    file: "app/admin/_showReviewModal.tsx",
     code: "ADMIN_SHOW_LOOKUP_FAILED",
     level: "error",
     anchor: '"show id lookup failed:"',
   },
   {
-    file: "app/admin/show/[slug]/page.tsx",
+    file: "app/admin/_showReviewModal.tsx",
     code: "ADMIN_SHOW_LOOKUP_THREW",
     level: "error",
     anchor: '"show id lookup threw:"',
   },
   {
-    file: "app/admin/show/[slug]/page.tsx",
+    file: "app/admin/_showReviewModal.tsx",
     code: "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
     level: "error",
     anchor: '"changes feed read failed:"',
   },
   {
-    file: "app/admin/show/[slug]/page.tsx",
+    file: "app/admin/_showReviewModal.tsx",
     code: "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
     level: "warn",
     anchor: '"crew roster exceeded read cap:"',

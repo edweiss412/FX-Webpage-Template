@@ -109,7 +109,7 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   {
     kind: "concrete",
     sourceSurface: "Per-show - Alerts section header",
-    sourceRoute: "/admin/show/rpas-central-2026",
+    sourceRoute: "/admin?show=rpas-central-2026",
     affordance: "? tooltip",
     testid: "help-affordance--per-show-alerts--tooltip",
     target: "/help/admin/parse-warnings",
@@ -236,7 +236,7 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   {
     kind: "template-family",
     sourceSurface: "Any error rendered via messageFor(code) in /admin/*",
-    sourceRoute: "/admin/show/rpas-central-2026",
+    sourceRoute: "/admin?show=rpas-central-2026",
     affordance: "Learn more →",
     testidPattern: "help-affordance--error-message--<code>--learn-more",
     targetPattern: "/help/errors#<code>",
