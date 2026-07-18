@@ -70,7 +70,9 @@ Existing pins in `tests/components/admin/wizard/Step3ReviewModal.test.tsx` match
 | multiple jump buttons (2534) | crew fixture | flagged | `/Fix in Parse warnings/` |
 | judgment section (1287, if it asserts the button) | rooms judgment | judgment | `/Review in Parse warnings/` |
 
-New assertion to add (failure mode caught: label not variant-aware — a blanket "Review…" would let the amber/flagged path pass while under-cueing urgency): a test rendering a **flagged** callout asserts its jump button name is exactly `Fix in Parse warnings` AND a **judgment** callout asserts `Review in Parse warnings`, in the same test file, so a single-label regression fails. Overflow-line matchers (`/more in Parse warnings/`, lines 2384/2396/2563) are UNCHANGED and must keep passing (proves we did not touch the overflow copy).
+New assertion to add (failure mode caught: label not variant-aware — a blanket "Review…" would let the amber/flagged path pass while under-cueing urgency): a test rendering a **flagged** callout asserts its jump button accessible name matches `/^Fix in Parse warnings\b/` AND a **judgment** callout matches `/^Review in Parse warnings\b/`, in the same test file, so a single-label regression fails.
+
+**Accessible-name caveat (do NOT assert exact equality):** the visible label is followed by the preserved sr-only suffix " for {title}" (§2.1), so the button's *accessible name* is `Fix in Parse warnings for <title>`, not the bare label. Matchers MUST be prefix/substring regexes (`/^Fix in Parse warnings\b/`), never exact-string equality — an exact match would either fail or pressure the implementation to drop the per-warning uniqueness suffix, an a11y regression in a repeated-button list. To pin the visible text distinct from the sr-only tail, assert the button's non-sr-only text content separately (e.g. clone the button, strip the `.sr-only` span, assert `textContent === "Fix in Parse warnings"`). Overflow-line matchers (`/more in Parse warnings/`, lines 2384/2396/2563) are UNCHANGED and must keep passing (proves we did not touch the overflow copy).
 
 ## 8. Files touched
 
