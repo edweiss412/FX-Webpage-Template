@@ -33,6 +33,15 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   experimental: {
     authInterrupts: true,
+    // Next 16's default builder is Turbopack, which — unlike webpack — writes no
+    // reusable compiler cache to `<distDir>/cache` unless this beta flag is set
+    // (stable for dev, opt-in for `next build`; Next 16.0.0+). Without it a warm
+    // CI build reuses nothing (measured: the screenshots-drift cache was ~299 KB
+    // and bought ~0s). Enabling it lets the `.next(-*)?/cache` restore steps in
+    // the screenshots-drift / help-affordances workflows actually skip
+    // recompilation. Dev-side caching (`turbopackFileSystemCacheForDev`) is
+    // already default-on since 16.1.0, so only the build flag is added here.
+    turbopackFileSystemCacheForBuild: true,
   },
   pageExtensions: ["ts", "tsx", "mdx"],
   // Root-collapse spec §4.1 (C-1): `/` is an unconditional alias for the
