@@ -24,6 +24,9 @@ const DOUG = [
   "SYNC_STALLED",
   "WATCH_CHANNEL_ORPHANED",
   "ONBOARDING_SHEET_UNREADABLE",
+  // Capability-narrow (2026-07-17): ROLE_FLAGS_NOTICE moved health → doug (dismissible operator
+  // audit nudge; see 2026-07-17-role-flags-notice-lead-only-doug.md).
+  "ROLE_FLAGS_NOTICE",
 ] as const;
 const DEGRADED = [
   "PENDING_SNAPSHOT_PROMOTE_STUCK",
@@ -49,7 +52,6 @@ const NOTICE = [
   "ASSET_RECOVERY_DRIFT_COOLDOWN",
   "WIZARD_SESSION_SUPERSEDED_RACE",
   "OAUTH_IDENTITY_CLAIMED",
-  "ROLE_FLAGS_NOTICE",
   "CALLBACK_CLAIM_THREW",
   "REPORT_ORPHANED_LOST_LEASE",
   "REPORT_LOOKUP_INCONCLUSIVE",
@@ -68,11 +70,11 @@ const cat = MESSAGE_CATALOG as Record<
 >;
 
 describe("alert audience contract", () => {
-  test("partition counts: 19 doug + 26 health = 45; 16 degraded + 10 notice", () => {
-    expect(DOUG.length).toBe(19);
-    expect(HEALTH.length).toBe(26);
+  test("partition counts: 20 doug + 25 health = 45; 16 degraded + 9 notice", () => {
+    expect(DOUG.length).toBe(20);
+    expect(HEALTH.length).toBe(25);
     expect(DEGRADED.length).toBe(16);
-    expect(NOTICE.length).toBe(10);
+    expect(NOTICE.length).toBe(9);
   });
   test("DOUG ∪ HEALTH is EXACTLY the canonical ADMIN_ALERTS_CODES registry (set-equality both ways)", () => {
     expect(new Set([...DOUG, ...HEALTH])).toEqual(new Set(ADMIN_ALERTS_CODES));

@@ -64,7 +64,12 @@ const isStrArr = (v: unknown): v is string[] =>
 
 type Built = { entries: FieldChangeEntry[]; omitted: number; types: string[] };
 
-function build(items: TriggeredReviewItem[]): Built {
+/** A non-MI-9 role change (scope-tile or FINANCIALS toggle) fed in from the applied-crew diff
+ *  (capability-narrow 2026-07-17). MI-9 items cover LEAD-toggle members; these cover the rest so the
+ *  structured field_changed row identifies EVERY applied role change, not just LEAD ones. */
+export type ExtraRoleChange = { crew_name: string; prior_flags: string[]; new_flags: string[] };
+
+function build(items: TriggeredReviewItem[], extraRoleChanges: ExtraRoleChange[] = []): Built {
   const entries: FieldChangeEntry[] = [];
   const types: string[] = [];
   let omitted = 0;
@@ -154,6 +159,26 @@ function build(items: TriggeredReviewItem[]): Built {
     });
     if (!types.includes("Role")) types.push("Role");
   }
+  // Non-MI-9 role changes (scope-tile / FINANCIALS toggles) from the applied-crew diff. Same guards
+  // as MI-9 above (crew_name non-empty; prior/new flag arrays), same structured entry shape. Disjoint
+  // from the MI-9 loop by construction (a member either toggled LEAD → MI-9, or did not → here).
+  for (const rc of extraRoleChanges) {
+    const name =
+      typeof rc.crew_name === "string" && trimStr(rc.crew_name) !== ""
+        ? trimStr(rc.crew_name)
+        : null;
+    if (name === null || !isStrArr(rc.prior_flags) || !isStrArr(rc.new_flags)) {
+      omitted++;
+      continue;
+    }
+    entries.push({
+      label: capValue(`Role — ${name}`),
+      from: joinFlags(rc.prior_flags),
+      to: joinFlags(rc.new_flags),
+      note: null,
+    });
+    if (!types.includes("Role")) types.push("Role");
+  }
   return { entries, omitted, types };
 }
 
@@ -170,9 +195,14 @@ const HAS_FIELD_FAMILY = new Set(["MI-8", "MI-8b", "MI-8c", "MI-9"]);
 
 export function buildFieldChangesRow(
   items: TriggeredReviewItem[],
+  extraRoleChanges: ExtraRoleChange[] = [],
 ): { summary: string; afterImage: { fieldChanges: FieldChangeEntry[] } } | null {
-  if (!items.some((i) => HAS_FIELD_FAMILY.has(i.invariant))) return null;
-  const { entries, omitted, types } = build(items);
+  // Fire when any field-family invariant is present OR any non-MI-9 role change was fed in
+  // (capability-narrow 2026-07-17 — a scope-tile-only change has no MI-8/MI-9 item but still gets a row).
+  if (!items.some((i) => HAS_FIELD_FAMILY.has(i.invariant)) && extraRoleChanges.length === 0) {
+    return null;
+  }
+  const { entries, omitted, types } = build(items, extraRoleChanges);
   if (entries.length > 0) {
     if (omitted > 0) {
       entries.push({

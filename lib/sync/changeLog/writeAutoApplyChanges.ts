@@ -1,6 +1,6 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
-import { buildFieldChangesRow } from "@/lib/sync/changeLog/fieldChanges";
+import { buildFieldChangesRow, type ExtraRoleChange } from "@/lib/sync/changeLog/fieldChanges";
 import type { PreviousCrewMember } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
 
@@ -140,10 +140,34 @@ export async function writeAutoApplyChanges(args: WriteAutoApplyChangesArgs): Pr
       afterImage: null,
     });
   }
-  // Field changes (MI-8/8b/8c + MI-9 role — non-identity crew field, not undoable per F17).
-  // Structured enrichment (spec 2026-07-17-autoapplied-field-structured-diff §3):
-  // buildFieldChangesRow returns null iff no field-family item is present.
-  const fieldRow = buildFieldChangesRow(args.triggeredItems);
+  // Field changes (MI-8/8b/8c + MI-9 LEAD role — non-identity crew field, not undoable per F17).
+  // Structured enrichment (spec 2026-07-17-autoapplied-field-structured-diff §3).
+  //
+  // Capability-narrow (2026-07-17-role-flags-notice-lead-only-doug §2.4): MI-9 items cover only
+  // LEAD-toggle members. To identify EVERY applied role change (scope-tile + FINANCIALS toggles too),
+  // diff the applied crew list for members whose role_flags changed WITHOUT a LEAD toggle (disjoint
+  // from MI-9) and feed them as extra structured Role entries. Rename-resolved via the same rename
+  // pairs; no held-skip (a held-fold role change is captured, matching MI-9's parse-driven items).
+  const extraRoleChanges: ExtraRoleChange[] = [];
+  const priorNameForAdded = new Map(renames.map((r) => [r.added, r.prior]));
+  for (const next of args.nextCrewMembers) {
+    const priorName = priorNameForAdded.get(next.name) ?? next.name;
+    const prior = prevByName.get(priorName);
+    if (!prior) continue; // new crew → crew_added, not a role change
+    const priorFlags = prior.role_flags as string[];
+    const nextFlags = next.role_flags as string[];
+    const leadToggled = priorFlags.includes("LEAD") !== nextFlags.includes("LEAD");
+    if (leadToggled) continue; // covered by the MI-9 structured entry
+    const sameSet =
+      priorFlags.length === nextFlags.length && priorFlags.every((f) => nextFlags.includes(f));
+    if (sameSet) continue; // no delta
+    extraRoleChanges.push({
+      crew_name: next.name,
+      prior_flags: [...priorFlags],
+      new_flags: [...nextFlags],
+    });
+  }
+  const fieldRow = buildFieldChangesRow(args.triggeredItems, extraRoleChanges);
   if (fieldRow) {
     rows.push({
       changeKind: "field_changed",

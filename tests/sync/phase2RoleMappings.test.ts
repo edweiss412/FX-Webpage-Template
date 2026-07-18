@@ -429,7 +429,7 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
     expect(second.appliedRoleMappings).toEqual([]);
   });
 
-  test("e2e delta (spec §13): mapping applied to an existing crew row emits a ROLE_FLAGS_NOTICE change", async () => {
+  test("e2e delta (spec §13): a SCOPE-TILE mapping grant (A1) applied to an existing crew row emits NO ROLE_FLAGS_NOTICE (capability-narrow — it gets a change-log row instead)", async () => {
     // First publish WITHOUT the mapping: Marcus persisted with role_flags [] and the
     // UNKNOWN_ROLE_TOKEN warning survives (nothing consumed it).
     const tx = new FakePhase2Tx();
@@ -437,10 +437,11 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
     if (first.outcome !== "applied") throw new Error("expected applied");
     expect(tx.crewFlags("Marcus Webb")).toEqual([]);
 
-    // Second sync WITH the mapping: the overlay grants A1 onto the existing row, so the
-    // crew diff sees prior [] → new [A1] and phase2 surfaces a ROLE_FLAGS_NOTICE delta on
-    // the change feed (the existing non-lead role-flag-change notice path). The consumed
-    // warning is absent and the granted flag lands — the full §13 e2e assertion.
+    // Second sync WITH the mapping: the overlay grants A1 onto the existing row, so the crew diff
+    // sees prior [] → new [A1]. A1 is a SCOPE-TILE flag (no cross-viewer capability), so post
+    // capability-narrow (2026-07-17) it does NOT surface a ROLE_FLAGS_NOTICE — it gets an
+    // identifiable structured entry in the auto-apply field_changed row (buildFieldChangesRow) instead. The consumed warning is absent
+    // and the granted flag lands — the full §13 e2e assertion (flag application unchanged).
     const second = await runWith(tx, {
       modifiedTime: "2026-05-08T13:00:00.000Z",
       roleTokenMappings: [MAPPING],
@@ -449,15 +450,8 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
     if (second.outcome !== "applied") throw new Error("expected applied");
     expect(tx.crewFlags("Marcus Webb")).toEqual(MAPPING.grants);
     expect((second.parseWarnings ?? []).filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
-    // ROLE_FLAGS_NOTICE carries the []→grants delta for the mapped member (derived from MAPPING).
-    expect(second.roleFlagsNotice).toEqual({
-      showId: "show-1",
-      code: "ROLE_FLAGS_NOTICE",
-      context: {
-        drive_file_id: "file-1",
-        changes: [{ crew_name: "Marcus Webb", prior_flags: [], new_flags: MAPPING.grants }],
-      },
-    });
+    // Scope-tile grant → no capability notice.
+    expect(second).not.toHaveProperty("roleFlagsNotice");
   });
 
   test("stale outcome carries NO appliedRoleMappings (rollback emits nothing — §10 point 7)", async () => {

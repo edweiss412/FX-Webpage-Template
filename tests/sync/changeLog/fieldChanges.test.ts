@@ -95,6 +95,52 @@ describe("buildFieldChangesRow", () => {
     });
   });
 
+  // Capability-narrow (2026-07-17-role-flags-notice-lead-only-doug §2.4): non-MI-9 role changes
+  // (scope-tile / FINANCIALS toggles) fed via extraRoleChanges get the SAME structured Role entry,
+  // and fire the row even with NO MI-8/MI-9 item present.
+  it("extraRoleChanges: a scope-tile-only change (no field-family item) still produces a structured Role row", () => {
+    const row = buildFieldChangesRow(
+      [],
+      [{ crew_name: "Dana Kim", prior_flags: ["A1"], new_flags: ["V1"] }],
+    )!;
+    expect(row).not.toBeNull();
+    expect(row.afterImage.fieldChanges).toEqual([
+      { label: "Role — Dana Kim", from: "A1", to: "V1", note: null },
+    ]);
+  });
+
+  it("extraRoleChanges: a FINANCIALS grant renders From→To structurally", () => {
+    const row = buildFieldChangesRow(
+      [],
+      [{ crew_name: "Fin Ops", prior_flags: [], new_flags: ["FINANCIALS"] }],
+    )!;
+    expect(row.afterImage.fieldChanges[0]).toEqual({
+      label: "Role — Fin Ops",
+      from: "(none)",
+      to: "FINANCIALS",
+      note: null,
+    });
+  });
+
+  it("extraRoleChanges: an MI-9 LEAD entry and a non-MI-9 scope-tile entry coexist in one row (disjoint members)", () => {
+    const row = buildFieldChangesRow(
+      [mi9("Lead Person", ["A1"], ["A1", "LEAD"])],
+      [{ crew_name: "Scope Person", prior_flags: ["A1"], new_flags: ["V1"] }],
+    )!;
+    const labels = row.afterImage.fieldChanges.map((e) => e.label);
+    expect(labels).toContain("Role — Lead Person");
+    expect(labels).toContain("Role — Scope Person");
+  });
+
+  it("extraRoleChanges: a malformed extra (non-array flags) is counted omitted, never coerced", () => {
+    const row = buildFieldChangesRow(
+      [],
+      [{ crew_name: "Bad", prior_flags: "nope" as unknown as string[], new_flags: ["A1"] }],
+    )!;
+    // all-malformed → explicit Unavailable marker, never a fake entry
+    expect(row.afterImage.fieldChanges[0]!.label).toBe("Unavailable");
+  });
+
   it("ordering: MI-8 (financialFields order) → MI-8b → MI-8c → MI-9", () => {
     const row = buildFieldChangesRow([
       mi9("Alex", ["A1"], ["A1", "LEAD"]),

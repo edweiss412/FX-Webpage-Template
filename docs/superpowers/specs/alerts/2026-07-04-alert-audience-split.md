@@ -99,6 +99,12 @@ amber alarm.
 
 ### 3.2 `audience: "health"` (26) with `healthWeight`
 
+> **Amendment 2026-07-17 (`2026-07-17-role-flags-notice-lead-only-doug.md`):** `ROLE_FLAGS_NOTICE`
+> moved `audience: "health" → "doug"` (a dismissible operator audit nudge, no longer a health-rollup
+> concern) and its producer was narrowed to CAPABILITY changes (LEAD ∪ FINANCIALS). The health set
+> is one smaller and the doug set one larger than the counts below; the enforced authority is the
+> live `tests/messages/_metaAlertAudienceContract.test.ts`, not this doc's original numeric sweep.
+
 **`degraded` (red) — genuine degradation (16):**
 `PENDING_SNAPSHOT_PROMOTE_STUCK`, `PENDING_SNAPSHOT_ROLLBACK_STUCK`,
 `PENDING_SNAPSHOT_DELETE_STUCK`, `WEBHOOK_TOKEN_INVALID`, `GITHUB_BOT_LOGIN_MISSING`,

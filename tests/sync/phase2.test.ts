@@ -591,19 +591,23 @@ describe("runPhase2 destructive snapshot", () => {
     });
   });
 
+  // Capability-narrow (2026-07-17): scope-tile-only changes (department/additive flags that only
+  // affect the crew member's OWN page tiles, no cross-viewer capability) NO LONGER emit
+  // ROLE_FLAGS_NOTICE — they get a structured entry in the auto-apply field_changed row (buildFieldChangesRow) instead. Only a
+  // capability toggle (LEAD or FINANCIALS) fires the bell/event.
   test.each([
     {
-      label: "department changes while LEAD remains set",
+      label: "department changes while LEAD remains set (no capability toggle)",
       priorFlags: ["LEAD", "A1"] as CrewMemberRow["role_flags"],
       newFlags: ["LEAD", "V1"] as CrewMemberRow["role_flags"],
     },
     {
-      label: "non-LEAD capability is added",
+      label: "a scope-tile flag is added (BO)",
       priorFlags: ["A1"] as CrewMemberRow["role_flags"],
       newFlags: ["A1", "BO"] as CrewMemberRow["role_flags"],
     },
   ])(
-    "auto-applied non-LEAD role flag changes return deferred ROLE_FLAGS_NOTICE intent: $label",
+    "scope-tile-only role flag changes produce NO ROLE_FLAGS_NOTICE: $label",
     async ({ priorFlags, newFlags }) => {
       const tx = new FakePhase2Tx();
       tx.shows.set("file-1", {
@@ -620,47 +624,42 @@ describe("runPhase2 destructive snapshot", () => {
         parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", newFlags)] }),
       });
 
-      expect(result).toEqual({
-        outcome: "applied",
-        appliedRoleMappings: [],
-        showId: "show-1",
-        // §02 (FIX-3): the applied result carries the parse warnings through (the parseResult factory
-        // seeds one WARN). No AGENDA → no AGENDA_DAY_EMPTIED appended.
-        parseWarnings: [{ severity: "warn", code: "WARN", message: "warning" }],
-        roleFlagsNotice: {
-          showId: "show-1",
-          code: "ROLE_FLAGS_NOTICE",
-          context: {
-            drive_file_id: "file-1",
-            changes: [
-              {
-                crew_name: "Alice",
-                prior_flags: priorFlags,
-                new_flags: newFlags,
-              },
-            ],
-          },
-        },
-      });
+      expect(result).not.toHaveProperty("roleFlagsNotice");
     },
   );
 
-  // MI-9 / MI-10 (owner option B, 2026-07-17): a LEAD-bit change AUTO-APPLIES but must no longer be
-  // silent — the producer emits a ROLE_FLAGS_NOTICE FYI. Failure mode caught: the old `:257`
-  // LEAD-skip that left a LEAD grant/loss with no audit entry.
+  // Capability-narrow (2026-07-17): a CAPABILITY-flag change (LEAD or FINANCIALS gain/loss) AUTO-
+  // APPLIES but must not be silent — the producer emits a ROLE_FLAGS_NOTICE FYI + (Task 2) the
+  // durable LEAD_ROLE_APPLIED event. FINANCIALS independently grants financial-data access
+  // (scopeTiles.ts:141), so a [] → [FINANCIALS] grant is audit-worthy, not a scope-tile change.
   test.each([
     {
-      label: "LEAD is gained (silent promotion → now an audit FYI)",
+      label: "LEAD is gained",
       priorFlags: ["A1"] as CrewMemberRow["role_flags"],
       newFlags: ["A1", "LEAD"] as CrewMemberRow["role_flags"],
     },
     {
-      label: "LEAD is lost (silent demotion → now an audit FYI)",
+      label: "LEAD is lost",
       priorFlags: ["LEAD", "A1"] as CrewMemberRow["role_flags"],
       newFlags: ["A1"] as CrewMemberRow["role_flags"],
     },
+    {
+      label: "FINANCIALS is gained",
+      priorFlags: [] as CrewMemberRow["role_flags"],
+      newFlags: ["FINANCIALS"] as CrewMemberRow["role_flags"],
+    },
+    {
+      label: "FINANCIALS is lost",
+      priorFlags: ["FINANCIALS"] as CrewMemberRow["role_flags"],
+      newFlags: [] as CrewMemberRow["role_flags"],
+    },
+    {
+      label: "FINANCIALS gained while a scope tile also changes",
+      priorFlags: ["A1"] as CrewMemberRow["role_flags"],
+      newFlags: ["V1", "FINANCIALS"] as CrewMemberRow["role_flags"],
+    },
   ])(
-    "an auto-applied LEAD-bit change produces a ROLE_FLAGS_NOTICE: $label",
+    "an auto-applied capability change produces a ROLE_FLAGS_NOTICE: $label",
     async ({ priorFlags, newFlags }) => {
       const tx = new FakePhase2Tx();
       tx.shows.set("file-1", {
@@ -758,6 +757,116 @@ describe("runPhase2 destructive snapshot", () => {
 
     const result = await runWith(tx, {
       parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", ["LEAD", "A1"])] }),
+    });
+
+    expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
+
+  // Capability-narrow (2026-07-17): arm (b) — a brand-new crew member added WITH a capability flag
+  // (LEAD or FINANCIALS) is a capability grant → ROLE_FLAGS_NOTICE (prior_flags: []). FINANCIALS
+  // (not just LEAD) must fire.
+  test("a brand-new crew member with FINANCIALS produces a ROLE_FLAGS_NOTICE (prior_flags: [])", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice"],
+      crewMembers: [crewWithFlags("Alice", ["A1"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({
+        crewMembers: [crewWithFlags("Alice", ["A1"]), crewWithFlags("Bob", ["A1", "FINANCIALS"])],
+      }),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      roleFlagsNotice: {
+        code: "ROLE_FLAGS_NOTICE",
+        context: {
+          changes: [{ crew_name: "Bob", prior_flags: [], new_flags: ["A1", "FINANCIALS"] }],
+        },
+      },
+    });
+  });
+
+  // Capability-narrow (2026-07-17): arm (c) — a capability holder REMOVED from the roster (present
+  // in prior, absent from applied, NOT identity-link-renamed) has lost that access → a
+  // ROLE_FLAGS_NOTICE loss (prior → []). Path-independent (covers the staged remove+add of an
+  // identity-link rename). A removed scope-tile-only member emits nothing.
+  test.each([
+    { label: "removed LEAD holder", flags: ["LEAD", "A1"] as CrewMemberRow["role_flags"] },
+    { label: "removed FINANCIALS holder", flags: ["FINANCIALS"] as CrewMemberRow["role_flags"] },
+  ])(
+    "arm (c): a removed capability holder produces a ROLE_FLAGS_NOTICE loss: $label",
+    async ({ flags }) => {
+      const tx = new FakePhase2Tx();
+      tx.shows.set("file-1", {
+        id: "show-1",
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        crewNames: ["Alice", "Bob"],
+        crewMembers: [crewWithFlags("Alice", ["A1"]), crewWithFlags("Bob", flags)],
+      });
+
+      const result = await runWith(tx, {
+        parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", ["A1"])] }),
+      });
+
+      expect(result).toMatchObject({
+        outcome: "applied",
+        roleFlagsNotice: {
+          code: "ROLE_FLAGS_NOTICE",
+          context: { changes: [{ crew_name: "Bob", prior_flags: flags, new_flags: [] }] },
+        },
+      });
+    },
+  );
+
+  test("arm (c): a removed scope-tile-only member produces no ROLE_FLAGS_NOTICE", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Alice", "Bob"],
+      crewMembers: [crewWithFlags("Alice", ["A1"]), crewWithFlags("Bob", ["V1", "BO"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", ["A1"])] }),
+    });
+
+    expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
+
+  // Capability-narrow (2026-07-17): arm (c) exclusion — a cron identity-linked rename is identity-
+  // PRESERVING, so the removed old name is NOT a loss (the member continues under the new name).
+  // With UNCHANGED capability, arm (a) sees no delta and arm (c) excludes the renamed-away old name
+  // → NO notice. (mi9 §3.1 F2 contract; prevents a phantom capability-loss on every rename.)
+  test("arm (c) exclusion: a cron identity-link rename with unchanged capability produces no ROLE_FLAGS_NOTICE", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Old Name"],
+      crewMembers: [crewWithFlags("Old Name", ["LEAD", "A1"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("New Name", ["LEAD", "A1"])] }),
+      identityLinkRenames: [{ removedName: "Old Name", addedName: "New Name" }],
     });
 
     expect(result).not.toHaveProperty("roleFlagsNotice");
