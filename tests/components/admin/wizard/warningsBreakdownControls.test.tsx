@@ -40,6 +40,7 @@ import {
   BreakdownSection,
   CALLOUT_MAX_ENTRIES,
   findUseRawDecision,
+  reviewWarningTitle,
   step3Sections,
   Step3SectionChromeContext,
   WarningsBreakdown,
@@ -261,7 +262,7 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
   });
 });
 
-describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
+describe("SectionFlagCallout preview — no controls (USE-RAW-FULL-LIST-1 demotion)", () => {
   // Public-surface mount: the callout renders via ModalSectionChrome when the
   // chrome context carries calloutEntries (step3ReviewSections.tsx ~:715).
   function chromeValue(entries: { warning: ParseWarning; index: number }[]) {
@@ -287,37 +288,26 @@ describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
     );
   }
 
-  test("expanded role-panel state follows the warning identity when full-array indices shift", () => {
-    const role = roleWarning("SLED DRIVER");
-    const other = roleWarning("RIGGER X");
-    const q = render(
-      calloutHost([
-        { warning: role, index: 4 },
-        { warning: other, index: 5 },
-      ]),
-    );
-    const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-    // Expand the FIRST entry's role panel (belongs to `role`).
-    fireEvent.click(within(callout).getAllByTestId("role-recognize-trigger-callout")[0]!);
-    expect(within(callout).getAllByTestId("role-recognize-panel-callout")).toHaveLength(1);
-
-    // Upstream insertion shifts every full-array index AND swaps the entry
-    // order: `role` (whose panel is open) moves from entry 0 to entry 1.
-    // Identity keys must carry the open panel with `role`; index keys would
-    // leave it on whatever warning now sits at entry 0.
-    q.rerender(
-      calloutHost([
-        { warning: other, index: 7 },
-        { warning: role, index: 8 },
-      ]),
-    );
-    const calloutAfter = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-    const panels = within(calloutAfter).getAllByTestId("role-recognize-panel-callout");
-    expect(panels).toHaveLength(1);
-    // Locate by durable identity (the entry containing role's token), not index.
-    const panelEntry = panels[0]!.closest("div.flex.flex-col");
-    expect(panelEntry?.textContent).toContain("SLED DRIVER");
-    expect(panelEntry?.textContent).not.toContain("RIGGER X");
+  // The callout is a PREVIEW: it mounts no recognize-role control. (Its former
+  // stateful role-panel — whose identity-key migration this describe used to pin —
+  // no longer exists here; that concern is moot once the control leaves. The list
+  // remains the sole actionable site and still keys by identity, unchanged.)
+  test("callout renders NO role-recognize control; list still does (role-token fixture)", () => {
+    const w = roleWarning("SLED DRIVER"); // UNKNOWN_ROLE_TOKEN + nonblank roleToken
+    const callout = render(calloutHost([{ warning: w, index: 0 }]));
+    const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    // No recognize-role subtree at any site-scoped leaf (root/trigger/panel).
+    expect(within(box).queryByTestId("role-recognize-control-callout")).toBeNull();
+    expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
+    expect(within(box).queryByTestId("role-recognize-panel-callout")).toBeNull();
+    // Anti-overstrip: the preview STILL renders the entry title + View details jump.
+    expect(within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length).toBeGreaterThan(0);
+    expect(within(box).getByText(/View details/)).toBeTruthy();
+    cleanup();
+    // List = sole actionable site; still mounts the recognize-role control.
+    const list = renderBreakdown([w], { decisions: [] });
+    const row = list.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
+    expect(within(row).getByTestId("role-recognize-control-list")).toBeTruthy();
   });
 });
 
@@ -391,19 +381,21 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
     );
   }
 
-  test("one warning rendered at callout + list yields distinct, non-colliding control testids", () => {
-    const w = roomSplitWarning(0); // existing in-scope ROOM_HEADER_SPLIT_AMBIGUOUS fixture (:59)
-    // list host
+  test("callout renders NO use-raw control; list still does (use-raw fixture)", () => {
+    const w = roomSplitWarning(0); // in-scope ROOM_HEADER_SPLIT_AMBIGUOUS fixture (:59)
+    // list host — sole actionable site, keeps the control
     const list = renderBreakdown([w], { decisions: [] });
     const row = list.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
     expect(within(row).getByTestId("use-raw-control-list")).toBeTruthy();
     expect(within(row).queryByTestId("use-raw-control-callout")).toBeNull();
     cleanup();
-    // callout host
+    // callout host — demoted to preview: no use-raw control mount
     const callout = render(localCalloutHost([{ warning: w, index: 0 }]));
     const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-    expect(within(box).getByTestId("use-raw-control-callout")).toBeTruthy();
-    expect(within(box).queryByTestId("use-raw-control-list")).toBeNull();
+    expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
+    // Anti-overstrip: preview still renders title + View details for this fixture too.
+    expect(within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length).toBeGreaterThan(0);
+    expect(within(box).getByText(/View details/)).toBeTruthy();
   });
 });
 
