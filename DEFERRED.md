@@ -8,16 +8,6 @@ Last reconciled: 2026-07-17 (every other `###` entry from the prior file was alr
 
 ---
 
-## Bell notification center (2026-07-05)
-
-### BELL-2 — [P2] No triage structure at 9+ (severity/show grouping + mark-all-read)
-
-- **What:** the active section renders a flat activity-ordered list; a 9+ badge opens as an undifferentiated wall. (The count heading was originally part of this entry and already shipped — see archive BELL-2.)
-- **Why deferred:** §7.2 grouping is a design change (collapse per (show,code), activityAt DESC is ratified) that needs its own shape pass, not a gate fix.
-- **Trigger:** D4 calibration — once real alert volume is observed, run `/impeccable shape` on panel triage (grouping, mark-all-read) as its own feature.
-
----
-
 ## Wizard callout preview (2026-07-17)
 
 ### CALLOUT-PREVIEW-ACTION-CUE-1 — [critique P1 → dispositioned P2] Demoted preview may read as FYI; no cue the fix lives in Parse warnings
