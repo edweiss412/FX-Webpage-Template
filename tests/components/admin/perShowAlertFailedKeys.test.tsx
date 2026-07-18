@@ -59,8 +59,15 @@ describe("PerShowAlertSection TILE_PROJECTION_FETCH_FAILED failedKeys detail", (
     // failedKeys, not the underlying error.message (which getShowForViewer
     // records separately in data.tileErrors values).
     expect(section.textContent).not.toContain("fetch failed");
-    // No em-dash anywhere in the rendered alert copy (DESIGN.md §9).
-    expect(section.textContent).not.toContain("—");
+    // alert-copy-full-sweep §6.c (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md:685)
+    // ratified TILE_PROJECTION_FETCH_FAILED's condensed dougFacing WITH an
+    // em dash ("...rendered with what did load — refresh in a minute."),
+    // superseding the prior DESIGN.md §9 "no em dashes" assertion for this
+    // code's copy (lib/messages/catalog.ts:2336 carries it verbatim). Assert
+    // the exact condensed copy renders instead of a blanket em-dash ban.
+    expect(section.textContent).toContain(
+      "Acme: one or more data sources couldn't load, so the page rendered with what did load — refresh in a minute. Tell the developer if it persists.",
+    );
   });
 
   it("renders NO 'Failed sources:' line when the alert row has no failedKeys", async () => {

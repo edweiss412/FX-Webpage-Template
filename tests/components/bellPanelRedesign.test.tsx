@@ -6,8 +6,10 @@
  *     `isHealth` + the catalog per-code `severity` (D2);
  *   - the `data-unread` row attribute driving the row tint (D4);
  *   - "Mark all read" (`bell-mark-all-read`) — three visibility cases + the
- *     decoupled markRead that must NOT clobber expand state (D3 / R3 / R4 / R7);
- *   - message is NEVER clamped, and the caret stays gated on helpful context (R4).
+ *     decoupled markRead (D3 / R3 / R4 / R7);
+ *   - message is NEVER clamped (R4), and the show-page chevron (`bell-caret`)
+ *     is a slug predicate — spec §4.1, Task 7 chevron rework — present iff
+ *     `entry.slug` is non-null, independent of the code's catalog copy.
  *
  * jsdom + RTL, `global.fetch` stubbed per test. Anti-tautology: every assertion
  * scopes to `within(getByTestId("bell-panel"))` or a specific row testid; the
@@ -16,9 +18,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
-import { lookupHelpfulContext, messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { GROUP_THRESHOLD, groupActiveBySeverity } from "@/lib/admin/bellTriage";
 import type { BellEntry } from "@/lib/admin/bellFeed";
@@ -32,8 +33,10 @@ const NOTICE_CODE = "ADMIN_ALERT_COUNT_FAILED"; // no `severity` → notice tone
 // notice, §1.6). Strict tsconfig: narrow the [0] index to a `string`.
 const DEGRADED0: string = DEGRADED_HEALTH_CODES[0]!;
 const NOTICE_HEALTH0: string = NOTICE_HEALTH_CODES[0]!;
-// A code WITH helpful context (caret present) — for the message/clamp test.
-const CODE_WITH_HELP = ALL_CODES.find((c) => lookupHelpfulContext(c) !== null)!;
+// A message-bearing code (dougFacing non-null) — for the no-line-clamp
+// assertion. The chevron (bell-caret) is a slug predicate (spec §4.1), not
+// code-driven, so it is exercised via the fixture's `slug` field instead.
+const MESSAGE_CODE = NOTICE_CODE;
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -166,29 +169,32 @@ describe("BellPanel redesign — mark all read (D3)", () => {
     expect(getByTestId("bell-entry-m2").getAttribute("data-unread")).toBe("false");
   });
 
-  it("(a) preserves expand/collapse state — mark-all does not clobber expandedIds (R7)", async () => {
+  it("(a) does not disturb the show-page chevron — mark-all only clears read markers (R7)", async () => {
+    // R7's original concern (mark-all must not clobber OTHER per-row toggle
+    // state) now applies to the chevron nav link: it has no click-driven state
+    // of its own (spec §4.1, Task 7 — the toggle is mark-read-only, the chevron
+    // is a plain nav <a>), so this pins that mark-all-read leaves it untouched.
     const entries = [
-      makeEntry({ alertId: "e1", state: "active", unread: true, code: CODE_WITH_HELP }),
-      makeEntry({ alertId: "e2", state: "active", unread: true, code: CODE_WITH_HELP }),
+      makeEntry({ alertId: "e1", state: "active", unread: true, slug: "east-coast" }),
+      makeEntry({ alertId: "e2", state: "active", unread: true, slug: null }),
     ];
     routeFetch(feedBody({ entries }));
     const { getByTestId, queryByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     await within(panel).findByTestId("bell-section-active");
 
-    // Pre-expand e1 (reveals its helpful-context box); e2 stays collapsed.
-    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-e1"));
-    await within(panel).findByTestId("bell-context-e1");
-    expect(queryByTestId("bell-context-e2")).toBeNull();
+    const chevronHrefBefore = within(panel).getByTestId("bell-caret-e1").getAttribute("href");
+    expect(queryByTestId("bell-caret-e2")).toBeNull();
 
     fireEvent.click(within(panel).getByTestId("bell-mark-all-read"));
     await waitFor(() =>
       expect(getByTestId("bell-entry-e2").getAttribute("data-unread")).toBe("false"),
     );
 
-    // e1 STILL expanded, e2 STILL collapsed — mark-all only cleared markers.
-    expect(within(panel).getByTestId("bell-context-e1")).toBeTruthy();
-    expect(queryByTestId("bell-context-e2")).toBeNull();
+    // e1's chevron is unchanged; e2 (slug null) still has none — mark-all only
+    // cleared read markers, no side effect on the chevron's presence or href.
+    expect(within(panel).getByTestId("bell-caret-e1").getAttribute("href")).toBe(chevronHrefBefore);
+    expect(queryByTestId("bell-caret-e2")).toBeNull();
   });
 
   it("(b) no unread active rows → button absent", async () => {
@@ -216,43 +222,82 @@ describe("BellPanel redesign — mark all read (D3)", () => {
   });
 });
 
-describe("BellPanel redesign — message never clamped (R4)", () => {
-  it("message row renders full text with NO line-clamp; caret present when helpful exists", async () => {
-    const entry = makeEntry({ alertId: "mc", state: "active", code: CODE_WITH_HELP });
+describe("BellPanel redesign — message never clamped (R4) / chevron is a slug predicate (spec §4.1)", () => {
+  it("message row renders full text with NO line-clamp", async () => {
+    const entry = makeEntry({ alertId: "mc", state: "active", code: MESSAGE_CODE });
     routeFetch(feedBody({ entries: [entry] }));
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     await within(panel).findByTestId("bell-section-active");
 
     const row = getByTestId("bell-entry-mc");
-    const title = messageFor(CODE_WITH_HELP).title ?? "";
+    const title = messageFor(MESSAGE_CODE).title ?? "";
     // The full Doug-facing message is rendered (row text is well beyond the title).
     expect(row.textContent!.length).toBeGreaterThan(title.length + 20);
     // No element in the row applies a CSS line-clamp — the remediation copy can
-    // NEVER be visually truncated (R4). The message is always fully visible; only
-    // the helpful-context box is gated behind the caret.
+    // NEVER be visually truncated (R4). The message is always fully visible.
     expect(row.querySelector('[class*="line-clamp"]')).toBeNull();
-    expect(within(panel).getByTestId("bell-caret-mc")).toBeTruthy();
   });
 
-  it("catalog invariant: no message-bearing code lacks helpful context — the orphaned-hidden-message case (R4) cannot arise", () => {
-    const orphans = (Object.keys(MESSAGE_CATALOG) as MessageCode[]).filter(
-      (c) =>
-        messageFor(c).dougFacing != null &&
-        lookupHelpfulContext(c) === null &&
-        // Spec 2026-07-17 §D3: INLINE_IDENTITY_CODES weave identity directly
-        // into dougFacing, so the caret-gated helpfulContext box is redundant
-        // for them by design (ROLE_FLAGS_NOTICE is the one live case that
-        // actually drops helpfulContext to null). Excluded here, not an
-        // orphan — the message itself carries the full context, never hidden.
-        !INLINE_IDENTITY_CODES.has(c),
-    );
-    // Every OTHER code that renders a message also carries a caret-gated
-    // helpful context, so even without the no-clamp guarantee there is no row
-    // whose only content is a hidden (clamped) message with no affordance.
-    // This pins the premise behind dropping message clamping from scope.
-    expect(orphans).toEqual([]);
+  it("chevron (bell-caret) renders iff entry.slug is non-null, with the exact nav href + aria-label — independent of the row's code", async () => {
+    const withSlug = makeEntry({
+      alertId: "sl",
+      state: "active",
+      code: MESSAGE_CODE,
+      slug: "a b/c", // needs percent-encoding — pins encodeURIComponent, not string concat
+    });
+    const withoutSlug = makeEntry({
+      alertId: "ns",
+      state: "active",
+      code: MESSAGE_CODE,
+      slug: null,
+    });
+    routeFetch(feedBody({ entries: [withSlug, withoutSlug] }));
+    const { getByTestId, queryByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    const chevron = within(panel).getByTestId("bell-caret-sl");
+    expect(chevron.tagName).toBe("A");
+    expect(chevron.getAttribute("href")).toBe(`/admin/show/${encodeURIComponent("a b/c")}`);
+    expect(chevron.getAttribute("aria-label")).toBe("Open show page");
+    expect(queryByTestId("bell-caret-ns")).toBeNull();
   });
+
+  it("chevron is a DOM SIBLING of the toggle button, never nested inside it (nested-interactive a11y, spec §4.1)", async () => {
+    const entry = makeEntry({ alertId: "sib", state: "active", code: MESSAGE_CODE, slug: "east" });
+    routeFetch(feedBody({ entries: [entry] }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    const toggle = within(panel).getByTestId("bell-entry-toggle-sib");
+    const chevron = within(panel).getByTestId("bell-caret-sib");
+    expect(toggle.contains(chevron)).toBe(false);
+    expect(chevron.parentElement).toBe(toggle.parentElement);
+  });
+
+  it("no bell-context-* node ever renders — the helpfulContext disclosure box was removed (Task 7)", async () => {
+    const entry = makeEntry({ alertId: "nc", state: "active", code: MESSAGE_CODE, slug: "east" });
+    routeFetch(feedBody({ entries: [entry] }));
+    const { getByTestId, queryByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-nc"));
+    await waitFor(() =>
+      expect(getByTestId("bell-entry-nc").getAttribute("data-unread")).toBe("false"),
+    );
+    expect(queryByTestId("bell-context-nc")).toBeNull();
+  });
+
+  // Structural: every ADMIN_ALERTS_CODES entry now carries null helpfulContext
+  // (spec 2026-07-18 §3 inversion) — pinned by
+  // tests/messages/catalog.test.ts:239 ("every ADMIN_ALERTS_CODES entry has
+  // null helpfulContext and non-null title"), not duplicated here. The old
+  // orphan-check invariant this describe block used to pin (a message-bearing
+  // code must carry caret-gated helpfulContext) is retired along with the
+  // caret's helpfulContext gate — the chevron above is a pure slug predicate.
 });
 
 describe("condensed inline-context rows (spec 2026-07-17)", () => {
@@ -288,7 +333,7 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByTestId(`bell-identity-${roleFlagsEntry.alertId}`)).toBeNull();
-    expect(screen.queryByTestId(`bell-caret-${roleFlagsEntry.alertId}`)).toBeNull(); // helpfulContext now null
+    expect(screen.queryByTestId(`bell-caret-${roleFlagsEntry.alertId}`)).toBeNull(); // fixture's slug is null (unset — makeEntry defaults to null)
   });
 
   it("renders both action links in order", async () => {

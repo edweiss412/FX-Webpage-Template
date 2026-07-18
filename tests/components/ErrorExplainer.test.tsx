@@ -57,13 +57,18 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext={true} AND catalog.helpfulContext is non-null, renders the helpful-context block", () => {
-    // AMBIGUOUS_EMAIL_BINDING has non-null crewFacing and helpfulContext
-    // post Task 9.4 part 2 (spec invariant: helpfulContext tied to non-null dougFacing).
+    // AMBIGUOUS_EMAIL_BINDING is one of the 45 ADMIN_ALERTS_CODES: the
+    // alert-copy-full-sweep (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md
+    // §5) forces every admin alert code's helpfulContext to null (content
+    // migrated to longExplanation on /help/errors), so it no longer fits this
+    // case. NETWORK_UNREACHABLE is not an admin alert code and still carries
+    // non-null crewFacing + helpfulContext, so it exercises the same
+    // non-null-helpfulContext render path.
     const { getByTestId } = render(
-      <ErrorExplainer code="AMBIGUOUS_EMAIL_BINDING" surface="crew" helpfulContext />,
+      <ErrorExplainer code="NETWORK_UNREACHABLE" surface="crew" helpfulContext />,
     );
     expect(getByTestId("error-explainer-helpful-context").textContent).toBe(
-      MESSAGE_CATALOG.AMBIGUOUS_EMAIL_BINDING.helpfulContext!,
+      MESSAGE_CATALOG.NETWORK_UNREACHABLE.helpfulContext!,
     );
   });
 

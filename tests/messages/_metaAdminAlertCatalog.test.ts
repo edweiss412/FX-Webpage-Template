@@ -43,6 +43,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
 import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
@@ -592,45 +593,30 @@ describe("META admin_alerts catalog contract", () => {
     "TILE_PROJECTION_FETCH_FAILED", // app/show/[slug]/[shareToken]/_CrewShell.tsx supplies sheet_name
 
     // Condensed-alert-copy (spec 2026-07-17-condensed-alert-copy-design.md
-    // §4/§6) inline-identity codes — a DIFFERENT mechanism than the
-    // producer-context rows above: these codes' params are NOT written by
-    // the admin_alerts producer at upsert time. They are derived at READ
-    // TIME by deriveAlertMessageParams() (lib/adminAlerts/deriveMessageParams.ts),
-    // which merges sanitized context with resolved-identity fallback params
-    // (sheet-name/show-name/repo/file_name/attempted_action always resolve,
-    // even with null identity/context — Task 9 extended the fallback
-    // coverage for the last three), so interpolation never leaks a literal
-    // <placeholder> on any of the three interpolating renderers: BellPanel
-    // (components/admin/BellPanel.tsx), PerShowAlertSection
-    // (components/admin/PerShowAlertSection.tsx), and HealthAlertsPanel
-    // (components/admin/telemetry/HealthAlertsPanel.tsx). The verbatim-
-    // rendering AlertBanner this test's docblock originally guarded against
-    // is retired (app/admin/layout.tsx:198) and is no longer a placeholder-
-    // leak risk.
+    // §4/§6, grown to 30 codes by
+    // 2026-07-18-alert-copy-full-sweep-design.md §6) inline-identity codes
+    // — a DIFFERENT mechanism than the producer-context rows above: these
+    // codes' params are NOT written by the admin_alerts producer at upsert
+    // time. They are derived at READ TIME by deriveAlertMessageParams()
+    // (lib/adminAlerts/deriveMessageParams.ts), which merges sanitized
+    // context with resolved-identity fallback params (sheet-name/show-name/
+    // repo/file-name/role-changes/crew-name/email/crew-row-count/
+    // failed-sheet-names always resolve, even with null identity/context),
+    // so interpolation never leaks a literal <placeholder> on any of the
+    // three interpolating renderers: BellPanel (components/admin/
+    // BellPanel.tsx), PerShowAlertSection (components/admin/
+    // PerShowAlertSection.tsx), and HealthAlertsPanel (components/admin/
+    // telemetry/HealthAlertsPanel.tsx). The verbatim-rendering AlertBanner
+    // this test's docblock originally guarded against is retired
+    // (app/admin/layout.tsx:198) and is no longer a placeholder-leak risk.
     //
-    // This list is LOCKSTEP with INLINE_IDENTITY_CODES
-    // (lib/adminAlerts/alertIdentityMap.ts) — hand-listed rather than
-    // spread because INLINE_IDENTITY_CODES is a `ReadonlySet<string>` and
-    // this array's declared element type is the narrower
-    // `(typeof ADMIN_ALERTS_CODES)[number]` union; a spread of the broader
-    // `string` type would fail this array's contextual typing. Drift
-    // between the two lists is caught independently by
-    // tests/adminAlerts/_metaInlineIdentityContract.test.ts, which pins
-    // INLINE_IDENTITY_CODES membership against each code's catalog
-    // dougFacing placeholder.
-    "ROLE_FLAGS_NOTICE",
-    "REPORT_ORPHANED_LOST_LEASE",
-    "REPORT_LOOKUP_INCONCLUSIVE",
-    "REPORT_DUPLICATE_LIVE_MATCHES",
-    "REPORT_OPEN_ORPHAN_LABEL",
-    "REPORT_LEASE_THRASHING",
-    "STALE_ORPHAN_REPORT",
-    "PENDING_SNAPSHOT_PROMOTE_STUCK",
-    "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-    "EMAIL_DELIVERY_FAILED",
-    "WIZARD_SESSION_SUPERSEDED_RACE",
-    "BRANCH_PROTECTION_DRIFT",
-    "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    // Spread directly from INLINE_IDENTITY_CODES (lib/adminAlerts/
+    // alertIdentityMap.ts) — the single source of truth for inline-identity
+    // membership — cast to this array's narrower element type (see cast
+    // note below the array). Drift between catalog dougFacing placeholders
+    // and INLINE_IDENTITY_CODES membership is caught independently by
+    // tests/adminAlerts/_metaInlineIdentityContract.test.ts.
+    ...(Array.from(INLINE_IDENTITY_CODES) as (typeof ADMIN_ALERTS_CODES)[number][]),
   ];
 
   test.each(ADMIN_ALERTS_CODES)(

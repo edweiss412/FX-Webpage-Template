@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
-import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
+import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
 import {
   MESSAGE_CATALOG,
@@ -162,24 +162,28 @@ describe("message catalog", () => {
   // and the parser warning text (lib/sync/enrichWithDrivePins.ts:134). If a
   // renderer ever consumes this dougFacing, split the variants first.
   //
-  // INLINE_IDENTITY_CODES (imported above, from
-  // lib/adminAlerts/alertIdentityMap.ts — the production chip-suppression
-  // registry added in commit 6876068e3) is allowlisted from the wrapper
-  // check ONLY — the annotation and wrapping-quotes checks above still apply
-  // to these rows in full. ROLE_FLAGS_NOTICE plus the other 12 codes woven
-  // with identity placeholders in §6 all carry BARE `<token>` placeholders
-  // by design: they're resolved at render time by deriveAlertMessageParams
-  // (lib/adminAlerts/deriveMessageParams.ts) before the string ever reaches
-  // ErrorExplainer/AlertBanner, so an unresolved wrapper is never rendered
-  // literally the way it would be for the emphasis-styled rows this check
-  // otherwise pins. `<role-changes>` (ROLE_FLAGS_NOTICE) is also MULTILINE
-  // (bulleted lines), so a symmetric emphasis wrapper can't apply to it at
-  // all. This allowlist does not relax the check for typos on any other
-  // row — it only recognizes that bare placeholders here are deliberate.
-  // Importing the registry directly (rather than re-typing the code list)
-  // keeps this allowlist and the production set in lockstep by construction.
+  // ADMIN_ALERTS_CODES (imported above, from
+  // tests/messages/adminAlertsRegistry.ts — the canonical registry of every
+  // catalog code used in a production admin_alerts.upsert call) is
+  // allowlisted from the wrapper check ONLY — the annotation and
+  // wrapping-quotes checks above still apply to these rows in full. As of
+  // the full-sweep copy plan (Task 6), ALL admin alert templates are
+  // self-contained inline-context copy resolved at read time by
+  // deriveAlertMessageParams (lib/adminAlerts/deriveMessageParams.ts)
+  // before the string ever reaches ErrorExplainer/AlertBanner/BellPanel, so
+  // a bare `<token>` placeholder is never rendered literally the way it
+  // would be for the emphasis-styled non-admin rows this check otherwise
+  // pins. `<role-changes>` (ROLE_FLAGS_NOTICE) is also MULTILINE (bulleted
+  // lines), so a symmetric emphasis wrapper can't apply to it at all. This
+  // allowlist does not relax the check for typos on any other row — it only
+  // recognizes that bare placeholders on admin templates are deliberate.
+  // Deriving the exemption from ADMIN_ALERTS_CODES membership (rather than
+  // hand-listing individual codes) keeps this allowlist and the production
+  // admin-alert set in lockstep by construction — a new admin code is
+  // exempted automatically the moment it's registered.
   test("no rendered copy carries spec-authoring annotations, wrapping quotes, or mismatched placeholder wrappers", () => {
     const UNRENDERED_SCENARIO_VARIANT_ROWS = new Set(["DIAGRAMS_EMBEDDED_NONE_FOUND"]);
+    const ADMIN_CODES = new Set<string>(ADMIN_ALERTS_CODES);
     const SYMMETRIC_WRAPPERS = new Set(["_", "*", "`"]);
     const offenders: string[] = [];
     for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
@@ -193,7 +197,7 @@ describe("message catalog", () => {
         if (copy.startsWith('"') && copy.endsWith('"')) {
           offenders.push(`${code}.${surface}: literal wrapping quotes around entire copy`);
         }
-        if (INLINE_IDENTITY_CODES.has(code)) continue;
+        if (ADMIN_CODES.has(code)) continue;
         // Placeholder wrappers must be a symmetric pair from the allowed set;
         // anything else abutting `<token>` is a typo (e.g. `*<minutes>_`).
         for (const match of copy.matchAll(/(.)?<([a-zA-Z][a-zA-Z0-9_-]*)>(.)?/g)) {
@@ -222,26 +226,35 @@ describe("message catalog", () => {
 
 describe("helpfulContext × dougFacing coverage", () => {
   const entries = Object.values(MESSAGE_CATALOG) as readonly MessageCatalogEntry[];
+  const ADMIN_CODES = new Set<string>(ADMIN_ALERTS_CODES);
 
-  // ROLE_FLAGS_NOTICE is exempted per condensed-alert-copy design spec
-  // (docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md D3):
-  // the caret/longform helpfulContext is replaced by the show-page action
-  // link, so this code intentionally carries a non-null dougFacing with a
-  // null helpfulContext. Mirrors the identical exemption already applied to
-  // the §12.4 doc-parity check (scripts/extract-spec-codes.ts, see
-  // INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT).
-  const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set(["ROLE_FLAGS_NOTICE"]);
-
-  test("every dougFacing-non-null code has non-null helpfulContext", () => {
+  // Full-sweep copy plan (Task 6) inversion: every admin_alerts code —
+  // the full ADMIN_ALERTS_CODES registry, not a hand-picked subset — now
+  // carries a self-contained inline-context dougFacing template (resolved
+  // at read time by deriveAlertMessageParams) plus title/longExplanation/
+  // helpHref (the predicate-entry contract in catalogDocsValidator.ts), and
+  // intentionally NEVER a helpfulContext caret. Non-admin catalog codes
+  // (crew-facing, report, onboarding-scan, etc.) keep the pre-existing
+  // both-non-null / both-null coupling below.
+  test("every ADMIN_ALERTS_CODES entry has null helpfulContext and non-null title", () => {
     const violations = entries
-      .filter((entry) => entry.dougFacing !== null && entry.helpfulContext === null)
-      .filter((entry) => !INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT.has(entry.code))
+      .filter((entry) => ADMIN_CODES.has(entry.code))
+      .filter((entry) => entry.helpfulContext !== null || entry.title === null)
       .map((entry) => entry.code);
     expect(violations).toEqual([]);
   });
 
-  test("every dougFacing-null code has null helpfulContext (admin-log-only invariant)", () => {
+  test("every non-admin dougFacing-non-null code has non-null helpfulContext", () => {
     const violations = entries
+      .filter((entry) => !ADMIN_CODES.has(entry.code))
+      .filter((entry) => entry.dougFacing !== null && entry.helpfulContext === null)
+      .map((entry) => entry.code);
+    expect(violations).toEqual([]);
+  });
+
+  test("every non-admin dougFacing-null code has null helpfulContext (admin-log-only invariant)", () => {
+    const violations = entries
+      .filter((entry) => !ADMIN_CODES.has(entry.code))
       .filter((entry) => entry.dougFacing === null && entry.helpfulContext !== null)
       .map((entry) => entry.code);
     expect(violations).toEqual([]);
@@ -278,7 +291,7 @@ describe("messageFor interpolation", () => {
   // so the assertions would fail if interpolation were removed.
   test("TILE_SERVER_RENDER_FAILED substitutes <sheet-name> from snake_case sheet_name param", () => {
     const entry = messageFor("TILE_SERVER_RENDER_FAILED", { sheet_name: "Demo Show" });
-    expect(entry.dougFacing).toContain("*Demo Show*");
+    expect(entry.dougFacing).toContain("Demo Show");
     expect(entry.dougFacing).not.toContain("<sheet-name>");
   });
 
@@ -294,7 +307,7 @@ describe("messageFor interpolation", () => {
       show_date: "Apr 6",
     });
     expect(entry.dougFacing).toContain("Spring Conference");
-    expect(entry.dougFacing).toContain("_12_");
+    expect(entry.dougFacing).toContain("12 crew");
     expect(entry.dougFacing).toContain("Apr 6");
     expect(entry.dougFacing).not.toContain("<sheet-name>");
     expect(entry.dougFacing).not.toContain("<crew-count>");

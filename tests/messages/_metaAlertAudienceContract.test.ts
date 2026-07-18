@@ -92,6 +92,19 @@ describe("alert audience contract", () => {
     expect(cat[c]?.healthWeight).toBe(DEGRADED.includes(c as never) ? "degraded" : "notice");
     expect((cat[c]?.dougSummary ?? "").length).toBeGreaterThan(0);
   });
+  // Reverse direction: catalogDocsValidator's predicate treats `audience` as an
+  // admin-alert marker (severity:"info" entries with audience are still
+  // predicate). A non-admin code gaining `audience` would silently become
+  // predicate, so pin audience-bearing entries ⊆ ADMIN_ALERTS_CODES.
+  // USE_RAW_DECISION_STALE is the one documented exception (audience-tagged
+  // but predicate via non-info severity regardless).
+  test("every audience-bearing catalog entry is a registered admin alert (predicate drift guard)", () => {
+    const registered = new Set<string>(ADMIN_ALERTS_CODES);
+    const strays = Object.entries(cat)
+      .filter(([code, entry]) => entry?.audience !== undefined && !registered.has(code))
+      .map(([code]) => code);
+    expect(strays).toEqual(["USE_RAW_DECISION_STALE"]);
+  });
 });
 
 describe("§7 catalog copy reconciliation (developer-owned EMAIL_* + demoted WATCH)", () => {

@@ -19,17 +19,16 @@ import { describe, it, expect } from "vitest";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import ErrorsPage from "@/app/help/errors/page";
 import { familyFor, codePrefix } from "@/app/help/errors/_families";
+// Full-sweep copy plan (Task 9): mirror the page's own renderability filter —
+// the shared catalogDocsValidator predicate — instead of a locally
+// redefined `severity !== "info"` check, so this test's notion of
+// "renderable" can't drift from what ErrorsPage actually renders (it would
+// have under-counted ROLE_FLAGS_NOTICE/SHOW_FIRST_PUBLISHED otherwise).
+import { predicate } from "@/lib/messages/catalogDocsValidator";
 
 function renderableCodes(): string[] {
   return (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
-    .filter(
-      (e) =>
-        e.severity !== "info" &&
-        e.dougFacing !== null &&
-        e.title !== null &&
-        e.longExplanation !== null &&
-        e.helpHref !== null,
-    )
+    .filter(predicate)
     .map((e) => e.code);
 }
 

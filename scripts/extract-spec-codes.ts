@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
@@ -74,15 +74,40 @@ const M115_RETIRED_CATALOG_CODES = new Set([
 // context were rewritten to the pure-unpublish (paused link) semantics, so the
 // archive-era override would have pinned stale prose over the live spec.
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
-// Codes whose dougFacing text is a fully self-contained inline-context
-// template (condensed-alert-copy design, spec 2026-07-17 §3.1) — the message
-// itself names the sheet/show/changes at read time via deriveAlertMessageParams
+// Structural rule (full-sweep copy plan, Task 6): every registered
+// admin_alerts code is exempt from the §12.4 appendix helpfulContext
+// requirement. The full-sweep copy plan converted every admin_alerts
+// dougFacing template into a fully self-contained inline-context string
+// (condensed-alert-copy design, spec 2026-07-17 §3.1) — the message itself
+// names the sheet/show/changes at read time via deriveAlertMessageParams
 // (lib/adminAlerts/deriveMessageParams.ts), so no expandable helpfulContext /
-// "?" caret is rendered and the §12.4 appendix intentionally omits an entry.
-// Adding a code here is a deliberate UX decision (verified: the code has no
-// <ErrorExplainer>/messageFor(...).dougFacing render site requiring the
-// caret), not an oversight the appendix-parity invariant should catch.
-const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set(["ROLE_FLAGS_NOTICE"]);
+// "?" caret is ever rendered and the §12.4 appendix intentionally omits an
+// entry for these codes. Reading tests/messages/adminAlertsRegistry.ts
+// directly (fs + regex, mirroring the pattern in
+// tests/messages/_metaAlertActionsContract.test.ts:185-189) keeps this
+// exemption and the production admin-alert set in lockstep by
+// construction — a newly registered admin_alerts code is exempted the
+// moment it's added to the registry, with no hand-list to fall out of sync.
+// Resolved from THIS FILE's own on-disk location (scripts/extract-spec-codes.ts),
+// not process.cwd() — cwd varies by caller (repo root for `pnpm gen:spec-codes`;
+// a hermetic tmpdir for tests/scripts/extract-spec-codes-cli.test.ts, which spawns
+// the script against a fixture spec and doesn't seed a tests/ tree). A cwd-relative
+// path would ENOENT under the CLI test; this stays correct under both.
+const ADMIN_ALERTS_REGISTRY_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "tests/messages/adminAlertsRegistry.ts",
+);
+
+function readAdminAlertsCodes(): ReadonlySet<string> {
+  const source = readFileSync(ADMIN_ALERTS_REGISTRY_PATH, "utf8");
+  const block = source.match(/export const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
+  const body = block?.[1] ?? "";
+  if (body.length === 0) {
+    throw new Error(`Could not parse ADMIN_ALERTS_CODES from ${ADMIN_ALERTS_REGISTRY_PATH}`);
+  }
+  return new Set(Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""));
+}
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -351,6 +376,7 @@ export function extractSpecCodesFromMarkdown(
   const helpfulContext = parseHelpfulContextAppendix(section);
   const specCodes: Record<string, SpecCodePayload> = {};
   const invariantErrors: string[] = [];
+  const adminAlertsCodes = readAdminAlertsCodes();
 
   for (const key of Object.keys(helpfulContext)) {
     if (!(key in tableCodes)) {
@@ -360,11 +386,7 @@ export function extractSpecCodesFromMarkdown(
 
   for (const [code, payload] of Object.entries(tableCodes)) {
     const context = helpfulContext[code] ?? null;
-    if (
-      payload.dougFacing !== null &&
-      context === null &&
-      !INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT.has(code)
-    ) {
+    if (payload.dougFacing !== null && context === null && !adminAlertsCodes.has(code)) {
       invariantErrors.push(
         `§12.4 helpfulContext appendix missing entry for code ${code} (dougFacing is non-null)`,
       );

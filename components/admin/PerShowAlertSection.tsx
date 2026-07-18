@@ -121,6 +121,14 @@ function safeDougFacingTemplate(code: string, params: MessageParams | undefined)
   return template;
 }
 
+// helpHref (impeccable critique P1 — alert-copy full-sweep): the catalog's
+// longform education link for this code, or null when uncataloged/no catalog
+// helpHref is set.
+function catalogHelpHref(code: string): string | null {
+  if (!(code in MESSAGE_CATALOG)) return null;
+  return messageFor(code as MessageCode).helpHref;
+}
+
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
 // for the §B Supabase call-boundary contract (AGENTS.md §1.9).
 export async function fetchPerShowAlerts(
@@ -300,17 +308,6 @@ export async function PerShowAlertSection({
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
           const copyTemplate = safeDougFacingTemplate(alert.code, alert.messageParams);
-          // Plain-language explanation, rendered ALWAYS-VISIBLE below the alert
-          // title (no "What does this mean?" disclosure toggle, no "Learn more →"
-          // link — the former per-row <HelpAffordance>). Unknown/log-only codes
-          // carry null helpfulContext → the block simply drops.
-          const helpfulContext =
-            alert.code in MESSAGE_CATALOG
-              ? messageFor(
-                  alert.code as MessageCode,
-                  (alert.context as MessageParams | null) ?? undefined,
-                ).helpfulContext
-              : null;
           const isHighlighted = highlightAlertId === alert.id;
           // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
           // crew-page data domains whose sub-query failed in context.failedKeys
@@ -331,6 +328,7 @@ export async function PerShowAlertSection({
           const dataGapsDigest =
             alert.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(alert.context) : null;
           const action = resolveAlertAction(alert.code, alert.context, { slug });
+          const helpHref = catalogHelpHref(alert.code);
           return (
             <li
               key={alert.id}
@@ -345,15 +343,6 @@ export async function PerShowAlertSection({
                   ? renderCatalogEmphasis(copyTemplate, alert.messageParams)
                   : "Something needs your attention on this show."}
               </p>
-              {helpfulContext ? (
-                <div
-                  data-testid={`per-show-alert-help-${alert.id}`}
-                  className="mt-1 flex flex-col gap-1 text-sm text-text-subtle"
-                >
-                  <p className="font-medium">What does this mean?</p>
-                  <p className="max-w-prose">{helpfulContext}</p>
-                </div>
-              ) : null}
               {/* Per-code action link (spec 2026-07-04-alert-action-links §7.1). Fail-quiet:
                   resolveAlertAction returns null for unregistered codes or failed guards. */}
               {action ? (
@@ -365,6 +354,25 @@ export async function PerShowAlertSection({
                 >
                   {action.label}
                   {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                </a>
+              ) : null}
+              {/* Learn more (impeccable critique P1): appended after the
+                  per-code action link, low-emphasis (subtle/quiet — not the
+                  action link's text-text-strong weight) so it never competes
+                  with a real action. helpHref null (uncataloged or no catalog
+                  helpHref) hides it. */}
+              {helpHref ? (
+                <a
+                  href={helpHref}
+                  data-testid={`per-show-alert-help-link-${alert.id}`}
+                  className="self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  aria-label={`Learn more about ${
+                    (alert.code in MESSAGE_CATALOG &&
+                      messageFor(alert.code as MessageCode).title) ||
+                    "this alert"
+                  }`}
+                >
+                  Learn more
                 </a>
               ) : null}
               {failedKeys && failedKeys.length > 0 ? (
