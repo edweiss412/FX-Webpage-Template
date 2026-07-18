@@ -29,7 +29,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement, Fragment } from "react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 
 const ACCESSOR_RE =
   /\.dougFacing\b|\.crewFacing\b|\.helpfulContext\b|getDougFacing\(|getCrewFacing\(|getRequiredDougFacing\(|lookupHelpfulContext\(|messageFor\(/;
@@ -217,6 +220,21 @@ describe("catalog emphasis rendering contract", () => {
       both.map((r) => r.file),
       "File imports renderEmphasis/stripEmphasis AND has a safe-plaintext registry row — delete the row.",
     ).toEqual([]);
+  });
+
+  it("identity-bold pass: 3-arg identityKeys renders <strong> for an identity key; omitting it is unchanged from the 2-arg baseline", () => {
+    const params = { "show-name": "'East Coast'" };
+    const identity = renderToStaticMarkup(
+      createElement(Fragment, null, renderCatalogEmphasis("In <show-name>", params, new Set(["show-name"]))),
+    );
+    expect(identity).toContain("<strong");
+    expect(identity).toContain("East Coast");
+    // Omitting the arg (2-arg baseline) emits no <strong> — byte-identical to today.
+    const plain = renderToStaticMarkup(
+      createElement(Fragment, null, renderCatalogEmphasis("In <show-name>", params)),
+    );
+    expect(plain).not.toContain("<strong");
+    expect(plain).toContain("East Coast");
   });
 
   it("title and longExplanation never contain emphasis markers (rendered raw on /help/errors)", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveAlertMessageParams,
   IDENTITY_PARAM_TOKENS,
+  BELL_BOLD_IDENTITY_TOKENS,
 } from "@/lib/adminAlerts/deriveMessageParams";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 
@@ -142,6 +143,21 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "failed-sheet-names",
       ]),
     );
+  });
+
+  it("BELL_BOLD_IDENTITY_TOKENS is a name-only subset that excludes structured/prose tokens", () => {
+    for (const t of BELL_BOLD_IDENTITY_TOKENS) expect(IDENTITY_PARAM_TOKENS.has(t)).toBe(true);
+    expect([...BELL_BOLD_IDENTITY_TOKENS].sort()).toEqual(["crew-name", "sheet-name", "show-name"]);
+    for (const t of [
+      "role-changes",
+      "email",
+      "repo",
+      "file-name",
+      "crew-row-count",
+      "failed-sheet-names",
+    ]) {
+      expect(BELL_BOLD_IDENTITY_TOKENS.has(t)).toBe(false);
+    }
   });
 
   describe("crew-name", () => {

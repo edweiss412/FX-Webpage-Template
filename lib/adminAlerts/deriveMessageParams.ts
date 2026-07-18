@@ -47,6 +47,17 @@ export const IDENTITY_PARAM_TOKENS: ReadonlySet<string> = new Set([
   "failed-sheet-names",
 ]);
 
+/** Name-like identity tiers that render BOLD at BellPanel render time
+ * (ALERT-COPY-IDENTITY-BOLD-1). Deliberately narrower than IDENTITY_PARAM_TOKENS:
+ * excludes role-changes (structured list), email/repo/file-name (technical), and
+ * counts — bolding those would fight the multi-change <ul> or bold operational
+ * prose. Structural subset test pins this. */
+export const BELL_BOLD_IDENTITY_TOKENS: ReadonlySet<string> = new Set([
+  "show-name",
+  "sheet-name",
+  "crew-name",
+]);
+
 // count segments render as `${n} ${label}${plural}` (formatCount,
 // resolveAlertIdentities.ts:118-125) — always label-less (kind-lossy).
 function isNumericPhraseShape(value: string): boolean {

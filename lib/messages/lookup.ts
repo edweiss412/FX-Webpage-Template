@@ -9,7 +9,7 @@ export { MESSAGE_CATALOG, type MessageCode, type MessageCatalogEntry };
 
 export type MessageParams = Record<string, string | number | boolean | null | undefined>;
 
-const PLACEHOLDER_RE = /<([a-zA-Z_][a-zA-Z0-9_-]*)>/g;
+export const PLACEHOLDER_RE = /<([a-zA-Z_][a-zA-Z0-9_-]*)>/g;
 
 /**
  * Exported for components/messages/renderEmphasis.tsx, which must

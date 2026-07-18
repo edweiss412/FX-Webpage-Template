@@ -142,3 +142,66 @@ describe("renderCatalogEmphasis", () => {
     expect(getByTestId("subject").textContent).toBe("RPAS Central lost rows.");
   });
 });
+
+/**
+ * renderCatalogEmphasis identity-bold pass (WI-3, ALERT-COPY-IDENTITY-BOLD-1).
+ * The optional 3rd arg `identityKeys` weights name-tier params BOLD at render
+ * time: an identity-key placeholder becomes a <strong>, non-identity params stay
+ * plain, and omitting the arg is byte-identical to the 2-arg path (back-compat).
+ */
+describe("renderCatalogEmphasis identity-bold pass", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  const IK = new Set(["show-name"]);
+
+  test("bolds an identity-key param, leaves non-identity plain", () => {
+    const { container } = render(
+      <>
+        {renderCatalogEmphasis(
+          "In <show-name>, <crew-count> changed",
+          { "show-name": "'East Coast'", "crew-count": "3" },
+          IK,
+        )}
+      </>,
+    );
+    const strong = container.querySelector("strong");
+    expect(strong).not.toBeNull();
+    expect(strong!.textContent).toBe("'East Coast'");
+    // non-identity param is a plain text node, NOT inside <strong>
+    expect(container.textContent).toContain("3 changed");
+    expect(container.querySelectorAll("strong")).toHaveLength(1);
+  });
+
+  test("omitting identityKeys keeps all params plain (back-compat)", () => {
+    const { container } = render(
+      <>{renderCatalogEmphasis("In <show-name>", { "show-name": "'East Coast'" })}</>,
+    );
+    expect(container.querySelector("strong")).toBeNull();
+  });
+
+  test("does not emit an empty <strong> for an empty identity value", () => {
+    const { container } = render(
+      <>{renderCatalogEmphasis("In <show-name>.", { "show-name": "" }, IK)}</>,
+    );
+    expect(container.querySelector("strong")).toBeNull();
+  });
+
+  test("composes template *em* with identity bold", () => {
+    const { container } = render(
+      <>{renderCatalogEmphasis("*<show-name>*", { "show-name": "'X'" }, IK)}</>,
+    );
+    // both <em> and <strong> present around the name
+    expect(container.querySelector("em")).not.toBeNull();
+    expect(container.querySelector("strong")).not.toBeNull();
+  });
+
+  test("identity key present but absent from params leaves the literal placeholder plain", () => {
+    const { container } = render(
+      <>{renderCatalogEmphasis("In <show-name>.", {}, IK)}</>,
+    );
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.textContent).toBe("In <show-name>.");
+  });
+});

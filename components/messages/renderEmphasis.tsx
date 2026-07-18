@@ -18,7 +18,7 @@
  * tests/messages/_metaEmphasisRenderContract.test.ts.
  */
 import { cloneElement, isValidElement, type ReactNode } from "react";
-import { interpolate, type MessageParams } from "@/lib/messages/lookup";
+import { interpolate, PLACEHOLDER_RE, type MessageParams } from "@/lib/messages/lookup";
 
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
 const EM_RE = /\*([^*]+)\*/g;
@@ -72,22 +72,78 @@ function wrapPass(nodes: ReactNode[], re: RegExp, wrap: Wrap, passName: string):
  * the single string child of each <em>/<strong> this module creates) is
  * exactly equivalent to messageFor's whole-string interpolation.
  */
-export function renderCatalogEmphasis(template: string, params?: MessageParams): ReactNode[] {
+export function renderCatalogEmphasis(
+  template: string,
+  params?: MessageParams,
+  identityKeys?: ReadonlySet<string>,
+): ReactNode[] {
   const nodes = renderEmphasis(template);
   if (!params) return nodes;
-  return nodes.map((node, i) => {
+  if (!identityKeys || identityKeys.size === 0) {
+    // Unchanged 2-arg path — byte-identical to today (back-compat for
+    // HealthAlertsPanel and every other non-identity caller).
+    return nodes.map((node, i) => {
+      if (typeof node === "string") {
+        return interpolate(node, params) ?? node;
+      }
+      if (
+        isValidElement<{ children?: ReactNode }>(node) &&
+        typeof node.props.children === "string"
+      ) {
+        return cloneElement(
+          node,
+          { key: node.key ?? `p-${i}` },
+          interpolate(node.props.children, params) ?? node.props.children,
+        );
+      }
+      return node;
+    });
+  }
+  // Identity-aware pass (WI-3, ALERT-COPY-IDENTITY-BOLD-1): split string nodes on
+  // placeholder boundaries; a placeholder whose (hyphen/underscore-normalized)
+  // key ∈ identityKeys renders BOLD, every other placeholder + literal stays
+  // plain (delegating to interpolate's not-found semantics). Emphasis from the
+  // template `*`/`**` markers composes — an identity param inside an `*em*` span
+  // is both italic and bold.
+  const norm = (k: string): string[] => [k, k.replace(/-/g, "_"), k.replace(/_/g, "-")];
+  const boldSplit = (s: string, keyPrefix: string): ReactNode[] => {
+    const out: ReactNode[] = [];
+    let cursor = 0;
+    let m: RegExpExecArray | null;
+    PLACEHOLDER_RE.lastIndex = 0;
+    while ((m = PLACEHOLDER_RE.exec(s)) !== null) {
+      const key = m[1] as string;
+      const value = params[key] ?? params[key.replace(/-/g, "_")] ?? params[key.replace(/_/g, "-")];
+      if (m.index > cursor) out.push(s.slice(cursor, m.index));
+      if (value === undefined || value === null) {
+        out.push(m[0]); // not-found: leave the literal placeholder (matches interpolate)
+      } else if (norm(key).some((k) => identityKeys.has(k)) && String(value) !== "") {
+        out.push(
+          <strong key={`${keyPrefix}-${m.index}`} className="font-semibold text-text-strong">
+            {String(value)}
+          </strong>,
+        );
+      } else {
+        out.push(String(value));
+      }
+      cursor = m.index + m[0].length;
+    }
+    if (cursor < s.length) out.push(s.slice(cursor));
+    return out;
+  };
+  const result: ReactNode[] = [];
+  nodes.forEach((node, i) => {
     if (typeof node === "string") {
-      return interpolate(node, params) ?? node;
+      result.push(...boldSplit(node, `id-${i}`));
+      return;
     }
     if (isValidElement<{ children?: ReactNode }>(node) && typeof node.props.children === "string") {
-      return cloneElement(
-        node,
-        { key: node.key ?? `p-${i}` },
-        interpolate(node.props.children, params) ?? node.props.children,
-      );
+      result.push(cloneElement(node, { key: node.key ?? `p-${i}` }, boldSplit(node.props.children, `ide-${i}`)));
+      return;
     }
-    return node;
+    result.push(node);
   });
+  return result;
 }
 
 /** Nullable-copy convenience: render styled markers, or the plain fallback. */
