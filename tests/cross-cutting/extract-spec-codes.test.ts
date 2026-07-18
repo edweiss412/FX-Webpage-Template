@@ -47,7 +47,7 @@ describe("§12.4 spec-code extractor", () => {
         validateRenderedHelpfulContext: false,
       }),
     ).toThrow(
-      "§12.4 helpfulContext appendix missing entry for code SHEET_UNAVAILABLE (dougFacing is non-null)",
+      "§12.4 helpfulContext appendix missing entry for code FIXTURE_MISSING_HELPFUL_CONTEXT (dougFacing is non-null)",
     );
   });
 

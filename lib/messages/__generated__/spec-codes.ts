@@ -178,21 +178,21 @@ export const SPEC_CODES = {
   },
   "ASSET_RECOVERY_BYTES_EXCEEDED": {
     "crewFacing": null,
-    "dougFacing": "This show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
+    "dougFacing": "<sheet-name>'s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.",
     "followUp": "Doug → trim gallery / Eric → raise cap",
-    "helpfulContext": "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show advisory lock stays short and other syncs are not blocked behind a huge gallery recovery. Trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
+    "helpfulContext": null,
   },
   "ASSET_RECOVERY_DRIFT_COOLDOWN": {
     "crewFacing": null,
-    "dougFacing": "Diagram recovery is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
+    "dougFacing": "Diagram recovery for <sheet-name> is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     "followUp": "informational only",
-    "helpfulContext": "The previous asset recovery attempt raced with a newer Apply, so recovery is briefly backing off for this snapshot revision. This bounds retry storms while the show is changing frequently.",
+    "helpfulContext": null,
   },
   "ASSET_RECOVERY_REVISION_DRIFT": {
     "crewFacing": null,
-    "dougFacing": "Diagram recovery paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
+    "dougFacing": "Diagram recovery for <sheet-name> paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     "followUp": "informational only",
-    "helpfulContext": "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so it does not attach old assets to the new approved revision.",
+    "helpfulContext": null,
   },
   "BLOCK_DISAPPEARED": {
     "crewFacing": null,
@@ -316,9 +316,9 @@ export const SPEC_CODES = {
   },
   "DRIVE_FETCH_FAILED": {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    "dougFacing": "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
+    "dougFacing": "We couldn't fetch <sheet-name> from Google Drive — likely a transient network issue, or it's been moved or unshared; we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     "followUp": "Doug → check share / Retry",
-    "helpfulContext": "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
+    "helpfulContext": null,
   },
   "DRIVE_METADATA_MISSING": {
     "crewFacing": null,
@@ -346,15 +346,15 @@ export const SPEC_CODES = {
   },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,
-    "dougFacing": "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
+    "dougFacing": "An embedded diagram in <sheet-name> changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.",
     "followUp": "Doug → re-edit the sheet to re-stage the diagram",
-    "helpfulContext": "Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes. A mismatch leaves the prior approved content live and marks the image for recovery or re-stage.",
+    "helpfulContext": null,
   },
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE": {
     "crewFacing": null,
-    "dougFacing": "A diagram in this sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
+    "dougFacing": "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet — any edit advances the version — and crew will see the image again on the next sync.",
     "followUp": "Doug → save sheet to advance version",
-    "helpfulContext": "A diagram in your sheet can't be re-downloaded automatically because it doesn't have a content-derived approval token. The fix is to save the sheet — any edit advances the version and lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
+    "helpfulContext": null,
   },
   "EXTRA_REVIEWER_CHOICE": {
     "crewFacing": null,
@@ -472,9 +472,9 @@ export const SPEC_CODES = {
   },
   "LIVE_ROW_CONFLICT": {
     "crewFacing": null,
-    "dougFacing": "A sheet is already being processed by the live folder sync, so we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
+    "dougFacing": "<sheet-name> is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.",
     "followUp": "Doug → resolve live row from dashboard, then re-run setup",
-    "helpfulContext": "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
+    "helpfulContext": null,
   },
   "LIVE_ROW_REQUIRED": {
     "crewFacing": null,
@@ -712,15 +712,15 @@ export const SPEC_CODES = {
   },
   "OPENING_REEL_NOT_VIDEO": {
     "crewFacing": "Opening reel link is not a video file",
-    "dougFacing": "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
+    "dougFacing": "The opening-reel link in <sheet-name> is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.",
     "followUp": "Doug → re-edit sheet",
-    "helpfulContext": "The opening-reel cell in your sheet contains a Drive URL, but the file behind it isn't a video — it's a Google Doc, Slides deck, image, PDF, or some other file type. Crew see the text status only (e.g., 'YES', 'BACKUP ONLY') without an inline player, because we won't try to embed a non-video file in a `<video>` element. To enable inline playback, replace the link with a video file URL (the file's MIME type must start with `video/`).",
+    "helpfulContext": null,
   },
   "OPENING_REEL_PERMISSION_DENIED": {
     "crewFacing": "Opening reel access revoked",
-    "dougFacing": "The opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
+    "dougFacing": "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file — or replace the link — to restore inline playback.",
     "followUp": "Doug → re-share / replace link",
-    "helpfulContext": "Drive returned a permission-denied response when we tried to fetch the opening-reel video. The file used to be accessible (we had it pinned at a previous Apply), but the share was revoked, the file was made private, or it was moved out of a shared drive the service account can read. Crew see the text status only without inline playback. To restore: re-share the video file with the service account email, or replace the link with a video file you do share.",
+    "helpfulContext": null,
   },
   "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA": {
     "crewFacing": null,
@@ -742,9 +742,9 @@ export const SPEC_CODES = {
   },
   "PARSE_ERROR_LAST_GOOD": {
     "crewFacing": "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
-    "dougFacing": "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
+    "dougFacing": "<sheet-name>'s latest edit didn't parse, so the previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     "followUp": "Doug → fix sheet (see parse panel); Crew → mention to Doug",
-    "helpfulContext": "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
+    "helpfulContext": null,
   },
   "PENDING_INGESTION_NOT_FOUND": {
     "crewFacing": null,
@@ -940,9 +940,9 @@ export const SPEC_CODES = {
   },
   "REEL_DRIFTED": {
     "crewFacing": null,
-    "dougFacing": "The opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
+    "dougFacing": "The opening-reel video in <sheet-name> has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.",
     "followUp": "Doug → re-edit sheet",
-    "helpfulContext": "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
+    "helpfulContext": null,
   },
   "REPORT_DUPLICATE_LIVE_MATCHES": {
     "crewFacing": null,
@@ -1006,15 +1006,15 @@ export const SPEC_CODES = {
   },
   "RESYNC_QUALITY_REGRESSED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
+    "dougFacing": "<sheet-name>'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
     "followUp": "Doug → check parse panel, fix sheet",
-    "helpfulContext": "A recent edit to the sheet parsed and went live, but more fields or sections failed to read than before. Crew see the applied data; nothing is held. Open the per-show parse panel to see which classes degraded, fix the sheet, and the next sync clears this automatically once quality recovers.",
+    "helpfulContext": null,
   },
   "RESYNC_SHRINK_HELD": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
+    "dougFacing": "<sheet-name>'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
     "followUp": "Doug → re-sync to accept, or fix sheet",
-    "helpfulContext": "A recent sync would have removed crew members or an entire section (rooms, hotels, contacts, or transportation) compared to the previous version. To avoid silently losing data we held the update and kept the last good version live for crew. If the reduction is intentional, re-sync the show and confirm to apply it; otherwise fix the sheet and the next sync will apply cleanly and clear this automatically.",
+    "helpfulContext": null,
   },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
@@ -1108,9 +1108,9 @@ export const SPEC_CODES = {
   },
   "SHEET_UNAVAILABLE": {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    "dougFacing": "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
+    "dougFacing": "<sheet-name> isn't in your folder anymore — you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     "followUp": "Doug → re-share sheet",
-    "helpfulContext": "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
+    "helpfulContext": null,
   },
   "SHOW_ARCHIVED_BY_ADMIN": {
     "crewFacing": null,
@@ -1366,9 +1366,9 @@ export const SPEC_CODES = {
   },
   "SYNC_STALLED": {
     "crewFacing": null,
-    "dougFacing": "Automatic syncing hasn't run in over an hour, so new sheet changes won't appear until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
+    "dougFacing": "Automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
     "followUp": "Doug → check Drive connection / re-run setup",
-    "helpfulContext": "The scheduled job that reads your show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until it resumes. Usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
+    "helpfulContext": null,
   },
   "SYNC_STATUS_UNKNOWN": {
     "crewFacing": null,

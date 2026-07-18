@@ -89,14 +89,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
+      "We couldn't fetch <sheet-name> from Google Drive — likely a transient network issue, or it's been moved or unshared; we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → check share / Retry",
-    helpfulContext:
-      "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
+    helpfulContext: null,
     title: "Drive fetch failed",
     longExplanation:
-      "Google Drive temporarily blocked or refused our request to read this sheet. We keep retrying automatically; if this stays for more than an hour, confirm the folder is still shared with the service account and that the sheet is still in the watched folder.",
+      "This appears when Google Drive temporarily blocks or refuses a request to read this sheet, usually from a transient network or permissions hiccup. We keep retrying automatically. If this persists for more than an hour, confirm the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
     helpHref: "/help/errors#DRIVE_FETCH_FAILED",
   },
   // M12.2 Phase A (§7/V8) — fixed generic Doug-facing fallback for a pending-
@@ -124,14 +123,13 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
-      "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
+      "<sheet-name> isn't in your folder anymore — you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → re-share sheet",
-    helpfulContext:
-      "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
+    helpfulContext: null,
     title: "Sheet no longer in folder",
     longExplanation:
-      "We expected to find this sheet in the watched folder but it isn't there anymore. Either it was moved, unshared, or deleted. Crew see the last good version on file; re-share or move the sheet back in to bring the show back.",
+      "This appears when a sheet we expected to find in the watched folder is no longer there. It may have been moved to a different folder, had its share removed, or been deleted outright. Crew keep seeing the last good version on file until you re-share or move the sheet back into the folder, which we'll pick up on the next sync.",
     helpHref: "/help/errors#SHEET_UNAVAILABLE",
   },
   PARSE_ERROR_LAST_GOOD: {
@@ -140,16 +138,15 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
-      "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
+      "<sheet-name>'s latest edit didn't parse, so the previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
       "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → fix sheet (see parse panel); Crew → mention to Doug",
-    helpfulContext:
-      "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
+    helpfulContext: null,
     title: "Latest edit didn't parse",
     longExplanation:
-      "A recent edit to the sheet introduced something the parser couldn't read. The previously approved version is still serving crew. Open the per-show parse panel for the specific underlying error, fix the sheet, and the next sync will replace the stale data.",
-    helpHref: "/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD",
+      "This appears when a recent edit to the sheet introduces something the parser can't read. We keep the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong; fixing the sheet lets the next sync replace the stale data.",
+    helpHref: "/help/errors#PARSE_ERROR_LAST_GOOD",
   },
   RESYNC_SHRINK_HELD: {
     code: "RESYNC_SHRINK_HELD",
@@ -157,14 +154,13 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
-      "_<sheet-name>_'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
+      "<sheet-name>'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
     crewFacing: null,
     followUp: "Doug → re-sync to accept, or fix sheet",
-    helpfulContext:
-      "A recent sync would have removed crew members or an entire section (rooms, hotels, contacts, or transportation) compared to the previous version. To avoid silently losing data we held the update and kept the last good version live for crew. If the reduction is intentional, re-sync the show and confirm to apply it; otherwise fix the sheet and the next sync will apply cleanly and clear this automatically.",
+    helpfulContext: null,
     title: "Re-sync held: sheet lost data",
     longExplanation:
-      "The latest version of this sheet would have removed crew or a whole section relative to the previous version. Rather than clobber live data, we held the update and kept the last good version serving crew. Re-sync and confirm to accept the reduction, or fix the sheet; a clean sync clears this on its own.",
+      "This appears when a sync would remove crew members or an entire section — rooms, hotels, contacts, or transportation — compared to the previous version. Rather than silently lose data, we hold the update and keep the last good version live for crew. If the reduction is intentional, re-sync and confirm to apply it; otherwise fix the sheet and a clean sync clears this automatically.",
     helpHref: "/help/errors#RESYNC_SHRINK_HELD",
   },
   RESYNC_QUALITY_REGRESSED: {
@@ -173,14 +169,13 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     // NO adminSurface → banner (spec §6.1): feed-visible in the Bell center, not inbox-routed.
     dougFacing:
-      "_<sheet-name>_'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
+      "<sheet-name>'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
     crewFacing: null,
     followUp: "Doug → check parse panel, fix sheet",
-    helpfulContext:
-      "A recent edit to the sheet parsed and went live, but more fields or sections failed to read than before. Crew see the applied data; nothing is held. Open the per-show parse panel to see which classes degraded, fix the sheet, and the next sync clears this automatically once quality recovers.",
+    helpfulContext: null,
     title: "Latest edit lost data quality",
     longExplanation:
-      "The latest sync applied but read fewer fields or sections than the previous version — a data-quality regression, not a hard failure. The update is already live for crew. Open the parse panel to see what degraded, fix the sheet, and a recovered sync clears this on its own.",
+      "This appears when a sync applies successfully but reads fewer fields or sections than the previous version — a data-quality regression, not a hard failure. Crew see the applied data; nothing is held back. Open the per-show parse panel to see which classes degraded, fix the sheet, and a recovered sync clears this automatically.",
     helpHref: "/help/errors#RESYNC_QUALITY_REGRESSED",
   },
   USE_RAW_DECISION_STALE: {
@@ -497,14 +492,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "The opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
+      "The opening-reel video in <sheet-name> has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.",
     crewFacing: null,
     followUp: "Doug → re-edit sheet",
-    helpfulContext:
-      "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
+    helpfulContext: null,
     title: "Opening reel drifted",
     longExplanation:
-      "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only without the inline video until you save the sheet again to re-stage the new reel.",
+      "This appears when the opening-reel video is replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (for example 'YES') without the inline video, until you save the sheet again to re-stage the new reel.",
     helpHref: "/help/errors#REEL_DRIFTED",
   },
   OPENING_REEL_NOT_VIDEO: {
@@ -512,14 +506,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
+      "The opening-reel link in <sheet-name> is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.",
     crewFacing: "Opening reel link is not a video file",
     followUp: "Doug → re-edit sheet",
-    helpfulContext:
-      "The opening-reel cell in your sheet contains a Drive URL, but the file behind it isn't a video — it's a Google Doc, Slides deck, image, PDF, or some other file type. Crew see the text status only (e.g., 'YES', 'BACKUP ONLY') without an inline player, because we won't try to embed a non-video file in a `<video>` element. To enable inline playback, replace the link with a video file URL (the file's MIME type must start with `video/`).",
+    helpfulContext: null,
     title: "Opening reel link is not a video",
     longExplanation:
-      "The opening-reel cell points to a Drive file that isn't a video (most likely a Google Doc, image, or PDF). Crew see the text status only without an inline player. To enable inline playback, replace the link with a video file URL.",
+      "This appears when the opening-reel cell contains a Drive URL, but the file behind it isn't a video — a Google Doc, Slides deck, image, PDF, or another file type. Crew see the text status only, without an inline player, because a non-video file won't be embedded in a `<video>` element. Replacing the link with a URL whose file type starts with `video/` enables inline playback.",
     helpHref: "/help/errors#OPENING_REEL_NOT_VIDEO",
   },
   OPENING_REEL_PERMISSION_DENIED: {
@@ -527,14 +520,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "The opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
+      "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file — or replace the link — to restore inline playback.",
     crewFacing: "Opening reel access revoked",
     followUp: "Doug → re-share / replace link",
-    helpfulContext:
-      "Drive returned a permission-denied response when we tried to fetch the opening-reel video. The file used to be accessible (we had it pinned at a previous Apply), but the share was revoked, the file was made private, or it was moved out of a shared drive the service account can read. Crew see the text status only without inline playback. To restore: re-share the video file with the service account email, or replace the link with a video file you do share.",
+    helpfulContext: null,
     title: "Opening reel access revoked",
     longExplanation:
-      "Drive returned permission-denied when we tried to fetch the opening-reel video. The file used to be accessible but the share was revoked, the file was made private, or it was moved out of a shared drive. Re-share the video, or replace the link with one you do share.",
+      "This appears when Drive returns a permission-denied response while fetching the opening-reel video that was previously accessible. The share may have been revoked, the file made private, or it may have been moved out of a shared drive the service account can read. Crew see the text status only, without inline playback, until you re-share the video file with the service account email or replace the link with a video file you do share.",
     helpHref: "/help/errors#OPENING_REEL_PERMISSION_DENIED",
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
@@ -542,14 +534,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "A diagram in this sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
+      "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet — any edit advances the version — and crew will see the image again on the next sync.",
     crewFacing: null,
     followUp: "Doug → save sheet to advance version",
-    helpfulContext:
-      "A diagram in your sheet can't be re-downloaded automatically because it doesn't have a content-derived approval token. The fix is to save the sheet — any edit advances the version and lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
+    helpfulContext: null,
     title: "Diagram needs sheet re-save to recover",
     longExplanation:
-      "A diagram in this sheet can't be re-downloaded automatically because it lacks a content-derived approval token. Save the sheet. Any edit advances the version and lets us mint a fresh token on the next sync, which restores the diagram.",
+      "This appears when a diagram in a sheet can't be re-downloaded automatically because it lacks a content-derived approval token. Saving the sheet — any edit advances the version — lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
     helpHref: "/help/errors#EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
   },
   AGENDA_GONE_FOR_CREW: {
@@ -580,14 +571,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A gallery image changed while it was being restored, so the app used the newest version. Everything stays current.",
     dougFacing:
-      "Diagram recovery paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
+      "Diagram recovery for <sheet-name> paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     crewFacing: null,
     followUp: "informational only",
-    helpfulContext:
-      "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so it does not attach old assets to the new approved revision.",
+    helpfulContext: null,
     title: "Diagram recovery raced an apply",
     longExplanation:
-      "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so old assets are not attached to the new approved revision; the next run retries against the latest version.",
+      "This appears when asset recovery fetches and verifies diagram bytes against an older snapshot revision, but a newer Apply lands before recovery can write those bytes. The recovery run aborts rather than attach old assets to the new approved revision, and the next run retries automatically against the latest version.",
     helpHref: "/help/errors#ASSET_RECOVERY_REVISION_DRIFT",
   },
   ASSET_RECOVERY_DRIFT_COOLDOWN: {
@@ -598,14 +588,13 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "The app briefly paused re-checking a gallery image to avoid churn. It resumes on its own.",
     dougFacing:
-      "Diagram recovery is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
+      "Diagram recovery for <sheet-name> is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     crewFacing: null,
     followUp: "informational only",
-    helpfulContext:
-      "The previous asset recovery attempt raced with a newer Apply, so recovery is briefly backing off for this snapshot revision. This bounds retry storms while the show is changing frequently.",
+    helpfulContext: null,
     title: "Diagram recovery cooling down",
     longExplanation:
-      "The previous asset recovery attempt raced with a newer Apply, so recovery is briefly backing off for this snapshot revision. This bounds retry storms while the show is changing frequently; we'll retry automatically after the cooldown.",
+      "This appears when the previous asset recovery attempt raced with a newer Apply, so recovery briefly backs off for that snapshot revision. This bounds retry storms while a show is changing frequently, and normal recovery resumes automatically after the cooldown.",
     helpHref: "/help/errors#ASSET_RECOVERY_DRIFT_COOLDOWN",
   },
   APPLY_PROMOTE_PENDING: {
@@ -623,14 +612,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "This show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
+      "<sheet-name>'s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.",
     crewFacing: null,
     followUp: "Doug → trim gallery / Eric → raise cap",
-    helpfulContext:
-      "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show advisory lock stays short and other syncs are not blocked behind a huge gallery recovery. Trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
+    helpfulContext: null,
     title: "Diagram set too large to recover",
     longExplanation:
-      "This show's diagram set is over the per-run ceiling (more than 60 images, an image larger than 50MB, or more than 3GB total). The ceiling keeps the per-show lock short so other syncs aren't blocked behind a huge recovery. Crew see placeholders for the missing diagrams; trim the gallery or ask the developer to raise the ceiling.",
+      "This appears when a show's diagram set exceeds the per-run recovery ceiling — more than 60 images, a single image over 50MB, or more than 3GB total. The ceiling keeps the per-show advisory lock short so other syncs aren't blocked behind a large recovery. Crew see placeholders for the missing diagrams; trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
     helpHref: "/help/errors#ASSET_RECOVERY_BYTES_EXCEEDED",
   },
   DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
@@ -1999,14 +1987,13 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "A sheet is already being processed by the live folder sync, so we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
+      "<sheet-name> is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.",
     crewFacing: null,
     followUp: "Doug → resolve live row from dashboard, then re-run setup",
-    helpfulContext:
-      "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
+    helpfulContext: null,
     title: "Live sync owns this sheet",
     longExplanation:
-      "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard (either Apply or Discard it), then re-run setup if you still need to.",
+      "This appears when setup tries to stage a parse for a sheet that the live folder sync is already processing. To avoid clobbering the live row, the wizard's stage is skipped. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
   },
   ONBOARDING_SHEET_UNREADABLE: {
@@ -2280,14 +2267,13 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     severity: "warning",
     dougFacing:
-      "Automatic syncing hasn't run in over an hour, so new sheet changes won't appear until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
+      "Automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
     crewFacing: null,
     followUp: "Doug → check Drive connection / re-run setup",
-    helpfulContext:
-      "The scheduled job that reads your show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until it resumes. Usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
+    helpfulContext: null,
     title: "Syncing has stalled",
     longExplanation:
-      "The background sync that pulls show sheets from Google Drive hasn't completed in over an hour. Crew pages keep showing the last good data until it resumes; if this persists, re-check the Drive connection or re-run setup.",
+      "This appears when the scheduled job that reads show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until the job resumes. This is usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
     helpHref: "/help/errors#SYNC_STALLED",
   },
   EMAIL_DELIVERY_FAILED: {
@@ -2674,14 +2660,13 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
+      "An embedded diagram in <sheet-name> changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.",
     crewFacing: null,
     followUp: "Doug → re-edit the sheet to re-stage the diagram",
-    helpfulContext:
-      "Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes. A mismatch leaves the prior approved content live and marks the image for recovery or re-stage.",
+    helpfulContext: null,
     title: "Embedded diagram changed after staging",
     longExplanation:
-      "Apply re-checks each embedded image's fingerprint against what was staged. This image's fingerprint changed after the staged parse was reviewed, so the prior approved content stays live. Save the sheet again to re-stage the new image.",
+      "This appears when Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes, and finds a mismatch. The prior approved content stays live and the image is marked for recovery or re-stage; saving the sheet again re-stages the new image.",
     helpHref: "/help/errors#EMBEDDED_ASSET_DRIFTED",
   },
   FOLDER_NOT_FOUND: {
