@@ -272,9 +272,7 @@ describe("BellPanel — non-resolve action cells (spec §7.3)", () => {
     const chip = await within(getByTestId("bell-panel")).findByTestId("bell-action-act-1-0");
     expect(chip.getAttribute("href")).toBe("/admin/settings");
     expect(chip.textContent).toContain("Open settings");
-    expect(
-      within(getByTestId("bell-entry-act-0")).queryByTestId("bell-action-act-0-0"),
-    ).toBeNull();
+    expect(within(getByTestId("bell-entry-act-0")).queryByTestId("bell-action-act-0-0")).toBeNull();
   });
 });
 

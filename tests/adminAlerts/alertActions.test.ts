@@ -251,7 +251,11 @@ describe("resolveAlertActions (spec 2026-07-17 §3.4)", () => {
   });
 
   it("ROLE_FLAGS_NOTICE without slug: sheet link only", () => {
-    const actions = resolveAlertActions("ROLE_FLAGS_NOTICE", { drive_file_id: "abc123" }, { slug: null });
+    const actions = resolveAlertActions(
+      "ROLE_FLAGS_NOTICE",
+      { drive_file_id: "abc123" },
+      { slug: null },
+    );
     expect(actions.map((a) => a.label)).toEqual(["Open in Sheet"]);
   });
 

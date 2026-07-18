@@ -211,7 +211,11 @@ describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.
     const lines: string[] = [];
     for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
       const violations = contractViolations(entry).filter(
-        (v) => !(NON_PREDICATE_TITLE_EXEMPT_ROWS.has(code) && v === "non-predicate entry: title must be null"),
+        (v) =>
+          !(
+            NON_PREDICATE_TITLE_EXEMPT_ROWS.has(code) &&
+            v === "non-predicate entry: title must be null"
+          ),
       );
       if (violations.length > 0) {
         for (const v of violations) lines.push(`${code}: ${v}`);

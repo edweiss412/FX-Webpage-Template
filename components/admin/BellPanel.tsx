@@ -328,8 +328,7 @@ function ActiveRow({
   // interpolates; a leftover <placeholder> (defense-in-depth — derived params
   // always resolve) drops the message line and keeps the identity chip.
   const UNRESOLVED = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
-  const messageResolved =
-    message !== null && !UNRESOLVED.test(plainCatalogText(message, params));
+  const messageResolved = message !== null && !UNRESOLVED.test(plainCatalogText(message, params));
   const suppressChip = INLINE_IDENTITY_CODES.has(entry.code) && messageResolved;
   // Dot shows only while genuinely unread AND not yet optimistically cleared
   // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
