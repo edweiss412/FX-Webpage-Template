@@ -1,0 +1,197 @@
+# Alert-Surface UI Pass — Design Spec
+
+**Date:** 2026-07-18
+**Slug:** `alert-surface-ui`
+**Status:** Ratified design (user-locked via autonomous-ship consent; user-review gate waived per `/ship-feature`).
+
+Closes DEFERRED items `ALERT-COPY-IDENTITY-BOLD-1`, `ALERT-CHEVRON-HINT-1`, `ALERT-MULTI-CHANGE-TONE-1`, `PERSHOW-LINK-TAPTARGET-1`, plus two screenshot-driven layout asks (timestamp right-flush, Learn-more inline). Branches off merged ARC-1 (`origin/main` @ PR #475).
+
+---
+
+## 1. Goal
+
+Restructure the admin alert-notification row (`BellPanel` `ActiveRow`) and its copy-rendering path so that: (a) the alert message, inline "Learn more" link, and multi-change list render as real semantic siblings below a **title-only** mark-read tap target; (b) the occurrence chip + relative timestamp sit **flush to the true row right edge** aligned with the chevron column; (c) identity-tier names render **bold** at render time; (d) the multi-change `ROLE_FLAGS_NOTICE` renders a real `<ul>` with body-weight items and no redundant "see show page" tail; (e) the show-page chevron carries a **one-time dismissible hint** flagging its behavior change (expand → navigate); and (f) `PerShowAlertSection`'s action + Learn-more links adopt BellPanel's tap-target/focus-ring vocabulary.
+
+This is render-only UI. No DB schema, no RPC, no advisory-lock surface, no new mutation surface (the existing `onMarkRead` mutation is unchanged — only the DOM it wraps changes).
+
+## 2. Architecture
+
+Six work items (WI). WI-1 (row restructure) is the structural enabler: moving the message out of the `<button>` is what makes WI-2 (inline `<a>`) and WI-4 (`<ul>`) legal, since interactive content and `<ul>` are forbidden inside `<button>` per the HTML content model.
+
+| WI | Name | Primary files | DEFERRED / ask |
+|----|------|---------------|----------------|
+| WI-1 | Row restructure + timestamp right-flush | `components/admin/BellPanel.tsx` | screenshot ask |
+| WI-2 | Learn-more inline-append | `components/admin/BellPanel.tsx` | screenshot ask |
+| WI-3 | Identity-tier bold at render | `components/messages/renderEmphasis.tsx`, `components/admin/BellPanel.tsx` | `ALERT-COPY-IDENTITY-BOLD-1` |
+| WI-4 | Multi-change real `<ul>` + tail drop + em-dash sweep | `lib/adminAlerts/deriveMessageParams.ts`, `components/admin/BellPanel.tsx` | `ALERT-MULTI-CHANGE-TONE-1` |
+| WI-5 | Chevron one-time dismissible hint | `components/admin/BellPanel.tsx` (+ small client hook) | `ALERT-CHEVRON-HINT-1` |
+| WI-6 | PerShow link tap-target parity | `components/admin/PerShowAlertSection.tsx` | `PERSHOW-LINK-TAPTARGET-1` |
+
+---
+
+## 3. Current-code baseline (cited)
+
+- `ActiveRow` — `components/admin/BellPanel.tsx:330-468`. Outer row `:363-369` (`relative flex gap-3 px-4 py-3.5 …`). Severity rail `:381-398`. Main column `<div className="min-w-0 flex-1">` `:399`. Header wrapper `<div className="flex items-center gap-1">` `:407` holds [mark-read button, chevron].
+- Mark-read `<button>` — `:415-447`. testid `bell-entry-toggle-${alertId}`, `onClick={onMarkRead}`, className `"flex min-h-tap-min min-w-0 flex-1 flex-col justify-center text-left focus-visible:… ring-offset-surface"`. Currently wraps: title-row span `:421` (`flex items-start justify-between gap-2.5`) → title `:428-430` + right-group span `:435` (`flex shrink-0 items-center gap-2.5`) → `<OccurrenceChip/>` + timestamp `:437-439` (`text-xs tabular-nums text-text-faint`, value `raisedAtSuffix(entry.activityAt, now)`); AND the message span `:442-446` (`mt-1 block whitespace-pre-line wrap-break-word text-sm text-text-subtle` → `renderCatalogEmphasis(message, params)`).
+- `message` = `rowCopy(entry.code)` → catalog `dougFacing` (`:117-120`). `params` = `entry.messageParams ?? contextParams(entry.context)` (`:347-350`).
+- Chevron `<a>` — `:452-461`, DOM sibling of button inside `:407` wrapper. `href=/admin/show/${slug}`, testid `bell-caret-${alertId}`, `aria-label="Open show page"`, class `SHOW_PAGE_LINK`, `<ChevronRight className="size-4">`. Rendered only when `entry.slug !== null`.
+- ActionCell — `:231-328`. Outer `<div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">` `:261`. Members: telemetry link `:263-267`, action links `:272-282`, `RetryWatchButton` `:288-292`, **Learn-more `:296-305`** (`<a href={helpHref} testid=bell-help-${alertId} className={HELP_LINK} aria-label="Learn more about {title}">Learn more</a>`, `helpHref = messageFor(entry.code).helpHref` `:236`), spacer `:306`, auto-note `:307-313` OR Dismiss button `:314-324`.
+- Class constants: `LINK_CTA` `:213-214`, `GHOST_DISMISS` `:216-217`, `SHOW_PAGE_LINK` `:222-223`, `HELP_LINK` `:228-229` (verbatim strings preserved; reused, not rewritten).
+- `renderCatalogEmphasis` — `components/messages/renderEmphasis.tsx:75`. `(template: string, params?: MessageParams): ReactNode[]`. Parses `**bold**`→`<strong>`, `*em*`/`_em_`→`<em>` via `renderEmphasis` (`:103-114`), then interpolates params as **opaque plain-text nodes** (`interpolate`, docstring `:61-74`). No identity weight today.
+- `deriveAlertMessageParams` — `lib/adminAlerts/deriveMessageParams.ts:256-260`. `roleChangesParam` `:238-247` returns a `\n`-joined string: header `"${n} role changes:"`, up-to-`CHANGE_LINE_CAP=3` (`:28`) `•`-bullets via `bulletLine` `:232-236`, overflow `"+${n-3} more — see show page."`. `ROLE_CHANGES_FALLBACK` `:27` = `"a crew member's role flags changed — see the show page."`. `LEAD_HINT` `:26` = `" Lead changes must be confirmed in the show page."`. Identity params single-quoted via `quoted` `:151-153`; identity token set `IDENTITY_PARAM_TOKENS` `:38-48`.
+- `PerShowAlertSection` action link `:348-358` (`self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:… ring-offset-2`) + Learn-more `:364-377` (`self-start text-xs text-text-subtle …ring-offset-2`) — **neither** has `min-h-tap-min` nor `ring-offset-surface`.
+- Reference vocabulary (`HealthAlertsPanel.tsx`): View-show `Link :134-142` + action `<a> :143-153` both carry `min-h-tap-min` (BellPanel constants carry `min-h-tap-min` + `ring-offset-surface`).
+- Sole real-browser layout harness: `tests/e2e/bell-panel-layout.spec.ts` (Playwright, `getBoundingClientRect`).
+
+---
+
+## 4. Work items (detailed)
+
+### WI-1 — Row restructure + timestamp right-flush
+
+**Target DOM (ActiveRow main column `:399` children):**
+
+```
+<div className="min-w-0 flex-1">
+  {/* header: title button (flex-1) | right-group (chip+timestamp) | chevron */}
+  <div className="flex items-start gap-2">
+    <button …toggle… className={TOGGLE class, title-only}>       {/* wraps ONLY the title span */}
+      <span className="min-w-0 wrap-break-word font-semibold text-text-strong">{title}</span>
+    </button>
+    <span className="flex shrink-0 items-center gap-2.5 pt-0.5">  {/* right-group, out of button */}
+      <OccurrenceChip …/>
+      <span className="text-xs tabular-nums text-text-faint">{raisedAtSuffix(entry.activityAt, now)}</span>
+    </span>
+    {entry.slug !== null && <a …chevron… className={SHOW_PAGE_LINK}>…</a>}  {/* + hint wrapper, WI-5 */}
+  </div>
+  {/* message block: sibling BELOW header, NOT inside button (enables <a>/<ul>) */}
+  {message && messageResolved && (
+    <div className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle">
+      … WI-3 renderer … {inline Learn-more, WI-2} … {multi-change <ul>, WI-4} …
+    </div>
+  )}
+  <IdentityChip …/>
+  <ActionCell … />   {/* Learn-more removed, WI-2 */}
+</div>
+```
+
+**Right-flush requirement:** the right-group (chip + timestamp) moves out of the button into the header flex row, positioned so its right edge sits flush against the chevron's left edge, and the chevron's right edge is flush to the row content's right padding edge. Net effect: the timestamp is the rightmost element before the chevron column, not stopped short inside a `flex-1` button. Because chevron may be absent (`slug === null`), when absent the right-group is the rightmost element and sits flush to the content right edge.
+
+**Mark-read tap target:** the `<button>` now wraps the title only. `min-h-tap-min` retained on the button so it keeps a ≥44px tap target even as a title-only control. `flex-1 min-w-0` retained so the title takes remaining width and truncates/wraps rather than pushing the right-group off-row. Clicking the message text no longer marks read — this is the ratified "move message out of button" decision.
+
+**Guard conditions:**
+- `message` null/empty OR `!messageResolved`: no message block rendered (header + chip + timestamp + chevron still render).
+- `entry.slug === null`: no chevron (and no WI-5 hint); right-group is rightmost, flush to content right edge.
+- Title always present (non-null invariant of the feed row).
+
+### WI-2 — Learn-more inline-append
+
+Remove Learn-more from ActionCell (`:296-305`). Render it **inline, appended after the message text** inside the WI-1 message block, as an `<a>` sibling immediately following the rendered message nodes (a leading space separates it from the message). Keep testid `bell-help-${alertId}`, `href={helpHref}`, and the `aria-label="Learn more about {title}"`. Reuse `HELP_LINK` class (already has `min-h-tap-min` + `ring-offset-surface`); it renders `inline-flex` so it flows inline after the text.
+
+**Guard:** `helpHref` null/absent → no Learn-more rendered (message text stands alone). ActionCell no longer references Learn-more.
+
+### WI-3 — Identity-tier bold at render
+
+Add a param-aware weighting pass to `renderCatalogEmphasis`. New optional parameter `identityKeys?: ReadonlySet<string>`. Catalog placeholders are angle-bracket hyphenated tokens (`<sheet-name>`, `<show-name>`) matched by `PLACEHOLDER_RE` in `lib/messages/lookup.ts` and substituted whole-string by `interpolate`. When `identityKeys` is present, string nodes are split on placeholder boundaries: a placeholder whose key (hyphen/underscore-normalized, matching `interpolate`'s own normalization at `lookup.ts:32`) ∈ `identityKeys` renders as a `<strong className="font-semibold text-text-strong">` node carrying the resolved value; every other placeholder and surrounding literal renders as plain interpolated text (delegating to `interpolate` so the non-identity path is byte-identical to today). `interpolate` in `lookup.ts` stays unchanged (the split lives in `renderEmphasis.tsx`), so `plainCatalogText` and other string callers are untouched. Emphasis from template `*`/`**` markers is unchanged and composes (an identity param inside an `*em*` span is both italic and bold). Bare-token identity values (spec-ratified per PR #469 wrapper-check) get their weight here at render, never via template markup.
+
+BellPanel passes `identityKeys={IDENTITY_PARAM_TOKENS}` (imported from `lib/adminAlerts/deriveMessageParams.ts`, promoted to an exported const if not already). The single-quote wrap from `quoted` remains part of the value string; the whole quoted token renders bold.
+
+**Guard conditions:**
+- `identityKeys` omitted/empty: behavior identical to today (all params plain text) — back-compat for `HealthAlertsPanel` and any other caller.
+- An identity key present in `identityKeys` but absent from `params`: the `<key>` placeholder falls through to `interpolate`'s not-found behavior (the literal `<key>` is left in place, `lookup.ts:33`) — rendered plain, no empty `<strong>`.
+- Param value empty string: renders an empty `<strong>` is avoided by skipping weight when the resolved value is `""` (emit nothing / plain).
+
+### WI-4 — Multi-change real `<ul>` + tail drop + em-dash sweep
+
+The multi-change `ROLE_FLAGS_NOTICE` currently interpolates a `\n`-joined `•`-bullet string. Replace with structured rendering:
+
+- `deriveMessageParams.ts` exposes the structured change lines so the component can render a real list. Add an exported pure helper `roleChangeLines(changes: RoleChange[]): { header: string; items: string[]; overflow: string | null }` (header `"${n} role changes:"`, `items` = up-to-3 body-weight line strings WITHOUT the leading `• ` marker, `overflow` = `"+${n-3} more"` or `null` — **"see show page" tail dropped** since the chevron already carries nav). `roleChangesParam` is retained for non-`<ul>` callers (e.g. `PerShowAlertSection`, `HealthAlertsPanel`) but its overflow line drops the "— see show page" tail too (→ `"+${n-3} more"`).
+- BellPanel's message block detects `entry.code === "ROLE_FLAGS_NOTICE"` with ≥2 changes and renders: the interpolated header prose, then a real `<ul className="mt-1 list-disc pl-5 text-sm text-text-subtle">` with one `<li className="wrap-break-word">` per item (body weight — no bold), then, if `overflow`, a `<p className="mt-1 text-xs text-text-faint">{overflow}</p>`.
+- **Em-dash sweep (DESIGN.md §9):** `ROLE_CHANGES_FALLBACK` `:27`, `LEAD_HINT` `:26`, and the overflow string `:244` are runtime-rendered strings containing `—` that ARC-1's catalog-field audit did not scan. Sweep them: fallback → `"a crew member's role flags changed; see the show page."`, LEAD_HINT keeps its period phrasing (no em dash present — verify), overflow → `"+${n-3} more"` (em dash removed with the tail). The bullet `→` arrow is NOT an em dash and is retained inside `<li>` items.
+
+**Guard conditions:**
+- `changes.length === 0`: `roleChangeLines` returns `{header:"", items:[], overflow:null}`; component renders the fallback sentence (no `<ul>`).
+- `changes.length === 1`: single-sentence prose (no `<ul>`), matching today's `singleSentence`.
+- `changes.length` between 2 and `CHANGE_LINE_CAP`: `<ul>` with all items, no overflow line.
+- `changes.length > CHANGE_LINE_CAP`: `<ul>` capped at 3 items + overflow `<p>`.
+- Non-`ROLE_FLAGS_NOTICE` codes: message block renders normally (no `<ul>`).
+
+### WI-5 — Chevron one-time dismissible hint
+
+Chevron behavior changed expand→navigate (PR #472). Add a one-time dismissible hint for returning sighted users. Design: a small dismissible chip anchored to the chevron on the **first** `ActiveRow` that has a chevron, shown only until dismissed. Persist dismissal in `localStorage` under key `fxav:bell-chevron-hint:v1` (client-only; SSR renders nothing until mounted to avoid hydration mismatch). The chip reads e.g. "Chevron now opens the show page" with a dismiss `×` button (`aria-label="Dismiss hint"`). AT already covered by the chevron's `aria-label="Open show page"`; the chip is a supplemental visual affordance, `role="note"`.
+
+**Guard conditions:**
+- No chevron on any active row (all `slug === null`): no hint.
+- `localStorage` unavailable / already dismissed: no hint (fail-safe: absence, never an error).
+- Pre-mount (SSR / first paint): hint not rendered (mount-gated via a `useHasMounted`-style client hook) — prevents hydration mismatch and flash.
+- Only ONE hint instance across the panel (on the first chevron-bearing row), not one per row.
+
+### WI-6 — PerShow link tap-target parity
+
+In `PerShowAlertSection.tsx`, add `min-h-tap-min` and `ring-offset-surface` to the action link (`:348-358`) and Learn-more link (`:364-377`) classNames, matching BellPanel's `LINK_CTA`/`HELP_LINK` vocabulary. Keep `inline-flex items-center` so `min-h-tap-min` yields a real ≥44px target. Existing testids and hrefs unchanged. (The `HelpTooltip` "Learn more →" at `:298-304` is out of scope — separate component, not a PerShowAlertSection link.)
+
+**Guard:** purely additive class change; render behavior otherwise identical.
+
+---
+
+## 5. Dimensional Invariants (real-browser assertions required)
+
+Tailwind v4 in this repo does NOT default `.flex` to `align-items: stretch`; assert every relationship in a real browser (Playwright), not jsdom.
+
+| # | Parent | Child | Invariant | Guaranteeing class |
+|---|--------|-------|-----------|--------------------|
+| DI-1 | header flex row `[data-testid=bell-header-${id}]` | right-group `[data-testid=bell-meta-${id}]` | right-group right edge ≤ chevron left edge (or, chevron absent, ≤ row content right padding edge) within 0.5px | `shrink-0` on right-group; header `flex items-start gap-2` |
+| DI-2 | header flex row | chevron `[data-testid=bell-caret-${id}]` | chevron right edge === row content right edge (row `paddingRight`) within 0.5px | chevron is last flex child; `SHOW_PAGE_LINK` `shrink-0` |
+| DI-3 | header flex row | title button `[data-testid=bell-entry-toggle-${id}]` | button height ≥ 44px (`min-h-tap-min`); button is `flex-1` and does not overflow the right-group off-row | `min-h-tap-min flex-1 min-w-0` |
+| DI-4 | ActiveRow row `[data-testid=bell-entry-${id}]` | timestamp `[data-testid=bell-time-${id}]` | timestamp right edge ≥ (title button right edge) — i.e. timestamp sits to the RIGHT of the title column, the screenshot fix | right-group ordering + `shrink-0` |
+
+The harness asserts `getBoundingClientRect()` on `bell-header-${id}`, `bell-meta-${id}`, `bell-caret-${id}`, `bell-time-${id}`, `bell-entry-toggle-${id}` for both a chevron-present and a chevron-absent (`slug===null`) fixture row.
+
+## 6. Transition Inventory
+
+States are largely static per row; the animated surfaces are the WI-5 hint and existing hover/focus. Enumerate:
+
+| State pair | Treatment |
+|------------|-----------|
+| Hint visible → dismissed | Instant removal on dismiss click (no exit animation needed; `localStorage` write + unmount). Acceptable per prior BellPanel hover-only motion budget. |
+| Hint absent (dismissed) → visible | Never re-appears within a browser profile (one-time). No transition. |
+| Pre-mount → mounted (hint) | Hint mounts silently after `useHasMounted` flips; no entrance animation (avoids flash). |
+| Row unread (`bg-stale-tint`) → read (`hover:bg-surface-sunken`) | Existing `transition-colors motion-safe:duration-fast` on row `:363` — unchanged by restructure. |
+| Message block present ↔ absent | Instant (conditional render); no animation — consistent with today. |
+| `<ul>` multi-change ↔ single-sentence | Instant (mutually exclusive render branches on the same alert code); no compound transition — a given alert row does not toggle change-count live. |
+
+Compound transition check: the hint dismiss occurs independently of row read-state; dismissing the hint does not alter row layout (chip lives in an absolutely-positioned or margin-flowed wrapper that reserves no layout when gone). Verify in the transition-audit task that hint mount/unmount does not shift the chevron position.
+
+## 7. Test plan & anti-tautology
+
+- **renderEmphasis identity-bold** (`tests/components/renderEmphasis.test.tsx` + extend `tests/messages/_metaEmphasisRenderContract.test.ts`): assert an identity-key param renders inside `<strong>`; a non-identity param renders as a plain text node (assert the specific node type, not just textContent); `identityKeys` omitted → no `<strong>` (back-compat); empty value → no empty `<strong>`; template `*em*` around an identity param → both `<em>` and `<strong>`. Anti-tautology: extract the identity value's rendered node and assert its tag is `STRONG`, scoped to that node — do NOT assert on the container textContent (which would pass even if bold were dropped).
+- **roleChangeLines** (`tests/adminAlerts/deriveMessageParams.test.ts`): derive expected items from fixture `RoleChange[]` dimensions (never hardcode the sentence); assert 0→fallback, 1→sentence, 2..3→full items no overflow, 4+→3 items + `"+${n-3} more"` overflow with NO "see show page" substring; assert NO `—` in any produced string (guards the sweep). Failure mode caught: reintroducing the tail or an em dash.
+- **BellPanel multi-change `<ul>`** (`tests/components/bellPanel*.test.tsx`): for a 4-change `ROLE_FLAGS_NOTICE` fixture, assert a real `<ul>` with 3 `<li>` + an overflow `<p>`; assert `<li>` font-weight is body (not bold) by asserting the class lacks `font-semibold`/`font-bold`; assert the `<ul>` is NOT a descendant of the mark-read `<button>` (query button subtree, assert no `<ul>`). Failure mode: `<ul>` nested in button (invalid HTML) or bold items.
+- **Message-out-of-button** (`tests/components/bellPanel*.test.tsx`): assert the message span and inline Learn-more `<a>` are siblings of, not descendants of, the toggle button; assert the toggle button's accessible name is the title only (clone the button subtree, assert it contains no message text). Failure mode: message still inside button.
+- **Learn-more inline** : assert `bell-help-${id}` is inside the message block, not in ActionCell (`bell-action-*` container); assert ActionCell has no `bell-help-*`.
+- **Chevron hint** (`tests/components/bellPanelDeferrals.test.tsx` or new `bellChevronHint.test.tsx`): assert hint absent pre-mount; present after mount when not dismissed; absent after dismiss (localStorage set); only one hint across a multi-row feed; absent when all rows lack a slug. Mock `localStorage`.
+- **PerShow tap-target** (`tests/components/admin/perShowAlertActionLink.test.tsx` / `HelpLink.test.tsx`): assert action + Learn-more classNames now include `min-h-tap-min` AND `ring-offset-surface`. Failure mode: parity regression.
+- **Layout (real-browser)** `tests/e2e/bell-panel-layout.spec.ts`: DI-1..DI-4 with chevron-present + chevron-absent fixtures. jsdom insufficient.
+- **Transition-audit** (jsdom ok for prop presence): enumerate the hint's mount/dismiss; assert dismiss removes it without shifting `bell-caret` x-position (real-browser for the position check).
+
+## 8. Meta-test inventory
+
+- **EXTENDS** `tests/messages/_metaEmphasisRenderContract.test.ts` — add the identity-bold contract (identity keys → `<strong>`; back-compat when omitted).
+- **No new** admin_alerts code, message §12.4 code, DB table, RPC, or advisory-lock surface → `_metaAdminAlertCatalog`, `advisoryLockRpcDeadlock`, PostgREST-DML meta-tests: **N/A (no such surface touched)**.
+- **Invariant 10 (mutation-surface observability):** ARC-2 adds no mutating HTTP route and no `"use server"` action. The WI-5 dismiss is a client-only `localStorage` write (no server round-trip). `onMarkRead` is pre-existing and unchanged. → **N/A (no new/modified mutation surface).**
+- **Invariant 5 (no raw error codes in UI):** preserved — all copy still flows through `lib/messages/lookup` / catalog; the restructure moves DOM, not copy source.
+
+## 9. Out of scope
+
+- No change to `onMarkRead` semantics, bell feed RPC, realtime, or badge counts.
+- No change to `HealthAlertsPanel` rendering except the shared `renderCatalogEmphasis` gains an optional param it does not pass (back-compat, verified).
+- `HelpTooltip` "Learn more →" (`PerShowAlertSection:298-304`) tap-target — separate component, not in this pass.
+- The `→` arrow in role-change bullets is retained (not an em dash; DESIGN.md §9 bans only `—` and `--`).
+
+## 10. Disagreement-loop preempts (for reviewer)
+
+- **Message no longer a click target for mark-read** is intentional and user-ratified ("Move message out of button"), forced by the HTML content model (`<ul>`/`<a>` illegal in `<button>`). Not a regression.
+- **Bare identity tokens getting weight at render, not via template markup** is spec-ratified per PR #469 (wrapper-check saga) — bolding MUST happen at the render pass, never by injecting `**` into templates.
+- **Dropping "see show page" from overflow** is the ratified `ALERT-MULTI-CHANGE-TONE-1` fix shape (chevron/nav already carries it). Not a lost affordance.
+- **`→` retained** — deliberate, not an em-dash-sweep miss.
+- **WI-5 one-time hint via localStorage** (not a server-persisted per-user flag) is deliberate: crew/admin identity has no per-user pref store for this, and the hint is cosmetic; `localStorage` scoping is acceptable and fail-safe.
