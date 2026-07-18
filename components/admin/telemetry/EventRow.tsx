@@ -77,9 +77,9 @@ export function EventRow({
                 )}
                 {event.showId &&
                   (event.showSlug ? (
-                    // Route is /admin/show/[slug] — link by SLUG, never the UUID.
+                    // Modal URL is /admin?show=<slug> — link by SLUG, never the UUID.
                     <Link
-                      href={`/admin/show/${encodeURIComponent(event.showSlug)}`}
+                      href={`/admin?show=${encodeURIComponent(event.showSlug)}`}
                       className="inline-flex min-h-tap-min items-center underline"
                     >
                       {event.showTitle ?? event.showSlug}

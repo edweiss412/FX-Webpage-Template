@@ -63,7 +63,7 @@ export function SuccessBlock({ title, slug }: { title: string; slug: string }) {
       </p>
       <p className="mt-4">
         <a
-          href={`/admin/show/${slug}`}
+          href={`/admin?show=${encodeURIComponent(slug)}`}
           className="text-base font-medium text-accent-on-bg underline underline-offset-2"
         >
           {SUCCESS_ADMIN_LINK_LABEL}

@@ -86,6 +86,7 @@ vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams("bucket=archived"),
 }));
 
 const DATES = {
@@ -212,7 +213,9 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     // read-only: Unarchive + Open present; no re-sync / share / rotate controls
     expect(within(row).getByTestId("unarchive-show-button-1")).toBeInTheDocument();
     const open = within(row).getByTestId("archived-show-open-old-show");
-    expect(open.getAttribute("href")).toBe("/admin/show/old-show");
+    // admin-show-modal Task 11 (D9): server-rendered archived row embeds its own
+    // bucket context — fixed /admin?bucket=archived&show= literal.
+    expect(open.getAttribute("href")).toBe("/admin?bucket=archived&show=old-show");
     expect(row.textContent).not.toMatch(/Re-sync|Rotate|Share|Copy link/i);
   });
 

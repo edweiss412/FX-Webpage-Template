@@ -134,7 +134,7 @@ function HealthAlertRowItem({
         {row.show_id && row.slug ? (
           <Link
             data-testid={`health-alert-show-link-${row.id}`}
-            href={`/admin/show/${encodeURIComponent(row.slug)}`}
+            href={`/admin?show=${encodeURIComponent(row.slug)}`}
             className="inline-flex min-h-tap-min items-center underline"
           >
             View show

@@ -48,7 +48,7 @@ function shareAccess(label: string): AlertActionBuilder {
     if (!slug) return null;
     return {
       label,
-      href: `/admin/show/${encodeURIComponent(slug)}#share-access`,
+      href: `/admin?show=${encodeURIComponent(slug)}#share-access`,
       external: false,
     };
   };
@@ -102,14 +102,16 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
   },
   BRANCH_PROTECTION_DRIFT: branchSettings,
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: branchSettings,
-  // Re-sync quality gate (audit #3): link the held-shrink alert to the per-show ReSyncButton so
-  // the admin can review the shrink counts and accept the reduced version (or wait for Doug's fix).
+  // Re-sync quality gate (audit #3): link the held-shrink alert to the ReSyncButton so the admin
+  // can review the shrink counts and accept the reduced version (or wait for Doug's fix).
+  // admin-show-modal D7: #resync never had a DOM id (dead fragment); the sheet/sync block lives
+  // inside the Overview section of the review modal, so the link targets #overview.
   RESYNC_SHRINK_HELD: (_context, opts) => {
     const slug = typeof opts.slug === "string" ? opts.slug.trim() : "";
     if (!slug) return null; // fail-quiet when slug missing (registry contract)
     return {
       label: "Review & re-sync",
-      href: `/admin/show/${encodeURIComponent(slug)}#resync`,
+      href: `/admin?show=${encodeURIComponent(slug)}#overview`,
       external: false,
     };
   },

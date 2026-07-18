@@ -1048,6 +1048,15 @@ it("HEADERPARITY: needs-attention page (headingLevel 2) renders neither chip nor
 // ── REDESIGN-3: structured field_changed diff (kind:"fields") ────────────────
 import type { FieldChangeEntry } from "@/lib/sync/changeLog/fieldChanges";
 
+// admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
+// read the current search params (param-preserving modal hrefs) — stub the
+// app-router hooks jsdom has no router for.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 function fieldsData(
   entries: FieldChangeEntry[],
   summary = "COI status changed on this sync",

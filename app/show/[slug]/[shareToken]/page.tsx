@@ -200,7 +200,7 @@ export default async function ShowPage({
   switch (result.kind) {
     case "archived":
       // R27: archived 404s for ALL viewers including admin — admins
-      // debug archived shows via /admin/show/<slug>.
+      // debug archived shows via /admin?show=<slug>.
       notFound();
     // falls through (notFound() throws)
 

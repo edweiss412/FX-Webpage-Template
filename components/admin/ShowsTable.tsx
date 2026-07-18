@@ -1,7 +1,8 @@
 // M12.2 Phase A Task 5 — ShowsTable (spec §5.2). M12.3 items 10/14: restyled to
 // the design's CLEAN TABLE — a single bordered/rounded container with a header
 // row (SHOW / START / END / CREW / SYNC STATUS) and light row dividers, denser
-// rows (NOT heavy per-row boxed cards). Whole row links to /admin/show/{slug}.
+// rows (NOT heavy per-row boxed cards). Whole row opens the show's review
+// modal via a param-preserving /admin?show={slug} href (spec §3.1 / D9).
 // The former single DATES column is split into Start + End on desktop; mobile
 // keeps the combined range on the stacked sub-line.
 //
@@ -28,6 +29,7 @@ import {
   type ActiveShowRow,
 } from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { useShowModalNav } from "@/components/admin/useShowModalNav";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
@@ -286,6 +288,9 @@ export function ShowsTable({
   bucketControl,
   rowAction,
 }: ShowsTableProps) {
+  // Param-preserving modal hrefs (spec §3.1 / D9) — this client island reads
+  // the CURRENT search params so e.g. bucket=archived survives opening a show.
+  const { openHref } = useShowModalNav();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState>(null);
 
@@ -473,7 +478,8 @@ export function ShowsTable({
               return (
                 <li key={row.id}>
                   <Link
-                    href={`/admin/show/${encodeURIComponent(row.slug)}`}
+                    href={openHref(row.slug)}
+                    scroll={false}
                     data-testid={`shows-table-row-${row.slug}`}
                     className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
                   >

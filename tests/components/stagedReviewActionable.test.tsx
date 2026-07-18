@@ -4,7 +4,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import type { ParseWarning } from "@/lib/parser/types";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  // admin-show-modal Task 11: StagedReviewCard builds param-preserving modal hrefs.
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 afterEach(() => cleanup());
 

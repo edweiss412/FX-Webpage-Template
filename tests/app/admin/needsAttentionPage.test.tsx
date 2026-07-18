@@ -61,6 +61,9 @@ vi.mock("@/lib/time/now", () => ({
 // The REAL NeedsAttentionInbox renders PendingPanelRetryButton (useRouter) —
 // jsdom has no app router mounted, so stub navigation (perShowPage convention).
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/needs-attention",
 }));

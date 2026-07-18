@@ -16,7 +16,7 @@ describe("share-access group (spec §4 #1-#3)", () => {
     const action = resolveAlertAction("SHOW_FIRST_PUBLISHED", {}, slugOpts);
     expect(action).toEqual({
       label: "Go to Published toggle",
-      href: `/admin/show/${encodeURIComponent(slugOpts.slug)}#share-access`,
+      href: `/admin?show=${encodeURIComponent(slugOpts.slug)}#share-access`,
       external: false,
     });
   });
@@ -25,7 +25,7 @@ describe("share-access group (spec §4 #1-#3)", () => {
       const action = resolveAlertAction(code, null, slugOpts);
       expect(action).toEqual({
         label: "Go to Share & access",
-        href: `/admin/show/${encodeURIComponent(slugOpts.slug)}#share-access`,
+        href: `/admin?show=${encodeURIComponent(slugOpts.slug)}#share-access`,
         external: false,
       });
     }
@@ -37,7 +37,7 @@ describe("share-access group (spec §4 #1-#3)", () => {
   });
   it("slug needing encoding is percent-encoded", () => {
     const action = resolveAlertAction("SHOW_FIRST_PUBLISHED", {}, { slug: "a b/c" });
-    expect(action?.href).toBe(`/admin/show/${encodeURIComponent("a b/c")}#share-access`);
+    expect(action?.href).toBe(`/admin?show=${encodeURIComponent("a b/c")}#share-access`);
   });
 });
 
@@ -181,10 +181,10 @@ describe("branch settings links (spec §4 #8-#9) — segment guard", () => {
 describe("RESYNC_SHRINK_HELD (re-sync quality gate, audit #3)", () => {
   // Failure mode: an unregistered code → resolveAlertAction returns null → the held-shrink alert
   // has no "accept" affordance and the admin must hunt for the ReSyncButton control.
-  it("builds the #resync fragment href from the slug", () => {
+  it("builds the #overview fragment href from the slug (D7 — #resync retired, the sync block lives in Overview)", () => {
     expect(resolveAlertAction("RESYNC_SHRINK_HELD", {}, slugOpts)).toEqual({
       label: "Review & re-sync",
-      href: `/admin/show/${encodeURIComponent(slugOpts.slug)}#resync`,
+      href: `/admin?show=${encodeURIComponent(slugOpts.slug)}#overview`,
       external: false,
     });
   });

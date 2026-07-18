@@ -106,6 +106,9 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin",
 }));

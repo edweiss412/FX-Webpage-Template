@@ -23,6 +23,9 @@ import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedRevie
 import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
 
 vi.mock("next/navigation", () => ({
+  // admin-show-modal Task 11: ShowsTable/StagedReviewCard build param-preserving
+  // modal hrefs from the current search params.
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/show/staged/staged-fixture-1",
 }));

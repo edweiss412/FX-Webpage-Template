@@ -103,14 +103,14 @@ export type NeedsAttentionItem =
       key: string;
       stagedId: string;
       driveFileId: string;
-      slug: string; // routes to /admin/show/{slug} (per-show review, archived-safe)
+      slug: string; // routes to /admin?show={slug} (review modal, archived-safe)
       title: string | null;
       activityAt: string | null;
     }
   | {
       variant: "sync_problem";
       key: string;
-      alertId: string; // deep-links /admin/show/{slug}?alert_id={alertId}
+      alertId: string; // deep-links /admin?show={slug}&alert_id={alertId}
       showId: string;
       slug: string; // non-null (null-slug rows are skipped at build time)
       title: string | null;
@@ -250,7 +250,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
       }),
     ),
     // Skip any sync-problem with a null slug (defensive — the loader's shows!inner
-    // guarantees a slug; a null here would produce a dead /admin/show/undefined link).
+    // guarantees a slug; a null here would produce a dead /admin?show=undefined link).
     ...(input.syncProblems ?? [])
       .filter((sp): sp is NeedsAttentionSyncProblemInput & { slug: string } => sp.slug !== null)
       .map(

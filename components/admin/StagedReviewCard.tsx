@@ -70,6 +70,7 @@ import {
 import { AccentButton } from "@/components/shared/AccentButton";
 import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { useShowModalNav } from "@/components/admin/useShowModalNav";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -179,7 +180,7 @@ export type StagedReviewCardProps = {
    *     Pin-2 LiveFirstSeenStagedApply/DiscardRequest shape
    *     ({ reviewerChoices } for apply; { kind } for discard). On
    *     apply success the response carries `{ slug }`; the parent
-   *     route redirects to /admin/show/[slug].
+   *     route redirects to the show's review modal (/admin?show=<slug>).
    */
   mode?: "live" | "wizard_failed_reapply" | "first_seen";
   /** Required when mode === 'wizard_failed_reapply'. */
@@ -233,6 +234,7 @@ export function StagedReviewCard({
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const router = useRouter();
+  const { openHref } = useShowModalNav();
   // G2 two-tap guard (spec 2026-07-16-destructive-confirm-pass §4): "Stop
   // showing this sheet" arms on first tap (the recessive underline link morphs
   // into a solid recipe button, 4s auto-revert) and fires the EXISTING
@@ -353,7 +355,9 @@ export function StagedReviewCard({
         if (isFirstSeenMode) {
           const slug = (json as { slug?: string | null }).slug;
           if (typeof slug === "string" && slug.length > 0) {
-            router.push(`/admin/show/${encodeURIComponent(slug)}`);
+            // admin-show-modal spec §3.1 / D9: open the review modal directly
+            // (param-preserving) — never the legacy path (an extra 307).
+            router.push(openHref(slug));
             return;
           }
         }

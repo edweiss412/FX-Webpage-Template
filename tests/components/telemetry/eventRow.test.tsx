@@ -64,7 +64,7 @@ describe("EventRow", () => {
       />,
     );
     const link = screen.getByRole("link", { name: "RPAS" });
-    expect(link.getAttribute("href")).toBe("/admin/show/rpas-central");
+    expect(link.getAttribute("href")).toBe("/admin?show=rpas-central");
     expect(link.getAttribute("href")).not.toContain("0000000000ab");
   });
   test("request chip links to ?requestId=<id>&since=all", () => {

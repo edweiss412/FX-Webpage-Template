@@ -125,7 +125,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
             names. No resolve/retry/discard button — these clear automatically. */}
         <Link
           data-testid={`needs-attention-link-sync-problem-${item.alertId}`}
-          href={`/admin/show/${encodeURIComponent(item.slug)}?alert_id=${encodeURIComponent(item.alertId)}`}
+          href={`/admin?show=${encodeURIComponent(item.slug)}&alert_id=${encodeURIComponent(item.alertId)}`}
           aria-label={
             item.title
               ? `Check sync problem for ${item.title} (${item.slug})`
@@ -153,7 +153,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
           shows can share a title but never a slug. */}
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
-        href={`/admin/show/${encodeURIComponent(item.slug)}`}
+        href={`/admin?show=${encodeURIComponent(item.slug)}`}
         aria-label={
           item.title ? `Open show ${item.title} (${item.slug})` : `Open show ${item.slug}`
         }

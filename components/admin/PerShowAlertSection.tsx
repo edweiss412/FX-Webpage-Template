@@ -2,7 +2,7 @@
  * components/admin/PerShowAlertSection.tsx (M10 §B Task 10.7 / Phase 2)
  *
  * Per-show admin alerts surface rendered ABOVE the §9.2 ParsePanel
- * sub-sections at /admin/show/[slug]. Reads unresolved per-show
+ * sub-sections in the show review modal (/admin?show=<slug>). Reads unresolved per-show
  * admin_alerts (admin_alerts WHERE show_id = $showId AND resolved_at
  * IS NULL) via the Supabase server client and renders one row per
  * alert. The "Mark resolved" button on each row POSTs to the
