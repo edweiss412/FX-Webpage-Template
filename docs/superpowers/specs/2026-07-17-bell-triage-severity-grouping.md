@@ -70,8 +70,8 @@ Inside the existing `<section data-testid="bell-section-active">` (`BellPanel.ts
 | --- | --- |
 | `0` | No active section at all (existing `active.length > 0` guard, `BellPanel.tsx:799`). Unchanged. |
 | `1`–`8` | Flat mode (today's exact render). |
-| `>= 9`, `!activeTruncated` | Grouped mode. |
-| `>= 9`, `!activeTruncated`, all one tone | Grouped mode, single tier section. |
+| `>= 9`, `activeTruncated === false` | Grouped mode. |
+| `>= 9`, `activeTruncated === false`, all one tone | Grouped mode, single tier section. |
 | `>= 9`, `activeTruncated` | **Flat mode** (grouping suppressed — active-completeness gate §1.1); truncation row renders below (unchanged). |
 | `>= 9`, active complete but history capped (`truncated` true, `activeTruncated` false) | **Grouped mode** — history capping does not suppress grouping; truncation row still renders below. |
 
@@ -143,7 +143,7 @@ Therefore no new DI relationship is added. The layout e2e (§5) still asserts, i
 
 ## 3. Transition inventory
 
-States that can change at runtime for this surface: **flat ↔ grouped** (driven by `active.length >= 9 && !feed.activeTruncated` flipping on a load/refetch — the count crossing 9 or `activeTruncated` flipping) and, orthogonally, the per-row and mark-all-read transitions the redesign already owns.
+States that can change at runtime for this surface: **flat ↔ grouped** (driven by `active.length >= 9 && feed.activeTruncated === false` flipping on a load/refetch — the count crossing 9 or `activeTruncated` flipping) and, orthogonally, the per-row and mark-all-read transitions the redesign already owns.
 
 | Transition | Treatment |
 | --- | --- |
