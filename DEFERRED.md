@@ -8,16 +8,6 @@ Last reconciled: 2026-07-17 (every other `###` entry from the prior file was alr
 
 ---
 
-## CI speedup — Phase 2 (2026-06-23)
-
-### D11 — [P3] Restore Next `.next/cache` before the screenshots-drift Docker build
-
-- **What:** cache `.next-screenshots-help/cache` (the compiler cache) before the screenshots-drift build. The help-affordances half already shipped 2026-07-17.
-- **Why still deferred:** screenshots-drift builds inside the pinned Docker container (root-owned cache vs `actions/cache` saving as the runner user) AND is a byte-comparison gate, so a warm build must be proven byte-identical to a cold one first.
-- **Trigger:** dispatch `screenshots-regen` to prove warm-build byte-identity, chown the cache dir back to the runner user, THEN cache `.next-screenshots-help/cache`. Full context: archive D11.
-
----
-
 ## Bell notification center (2026-07-05)
 
 ### BELL-2 — [P2] No triage structure at 9+ (severity/show grouping + mark-all-read)

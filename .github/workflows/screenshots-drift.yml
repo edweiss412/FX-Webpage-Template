@@ -64,6 +64,28 @@ jobs:
         # the hold-aside list cannot drift between workflows. Full rationale +
         # mechanism comments are in the script.
         run: bash scripts/ci/supabase-local-bootstrap.sh
+      # Restore the Next compiler cache for the :3004 screenshots-help webServer
+      # build (playwright.screenshots.config.ts:101/117 runs `pnpm build` with
+      # NEXT_DIST_DIR=.next-screenshots-help → next.config distDir), so a warm
+      # build skips recompiling unchanged modules (~30s). Caches ONLY
+      # <distDir>/cache (the compiler cache, NOT build output). Separate key
+      # namespace from help-affordances' `nextcache-help`: this build carries a
+      # different env (ADMIN_DEV_PANEL_ENABLED, screenshot fixtures) so the two
+      # jobs must not share compilation artifacts. `github.sha` in the key makes
+      # each run save a fresh immutable entry; restore-keys falls back to the
+      # most recent prefix. Byte-safety (this IS the byte-comparison drift gate,
+      # unlike the host-side walker): the compiler cache stores compiled module
+      # output keyed by content hash — a warm build reuses identical compilation,
+      # so rendered pixels are unchanged. Warm/cold byte-identity is proven on CI
+      # (D11 trigger) before this lands; a drift is caught by the gate itself.
+      - name: Restore Next build cache (screenshots-help :3004 build)
+        uses: actions/cache@v4
+        with:
+          path: .next-screenshots-help/cache
+          key: ${{ runner.os }}-nextcache-screenshots-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nextcache-screenshots-${{ hashFiles('pnpm-lock.yaml') }}-
+            ${{ runner.os }}-nextcache-screenshots-
       - name: Capture screenshots in pinned Playwright image
         run: |
           docker run --rm --platform linux/amd64 --network host \
@@ -72,6 +94,14 @@ jobs:
             -e CI=true \
             mcr.microsoft.com/playwright:v1.59.1-jammy \
             bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
+      # The Docker build ran as root, so .next-screenshots-help/cache is now
+      # root-owned; the `actions/cache` post-step saves as the runner user and
+      # cannot read root-owned files. Reclaim ownership before that save (and
+      # `if: always()` so a drift failure still leaves a saveable cache for the
+      # next run). ubuntu-latest grants passwordless sudo.
+      - name: Reclaim Next cache ownership (Docker built it as root)
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .next-screenshots-help/cache 2>/dev/null || true
       - name: Check screenshot drift
         run: |
           git diff --exit-code public/help/screenshots/
