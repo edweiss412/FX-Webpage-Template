@@ -188,10 +188,12 @@ create table shows (
   created_at      timestamptz not null default now()
 );
 
--- LEAD-only and admin-only fields. Physically separated from `shows` so
--- non-admin RLS cannot read these even via SELECT *. The application
--- joins this in only when the viewer is admin or has LEAD in role_flags
--- for this show.
+-- Capability-gated + admin-only fields. Physically separated from `shows` so
+-- non-admin RLS cannot read these even via SELECT *. The application joins this
+-- in only when the viewer is admin or has a financials capability (LEAD OR
+-- FINANCIALS) in role_flags for this show (getShowForViewer.ts financialsEntitled;
+-- capability-narrow 2026-07-17). (Broader financials-prose reconciliation:
+-- BL-MASTERSPEC-FINANCIALS-VOCAB.)
 create table shows_internal (
   show_id          uuid primary key references shows(id) on delete cascade,
   financials       jsonb,                           -- LEAD-only: { po, proposal, invoice, invoiceNotes }. COI moved to shows.coi_status because it's operational, not financial.
@@ -217,7 +219,7 @@ create table crew_members (
   email           text,                            -- nullable: older fixtures lack emails
   phone           text,
   role            text not null,                   -- raw role string from sheet, kept verbatim for display (e.g. "- Load In / Set / Strike / Load Out - LEAD / A1")
-  role_flags      text[] not null default '{}',    -- CANONICAL: atomic capability flags ONLY. Permitted values: "LEAD", "A1", "V1", "BO", "ONLY", "CAM_OP", "GAV". A compound role like LEAD/A1 is split into ["LEAD","A1"]. Authorization is "LEAD" = ANY('LEAD' = ANY(role_flags)). NEVER store compound or display strings here.
+  role_flags      text[] not null default '{}',    -- CANONICAL: atomic capability flags ONLY. Permitted values: "LEAD", "FINANCIALS", "A1", "V1", "BO", "ONLY", "CAM_OP", "GAV" (FINANCIALS added by 2026-07-15-extend-role-scope-vocab; admin-granted via role_token_mappings). A compound role like LEAD/A1 is split into ["LEAD","A1"]. Financials access = admin OR ('LEAD' = ANY(role_flags)) OR ('FINANCIALS' = ANY(role_flags)) (getShowForViewer.ts financialsEntitled). NEVER store compound or display strings here.
   date_restriction jsonb,                          -- { kind: "explicit"|"unknown_asterisk"|"none", days: ["3/24","3/26"]? } -- which DATES the crew member works
   stage_restriction jsonb,                         -- { kind: "explicit"|"none", stages: ["Load In","Set"]? } -- which STAGES (load-in/set/strike/load-out)
   flight_info     text,                            -- only present in 2024-10 fixture
