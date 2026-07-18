@@ -1018,9 +1018,9 @@ export const SPEC_CODES = {
   },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
-    "dougFacing": "A crew member's role flags changed and were applied automatically — this entry is here for your audit. If the change included LEAD status (which grants admin/ops/financials access), confirm it was intentional.",
+    "dougFacing": "In <sheet-name>, <role-changes><lead-hint>",
     "followUp": "none (informational)",
-    "helpfulContext": "A crew member's role flags changed and were applied automatically — a sheet edit or an admin role mapping is a deliberate action, so it applies without holding. This entry is raised when a change affects a CAPABILITY role: LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface). Those are worth a quick confirm; a durable audit record also captures each one. Department/scope flags only change which tile the crew member sees on their own page. No action needed; if a capability change was a mistake, correct it in the sheet (or the mapping).",
+    "helpfulContext": null,
   },
   "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
     "crewFacing": null,

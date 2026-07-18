@@ -35,7 +35,12 @@ describe("ROLE_FLAGS_NOTICE reclassify (audience health → doug)", () => {
   test("copy is truthful for a scope-tile (non-LEAD) legacy row — no unconditional 'gained or lost LEAD'", () => {
     const dougFacing = messageFor("ROLE_FLAGS_NOTICE").dougFacing ?? "";
     expect(dougFacing.toLowerCase()).not.toMatch(/gained or lost lead/);
-    // conditional phrasing survives (truthful for both scope-tile legacy rows and capability rows)
-    expect(dougFacing).toMatch(/if the change included lead/i);
+    // condensed-alert-copy (spec 2026-07-17 §3.1): the lead-hint sentence is no
+    // longer baked unconditionally into the static template — the catalog
+    // carries the <lead-hint> placeholder, and deriveAlertMessageParams
+    // (lib/adminAlerts/deriveMessageParams.ts) resolves it to "" for a
+    // scope-tile-only change or to the confirm-in-show-page sentence for an
+    // actual LEAD delta, so truthfulness is enforced at read time.
+    expect(dougFacing).toContain("<lead-hint>");
   });
 });

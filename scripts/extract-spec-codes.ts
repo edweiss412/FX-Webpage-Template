@@ -74,6 +74,15 @@ const M115_RETIRED_CATALOG_CODES = new Set([
 // context were rewritten to the pure-unpublish (paused link) semantics, so the
 // archive-era override would have pinned stale prose over the live spec.
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
+// Codes whose dougFacing text is a fully self-contained inline-context
+// template (condensed-alert-copy design, spec 2026-07-17 §3.1) — the message
+// itself names the sheet/show/changes at read time via deriveAlertMessageParams
+// (lib/adminAlerts/deriveMessageParams.ts), so no expandable helpfulContext /
+// "?" caret is rendered and the §12.4 appendix intentionally omits an entry.
+// Adding a code here is a deliberate UX decision (verified: the code has no
+// <ErrorExplainer>/messageFor(...).dougFacing render site requiring the
+// caret), not an oversight the appendix-parity invariant should catch.
+const INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT = new Set(["ROLE_FLAGS_NOTICE"]);
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -351,7 +360,11 @@ export function extractSpecCodesFromMarkdown(
 
   for (const [code, payload] of Object.entries(tableCodes)) {
     const context = helpfulContext[code] ?? null;
-    if (payload.dougFacing !== null && context === null) {
+    if (
+      payload.dougFacing !== null &&
+      context === null &&
+      !INLINE_CONTEXT_CODES_WITHOUT_HELPFUL_CONTEXT.has(code)
+    ) {
       invariantErrors.push(
         `§12.4 helpfulContext appendix missing entry for code ${code} (dougFacing is non-null)`,
       );
