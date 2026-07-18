@@ -1,0 +1,80 @@
+name: Step3 live-bundle e2e (desktop-chromium)
+# Runs the standalone <Step3ReviewModal> live-bundle interaction spec
+# (tests/e2e/step3-review-modal.interactions.spec.ts, desktop-chromium project) in
+# real Chromium. The spec is FULLY self-contained: its beforeAll tsx-renders the
+# fixture, esbuild-bundles the live entry (tests/e2e/_step3ReviewModalBundle.mjs,
+# which replicates Next's "use server" elision + empties node builtins), compiles
+# the token CSS, and serves it all over its OWN node:http server — it never touches
+# the app on any of :3000-:3004. So STEP3_LIVE_BUNDLE_ONLY=1 boots ZERO webServers
+# (playwright.config.ts filter) and this job needs NO Supabase/build/seed.
+#
+# Why its own job: the spec lives in no CI-run project (desktop-chromium is invoked
+# by no other workflow), so it drifted silently and broke on main once the Step3
+# client graph pulled node:crypto/postgres through the "use server" boundary (#477).
+# This gate re-runs it on every change to the spec, its bundle helper, or the Step3
+# surfaces it renders. workflow_dispatch so close-out can fire it via `gh workflow run`.
+on:
+  pull_request:
+    paths:
+      - "tests/e2e/step3-review-modal.interactions.spec.ts"
+      - "tests/e2e/_step3ReviewModalBundle.mjs"
+      - "tests/e2e/_step3ReviewModalLiveEntry.tsx"
+      - "tests/e2e/_step3ReviewModalHarness.tsx"
+      - "components/admin/wizard/Step3ReviewModal.tsx"
+      - "components/admin/wizard/step3ReviewSections.tsx"
+      - "components/admin/review/**"
+      - "playwright.config.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/step3-live-bundle.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  step3-live-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The spec's tsx static-render (step 1) imports the REAL Step3 server chain
+      # (requireAdmin → hashForLog, lib/log, lib/supabase/server) at module load, so
+      # these vars must be set or a constructor throws at import. NO live Supabase is
+      # needed — the render is network-free (the postgres client is lazy and never
+      # queried). Demo local keys mirror playwright.config.ts's :3004 webServer block.
+      HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+      JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      # Boot ZERO webServers (playwright.config.ts filter) — the spec self-hosts.
+      STEP3_LIVE_BUNDLE_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run step3 live-bundle e2e (desktop-chromium, no webServer)
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/step3-review-modal.interactions.spec.ts
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step3-live-bundle-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
