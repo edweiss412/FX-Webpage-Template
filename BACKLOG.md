@@ -4,11 +4,11 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
-## BL-CASP2-STRIP-POLISH — StatusStrip finalize-popover persistent overlay
+## BL-CASP2-STRIP-POLISH — StatusStrip finalize-popover persistent overlay — ✅ RESOLVED (2026-07-17)
 
-**Filed:** 2026-07-17 (CASP2-4 residual, `DEFERRED.md` CASP2-4) · **Class:** UI polish (transient-state overlay) · **Effort:** S (bundle on a future strip pass)
+**Filed:** 2026-07-17 (CASP2-4 residual, `DEFERRED.md` CASP2-4) · **Resolved:** 2026-07-17, branch `feat/casp2-finalize-inflow` · **Class:** UI polish (transient-state overlay) · **Effort:** S
 
-The calm finalize banner in the inline `PublishedToggle` (`components/admin/PublishedToggle.tsx`, `POPOVER_POSITION` finalize skin) persists as an absolute overlay for the whole finalize window — a transient server state — and deliberately shares the `POPOVER_POSITION` mechanism with the error skin (one source, pinned equal by tests). WAI, not a defect; revisit only if the finalize UX is reworked. Items 2 (two-orange → control divider) and 3 (alert-badge focus-ring offset) of CASP2-4 shipped on `feat/casp2-strip-polish` (2026-07-17); this row is the sole open residual.
+The calm finalize hint in the inline `PublishedToggle` no longer persists as an absolute overlay. `POPOVER_POSITION` is now **error-skin-only**; the finalize skin split off to an in-flow compact chip (`FINALIZE_CHIP`, a flex sibling of the switch) that stays inside the sticky strip's flow and can never overlay the rail content below the strip. Mode-dependent visible label ("Finalizing…" / "Publishing…", `aria-hidden`) + `sr-only` full sentence (the `aria-describedby` target); role-less/calm. Real-browser geometry rewritten (CI-1 containment + CI-1b height-bound + CI-2/CI-3 compact pill) in `tests/e2e/statusStripToggleLayout.spec.ts`; unit parity test now pins error-banner-absolute vs finalize-chip-in-flow (and fixes the `FORBIDDEN` width-cap regex). Impeccable dual-gate: critique no-slop + detector clean, audit 20/20, contrast AA both themes. Twin row in `DEFERRED.md` CASP2-4 item 1 marked RESOLVED in the same PR. This was the sole open CASP2 residual — CASP2 fully closed.
 
 ## BL-ROLE-VOCAB-STAGING-OVERLAY — run the role-mapping overlay in the wizard staging/rescan pipeline
 
