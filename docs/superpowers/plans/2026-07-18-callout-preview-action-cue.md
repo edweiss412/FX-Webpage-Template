@@ -16,7 +16,7 @@
 - **No raw error codes in UI** (invariant 5) — these are static button labels, compliant.
 - **Invariant 8 (UI quality gate):** UI is touched → `/impeccable critique` AND `/impeccable audit` on the diff (Task 4) before the whole-diff cross-model review; P0/P1 fixed or deferred.
 - **sr-only suffix** " for {title}" is preserved after every jump label (unique accessible name per warning). Test matchers use anchored prefix regex `/^(?:Fix|Review) in Parse warnings/`, never exact-string equality.
-- **Meta-test inventory:** CREATES the `warningOffersFix` ↔ boundary parity meta-test (`tests/admin/warningFixAffordance.test.ts`). No advisory-lock surface (`pg_advisory*` untouched) — topology N/A. No Supabase call boundary, admin_alert code, or §12.4 catalog row.
+- **Meta-test inventory:** CREATES the `warningOffersFix` ↔ boundary parity meta-test (`tests/admin/warningFixAffordance.test.tsx`). No advisory-lock surface (`pg_advisory*` untouched) — topology N/A. No Supabase call boundary, admin_alert code, or §12.4 catalog row.
 
 ---
 
@@ -24,7 +24,7 @@
 
 **Files:**
 - Create: `lib/admin/warningFixAffordance.ts`
-- Test: `tests/admin/warningFixAffordance.test.ts`
+- Test: `tests/admin/warningFixAffordance.test.tsx`
 
 **Interfaces:**
 - Consumes: `deriveUseRawControlState` (`components/admin/UseRawControl.tsx:65`), `ParseWarning` (`@/lib/parser/types`), `UseRawDecision` (`@/lib/sync/useRawOverlay`).
@@ -32,13 +32,24 @@
 
 - [ ] **Step 1: Write the failing unit + parity test**
 
-```ts
-// tests/admin/warningFixAffordance.test.ts
-import { describe, expect, it } from "vitest";
+```tsx
+// tests/admin/warningFixAffordance.test.tsx
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { deriveUseRawControlState } from "@/components/admin/UseRawControl";
+import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
+
+// RoleRecognizeControlBoundary imports three "use server" action modules at
+// module level; mock them so jsdom never touches server-only deps. We only
+// exercise its self-hide (null) gate, which runs BEFORE any action is called.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("@/app/admin/show/[slug]/_actions/roleToken", () => ({ mapRoleToken: vi.fn() }));
+vi.mock("@/app/admin/onboarding/_actions/roleTokenStaged", () => ({ mapRoleTokenStaged: vi.fn() }));
+vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({ updateRoleTokenMapping: vi.fn() }));
 
 const IN_SCOPE = [
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
@@ -118,11 +129,33 @@ describe("warningOffersFix ↔ deriveUseRawControlState parity (drift guard)", (
         }
   });
 });
+
+// Parity meta-test (role branch): predicate's role verdict stays in lockstep
+// with RoleRecognizeControlBoundary's LIVE self-hide gate — rendered, not
+// re-derived (a re-derivation would be tautological). Spec §9.
+describe("warningOffersFix ↔ RoleRecognizeControlBoundary parity (drift guard)", () => {
+  const cases: { label: string; warning: ParseWarning }[] = [
+    { label: "non-role code", warning: { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind: "crew" } } },
+    { label: "role code, absent token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "", blockRef: { kind: "crew" } } },
+    { label: "role code, empty token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "", message: "", blockRef: { kind: "crew" } } },
+    { label: "role code, whitespace token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "   ", message: "", blockRef: { kind: "crew" } } },
+    { label: "role code, real token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "STROBE_TECH", message: "", blockRef: { kind: "crew" } } },
+  ];
+  it.each(cases)("$label: predicate role verdict === boundary renders non-null", ({ warning }) => {
+    const { container } = render(
+      <RoleRecognizeControlBoundary surface="wizard" wizardSessionId="s" driveFileId="d" warning={warning} />,
+    );
+    const boundaryRenders = container.firstChild !== null;
+    // For a non-role code the use-raw branch is also false (SOME_CODE out of scope),
+    // so warningOffersFix === boundaryRenders holds for every case here.
+    expect(warningOffersFix(warning, undefined)).toBe(boundaryRenders);
+  });
+});
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/callout-cue && pnpm vitest run tests/admin/warningFixAffordance.test.ts`
+Run: `cd /Users/ericweiss/fxav-worktrees/callout-cue && pnpm vitest run tests/admin/warningFixAffordance.test.tsx`
 Expected: FAIL — `warningOffersFix` not exported / module missing.
 
 - [ ] **Step 3: Write the minimal implementation**
@@ -141,7 +174,7 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
  * Drift-proof: the use-raw branch reuses the SAME `deriveUseRawControlState`
  * the control renders from (no duplicated IN_SCOPE set); the role branch
  * mirrors `RoleRecognizeControlBoundary`'s `token.length === 0 → null` gate.
- * `tests/admin/warningFixAffordance.test.ts` pins both to the live gates.
+ * `tests/admin/warningFixAffordance.test.tsx` pins both to the live gates.
  */
 export function warningOffersFix(
   warning: Pick<ParseWarning, "code" | "resolution" | "roleToken">,
@@ -157,7 +190,7 @@ export function warningOffersFix(
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/callout-cue && pnpm vitest run tests/admin/warningFixAffordance.test.ts`
+Run: `cd /Users/ericweiss/fxav-worktrees/callout-cue && pnpm vitest run tests/admin/warningFixAffordance.test.tsx`
 Expected: PASS (all describes). If the `UseRawDecision`/`UseRawResolution` shapes differ from the fixtures above, adjust the fixtures to the live types (`@/lib/sync/useRawOverlay`, `@/lib/parser/types`) — do NOT loosen the predicate.
 
 - [ ] **Step 5: Typecheck the new module + test**
@@ -168,7 +201,7 @@ Expected: no new errors. Fix fixture typings if any surface (the `as ParseWarnin
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/admin/warningFixAffordance.ts tests/admin/warningFixAffordance.test.ts
+git add lib/admin/warningFixAffordance.ts tests/admin/warningFixAffordance.test.tsx
 git commit --no-verify -m "feat(admin): warningOffersFix predicate + boundary parity meta-test"
 ```
 
