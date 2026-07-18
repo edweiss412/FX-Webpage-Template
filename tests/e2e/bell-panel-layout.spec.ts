@@ -487,4 +487,71 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       "newly-arrived ping row mounts unread (dot visible)",
     ).toBeGreaterThanOrEqual(1 - 0.01);
   });
+
+  // ── BELL-2 triage grouping (spec §1.2/§1.3, §2, §3): real-browser render of
+  // the ≥9 grouped mode. The grouping LOGIC matrix (thresholds, tones, fail-
+  // closed, history-vs-active truncation) is exhaustively covered by the jsdom
+  // component tests; HERE we prove the branch renders in a real browser with the
+  // right tier order + dimensions + no overflow, and the static headers animate
+  // nothing (§3). ──
+  test("grouped ≥9: tier headers in Critical→Warning order, 18px glyph, no overflow, static headers @ 1280px", async ({
+    page,
+  }) => {
+    // 1 degraded-health (critical tier) + 8 distinct notice codes = 9 active on
+    // a non-truncated feed (feedCap default 50) → grouped. Dev fixture: only
+    // inbox-routed codes are excluded, so a health code reaches the bell feed.
+    const NOTICE_CODES = [
+      "SYNC_DELAYED_SEVERE",
+      "AMBIGUOUS_EMAIL_BINDING",
+      "DRIVE_FETCH_FAILED",
+      "RESYNC_QUALITY_REGRESSED",
+      "USE_RAW_DECISION_STALE",
+      "STALE_MANUAL_REPLAY_ABORTED",
+      "WIZARD_SESSION_SUPERSEDED",
+      "REAP_STALE_SESSIONS_FAILED",
+    ];
+    const critId = await seedGlobal("WEBHOOK_TOKEN_INVALID", 60 * 3600_000);
+    for (let i = 0; i < NOTICE_CODES.length; i++) {
+      await seedGlobal(NOTICE_CODES[i]!, (i + 1) * 3600_000);
+    }
+
+    await page.setViewportSize({ width: 1280, height: VP_HEIGHT });
+    await gotoAdmin(page);
+    const inner = await openPanel(page);
+    await settleAnimations(inner);
+
+    const critHeader = page.getByTestId("bell-section-active-tier-critical");
+    const noticeHeader = page.getByTestId("bell-section-active-tier-notice");
+    await expect(critHeader).toBeVisible();
+    await expect(noticeHeader).toBeVisible();
+    // No info tier (no info-tone code is dev-bell-eligible).
+    await expect(page.getByTestId("bell-section-active-tier-info")).toHaveCount(0);
+
+    // DOM order: Critical section sits above Warning.
+    const critRect = await rectOf(critHeader);
+    const noticeRect = await rectOf(noticeHeader);
+    expect(critRect.top, "Critical tier renders above Warning").toBeLessThan(noticeRect.top);
+
+    // Header labels + counts.
+    await expect(critHeader).toContainText("Critical · 1");
+    await expect(noticeHeader).toContainText(`Warning · ${NOTICE_CODES.length}`);
+
+    // DI-4 unchanged under grouping: the critical row's severity glyph is 18×18.
+    const sev = await rectOf(page.getByTestId(`bell-sev-${critId}`));
+    expect(Math.abs(sev.width - 18), "severity glyph width 18px").toBeLessThanOrEqual(TOL);
+    expect(Math.abs(sev.height - 18), "severity glyph height 18px").toBeLessThanOrEqual(TOL);
+
+    // No horizontal overflow with the tier headers present.
+    expect(await horizontalOverflow(page), "no document horizontal overflow").toBeLessThanOrEqual(
+      TOL,
+    );
+
+    // §3 transition audit: the static tier headers run NO animation/transition.
+    for (const header of [critHeader, noticeHeader]) {
+      const running = await header.evaluate(
+        (el) => el.getAnimations({ subtree: false }).length,
+      );
+      expect(running, "tier headers are static (no animation)").toBe(0);
+    }
+  });
 });
