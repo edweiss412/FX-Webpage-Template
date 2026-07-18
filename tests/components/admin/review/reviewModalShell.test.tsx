@@ -10,8 +10,14 @@
  * `step3-review` consumer; this file pins the shell's OWN prop surface —
  * both `dataAttrPrefix` values interpolate (never hardcode), `footer` is
  * omissible, and `initialFocusRef` receives initial focus.
+ *
+ * Task 2 rider (spec §5, D6): the globals.css entrance-animation twin scan —
+ * every media context in which `[data-step3-review-*]` receives an animation
+ * body must give `[data-review-modal-*]` the IDENTICAL body.
  */
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -142,4 +148,50 @@ describe("ReviewModalShell — close paths + initial focus", () => {
     render(<Host />);
     expect(document.activeElement).toBe(screen.getByTestId("host-close"));
   });
+});
+
+// ── Task 2: globals.css entrance-animation twin scan (spec §5, D6) ──────────
+//
+// Wherever `[data-step3-review-scrim]` / `[data-step3-review-panel]` receive an
+// animation body (base, ≥640px, reduced-motion), the `review-modal` twin must
+// receive the IDENTICAL body in the SAME media context — via a shared selector
+// list or an adjacent twin rule (the reduced-motion block keeps the step3 pair
+// as its own leading rule because the §11 T1 suite pins that exact shape).
+
+/** Every (mediaContext :: ruleBody) pair in which `attr` appears as a selector.
+ *  Minimal walk — top-level rules plus one level of `@media` nesting, which is
+ *  exactly globals.css's shape for these hooks. */
+function animationContexts(css: string, attr: string): string[] {
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out: string[] = [];
+  const blockRe = /@media\s*([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}|([^@{}]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(noComments)) !== null) {
+    if (m[1] !== undefined) {
+      const media = m[1].trim();
+      const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+      let r: RegExpExecArray | null;
+      while ((r = ruleRe.exec(m[2] ?? "")) !== null) {
+        if (r[1]!.includes(`[${attr}]`)) {
+          out.push(`${media} :: ${r[2]!.replace(/\s+/g, " ").trim()}`);
+        }
+      }
+    } else if (m[3]!.includes(`[${attr}]`)) {
+      out.push(`(base) :: ${m[4]!.replace(/\s+/g, " ").trim()}`);
+    }
+  }
+  return out.sort();
+}
+
+describe("globals.css — review-modal entrance twins mirror step3-review in every media context (Task 2)", () => {
+  const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+  for (const part of ["scrim", "panel"] as const) {
+    it(`[data-review-modal-${part}] receives exactly the animation contexts of [data-step3-review-${part}]`, () => {
+      const step3 = animationContexts(css, `data-step3-review-${part}`);
+      // Anti-vacuity: the step3 hooks are animated in base + ≥640px + reduced-motion.
+      expect(step3.length).toBe(3);
+      expect(animationContexts(css, `data-review-modal-${part}`)).toEqual(step3);
+    });
+  }
 });

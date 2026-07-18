@@ -765,9 +765,15 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+/* The published review modal (admin-show-modal spec §5, D6) shares the review
+   shell's entrance: every rule below twins `[data-review-modal-*]` with
+   `[data-step3-review-*]` (identical bodies, pinned by the twin scan in
+   tests/components/admin/review/reviewModalShell.test.tsx). */
+[data-review-modal-scrim],
 [data-step3-review-scrim] {
   animation: step3-details-scrim-in var(--duration-normal) ease-out;
 }
+[data-review-modal-panel],
 [data-step3-review-panel] {
   animation: step3-details-sheet-rise var(--duration-normal) var(--ease-out-quart);
 }
@@ -775,9 +781,11 @@ body {
   /* The desktop panel pops in over --duration-fast, so the scrim fades over the
      same window (it would otherwise keep darkening after the panel had landed);
      the mobile sheet keeps --duration-normal to match its longer rise. */
+  [data-review-modal-scrim],
   [data-step3-review-scrim] {
     animation: step3-details-scrim-in var(--duration-fast) ease-out;
   }
+  [data-review-modal-panel],
   [data-step3-review-panel] {
     animation: step3-details-pop-in var(--duration-fast) var(--ease-out-quart);
   }
@@ -785,6 +793,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   [data-step3-review-scrim],
   [data-step3-review-panel] {
+    animation: none;
+  }
+  /* Twin kept as an ADJACENT rule (not a shared selector list): the §11 T1
+     suite pins the step3 pair as this block's leading selector shape. */
+  [data-review-modal-scrim],
+  [data-review-modal-panel] {
     animation: none;
   }
 }
