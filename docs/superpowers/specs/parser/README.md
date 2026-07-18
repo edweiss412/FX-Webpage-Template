@@ -21,3 +21,15 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-02-diagrams-embedded-images.md`](./2026-07-02-diagrams-embedded-images.md) | 2026-07-02 |
 | [`2026-07-04-rooms-scope-cards-redesign-mock/`](./2026-07-04-rooms-scope-cards-redesign-mock/) | 2026-07-04 |
 | [`2026-07-05-form-tab-contact-fallback.md`](./2026-07-05-form-tab-contact-fallback.md) | 2026-07-05 |
+| [`2026-07-05-parser-anchor-deliteralization.md`](./2026-07-05-parser-anchor-deliteralization.md) | 2026-07-05 |
+| [`2026-07-06-bo-show-prefixed-breakout-header.md`](./2026-07-06-bo-show-prefixed-breakout-header.md) | 2026-07-06 |
+| [`2026-07-06-bo-venue-header-anchor.md`](./2026-07-06-bo-venue-header-anchor.md) | 2026-07-06 |
+| [`2026-07-06-known-sections-walker.md`](./2026-07-06-known-sections-walker.md) | 2026-07-06 |
+| [`2026-07-06-mi1-early-return-e2e.md`](./2026-07-06-mi1-early-return-e2e.md) | 2026-07-06 |
+| [`2026-07-06-parse-sheet-call-site-guard.md`](./2026-07-06-parse-sheet-call-site-guard.md) | 2026-07-06 |
+| [`2026-07-06-widen-dims-address-date.md`](./2026-07-06-widen-dims-address-date.md) | 2026-07-06 |
+| [`2026-07-07-ambiguity-warnings-v1-design.md`](./2026-07-07-ambiguity-warnings-v1-design.md) | 2026-07-07 |
+| [`2026-07-07-crew-column-positional-fallback.md`](./2026-07-07-crew-column-positional-fallback.md) | 2026-07-07 |
+| [`2026-07-09-flow8.3-venue-timezone.md`](./2026-07-09-flow8.3-venue-timezone.md) | 2026-07-09 |
+| [`2026-07-09-parser-property-fuzz-design.md`](./2026-07-09-parser-property-fuzz-design.md) | 2026-07-09 |
+| [`2026-07-15-geocode-cache-legacy-coords.md`](./2026-07-15-geocode-cache-legacy-coords.md) | 2026-07-15 |

@@ -19,4 +19,16 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-03-telemetry-access-layer-design.md`](./2026-07-03-telemetry-access-layer-design.md) | 2026-07-03 |
 | [`2026-07-04-mutation-surface-observability.md`](./2026-07-04-mutation-surface-observability.md) | 2026-07-04 |
 | [`2026-07-04-telemetry-rename-admin-dev-gate.md`](./2026-07-04-telemetry-rename-admin-dev-gate.md) | 2026-07-04 |
+| [`2026-07-05-admin-outcome-behavioral-coverage-registry.md`](./2026-07-05-admin-outcome-behavioral-coverage-registry.md) | 2026-07-05 |
 | [`2026-07-05-crew-picker-observability.md`](./2026-07-05-crew-picker-observability.md) | 2026-07-05 |
+| [`2026-07-05-wire-silent-channels-design.md`](./2026-07-05-wire-silent-channels-design.md) | 2026-07-05 |
+| [`2026-07-06-telemetry-console-redesign-mock/`](./2026-07-06-telemetry-console-redesign-mock/) | 2026-07-06 |
+| [`2026-07-06-telemetry-console-redesign.md`](./2026-07-06-telemetry-console-redesign.md) | 2026-07-06 |
+| [`2026-07-07-flow6-signal-visibility.md`](./2026-07-07-flow6-signal-visibility.md) | 2026-07-07 |
+| [`2026-07-08-flow6.2-monitor-digest.md`](./2026-07-08-flow6.2-monitor-digest.md) | 2026-07-08 |
+| [`2026-07-09-admin-outcome-behavior-batch2.md`](./2026-07-09-admin-outcome-behavior-batch2.md) | 2026-07-09 |
+| [`2026-07-09-admin-outcome-behavior-batch3.md`](./2026-07-09-admin-outcome-behavior-batch3.md) | 2026-07-09 |
+| [`2026-07-09-monitor-new-show-gaps.md`](./2026-07-09-monitor-new-show-gaps.md) | 2026-07-09 |
+| [`2026-07-15-observe-cli-telemetry-gaps-design.md`](./2026-07-15-observe-cli-telemetry-gaps-design.md) | 2026-07-15 |
+| [`2026-07-16-digest-autofix-per-show-detail.md`](./2026-07-16-digest-autofix-per-show-detail.md) | 2026-07-16 |
+| [`2026-07-17-rescan-decision-telemetry.md`](./2026-07-17-rescan-decision-telemetry.md) | 2026-07-17 |
