@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-`DESIGN.md §9` bans em dashes (`—`, U+2014) in **rendered** copy ("No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`."). Enforcement today is pinned only on notify-rendered strings (`tests/notify/templates.test.ts`, the `em-dash audit` describe block) and a handful of component exact-string tests. The message catalog (`lib/messages/catalog.ts`) carries **178** em dashes; the rendered-field subset is unaudited and violates §9.
+`DESIGN.md §9` bans em dashes (`—`, U+2014) in **rendered** copy ("No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`."). Enforcement today is pinned only on notify-rendered strings (`tests/notify/templates.test.ts`, the `em-dash audit` describe block) and a handful of component exact-string tests. The message catalog (`lib/messages/catalog.ts`) carries **179** em dashes across its rendered-prose field values (authoritative runtime count — §2, §6.1); that subset is unaudited and violates §9.
 
 ## 2. Scope — rendered fields only
 
@@ -17,15 +17,15 @@ A catalog field is in scope iff its value is rendered in the UI. Confirmed rende
 
 | Field | Rendered at | §12.4-coupled? | em dashes (catalog.ts) |
 | --- | --- | --- | --- |
-| `dougFacing` | admin Doug-facing alert copy (`safeDougFacingTemplate`, BellPanel, PerShowAlertSection) | **YES** | 45 |
-| `helpfulContext` | expand/education copy (`components/messages/ErrorExplainer.tsx`, BellPanel expand, `HelpAffordance`) | **YES** | 65 |
+| `dougFacing` | admin Doug-facing alert copy (`safeDougFacingTemplate`, BellPanel, PerShowAlertSection) | **YES** | 47 |
+| `helpfulContext` | expand/education copy (`components/messages/ErrorExplainer.tsx`, BellPanel expand, `HelpAffordance`) | **YES** | 69 |
 | `crewFacing` | crew mobile page copy | **YES** | 4 |
 | `followUp` | developer health-alert row body (`components/admin/telemetry/HealthAlertsPanel.tsx:81,111-113` renders `raw?.followUp` via `renderCatalogEmphasis`) | **YES** | 2 |
 | `title` | alert titles (BellPanel `rowCopy`, `/help/errors` `<h3>`) | no | 5 |
-| `longExplanation` | `/help/errors` `<p>` (`app/help/errors/page.tsx:93`) | no | 51 |
+| `longExplanation` | `/help/errors` `<p>` (`app/help/errors/page.tsx:93`) | no | 52 |
 | `dougSummary` | app-health popover (`lib/admin/healthRollup.ts:96` `dougSummaryFor` → `AppHealthPopover.tsx:113` `line.text`) | no | 0 |
 
-**In scope for the sweep: 172 occurrences** across those seven fields (`dougSummary` is 0 today — it carries no em dash — but is in the audit for fails-by-default completeness, so a future health-code addition can't smuggle one in).
+**In scope for the sweep: 179 occurrences** across those seven fields (`dougSummary` is 0 today — it carries no em dash — but is in the audit for fails-by-default completeness, so a future health-code addition can't smuggle one in).
 
 ### 2.1 Completeness — the rendered-prose field set is type-derived (not ad hoc)
 
@@ -108,9 +108,23 @@ The audit walks every entry in the runtime `MESSAGE_CATALOG` and, for each field
 - Current classification (7 rendered-prose + 7 excluded = 14 fields, the full `MessageCatalogEntry` surface) matches §2.1.
 - Fail message names `CODE.field` + the offending value slice, matching the file's existing violation-report style.
 
-### 6.1 Guard: the test must actually be RED before the fix
+### 6.1 Guard: the test must actually be RED before the fix; authoritative baseline count
 
-TDD order — land the widened audit test FIRST and observe it fail on the current 172 occurrences (RED), then sweep to GREEN. This proves the test exercises the real catalog, not a tautology.
+TDD order — land the widened audit test FIRST and observe it fail on the current 179 occurrences (RED), then sweep to GREEN. This proves the test exercises the real catalog, not a tautology.
+
+**Counts are from the runtime catalog, not a source-line grep.** A `grep -c '—'` on `catalog.ts` under- or mis-attributes multi-line string values and comment lines. The authoritative per-field inventory the implementer verifies against BEFORE and AFTER the sweep (expect 0 after) is produced by iterating the parsed `MESSAGE_CATALOG` object:
+
+```ts
+// pnpm exec tsx <script> — run from the worktree root
+import { MESSAGE_CATALOG } from "./lib/messages/catalog";
+const FIELDS = ["dougFacing","crewFacing","followUp","helpfulContext","title","longExplanation","dougSummary"] as const;
+let total = 0; const per: Record<string, number> = {};
+for (const e of Object.values(MESSAGE_CATALOG) as any[])
+  for (const f of FIELDS) if (typeof e[f] === "string") { const n = (e[f].match(/—/g) || []).length; per[f] = (per[f] || 0) + n; total += n; }
+console.log(per, "TOTAL", total); // baseline: dougFacing 47, helpfulContext 69, longExplanation 52, title 5, crewFacing 4, followUp 2, dougSummary 0 = 179
+```
+
+The widened audit test in §6 IS this same runtime-walk asserted to be 0, so the RED→GREEN transition and this command measure the identical surface.
 
 ## 7. Out of scope / non-goals
 
@@ -121,13 +135,13 @@ TDD order — land the widened audit test FIRST and observe it fail on the curre
 
 ## 8. Test plan
 
-1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (172 failures).
+1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (179 failures).
 2. `fix(messages)`: sweep em dashes — catalog.ts (all seven rendered-prose fields; dougSummary 0 today) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
 3. Gates that must stay green: `test:audit:x1-catalog-parity` (catalog↔§12.4), the new hygiene audit, `tests/notify/templates.test.ts`, full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 
 ## 9. Files touched
 
-- `lib/messages/catalog.ts` (edit — 172 substitutions across the 6 fields that carry em dashes; dougSummary is audited but has 0)
+- `lib/messages/catalog.ts` (edit — 179 substitutions across the 6 fields that carry em dashes: dougFacing 47, helpfulContext 69, longExplanation 52, title 5, crewFacing 4, followUp 2; dougSummary is audited but has 0)
 - `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (edit — §12.4 table + appendix, coupled fields dougFacing/crewFacing/followUp/helpfulContext only)
 - `lib/messages/__generated__/spec-codes.ts` (regenerated, committed)
 - `tests/messages/_metaCatalogCopyHygiene.test.ts` (edit — add rendered-field em-dash audit)
