@@ -3,8 +3,8 @@
 **Date:** 2026-07-18
 **Slug:** `callout-preview-action-cue`
 **Deferral item:** `DEFERRED.md:13` — CALLOUT-PREVIEW-ACTION-CUE-1 (critique P1 → dispositioned P2)
-**Design:** Option A (user-approved 2026-07-18, artifact mockup). No re-litigation.
-**Scope class:** UI copy-only. No DB, no advisory locks, no new state, no layout change.
+**Design:** Option A, refined to be actionability-aware (user-approved 2026-07-18; the refinement — "Fix" only where a fix control renders — was approved in a second decision after adversarial review R2 surfaced that flagged ≠ guaranteed-fixable).
+**Scope class:** UI copy + one small pure derivation (`warningOffersFix`) + a producer tag. No DB, no advisory locks, no new animation state, no layout change.
 
 ---
 
@@ -14,16 +14,46 @@ Since the preview demotion (#467, spec `2026-07-17-use-raw-callout-preview-demot
 
 The invariant-8 impeccable critique (2026-07-17) flagged that with inline controls gone, a generic "View details" reads as **passive / FYI** — Doug (single admin, no onboarding) can treat a flagged section as no-action. Visibility-of-status heuristic scored 2/4. The fix path (Parse warnings breakdown) is discoverable but not *cued* by the label.
 
-## 2. Change (Option A — variant-aware action-forward label)
+## 2. Change (Option A, refined — actionability-aware action-forward label)
 
-Replace the per-entry jump button label **"View details"** with a label whose verb matches the callout's existing tone variant and whose object names the destination:
+Replace the per-entry jump button label **"View details"** with an action-forward label naming the destination. The verb is **`Fix`** only where the destination will actually render a fix control for that warning, else **`Review`** — a `Fix` label must never point at a row with no fix affordance (the destination header itself reads *"Some include an optional fix you can apply below"*, `step3ReviewSections.tsx:2305`). The label matrix (user-approved 2026-07-18):
 
-| Variant (`SectionFlagCallout` prop, line 537) | Set when | Tone | New label |
-| --- | --- | --- | --- |
-| `flagged` | `judgment ? … : "flagged"` at call site (`step3ReviewSections.tsx:728`), i.e. warn-severity mapped warnings | amber warn (`bg-warning-bg`) | **`Fix in Parse warnings`** |
-| `judgment` | `judgment === true` (calm "we made a judgment call" reads) | calm info (`bg-info-bg`) | **`Review in Parse warnings`** |
+| Variant | Entry offers a fix at destination? | Label |
+| --- | --- | --- |
+| `flagged` (amber) | yes (`offersFix === true`) | **`Fix in Parse warnings`** |
+| `flagged` (amber) | no (`offersFix === false`) | **`Review in Parse warnings`** |
+| `judgment` (calm) | (ignored — always calm) | **`Review in Parse warnings`** |
 
-The label itself is the cue — it names the action (`Fix` / `Review`) and the destination (`Parse warnings`). No separate cue element, no layout change, no tone change to the amber/info block.
+`judgment` sections are calm by contract ("we made a judgment call, worth a glance") and always read **`Review`**, even though their ambiguity-class warnings are frequently fixable — the calm tone is deliberate (spec `2026-07-07 §7.3`). Only the `flagged` variant keys the verb off actionability.
+
+### 2.2 Actionability predicate — `warningOffersFix` (new, drift-proof)
+
+A callout entry "offers a fix" iff the sole actionable site (`WarningsBreakdown`, `step3ReviewSections.tsx:~2393`) would render an interactive control for it. There are exactly two controls, each self-hiding out-of-scope warnings:
+
+- **`RoleRecognizeControlBoundary`** renders iff `warning.code === "UNKNOWN_ROLE_TOKEN"` AND `(warning.roleToken ?? "").trim().length > 0` (else `return null`, `RoleRecognizeControlBoundary.tsx:52`).
+- **`UseRawControlBoundary` → `UseRawControl`** renders an interactive toggle iff `deriveUseRawControlState(warning, decision, false)` is an interactive state — i.e. NOT `null` (out of scope, `UseRawControl.tsx:70`), NOT `"legacy-unavailable"` (no resolution, line 77), NOT `"disabled"` (`resolvable:false`, line 78). The interactive states are `transform-active | raw-active | apply-pending | clear-pending | pending`.
+
+New pure module **`lib/admin/warningFixAffordance.ts`**:
+
+```ts
+export function warningOffersFix(
+  warning: Pick<ParseWarning, "code" | "resolution" | "roleToken">,
+  decision: UseRawDecision | undefined,
+): boolean {
+  if (warning.code === "UNKNOWN_ROLE_TOKEN" && (warning.roleToken ?? "").trim().length > 0)
+    return true;
+  const st = deriveUseRawControlState(warning, decision, false);
+  return st !== null && st !== "legacy-unavailable" && st !== "disabled";
+}
+```
+
+**Drift-proofing:** the use-raw branch reuses the SAME `deriveUseRawControlState` the control renders from (no duplicated `IN_SCOPE` set). A parity meta-test (§9) pins that `warningOffersFix`'s use-raw verdict equals "`UseRawControl` renders a non-null, non-disabled, non-legacy control," and that the role branch equals "`RoleRecognizeControlBoundary` renders non-null," across every catalog code + role fixtures. If either boundary's render gate changes, the parity test fails.
+
+### 2.3 Producer tags each entry (`ShowReviewSurface`)
+
+`offersFix` is computed once, at the callout producer (`ShowReviewSurface.tsx:835`), where `data.useRawDecisions` (staged `SectionData`, `sectionData.ts:56`) is in scope — the callout only renders under `isStaged(data)`, so decisions are always present. Each `calloutEntries` item gains `offersFix: warningOffersFix(e.warning, findUseRawDecision(e.warning, data.useRawDecisions))`. `SectionFlagCallout` stays presentational — it reads `entry.offersFix` and the `variant` prop to pick the label, computing no decision logic itself.
+
+### 2.1 What does NOT change (disagreement-loop preempt)
 
 ### 2.1 What does NOT change (disagreement-loop preempt)
 
@@ -41,9 +71,11 @@ The label itself is the cue — it names the action (`Fix` / `Review`) and the d
 ## 4. Guard conditions
 
 - **`title` empty / null:** the visible label is a static string independent of `title`; only the sr-only suffix interpolates `{title}`. An empty `title` yields sr-only " for " (pre-existing behavior, unchanged) — the visible label still renders in full. No new guard needed.
-- **`variant` unset:** defaults to `"flagged"` (line 529) → "Fix in Parse warnings". Matches today's default-flagged behavior.
+- **`variant` unset:** defaults to `"flagged"` (line 529); the label then depends on the entry's `offersFix`.
+- **`offersFix` unset / undefined:** the producer always sets it, but the label picker treats a missing/falsy `offersFix` as **`Review`** (fail-safe — never render a `Fix` promise without a positive actionability signal). An over-cautious `Review` is a copy-accuracy no-op; an unfounded `Fix` is the bug this item fixes.
+- **`decision` undefined (no persisted use-raw choice):** `deriveUseRawControlState` still returns an interactive `"transform-active"` for an in-scope resolvable warning (`UseRawControl.tsx:~99`), so a not-yet-decided but resolvable warning correctly reads `Fix`. Actionability does not depend on a prior decision, only on scope + resolvability.
 - **Zero entries:** callout is not rendered at all (call-site guard `calloutEntries.length > 0`, line 719) — no button, unchanged.
-- **Entries at / over the cap:** shown rows each get the variant label; overflow line unchanged. Cap logic (`CALLOUT_MAX_ENTRIES = 3`, line 496) untouched.
+- **Entries at / over the cap:** each shown row gets its own actionability-resolved label; overflow line unchanged. Cap logic (`CALLOUT_MAX_ENTRIES = 3`, line 496) untouched. Note the cap is applied AFTER tagging, so an entry hidden behind "+N more" still carried a correct label had it shown.
 
 ## 5. Dimensional invariants
 
@@ -59,30 +91,41 @@ No `AnimatePresence`, no ternary render entering/leaving on this label. Nothing 
 
 ## 7. Test impact (anti-tautology)
 
-Existing pins in `tests/components/admin/wizard/Step3ReviewModal.test.tsx` match the button by accessible name `/View details/`. They must update to the **variant-correct** label, derived from the fixture's variant, not blanket-replaced:
+**Fixture actionability reality (verified against live helpers):**
+- `warning(kind)` (test helper, `Step3ReviewModal.test.tsx:85`) → `code: "SOME_CODE"`. Not in `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19`) → its section is **flagged**; not in use-raw `IN_SCOPE`, not `UNKNOWN_ROLE_TOKEN` → **`offersFix === false`** → label **`Review in Parse warnings`**.
+- `judgmentWarning(kind, field)` → `code: "ROOM_HEADER_SPLIT_AMBIGUOUS"`, no `resolution` → section **judgment** (calm) → **`Review`** (and `offersFix` false anyway: `deriveUseRawControlState` → `"legacy-unavailable"`).
+- **New fixable-flagged fixture required to exercise `Fix`:** a warn with `code: "UNKNOWN_ROLE_TOKEN"`, `roleToken: "<non-empty>"`, `blockRef.kind` on a rendered section. Not ambiguity-class → **flagged**; token present → `RoleRecognizeControlBoundary` renders → **`offersFix === true`** → **`Fix in Parse warnings`**. (A resolvable use-raw `Fix` needs a MIXED section — an in-scope resolvable warn PLUS a non-ambiguity warn so the section is flagged not judgment — heavier to build; the role-token fixture is the canonical `Fix` case.)
 
-| Test (line) | Fixture | Variant | New name matcher |
+**Locator vs semantic assertions.** Tests that only need to *find* an entry jump button (to click / count) must match `/^(?:Fix|Review) in Parse warnings/` (anchored `^` excludes the overflow button "+N more in Parse warnings", which contains neither verb). The `/View details/` matchers at lines 1882, 2377, 2393, 2491, 2534 update to this locator regex — NOT to `/Fix.../`, since those crew fixtures are `SOME_CODE` (flagged, non-fixable) and now render `Review`.
+
+**Semantic label assertions (the new coverage that catches the Codex R2 defect — a `Fix` label on a non-fixable flagged row):** in the same test file, three fixtures asserting the exact verb, so a blanket-verb or inverted-verb regression fails:
+
+| Fixture | Section status | `offersFix` | Asserted accessible-name matcher |
 | --- | --- | --- | --- |
-| §E4 jump threads suppression (1882) | `warning("crew")` | flagged | `/Fix in Parse warnings/` |
-| callout first-child + cap (2377) | `crewWarnings(cap+2)` | flagged | `/Fix in Parse warnings/` |
-| at/under cap: no overflow (2393) | `crewWarnings(cap)` | flagged | `/Fix in Parse warnings/` |
-| §E4 jump → rail aria-current (2491) | crew fixture | flagged | `/Fix in Parse warnings/` |
-| multiple jump buttons (2534) | crew fixture | flagged | `/Fix in Parse warnings/` |
-| judgment section (1287, if it asserts the button) | rooms judgment | judgment | `/Review in Parse warnings/` |
+| `warning("crew")` (SOME_CODE) | flagged | false | `/^Review in Parse warnings\b/` (flagged does NOT blanket-`Fix`) |
+| `UNKNOWN_ROLE_TOKEN` + token | flagged | true | `/^Fix in Parse warnings\b/` |
+| `judgmentWarning(...)` | judgment | (n/a) | `/^Review in Parse warnings\b/` |
 
-New assertion to add (failure mode caught: label not variant-aware — a blanket "Review…" would let the amber/flagged path pass while under-cueing urgency): a test rendering a **flagged** callout asserts its jump button accessible name matches `/^Fix in Parse warnings\b/` AND a **judgment** callout matches `/^Review in Parse warnings\b/`, in the same test file, so a single-label regression fails.
+**Accessible-name caveat (do NOT assert exact equality):** the visible label is followed by the preserved sr-only suffix " for {title}" (§2.1), so the button's *accessible name* is `Fix in Parse warnings for <title>`, not the bare label. Matchers MUST be prefix/substring regexes anchored at `^`, never exact-string equality — an exact match would either fail or pressure the implementation to drop the per-warning uniqueness suffix, an a11y regression in a repeated-button list. To pin the visible text distinct from the sr-only tail, assert the button's non-sr-only text content separately (clone the button, remove the `.sr-only` span, assert `textContent === "Fix in Parse warnings"`). Overflow-line matchers (`/more in Parse warnings/`, lines 2384/2396/2563) are UNCHANGED and must keep passing (proves we did not touch the overflow copy).
 
-**Accessible-name caveat (do NOT assert exact equality):** the visible label is followed by the preserved sr-only suffix " for {title}" (§2.1), so the button's *accessible name* is `Fix in Parse warnings for <title>`, not the bare label. Matchers MUST be prefix/substring regexes (`/^Fix in Parse warnings\b/`), never exact-string equality — an exact match would either fail or pressure the implementation to drop the per-warning uniqueness suffix, an a11y regression in a repeated-button list. To pin the visible text distinct from the sr-only tail, assert the button's non-sr-only text content separately (e.g. clone the button, strip the `.sr-only` span, assert `textContent === "Fix in Parse warnings"`). Overflow-line matchers (`/more in Parse warnings/`, lines 2384/2396/2563) are UNCHANGED and must keep passing (proves we did not touch the overflow copy).
+**Predicate unit test** (`tests/admin/warningFixAffordance.test.ts`): `warningOffersFix` returns true for `UNKNOWN_ROLE_TOKEN`+token, for each in-scope resolvable use-raw code, and via a persisted `decision`; false for empty/absent role token, `SOME_CODE`, in-scope-but-`legacy-unavailable` (no resolution), in-scope-but-`resolvable:false` (`disabled`), and info-severity. Derive expected from the code taxonomy, not hardcoded booleans per case where a loop over `AMBIGUITY_CODES`/`IN_SCOPE` is clearer.
 
 ## 8. Files touched
 
-- `components/admin/wizard/step3ReviewSections.tsx` — button label (line 588) + two stale code-comment references to "View details" (lines 540, 593).
-- `tests/components/admin/wizard/Step3ReviewModal.test.tsx` — name matchers per §7 + one new variant-label assertion.
+- **NEW** `lib/admin/warningFixAffordance.ts` — `warningOffersFix(warning, decision)` (§2.2).
+- `components/admin/review/ShowReviewSurface.tsx` — tag each `calloutEntries` item with `offersFix` at the producer (`~835`); import `warningOffersFix` + `findUseRawDecision`.
+- `components/admin/wizard/step3ReviewSections.tsx` — (a) chrome type `calloutEntries` (line 463) + `SectionFlagCallout` `entries` prop (line 533) gain `offersFix: boolean`; (b) label picker in `SectionFlagCallout` (replaces line 588 "View details"); (c) two stale "View details" code-comments (lines 540, 593).
+- **NEW** `tests/admin/warningFixAffordance.test.ts` — predicate unit + parity meta-test (§9).
+- `tests/components/admin/wizard/Step3ReviewModal.test.tsx` — locator + semantic matchers per §7.
 - `DEFERRED.md` → `DEFERRED-archive.md` — move CALLOUT-PREVIEW-ACTION-CUE-1 on close-out; reconcile the resolved twin `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION` reference.
 
 ## 9. Meta-test inventory
 
-None created or extended. No new mutation surface, no Supabase call boundary, no admin_alert code, no advisory lock, no §12.4 catalog row. (This is a copy-only UI change; the relevant structural guard is the existing source-scan that no `site="callout"` control mounts, unaffected.)
+**CREATES** one parity meta-test in `tests/admin/warningFixAffordance.test.ts`: asserts `warningOffersFix`'s verdict stays in lockstep with the two boundaries' actual render gates —
+- use-raw branch ≡ `deriveUseRawControlState(w, decision, false) ∉ {null, "legacy-unavailable", "disabled"}` (the interactive-toggle states), driven across every `IN_SCOPE` code × {no-resolution, resolvable:false, resolvable:true} × {decision present/absent};
+- role branch ≡ `RoleRecognizeControlBoundary` non-null gate (`UNKNOWN_ROLE_TOKEN` × {empty token, whitespace token, real token}).
+
+This closes the drift class: if either boundary's render condition changes without updating the predicate, the meta-test fails. No new mutation surface, Supabase call boundary, admin_alert code, advisory lock, or §12.4 catalog row is introduced.
 
 ## 10. Out of scope
 
