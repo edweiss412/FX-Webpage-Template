@@ -138,7 +138,13 @@ export function renderCatalogEmphasis(
       return;
     }
     if (isValidElement<{ children?: ReactNode }>(node) && typeof node.props.children === "string") {
-      result.push(cloneElement(node, { key: node.key ?? `p-${i}` }, boldSplit(node.props.children, `ide-${i}`)));
+      result.push(
+        cloneElement(
+          node,
+          { key: node.key ?? `p-${i}` },
+          boldSplit(node.props.children, `ide-${i}`),
+        ),
+      );
       return;
     }
     result.push(node);

@@ -35,6 +35,10 @@ export function useDismissibleOnce(key: string): {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    // setState lives in this mount effect deliberately: probing storage and
+    // flipping status "checking" → "available"/"unavailable" is the hook's whole
+    // purpose (a client-only, post-hydration decision). One pass, no loop.
+    /* eslint-disable react-hooks/set-state-in-effect -- mount storage probe; status flip is the hook's purpose */
     if (memDismissed.has(key)) {
       // Remount fallback: a prior dismissal (possibly setItem-throwing) is
       // remembered in-memory. status="available" so the render gate short-circuits
@@ -51,6 +55,7 @@ export function useDismissibleOnce(key: string): {
       // Accessor or getItem threw (private mode / blocked) → suppress, never crash.
       setStatus("unavailable");
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [key]);
 
   const dismiss = () => {

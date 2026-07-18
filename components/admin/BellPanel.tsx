@@ -354,9 +354,7 @@ function renderMessageBody(
               </li>
             ))}
           </ul>
-          {lines.overflow ? (
-            <p className="mt-1 text-xs text-text-faint">{lines.overflow}</p>
-          ) : null}
+          {lines.overflow ? <p className="mt-1 text-xs text-text-faint">{lines.overflow}</p> : null}
           {renderCatalogEmphasis(suffix, params, BELL_BOLD_IDENTITY_TOKENS)}
         </>
       );

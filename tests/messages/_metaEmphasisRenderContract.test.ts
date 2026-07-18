@@ -225,7 +225,11 @@ describe("catalog emphasis rendering contract", () => {
   it("identity-bold pass: 3-arg identityKeys renders <strong> for an identity key; omitting it is unchanged from the 2-arg baseline", () => {
     const params = { "show-name": "'East Coast'" };
     const identity = renderToStaticMarkup(
-      createElement(Fragment, null, renderCatalogEmphasis("In <show-name>", params, new Set(["show-name"]))),
+      createElement(
+        Fragment,
+        null,
+        renderCatalogEmphasis("In <show-name>", params, new Set(["show-name"])),
+      ),
     );
     expect(identity).toContain("<strong");
     expect(identity).toContain("East Coast");

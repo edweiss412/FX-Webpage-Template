@@ -91,9 +91,7 @@ function feedNoSlugs() {
 
 function renderPanel(feed: Record<string, unknown>) {
   routeFetch(feed);
-  return render(
-    <BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />,
-  );
+  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />);
 }
 
 describe("WI-5 chevron-hint banner", () => {

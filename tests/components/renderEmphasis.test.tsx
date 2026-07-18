@@ -198,9 +198,7 @@ describe("renderCatalogEmphasis identity-bold pass", () => {
   });
 
   test("identity key present but absent from params leaves the literal placeholder plain", () => {
-    const { container } = render(
-      <>{renderCatalogEmphasis("In <show-name>.", {}, IK)}</>,
-    );
+    const { container } = render(<>{renderCatalogEmphasis("In <show-name>.", {}, IK)}</>);
     expect(container.querySelector("strong")).toBeNull();
     expect(container.textContent).toBe("In <show-name>.");
   });

@@ -611,7 +611,9 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       // ── chevron-PRESENT row (DI-1 flush, DI-2, DI-3, DI-4) ──
       const caret = page.getByTestId(`bell-caret-${showAlertId}`);
       await expect(caret).toBeVisible();
-      const headerContentRight = await contentRightOf(page.getByTestId(`bell-header-${showAlertId}`));
+      const headerContentRight = await contentRightOf(
+        page.getByTestId(`bell-header-${showAlertId}`),
+      );
       const metaR = await rectOf(page.getByTestId(`bell-meta-${showAlertId}`));
       const caretR = await rectOf(caret);
       const timeR = await rectOf(page.getByTestId(`bell-time-${showAlertId}`));
@@ -716,8 +718,12 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         // (b) banner + dismiss rects fully within the panel rect.
         expect(hintR.left, "hint left within panel").toBeGreaterThanOrEqual(panelR.left - TOL);
         expect(hintR.right, "hint right within panel").toBeLessThanOrEqual(panelR.right + TOL);
-        expect(dismissR.left, "dismiss left within panel").toBeGreaterThanOrEqual(panelR.left - TOL);
-        expect(dismissR.right, "dismiss right within panel").toBeLessThanOrEqual(panelR.right + TOL);
+        expect(dismissR.left, "dismiss left within panel").toBeGreaterThanOrEqual(
+          panelR.left - TOL,
+        );
+        expect(dismissR.right, "dismiss right within panel").toBeLessThanOrEqual(
+          panelR.right + TOL,
+        );
         expect(dismissR.top, "dismiss top within panel").toBeGreaterThanOrEqual(panelR.top - TOL);
         expect(dismissR.bottom, "dismiss bottom within panel").toBeLessThanOrEqual(
           panelR.bottom + TOL,
