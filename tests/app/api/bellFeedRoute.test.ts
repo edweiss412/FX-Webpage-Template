@@ -55,6 +55,7 @@ describe("GET /api/admin/alerts/bell/feed", () => {
       entries: [],
       unseenCount: 3,
       truncated: false,
+      activeTruncated: false,
       historyDays: 30,
       feedCap: 200,
       seenThrough: "2026-07-05T00:00:00.000Z",
@@ -63,10 +64,13 @@ describe("GET /api/admin/alerts/bell/feed", () => {
     const response = await GET();
 
     expect(response.status).toBe(200);
+    // Route/body proof (spec §5): activeTruncated survives serialization to the
+    // client (the route spreads the ok arm minus `kind`).
     expect(await response.json()).toEqual({
       entries: [],
       unseenCount: 3,
       truncated: false,
+      activeTruncated: false,
       historyDays: 30,
       feedCap: 200,
       seenThrough: "2026-07-05T00:00:00.000Z",
@@ -114,6 +118,7 @@ describe("GET /api/admin/alerts/bell/feed", () => {
       entries: [],
       unseenCount: 0,
       truncated: false,
+      activeTruncated: false,
       historyDays: 30,
       feedCap: 200,
       seenThrough: "2026-07-05T00:00:00.000Z",

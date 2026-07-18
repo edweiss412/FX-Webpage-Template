@@ -52,6 +52,8 @@ export type BellFeedResult =
       entries: BellEntry[];
       unseenCount: number;
       truncated: boolean;
+      /** Active-list truncation only (spec §1.1 R4) — gates severity grouping. */
+      activeTruncated: boolean;
       historyDays: number;
       feedCap: number;
       seenThrough: string;
@@ -93,6 +95,7 @@ export function shapeBellEntries(
   entries: Omit<BellEntry, "identity">[];
   unseenCount: number;
   truncated: boolean;
+  activeTruncated: boolean;
   seenThrough: string;
 } {
   const meta = rows.find((r) => r.is_meta);
@@ -144,6 +147,12 @@ export function shapeBellEntries(
       Boolean(meta.active_hit_cap) ||
       Boolean(meta.history_hit_cap) ||
       sliced.length < shaped.length,
+    // Active-specific truncation (spec §1.1 R4): the active CTE is capped at
+    // `limit p_cap`, and the combined slice sorts active-first, so an active
+    // row is dropped ONLY when active_hit_cap is set. History-only capping does
+    // NOT set this. Gates severity grouping (a recency-capped active window
+    // cannot honor severity-completeness).
+    activeTruncated: Boolean(meta.active_hit_cap),
     seenThrough: meta.seen_through,
   };
 }
@@ -278,6 +287,7 @@ export async function loadBellFeed(
     entries,
     unseenCount: shaped.unseenCount,
     truncated: shaped.truncated,
+    activeTruncated: shaped.activeTruncated,
     historyDays,
     feedCap,
     seenThrough: shaped.seenThrough,
