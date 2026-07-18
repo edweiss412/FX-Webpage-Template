@@ -2420,7 +2420,7 @@ export const MESSAGE_CATALOG = {
     helpfulContext: null,
     title: "GitHub bot login not configured",
     longExplanation:
-      "This appears when the bug-report recovery path needs the bot account's GitHub username, to find issues created by previous recovery attempts, but the GITHUB_BOT_LOGIN environment variable isn't set on the deployment. Configure it and redeploy to restore full recovery-path coverage.",
+      "This appears when the bug-report recovery path needs the bot account's GitHub username, to find issues created by previous recovery attempts, but the `GITHUB_BOT_LOGIN` environment variable isn't set on the deployment. Configure it and redeploy to restore full recovery-path coverage.",
     helpHref: "/help/errors#GITHUB_BOT_LOGIN_MISSING",
   },
   REPORT_LEASE_THRASHING: {
