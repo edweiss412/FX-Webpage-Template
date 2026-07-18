@@ -81,11 +81,32 @@ Each `—` is replaced with the context-appropriate substitute per §9 (comma, c
 
 ## 6. Widened audit test (the deliverable that pins the class closed)
 
-Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home). It walks every entry in the runtime `MESSAGE_CATALOG` and, for each **rendered-prose** field `[dougFacing, crewFacing, helpfulContext, followUp, title, longExplanation, dougSummary]` (the §2.1 type-derived set), asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
+Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home).
 
-- Non-prose fields (`code`, `helpHref`) and enums (`severity`/`adminSurface`/`audience`/`healthWeight`/`resolution`) are excluded (§2.1). `followUp` and `dougSummary` ARE included (both render).
+**The audited-field set MUST be derived from a compiler-exhaustive field-policy map, NOT a hard-coded list.** A literal `["dougFacing", …]` array only fails-by-default for new *values* in existing fields; a new *field* added to `MessageCatalogEntry` would be silently unaudited — recreating the exact class this spec closes. Instead:
+
+```ts
+type FieldPolicy = "rendered-prose" | "excluded-url" | "excluded-enum" | "excluded-identifier";
+// Record<keyof MessageCatalogEntry, …> → adding a field to the type without
+// classifying it here is a COMPILE ERROR (exhaustiveness enforced by tsc).
+const FIELD_POLICY: Record<keyof MessageCatalogEntry, FieldPolicy> = {
+  code: "excluded-identifier",
+  severity: "excluded-enum", adminSurface: "excluded-enum", audience: "excluded-enum",
+  healthWeight: "excluded-enum", resolution: "excluded-enum",
+  helpHref: "excluded-url",
+  dougFacing: "rendered-prose", crewFacing: "rendered-prose", followUp: "rendered-prose",
+  helpfulContext: "rendered-prose", title: "rendered-prose", longExplanation: "rendered-prose",
+  dougSummary: "rendered-prose",
+};
+const AUDITED_FIELDS = (Object.keys(FIELD_POLICY) as (keyof MessageCatalogEntry)[])
+  .filter((f) => FIELD_POLICY[f] === "rendered-prose");
+```
+
+The audit walks every entry in the runtime `MESSAGE_CATALOG` and, for each field in `AUDITED_FIELDS`, asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
+
+- Exhaustiveness is **compiler-enforced**: `FIELD_POLICY` is typed `Record<keyof MessageCatalogEntry, FieldPolicy>`, so any future field added to the type fails `pnpm typecheck` until it is explicitly classified `rendered-prose` (audited) or one of the `excluded-*` values. This is the fails-by-default guarantee at the TYPE level, closing the class permanently — not just for new values, but for new fields.
+- Current classification (7 rendered-prose + 7 excluded = 14 fields, the full `MessageCatalogEntry` surface) matches §2.1.
 - Fail message names `CODE.field` + the offending value slice, matching the file's existing violation-report style.
-- Test is **fails-by-default**: a future catalog addition with an em dash in a rendered field trips it.
 
 ### 6.1 Guard: the test must actually be RED before the fix
 
