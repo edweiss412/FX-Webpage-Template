@@ -18,6 +18,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import { BellPanel } from "@/components/admin/BellPanel";
 import { lookupHelpfulContext, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 
 const ALL_CODES = Object.keys(MESSAGE_CATALOG) as MessageCode[];
@@ -25,6 +26,9 @@ const ALL_CODES = Object.keys(MESSAGE_CATALOG) as MessageCode[];
 // (drives "notice"). Derived from the live catalog so they can't drift.
 const INFO_CODE = ALL_CODES.find((c) => messageFor(c).severity === "info")!;
 const NOTICE_CODE = "ADMIN_ALERT_COUNT_FAILED"; // no `severity` → notice tone
+// A degraded-weight health code (isHealth + degraded → critical). Strict
+// tsconfig: narrow the [0] index to a `string`.
+const DEGRADED0: string = DEGRADED_HEALTH_CODES[0]!;
 // A code WITH helpful context (caret present) — for the message/clamp test.
 const CODE_WITH_HELP = ALL_CODES.find((c) => lookupHelpfulContext(c) !== null)!;
 
@@ -97,7 +101,7 @@ function renderPanel(props: Partial<Parameters<typeof BellPanel>[0]> = {}) {
 describe("BellPanel redesign — severity tone (D2)", () => {
   it("derives data-tone: critical (isHealth) / info (catalog severity:info) / notice (default)", async () => {
     const entries = [
-      makeEntry({ alertId: "crit", state: "active", isHealth: true }),
+      makeEntry({ alertId: "crit", state: "active", isHealth: true, code: DEGRADED0 }),
       makeEntry({ alertId: "info", state: "active", code: INFO_CODE }),
       makeEntry({ alertId: "note", state: "active", code: NOTICE_CODE }),
     ];

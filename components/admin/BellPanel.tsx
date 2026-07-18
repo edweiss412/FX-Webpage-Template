@@ -70,6 +70,7 @@ import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
+import { rowTone, type RowTone } from "@/lib/admin/bellTriage";
 
 const FEED_ENDPOINT = "/api/admin/alerts/bell/feed";
 const OPEN_ENDPOINT = "/api/admin/alerts/bell/open";
@@ -118,18 +119,12 @@ function contextParams(context: Record<string, unknown> | null): MessageParams |
   return (context ?? undefined) as MessageParams | undefined;
 }
 
-// Severity tone for a row, derived CLIENT-SIDE (no feed/wire change) from the
-// same signals the row already carries: `isHealth` (app-health degraded) →
-// critical; catalog per-code `severity==="info"` → info; everything else →
-// notice. Color REINFORCES; the icon shape + the row title carry the meaning,
-// so the DESIGN.md §1 color-blind floor holds (never color-alone). `critical`
-// is the only red, scoped to health rows (DESIGN.md §1.3 red-only-for-degraded).
-type RowTone = "critical" | "notice" | "info";
-function rowTone(entry: BellEntry): RowTone {
-  if (entry.isHealth) return "critical";
-  const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
-  return severity === "info" ? "info" : "notice";
-}
+// Severity tone (`rowTone`), the grouping threshold, tier order, and the
+// grouping partition live in `lib/admin/bellTriage.ts` (pure, client-safe) so
+// tests import them without BellPanel's "use server" chain (spec §1.7). Color
+// REINFORCES; the icon shape + the row title carry the meaning, so the
+// DESIGN.md §1 color-blind floor holds. `critical` is the only red, scoped to
+// degraded-weight health rows (DESIGN.md §1.3; spec §1.6).
 // Quiet-rail severity vocabulary (DESIGN.md §16): a thin left `rail` + an
 // on-surface stroke `glyph` (no fill circle), both the same tone color. Glyph
 // SHAPE is the color-blind-safe carrier — notice=TriangleAlert, critical=
