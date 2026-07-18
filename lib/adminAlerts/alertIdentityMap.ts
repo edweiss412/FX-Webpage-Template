@@ -51,8 +51,8 @@ export type SegmentSpec =
 export type IdentityMapEntry = { kind: "global" } | { segments: SegmentSpec[] };
 
 /**
- * The full 47-code matrix (spec §4 + admin-field-overrides §10). 18 `global`
- * entries, 29 with >=1 segment. Row numbers in comments match the spec §4 table
+ * The full 45-code matrix (spec §4 + admin-field-overrides §10). 15 `global`
+ * entries, 30 with >=1 segment. Row numbers in comments match the spec §4 table
  * for traceability.
  */
 export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
@@ -284,24 +284,44 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
 
 /**
  * Codes whose dougFacing template names the entity inline (spec
- * docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md §5).
- * Render surfaces suppress the separate identity chip for these codes when
- * the message rendered (interpolation succeeded); on the guard path the chip
- * renders as before so identity is never lost. Pinned bidirectionally by
+ * docs/superpowers/specs/2026-07-17-condensed-alert-copy-design.md §5,
+ * grown to the full 30-code set by
+ * docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md §6 —
+ * every `inline_member: yes` row across §6.a/b/c). Render surfaces suppress
+ * the separate identity chip for these codes when the message rendered
+ * (interpolation succeeded); on the guard path the chip renders as before
+ * so identity is never lost. Pinned bidirectionally by
  * tests/adminAlerts/_metaInlineIdentityContract.test.ts.
  */
 export const INLINE_IDENTITY_CODES: ReadonlySet<string> = new Set([
+  "AMBIGUOUS_EMAIL_BINDING",
+  "OAUTH_IDENTITY_CLAIMED",
+  "PICKER_BOOTSTRAP_RPC_FAILED",
+  "PICKER_SELECTION_RACE",
+  "PICKER_EPOCH_RESET",
+  "WIZARD_SESSION_SUPERSEDED_RACE",
+  "ONBOARDING_SHEET_UNREADABLE",
   "ROLE_FLAGS_NOTICE",
+  "LIVE_ROW_CONFLICT",
+  "DRIVE_FETCH_FAILED",
+  "ASSET_RECOVERY_BYTES_EXCEEDED",
+  "ASSET_RECOVERY_REVISION_DRIFT",
+  "ASSET_RECOVERY_DRIFT_COOLDOWN",
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+  "EMBEDDED_ASSET_DRIFTED",
+  "REEL_DRIFTED",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "OPENING_REEL_NOT_VIDEO",
+  "EMAIL_DELIVERY_FAILED",
+  "PENDING_SNAPSHOT_PROMOTE_STUCK",
+  "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+  "PENDING_SNAPSHOT_DELETE_STUCK",
   "REPORT_ORPHANED_LOST_LEASE",
   "REPORT_LOOKUP_INCONCLUSIVE",
   "REPORT_DUPLICATE_LIVE_MATCHES",
   "REPORT_OPEN_ORPHAN_LABEL",
   "REPORT_LEASE_THRASHING",
   "STALE_ORPHAN_REPORT",
-  "PENDING_SNAPSHOT_PROMOTE_STUCK",
-  "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-  "EMAIL_DELIVERY_FAILED",
-  "WIZARD_SESSION_SUPERSEDED_RACE",
   "BRANCH_PROTECTION_DRIFT",
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
 ]);
