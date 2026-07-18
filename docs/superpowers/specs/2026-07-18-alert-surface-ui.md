@@ -65,9 +65,11 @@ Six work items (WI). WI-1 (row restructure) is the structural enabler: moving th
     {entry.slug !== null && <a …chevron… className={SHOW_PAGE_LINK}>…</a>}  {/* + hint wrapper, WI-5 */}
   </div>
   {/* message block: sibling BELOW header, NOT inside button (enables <a>/<ul>) */}
-  {message && messageResolved && (
+  {/* renders when message resolves OR helpHref exists (WI-2 orphan guard) */}
+  {((message && messageResolved) || helpHref) && (
     <div className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle">
-      … WI-3 renderer … {inline Learn-more, WI-2} … {multi-change <ul>, WI-4} …
+      {message && messageResolved && (… WI-3 renderer … {multi-change <ul>, WI-4} …)}
+      {helpHref && (<a …HELP_LINK… >Learn more</a>)}  {/* WI-2 inline, leading space only if message present */}
     </div>
   )}
   <IdentityChip …/>
@@ -88,33 +90,54 @@ Six work items (WI). WI-1 (row restructure) is the structural enabler: moving th
 
 Remove Learn-more from ActionCell (`:296-305`). Render it **inline, appended after the message text** inside the WI-1 message block, as an `<a>` sibling immediately following the rendered message nodes (a leading space separates it from the message). Keep testid `bell-help-${alertId}`, `href={helpHref}`, and the `aria-label="Learn more about {title}"`. Reuse `HELP_LINK` class (already has `min-h-tap-min` + `ring-offset-surface`); it renders `inline-flex` so it flows inline after the text.
 
-**Guard:** `helpHref` null/absent → no Learn-more rendered (message text stands alone). ActionCell no longer references Learn-more.
+**Message-block render condition (revised — prevents orphaned Learn-more):** the message block wrapper renders when `((message && messageResolved) || helpHref)`, NOT `message && messageResolved` alone. When `message`/`messageResolved` is falsy but `helpHref` exists (the unresolved-placeholder guard path — a cataloged code with longform help but a suppressed/unresolved message), the block renders with the Learn-more `<a>` alone (no message text, no leading space). This preserves today's behavior where the ActionCell Learn-more was independent of message resolution — the help affordance never disappears just because the message was suppressed.
+
+**Guard:**
+- `helpHref` present, message resolved → message text + inline Learn-more.
+- `helpHref` present, message null/unresolved → Learn-more alone in the block (no orphan-drop regression).
+- `helpHref` null/absent, message resolved → message text alone.
+- both absent → no block.
+- ActionCell no longer references Learn-more in any branch.
 
 ### WI-3 — Identity-tier bold at render
 
 Add a param-aware weighting pass to `renderCatalogEmphasis`. New optional parameter `identityKeys?: ReadonlySet<string>`. Catalog placeholders are angle-bracket hyphenated tokens (`<sheet-name>`, `<show-name>`) matched by `PLACEHOLDER_RE` in `lib/messages/lookup.ts` and substituted whole-string by `interpolate`. When `identityKeys` is present, string nodes are split on placeholder boundaries: a placeholder whose key (hyphen/underscore-normalized, matching `interpolate`'s own normalization at `lookup.ts:32`) ∈ `identityKeys` renders as a `<strong className="font-semibold text-text-strong">` node carrying the resolved value; every other placeholder and surrounding literal renders as plain interpolated text (delegating to `interpolate` so the non-identity path is byte-identical to today). `interpolate` in `lookup.ts` stays unchanged (the split lives in `renderEmphasis.tsx`), so `plainCatalogText` and other string callers are untouched. Emphasis from template `*`/`**` markers is unchanged and composes (an identity param inside an `*em*` span is both italic and bold). Bare-token identity values (spec-ratified per PR #469 wrapper-check) get their weight here at render, never via template markup.
 
-BellPanel passes `identityKeys={IDENTITY_PARAM_TOKENS}` (imported from `lib/adminAlerts/deriveMessageParams.ts`, promoted to an exported const if not already). The single-quote wrap from `quoted` remains part of the value string; the whole quoted token renders bold.
+**BellPanel passes a NARROW name-only set, NOT `IDENTITY_PARAM_TOKENS`.** The full `IDENTITY_PARAM_TOKENS` (`deriveMessageParams.ts:38-48`) also contains structured/prose/technical tokens — `role-changes` (the WI-4 multi-line list/sentence), `email`, `repo`, `file-name`, `crew-row-count`, `failed-sheet-names` — bolding any of which would fight WI-4's body-weight list or bold non-name operational prose (e.g. a single-change `ROLE_FLAGS_NOTICE` whose entire `<role-changes>` sentence would go bold). Introduce a new exported const `BELL_BOLD_IDENTITY_TOKENS: ReadonlySet<string> = new Set(["show-name", "sheet-name", "crew-name"])` in `deriveMessageParams.ts` (the three name-like tiers matching the `ALERT-COPY-IDENTITY-BOLD-1` intent "spot WHICH show"). BellPanel passes `identityKeys={BELL_BOLD_IDENTITY_TOKENS}`. A structural test asserts `BELL_BOLD_IDENTITY_TOKENS ⊆ IDENTITY_PARAM_TOKENS` AND `role-changes ∉ BELL_BOLD_IDENTITY_TOKENS`, so a future identity-token addition cannot silently start bolding prose.
+
+BellPanel passes `identityKeys={BELL_BOLD_IDENTITY_TOKENS}` (the narrow name-only set above, imported from `lib/adminAlerts/deriveMessageParams.ts`). The single-quote wrap from `quoted` remains part of the value string; the whole quoted name renders bold.
 
 **Guard conditions:**
 - `identityKeys` omitted/empty: behavior identical to today (all params plain text) — back-compat for `HealthAlertsPanel` and any other caller.
 - An identity key present in `identityKeys` but absent from `params`: the `<key>` placeholder falls through to `interpolate`'s not-found behavior (the literal `<key>` is left in place, `lookup.ts:33`) — rendered plain, no empty `<strong>`.
-- Param value empty string: renders an empty `<strong>` is avoided by skipping weight when the resolved value is `""` (emit nothing / plain).
+- Param value empty string: an empty `<strong>` is avoided by skipping weight when the resolved value is `""` (emit nothing / plain).
+- `role-changes` (and every non-name token) NOT in the bold set → the single-change `ROLE_FLAGS_NOTICE` sentence and the WI-4 `<ul>` items render body weight, never fully bold. Pinned by test + the subset structural test.
 
 ### WI-4 — Multi-change real `<ul>` + tail drop + em-dash sweep
 
-The multi-change `ROLE_FLAGS_NOTICE` currently interpolates a `\n`-joined `•`-bullet string. Replace with structured rendering:
+`ROLE_FLAGS_NOTICE.dougFacing` = `"In <sheet-name>, <role-changes><lead-hint>"` (`catalog.ts:855`). Today `<role-changes>` interpolates a `\n`-joined `•`-bullet string (`roleChangesParam :238-247`) which the row renders as pre-line text. Replace the **multi-change** case (≥2 changes) with structured `<ul>` rendering; single/zero change keeps prose.
 
-- `deriveMessageParams.ts` exposes the structured change lines so the component can render a real list. Add an exported pure helper `roleChangeLines(changes: RoleChange[]): { header: string; items: string[]; overflow: string | null }` (header `"${n} role changes:"`, `items` = up-to-3 body-weight line strings WITHOUT the leading `• ` marker, `overflow` = `"+${n-3} more"` or `null` — **"see show page" tail dropped** since the chevron already carries nav). `roleChangesParam` is retained for non-`<ul>` callers (e.g. `PerShowAlertSection`, `HealthAlertsPanel`) but its overflow line drops the "— see show page" tail too (→ `"+${n-3} more"`).
-- BellPanel's message block detects `entry.code === "ROLE_FLAGS_NOTICE"` with ≥2 changes and renders: the interpolated header prose, then a real `<ul className="mt-1 list-disc pl-5 text-sm text-text-subtle">` with one `<li className="wrap-break-word">` per item (body weight — no bold), then, if `overflow`, a `<p className="mt-1 text-xs text-text-faint">{overflow}</p>`.
-- **Em-dash sweep (DESIGN.md §9):** `ROLE_CHANGES_FALLBACK` `:27`, `LEAD_HINT` `:26`, and the overflow string `:244` are runtime-rendered strings containing `—` that ARC-1's catalog-field audit did not scan. Sweep them: fallback → `"a crew member's role flags changed; see the show page."`, LEAD_HINT keeps its period phrasing (no em dash present — verify), overflow → `"+${n-3} more"` (em dash removed with the tail). The bullet `→` arrow is NOT an em dash and is retained inside `<li>` items.
+**deriveMessageParams.ts changes (all pure, unit-tested):**
+- Export the existing `parseChanges(context): RoleChange[]` (`:209`, currently private) and the `RoleChange` type so BellPanel can obtain structured changes from `entry.context`.
+- Add exported `roleChangeLines(changes: RoleChange[]): { header: string; items: string[]; overflow: string | null }`: `header = "${n} role changes:"`, `items` = up-to-`CHANGE_LINE_CAP` (3) strings built from `bulletLine` **with the leading `• ` marker removed** (a real `<li>` supplies the marker), `overflow = changes.length > 3 ? "+${n-3} more" : null` (**"— see show page" tail dropped**, em dash gone with it).
+- `roleChangesParam` (retained for the non-`<ul>` string callers — `PerShowAlertSection`, `HealthAlertsPanel`, and BellPanel's own 0/1-change path) drops the tail identically: overflow → `"+${n-3} more"`.
+
+**BellPanel render (message block, WI-1 sibling):** when `entry.code === "ROLE_FLAGS_NOTICE"` AND `parseChanges(entry.context).length >= 2` AND the template contains the literal `<role-changes>` token:
+1. Split `dougFacing` on the literal `<role-changes>` into `prefix` (`"In <sheet-name>, "`) and `suffix` (`"<lead-hint>"`).
+2. Render `prefix` via `renderCatalogEmphasis(prefix, params, BELL_BOLD_IDENTITY_TOKENS)` (bolds `<sheet-name>`), inline.
+3. Render `roleChangeLines(changes).header` as inline text, then a real `<ul className="mt-1 list-disc pl-5 text-sm text-text-subtle">` with one `<li className="wrap-break-word">{item}</li>` per item (body weight — NO `font-semibold`), then, if `overflow`, `<p className="mt-1 text-xs text-text-faint">{overflow}</p>`.
+4. Render `suffix` via `renderCatalogEmphasis(suffix, params, BELL_BOLD_IDENTITY_TOKENS)` (the `<lead-hint>` param; empty string when no LEAD delta).
+- **Defensive fallback:** if the template lacks the `<role-changes>` literal (future template edit) OR `< 2` changes, render the whole `dougFacing` via the ordinary WI-3 `renderCatalogEmphasis` path (no `<ul>`) — never crash on a template shape change.
+
+**Em-dash sweep (DESIGN.md §9):** `ROLE_CHANGES_FALLBACK` `:27` (`"…changed — see the show page."` → `"a crew member's role flags changed; see the show page."`) and the `:244` overflow string (em dash removed with the tail). `LEAD_HINT` `:26` has NO em dash (verified) — untouched. The `→` arrow in `<li>` items is NOT an em dash — retained.
 
 **Guard conditions:**
-- `changes.length === 0`: `roleChangeLines` returns `{header:"", items:[], overflow:null}`; component renders the fallback sentence (no `<ul>`).
-- `changes.length === 1`: single-sentence prose (no `<ul>`), matching today's `singleSentence`.
-- `changes.length` between 2 and `CHANGE_LINE_CAP`: `<ul>` with all items, no overflow line.
-- `changes.length > CHANGE_LINE_CAP`: `<ul>` capped at 3 items + overflow `<p>`.
-- Non-`ROLE_FLAGS_NOTICE` codes: message block renders normally (no `<ul>`).
+- `changes.length === 0`: `roleChangeLines` returns `{header:"", items:[], overflow:null}`; BellPanel takes the defensive/ordinary path → renders the fallback sentence prose (no `<ul>`).
+- `changes.length === 1`: ordinary path → `singleSentence` prose (no `<ul>`).
+- `changes.length` 2..3: `<ul>` with all items, no overflow line.
+- `changes.length > 3`: `<ul>` capped at 3 items + overflow `<p>`.
+- Template missing `<role-changes>` literal: defensive ordinary path (no crash, no `<ul>`).
+- Non-`ROLE_FLAGS_NOTICE` codes: ordinary path (no `<ul>`).
 
 ### WI-5 — Chevron one-time dismissible hint
 
@@ -165,6 +188,9 @@ Compound transition check: the hint dismiss occurs independently of row read-sta
 ## 7. Test plan & anti-tautology
 
 - **renderEmphasis identity-bold** (`tests/components/renderEmphasis.test.tsx` + extend `tests/messages/_metaEmphasisRenderContract.test.ts`): assert an identity-key param renders inside `<strong>`; a non-identity param renders as a plain text node (assert the specific node type, not just textContent); `identityKeys` omitted → no `<strong>` (back-compat); empty value → no empty `<strong>`; template `*em*` around an identity param → both `<em>` and `<strong>`. Anti-tautology: extract the identity value's rendered node and assert its tag is `STRONG`, scoped to that node — do NOT assert on the container textContent (which would pass even if bold were dropped).
+- **Bold-token narrowing** (structural, `tests/adminAlerts/deriveMessageParams.test.ts` or a meta-test): assert `BELL_BOLD_IDENTITY_TOKENS ⊆ IDENTITY_PARAM_TOKENS`, that it contains exactly `{show-name, sheet-name, crew-name}`, and that `role-changes`/`email`/`repo`/`file-name`/`crew-row-count`/`failed-sheet-names` are each absent. Failure mode caught: a future identity-token addition silently bolding structured/prose params.
+- **Single-change ROLE_FLAGS_NOTICE not fully bold** (`tests/components/bellPanel*.test.tsx`): render a 1-change `ROLE_FLAGS_NOTICE` in BellPanel; assert the role-change sentence text node is NOT inside a `<strong>` (only the `<show-name>` name, if present in the template, is bold). Failure mode: `role-changes` leaking into the bold set.
+- **Learn-more survives suppressed message** (`tests/components/bellPanel*.test.tsx`): render a cataloged entry with `helpHref` set and message null/unresolved; assert `bell-help-${id}` still renders (in the message block, alone) and is NOT in ActionCell. Failure mode: the WI-2 move orphan-drops the help link on the suppressed-message path.
 - **roleChangeLines** (`tests/adminAlerts/deriveMessageParams.test.ts`): derive expected items from fixture `RoleChange[]` dimensions (never hardcode the sentence); assert 0→fallback, 1→sentence, 2..3→full items no overflow, 4+→3 items + `"+${n-3} more"` overflow with NO "see show page" substring; assert NO `—` in any produced string (guards the sweep). Failure mode caught: reintroducing the tail or an em dash.
 - **BellPanel multi-change `<ul>`** (`tests/components/bellPanel*.test.tsx`): for a 4-change `ROLE_FLAGS_NOTICE` fixture, assert a real `<ul>` with 3 `<li>` + an overflow `<p>`; assert `<li>` font-weight is body (not bold) by asserting the class lacks `font-semibold`/`font-bold`; assert the `<ul>` is NOT a descendant of the mark-read `<button>` (query button subtree, assert no `<ul>`). Failure mode: `<ul>` nested in button (invalid HTML) or bold items.
 - **Message-out-of-button** (`tests/components/bellPanel*.test.tsx`): assert the message span and inline Learn-more `<a>` are siblings of, not descendants of, the toggle button; assert the toggle button's accessible name is the title only (clone the button subtree, assert it contains no message text). Failure mode: message still inside button.
@@ -177,6 +203,7 @@ Compound transition check: the hint dismiss occurs independently of row read-sta
 ## 8. Meta-test inventory
 
 - **EXTENDS** `tests/messages/_metaEmphasisRenderContract.test.ts` — add the identity-bold contract (identity keys → `<strong>`; back-compat when omitted).
+- **NEW structural subset guard** (in `tests/adminAlerts/deriveMessageParams.test.ts`) — `BELL_BOLD_IDENTITY_TOKENS ⊆ IDENTITY_PARAM_TOKENS` and `role-changes ∉ BELL_BOLD_IDENTITY_TOKENS`, so a future identity-token addition cannot silently bold structured/prose params (guards the R1-HIGH finding class).
 - **No new** admin_alerts code, message §12.4 code, DB table, RPC, or advisory-lock surface → `_metaAdminAlertCatalog`, `advisoryLockRpcDeadlock`, PostgREST-DML meta-tests: **N/A (no such surface touched)**.
 - **Invariant 10 (mutation-surface observability):** ARC-2 adds no mutating HTTP route and no `"use server"` action. The WI-5 dismiss is a client-only `localStorage` write (no server round-trip). `onMarkRead` is pre-existing and unchanged. → **N/A (no new/modified mutation surface).**
 - **Invariant 5 (no raw error codes in UI):** preserved — all copy still flows through `lib/messages/lookup` / catalog; the restructure moves DOM, not copy source.
