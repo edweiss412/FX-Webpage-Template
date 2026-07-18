@@ -71,6 +71,35 @@ describe("getActiveWatchedFolderId", () => {
     expect(result).toEqual({ kind: "no_folder_configured" });
   });
 
+  test("an implausible persisted watched_folder_id (`.`) degrades to no-folder, not a Drive query", async () => {
+    // FXAV-CREW-PAGES-4: a `.` reached the folder id and produced `'.' in
+    // parents` Drive 404s. A poison value must fail CLOSED to no_folder_configured.
+    delete process.env.GOOGLE_DRIVE_FOLDER_ID;
+    delete process.env.DRIVE_FOLDER_ID;
+
+    const result = await getActiveWatchedFolderId(
+      appSettingsClient({
+        data: { watched_folder_id: "." },
+        error: null,
+      }) as never,
+    );
+
+    expect(result).toEqual({ kind: "no_folder_configured" });
+  });
+
+  test("an implausible first-boot env folder id (`.`) is rejected, not used", async () => {
+    process.env.GOOGLE_DRIVE_FOLDER_ID = ".";
+
+    const result = await getActiveWatchedFolderId(
+      appSettingsClient({
+        data: null,
+        error: null,
+      }) as never,
+    );
+
+    expect(result).toEqual({ kind: "no_folder_configured" });
+  });
+
   test("Supabase returned errors become typed infra errors", async () => {
     const result = await getActiveWatchedFolderId(
       appSettingsClient({

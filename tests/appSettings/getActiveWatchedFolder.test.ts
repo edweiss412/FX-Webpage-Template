@@ -35,21 +35,21 @@ describe("getActiveWatchedFolder", () => {
   it("returns folderId + folderName when both stored", async () => {
     const result = await getActiveWatchedFolder(
       appSettingsClient({
-        data: { watched_folder_id: "f1", watched_folder_name: "Show Sheets 2026" },
+        data: { watched_folder_id: "folder-id-0001", watched_folder_name: "Show Sheets 2026" },
         error: null,
       }) as never,
     );
-    expect(result).toEqual({ folderId: "f1", folderName: "Show Sheets 2026" });
+    expect(result).toEqual({ folderId: "folder-id-0001", folderName: "Show Sheets 2026" });
   });
 
   it("name null but id present → { folderId, folderName: null }", async () => {
     const result = await getActiveWatchedFolder(
       appSettingsClient({
-        data: { watched_folder_id: "f2", watched_folder_name: null },
+        data: { watched_folder_id: "folder-id-0002", watched_folder_name: null },
         error: null,
       }) as never,
     );
-    expect(result).toEqual({ folderId: "f2", folderName: null });
+    expect(result).toEqual({ folderId: "folder-id-0002", folderName: null });
   });
 
   it("returned error → infra_error", async () => {
@@ -90,5 +90,28 @@ describe("getActiveWatchedFolder", () => {
       }) as never,
     );
     expect(result).toEqual({ folderId: "env-folder-bootstrap", folderName: null });
+  });
+
+  it("an implausible persisted watched_folder_id (`.`) degrades to no-folder (FXAV-CREW-PAGES-4)", async () => {
+    delete process.env.GOOGLE_DRIVE_FOLDER_ID;
+    delete process.env.DRIVE_FOLDER_ID;
+    const result = await getActiveWatchedFolder(
+      appSettingsClient({
+        data: { watched_folder_id: ".", watched_folder_name: "poison" },
+        error: null,
+      }) as never,
+    );
+    expect(result).toEqual({ kind: "no_folder_configured" });
+  });
+
+  it("an implausible first-boot env folder id (`.`) is rejected, not used", async () => {
+    process.env.GOOGLE_DRIVE_FOLDER_ID = ".";
+    const result = await getActiveWatchedFolder(
+      appSettingsClient({
+        data: null,
+        error: null,
+      }) as never,
+    );
+    expect(result).toEqual({ kind: "no_folder_configured" });
   });
 });
