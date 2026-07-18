@@ -326,7 +326,9 @@ it("timestamp + chip live in the row-level right-group, not the button", () => {
 });
 ```
 
-- [ ] **Step 2: Run red** — `pnpm exec vitest run tests/components/bellPanelRedesign.test.tsx` → FAIL.
+- [ ] **Step 1b: Author the DI real-browser assertions (red-first for the layout gate)** in `tests/e2e/bell-panel-layout.spec.ts`: DI-1 (`meta.right <= caret.left`, caret-absent `<= panelContentRight`), DI-2 (`caret.right === panelContentRight` ±0.5px), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`) — chevron-present + chevron-absent fixtures. These reference the NEW testids (`bell-header/-meta/-time`) so they fail before the restructure.
+
+- [ ] **Step 2: Run red** — `pnpm exec vitest run tests/components/bellPanelRedesign.test.tsx` (FAIL) AND `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (FAIL — new testids absent / right-flush not yet true). Both RED before impl.
 
 - [ ] **Step 3: Implement** the WI-1 target DOM (spec §4 WI-1):
   - Header row `<div data-testid={`bell-header-${id}`} className="flex items-start gap-2">`.
@@ -336,7 +338,7 @@ it("timestamp + chip live in the row-level right-group, not the button", () => {
   - Message block `{((message && messageResolved) || helpHref) && (<div data-testid={`bell-msg-${id}`} className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle">{message && messageResolved && <span>{renderCatalogEmphasis(message, params)}</span>}{helpHref && <> <a data-testid={`bell-help-${id}`} href={helpHref} className={HELP_LINK} aria-label={`Learn more about ${rowCopy(entry.code).title}`}>Learn more</a></>}</div>)}`. (Task 4 adds identity bold, Task 5 the `<ul>`; keep here minimal.)
   - Remove Learn-more from ActionCell (`:296-305`); add `data-testid={`bell-action-cell-${id}`}` to the ActionCell outer `<div>` for the orphan test.
 
-- [ ] **Step 4: Run green** — `pnpm exec vitest run tests/components/bellPanelRedesign.test.tsx` + the full existing BellPanel suite (`pnpm exec vitest run tests/components/bellPanel.test.tsx tests/components/bellPanelActions.test.tsx tests/components/bellPanelDeferrals.test.tsx`) → PASS (fix any snapshot/testid drift in those from the restructure).
+- [ ] **Step 4: Run green** — `pnpm exec vitest run tests/components/bellPanelRedesign.test.tsx` + the full existing BellPanel suite (`pnpm exec vitest run tests/components/bellPanel.test.tsx tests/components/bellPanelActions.test.tsx tests/components/bellPanelDeferrals.test.tsx`) + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (DI-1..4 now green) → PASS (fix any snapshot/testid drift + any Tailwind-v4 non-stretch layout failure surfaced by the real-browser DI run).
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -424,7 +426,7 @@ it("template missing <role-changes> or <2 changes falls back to ordinary render 
 - Test: `tests/components/bellChevronHint.test.tsx`
 
 **Interfaces:**
-- Produces: `export function useDismissibleOnce(key: string): { dismissed: boolean; mounted: boolean; dismiss: () => void }` — mount-gated; reads/writes `localStorage` wrapped in try/catch (accessor + getItem + setItem); read-throw → `dismissed:false` but caller still gates on `mounted`; write-throw swallowed, still flips local `dismissed`.
+- Produces: `export function useDismissibleOnce(key: string): { status: "checking" | "available" | "unavailable"; dismissed: boolean; dismiss: () => void }`. `status` starts `"checking"` (SSR + pre-effect); a mount `useEffect` probes storage in try/catch: success → `"available"` and reads dismissed flag; ANY throw (accessor / `getItem`) → `"unavailable"`. `dismiss()` sets local `dismissed=true` and attempts `setItem` in try/catch (write-throw swallowed — still dismissed for the session). **The banner renders ONLY when `status === "available" && !dismissed`** — so `"checking"` (pre-effect) AND `"unavailable"` (storage blocked/throwing) both suppress it (fail-safe: the cosmetic hint never shows when storage is unreadable).
 
 - [ ] **Step 1: Failing tests**
 ```tsx
@@ -451,18 +453,37 @@ it("already-dismissed → no banner", () => {
   renderPanel(feedWithChevronRows);
   expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
 });
-it("throwing localStorage: panel renders, banner absent, dismiss-throw does not crash", () => {
+it("accessor throw: panel renders, banner absent AFTER the mount effect (status=unavailable)", async () => {
   const orig = Object.getOwnPropertyDescriptor(window, "localStorage");
   Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("blocked"); } });
   try {
     expect(() => renderPanel(feedWithChevronRows)).not.toThrow();
-    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
+    // wait past the mount effect, then assert still absent (not just pre-effect)
+    await waitFor(() => expect(screen.queryByTestId("bell-chevron-hint")).toBeNull());
   } finally { if (orig) Object.defineProperty(window, "localStorage", orig); }
 });
+it("getItem throw: banner absent after mount effect", async () => {
+  const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("x"); });
+  try {
+    renderPanel(feedWithChevronRows);
+    await waitFor(() => expect(screen.queryByTestId("bell-chevron-hint")).toBeNull());
+  } finally { spy.mockRestore(); }
+});
+it("setItem throw on dismiss: unmounts locally, no crash, no navigation", async () => {
+  const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("x"); });
+  try {
+    renderPanel(feedWithChevronRows);
+    const dismiss = await screen.findByTestId("bell-chevron-hint-dismiss");
+    expect(() => fireEvent.click(dismiss)).not.toThrow();
+    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
+  } finally { spy.mockRestore(); }
+});
 ```
-- [ ] **Step 2: Run red** → FAIL.
-- [ ] **Step 3: Implement** `useDismissibleOnce` (mount-gated via a `useEffect`-set `mounted` flag; `safeGet`/`safeSet` wrap every access in try/catch) and the banner in BellPanel: compute `hasChevronRow = rows.some(r => r.slug !== null)`; render `{mounted && !dismissed && hasChevronRow && <div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"><span>The <span aria-hidden="true">⌄</span> chevron now opens the show page</span><span className="flex-1" /><button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" onClick={dismiss} className={GHOST_DISMISS}>Dismiss</button></div>}` as the FIRST child of the active-rows list content (before the `.map` of rows).
-- [ ] **Step 4: Run green** → PASS.
+- [ ] **Step 1b: Author the hint-geometry real-browser assertions (red-first)** in `tests/e2e/bell-panel-layout.spec.ts`: with the banner present at mobile (≤420px) + desktop — `panel.scrollWidth <= panel.clientWidth + 0.5`; `bell-chevron-hint` + `bell-chevron-hint-dismiss` rects within the panel rect; `dismiss.height >= 44` and clicking it unmounts the banner; `hint.bottom <= firstRow.top`. Fails before the banner exists.
+- [ ] **Step 1c: Author the transition-audit assertions (red-first)** in `tests/components/bellPanelTransitionAudit.test.tsx`: hint banner has NO `AnimatePresence`/`exit`; message-block/`<ul>` toggles are instant conditional renders; dismiss removes the banner without error; compound (dismiss while a row unread → read-state unaffected). Fails before the banner exists.
+- [ ] **Step 2: Run red** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` (FAIL) + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (hint-geometry FAIL). All RED before impl.
+- [ ] **Step 3: Implement** `useDismissibleOnce` with the 3-state `status` contract: `const [status, setStatus] = useState<"checking"|"available"|"unavailable">("checking")`, `const [dismissed, setDismissed] = useState(false)`; a mount `useEffect` does `try { const v = window.localStorage.getItem(key); setDismissed(v != null); setStatus("available"); } catch { setStatus("unavailable"); }`; `dismiss = () => { setDismissed(true); try { window.localStorage.setItem(key, "1"); } catch {} }`. Render the banner in BellPanel: `hasChevronRow = rows.some(r => r.slug !== null)`; `{status === "available" && !dismissed && hasChevronRow && <div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"><span>The <span aria-hidden="true">⌄</span> chevron now opens the show page</span><span className="flex-1" /><button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" onClick={dismiss} className={GHOST_DISMISS}>Dismiss</button></div>}` as the FIRST child of the active-rows list content (before the `.map` of rows). Banner suppressed while `"checking"` (pre-effect, avoids flash) and while `"unavailable"` (fail-safe).
+- [ ] **Step 4: Run green** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` → PASS.
 - [ ] **Step 5: Commit** — `feat(admin): one-time dismissible chevron-hint banner + throwing-safe useDismissibleOnce (WI-5)`.
 
 ---
@@ -497,30 +518,28 @@ it("multi-change ROLE_FLAGS_NOTICE overflow drops the tail + em dash", () => {
 
 ## Task 8: Real-browser layout spec (DI-1..DI-4 + hint geometry)
 
-**Files:** Modify `tests/e2e/bell-panel-layout.spec.ts`.
+**TDD honesty note (declared exception).** The DImensional contracts (DI-1..DI-4) and hint geometry are inherently regression gates over the DOM that Tasks 3-6 build; a single-task red→green for a real-browser layout that spans a multi-task restructure is not achievable atomically. Per AGENTS.md's whole-milestone close-out gate, **this task is a declared verification-only gate**. To satisfy the red-before-green invariant for each contract, the RED proof is authored inside the task that owns the DOM:
+- **DI-1..DI-4 real-browser assertions are authored and run RED in Task 3, Step 1b (below), before the restructure impl.** They fail (new testids `bell-header/-meta/-time` absent, right-flush not yet true), then Task 3's restructure turns them green.
+- **Hint-geometry real-browser assertions are authored and run RED in Task 6, Step 1b, before the hint impl.**
 
-- [ ] **Step 1: Write failing Playwright assertions** for DI-1..DI-4 (chevron-present + chevron-absent fixtures) and the hint banner geometry at mobile (≤420px) + desktop widths (spec §5 + §7):
-  - DI-1: `meta.right <= caret.left` (or, caret absent, `meta.right <= panelContentRight`) within 0.5px.
-  - DI-2: `caret.right === panelContentRight` within 0.5px.
-  - DI-3: `toggle.height >= 44`, toggle does not overflow row.
-  - DI-4: `time.right >= toggle.right`.
-  - Hint: with banner present, `panel.scrollWidth <= panel.clientWidth + 0.5`; `hint` + `dismiss` rects within panel rect; `dismiss.height >= 44` and click unmounts; `hint.bottom <= firstRow.top`.
-- [ ] **Step 2: Run red** — `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` → FAIL (assertions not yet satisfied or fixtures missing) — NOTE: this task runs AFTER Tasks 3-6 land the DOM, so at Step 2 it may already partially pass; write the assertions to fail if the DOM regresses.
-- [ ] **Step 3: Implement** — add/extend the fixtures + assertions; if any DI fails against the real DOM, fix the BellPanel classes (this is where Tailwind-v4 non-stretch surprises surface).
-- [ ] **Step 4: Run green** → PASS.
-- [ ] **Step 5: Commit** — `test(admin): real-browser BellPanel layout — DI-1..4 + chevron-hint geometry (WI-1/WI-5)`.
+This Task 8 is the CONSOLIDATED verification: re-run the full `bell-panel-layout.spec.ts` (both fixtures, mobile ≤420px + desktop) and confirm every DI + hint-geometry assertion is green after all DOM tasks land. It adds no new untested behavior — it is the fresh-eyes layout regression gate.
+
+**Files:** `tests/e2e/bell-panel-layout.spec.ts` (extended in T3/T6; verified here).
+
+- [ ] **Step 1:** Run `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` at both widths; confirm DI-1 (`meta.right <= caret.left`, or caret-absent `<= panelContentRight`), DI-2 (`caret.right === panelContentRight` ±0.5px), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`), and hint geometry (`panel.scrollWidth <= clientWidth+0.5`; hint+dismiss rects within panel; `dismiss.height >= 44` + click unmounts; `hint.bottom <= firstRow.top`) all PASS.
+- [ ] **Step 2:** If any fails, fix the owning BellPanel classes (Tailwind-v4 non-stretch surprises surface here) and re-run.
+- [ ] **Step 3: Commit** (only if the spec file changed here) — `test(admin): consolidated real-browser BellPanel layout verification gate (WI-1/WI-5)`.
 
 ---
 
 ## Task 9: Transition audit
 
-**Files:** Create/modify `tests/components/bellPanelTransitionAudit.test.tsx`.
+**Same declared-exception rationale.** The transition assertions are authored and run RED in Task 6, Step 1c (before the hint impl); Task 6's impl turns them green. This Task 9 is the consolidated verification-only re-run.
 
-- [ ] **Step 1: Failing test** — enumerate every conditional render added (message block, `<ul>` branch, hint banner): assert the hint banner has NO `AnimatePresence`/`exit` (instant is deliberate), the message-block/`<ul>` toggles are instant conditional renders, and dismissing the banner removes it (jsdom) without error. Compound: mount banner then dismiss while a row is unread → row read-state unaffected.
-- [ ] **Step 2: Run red** → FAIL.
-- [ ] **Step 3: Implement** — (assertions describe existing behavior; if the impl accidentally added animation, remove it).
-- [ ] **Step 4: Run green** → PASS.
-- [ ] **Step 5: Commit** — `test(admin): BellPanel transition audit — instant hint/message/ul transitions (WI-5)`.
+**Files:** `tests/components/bellPanelTransitionAudit.test.tsx` (authored in T6; verified here).
+
+- [ ] **Step 1:** Run `pnpm exec vitest run tests/components/bellPanelTransitionAudit.test.tsx`; confirm: hint banner has NO `AnimatePresence`/`exit` (instant deliberate); message-block/`<ul>` toggles are instant conditional renders; dismissing the banner removes it without error; compound (mount banner then dismiss while a row is unread → row read-state unaffected).
+- [ ] **Step 2: Commit** (only if the file changed here) — `test(admin): consolidated BellPanel transition-audit verification gate (WI-5)`.
 
 ---
 
@@ -546,5 +565,6 @@ All green (pre-existing pg-cron env failures excepted — verify identical on cl
 - Placeholder scan: no TBD/TODO. ✅
 - Type consistency: `renderCatalogEmphasis` 3-arg signature identical across T1/T4/T5; `roleChangeLines` shape identical T2/T5; `BELL_BOLD_IDENTITY_TOKENS` one definition. ✅
 - Anti-tautology: identity-bold asserts the STRONG node scoped to the name; `<ul>` asserts not-in-button + body-weight; multi-change derives expected from fixture `mk(n)` dimensions, not hardcoded sentences. ✅
-- Layout-dimensions task (T8) present with real-browser getBoundingClientRect. ✅
-- Transition-audit task (T9) present. ✅
+- Layout-dimensions contracts (DI-1..4) authored RED in T3 Step 1b (real-browser getBoundingClientRect), green after T3 impl; T8 is the declared verification-only consolidation gate. ✅
+- Transition-audit + hint-geometry authored RED in T6 Steps 1b/1c, green after T6 impl; T9 is the declared verification-only gate. Each contract satisfies red-before-green in its owning task. ✅
+- Chevron-hint fail-safe: 3-state `status`, banner only for `available && !dismissed`; throwing-storage (accessor/getItem/setItem) covered post-effect. ✅
