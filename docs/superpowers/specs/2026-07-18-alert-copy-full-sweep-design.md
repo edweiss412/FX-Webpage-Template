@@ -12,15 +12,15 @@
 
 - **In scope:** the 45 `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`). Catalog copy, §12.4 lockstep, BellPanel, PerShowAlertSection, help-errors page, registries/meta-tests, `deriveAlertMessageParams` extensions.
 - **Out of scope:** crew-facing copy (`crewFacing`), non-alert catalog codes, HealthAlertsPanel UI (it renders no helpfulContext today — `components/admin/telemetry/HealthAlertsPanel.tsx:84-121`; only its params coverage extends), DB.
-- Health-audience codes (`lib/adminAlerts/audience.ts:14`) never render in bell/per-show (`bellFeed`/`PerShowAlertSection.tsx:157-159` exclude them), so their helpfulContext is already-invisible copy: for them this sweep is catalog + appendix + help-page work only.
+- Health-audience codes (`lib/adminAlerts/audience.ts:14`): `PerShowAlertSection.tsx:157-159` excludes them, but `lib/admin/bellFeed.ts` does NOT — it tags rows `isHealth` (`bellFeed.ts:137`) and `BellPanel.tsx:405-441` renders them through the same title/dougFacing/identity-chip template (action row swaps to a "View in telemetry" link, :248-284). Their dougFacing and chip ARE live bell UI; bell tests must cover them alongside doug-audience codes. Their helpfulContext, however, renders nowhere (no caret path for health rows renders it today) — the longform migration for them is catalog + appendix + help-page work.
 
 ## 3. Copy contract (every code)
 
-- `dougFacing` ≤ 2 sentences. First sentence carries the fact WITH identity woven in where the identity map declares segments (`lib/adminAlerts/alertIdentityMap.ts:58-283`): show-segment codes use `<show-name>`, sheet-segment codes `<sheet-name>`, contextField codes their specific param. Global codes (18) get a concision pass only — no identity token forced in.
+- `dougFacing` ≤ 2 sentences. First sentence carries the fact WITH identity woven in where the identity map declares segments (`lib/adminAlerts/alertIdentityMap.ts:58-283`): show-segment codes use `<show-name>`, sheet-segment codes `<sheet-name>`, contextField codes their specific param. Global codes (15 per the live ALERT_IDENTITY_MAP body; the file's header comment claiming "18 global / 47 codes" is stale and gets corrected in this sweep) get a concision pass only — no identity token forced in.
 - Optional second sentence: the one action Doug should take (or "No action needed…"). Everything else moves to `longExplanation`.
 - Straight quotes U+0027. No jargon codes in copy. Human sentences (invariant 5 + PRODUCT.md voice).
 - Params resolve at render time via `deriveAlertMessageParams` (priority: identity-resolved (quoted) > context-supplied > always-resolving fallback — `lib/adminAlerts/deriveMessageParams.ts:57-65`). Every NEW placeholder introduced by the sweep MUST gain an always-resolving fallback in `deriveAlertMessageParams`; the health-template coverage meta-test (`tests/adminAlerts/_metaHealthTemplateCoverage.test.ts`) plus a NEW analogous all-admin-codes coverage meta-test pin this for every code (walk `ADMIN_ALERTS_CODES`, assert `deriveAlertMessageParams(code, null, null)` fully resolves the template).
-- New fallback params this sweep introduces (finalized from the §6 copy table): `crew-row-count` ("two or more crew rows"), `failed-sheet-names` ("some sheets"), `crew-count` ("some"), `show-date` ("an upcoming date"), plus any batch-proposed email/crew-name params that survive plan-time dedup — each gets an always-resolving fallback in `deriveAlertMessageParams`; per-contextField scalars remain covered by passthrough (`deriveMessageParams.ts:124-133`).
+- New fallback params this sweep introduces (finalized from the §6 copy table): `crew-row-count` ("two or more crew rows"), `failed-sheet-names` ("some sheets"), `crew-count` ("some"), `show-date` ("an upcoming date"), `email` ("an email address" — fallback only; raw email stays behind existing pii redaction), `crew-name` ("a crew member") — each gets an always-resolving fallback in `deriveAlertMessageParams`; per-contextField scalars remain covered by passthrough (`deriveMessageParams.ts:124-133`).
 - `PENDING_SNAPSHOT_DELETE_STUCK` joins `INLINE_IDENTITY_CODES` (it declares a show segment but previously carried no inline token — batch C).
 - §6 authority: `inline_member: yes` rows (30 total) define the final `INLINE_IDENTITY_CODES` membership; the bidirectional meta-test pins the set against the templates.
 - **Titles:** every code keeps its existing title; `SHOW_FIRST_PUBLISHED` (only null title) gets `title: "Show published"`.
@@ -28,7 +28,7 @@
 ## 4. Surface contracts
 
 ### 4.1 BellPanel (`components/admin/BellPanel.tsx`)
-- Caret (`bell-caret-{alertId}`, :412-420) is REWORKED: renders as a `<a>` link to `/admin/show/${encodeURIComponent(slug)}` when `entry.slug` non-null; hidden when slug null (global codes). Keeps ChevronRight glyph, gains `aria-label="Open show page"`. It is no longer gated on helpfulContext and no longer toggles anything.
+- Caret (`bell-caret-{alertId}`, :412-420) is REWORKED: renders as a `<a>` link to `/admin/show/${encodeURIComponent(slug)}` when `entry.slug` non-null; hidden exactly when `entry.slug` is null — note this is a SLUG predicate, not an identity-map-kind predicate (e.g. BRANCH_PROTECTION_* are inline_member:yes with repo segments yet upsert with null show → null slug → no caret). Keeps ChevronRight glyph, gains `aria-label="Open show page"`. It is no longer gated on helpfulContext and no longer toggles anything.
 - Expansion state + context box (`bell-context-{alertId}`, :431-441) DELETED. `rowHelpfulContext` helper deleted.
 - Full-row toggle (`bell-entry-toggle`, :382-428) keeps its mark-read behavior but must NOT nest the caret link inside the toggle button (nested-interactive a11y violation): caret link renders as a sibling positioned in the row's top-right, outside the `<button>` — same pattern as ActionCell links.
 - Identity chip suppression (`:332,442`) extends: `INLINE_IDENTITY_CODES` grows to every code whose new template carries an identity token; suppression stays conditional on `messageResolved` (fail-safe unchanged).
@@ -64,7 +64,7 @@
 
 ## 6. Per-code copy table
 
-The full 45-row table (old → new dougFacing, params used, INLINE_IDENTITY_CODES membership, longExplanation adapted from old helpfulContext, title fill) is authored in family batches and appended below as §6.1–§6.6. Rules of §3 bind every row; the table is the single source of truth for Task briefs.
+The full 45-row table (old → new dougFacing, params used, INLINE_IDENTITY_CODES membership, longExplanation adapted from old helpfulContext, title fill) is authored in family batches and appended below as §6.a–§6.c. Rules of §3 bind every row; the table is the single source of truth for Task briefs.
 
 <!-- COPY TABLE BATCHES APPENDED BELOW -->
 
