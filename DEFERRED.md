@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-18 (PR #469/#472 deferrals recorded below).
+Last reconciled: 2026-07-18 (ALERT-COPY-EMDASH-1 shipped via EMDASH-1 → archive; PR #469/#472 deferrals recorded below).
 
 ---
 
@@ -17,11 +17,6 @@ From impeccable critique of PR #472 (30/40): condensed inline-context copy puts 
 
 PR #472 reworked the bell caret from longform expander to show-page nav link (user-ratified). `aria-label="Open show page"` covers AT; a returning sighted user who learned "chevron = expand" gets no hint.
 **Un-defer trigger:** any user confusion report, or the next bell-panel UX task. Fix shape: one-time dismissible hint chip or tooltip on first render post-deploy.
-
-### ALERT-COPY-EMDASH-1 — [P3] 151 legacy em dashes remain in catalog copy despite DESIGN.md §9 ban
-
-DESIGN.md §9 bans em dashes in rendered copy, but enforcement is pinned only on notify-rendered strings (`tests/notify/templates.test.ts`) and specific component exact-string tests. PR #472 fixed the 2 notify-reachable codes (SHEET_UNAVAILABLE, DRIVE_FETCH_FAILED); ~151 occurrences remain across the catalog (mostly longExplanation/helpfulContext-era prose), pre-existing on main.
-**Un-defer trigger:** next §12.4 copy batch touching affected rows (sweep opportunistically, lockstep per batch), or a decision to extend the em-dash audit catalog-wide (then fix all at once + widen the test).
 
 ### ALERT-MULTI-CHANGE-TONE-1 — [P2→ratified] Multi-change ROLE_FLAGS_NOTICE renders as bold verbless bullet block; "show page" can appear 3×
 

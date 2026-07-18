@@ -35,7 +35,7 @@ const BATCH_A: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
   },
   {
     code: "PICKER_SELECTION_RACE",
-    dougFacingSubstring: "No action needed — newer selections were left intact",
+    dougFacingSubstring: "No action needed: newer selections were left intact",
   },
   {
     code: "PICKER_EPOCH_RESET",
@@ -217,7 +217,7 @@ const BATCH_C: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
   },
   {
     code: "PENDING_SNAPSHOT_DELETE_STUCK",
-    dougFacingSubstring: "is stuck — crew pages are still protected",
+    dougFacingSubstring: "is stuck; crew pages are still protected",
   },
   {
     code: "REPORT_ORPHANED_LOST_LEASE",
