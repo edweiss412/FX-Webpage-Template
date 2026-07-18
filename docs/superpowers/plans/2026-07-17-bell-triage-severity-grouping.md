@@ -61,6 +61,12 @@ import {
 import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 
+// Strict tsconfig: noUncheckedIndexedAccess + exactOptionalPropertyTypes.
+// Narrow the catalog arrays once (non-empty at runtime) so `code:` takes a
+// `string`, never `string | undefined`.
+const DEGRADED0: string = DEGRADED_HEALTH_CODES[0]!;
+const NOTICE0: string = NOTICE_HEALTH_CODES[0]!;
+
 function entry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
   return {
     alertId: over.alertId,
@@ -88,13 +94,13 @@ describe("bellTriage", () => {
   });
 
   it("rowTone: degraded-weight health → critical", () => {
-    expect(rowTone(entry({ alertId: "d", isHealth: true, code: DEGRADED_HEALTH_CODES[0] }))).toBe(
+    expect(rowTone(entry({ alertId: "d", isHealth: true, code: DEGRADED0 }))).toBe(
       "critical",
     );
   });
 
   it("rowTone: notice-weight health → notice (the §1.6 fix, NOT critical)", () => {
-    expect(rowTone(entry({ alertId: "n", isHealth: true, code: NOTICE_HEALTH_CODES[0] }))).toBe(
+    expect(rowTone(entry({ alertId: "n", isHealth: true, code: NOTICE0 }))).toBe(
       "notice",
     );
   });
@@ -107,14 +113,14 @@ describe("bellTriage", () => {
   it("groupActiveBySeverity: TIER_ORDER, omits empty tiers, stable within-tier order", () => {
     const rows = [
       entry({ alertId: "n1", code: "ADMIN_ALERT_COUNT_FAILED", activityAt: "2026-07-17T12:00:00Z" }),
-      entry({ alertId: "c1", isHealth: true, code: DEGRADED_HEALTH_CODES[0] }),
+      entry({ alertId: "c1", isHealth: true, code: DEGRADED0 }),
       entry({ alertId: "n2", code: "ADMIN_ALERT_COUNT_FAILED", activityAt: "2026-07-17T11:00:00Z" }),
     ];
     const groups = groupActiveBySeverity(rows);
     // critical first, then notice; no info tier (empty)
     expect(groups.map((g) => g.tone)).toEqual(["critical", "notice"]);
     // within notice, input order preserved (n1 before n2)
-    expect(groups[1].rows.map((r) => r.alertId)).toEqual(["n1", "n2"]);
+    expect(groups[1]!.rows.map((r) => r.alertId)).toEqual(["n1", "n2"]);
   });
 });
 ```
@@ -194,7 +200,7 @@ In `tests/components/bellPanelRedesign.test.tsx:98-111`, the critical case uses 
 ```ts
 import { DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience";
 // ...
-makeEntry({ alertId: "crit", state: "active", isHealth: true, code: DEGRADED_HEALTH_CODES[0] }),
+makeEntry({ alertId: "crit", state: "active", isHealth: true, code: DEGRADED0 }),
 ```
 
 Keep the `info` (`INFO_CODE`) and `notice` (`NOTICE_CODE`) cases as-is; assert `bell-sev-crit` `data-tone === "critical"`, `-info` `=== "info"`, `-note` `=== "notice"`.
@@ -296,7 +302,7 @@ git commit --no-verify -m "feat(bell): expose active-specific activeTruncated on
 
 - [ ] **Step 1: Write the failing component tests**
 
-Extend `tests/components/bellPanelRedesign.test.tsx`. Import `GROUP_THRESHOLD` from `@/lib/admin/bellTriage`. Build a feed helper that yields `n` active entries across tones (use `isHealth:true`+`DEGRADED_HEALTH_CODES[0]` for critical, `INFO_CODE` for info, default for notice) and a `NOTICE_HEALTH_CODES[0]`+`isHealth:true` entry for the notice-health case. Assertions (each its own `it`):
+Extend `tests/components/bellPanelRedesign.test.tsx`. Import `GROUP_THRESHOLD` from `@/lib/admin/bellTriage`. Build a feed helper that yields `n` active entries across tones (use `isHealth:true`+a degraded-health code for critical, `INFO_CODE` for info, default for notice) and a notice-health+`isHealth:true` entry for the notice-health case. **Strict-tsconfig narrowing (same as Task 1):** hoist `const DEGRADED0: string = DEGRADED_HEALTH_CODES[0]!;` / `const NOTICE0: string = NOTICE_HEALTH_CODES[0]!;` and use those for `code:` — never a bare `DEGRADED_HEALTH_CODES[0]` (that is `string | undefined` under `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` rejects it for the optional `code` field). Guard any `groups[i]` / array-index dereference with `!` or a prior `expect(...).toBeDefined()`. Assertions (each its own `it`):
 
 ```ts
 // a) flat below threshold: GROUP_THRESHOLD-1 active → no tier headers
