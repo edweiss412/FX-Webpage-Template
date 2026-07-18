@@ -324,6 +324,15 @@ it("timestamp + chip live in the row-level right-group, not the button", () => {
   expect(btn.querySelector(`[data-testid=bell-time-${id}]`)).toBeNull();
   expect(screen.getByTestId(`bell-meta-${id}`).querySelector(`[data-testid=bell-time-${id}]`)).not.toBeNull();
 });
+
+it("occurrence chip survives inline-identity codes (suppressChip gates only IdentityChip)", () => {
+  // an INLINE_IDENTITY_CODES alert (e.g. ROLE_FLAGS_NOTICE), messageResolved, occurrences>1
+  renderActiveRow(entryInlineIdentityRepeated);
+  // occurrence chip STILL renders in the meta group (repeat-count evidence not lost)
+  expect(screen.getByTestId(`bell-meta-${id}`).querySelector(`[data-testid=bell-occurrence-${id}]`)).not.toBeNull();
+  // and the separate IdentityChip IS suppressed for this inline code
+  expect(screen.queryByTestId(`bell-identity-${id}`)).toBeNull();  // or whatever IdentityChip's testid is
+});
 ```
 
 - [ ] **Step 1b: Author the DI real-browser assertions (red-first for the layout gate)** in `tests/e2e/bell-panel-layout.spec.ts`: DI-1 (`meta.right <= caret.left`, caret-absent `<= panelContentRight`), DI-2 (`caret.right === panelContentRight` ±0.5px), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`) — chevron-present + chevron-absent fixtures. These reference the NEW testids (`bell-header/-meta/-time`) so they fail before the restructure.
@@ -333,8 +342,10 @@ it("timestamp + chip live in the row-level right-group, not the button", () => {
 - [ ] **Step 3: Implement** the WI-1 target DOM (spec §4 WI-1):
   - Header row `<div data-testid={`bell-header-${id}`} className="flex items-start gap-2">`.
   - Title-only `<button data-testid={`bell-entry-toggle-${id}`} onClick={onMarkRead} className="flex min-h-tap-min min-w-0 flex-1 items-center text-left focus-visible:… ring-offset-surface">` → `<span className="min-w-0 wrap-break-word font-semibold text-text-strong">{title}</span>`.
-  - Right-group `<span data-testid={`bell-meta-${id}`} className="flex shrink-0 items-center gap-2.5 pt-0.5">{!suppressChip && <OccurrenceChip …/>}<span data-testid={`bell-time-${id}`} className="text-xs tabular-nums text-text-faint">{raisedAtSuffix(entry.activityAt, now)}</span></span>`. **Preserve the existing `suppressChip` gate** (`BellPanel.tsx:356`, `INLINE_IDENTITY_CODES` — chip hidden for inline-identity codes); the restructure moves the chip into the right-group but must keep the same render condition.
+  - Right-group `<span data-testid={`bell-meta-${id}`} className="flex shrink-0 items-center gap-2.5 pt-0.5"><OccurrenceChip occurrences={entry.occurrences} alertId={entry.alertId} /><span data-testid={`bell-time-${id}`} className="text-xs tabular-nums text-text-faint">{raisedAtSuffix(entry.activityAt, now)}</span></span>`. **`OccurrenceChip` renders UNCONDITIONALLY** (it has its own `occurrences <= 1 → null` internal guard at `BellPanel.tsx:169`) — do NOT gate it on `suppressChip`. `suppressChip` (`:356`) gates ONLY the separate `IdentityChip` (`:463`), which is unrelated to the occurrence count; keep that gate exactly as-is on `IdentityChip` below.
+  - `IdentityChip`: keep `{suppressChip ? null : <IdentityChip entry={entry} />}` — unchanged gate, unchanged position (after the message block).
   - Chevron `<a data-testid={`bell-caret-${id}`} …SHOW_PAGE_LINK…>` rendered when `entry.slug !== null`, last flex child.
+  - Keep the `IdentityChip` render as `{suppressChip ? null : <IdentityChip entry={entry} />}` (position after the message block).
   - Message block `{((message && messageResolved) || helpHref) && (<div data-testid={`bell-msg-${id}`} className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle">{message && messageResolved && <span>{renderCatalogEmphasis(message, params)}</span>}{helpHref && <> <a data-testid={`bell-help-${id}`} href={helpHref} className={HELP_LINK} aria-label={`Learn more about ${rowCopy(entry.code).title}`}>Learn more</a></>}</div>)}`. (Task 4 adds identity bold, Task 5 the `<ul>`; keep here minimal.)
   - Remove Learn-more from ActionCell (`:296-305`); add `data-testid={`bell-action-cell-${id}`}` to the ActionCell outer `<div>` for the orphan test.
 
