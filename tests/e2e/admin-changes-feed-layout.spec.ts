@@ -30,6 +30,13 @@ const BANDS = [390, 720, 1280];
 const TAP_MIN = 44;
 const TOL = 0.5;
 
+// admin-show-modal: the per-show surface is the /admin?show= review modal. The
+// Suspense SKELETON shares the shell testIdBase, and both frames transiently
+// coexist during the streaming swap — scope to the LOADED modal (the skeleton
+// renders no title node) so the twin never trips Playwright strict mode.
+const LOADED_REVIEW_MODAL =
+  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+
 // Stable marker so seeded rows are unambiguous to clean up.
 const UNDO_ENTITY = "ZZ-Phase6-LayoutUndo";
 const HOLD_ENTITY = "ZZ-Phase6-LayoutHold";
@@ -115,38 +122,61 @@ test.describe("changes feed layout (real browser, §8 dimensional invariants)", 
 
   for (const w of BANDS) {
     test(`entries fill the list and tap targets are >=44px @${w}`, async ({ page }) => {
+      // Reduced motion: the modal's entrance animation SCALES the panel
+      // (pop-in 0.985→1) — sequential boundingBox reads mid-entrance compare
+      // widths captured at different scale frames and drift by px-level
+      // deltas. app/globals.css collapses the entrance under reduced motion,
+      // so geometry is final on load (the layout-spec convention).
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize({ width: w, height: 900 });
-      await page.goto(`/admin/show/${slug}`);
+      // admin-show-modal: the per-show surface is now the dashboard modal.
+      await page.goto(`/admin?show=${slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
 
-      const list = page.getByRole("list", { name: /changes/i });
+      const list = modal.getByRole("list", { name: /changes/i });
       await expect(list).toBeVisible();
-      const listBox = await list.boundingBox();
-      expect(listBox).not.toBeNull();
 
-      const entries = page.locator('[data-testid^="change-feed-entry-"]');
-      const n = await entries.count();
-      expect(n).toBeGreaterThan(0);
-
-      // Invariant 1: each entry <li> fills the full list content width.
-      for (let i = 0; i < n; i++) {
-        const eb = await entries.nth(i).boundingBox();
-        expect(eb).not.toBeNull();
-        expect(Math.abs(eb!.width - listBox!.width)).toBeLessThanOrEqual(TOL);
-      }
-
-      // Invariant 2: every action affordance is at least a 44px tap target.
-      const buttons = page.locator(
-        '[data-testid="change-feed-undo"], [data-testid="mi11-approve"], [data-testid="mi11-reject"]',
-      );
-      const bn = await buttons.count();
-      // Seeded feed guarantees at least the Undo + Approve + Reject controls.
-      expect(bn).toBeGreaterThanOrEqual(3);
-      for (let i = 0; i < bn; i++) {
-        const bb = await buttons.nth(i).boundingBox();
-        expect(bb).not.toBeNull();
-        expect(bb!.height).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-        expect(bb!.width).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-      }
+      // Both invariants are measured ATOMICALLY (one evaluate, one layout
+      // pass) and POLLED: the modal body streams + hydrates in stages, and a
+      // cross-locator sequence can straddle a React re-render (a stale handle
+      // returns a null boundingBox) or a mid-stream reflow (phantom width
+      // deltas). The poll settles on the committed DOM; the ASSERTED values
+      // are unchanged (entry width === list width ±TOL; every action ≥44px).
+      const measure = () =>
+        list.evaluate(
+          (ul, { tapMin, tol }) => {
+            const ulWidth = ul.getBoundingClientRect().width;
+            const entries = Array.from(ul.querySelectorAll('[data-testid^="change-feed-entry-"]'));
+            if (entries.length === 0) return "no feed entries";
+            for (const li of entries) {
+              const delta = Math.abs(li.getBoundingClientRect().width - ulWidth);
+              if (delta > tol) {
+                return `${li.getAttribute("data-testid")} width off the list width by ${delta.toFixed(2)}px`;
+              }
+            }
+            const buttons = Array.from(
+              ul.querySelectorAll(
+                '[data-testid="change-feed-undo"], [data-testid="mi11-approve"], [data-testid="mi11-reject"]',
+              ),
+            );
+            // Seeded feed guarantees at least the Undo + Approve + Reject controls.
+            if (buttons.length < 3) return `only ${buttons.length} action buttons`;
+            for (const b of buttons) {
+              const r = b.getBoundingClientRect();
+              if (r.height < tapMin - tol || r.width < tapMin - tol) {
+                return `${b.getAttribute("data-testid")} tap target ${r.width.toFixed(1)}×${r.height.toFixed(1)}`;
+              }
+            }
+            return "ok";
+          },
+          { tapMin: TAP_MIN, tol: TOL },
+        );
+      await expect
+        .poll(measure, {
+          message: `entries fill the list and action tap targets are ≥44px @${w}`,
+        })
+        .toBe("ok");
     });
   }
 });

@@ -50,6 +50,13 @@ const NAV_BREAKPOINT = 720;
 // and three desktop widths. NOT one desktop + one mobile (B1 band-sweep lesson).
 const WIDTHS = [600, 719, 720, 860, 1024, 1280];
 
+// admin-show-modal: the per-show surface is the /admin?show= review modal. The
+// Suspense SKELETON shares the shell testIdBase, and both frames transiently
+// coexist during the streaming swap — scope to the LOADED modal (the skeleton
+// renders no title node) so the twin never trips Playwright strict mode.
+const LOADED_REVIEW_MODAL =
+  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+
 type Rect = {
   top: number;
   left: number;
@@ -208,11 +215,15 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       isMobile ? "mobile" : "desktop"
     })`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
-      await page.goto(`/admin/show/${held.slug}`);
+      // admin-show-modal: the per-show surface is now the dashboard modal; the
+      // archive control lives in the modal's Overview section.
+      await page.goto(`/admin?show=${held.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
 
       // The Held show renders both Publish and Archive. Archive is the two-tap
       // confirm under test.
-      const restingBtn = page.getByTestId("archive-show-button");
+      const restingBtn = modal.getByTestId("archive-show-button");
       await expect(restingBtn).toBeVisible();
 
       // ── INVARIANT 4: tap 1 morphs the label (resting → armed/Confirm) but the
@@ -241,19 +252,15 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       ).toBeGreaterThanOrEqual(before.width - TOL);
     });
 
-    // NOTE (consolidated-admin-show-page rebuild): the `per-show long-title
-    // header` test was DELETED here. It asserted AdminPageHeader density
-    // (admin-page-header / -title / admin-show-status-pill / admin-show-share-chip
-    // — no overflow, no title↔chip overlap) on /admin/show/[slug]. The rebuild
-    // dropped AdminPageHeader from that route; the page title is now the
-    // <StatusStrip>'s single <h1 data-testid="strip-title"> (min-w-0 truncate) in
-    // a flex-wrap/sm:flex-nowrap strip, and the share affordance moved into the
-    // Overview section's share panel (no header share-chip). Its successor —
-    // "a pathological long title truncates and the strip does not overflow" — is
-    // ported as a real-browser assertion to tests/e2e/showPageLayout.spec.ts §8.5
-    // (standalone StatusStrip render, no dev server), the new-page dimensional
-    // suite. The overlap check has no literal successor because the header's
-    // multi-element justify-between row was dissolved; strip overflow is now a
-    // truncation concern, which §8.5 pins.
+    // NOTE (consolidated-admin-show-page rebuild → admin-show-modal): the
+    // `per-show long-title header` test was DELETED here. It asserted
+    // AdminPageHeader density on the old /admin/show/[slug] page; the rebuild
+    // dropped AdminPageHeader, and the admin-show-modal pivot then replaced the
+    // page itself with the dashboard review modal — whose header <h2> title is
+    // min-w-0 wrap-break-word beside a shrink-0 close cluster (the Step3
+    // pattern), with the StatusStrip's own <h1> suppressed (renderTitle=false).
+    // The modal's panel-column geometry is pinned end-to-end in
+    // tests/e2e/published-review-modal.layout.spec.ts (§6.6, standalone —
+    // no dev server).
   }
 });

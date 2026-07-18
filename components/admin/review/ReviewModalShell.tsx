@@ -99,6 +99,26 @@ function OpenReviewModalShell({
   // restore focus to the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
   useDialogFocus(panelRef, initialFocusRef);
 
+  // Cold-load focus repair (spec §5 initial-focus contract): on an SSR/hydration
+  // open (`/admin?show=` cold load) the hydration commit renders the dialog
+  // IN PLACE (mounted=false), useDialogFocus applies initial focus there, and
+  // the mounted=true re-render then MOVES the tree into document.body via
+  // createPortal — and moving a focused element makes the browser drop focus to
+  // <body>, silently breaking the contract. Client-side opens (step3) never hit
+  // this: useSyncExternalStore reports mounted=true from their first commit, so
+  // the portal never moves an already-focused tree. After the move, re-apply the
+  // initial focus — guarded so a user's own focus inside the panel is never
+  // stolen (real-browser coverage: published-review-modal.interactions.spec.ts).
+  useEffect(() => {
+    if (!mounted) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && panel.contains(active)) return;
+    const target = initialFocusRef.current ?? panel;
+    target.focus({ preventScroll: true });
+  }, [mounted, initialFocusRef]);
+
   // Lock background scroll while the overlay is open; restore the prior value
   // on close/unmount (the consumer unmounts this component to close).
   useEffect(() => {

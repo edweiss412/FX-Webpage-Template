@@ -4,7 +4,7 @@
  * Real-browser geometry for the compact inline PublishedToggle in the sticky
  * StatusStrip at a 390px phone. jsdom computes NO layout, so the strip-height +
  * popover-containment invariants MUST be measured end-to-end. STANDALONE static
- * harness (no app boot / Supabase), modelled on showPageLayout.spec.ts:
+ * harness (no app boot / Supabase), modelled on published-review-modal.layout.spec.ts:
  *   1. `tsx` runs _statusStripToggleHarness.tsx OUT of process → JSON of the
  *      rendered states. HASH_FOR_LOG_PEPPER is set for the subprocess only to
  *      satisfy a module-load guard reached via a transitively-imported helper.
