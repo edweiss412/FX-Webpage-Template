@@ -112,10 +112,7 @@ function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSu
 // unresolved <placeholder> token. The caller renders the template via
 // renderCatalogEmphasis so param values (sheet names!) are inserted as
 // opaque text after emphasis parsing, never parsed as markup (Codex R1).
-function safeDougFacingTemplate(
-  code: string,
-  params: MessageParams | undefined,
-): string | null {
+function safeDougFacingTemplate(code: string, params: MessageParams | undefined): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
   const template = messageFor(code as MessageCode).dougFacing;
   if (!template) return null;
@@ -400,7 +397,8 @@ export async function PerShowAlertSection({
                   `copyTemplate !== null` is the "message resolved" signal so the
                   chip never drops when the template failed to interpolate). The
                   <p> contains ONLY the identity string. */}
-              {alert.identityText && !(INLINE_IDENTITY_CODES.has(alert.code) && copyTemplate !== null) ? (
+              {alert.identityText &&
+              !(INLINE_IDENTITY_CODES.has(alert.code) && copyTemplate !== null) ? (
                 <p
                   data-testid="per-show-alert-identity"
                   className="wrap-break-word text-xs text-text-subtle"
