@@ -36,11 +36,11 @@ The genuinely-remaining BELL-2 scope = **the grouping itself**. "Show grouping" 
 ### 1.1 Threshold
 
 - Let `activeCount = active.length` where `active = feed.entries.filter((e) => e.state === "active")` (`BellPanel.tsx:776`).
-- `activeCount < GROUP_THRESHOLD` → **flat mode** (today's render, byte-for-byte).
-- `activeCount >= GROUP_THRESHOLD` → **grouped mode**.
+- Grouped mode engages iff **`activeCount >= GROUP_THRESHOLD && !feed.truncated`**. Otherwise **flat mode** (today's render, byte-for-byte).
+- **Truncation gate (spec R3 — completeness-honesty):** the server orders active alerts by `greatest(raised_at, last_seen_at) desc limit p_cap` (`get_bell_feed_rows.sql:76-77`) — a **recency** window, severity-blind — and `feed.truncated` is set when active alerts hit that cap (`bellFeed.ts:143-146`, `meta.active_hit_cap`). So on a truncated feed an older **critical** alert can sit OUTSIDE the loaded window. A severity-grouped view whose `Critical` section is absent would then falsely read as "nothing critical" while the truncation row only says "older items exist." Grouping's per-severity headers imply severity-**completeness**, which a recency-capped window cannot honor. Therefore **grouping is suppressed on a truncated feed and the list renders flat** — the flat list + the existing `bell-truncation-row` is the honest "these are the most recent; more exist" signal (unchanged from today). This mirrors the **already-established truncation-honesty gate** for mark-all-read, which is hidden when truncated for the same reason (`showMarkAll = activeUnread.length > 0 && !(readyFeed?.truncated ?? false)`, `BellPanel.tsx:890`; redesign spec D3/R3: a partial action "would lie"). Prioritizing critical alerts before the server cap is explicitly **out of scope** (a `get_bell_feed_rows` RPC/DB change, §9).
 - `GROUP_THRESHOLD = 9`, a module-level `const` in `BellPanel.tsx`. **Rationale — explicit product decision, NOT derived from the badge:** the `BELL-2` ticket frames the wall as "at 9+", read as **nine-or-more active entries** — the point where a flat activity-ordered list stops being glanceable and triage structure earns its keep. Single source of truth; referenced by both the render branch and its tests (tests import the constant, never re-literal `9`).
 - **NOT anchored to the badge cap (disagreement-loop preempt, corrected in spec R2):** an earlier draft claimed the threshold "anchors to the badge's `9+` cap." That was wrong on two counts: (a) `NotifBell.tsx:81` renders `count > 9 ? "9+"`, so the badge shows `9+` starting at **10**, not 9; (b) the badge counts **unseen/unread** alerts (`NotifBell.tsx:68`) while the panel groups the **active LIST** (a read alert stays active) — different populations. The badge is therefore not a valid anchor. `9` is a deliberate product choice for the active-list count; the boundary test (§5) proves grouping begins at exactly 9 so no future edit can silently drift it.
-- **No collision with truncation:** `feedCap` min is 10 (`bellConfig.ts:6`), so a feed can never truncate below 9 active rows — the threshold sits inside every possible loaded window. If `feed.truncated`, grouping applies to the loaded rows exactly as flat mode renders the loaded rows; the truncation row (`bell-truncation-row`, `BellPanel.tsx:846`) is unchanged and still the honest "there are more" signal.
+- **Threshold vs cap:** `feedCap` min is 10 (`bellConfig.ts:6`), so a NON-truncated feed can hold ≥9 active rows and reach grouped mode. Truncation and grouping are mutually exclusive by the gate above — a truncated feed always renders flat regardless of count.
 
 ### 1.2 Grouping (grouped mode only)
 
@@ -68,9 +68,9 @@ Inside the existing `<section data-testid="bell-section-active">` (`BellPanel.ts
 | --- | --- |
 | `0` | No active section at all (existing `active.length > 0` guard, `BellPanel.tsx:799`). Unchanged. |
 | `1`–`8` | Flat mode (today's exact render). |
-| `>= 9` | Grouped mode. |
-| `>= 9`, all one tone | Grouped mode, single tier section. |
-| `>= 9`, `feed.truncated` | Grouped mode over loaded rows; truncation row still renders below (unchanged). |
+| `>= 9`, `!feed.truncated` | Grouped mode. |
+| `>= 9`, `!feed.truncated`, all one tone | Grouped mode, single tier section. |
+| `>= 9`, `feed.truncated` | **Flat mode** (grouping suppressed — completeness-honesty gate §1.1); truncation row renders below (unchanged). |
 
 `feed`, `active`, `history`, `expandedIds`, `readClearedIds`, `now` inputs are all pre-existing and unchanged; no new prop is introduced. `rowTone` never throws (pure switch over defined fields); a malformed/absent code yields `notice`.
 
@@ -125,12 +125,12 @@ Therefore no new DI relationship is added. The layout e2e (§5) still asserts, i
 
 ## 3. Transition inventory
 
-States that can change at runtime for this surface: **flat ↔ grouped** (driven only by `active.length` crossing 9 on a load/refetch) and, orthogonally, the per-row and mark-all-read transitions the redesign already owns.
+States that can change at runtime for this surface: **flat ↔ grouped** (driven by `active.length >= 9 && !feed.truncated` flipping on a load/refetch — either the count crossing 9 or the `truncated` flag flipping) and, orthogonally, the per-row and mark-all-read transitions the redesign already owns.
 
 | Transition | Treatment |
 | --- | --- |
-| flat → grouped (count rises to ≥9 on refetch) | **Instant — no animation.** A data-driven re-render; rows keyed by `alertId` are preserved (no remount), tier headers appear in place. No layout animation is specified or added. |
-| grouped → flat (count drops below 9 on resolve/refetch) | **Instant — no animation.** Reverse of the above; tier headers unmount, single `active.map` resumes. |
+| flat → grouped (predicate becomes true on refetch) | **Instant — no animation.** A data-driven re-render; rows keyed by `alertId` are preserved (no remount), tier headers appear in place. No layout animation is specified or added. |
+| grouped → flat (count drops below 9, OR `truncated` flips true, on resolve/refetch) | **Instant — no animation.** Reverse of the above; tier headers unmount, single `active.map` resumes. |
 | tier header idle | **No state.** Static heading — no hover/expand/collapse transition exists. |
 | row collapsed ↔ expanded (within a tier) | Unchanged from redesign spec §4B (caret rotate + helpful-context disclosure, `--duration-fast`). Grouping does not touch `expandedIds`. |
 | row unread → read | Unchanged (dot+tint fade). |
@@ -164,7 +164,8 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
    - **Notice-weight health lands in Warning (not Critical):** a 9+ fixture including a `NOTICE_HEALTH_CODES` member (`isHealth: true`) → that row is rendered under `bell-section-active-tier-notice` (Warning), NOT under `bell-section-active-tier-critical`. Directly guards the §1.6 fix at the grouping layer (the concrete failure mode: the pre-fix tone would place it in Critical).
    - **Empty tier omitted:** a 9+ fixture with zero `info` rows → no `bell-section-active-tier-info` header.
    - **Single-tier:** a 9+ fixture all `notice` → exactly one header `Warning · 9`, no other tier headers, still no flat fallback.
-   - **Boundary flip:** at exactly `GROUP_THRESHOLD` → grouped; at `GROUP_THRESHOLD - 1` → flat. (The concrete failure mode: an off-by-one `>` vs `>=` — this test catches it.)
+   - **Boundary flip:** at exactly `GROUP_THRESHOLD` (non-truncated) → grouped; at `GROUP_THRESHOLD - 1` → flat. (The concrete failure mode: an off-by-one `>` vs `>=` — this test catches it.)
+   - **Truncation suppresses grouping (completeness-honesty, spec R3):** a `feed.truncated: true` feed with `>= GROUP_THRESHOLD` active rows spanning multiple tones → **no** `bell-section-active-tier-*` headers (flat render); `bell-truncation-row` present. Concrete failure mode this catches: a cap-evicted critical alert producing a false-empty Critical section — the flat fallback prevents the misleading "nothing critical" read. (Fixture: set the feed's `truncated` flag true with ≥9 loaded active rows.)
    - **Set preservation across flip:** render grouped with one row pre-expanded; re-render (rerender with a feed one shorter that drops below threshold) → the still-present expanded row stays expanded (expanded Set survives the grouped→flat switch because keys are stable `alertId`).
    - **mark-all-read stability:** grouped fixture with unread rows → click `bell-mark-all-read` → tier headers and their counts unchanged (unread markers clear, grouping does not move).
    - **Non-regression:** existing flat-mode / dot / mark-all-read / severity-glyph assertions stay green unchanged.
@@ -207,6 +208,7 @@ All new assertions import `GROUP_THRESHOLD` from `BellPanel` — never re-litera
 - **Grouping axis = severity, not show.** Considered show-grouping; rejected — many codes are show-less system alerts (no slug), forcing an "Other/System" bucket, and severity answers the triage question ("what is on fire") more directly. Severity is also already computed (`rowTone`), so it is zero-new-data. **Do not relitigate show-grouping** — it was a deliberate shape-pass rejection, filed nowhere as pending.
 - **Static dividers, not collapsible sections.** Collapsible severity sections were considered and rejected to avoid new per-section collapse state, a caret-rotation transition inventory, and a heavier §13/§14 re-entry — for a panel that already scrolls, static labeled dividers deliver the triage win at a fraction of the surface. **Do not propose adding collapse** — deliberate.
 - **Threshold on `active.length`, not unread count; value 9 is a product choice, NOT a badge anchor** — see §1.1 (corrected in spec R2). The `9+` badge counts unread and caps at ≥10; it is explicitly not the anchor.
+- **Grouping suppressed on truncated feeds is deliberate, not a gap (spec R3)** — the recency-capped window (`get_bell_feed_rows.sql:76-77`) can hide an older critical alert, so severity sections would falsely imply completeness. Suppressing to flat mirrors the shipped mark-all-read truncation gate (`BellPanel.tsx:890`). Server-side critical-priority-before-cap is out of scope (RPC/DB). **Do not relitigate** as either "grouping should still apply to loaded rows" or "the feed should prioritize critical."
 - **`rowTone` fix is in scope, not scope creep** — it is the ratified trigger of `BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT` (BACKLOG.md:543) and a prerequisite for correct grouping (§0/§1.6). Grouping by an uncorrected tone would ship visibly-wrong triage. **Do not relitigate as out-of-scope.**
 - **Flat↔grouped is instant (no animation)** — see §3/§4. Deliberate craft choice, not an oversight.
 - **`GROUP_THRESHOLD = 9`** is the only magic number; single-sourced as a `const` and imported by tests.
