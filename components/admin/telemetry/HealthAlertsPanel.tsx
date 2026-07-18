@@ -87,7 +87,7 @@ function HealthAlertRowItem({
       className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad text-text"
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-sm font-semibold text-text-strong">
+        <p className="wrap-break-word min-w-0 whitespace-pre-line text-sm font-semibold text-text-strong">
           {headingTemplate
             ? renderCatalogEmphasis(headingTemplate, params)
             : "A system-health item needs attention."}
@@ -104,7 +104,7 @@ function HealthAlertRowItem({
         </span>
       </div>
       {detailTemplate ? (
-        <p className="max-w-prose text-sm text-text-subtle">
+        <p className="wrap-break-word max-w-prose whitespace-pre-line text-sm text-text-subtle">
           {renderCatalogEmphasis(detailTemplate, params)}
         </p>
       ) : null}

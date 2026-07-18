@@ -340,7 +340,7 @@ export async function PerShowAlertSection({
                 isHighlighted ? "ring-2 ring-focus-ring ring-offset-2" : ""
               }`}
             >
-              <p className="whitespace-pre-line text-sm font-semibold text-text-strong">
+              <p className="wrap-break-word whitespace-pre-line text-sm font-semibold text-text-strong">
                 {copyTemplate
                   ? renderCatalogEmphasis(copyTemplate, alert.messageParams)
                   : "Something needs your attention on this show."}
