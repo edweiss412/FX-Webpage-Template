@@ -51,9 +51,9 @@ export function warningOffersFix(
 
 ### 2.3 Producer tags each entry (`ShowReviewSurface`)
 
-`offersFix` is computed once, at the callout producer (`ShowReviewSurface.tsx:835`), where `data.useRawDecisions` (staged `SectionData`, `sectionData.ts:56`) is in scope — the callout only renders under `isStaged(data)`, so decisions are always present. Each `calloutEntries` item gains `offersFix: warningOffersFix(e.warning, findUseRawDecision(e.warning, data.useRawDecisions))`. `SectionFlagCallout` stays presentational — it reads `entry.offersFix` and the `variant` prop to pick the label, computing no decision logic itself.
+`offersFix` is computed once, at the callout producer (`ShowReviewSurface.tsx:835`), where `data.useRawDecisions` (staged `SectionData`, `sectionData.ts:56`) is in scope — the callout only renders under `isStaged(data)`, so decisions are always present. Each `calloutEntries` item gains `offersFix: warningOffersFix(e.warning, findUseRawDecision(e.warning, data.useRawDecisions))`. `SectionFlagCallout` stays presentational — it reads `entry.offersFix` and the `variant` prop to pick the label (`variant === "judgment" || entry.offersFix !== true ? "Review in Parse warnings" : "Fix in Parse warnings"`), computing no decision logic itself.
 
-### 2.1 What does NOT change (disagreement-loop preempt)
+**`offersFix` is an OPTIONAL field (`offersFix?: boolean`)**, deliberately not required, for two reasons: (a) the label picker fail-safes a missing/false value to `Review` (§4), so the type stays backward-compatible; (b) another live constructor of this exact prop shape — `tests/components/admin/wizard/warningsBreakdownControls.test.tsx:299,396` builds `calloutEntries` directly to assert the preview mounts no control boundary — must keep compiling and passing unchanged. A REQUIRED field would break that file's typecheck for no behavioral gain (those tests assert control-absence, never the label). The `offersFix`-omitted path is safe by construction: those callouts render `Review`, which is exactly the correct label for a preview whose fixability wasn't computed. The real "Fix" behavior is proven end-to-end through the producer path by the §7 semantic tests, so an accidentally-unset `offersFix` in the producer would fail those (fail-by-default preserved despite the field being optional).
 
 ### 2.1 What does NOT change (disagreement-loop preempt)
 
@@ -114,9 +114,10 @@ No `AnimatePresence`, no ternary render entering/leaving on this label. Nothing 
 
 - **NEW** `lib/admin/warningFixAffordance.ts` — `warningOffersFix(warning, decision)` (§2.2).
 - `components/admin/review/ShowReviewSurface.tsx` — tag each `calloutEntries` item with `offersFix` at the producer (`~835`); import `warningOffersFix` + `findUseRawDecision`.
-- `components/admin/wizard/step3ReviewSections.tsx` — (a) chrome type `calloutEntries` (line 463) + `SectionFlagCallout` `entries` prop (line 533) gain `offersFix: boolean`; (b) label picker in `SectionFlagCallout` (replaces line 588 "View details"); (c) two stale "View details" code-comments (lines 540, 593).
+- `components/admin/wizard/step3ReviewSections.tsx` — (a) chrome type `calloutEntries` (line 463) + `SectionFlagCallout` `entries` prop (line 533) gain **optional** `offersFix?: boolean` (§2.3); (b) label picker in `SectionFlagCallout` (replaces line 588 "View details"); (c) two stale "View details" code-comments (lines 540, 593).
 - **NEW** `tests/admin/warningFixAffordance.test.ts` — predicate unit + parity meta-test (§9).
 - `tests/components/admin/wizard/Step3ReviewModal.test.tsx` — locator + semantic matchers per §7.
+- `tests/components/admin/wizard/warningsBreakdownControls.test.tsx` — **verified unaffected** (constructs `calloutEntries` at `:299,396` without `offersFix`; optional field → callout renders `Review`; these tests assert control-absence, not the label, so no edit needed — listed here so the class-sweep is explicit).
 - `DEFERRED.md` → `DEFERRED-archive.md` — move CALLOUT-PREVIEW-ACTION-CUE-1 on close-out; reconcile the resolved twin `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION` reference.
 
 ## 9. Meta-test inventory
