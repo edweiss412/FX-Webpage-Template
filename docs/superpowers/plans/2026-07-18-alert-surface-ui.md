@@ -450,8 +450,11 @@ it("template missing <role-changes> or <2 changes falls back to ordinary render 
 **Interfaces:**
 - Produces: `export function useDismissibleOnce(key: string): { status: "checking" | "available" | "unavailable"; dismissed: boolean; dismiss: () => void }`. `status` starts `"checking"` (SSR + pre-effect); a mount `useEffect` probes storage in try/catch: success → `"available"` and reads dismissed flag; ANY throw (accessor / `getItem`) → `"unavailable"`. `dismiss()` sets local `dismissed=true` and attempts `setItem` in try/catch (write-throw swallowed — still dismissed for the session). **The banner renders ONLY when `status === "available" && !dismissed`** — so `"checking"` (pre-effect) AND `"unavailable"` (storage blocked/throwing) both suppress it (fail-safe: the cosmetic hint never shows when storage is unreadable).
 
+**Test isolation (required):** the module-level `memDismissed` set persists across tests in the file — a test that dismisses would pollute later positive tests. Export a test-only `__resetDismissMemory()` from `useDismissibleOnce.ts` (or use `vi.resetModules()` + dynamic import per test) and call it in `beforeEach`, alongside `window.localStorage.clear()`. Without this, the "banner appears" tests flake after any dismiss test.
+
 - [ ] **Step 1: Failing tests**
 ```tsx
+beforeEach(() => { window.localStorage.clear(); __resetDismissMemory(); });
 // with a fresh localStorage, banner appears after mount when a chevron row exists
 it("shows one in-flow hint banner after mount", async () => {
   renderPanel(feedWithChevronRows);
@@ -521,11 +524,44 @@ it("setItem throw on dismiss: unmounts locally, no crash, no navigation", async 
     expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   } finally { spy.mockRestore(); }
 });
+it("dismissal is session-sticky across remount even when setItem throws (module fallback)", async () => {
+  const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("x"); });
+  vi.spyOn(Storage.prototype, "getItem").mockReturnValue(null);   // storage never persists the key
+  try {
+    const { unmount } = renderPanel(feedWithChevronRows);
+    fireEvent.click(await screen.findByTestId("bell-chevron-hint-dismiss"));
+    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
+    unmount();                                    // simulate NotifBell close
+    renderPanel(feedWithChevronRows);             // reopen → remount
+    await act(async () => {});                     // flush the mount effect
+    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();  // stays dismissed via memDismissed
+  } finally { vi.restoreAllMocks(); }
+});
 ```
 - [ ] **Step 1b: Author the hint-geometry real-browser assertions (red-first)** in `tests/e2e/bell-panel-layout.spec.ts`: with the banner present at mobile (≤420px) + desktop — `panel.scrollWidth <= panel.clientWidth + 0.5`; `bell-chevron-hint` + `bell-chevron-hint-dismiss` rects within the panel rect; `dismiss.height >= 44` and clicking it unmounts the banner; `hint.bottom <= firstRow.top`. Fails before the banner exists.
 - [ ] **Step 1c: Author the transition-audit assertions (red-first)** in `tests/components/bellPanelTransitionAudit.test.tsx`: hint banner has NO `AnimatePresence`/`exit`; message-block/`<ul>` toggles are instant conditional renders; dismiss removes the banner without error; compound (dismiss while a row unread → read-state unaffected). Fails before the banner exists.
 - [ ] **Step 2: Run red** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` (FAIL) + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (hint-geometry FAIL). All RED before impl.
-- [ ] **Step 3: Implement** `useDismissibleOnce` with the 3-state `status` contract: `const [status, setStatus] = useState<"checking"|"available"|"unavailable">("checking")`, `const [dismissed, setDismissed] = useState(false)`; a mount `useEffect` does `try { const v = window.localStorage.getItem(key); setDismissed(v != null); setStatus("available"); } catch { setStatus("unavailable"); }`; `dismiss = () => { setDismissed(true); try { window.localStorage.setItem(key, "1"); } catch {} }`. Render the banner in BellPanel: `hasChevronRow = rows.some(r => r.slug !== null)`; `{status === "available" && !dismissed && hasChevronRow && <div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"><span>The <span aria-hidden="true">⌄</span> chevron now opens the show page</span><span className="flex-1" /><button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" onClick={dismiss} className={GHOST_DISMISS}>Dismiss</button></div>}` as the FIRST child of the active-rows list content (before the `.map` of rows). Banner suppressed while `"checking"` (pre-effect, avoids flash) and while `"unavailable"` (fail-safe).
+- [ ] **Step 3: Implement** `useDismissibleOnce` with the 3-state `status` contract AND a **module-level in-memory dismissed-key set** so a dismissal survives BellPanel remount even when `setItem` throws (NotifBell conditionally mounts BellPanel on open, so close→reopen remounts the hook; without this fallback a `setItem`-throw dismissal would reappear):
+```ts
+const memDismissed = new Set<string>();   // module scope — survives remount within the JS session
+export function useDismissibleOnce(key: string) {
+  const [status, setStatus] = useState<"checking"|"available"|"unavailable">("checking");
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (memDismissed.has(key)) { setDismissed(true); setStatus("available"); return; }  // remount fallback
+    try { const v = window.localStorage.getItem(key); setDismissed(v != null); setStatus("available"); }
+    catch { setStatus("unavailable"); }
+  }, [key]);
+  const dismiss = () => {
+    setDismissed(true); memDismissed.add(key);          // in-memory FIRST, so a setItem throw can't lose it
+    try { window.localStorage.setItem(key, "1"); } catch {}
+  };
+  return { status, dismissed, dismiss };
+}
+/** test-only: clear the module-level fallback between tests */
+export function __resetDismissMemory() { memDismissed.clear(); }
+```
+Note: when `memDismissed` has the key, `status` is set `"available"` so the render gate short-circuits on `dismissed`. Render the banner in BellPanel: `hasChevronRow = rows.some(r => r.slug !== null)`; `{status === "available" && !dismissed && hasChevronRow && <div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"><span>The <span aria-hidden="true">⌄</span> chevron now opens the show page</span><span className="flex-1" /><button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" onClick={dismiss} className={GHOST_DISMISS}>Dismiss</button></div>}` as the FIRST child of the active-rows list content (before the `.map` of rows). Banner suppressed while `"checking"` (pre-effect, avoids flash) and while `"unavailable"` (fail-safe).
 - [ ] **Step 4: Run green** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` → PASS.
 - [ ] **Step 5: Commit** — stage ALL files authored in this task: `git add components/admin/BellPanel.tsx components/admin/useDismissibleOnce.ts tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx tests/e2e/bell-panel-layout.spec.ts` then `git commit --no-verify -m "feat(admin): one-time dismissible chevron-hint banner + throwing-safe useDismissibleOnce (WI-5)"`. **MUST stage the Playwright hint-geometry (Step 1b) and transition-audit (Step 1c) specs** — else those gates ship uncommitted.
 

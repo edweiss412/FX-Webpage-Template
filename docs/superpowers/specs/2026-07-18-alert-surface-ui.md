@@ -177,8 +177,8 @@ Tailwind v4 in this repo does NOT default `.flex` to `align-items: stretch`; ass
 
 | # | Parent | Child | Invariant | Guaranteeing class |
 |---|--------|-------|-----------|--------------------|
-| DI-1 | header flex row `[data-testid=bell-header-${id}]` | right-group `[data-testid=bell-meta-${id}]` | right-group right edge ≤ chevron left edge (or, chevron absent, ≤ row content right padding edge) within 0.5px | `shrink-0` on right-group; header `flex items-start gap-2` |
-| DI-2 | header flex row | chevron `[data-testid=bell-caret-${id}]` | chevron right edge === row content right edge (row `paddingRight`) within 0.5px | chevron is last flex child; `SHOW_PAGE_LINK` `shrink-0` |
+| DI-1 | header flex row `[data-testid=bell-header-${id}]` | right-group `[data-testid=bell-meta-${id}]` | **ACTUAL FLUSH (not `≤`):** chevron-present → `caret.left − meta.right` equals the header flex gap (`gap-2` = 8px) within ±1px; chevron-absent (`slug===null`) → `abs(headerContentRight − meta.right) ≤ 0.5px` where `headerContentRight = bell-header.right − paddingRight`. A permissive `≤` is INSUFFICIENT — it blesses the far-left-timestamp screenshot bug. | `shrink-0` on right-group; header `flex items-start gap-2` |
+| DI-2 | header flex row | chevron `[data-testid=bell-caret-${id}]` | `abs(caret.right − headerContentRight) ≤ 0.5px` (chevron flush to row content right edge) | chevron is last flex child; `SHOW_PAGE_LINK` `shrink-0` |
 | DI-3 | header flex row | title button `[data-testid=bell-entry-toggle-${id}]` | button height ≥ 44px (`min-h-tap-min`); button is `flex-1` and does not overflow the right-group off-row | `min-h-tap-min flex-1 min-w-0` |
 | DI-4 | ActiveRow row `[data-testid=bell-entry-${id}]` | timestamp `[data-testid=bell-time-${id}]` | timestamp right edge ≥ (title button right edge) — i.e. timestamp sits to the RIGHT of the title column, the screenshot fix | right-group ordering + `shrink-0` |
 
