@@ -24,7 +24,7 @@ import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { ALERT_IDENTITY_MAP } from "@/lib/adminAlerts/alertIdentityMap";
 
 const LEAD_HINT = " Lead changes must be confirmed in the show page.";
-const ROLE_CHANGES_FALLBACK = "a crew member's role flags changed — see the show page.";
+const ROLE_CHANGES_FALLBACK = "a crew member's role flags changed; see the show page.";
 const CHANGE_LINE_CAP = 3;
 
 /**
@@ -45,6 +45,17 @@ export const IDENTITY_PARAM_TOKENS: ReadonlySet<string> = new Set([
   "email",
   "crew-row-count",
   "failed-sheet-names",
+]);
+
+/** Name-like identity tiers that render BOLD at BellPanel render time
+ * (ALERT-COPY-IDENTITY-BOLD-1). Deliberately narrower than IDENTITY_PARAM_TOKENS:
+ * excludes role-changes (structured list), email/repo/file-name (technical), and
+ * counts — bolding those would fight the multi-change <ul> or bold operational
+ * prose. Structural subset test pins this. */
+export const BELL_BOLD_IDENTITY_TOKENS: ReadonlySet<string> = new Set([
+  "show-name",
+  "sheet-name",
+  "crew-name",
 ]);
 
 // count segments render as `${n} ${label}${plural}` (formatCount,
@@ -141,7 +152,7 @@ function walkIdentitySegments(
   return result;
 }
 
-type RoleChange = { crew_name: string; prior_flags: string[]; new_flags: string[] };
+export type RoleChange = { crew_name: string; prior_flags: string[]; new_flags: string[] };
 
 function segmentValue(identity: AlertIdentity | null, label: string): string | null {
   const seg = identity?.segments.find((s) => s.label === label);
@@ -206,7 +217,7 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
-function parseChanges(context: Record<string, unknown> | null): RoleChange[] {
+export function parseChanges(context: Record<string, unknown> | null): RoleChange[] {
   const raw = context?.changes;
   if (!Array.isArray(raw)) return [];
   const out: RoleChange[] = [];
@@ -240,10 +251,28 @@ function roleChangesParam(changes: RoleChange[]): string {
   if (changes.length === 1) return singleSentence(changes[0]!);
   const lines = changes.slice(0, CHANGE_LINE_CAP).map(bulletLine);
   const overflow =
-    changes.length > CHANGE_LINE_CAP
-      ? [`+${changes.length - CHANGE_LINE_CAP} more — see show page.`]
-      : [];
+    changes.length > CHANGE_LINE_CAP ? [`+${changes.length - CHANGE_LINE_CAP} more`] : [];
   return [`${changes.length} role changes:`, ...lines, ...overflow].join("\n");
+}
+
+// Structured form of the multi-change prose (WI-4): the BellPanel `<ul>` branch
+// consumes this instead of roleChangesParam's `\n`-joined string. Items carry NO
+// leading `• ` marker (a real `<li>` supplies it) and the overflow drops the
+// "— see show page" tail (the chevron/nav already carries it). Inert for 0/1 —
+// the prose fallback is roleChangesParam's job, not this helper's.
+function bulletBody(c: RoleChange): string {
+  return bulletLine(c).replace(/^• /, "");
+}
+export function roleChangeLines(changes: RoleChange[]): {
+  header: string;
+  items: string[];
+  overflow: string | null;
+} {
+  if (changes.length < 2) return { header: "", items: [], overflow: null };
+  const items = changes.slice(0, CHANGE_LINE_CAP).map(bulletBody);
+  const overflow =
+    changes.length > CHANGE_LINE_CAP ? `+${changes.length - CHANGE_LINE_CAP} more` : null;
+  return { header: `${changes.length} role changes:`, items, overflow };
 }
 
 function leadHintParam(changes: RoleChange[]): string {

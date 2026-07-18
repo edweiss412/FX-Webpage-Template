@@ -277,6 +277,24 @@ describe("BellPanel redesign — message never clamped (R4) / chevron is a slug 
     expect(chevron.parentElement).toBe(toggle.parentElement);
   });
 
+  it("mark-read button's accessible name conveys the action AND contains the visible title (WCAG 2.5.3, impeccable P2)", async () => {
+    const entry = makeEntry({ alertId: "mr", state: "active", code: MESSAGE_CODE, slug: "east" });
+    routeFetch(feedBody({ entries: [entry] }));
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    await within(panel).findByTestId("bell-section-active");
+
+    const toggle = within(panel).getByTestId("bell-entry-toggle-mr");
+    const visibleTitle = (toggle.textContent ?? "").trim();
+    expect(visibleTitle.length).toBeGreaterThan(0);
+    const accName = toggle.getAttribute("aria-label") ?? "";
+    // Title-only visible content left no cue that tapping marks read; the
+    // aria-label prepends the action while still containing the visible title
+    // (label-in-name), so the accessible name is a strict superset.
+    expect(accName).toMatch(/^Mark as read: /);
+    expect(accName).toContain(visibleTitle);
+  });
+
   it("no bell-context-* node ever renders — the helpfulContext disclosure box was removed (Task 7)", async () => {
     const entry = makeEntry({ alertId: "nc", state: "active", code: MESSAGE_CODE, slug: "east" });
     routeFetch(feedBody({ entries: [entry] }));
@@ -327,11 +345,14 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
 
   it("renders the interpolated one-line message and suppresses the identity chip", async () => {
     await renderPanelWith([roleFlagsEntry]);
-    expect(
-      screen.getByText(
-        "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
-      ),
-    ).toBeTruthy();
+    // The sheet name renders inside a <strong> (WI-3 identity-bold), so the copy
+    // is split across elements — assert the block's concatenated textContent.
+    const block = screen.getByTestId(`bell-msg-${roleFlagsEntry.alertId}`);
+    expect(block.textContent).toContain(
+      "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
+    );
+    // And the identity name IS bold (name-tier, not the prose).
+    expect(block.querySelector("strong")?.textContent).toBe("'II - RIA Investment Forum'");
     expect(screen.queryByTestId(`bell-identity-${roleFlagsEntry.alertId}`)).toBeNull();
     expect(screen.queryByTestId(`bell-caret-${roleFlagsEntry.alertId}`)).toBeNull(); // fixture's slug is null (unset — makeEntry defaults to null)
   });
@@ -375,8 +396,11 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
       actions: [],
     });
     await renderPanelWith([multi]);
-    const span = screen.getByText(/2 role changes:/);
-    expect(span.className).toContain("whitespace-pre-line");
+    // whitespace-pre-line now lives on the message block wrapper (WI-1 restructure),
+    // which hosts the message text + inline Learn-more as siblings.
+    const block = screen.getByTestId("bell-msg-multi-1");
+    expect(block.className).toContain("whitespace-pre-line");
+    expect(block.textContent).toContain("2 role changes:");
   });
 
   it("non-member codes keep their chip exactly as before", async () => {
@@ -389,6 +413,194 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
     });
     await renderPanelWith([watch]);
     expect(screen.getByTestId(`bell-identity-${watch.alertId}`)).toBeTruthy();
+  });
+});
+
+describe("WI-1/WI-2 ActiveRow restructure — message out of button, right-flush meta, orphan-safe block", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const withMessage = makeEntry({ alertId: "wm", code: "ADMIN_ALERT_COUNT_FAILED" });
+  const withMessageTitle = messageFor("ADMIN_ALERT_COUNT_FAILED").title!;
+  // helpHref present, message unresolved (empty params leave <sheet-name>…) → orphan guard.
+  const helpHrefNoMessage = makeEntry({
+    alertId: "hh",
+    code: "ROLE_FLAGS_NOTICE",
+    messageParams: {},
+    context: null,
+  });
+  // Uncataloged code → FALLBACK_TITLE, null message, null helpHref → no block.
+  const noMessageNoHelp = makeEntry({
+    alertId: "nn",
+    code: "SOME_UNCATALOGED_CODE" as unknown as MessageCode,
+  });
+  const inlineIdentityRepeated = makeEntry({
+    alertId: "ir",
+    code: "ROLE_FLAGS_NOTICE",
+    occurrences: 3,
+    messageParams: {
+      "sheet-name": "'X'",
+      "role-changes": "Doug Larson's role changed from A1 to A1 + LEAD.",
+      "lead-hint": "",
+    },
+  });
+
+  it("message is not inside the mark-read button; button name is title only", async () => {
+    await renderRow(withMessage);
+    const btn = screen.getByTestId("bell-entry-toggle-wm");
+    expect(btn.querySelector('[data-testid="bell-msg-wm"]')).toBeNull();
+    expect(btn.querySelector("ul")).toBeNull();
+    expect(btn.textContent).toBe(withMessageTitle);
+  });
+
+  it("Learn-more survives a suppressed message (orphan guard)", async () => {
+    await renderRow(helpHrefNoMessage);
+    const block = screen.getByTestId("bell-msg-hh");
+    expect(block.querySelector('[data-testid="bell-help-hh"]')).not.toBeNull();
+    expect(
+      screen.queryByTestId("bell-action-cell-hh")?.querySelector('[data-testid="bell-help-hh"]'),
+    ).toBeFalsy();
+  });
+
+  it("block omitted only when both message and helpHref absent", async () => {
+    await renderRow(noMessageNoHelp);
+    expect(screen.queryByTestId("bell-msg-nn")).toBeNull();
+  });
+
+  it("timestamp + chip live in the row-level right-group, not the button", async () => {
+    await renderRow(withMessage);
+    const btn = screen.getByTestId("bell-entry-toggle-wm");
+    expect(btn.querySelector('[data-testid="bell-time-wm"]')).toBeNull();
+    expect(
+      screen.getByTestId("bell-meta-wm").querySelector('[data-testid="bell-time-wm"]'),
+    ).not.toBeNull();
+  });
+
+  it("occurrence chip survives inline-identity codes (suppressChip gates only IdentityChip)", async () => {
+    await renderRow(inlineIdentityRepeated);
+    // Occurrence chip STILL renders in the meta group (repeat-count evidence not lost).
+    expect(
+      screen.getByTestId("bell-meta-ir").querySelector('[data-testid="bell-occurrence-ir"]'),
+    ).not.toBeNull();
+    // The separate IdentityChip IS suppressed for this inline code.
+    expect(screen.queryByTestId("bell-identity-ir")).toBeNull();
+  });
+});
+
+describe("WI-3 BellPanel identity-bold wiring", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const singleChange = makeEntry({
+    alertId: "sn",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: [{ crew_name: "Doug", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }] },
+    messageParams: {
+      "sheet-name": "'East Coast'",
+      "role-changes": "Doug's role changed from A1 to A1 + LEAD.",
+      "lead-hint": " Lead changes must be confirmed in the show page.",
+    },
+  });
+
+  it("bolds the identity name in the message, not the surrounding prose", async () => {
+    await renderRow(singleChange);
+    const block = screen.getByTestId("bell-msg-sn");
+    const strong = block.querySelector("strong");
+    expect(strong?.textContent).toBe("'East Coast'");
+  });
+
+  it("single-change ROLE_FLAGS_NOTICE sentence is not bolded by ANY strong node", async () => {
+    await renderRow(singleChange);
+    const block = screen.getByTestId("bell-msg-sn");
+    // querySelector returns only the FIRST strong (the sheet name); check EVERY
+    // strong so a second one wrapping the whole role-change sentence can't hide.
+    for (const strong of block.querySelectorAll("strong")) {
+      expect(strong.textContent ?? "").not.toContain("role changed");
+      expect(strong.textContent ?? "").not.toContain("was added");
+    }
+    // Positively: the sheet name IS bold, so bolding is active (not simply absent).
+    expect(
+      [...block.querySelectorAll("strong")].some((s) => s.textContent === "'East Coast'"),
+    ).toBe(true);
+  });
+});
+
+describe("WI-4 BellPanel multi-change <ul> split render", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const mkChanges = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      crew_name: `C${i}`,
+      prior_flags: ["A"],
+      new_flags: ["A", "B"],
+    }));
+  // Resolved params keep messageResolved true (so the message block renders the body).
+  const resolvedParams = {
+    "sheet-name": "'East Coast'",
+    "role-changes": "placeholder resolved",
+    "lead-hint": "",
+  };
+
+  const roleFlags4 = makeEntry({
+    alertId: "rf4",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(4) },
+    messageParams: resolvedParams,
+  });
+  const roleFlags2 = makeEntry({
+    alertId: "rf2",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(2) },
+    messageParams: resolvedParams,
+  });
+  const roleFlagsSingle = makeEntry({
+    alertId: "rfs",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: mkChanges(1) },
+    messageParams: resolvedParams,
+  });
+
+  it("multi-change ROLE_FLAGS_NOTICE renders a real <ul> of body-weight items + overflow, not in the button", async () => {
+    await renderRow(roleFlags4);
+    const block = screen.getByTestId("bell-msg-rf4");
+    const ul = block.querySelector("ul");
+    expect(ul).not.toBeNull();
+    expect(ul!.querySelectorAll("li")).toHaveLength(3);
+    for (const li of ul!.querySelectorAll("li")) {
+      expect(li.className).not.toMatch(/font-(semibold|bold)/);
+    }
+    expect(block.textContent).toContain("+1 more");
+    expect(block.textContent).not.toContain("see show page");
+    // <ul> is NOT inside the toggle button.
+    expect(screen.getByTestId("bell-entry-toggle-rf4").querySelector("ul")).toBeNull();
+    // sheet-name in the prefix is still bold.
+    expect(block.querySelector("strong")).not.toBeNull();
+  });
+
+  it("2..3 changes render <ul> without overflow", async () => {
+    await renderRow(roleFlags2);
+    const ul = screen.getByTestId("bell-msg-rf2").querySelector("ul");
+    expect(ul!.querySelectorAll("li")).toHaveLength(2);
+    // No "+N more" overflow line at ≤3 changes (the "Learn more" link is separate).
+    expect(screen.getByTestId("bell-msg-rf2").textContent).not.toMatch(/\+\d+ more/);
+  });
+
+  it("template missing <role-changes> or <2 changes falls back to ordinary render (no <ul>, no crash)", async () => {
+    await renderRow(roleFlagsSingle);
+    expect(screen.getByTestId("bell-msg-rfs").querySelector("ul")).toBeNull();
   });
 });
 

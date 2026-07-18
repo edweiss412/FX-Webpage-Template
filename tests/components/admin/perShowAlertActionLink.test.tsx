@@ -139,3 +139,49 @@ describe("PerShowAlertSection action links", () => {
     }
   });
 });
+
+describe("PerShowAlertSection tap-target parity + multi-change copy (WI-6)", () => {
+  it("action + Learn-more links carry inline-flex + tap-target + ring-offset-surface", async () => {
+    // ROLE_FLAGS_NOTICE with a drive_file_id renders BOTH an action link
+    // (Open in Sheet) and the Learn-more link (helpHref present).
+    rows.value = [
+      {
+        id: "tt",
+        code: "ROLE_FLAGS_NOTICE",
+        context: { drive_file_id: "df-tt", changes: [] },
+        raised_at: "2026-07-04T10:00:00.000Z",
+      },
+    ];
+    await renderSection();
+    const row = screen.getByTestId("per-show-alert-tt");
+    for (const tid of ["per-show-alert-action-tt", "per-show-alert-help-link-tt"]) {
+      const el = within(row).getByTestId(tid);
+      for (const cls of ["inline-flex", "items-center", "min-h-tap-min", "ring-offset-surface"]) {
+        expect(el.className).toContain(cls);
+      }
+    }
+  });
+
+  it("multi-change ROLE_FLAGS_NOTICE overflow drops the tail + em dash", async () => {
+    const change = (n: string) => ({
+      crew_name: n,
+      prior_flags: ["A1"],
+      new_flags: ["A1", "LEAD"],
+    });
+    rows.value = [
+      {
+        id: "mc",
+        code: "ROLE_FLAGS_NOTICE",
+        context: {
+          changes: [change("A"), change("B"), change("C"), change("D"), change("E")],
+        },
+        raised_at: "2026-07-04T10:00:00.000Z",
+      },
+    ];
+    await renderSection();
+    const txt = screen.getByTestId("per-show-alert-mc").textContent ?? "";
+    expect(txt).toContain("+2 more");
+    expect(txt).not.toContain("see show page");
+    expect(txt).not.toContain("—");
+  });
+});
