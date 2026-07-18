@@ -393,6 +393,11 @@ export default defineConfig({
         server.url === "http://localhost:3003"
       );
     }
+    // Boot ZERO webServers for the step3 live-bundle interaction spec: it is fully
+    // self-contained (its own node:http server + esbuild browser bundle in
+    // beforeAll) and never touches the app on any of :3000-:3004. See
+    // .github/workflows/step3-live-bundle.yml.
+    if (process.env.STEP3_LIVE_BUNDLE_ONLY) return false;
     return true;
   }),
 });
