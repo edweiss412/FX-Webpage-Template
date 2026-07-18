@@ -6,7 +6,7 @@
  * placeholder repo values producing a wrong GitHub target.
  */
 import { describe, expect, it } from "vitest";
-import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
+import { resolveAlertAction, resolveAlertActions } from "@/lib/adminAlerts/alertActions";
 
 const slugOpts = { slug: "east-coast" };
 const noSlug = { slug: null };
@@ -230,5 +230,34 @@ describe("resolveAlertAction dispatch", () => {
     expect(resolveAlertAction("SHOW_UNPUBLISHED", { drive_file_id: "x" }, slugOpts)).toBeNull();
     expect(resolveAlertAction("", null, noSlug)).toBeNull();
     expect(resolveAlertAction("not_a_code", null, noSlug)).toBeNull();
+  });
+});
+
+describe("resolveAlertActions (spec 2026-07-17 §3.4)", () => {
+  it("ROLE_FLAGS_NOTICE with slug: show-page link leads, Open in Sheet second", () => {
+    const actions = resolveAlertActions(
+      "ROLE_FLAGS_NOTICE",
+      { drive_file_id: "abc123" },
+      { slug: "ria-forum" },
+    );
+    expect(actions).toHaveLength(2);
+    expect(actions[0]).toEqual({
+      label: "Review in show page",
+      href: "/admin/show/ria-forum",
+      external: false,
+    });
+    expect(actions[1]?.label).toBe("Open in Sheet");
+    expect(actions[1]?.external).toBe(true);
+  });
+
+  it("ROLE_FLAGS_NOTICE without slug: sheet link only", () => {
+    const actions = resolveAlertActions("ROLE_FLAGS_NOTICE", { drive_file_id: "abc123" }, { slug: null });
+    expect(actions.map((a) => a.label)).toEqual(["Open in Sheet"]);
+  });
+
+  it("other codes delegate to the single resolver (0 or 1 element)", () => {
+    expect(resolveAlertActions("SYNC_STALLED", null, { slug: null })).toEqual([]);
+    const single = resolveAlertActions("PICKER_EPOCH_RESET", {}, { slug: "ria-forum" });
+    expect(single).toHaveLength(1);
   });
 });
