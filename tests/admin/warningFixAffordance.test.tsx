@@ -13,7 +13,9 @@ import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/app/admin/show/[slug]/_actions/roleToken", () => ({ mapRoleToken: vi.fn() }));
 vi.mock("@/app/admin/onboarding/_actions/roleTokenStaged", () => ({ mapRoleTokenStaged: vi.fn() }));
-vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({ updateRoleTokenMapping: vi.fn() }));
+vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({
+  updateRoleTokenMapping: vi.fn(),
+}));
 
 const IN_SCOPE = [
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
@@ -33,7 +35,10 @@ function resolvable(): Extract<UseRawResolution, { resolvable: true }> {
 describe("warningOffersFix — role branch", () => {
   it("true for UNKNOWN_ROLE_TOKEN with a non-empty token", () => {
     expect(
-      warningOffersFix({ code: "UNKNOWN_ROLE_TOKEN", roleToken: "STROBE_TECH" } as ParseWarning, undefined),
+      warningOffersFix(
+        { code: "UNKNOWN_ROLE_TOKEN", roleToken: "STROBE_TECH" } as ParseWarning,
+        undefined,
+      ),
     ).toBe(true);
   });
   it("false for UNKNOWN_ROLE_TOKEN with empty / whitespace token", () => {
@@ -47,7 +52,15 @@ describe("warningOffersFix — role branch", () => {
 
 describe("warningOffersFix — use-raw branch", () => {
   it("true for each in-scope resolvable code (no decision, and with a persisted decision)", () => {
-    const decided: UseRawDecision = { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", target: { kind: "rooms" }, preference: "raw", applied: true, decidedAt: "2026-01-01T00:00:00Z", decidedBy: "tester" };
+    const decided: UseRawDecision = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      contentHash: "hash-1",
+      target: { kind: "rooms" },
+      preference: "raw",
+      applied: true,
+      decidedAt: "2026-01-01T00:00:00Z",
+      decidedBy: "tester",
+    };
     for (const code of IN_SCOPE) {
       const w = { code, resolution: resolvable() } as ParseWarning;
       expect(warningOffersFix(w, undefined)).toBe(true);
@@ -58,7 +71,10 @@ describe("warningOffersFix — use-raw branch", () => {
     for (const code of IN_SCOPE) {
       expect(warningOffersFix({ code } as ParseWarning, undefined)).toBe(false); // no resolution
       expect(
-        warningOffersFix({ code, resolution: { resolvable: false, reason: "empty-raw" } } as ParseWarning, undefined),
+        warningOffersFix(
+          { code, resolution: { resolvable: false, reason: "empty-raw" } } as ParseWarning,
+          undefined,
+        ),
       ).toBe(false);
     }
   });
@@ -80,7 +96,15 @@ describe("warningOffersFix ↔ deriveUseRawControlState parity (drift guard)", (
     ];
     const decisions: (UseRawDecision | undefined)[] = [
       undefined,
-      { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", target: { kind: "rooms" }, preference: "raw", applied: true, decidedAt: "2026-01-01T00:00:00Z", decidedBy: "tester" },
+      {
+        code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+        contentHash: "hash-1",
+        target: { kind: "rooms" },
+        preference: "raw",
+        applied: true,
+        decidedAt: "2026-01-01T00:00:00Z",
+        decidedBy: "tester",
+      },
     ];
     for (const code of codes)
       for (const resolution of resolutions)
@@ -99,15 +123,58 @@ describe("warningOffersFix ↔ deriveUseRawControlState parity (drift guard)", (
 // re-derived (a re-derivation would be tautological). Spec §9.
 describe("warningOffersFix ↔ RoleRecognizeControlBoundary parity (drift guard)", () => {
   const cases: { label: string; warning: ParseWarning }[] = [
-    { label: "non-role code", warning: { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind: "crew" } } },
-    { label: "role code, absent token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "", blockRef: { kind: "crew" } } },
-    { label: "role code, empty token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "", message: "", blockRef: { kind: "crew" } } },
-    { label: "role code, whitespace token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "   ", message: "", blockRef: { kind: "crew" } } },
-    { label: "role code, real token", warning: { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", roleToken: "STROBE_TECH", message: "", blockRef: { kind: "crew" } } },
+    {
+      label: "non-role code",
+      warning: { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind: "crew" } },
+    },
+    {
+      label: "role code, absent token",
+      warning: {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "",
+        blockRef: { kind: "crew" },
+      },
+    },
+    {
+      label: "role code, empty token",
+      warning: {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        roleToken: "",
+        message: "",
+        blockRef: { kind: "crew" },
+      },
+    },
+    {
+      label: "role code, whitespace token",
+      warning: {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        roleToken: "   ",
+        message: "",
+        blockRef: { kind: "crew" },
+      },
+    },
+    {
+      label: "role code, real token",
+      warning: {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        roleToken: "STROBE_TECH",
+        message: "",
+        blockRef: { kind: "crew" },
+      },
+    },
   ];
   it.each(cases)("$label: predicate role verdict === boundary renders non-null", ({ warning }) => {
     const { container } = render(
-      <RoleRecognizeControlBoundary surface="wizard" wizardSessionId="s" driveFileId="d" warning={warning} />,
+      <RoleRecognizeControlBoundary
+        surface="wizard"
+        wizardSessionId="s"
+        driveFileId="d"
+        warning={warning}
+      />,
     );
     const boundaryRenders = container.firstChild !== null;
     // For a non-role code the use-raw branch is also false (SOME_CODE out of scope),
