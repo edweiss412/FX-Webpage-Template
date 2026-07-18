@@ -150,12 +150,17 @@ describe("buildNeedsAttention", () => {
 
 describe("resolveIngestionCopy (catalog-safe, spec §7)", () => {
   it("renders the catalog dougFacing with the real sheet name when the code resolves", () => {
-    // DRIVE_FETCH_FAILED has no placeholder; copy is the catalog string verbatim.
+    // DRIVE_FETCH_FAILED's <sheet-name> placeholder is interpolated with the
+    // fixture's real sheet name; derive the expected string from the catalog
+    // template rather than hardcoding a second copy of it.
+    const driveFileName = "Validation — Normal day";
     const copy = resolveIngestionCopy({
       code: "DRIVE_FETCH_FAILED",
-      driveFileName: "Validation — Normal day",
+      driveFileName,
     });
-    expect(copy).toBe(MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing);
+    expect(copy).toBe(
+      MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing.replace("<sheet-name>", driveFileName),
+    );
     expect(copy).not.toMatch(/<[a-z-]+>/i);
   });
 

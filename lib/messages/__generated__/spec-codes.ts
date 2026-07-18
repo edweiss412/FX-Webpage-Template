@@ -316,7 +316,7 @@ export const SPEC_CODES = {
   },
   "DRIVE_FETCH_FAILED": {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    "dougFacing": "We couldn't fetch <sheet-name> from Google Drive — likely a transient network issue, or it's been moved or unshared; we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
+    "dougFacing": "We couldn't fetch <sheet-name> from Google Drive (likely a transient network issue, or it's been moved or unshared); we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     "followUp": "Doug → check share / Retry",
     "helpfulContext": null,
   },
@@ -1108,7 +1108,7 @@ export const SPEC_CODES = {
   },
   "SHEET_UNAVAILABLE": {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    "dougFacing": "<sheet-name> isn't in your folder anymore — you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
+    "dougFacing": "<sheet-name> isn't in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     "followUp": "Doug → re-share sheet",
     "helpfulContext": null,
   },

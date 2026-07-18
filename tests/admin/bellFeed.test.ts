@@ -579,7 +579,7 @@ describe("loadBellFeed", () => {
     expect(result.entries[0]?.identity).toEqual({ segments: [], global: false });
   });
 
-  test("attaches messageParams (identity-derived) and an ordered actions list", async () => {
+  test("attaches messageParams (identity-derived) and a single sheet-link action", async () => {
     state.rpcRows = [
       metaRow(),
       activeRow({
@@ -611,7 +611,7 @@ describe("loadBellFeed", () => {
     expect(entry.messageParams["lead-hint"]).toBe(
       " Lead changes must be confirmed in the show page.",
     );
-    expect(entry.actions.map((a) => a.label)).toEqual(["Review in show page", "Open in Sheet"]);
+    expect(entry.actions.map((a) => a.label)).toEqual(["Open in Sheet"]);
     expect(entry).not.toHaveProperty("action");
   });
 });

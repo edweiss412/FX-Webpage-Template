@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
@@ -88,7 +88,16 @@ const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
 // exemption and the production admin-alert set in lockstep by
 // construction — a newly registered admin_alerts code is exempted the
 // moment it's added to the registry, with no hand-list to fall out of sync.
-const ADMIN_ALERTS_REGISTRY_PATH = "tests/messages/adminAlertsRegistry.ts";
+// Resolved from THIS FILE's own on-disk location (scripts/extract-spec-codes.ts),
+// not process.cwd() — cwd varies by caller (repo root for `pnpm gen:spec-codes`;
+// a hermetic tmpdir for tests/scripts/extract-spec-codes-cli.test.ts, which spawns
+// the script against a fixture spec and doesn't seed a tests/ tree). A cwd-relative
+// path would ENOENT under the CLI test; this stays correct under both.
+const ADMIN_ALERTS_REGISTRY_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "tests/messages/adminAlertsRegistry.ts",
+);
 
 function readAdminAlertsCodes(): ReadonlySet<string> {
   const source = readFileSync(ADMIN_ALERTS_REGISTRY_PATH, "utf8");

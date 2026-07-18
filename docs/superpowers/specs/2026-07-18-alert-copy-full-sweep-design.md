@@ -274,7 +274,7 @@ the identity-map segment kind is `sheetName` or `contextField` labeled `"Sheet"`
 - old dougFacing: "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings."
 - old helpfulContext: "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder."
 
-1. new_dougFacing: "We couldn't fetch <sheet-name> from Google Drive — likely a transient network issue, or it's been moved or unshared; we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings."
+1. new_dougFacing: "We couldn't fetch <sheet-name> from Google Drive (likely a transient network issue, or it's been moved or unshared); we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings." (em dash → parenthetical per DESIGN.md §9)
 2. inline_member: yes
 3. params: `sheet-name` → fallback "this sheet" (pre-existing)
 4. new_longExplanation: "This appears when Google Drive temporarily blocks or refuses a request to read this sheet, usually from a transient network or permissions hiccup. We keep retrying automatically. If this persists for more than an hour, confirm the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder."
@@ -300,7 +300,7 @@ the identity-map segment kind is `sheetName` or `contextField` labeled `"Sheet"`
 - old dougFacing: "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back."
 - old helpfulContext: "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync."
 
-1. new_dougFacing: "<sheet-name> isn't in your folder anymore — you may have moved or unshared it, or it was deleted. Re-share it to bring the show back."
+1. new_dougFacing: "<sheet-name> isn't in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back." (em dash → colon per DESIGN.md §9)
 2. inline_member: no — global entry (already-specific-in-copy), same rationale as PARSE_ERROR_LAST_GOOD.
 3. params: `sheet-name` → fallback "this sheet" (pre-existing)
 4. new_longExplanation: "This appears when a sheet we expected to find in the watched folder is no longer there. It may have been moved to a different folder, had its share removed, or been deleted outright. Crew keep seeing the last good version on file until you re-share or move the sheet back into the folder, which we'll pick up on the next sync."

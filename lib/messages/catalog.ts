@@ -89,7 +89,7 @@ export const MESSAGE_CATALOG = {
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "We couldn't fetch <sheet-name> from Google Drive — likely a transient network issue, or it's been moved or unshared; we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
+      "We couldn't fetch <sheet-name> from Google Drive (likely a transient network issue, or it's been moved or unshared); we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → check share / Retry",
     helpfulContext: null,
@@ -123,7 +123,7 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
-      "<sheet-name> isn't in your folder anymore — you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
+      "<sheet-name> isn't in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → re-share sheet",
     helpfulContext: null,
