@@ -297,9 +297,9 @@ describe("BellPanel — triage severity grouping (BELL-2)", () => {
       info: "Notice",
     };
     for (const g of groups) {
-      expect(
-        within(panel).getByTestId(`bell-section-active-tier-${g.tone}`).textContent,
-      ).toContain(`${labelFor[g.tone]} · ${g.rows.length}`);
+      expect(within(panel).getByTestId(`bell-section-active-tier-${g.tone}`).textContent).toContain(
+        `${labelFor[g.tone]} · ${g.rows.length}`,
+      );
     }
     // Active · N is the TOTAL.
     expect(within(panel).getByTestId("bell-section-active-heading").textContent).toContain(
@@ -331,13 +331,18 @@ describe("BellPanel — triage severity grouping (BELL-2)", () => {
   });
 
   it("d) notice-weight health lands under Warning, NOT Critical (§1.6 at the grouping layer)", async () => {
-    const entries = [makeEntry({ alertId: "nh", isHealth: true, code: NOTICE_HEALTH0 }), ...noticeRows(8)];
+    const entries = [
+      makeEntry({ alertId: "nh", isHealth: true, code: NOTICE_HEALTH0 }),
+      ...noticeRows(8),
+    ];
     routeFetch(feedBody({ entries }));
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     await within(panel).findByTestId("bell-section-active");
     expect(within(panel).queryByTestId("bell-section-active-tier-critical")).toBeNull();
-    const noticeSection = within(panel).getByTestId("bell-section-active-tier-notice").parentElement!;
+    const noticeSection = within(panel).getByTestId(
+      "bell-section-active-tier-notice",
+    ).parentElement!;
     expect(noticeSection.querySelector('[data-testid="bell-entry-nh"]')).not.toBeNull();
   });
 

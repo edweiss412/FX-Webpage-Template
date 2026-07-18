@@ -32,9 +32,7 @@ export const TIER_ORDER: readonly RowTone[] = ["critical", "notice", "info"];
  * omitted. `filter` preserves the server's activityAt-DESC order within each
  * tier — never a re-sort (spec §1.2).
  */
-export function groupActiveBySeverity(
-  active: BellEntry[],
-): { tone: RowTone; rows: BellEntry[] }[] {
+export function groupActiveBySeverity(active: BellEntry[]): { tone: RowTone; rows: BellEntry[] }[] {
   return TIER_ORDER.map((tone) => ({
     tone,
     rows: active.filter((e) => rowTone(e) === tone),

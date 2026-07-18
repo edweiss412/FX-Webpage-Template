@@ -548,9 +548,7 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
 
     // §3 transition audit: the static tier headers run NO animation/transition.
     for (const header of [critHeader, noticeHeader]) {
-      const running = await header.evaluate(
-        (el) => el.getAnimations({ subtree: false }).length,
-      );
+      const running = await header.evaluate((el) => el.getAnimations({ subtree: false }).length);
       expect(running, "tier headers are static (no animation)").toBe(0);
     }
   });
