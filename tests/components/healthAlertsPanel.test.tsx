@@ -267,4 +267,44 @@ describe("HealthAlertsPanel (Task 8 reachability)", () => {
       expect(seen).toContain(0);
     });
   });
+
+  describe("Task 9: identity-less derived params (no placeholder leak, spec 2026-07-17 §4.2)", () => {
+    // 12-code sweep list (spec §6). Mirrors
+    // tests/messages/inlineIdentityCopy.test.ts SWEEP_EXPECTATIONS keys —
+    // copied inline rather than cross-imported from a test file.
+    const SWEEP_CODES = [
+      "REPORT_ORPHANED_LOST_LEASE",
+      "REPORT_LOOKUP_INCONCLUSIVE",
+      "REPORT_DUPLICATE_LIVE_MATCHES",
+      "REPORT_OPEN_ORPHAN_LABEL",
+      "REPORT_LEASE_THRASHING",
+      "STALE_ORPHAN_REPORT",
+      "PENDING_SNAPSHOT_PROMOTE_STUCK",
+      "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+      "EMAIL_DELIVERY_FAILED",
+      "WIZARD_SESSION_SUPERSEDED_RACE",
+      "BRANCH_PROTECTION_DRIFT",
+      "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    ];
+
+    async function renderPanelWithRow(code: string) {
+      impl.fn = async ({ weight }) =>
+        weight === "degraded"
+          ? { kind: "ok", rows: [row({ id: "il1", code, context: null })], hasMore: false }
+          : { kind: "ok", rows: [], hasMore: false };
+      await renderPanel();
+      return within(screen.getByTestId("health-alerts-panel")).getByTestId("health-alert-row-il1");
+    }
+
+    test.each(SWEEP_CODES)(
+      "%s renders with EMPTY context and no literal <placeholder> leaks (spec 2026-07-17 §4.2)",
+      async (code) => {
+        const rowNode = await renderPanelWithRow(code);
+        expect(rowNode.textContent).not.toMatch(/<[a-zA-Z_][a-zA-Z0-9_-]*>/);
+        expect(rowNode.textContent).toMatch(
+          /this show|this sheet|this repository|a setup action|GitHub|wizard/,
+        );
+      },
+    );
+  });
 });

@@ -23,7 +23,8 @@
 import Link from "next/link";
 import { loadHealthAlerts, type HealthAlertRow } from "@/lib/admin/healthAlerts";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
-import { messageFor, type MessageParams } from "@/lib/messages/lookup";
+import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
+import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
@@ -70,7 +71,10 @@ function HealthAlertRowItem({
   // catalog Markdown markers (`*em*`) become styled <em>/<strong> and context params
   // insert as opaque text, never leaking literal markers or the raw code (invariant 5).
   const raw = cataloged ? messageFor(row.code as MessageCode) : null;
-  const params = (row.context as MessageParams | null) ?? undefined;
+  // Identity-less derived params (spec 2026-07-17 §4.2): this panel has no
+  // identity resolution, so sheet/show params take their fallback phrases —
+  // never a literal <placeholder> (invariant 5).
+  const params = deriveAlertMessageParams(row.code, row.context, null);
   // title is pinned marker-free; dougFacing carries the developer detail.
   const headingTemplate = raw?.title ?? raw?.dougFacing ?? null;
   const detailTemplate = raw?.title ? raw.dougFacing : null;

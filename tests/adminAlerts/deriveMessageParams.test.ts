@@ -15,10 +15,14 @@ const change = (crew_name: string, prior_flags: string[], new_flags: string[]) =
 
 describe("deriveAlertMessageParams — identity params", () => {
   it("quotes the Sheet segment into sheet-name and Show into show-name", () => {
-    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", null, identity([
-      { label: "Sheet", value: "II - East Coast 2026" },
-      { label: "Show", value: "II - East Coast 2026" },
-    ]));
+    const p = deriveAlertMessageParams(
+      "REPORT_LEASE_THRASHING",
+      null,
+      identity([
+        { label: "Sheet", value: "II - East Coast 2026" },
+        { label: "Show", value: "II - East Coast 2026" },
+      ]),
+    );
     expect(p["sheet-name"]).toBe("'II - East Coast 2026'");
     expect(p["show-name"]).toBe("'II - East Coast 2026'");
   });
@@ -37,6 +41,35 @@ describe("deriveAlertMessageParams — identity params", () => {
     );
     expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
     expect(p["show-name"]).toBe("this show");
+  });
+
+  // Task 9 (spec 2026-07-17 §4.2): the telemetry health panel has no
+  // unresolved-placeholder guard (§4.3 guard is bell/per-show only), so
+  // EVERY placeholder these three codes' dougFacing templates use must
+  // always resolve here too — not just sheet-name/show-name.
+  it("repo falls back to a generic phrase when context is missing/null (BRANCH_PROTECTION_*)", () => {
+    const p = deriveAlertMessageParams("BRANCH_PROTECTION_DRIFT", null, null);
+    expect(p.repo).toBe("this repository");
+  });
+
+  it("file_name falls back to 'this sheet' when context is missing/null (WIZARD_SESSION_SUPERSEDED_RACE)", () => {
+    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null);
+    expect(p.file_name).toBe("this sheet");
+  });
+
+  it("attempted_action falls back to a generic phrase when context is missing/null (WIZARD_SESSION_SUPERSEDED_RACE)", () => {
+    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null);
+    expect(p.attempted_action).toBe("a setup action");
+  });
+
+  it("does not override repo/file_name/attempted_action when context supplies them", () => {
+    const p = deriveAlertMessageParams(
+      "WIZARD_SESSION_SUPERSEDED_RACE",
+      { file_name: "II - East Coast 2026", attempted_action: "retry" },
+      null,
+    );
+    expect(p.file_name).toBe("II - East Coast 2026");
+    expect(p.attempted_action).toBe("retry");
   });
 });
 

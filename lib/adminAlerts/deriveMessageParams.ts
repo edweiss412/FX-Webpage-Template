@@ -97,6 +97,19 @@ export function deriveAlertMessageParams(
   }
   params["sheet-name"] = quoted(segmentValue(identity, "Sheet"), "this sheet");
   params["show-name"] = quoted(segmentValue(identity, "Show"), "this show");
+  // repo / file_name / attempted_action are raw contextField-sourced
+  // placeholders (spec §6): normally always present because their producers
+  // write them at upsert time, but the telemetry health panel (Task 9, spec
+  // §4.2) has no unresolved-placeholder guard (§4.3 is bell/per-show only)
+  // — so, like sheet-name/show-name above, these must always resolve too,
+  // never leak a literal <placeholder> when context is missing/null.
+  if (code === "BRANCH_PROTECTION_DRIFT" || code === "BRANCH_PROTECTION_MONITOR_AUTH_FAILED") {
+    params["repo"] = params["repo"] ?? "this repository";
+  }
+  if (code === "WIZARD_SESSION_SUPERSEDED_RACE") {
+    params["file_name"] = params["file_name"] ?? "this sheet";
+    params["attempted_action"] = params["attempted_action"] ?? "a setup action";
+  }
   if (code === "ROLE_FLAGS_NOTICE") {
     const changes = parseChanges(context);
     params["role-changes"] = roleChangesParam(changes);
