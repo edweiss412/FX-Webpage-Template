@@ -3,6 +3,8 @@ import {
   deriveAlertMessageParams,
   IDENTITY_PARAM_TOKENS,
   BELL_BOLD_IDENTITY_TOKENS,
+  roleChangeLines,
+  parseChanges,
 } from "@/lib/adminAlerts/deriveMessageParams";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 
@@ -466,7 +468,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
     const lines = String(p["role-changes"]).split("\n");
     expect(lines[0]).toBe("5 role changes:");
     expect(lines).toHaveLength(5); // header + 3 bullets + overflow
-    expect(lines[4]).toBe("+2 more — see show page.");
+    expect(lines[4]).toBe("+2 more");
   });
 
   it("FINANCIALS-only delta yields no lead hint", () => {
@@ -499,7 +501,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       context as Record<string, unknown> | null,
       sheetIdentity,
     );
-    expect(p["role-changes"]).toBe("a crew member's role flags changed — see the show page.");
+    expect(p["role-changes"]).toBe("a crew member's role flags changed; see the show page.");
     expect(p["lead-hint"]).toBe("");
   });
 
@@ -521,5 +523,54 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
     const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", { changes: [] }, null);
     expect(p["role-changes"]).toBeUndefined();
     expect(p["lead-hint"]).toBeUndefined();
+  });
+});
+
+describe("roleChangeLines (structured multi-change helper, WI-4)", () => {
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      crew_name: `C${i}`,
+      prior_flags: ["A"],
+      new_flags: ["A", "B"],
+    }));
+
+  it("returns structured object for >=2 changes, no bullet marker, no em dash", () => {
+    const r = roleChangeLines(mk(4));
+    expect(r.header).toBe("4 role changes:");
+    expect(r.items).toHaveLength(3);
+    for (const it of r.items) {
+      expect(it.startsWith("• ")).toBe(false);
+      expect(it).not.toContain("—");
+    }
+    expect(r.overflow).toBe("+1 more");
+    expect(r.overflow).not.toContain("see show page");
+  });
+
+  it("2..3 changes → all items, no overflow", () => {
+    const r = roleChangeLines(mk(3));
+    expect(r.items).toHaveLength(3);
+    expect(r.overflow).toBeNull();
+  });
+
+  it("inert for 0/1 (prose is roleChangesParam's job)", () => {
+    expect(roleChangeLines(mk(0))).toEqual({ header: "", items: [], overflow: null });
+    expect(roleChangeLines(mk(1))).toEqual({ header: "", items: [], overflow: null });
+  });
+
+  it("multi-change role-changes param drops the tail + em dash (via deriveAlertMessageParams)", () => {
+    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: mk(5) }, null);
+    expect(p["role-changes"]).toContain("+2 more");
+    expect(p["role-changes"]).not.toContain("see show page");
+    expect(p["role-changes"]).not.toContain("—");
+  });
+
+  it("ROLE_CHANGES_FALLBACK (0 changes) is em-dash free", () => {
+    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: [] }, null);
+    expect(p["role-changes"]).not.toContain("—");
+  });
+
+  it("parseChanges is exported and parses context.changes", () => {
+    expect(parseChanges({ changes: mk(2) })).toHaveLength(2);
+    expect(parseChanges(null)).toEqual([]);
   });
 });
