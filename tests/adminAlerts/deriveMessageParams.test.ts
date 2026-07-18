@@ -1,0 +1,166 @@
+import { describe, expect, it } from "vitest";
+import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
+import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
+
+const identity = (segments: Array<{ label: string | null; value: string }>): AlertIdentity => ({
+  segments,
+  global: false,
+});
+
+const change = (crew_name: string, prior_flags: string[], new_flags: string[]) => ({
+  crew_name,
+  prior_flags,
+  new_flags,
+});
+
+describe("deriveAlertMessageParams — identity params", () => {
+  it("quotes the Sheet segment into sheet-name and Show into show-name", () => {
+    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", null, identity([
+      { label: "Sheet", value: "II - East Coast 2026" },
+      { label: "Show", value: "II - East Coast 2026" },
+    ]));
+    expect(p["sheet-name"]).toBe("'II - East Coast 2026'");
+    expect(p["show-name"]).toBe("'II - East Coast 2026'");
+  });
+
+  it("falls back to unquoted phrases when identity is null or segment missing", () => {
+    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", null, null);
+    expect(p["sheet-name"]).toBe("this sheet");
+    expect(p["show-name"]).toBe("this show");
+  });
+
+  it("passes context scalars through and lets derived keys win on collision", () => {
+    const p = deriveAlertMessageParams(
+      "BRANCH_PROTECTION_DRIFT",
+      { repo: "edweiss412/FX-Webpage-Template", "show-name": "spoofed" },
+      null,
+    );
+    expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
+    expect(p["show-name"]).toBe("this show");
+  });
+});
+
+describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
+  const sheetIdentity = identity([{ label: "Sheet", value: "II - RIA Investment Forum" }]);
+
+  it("single modified member reads as one sentence", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      { changes: [change("Doug Larson", ["A1"], ["A1", "LEAD"])] },
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe("Doug Larson's role changed from A1 to A1 + LEAD.");
+    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+  });
+
+  it("single added member (empty prior)", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      { changes: [change("Jane Doe", [], ["FINANCIALS"])] },
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe("Jane Doe was added with FINANCIALS.");
+    expect(p["lead-hint"]).toBe("");
+  });
+
+  it("single removed member (empty new)", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      { changes: [change("Sam Roe", ["LEAD"], [])] },
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe("Sam Roe (LEAD) was removed from the crew.");
+    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+  });
+
+  it("multi renders header + bullets, exact composition", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      {
+        changes: [
+          change("Doug Larson", ["A1"], ["A1", "LEAD"]),
+          change("Jane Doe", [], ["FINANCIALS"]),
+          change("Sam Roe", ["LEAD"], []),
+        ],
+      },
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe(
+      "3 role changes:\n• Doug Larson: A1 → A1 + LEAD\n• Jane Doe: added with FINANCIALS\n• Sam Roe: LEAD → (removed)",
+    );
+  });
+
+  it("caps at 3 lines with an overflow line at 4+", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      {
+        changes: [
+          change("A", ["A1"], ["LEAD", "A1"]),
+          change("B", ["V1"], ["FINANCIALS", "V1"]),
+          change("C", [], ["LEAD"]),
+          change("D", ["FINANCIALS"], []),
+          change("E", ["A1"], ["A1", "FINANCIALS"]),
+        ],
+      },
+      sheetIdentity,
+    );
+    const lines = String(p["role-changes"]).split("\n");
+    expect(lines[0]).toBe("5 role changes:");
+    expect(lines).toHaveLength(5); // header + 3 bullets + overflow
+    expect(lines[4]).toBe("+2 more — see show page.");
+  });
+
+  it("FINANCIALS-only delta yields no lead hint", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      { changes: [change("Jane Doe", ["A1"], ["A1", "FINANCIALS"])] },
+      sheetIdentity,
+    );
+    expect(p["lead-hint"]).toBe("");
+  });
+
+  it("LEAD loss (not just gain) yields the hint", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      { changes: [change("Doug Larson", ["LEAD", "A1"], ["A1"])] },
+      sheetIdentity,
+    );
+    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+  });
+
+  it.each([
+    ["missing changes", {}],
+    ["non-array changes", { changes: "nope" }],
+    ["empty array", { changes: [] }],
+    ["all entries malformed", { changes: [{ crew_name: 7, prior_flags: "x", new_flags: null }] }],
+    ["null context", null],
+  ])("falls back on %s", (_label, context) => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      context as Record<string, unknown> | null,
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe("a crew member's role flags changed — see the show page.");
+    expect(p["lead-hint"]).toBe("");
+  });
+
+  it("skips malformed entries but keeps well-formed ones", () => {
+    const p = deriveAlertMessageParams(
+      "ROLE_FLAGS_NOTICE",
+      {
+        changes: [
+          { crew_name: "", prior_flags: ["A1"], new_flags: ["LEAD"] }, // empty name → skipped
+          change("Doug Larson", ["A1"], ["A1", "LEAD"]),
+        ],
+      },
+      sheetIdentity,
+    );
+    expect(p["role-changes"]).toBe("Doug Larson's role changed from A1 to A1 + LEAD.");
+  });
+
+  it("non-ROLE_FLAGS codes get no role-changes/lead-hint params", () => {
+    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", { changes: [] }, null);
+    expect(p["role-changes"]).toBeUndefined();
+    expect(p["lead-hint"]).toBeUndefined();
+  });
+});
