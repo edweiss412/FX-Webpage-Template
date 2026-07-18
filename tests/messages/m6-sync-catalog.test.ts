@@ -83,11 +83,11 @@ describe("M6 sync message catalog", () => {
   test("reviewer-choice validation entries match §12.4 copy and helpful context", () => {
     expect(MESSAGE_CATALOG.MISSING_REVIEWER_CHOICE).toMatchObject({
       dougFacing:
-        "We need your decision for every item — looks like one was skipped. Refresh and try again.",
+        "We need your decision for every item. Looks like one was skipped. Refresh and try again.",
       crewFacing: null,
       followUp: "Doug → refresh admin",
       helpfulContext:
-        "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
+        "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item, usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
     });
     expect(MESSAGE_CATALOG.EXTRA_REVIEWER_CHOICE).toMatchObject({
       dougFacing:
@@ -95,7 +95,7 @@ describe("M6 sync message catalog", () => {
       crewFacing: null,
       followUp: "Doug → refresh admin",
       helpfulContext:
-        "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+        "Your Apply submission carried a decision for an item the server isn't tracking, usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
     });
     expect(MESSAGE_CATALOG.DUPLICATE_REVIEWER_CHOICE).toMatchObject({
       dougFacing: "We got the same decision twice for one item. Refresh and try again.",
@@ -109,7 +109,7 @@ describe("M6 sync message catalog", () => {
       crewFacing: null,
       followUp: "Doug → refresh admin",
       helpfulContext:
-        "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
+        "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items, usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
     });
   });
 
@@ -120,14 +120,14 @@ describe("M6 sync message catalog", () => {
         // Full-sweep batch C (spec 2026-07-18-alert-copy-full-sweep-design.md
         // §6.c): condensed to <=2 sentences, bare identity tokens,
         // helpfulContext migrated to longExplanation on /help/errors.
-        "<sheet-name> is now live for crew at its share-token URL \u2014 <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
+        "<sheet-name> is now live for crew at its share-token URL: <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
       crewFacing: null,
       followUp: null,
       helpfulContext: null,
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:
-        "<sheet-name> has been unpublished \u2014 crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
+        "<sheet-name> has been unpublished; crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
       crewFacing: null,
       followUp: "Doug → republish from the show's page when ready",
       helpfulContext: null,

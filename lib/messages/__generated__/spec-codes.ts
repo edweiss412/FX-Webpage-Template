@@ -24,7 +24,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Couldn't read sync status right now. Refresh in a moment.",
     "followUp": "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
-    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_checked_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' }, a watch-status, active-shows count, or last_checked_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
   },
   "ADMIN_EMAIL_ALREADY_ACTIVE": {
     "crewFacing": null,
@@ -42,7 +42,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
     "followUp": "Doug → retry; if persistent, check Supabase admin_emails RLS + grants",
-    "helpfulContext": "AdminEmailsInfraError from listAdminEmails() (typically RLS denial, missing grant, schema-cache skew, or network fault). Surfaced IN-SECTION by the Administrators section (via the typed fetchEmbeddedAdminEmails wrapper) on BOTH the embedded /admin/settings and the deep-link /admin/settings/admins; renders this message + retry. (Route/session faults on those segments are NOT this code — they bubble to the error.tsx boundary as ADMIN_ROUTE_LOAD_FAILED.)",
+    "helpfulContext": "AdminEmailsInfraError from listAdminEmails() (typically RLS denial, missing grant, schema-cache skew, or network fault). Surfaced IN-SECTION by the Administrators section (via the typed fetchEmbeddedAdminEmails wrapper) on BOTH the embedded /admin/settings and the deep-link /admin/settings/admins; renders this message + retry. (Route/session faults on those segments are NOT this code; they bubble to the error.tsx boundary as ADMIN_ROUTE_LOAD_FAILED.)",
   },
   "ADMIN_EMAIL_RE_ADD_PROMPT": {
     "crewFacing": null,
@@ -66,7 +66,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This admin page couldn't load. Refresh in a moment; if it keeps failing, contact the developer.",
     "followUp": "Doug → refresh; if persistent, contact the developer",
-    "helpfulContext": "Fixed code for the app/admin/error.tsx + app/admin/settings/error.tsx client boundaries AND the layout's identity-fault catch (app/admin/layout.tsx). Used instead of ADMIN_SESSION_LOOKUP_FAILED, whose dougFacing is null + crew-facing (wrong audience). error.tsx files are client components; Next serializes errors as Error & { digest } so a thrown code field is unreliable — the boundary renders this fixed code, not err.code.",
+    "helpfulContext": "Fixed code for the app/admin/error.tsx + app/admin/settings/error.tsx client boundaries AND the layout's identity-fault catch (app/admin/layout.tsx). Used instead of ADMIN_SESSION_LOOKUP_FAILED, whose dougFacing is null + crew-facing (wrong audience). error.tsx files are client components; Next serializes errors as Error & { digest } so a thrown code field is unreliable; the boundary renders this fixed code, not err.code.",
   },
   "ADMIN_SESSION_LOOKUP_FAILED": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
@@ -88,7 +88,7 @@ export const SPEC_CODES = {
   },
   "AGENDA_DAY_AMBIGUOUS": {
     "crewFacing": null,
-    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA only listed a weekday that matches more than one show date, so we didn't guess — that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
+    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA only listed a weekday that matches more than one show date, so we didn't guess; that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
     "followUp": "Doug → fix sheet",
     "helpfulContext": "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
   },
@@ -102,7 +102,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA was too large and was trimmed to fit our limits (too many entries, or some unusually long text). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "One run-of-show day was too large and we trimmed it to keep things fast — usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
+    "helpfulContext": "One run-of-show day was too large and we trimmed it to keep things fast, usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
   },
   "AGENDA_GONE_FOR_CREW": {
     "crewFacing": "This agenda isn't available anymore. Text Doug for a fresh link.",
@@ -114,13 +114,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't find the run-of-show grid in _<sheet-name>_'s AGENDA tab, so every day shows the standard schedule instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or let us know if the layout changed.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "We couldn't find the run-of-show grid in the AGENDA tab — usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
+    "helpfulContext": "We couldn't find the run-of-show grid in the AGENDA tab, usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
   },
   "AGENDA_LINK_NOT_CLICKABLE": {
     "crewFacing": null,
-    "dougFacing": "The agenda link on _<sheet-name>_ isn't a link crew can open — it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening.",
+    "dougFacing": "The agenda link on _<sheet-name>_ isn't a link crew can open; it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening.",
     "followUp": "Doug → check agenda link",
-    "helpfulContext": "An agenda-link cell held text with no clickable target — a file name, note, or an unsupported link type instead of a working web link or Drive file — so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look.",
+    "helpfulContext": "An agenda-link cell held text with no clickable target: a file name, note, or an unsupported link type instead of a working web link or Drive file, so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look.",
   },
   "AGENDA_PDF_UNREADABLE": {
     "crewFacing": null,
@@ -132,13 +132,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We read _<sheet-name>_'s agenda PDF but weren't confident enough about the times to show a structured schedule, so crew see the agenda document only. No action is needed unless the agenda layout changed recently.",
     "followUp": "Doug → optional check",
-    "helpfulContext": "The agenda PDF was read, but we weren't confident enough about the session times to publish a structured schedule, so crew see the agenda document on its own. This is a safe fallback — nothing is broken. It usually means the agenda's layout is unusual; no action is needed unless the agenda format changed recently and you expected the structured times to appear.",
+    "helpfulContext": "The agenda PDF was read, but we weren't confident enough about the session times to publish a structured schedule, so crew see the agenda document on its own. This is a safe fallback; nothing is broken. It usually means the agenda's layout is unusual; no action is needed unless the agenda format changed recently and you expected the structured times to appear.",
   },
   "AGENDA_SCHEDULE_TIME_ADJUSTED": {
     "crewFacing": null,
-    "dougFacing": "We adjusted at least one session time while reading _<sheet-name>_'s agenda PDF (it looked like a typo, such as a morning time written as evening). Crew see the corrected schedule — double-check the agenda and fix the source if needed.",
+    "dougFacing": "We adjusted at least one session time while reading _<sheet-name>_'s agenda PDF (it looked like a typo, such as a morning time written as evening). Crew see the corrected schedule. Double-check the agenda and fix the source if needed.",
     "followUp": "Doug → check agenda",
-    "helpfulContext": "While reading the agenda PDF we corrected at least one session time that looked like a typo — for example a morning session written with an evening marker. Crew see the corrected schedule alongside the original agenda document. Open the agenda to confirm the corrected time is right, and fix the source cell if the original was wrong.",
+    "helpfulContext": "While reading the agenda PDF we corrected at least one session time that looked like a typo, for example a morning session written with an evening marker. Crew see the corrected schedule alongside the original agenda document. Open the agenda to confirm the corrected time is right, and fix the source cell if the original was wrong.",
   },
   "AGENDA_UNAUTHENTICATED": {
     "crewFacing": "This link has expired. Text Doug for the current agenda link.",
@@ -148,15 +148,15 @@ export const SPEC_CODES = {
   },
   "ALERT_BELL_FEED_FAILED": {
     "crewFacing": null,
-    "dougFacing": "We couldn't load your notifications just now. Refresh in a moment or use Retry — nothing has been lost.",
-    "followUp": "none — transient read failure",
+    "dougFacing": "We couldn't load your notifications just now. Refresh in a moment or use Retry; nothing has been lost.",
+    "followUp": "none (transient read failure)",
     "helpfulContext": "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
   },
   "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE": {
     "crewFacing": null,
     "dougFacing": "This alert belongs to a specific show. Click through to the show's parse panel to resolve it from the show context, where the resolution is recorded with the show's audit trail.",
     "followUp": "Doug → click through to show",
-    "helpfulContext": "Per-show alerts are tied to a specific show and resolved from that show's parse panel — not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
+    "helpfulContext": "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
   },
   "AMBIGUOUS_EMAIL_BINDING": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
@@ -250,7 +250,7 @@ export const SPEC_CODES = {
   },
   "CREW_COLUMN_POSITIONAL_FALLBACK": {
     "crewFacing": null,
-    "dougFacing": "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields — check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
+    "dougFacing": "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields. Check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
     "followUp": "Doug → verify crew columns",
     "helpfulContext": "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork.",
   },
@@ -292,7 +292,7 @@ export const SPEC_CODES = {
   },
   "DIAGRAMS_EMBEDDED_NONE_FOUND": {
     "crewFacing": null,
-    "dougFacing": "(first-seen) \"_<sheet-name>_ looks like it should have diagrams but we didn't find any images. Confirm before we publish, or paste in the images and re-sync.\" (existing show with prior gallery) \"_<sheet-name>_'s DIAGRAMS tab returned no images this sync — confirm before we replace the existing gallery with an empty one, or paste in the images and re-sync.\"",
+    "dougFacing": "(first-seen) \"_<sheet-name>_ looks like it should have diagrams but we didn't find any images. Confirm before we publish, or paste in the images and re-sync.\" (existing show with prior gallery) \"_<sheet-name>_'s DIAGRAMS tab returned no images this sync. Confirm before we replace the existing gallery with an empty one, or paste in the images and re-sync.\"",
     "followUp": "Doug → confirm or add images",
     "helpfulContext": "This sheet's DIAGRAMS tab is set up for pasted-in images, but we didn't find any (and no image-folder link was given). For a new show we'd rather check with you than publish an empty gallery; for an existing show, crew keep seeing the last set.",
   },
@@ -300,7 +300,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_: an image in the DIAGRAMS tab couldn't be downloaded, so crew see a placeholder where it should be. Re-paste the image, or let us know if this keeps happening.",
     "followUp": "Doug → optionally fix",
-    "helpfulContext": "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions — re-pasting it usually fixes it. Let us know if it keeps happening.",
+    "helpfulContext": "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions; re-pasting it usually fixes it. Let us know if it keeps happening.",
   },
   "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE": {
     "crewFacing": null,
@@ -322,7 +322,7 @@ export const SPEC_CODES = {
   },
   "DRIVE_METADATA_MISSING": {
     "crewFacing": null,
-    "dougFacing": "Google Drive didn't return the revision details we need to sync safely. We'll retry automatically on the next sync — no action needed.",
+    "dougFacing": "Google Drive didn't return the revision details we need to sync safely. We'll retry automatically on the next sync; no action needed.",
     "followUp": "Eric → inspect Drive metadata response",
     "helpfulContext": "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
   },
@@ -352,7 +352,7 @@ export const SPEC_CODES = {
   },
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE": {
     "crewFacing": null,
-    "dougFacing": "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet — any edit advances the version — and crew will see the image again on the next sync.",
+    "dougFacing": "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
     "followUp": "Doug → save sheet to advance version",
     "helpfulContext": null,
   },
@@ -360,7 +360,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
     "followUp": "Doug → refresh admin",
-    "helpfulContext": "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+    "helpfulContext": "Your Apply submission carried a decision for an item the server isn't tracking, usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
   },
   "FIELD_LABEL_AUTOCORRECTED": {
     "crewFacing": null,
@@ -378,7 +378,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This show is busy with a setup-wizard publish or a staged-changes finalize. Wait for it to finish, then try again.",
     "followUp": "Doug → wait for the finalize to complete",
-    "helpfulContext": "This show is owned by an in-flight finalize — either a setup wizard publishing it for the first time, or a staged-changes finalize applying updates to the live show. Until that finalize commits, admin write actions (Re-sync from Drive, Apply/Discard staged changes, publish/unpublish, and similar gated actions) are blocked to prevent races against the in-flight work. Wait for it to finish — the moment the finalize commits, this action will succeed.",
+    "helpfulContext": "This show is owned by an in-flight finalize: either a setup wizard publishing it for the first time, or a staged-changes finalize applying updates to the live show. Until that finalize commits, admin write actions (Re-sync from Drive, Apply/Discard staged changes, publish/unpublish, and similar gated actions) are blocked to prevent races against the in-flight work. Wait for it to finish; the moment the finalize commits, this action will succeed.",
   },
   "FOLDER_NOT_FOUND": {
     "crewFacing": null,
@@ -418,9 +418,9 @@ export const SPEC_CODES = {
   },
   "IDEMPOTENCY_IN_FLIGHT": {
     "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",
-    "dougFacing": "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through.",
+    "dougFacing": "Hold on. Your previous report is still being submitted. Try again in a moment if it doesn't go through.",
     "followUp": "client retries after backoff",
-    "helpfulContext": "Your previous report submission is still being processed by the developer's GitHub. Don't worry — clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
+    "helpfulContext": "Your previous report submission is still being processed by the developer's GitHub. Don't worry. Clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
   },
   "IDENTITY_DEACTIVATED_LOCK_HINT": {
     "crewFacing": "Sign in to use this identity.",
@@ -432,7 +432,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We can't apply this email change without it clashing with another crew member's email or name. Fix the conflict in the sheet, then re-sync.",
     "followUp": "Doug → fix sheet conflict",
-    "helpfulContext": "Applying this email change would give a crew member an email or name that another crew member already has, and that other row isn't part of the same swap — so we can't apply it without creating a duplicate. Two crew rows can't share an email. Fix the clash in the sheet (one of them is usually a typo or a stale row), then re-sync.",
+    "helpfulContext": "Applying this email change would give a crew member an email or name that another crew member already has, and that other row isn't part of the same swap, so we can't apply it without creating a duplicate. Two crew rows can't share an email. Fix the clash in the sheet (one of them is usually a typo or a stale row), then re-sync.",
   },
   "INVALID_FOLDER_URL": {
     "crewFacing": null,
@@ -450,7 +450,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "That action isn't valid for this item. Refresh and try again.",
     "followUp": "Doug → refresh admin",
-    "helpfulContext": "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
+    "helpfulContext": "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items, usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
   },
   "LAST_ADMIN_LOCKOUT_REFUSED": {
     "crewFacing": null,
@@ -490,9 +490,9 @@ export const SPEC_CODES = {
   },
   "MI-1_VERSION_DETECTION_FAILED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block for v4; Hotel Contact Info row for v2) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed.",
+    "dougFacing": "_<sheet-name>_ doesn't look like your usual show template: none of the version markers we expect (Contact Office row, MAIN/SECONDARY block for v4; Hotel Contact Info row for v2) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed.",
     "followUp": "Doug → check sheet shape; Eric → add new version detector if real",
-    "helpfulContext": "We look for specific row markers in your show template — the Contact Office row and MAIN/SECONDARY block (v4 sheets), or the Hotel Contact Info row (v2 sheets) — to recognize that this is a real show sheet. None of those markers were found. Either this isn't a show sheet, or your template has changed in a way the parser doesn't yet recognize. If your template has changed intentionally, tell the developer.",
+    "helpfulContext": "We look for specific row markers in your show template, the Contact Office row and MAIN/SECONDARY block (v4 sheets), or the Hotel Contact Info row (v2 sheets), to recognize that this is a real show sheet. None of those markers were found. Either this isn't a show sheet, or your template has changed in a way the parser doesn't yet recognize. If your template has changed intentionally, tell the developer.",
   },
   "MI-11_EMAIL_CHANGE": {
     "crewFacing": null,
@@ -522,11 +522,11 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ doesn't have a recognizable show title. Add or fix the CLIENT row.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Every show needs a title — we read it from the CLIENT row in your sheet. Make sure the CLIENT cell is filled in with the show's title, then save the sheet.",
+    "helpfulContext": "Every show needs a title; we read it from the CLIENT row in your sheet. Make sure the CLIENT cell is filled in with the show's title, then save the sheet.",
   },
   "MI-3_NO_PARSEABLE_DATE": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ doesn't have any readable dates — we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block.",
+    "dougFacing": "_<sheet-name>_ doesn't have any readable dates: we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block.",
     "followUp": "Doug → fix sheet",
     "helpfulContext": "We look for show dates in the DATES block (Travel In, Set Day, Show Day 1) and couldn't find anything we could read as a calendar date. Make sure your dates are in a familiar format like '6/24' or 'June 24' and that they're in the right cells.",
   },
@@ -534,25 +534,25 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ has no crew rows. Add at least one person to the CREW block.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Every show needs at least one crew member — we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
+    "helpfulContext": "Every show needs at least one crew member; we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
   },
   "MI-5_NO_ROOMS": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ has no rooms — we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in.",
+    "dougFacing": "_<sheet-name>_ has no rooms: we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Every show needs at least one room — we read rooms from the General Session, Breakouts, and Additional Rooms blocks. None of those blocks had a row with both a setup and a time. Make sure your room blocks have those fields filled in.",
+    "helpfulContext": "Every show needs at least one room; we read rooms from the General Session, Breakouts, and Additional Rooms blocks. None of those blocks had a row with both a setup and a time. Make sure your room blocks have those fields filled in.",
   },
   "MI-5a_DUPLICATE_CREW_NAME": {
     "crewFacing": null,
     "dougFacing": "Two crew rows share the same name in _<sheet-name>_. Disambiguate them (e.g., 'John C.' vs 'John Carleo') so the app can tell them apart.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them — for example, change one 'John' to 'John C.' or 'John Carleo'.",
+    "helpfulContext": "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them: for example, change one 'John' to 'John C.' or 'John Carleo'.",
   },
   "MI-5b_DUPLICATE_CREW_EMAIL": {
     "crewFacing": null,
     "dougFacing": "Two crew rows share the same email in _<sheet-name>_. Each crew member needs their own email.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Two rows in the CREW block share the same email address. Email is how we identify a crew member across shows, so duplicates would let one person see another's view. Each crew row needs a distinct email — fix the typo or paste mistake and re-save.",
+    "helpfulContext": "Two rows in the CREW block share the same email address. Email is how we identify a crew member across shows, so duplicates would let one person see another's view. Each crew row needs a distinct email. Fix the typo or paste mistake and re-save.",
   },
   "MI-6_CREW_SHRINKAGE": {
     "crewFacing": null,
@@ -562,7 +562,7 @@ export const SPEC_CODES = {
   },
   "MI-7_SECTION_SHRINKAGE": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
+    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_: _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     "followUp": "Doug → review staged",
     "helpfulContext": "More than half of the rows in the named section disappeared since the last approved sync. Section collapses are usually accidental (often a half-finished paste). Open the staged review to confirm before applying.",
   },
@@ -570,7 +570,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_: _<entry>_ is no longer in the sheet. Review before applying.",
     "followUp": "Doug → review staged",
-    "helpfulContext": "A specific named entry — a particular hotel, room, or contact — that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships. Confirm before applying.",
+    "helpfulContext": "A specific named entry (a particular hotel, room, or contact) that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships. Confirm before applying.",
   },
   "MI-8_FINANCIAL_FIELD_COLLAPSE": {
     "crewFacing": null,
@@ -582,13 +582,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't re-check the sheet right now. Try again in a moment.",
     "followUp": "Doug → retry; if persistent, Eric",
-    "helpfulContext": "Before applying a queued email change we ask Google Drive for the sheet's latest revision time. That check just failed — usually a transient network or permissions hiccup. Nothing was changed. Try Approve again in a moment; if it keeps failing, check that the folder is still shared with the service account.",
+    "helpfulContext": "Before applying a queued email change we ask Google Drive for the sheet's latest revision time. That check just failed, usually a transient network or permissions hiccup. Nothing was changed. Try Approve again in a moment; if it keeps failing, check that the folder is still shared with the service account.",
   },
   "MI11_HOLD_ALREADY_RESOLVED": {
     "crewFacing": null,
     "dougFacing": "That change was already resolved. Refresh to see the current state.",
     "followUp": "Doug → refresh",
-    "helpfulContext": "This pending email change was already resolved — either a later sync brought the sheet back in line on its own, or you (or another open tab) already approved or rejected it. There's nothing left to do here; refresh the show to see the current state.",
+    "helpfulContext": "This pending email change was already resolved, either a later sync brought the sheet back in line on its own, or you (or another open tab) already approved or rejected it. There's nothing left to do here; refresh the show to see the current state.",
   },
   "mi11_pending_email_change": {
     "crewFacing": null,
@@ -618,25 +618,25 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The sheet changed since this was queued, so we didn't apply it. Re-open the show to review the latest version.",
     "followUp": "Doug → re-review",
-    "helpfulContext": "Before applying a queued email change we re-check the live sheet. If Doug edited the sheet after this change was queued, the change you're approving may no longer match what the sheet says — so we stop and ask you to re-review the latest version rather than apply a stale value.",
+    "helpfulContext": "Before applying a queued email change we re-check the live sheet. If Doug edited the sheet after this change was queued, the change you're approving may no longer match what the sheet says, so we stop and ask you to re-review the latest version rather than apply a stale value.",
   },
   "MISSING_PENDING_INGESTION_MODTIME": {
     "crewFacing": null,
-    "dougFacing": "Something is wrong on our end with this sheet's tracking data — we can't safely defer it without a watermark. The developer has been notified. Try 'Permanently ignore' if you want to dismiss this row.",
+    "dougFacing": "Something is wrong on our end with this sheet's tracking data; we can't safely defer it without a watermark. The developer has been notified. Try 'Permanently ignore' if you want to dismiss this row.",
     "followUp": "Eric → investigate; Doug → use Permanently ignore as workaround",
-    "helpfulContext": "Defer-until-modified needs to know the file's current `modifiedTime` so the scheduled sync knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it — the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
+    "helpfulContext": "Defer-until-modified needs to know the file's current `modifiedTime` so the scheduled sync knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it; the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
   },
   "MISSING_REVIEWER_CHOICE": {
     "crewFacing": null,
-    "dougFacing": "We need your decision for every item — looks like one was skipped. Refresh and try again.",
+    "dougFacing": "We need your decision for every item. Looks like one was skipped. Refresh and try again.",
     "followUp": "Doug → refresh admin",
-    "helpfulContext": "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
+    "helpfulContext": "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item, usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
   },
   "NETWORK_UNREACHABLE": {
     "crewFacing": "Couldn't reach the server. Check your connection and try again.",
-    "dougFacing": "Couldn't reach the server. Check your connection and try again — there's no admin trail because the request never arrived.",
+    "dougFacing": "Couldn't reach the server. Check your connection and try again; there's no admin trail because the request never arrived.",
     "followUp": "Either → check connection, retry; persistent → Eric",
-    "helpfulContext": "The client-side fetch failed before reaching the server — typically the user's device is offline, DNS is failing, a captive portal is blocking the request, or a browser extension is intercepting the call. Because the request never arrived, no §A code was emitted and no admin trail exists; the only signal is the user-facing one. Recovery is the same regardless of audience: check connectivity and retry. If this code recurs against a known-online network, suspect a same-origin browser extension or a CSP block.",
+    "helpfulContext": "The client-side fetch failed before reaching the server, typically the user's device is offline, DNS is failing, a captive portal is blocking the request, or a browser extension is intercepting the call. Because the request never arrived, no §A code was emitted and no admin trail exists; the only signal is the user-facing one. Recovery is the same regardless of audience: check connectivity and retry. If this code recurs against a known-online network, suspect a same-origin browser extension or a CSP block.",
   },
   "NO_FOLDER_CONFIGURED": {
     "crewFacing": null,
@@ -654,13 +654,13 @@ export const SPEC_CODES = {
     "crewFacing": "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
     "dougFacing": "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
     "followUp": "Crew → reopen the link; Eric if persistent",
-    "helpfulContext": "The Google OAuth callback's `next` parameter pointed somewhere outside the allowed list of post-sign-in destinations (the canonical site origin + `/show/<slug>`, `/admin`, or `/me` paths — note: `/show/<slug>/p` is NOT a valid destination because the bootstrap surface requires a `#t=<jwt>` fragment that does not survive the OAuth round-trip). Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto the bootstrap shell with no fragment, while we were still minting your session cookie. Click the original link from Doug again.",
+    "helpfulContext": "The Google OAuth callback's `next` parameter pointed somewhere outside the allowed list of post-sign-in destinations (the canonical site origin + `/show/<slug>`, `/admin`, or `/me` paths. Note: `/show/<slug>/p` is NOT a valid destination because the bootstrap surface requires a `#t=<jwt>` fragment that does not survive the OAuth round-trip). Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto the bootstrap shell with no fragment, while we were still minting your session cookie. Click the original link from Doug again.",
   },
   "OAUTH_STATE_INVALID": {
     "crewFacing": "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
     "dougFacing": "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
     "followUp": "Crew → reopen the link; Eric if persistent",
-    "helpfulContext": "Google OAuth uses a one-time security token (the `state` parameter) to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match — most often because you started sign-in in one window and clicked the callback in another, or the cookie storing the expected value was cleared. Click the original link from Doug again to start fresh.",
+    "helpfulContext": "Google OAuth uses a one-time security token (the `state` parameter) to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match, most often because you started sign-in in one window and clicked the callback in another, or the cookie storing the expected value was cleared. Click the original link from Doug again to start fresh.",
   },
   "ONBOARDING_FINALIZE_INTERNAL_ERROR": {
     "crewFacing": null,
@@ -684,7 +684,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
     "followUp": "Doug → re-run setup; Eric if it persists",
-    "helpfulContext": "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+    "helpfulContext": "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start; the wizard will re-scan your folder and re-stage those sheets, or contact the developer if this keeps happening.",
   },
   "ONBOARDING_NOT_RESOLVED": {
     "crewFacing": null,
@@ -700,13 +700,13 @@ export const SPEC_CODES = {
   },
   "ONBOARDING_SCAN_REVIEW": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ was found in your folder — review the parse before activating this folder.",
+    "dougFacing": "_<sheet-name>_ was found in your folder. Review the parse before activating this folder.",
     "followUp": "Doug → review (within wizard)",
     "helpfulContext": "This sheet was found by the setup wizard's folder scan. Review the parse before activating the folder so you're not committing to data you haven't seen.",
   },
   "ONBOARDING_SHEET_UNREADABLE": {
     "crewFacing": null,
-    "dougFacing": "Some sheets in your show folder couldn't be read and were skipped: <failed-sheet-names>. Fix or remove them in Drive and this clears on its own — you can also dismiss it now.",
+    "dougFacing": "Some sheets in your show folder couldn't be read and were skipped: <failed-sheet-names>. Fix or remove them in Drive and this clears on its own; you can also dismiss it now.",
     "followUp": "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
     "helpfulContext": null,
   },
@@ -718,7 +718,7 @@ export const SPEC_CODES = {
   },
   "OPENING_REEL_PERMISSION_DENIED": {
     "crewFacing": "Opening reel access revoked",
-    "dougFacing": "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file — or replace the link — to restore inline playback.",
+    "dougFacing": "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file, or replace the link, to restore inline playback.",
     "followUp": "Doug → re-share / replace link",
     "helpfulContext": null,
   },
@@ -735,7 +735,7 @@ export const SPEC_CODES = {
     "helpfulContext": "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
   },
   "PAGE_RENDER_FAILED": {
-    "crewFacing": "This page ran into a problem. Try reloading — if it keeps happening, text Doug.",
+    "crewFacing": "This page ran into a problem. Try reloading. If it keeps happening, text Doug.",
     "dougFacing": null,
     "followUp": "Crew → reload",
     "helpfulContext": null,
@@ -748,9 +748,9 @@ export const SPEC_CODES = {
   },
   "PENDING_INGESTION_NOT_FOUND": {
     "crewFacing": null,
-    "dougFacing": "We couldn't find that pending sheet anymore — it was probably resolved by another tab or browser. Refresh the dashboard to see the latest state.",
+    "dougFacing": "We couldn't find that pending sheet anymore; it was probably resolved by another tab or browser. Refresh the dashboard to see the latest state.",
     "followUp": "Doug → refresh dashboard",
-    "helpfulContext": "The dashboard's pending-sheet panel renders rows by id. When you clicked Retry or Discard, the server looked up that id and didn't find a row — it had already been resolved (probably from another browser tab) between the time the panel rendered and your click. Refresh the dashboard to load the current state, then act on whatever's still pending.",
+    "helpfulContext": "The dashboard's pending-sheet panel renders rows by id. When you clicked Retry or Discard, the server looked up that id and didn't find a row; it had already been resolved (probably from another browser tab) between the time the panel rendered and your click. Refresh the dashboard to load the current state, then act on whatever's still pending.",
   },
   "PENDING_INGESTION_TRANSITIONED": {
     "crewFacing": null,
@@ -760,7 +760,7 @@ export const SPEC_CODES = {
   },
   "PENDING_SNAPSHOT_DELETE_STUCK": {
     "crewFacing": null,
-    "dougFacing": "A diagram snapshot cleanup for <show-name> is stuck — crew pages are still protected, but storage cleanup needs repair.",
+    "dougFacing": "A diagram snapshot cleanup for <show-name> is stuck; crew pages are still protected, but storage cleanup needs repair.",
     "followUp": "Doug → run snapshot repair; if persistent, Eric",
     "helpfulContext": null,
   },
@@ -792,7 +792,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "That staged sync is no longer available.",
     "followUp": "Doug → refresh the admin page",
-    "helpfulContext": "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row — usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
+    "helpfulContext": "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row, usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
   },
   "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED": {
     "crewFacing": "Couldn't sign you in. Please try again in a moment.",
@@ -819,7 +819,7 @@ export const SPEC_CODES = {
     "helpfulContext": "The submitted crew member exists but belongs to a different show than the share link. The action rejected it without writing a picker cookie.",
   },
   "PICKER_EMPTY_ROSTER": {
-    "crewFacing": "Doug hasn't added crew yet — check back soon.",
+    "crewFacing": "Doug hasn't added crew yet. Check back soon.",
     "dougFacing": null,
     "followUp": "Crew → check back; Doug → update sheet",
     "helpfulContext": null,
@@ -831,7 +831,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "PICKER_EPOCH_STALE_BANNER": {
-    "crewFacing": "Doug reset access for this show — pick yourself again.",
+    "crewFacing": "Doug reset access for this show. Pick yourself again.",
     "dougFacing": null,
     "followUp": "Crew → pick name",
     "helpfulContext": null,
@@ -880,7 +880,7 @@ export const SPEC_CODES = {
   },
   "PICKER_SELECTION_RACE": {
     "crewFacing": null,
-    "dougFacing": "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed — newer selections were left intact.",
+    "dougFacing": "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed: newer selections were left intact.",
     "followUp": "Informational; Eric if frequent",
     "helpfulContext": null,
   },
@@ -906,7 +906,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",
     "followUp": "Doug → include or ignore",
-    "helpfulContext": "We spotted a PULL SHEET on a tab that looks archived — an older or renamed tab, not the sheet's current body — so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
+    "helpfulContext": "We spotted a PULL SHEET on a tab that looks archived (an older or renamed tab, not the sheet's current body) so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
   },
   "PULL_SHEET_OVERRIDE_CONTENT_CHANGED": {
     "crewFacing": null,
@@ -918,7 +918,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "We couldn't read the QTY on some rows — usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+    "helpfulContext": "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
   },
   "PULL_SHEET_UNKNOWN_VARIANT": {
     "crewFacing": null,
@@ -958,7 +958,7 @@ export const SPEC_CODES = {
   },
   "REPORT_LEASE_THRASHING": {
     "crewFacing": null,
-    "dougFacing": "Bug-report processing is thrashing on <show-name> — retries are racing against leases. This usually means the lease window needs tuning.",
+    "dougFacing": "Bug-report processing is thrashing on <show-name>; retries are racing against leases. This usually means the lease window needs tuning.",
     "followUp": "Eric → tune lease window",
     "helpfulContext": null,
   },
@@ -988,7 +988,7 @@ export const SPEC_CODES = {
   },
   "REPORT_RATE_LIMITED_ADMIN": {
     "crewFacing": null,
-    "dougFacing": "You've reported a lot already this hour — give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
+    "dougFacing": "You've reported a lot already this hour. Give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
     "followUp": "Doug → wait or message",
     "helpfulContext": "To keep the developer's inbox under control, the admin report endpoint is capped at 10 reports per hour. The window resets on a rolling basis. Wait the indicated time, or message Eric directly if it's urgent.",
   },
@@ -1006,7 +1006,7 @@ export const SPEC_CODES = {
   },
   "RESYNC_QUALITY_REGRESSED": {
     "crewFacing": null,
-    "dougFacing": "<sheet-name>'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
+    "dougFacing": "<sheet-name>'s latest edit lost some data quality: one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
     "followUp": "Doug → check parse panel, fix sheet",
     "helpfulContext": null,
   },
@@ -1036,8 +1036,8 @@ export const SPEC_CODES = {
   },
   "ROLE_TOKEN_MAPPED": {
     "crewFacing": null,
-    "dougFacing": "_<token>_, a role you added, matched someone on this show — we set up their page the way you chose.",
-    "followUp": "none — informational",
+    "dougFacing": "_<token>_, a role you added, matched someone on this show; we set up their page the way you chose.",
+    "followUp": "none (informational)",
     "helpfulContext": "A role you added from a warning matched a crew member during a sheet check, so their page now shows what you picked. Rendering note: with no extra choices the summary reads 'the standard show page'.",
   },
   "ROOM_HEADER_SPLIT_AMBIGUOUS": {
@@ -1074,13 +1074,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "To keep at least one developer in control, you can't turn off your own developer access. Ask another developer to do it if you need to step down.",
     "followUp": "Developer → ask another developer to turn off your access",
-    "helpfulContext": "set_admin_developer_rpc refuses a self-demote unconditionally inside its SECURITY DEFINER body — it returns self_developer_demote_forbidden when the demotion target (is_developer=false) canonicalizes to the same email as public.auth_email_canonical() — so a developer can never turn off their own developer access, even via a hand-forged PostgREST rpc() call that bypasses the developer-gated Server Action. Because a self-demote is always refused, at least one developer always remains in control. Turning off another developer's access (developer-to-developer demote) stays allowed by design.",
+    "helpfulContext": "set_admin_developer_rpc refuses a self-demote unconditionally inside its SECURITY DEFINER body; it returns self_developer_demote_forbidden when the demotion target (is_developer=false) canonicalizes to the same email as public.auth_email_canonical(), so a developer can never turn off their own developer access, even via a hand-forged PostgREST rpc() call that bypasses the developer-gated Server Action. Because a self-demote is always refused, at least one developer always remains in control. Turning off another developer's access (developer-to-developer demote) stays allowed by design.",
   },
   "SELF_REVOKE_FORBIDDEN": {
     "crewFacing": null,
     "dougFacing": "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
     "followUp": "Doug → ask another developer to revoke you",
-    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
+    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body; comparing the canonical target email to public.auth_email_canonical(), so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
   },
   "SESSION_ABSOLUTE_TIMEOUT": {
     "crewFacing": "Your session has expired. Open the original link Doug shared again.",
@@ -1116,19 +1116,19 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Archived. Crew links are dead until you re-publish and issue a new link.",
     "followUp": "Doug → re-publish + issue new link when ready",
-    "helpfulContext": "Archiving a show takes it off the air immediately: the existing crew share link stops resolving (we rotate the share token), and the show moves to the Archived bucket. Crew can no longer reach the page. When you're ready to bring it back, unarchive it, re-publish, and issue a fresh crew link — the old link will never work again.",
+    "helpfulContext": "Archiving a show takes it off the air immediately: the existing crew share link stops resolving (we rotate the share token), and the show moves to the Archived bucket. Crew can no longer reach the page. When you're ready to bring it back, unarchive it, re-publish, and issue a fresh crew link; the old link will never work again.",
   },
   "SHOW_ARCHIVED_IMMUTABLE": {
     "crewFacing": null,
     "dougFacing": "This show is archived. Unarchive it before making changes.",
     "followUp": "Doug → unarchive first",
-    "helpfulContext": "Archived shows are frozen — re-syncs, applies, discards, token rotation, and similar write actions are blocked so an archived show can't be changed underneath you. If you need to make a change, unarchive the show first; it returns in a held state where you can re-sync and review before publishing.",
+    "helpfulContext": "Archived shows are frozen: re-syncs, applies, discards, token rotation, and similar write actions are blocked so an archived show can't be changed underneath you. If you need to make a change, unarchive the show first; it returns in a held state where you can re-sync and review before publishing.",
   },
   "SHOW_AWAITING_PUBLISH_APPROVAL": {
     "crewFacing": null,
     "dougFacing": "A new show parsed cleanly and is waiting for your approval to publish.",
     "followUp": "Doug → review + publish",
-    "helpfulContext": "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready — or flip Published on from the show's page. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
+    "helpfulContext": "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready, or flip Published on from the show's page. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
   },
   "SHOW_BUSY_RETRY": {
     "crewFacing": null,
@@ -1138,7 +1138,7 @@ export const SPEC_CODES = {
   },
   "SHOW_FIRST_PUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "<sheet-name> is now live for crew at its share-token URL — <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
+    "dougFacing": "<sheet-name> is now live for crew at its share-token URL: <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
     "followUp": null,
     "helpfulContext": null,
   },
@@ -1146,7 +1146,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Published. Issue a crew link to give your crew access.",
     "followUp": "Doug → issue crew link",
-    "helpfulContext": "Publishing makes a held show live. The crew page will resolve once you issue a crew link — publishing alone doesn't hand anyone a URL. Use 'Issue crew link' to generate the share link to send your crew.",
+    "helpfulContext": "Publishing makes a held show live. The crew page will resolve once you issue a crew link; publishing alone doesn't hand anyone a URL. Use 'Issue crew link' to generate the share link to send your crew.",
   },
   "SHOW_REALTIME_BROADCAST_AUTH_FAILED": {
     "crewFacing": null,
@@ -1180,13 +1180,13 @@ export const SPEC_CODES = {
   },
   "SHOW_UNARCHIVED": {
     "crewFacing": null,
-    "dougFacing": "Unarchived. The show is held (not published) — publish it to go live again.",
+    "dougFacing": "Unarchived. The show is held (not published). Publish it to go live again.",
     "followUp": "Doug → publish to go live",
-    "helpfulContext": "Unarchiving brings a show back from the Archived bucket into a held (not-yet-published) state and runs a catch-up sync against the current sheet. It is not live yet — crew still can't reach it. Review anything the catch-up sync staged, then publish to make it live again and issue a new crew link.",
+    "helpfulContext": "Unarchiving brings a show back from the Archived bucket into a held (not-yet-published) state and runs a catch-up sync against the current sheet. It is not live yet; crew still can't reach it. Review anything the catch-up sync staged, then publish to make it live again and issue a new crew link.",
   },
   "SHOW_UNPUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "<sheet-name> has been unpublished — crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
+    "dougFacing": "<sheet-name> has been unpublished; crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
     "followUp": "Doug → republish from the show's page when ready",
     "helpfulContext": null,
   },
@@ -1236,7 +1236,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We read a likely-misspelled stage word in _<crew-name>_'s role (for example 'Strke' as 'Strike') and used the corrected version, so their schedule still reads correctly. If it was intentional, update the sheet.",
     "followUp": "Doug → optional fix",
-    "helpfulContext": "A stage word in this crew member's role looked misspelled (e.g. 'Strke'), so we read it as the closest real stage word ('Strike') and used that — nothing else is affected. If the spelling was intentional, update the sheet.",
+    "helpfulContext": "A stage word in this crew member's role looked misspelled (e.g. 'Strke'), so we read it as the closest real stage word ('Strike') and used that; nothing else is affected. If the spelling was intentional, update the sheet.",
   },
   "STAGED_PARSE_FAILED": {
     "crewFacing": null,
@@ -1258,15 +1258,15 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_RESTAGED_INLINE": {
     "crewFacing": null,
-    "dougFacing": "The sheet was edited since your last look — we re-parsed it inside the wizard. Here's the new review.",
+    "dougFacing": "The sheet was edited since your last look. We re-parsed it inside the wizard. Here's the new review.",
     "followUp": "Doug → review the refreshed parse",
-    "helpfulContext": "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded.",
+    "helpfulContext": "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse. Any decisions you made on the prior version were discarded.",
   },
   "STAGED_PARSE_RESULT_CORRUPT": {
     "crewFacing": null,
     "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
-    "helpfulContext": "The saved data for this staged sheet is stored in a format we can't read — it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
+    "helpfulContext": "The saved data for this staged sheet is stored in a format we can't read; it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
   },
   "STAGED_PARSE_REVISION_RACE": {
     "crewFacing": null,
@@ -1308,7 +1308,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
-    "helpfulContext": "The saved list of changes that need your review for this staged sheet is stored in a format we can't read — it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
+    "helpfulContext": "The saved list of changes that need your review for this staged sheet is stored in a format we can't read; it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
   },
   "STALE_DISCARD_REJECTED": {
     "crewFacing": null,
@@ -1318,9 +1318,9 @@ export const SPEC_CODES = {
   },
   "STALE_MANUAL_REPLAY_ABORTED": {
     "crewFacing": null,
-    "dougFacing": "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state.",
+    "dougFacing": "This manual sync is stale: a newer parse has already been applied. Refresh the page to see the current state.",
     "followUp": "Doug → refresh admin",
-    "helpfulContext": "You clicked 'Sync' against a version that's already been superseded by a newer parse. No work was lost — just refresh the admin page to see the current state and try again from there if needed.",
+    "helpfulContext": "You clicked 'Sync' against a version that's already been superseded by a newer parse. No work was lost; just refresh the admin page to see the current state and try again from there if needed.",
   },
   "STALE_ORPHAN_REPORT": {
     "crewFacing": null,
@@ -1348,7 +1348,7 @@ export const SPEC_CODES = {
   },
   "SYNC_DELAYED_SEVERE": {
     "crewFacing": "This page hasn't updated recently. Text Doug to check on it.",
-    "dougFacing": "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Instant updates or the scheduled sync have stalled — check the dashboard.",
+    "dougFacing": "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Instant updates or the scheduled sync have stalled. Check the dashboard.",
     "followUp": "Crew → text Doug; Doug → check dashboard",
     "helpfulContext": "The crew page hasn't synced from Drive in over six hours. That's well past the normal sync schedule, so something is stalled. Open the dashboard to check whether instant updates are healthy and whether automatic sync is running.",
   },
@@ -1384,39 +1384,39 @@ export const SPEC_CODES = {
   },
   "TILE_PROJECTION_FETCH_FAILED": {
     "crewFacing": null,
-    "dougFacing": "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load — refresh in a minute. Tell the developer if it persists.",
+    "dougFacing": "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
     "helpfulContext": null,
   },
   "TILE_SERVER_RENDER_FAILED": {
-    "crewFacing": "This section couldn't load — last good data shown.",
-    "dougFacing": "<sheet-name>: a section failed to load on the server and will keep retrying — refresh in a minute. Tell the developer if it persists.",
+    "crewFacing": "This section couldn't load; last good data shown.",
+    "dougFacing": "<sheet-name>: a section failed to load on the server and will keep retrying. Refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
     "helpfulContext": null,
   },
   "TRAVEL_FLIGHT_AMBIGUOUS_TABLE": {
     "crewFacing": null,
-    "dougFacing": "Found more than one TRAVEL flight table — remove or rename the duplicate/old one so flights can be read.",
+    "dougFacing": "Found more than one TRAVEL flight table. Remove or rename the duplicate/old one so flights can be read.",
     "followUp": "Doug → check sheet",
     "helpfulContext": "The parser found more than one TRAVEL flight table in the sheet export. Because the tables could represent different shows or states, flights are not attached from any of them. Remove or rename the duplicate/old table so only one remains and flights can be read.",
   },
   "TRAVEL_FLIGHT_NAME_UNMATCHED": {
     "crewFacing": null,
-    "dougFacing": "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster.",
+    "dougFacing": "A flight on the TRAVEL tab couldn't be matched to a crew name. Check the name spelling matches the roster.",
     "followUp": "Doug → check sheet",
     "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster.",
   },
   "TRAVEL_FLIGHT_UNPARSEABLE": {
     "crewFacing": null,
-    "dougFacing": "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format.",
+    "dougFacing": "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date). Check the format.",
     "followUp": "Doug → check sheet",
     "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
   },
   "TRAVEL_TRANSPORT_NAME_UNMATCHED": {
     "crewFacing": null,
-    "dougFacing": "A transport assignment in _<sheet-name>_ doesn't clearly match a crew member — possibly a typo, or two names merged into one cell — so that person won't see their transport details. Check the transport section, or add the crew member if they're genuinely missing.",
+    "dougFacing": "A transport assignment in _<sheet-name>_ doesn't clearly match a crew member, possibly a typo, or two names merged into one cell, so that person won't see their transport details. Check the transport section, or add the crew member if they're genuinely missing.",
     "followUp": "Doug → fix the transport name or add the crew member",
-    "helpfulContext": "Each transport assignment is matched to a crew member by name so that person can see their own ride details. This time an assignee name didn't clearly match one crew member — usually a typo, or two names merged into a single cell during import. Check the transport section for a misspelling or a merged name, or add the crew member if they're genuinely missing.",
+    "helpfulContext": "Each transport assignment is matched to a crew member by name so that person can see their own ride details. This time an assignee name didn't clearly match one crew member, usually a typo, or two names merged into a single cell during import. Check the transport section for a misspelling or a merged name, or add the crew member if they're genuinely missing.",
   },
   "TYPO_NORMALIZED": {
     "crewFacing": null,
@@ -1426,9 +1426,9 @@ export const SPEC_CODES = {
   },
   "UNDO_EMAIL_CLAIMED": {
     "crewFacing": null,
-    "dougFacing": "We can't undo this — the original email now belongs to someone else on the crew list. Fix it in the sheet instead.",
+    "dougFacing": "We can't undo this: the original email now belongs to someone else on the crew list. Fix it in the sheet instead.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "Undoing this would restore an email address that now belongs to a different crew member, and two people can't share an email. Rather than undo, fix the email in the sheet — the next sync will reconcile it safely.",
+    "helpfulContext": "Undoing this would restore an email address that now belongs to a different crew member, and two people can't share an email. Rather than undo, fix the email in the sheet; the next sync will reconcile it safely.",
   },
   "UNDO_FINALIZE_OWNED": {
     "crewFacing": null,
@@ -1446,7 +1446,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
     "followUp": "Doug → unarchive",
-    "helpfulContext": "You can't undo a change on an archived show — archived shows are read-only. Unarchive the show first, then undo the change; the crew list accepts edits again once it's live.",
+    "helpfulContext": "You can't undo a change on an archived show; archived shows are read-only. Unarchive the show first, then undo the change; the crew list accepts edits again once it's live.",
   },
   "UNDO_SUPERSEDED": {
     "crewFacing": null,
@@ -1470,13 +1470,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We found a row labeled _<key>_ in _<sheet-name>_ that doesn't match a section we recognize. We kept it as-is and nothing's broken. Want to flag it to us?",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything — we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
+    "helpfulContext": "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything; we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
   },
   "UNKNOWN_ROLE_TOKEN": {
     "crewFacing": null,
     "dougFacing": "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, you can add it right from this warning.",
     "followUp": "Doug → recognize role (or optional Report)",
-    "helpfulContext": "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, you can add it right from this warning.",
+    "helpfulContext": "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing; nothing else is affected. If the label is correct, you can add it right from this warning.",
   },
   "UNKNOWN_SECTION_HEADER": {
     "crewFacing": null,
@@ -1486,21 +1486,21 @@ export const SPEC_CODES = {
   },
   "UNKNOWN_STAGE_RESTRICTION": {
     "crewFacing": null,
-    "dougFacing": "_<crew-name>_'s role mixes a work-phase (like Set) with something we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't tell which days apply. We're showing them the whole show to be safe. Use the standard phases — Load In / Set / Show / Strike / Load Out — so we can filter their schedule.",
+    "dougFacing": "_<crew-name>_'s role mixes a work-phase (like Set) with something we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't tell which days apply. We're showing them the whole show to be safe. Use the standard phases: Load In / Set / Show / Strike / Load Out, so we can filter their schedule.",
     "followUp": "Doug → fix sheet",
-    "helpfulContext": "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases — Load In / Set / Show / Strike / Load Out — so their schedule can be filtered.",
+    "helpfulContext": "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases: Load In / Set / Show / Strike / Load Out, so their schedule can be filtered.",
   },
   "UNPUBLISH_TOKEN_CONSUMED": {
     "crewFacing": null,
     "dougFacing": "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     "followUp": "Doug → check show status in admin",
-    "helpfulContext": "The auto-publish undo is single-use, and it's already been used. This outcome is internal — a spent emailed link shows a generic not-found page, and no admin surface renders it since the Published toggle replaced the in-app undo. Check the show's page to confirm the current state; you can flip Published off there any time.",
+    "helpfulContext": "The auto-publish undo is single-use, and it's already been used. This outcome is internal; a spent emailed link shows a generic not-found page, and no admin surface renders it since the Published toggle replaced the in-app undo. Check the show's page to confirm the current state; you can flip Published off there any time.",
   },
   "UNPUBLISH_TOKEN_EXPIRED": {
     "crewFacing": null,
     "dougFacing": "This unpublish link expired. Links stay valid for 24 hours; to take this show offline now, flip the Published toggle off on the show's page.",
     "followUp": "Doug → toggle Published off from the show's page",
-    "helpfulContext": "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the show's page and flip the Published toggle off.",
+    "helpfulContext": "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes; the show is treated as a normal published show. To take it offline now, open the show's page and flip the Published toggle off.",
   },
   "USE_RAW_DECISION_STALE": {
     "crewFacing": null,
@@ -1518,7 +1518,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The validation reset couldn't finish. Please try again.",
     "followUp": "Doug → retry; if persistent, Eric",
-    "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) started the delete-based reset sequence but hit an unexpected database or infrastructure fault partway through. The database may be in a partially reset state. Running the reset again is safe — the sequence is designed to be idempotent. If it keeps failing, the developer needs to investigate the underlying database error.",
+    "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) started the delete-based reset sequence but hit an unexpected database or infrastructure fault partway through. The database may be in a partially reset state. Running the reset again is safe; the sequence is designed to be idempotent. If it keeps failing, the developer needs to investigate the underlying database error.",
   },
   "VALIDATION_RESET_NOT_ALLOWED": {
     "crewFacing": null,
@@ -1536,7 +1536,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",
     "followUp": "Doug → optional fix (auto-retries)",
-    "helpfulContext": "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city — often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
+    "helpfulContext": "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city, often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
   },
   "VENUE_TIMEZONE_UNRESOLVED": {
     "crewFacing": null,
@@ -1546,9 +1546,9 @@ export const SPEC_CODES = {
   },
   "VERSION_AMBIGUOUS": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
+    "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is, so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
     "followUp": "Doug → check the sheet's version markers; Eric → add/adjust the detector if the template changed",
-    "helpfulContext": "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one — and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
+    "helpfulContext": "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one, and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
   },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
@@ -1560,7 +1560,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A Drive webhook request was missing required Google headers.",
     "followUp": "Eric → inspect webhook delivery",
-    "helpfulContext": "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
+    "helpfulContext": "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers, usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
   },
   "WEBHOOK_NOOP_ALREADY_SYNCED": {
     "crewFacing": null,
@@ -1570,7 +1570,7 @@ export const SPEC_CODES = {
   },
   "WEBHOOK_TOKEN_INVALID": {
     "crewFacing": null,
-    "dougFacing": "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
+    "dougFacing": "A push notification from Google Drive failed verification: possible spoofing or misconfiguration. The developer has been notified.",
     "followUp": "Eric → investigate",
     "helpfulContext": null,
   },
@@ -1594,7 +1594,7 @@ export const SPEC_CODES = {
   },
   "WIZARD_ISOLATION_INDEXES_MISSING": {
     "crewFacing": null,
-    "dougFacing": "We can't safely scan your folder right now — a recent database update hasn't been applied yet. Eric has been notified; setup will be available again in a few minutes.",
+    "dougFacing": "We can't safely scan your folder right now; a recent database update hasn't been applied yet. Eric has been notified; setup will be available again in a few minutes.",
     "followUp": "Eric → apply migration; Doug → retry wizard once migration completes",
     "helpfulContext": "The setup wizard scans your folder by writing per-session staging rows into the same tables the live sync writes to (pending_syncs, pending_ingestions, onboarding_scan_manifest). To keep wizard rows from colliding with live rows, the database has four partial unique indexes that route writes to the right slot. The scan checks for those indexes before writing anything; if any are missing, the wizard aborts cleanly rather than risk a partial scan against a half-migrated schema. Eric is automatically notified to apply the migration; once that's done, click Re-run Setup to retry.",
   },
@@ -1602,7 +1602,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We made an update to the review process since you approved this sheet. Please review and Apply it again to finish setup.",
     "followUp": "Doug → re-Apply the affected sheet",
-    "helpfulContext": "Setup wizards stage your Apply decisions and finalize them in a separate step. Between when you Applied this sheet and when finalize ran, we updated the format used to record your review choices — usually because we added a new kind of decision or expanded what's tracked per item. Rather than silently replay your old-format choices through the new validator (which could mis-derive permissions), we hold this sheet for re-review. Open the wizard tab, re-Apply the affected sheet under the current version, then click Finalize again.",
+    "helpfulContext": "Setup wizards stage your Apply decisions and finalize them in a separate step. Between when you Applied this sheet and when finalize ran, we updated the format used to record your review choices, usually because we added a new kind of decision or expanded what's tracked per item. Rather than silently replay your old-format choices through the new validator (which could mis-derive permissions), we hold this sheet for re-review. Open the wizard tab, re-Apply the affected sheet under the current version, then click Finalize again.",
   },
   "WIZARD_SESSION_SUPERSEDED": {
     "crewFacing": null,

@@ -59,14 +59,14 @@ describe("PerShowAlertSection TILE_PROJECTION_FETCH_FAILED failedKeys detail", (
     // failedKeys, not the underlying error.message (which getShowForViewer
     // records separately in data.tileErrors values).
     expect(section.textContent).not.toContain("fetch failed");
-    // alert-copy-full-sweep §6.c (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md:685)
-    // ratified TILE_PROJECTION_FETCH_FAILED's condensed dougFacing WITH an
-    // em dash ("...rendered with what did load — refresh in a minute."),
-    // superseding the prior DESIGN.md §9 "no em dashes" assertion for this
-    // code's copy (lib/messages/catalog.ts:2336 carries it verbatim). Assert
-    // the exact condensed copy renders instead of a blanket em-dash ban.
+    // EMDASH-1 (docs/superpowers/specs/2026-07-18-emdash-catalog-sweep.md) swept
+    // every em dash out of the rendered catalog copy, re-establishing DESIGN.md §9
+    // universally and superseding the earlier alert-copy-full-sweep §6.c exception
+    // that had kept an em dash in this code's dougFacing. The condensed copy now
+    // reads "...rendered with what did load. Refresh in a minute." (period), which
+    // lib/messages/catalog.ts carries verbatim. Assert the exact condensed copy.
     expect(section.textContent).toContain(
-      "Acme: one or more data sources couldn't load, so the page rendered with what did load — refresh in a minute. Tell the developer if it persists.",
+      "Acme: one or more data sources couldn't load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.",
     );
   });
 

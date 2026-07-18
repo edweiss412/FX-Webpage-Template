@@ -23,7 +23,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import * as roleRecognizeCopy from "@/components/admin/roleRecognizeCopy";
 
 const REGEX_LEAK_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -180,5 +180,54 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
       }
     }
     expect(violations, violations.join("\n")).toEqual([]);
+  });
+});
+
+describe("Rendered-prose copy has no em dash or double hyphen (DESIGN.md §9, EMDASH-1)", () => {
+  type FieldPolicy = "rendered-prose" | "excluded-url" | "excluded-enum" | "excluded-identifier";
+  // Record<keyof MessageCatalogEntry, …>: adding a field to the type without
+  // classifying it here is a COMPILE ERROR — the fails-by-default guarantee.
+  const FIELD_POLICY: Record<keyof MessageCatalogEntry, FieldPolicy> = {
+    code: "excluded-identifier",
+    severity: "excluded-enum",
+    adminSurface: "excluded-enum",
+    audience: "excluded-enum",
+    healthWeight: "excluded-enum",
+    resolution: "excluded-enum",
+    helpHref: "excluded-url",
+    dougFacing: "rendered-prose",
+    crewFacing: "rendered-prose",
+    followUp: "rendered-prose",
+    helpfulContext: "rendered-prose",
+    title: "rendered-prose",
+    longExplanation: "rendered-prose",
+    dougSummary: "rendered-prose",
+  };
+  const AUDITED_FIELDS = (Object.keys(FIELD_POLICY) as (keyof MessageCatalogEntry)[]).filter(
+    (f) => FIELD_POLICY[f] === "rendered-prose",
+  );
+
+  it("no rendered-prose field value contains an em dash (U+2014)", () => {
+    const violations: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      for (const field of AUDITED_FIELDS) {
+        const v = (entry as Record<string, unknown>)[field];
+        if (typeof v === "string" && v.includes("—"))
+          violations.push(`${code}.${field}: ${v.slice(0, 120)}${v.length > 120 ? "…" : ""}`);
+      }
+    }
+    expect(violations, `em dash in rendered copy:\n${violations.join("\n")}`).toEqual([]);
+  });
+
+  it("no rendered-prose field value contains a double hyphen (--)", () => {
+    const violations: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      for (const field of AUDITED_FIELDS) {
+        const v = (entry as Record<string, unknown>)[field];
+        if (typeof v === "string" && v.includes("--"))
+          violations.push(`${code}.${field}: ${v.slice(0, 120)}${v.length > 120 ? "…" : ""}`);
+      }
+    }
+    expect(violations, `double hyphen in rendered copy:\n${violations.join("\n")}`).toEqual([]);
   });
 });
