@@ -15,7 +15,7 @@
 - Every task: failing test → minimal implementation → green → commit (`--no-verify`; conventional commits). One task per commit.
 - No DB/migrations; no advisory-lock changes (invariant 2 untouched — **advisory-lock holder topology: no `pg_advisory*` surface is touched by any task; the single existing JS-side holder layout is unchanged**).
 - No raw error codes in UI (invariant 5): all transplanted rendering keeps `lib/messages/lookup.ts` paths; no new §12.4 codes.
-- Supabase call-boundary discipline (invariant 9): the loader transplants `page.tsx` reads verbatim; `_metaInfraContract` registry row retargets (Task 8).
+- Supabase call-boundary discipline (invariant 9): the loader transplants `page.tsx` reads verbatim; `_metaInfraContract` registry row retargets (Task 7, atomic with the move).
 - UI files are Opus-only; impeccable critique + audit run before the whole-diff review (Task 14).
 - **Meta-test inventory (declared):** EXTENDS `_showReviewReadPathPin`, `_metaInfraContract` (row retarget), `_metaAdminOutcomeContract` (row retarget), `transitionAudit`, `pageTransitions`, `_metaBoundedReads`, `serverNoClientValueCall` (audit-list extension). CREATES none. Registries NOT touched (verified in spec §7): `AUDITABLE_MUTATIONS`, advisory-lock deadlock pin, WarningControlSite scoping, sentinel-hiding, destructive-confirm, no-inline-email, freeze contract, mutation-surface walker, auth next-param pipeline (D10).
 - **Fix-round regression budget:** every adversarial-round patch re-greps its bug class across the touched surface + re-runs the relevant meta-test before round closure.

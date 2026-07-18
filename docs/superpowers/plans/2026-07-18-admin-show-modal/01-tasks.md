@@ -122,7 +122,8 @@ The split exists because `app/admin/page.tsx` is an RSC — importing a hook-bea
 ### Task 7: server loader + dashboard mount + skeleton (spec §4)
 
 **Files:**
-- Create: `app/admin/_showReviewModal.tsx` (async server component `ShowReviewModal({ slug, alertId })` + `ShowReviewModalSkeleton`)
+- Create: `app/admin/_showReviewModal.tsx` (async server component `ShowReviewModal({ slug, alertId })`)
+- Create: `components/admin/showpage/ShowReviewModalSkeleton.tsx` (client — see Step 3)
 - Modify: `app/admin/page.tsx` (searchParams + Suspense mount, non-wizard branch only)
 - Delete: `components/admin/showpage/PublishedReviewPage.tsx`
 - Tests: create `tests/app/admin/showReviewModalLoader.test.tsx` (retarget of `tests/app/admin/perShowPage.test.tsx`), modify `tests/app/admin/` dashboard page suite, delete `tests/app/admin/perShowPage.test.tsx`
@@ -205,14 +206,14 @@ export default async function AdminShowRedirect({ params, searchParams }: {
 
 **Interactions spec:** initial focus close button; Tab trap; Esc/scrim/X close → URL loses `show` (+`alert_id`), keeps `bucket`; browser Back closes; drag past 110px dismisses, under 6px slop clicks through.
 
-**Deep-link spec:** cold `/admin?show=<slug>` opens modal (fixture-derived title asserted INSIDE panel — cloned tree, dashboard rows excluded, anti-tautology); `&alert_id=` → highlighted `li[aria-current]` ring + scrolled into scroller viewport; `#share-access` fragment → share panel in view; SIGNED-IN legacy `/admin/show/<slug>?alert_id=x` → 307 → modal + highlight; unknown slug → bare `/admin`, no modal; signed-out `/admin/show/<slug>` → sign-in → post-auth modal (reuse picker-flow auth harness pattern; if the harness cannot do full OAuth, assert the sign-in redirect carries `next=/admin/show/<slug>` — the path-preservation half D10 relies on — and cover the rest in the signed-in case).
+**Deep-link spec:** cold `/admin?show=<slug>` opens modal (fixture-derived title asserted INSIDE panel — cloned tree, dashboard rows excluded, anti-tautology); `&alert_id=` → highlighted `li[aria-current]` ring + scrolled into scroller viewport; `#share-access` fragment → share panel in view; SIGNED-IN legacy `/admin/show/<slug>?alert_id=x` → 307 → modal + highlight; SIGNED-IN legacy COMBINED `/admin/show/<slug>?alert_id=x#share-access` → lands `/admin?show=<slug>&alert_id=x#share-access` with highlight applied AND fragment intact in the final URL (alert_id scroll wins precedence per §3); unknown slug → bare `/admin`, no modal; signed-out `/admin/show/<slug>` → sign-in → post-auth modal (reuse picker-flow auth harness pattern; if the harness cannot do full OAuth, assert the sign-in redirect carries `next=/admin/show/<slug>` — the path-preservation half D10 relies on — and cover the rest in the signed-in case).
 
 - [ ] Steps: write specs (fail) → run against dev server (`pnpm exec playwright test tests/e2e/published-review-modal.*`) → implement any harness gaps → green → rewrite the six existing specs' URLs/selectors → full e2e suite green.
 - [ ] **Commit** `test(e2e): published review modal layout/interactions/deeplink + admin show URL rewrites`
 
 ### Task 13: help copy (spec §7 tail)
 
-**Files:** Modify `app/help/_affordanceMatrix.ts:112,239` (sourceRoute → `/admin?show=rpas-central-2026`), `app/help/admin/per-show-panel/page.mdx` (layout description: modal over dashboard, no footer, publish toggle in status strip, archive in Overview; "show page" → "show details"); Test: existing `tests/help/` suites + affordance matrix consumers.
+**Files:** Modify `app/help/_affordanceMatrix.ts:112,239` (sourceRoute → `/admin?show=rpas-central-2026`), `app/help/admin/per-show-panel/page.mdx` (layout description: modal over dashboard, no footer, publish toggle in status strip, archive in Overview; "show page" → "show details"), `app/help/admin/dashboard/page.mdx:49` (archive copy "from the bottom of a show's per-show page" → the modal's Overview archive row), PLUS a sweep: `grep -rn "show page\|per-show page\|/admin/show/" app/help/ --include="*.mdx"` — every hit describing the killed page gets the copy pass (list each touched file in the commit body). Test: existing `tests/help/` suites + affordance matrix consumers.
 
 - [ ] Update copy → run `pnpm vitest run tests/help` → PASS → **commit** `docs(admin): help copy for show review modal`
 
