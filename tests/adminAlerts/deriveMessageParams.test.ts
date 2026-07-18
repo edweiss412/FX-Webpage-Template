@@ -333,6 +333,39 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "some",
       );
     });
+
+    // Codex whole-diff MEDIUM: the SHOW_FIRST_PUBLISHED producer writes
+    // crew_count as a NUMBER (lib/sync/runScheduledCronSync.ts:2369 —
+    // `crew_count: args.parseResult.crewMembers.length`), not a string. The
+    // string-only gate in contextStringValue silently degraded real counts to
+    // the "some" fallback.
+    it("context wins when crew_count is a finite number (real producer shape)", () => {
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 5 }, null)["crew-count"],
+      ).toBe("5");
+    });
+
+    it("context wins when crew_count is zero (falsy-but-valid number)", () => {
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 0 }, null)["crew-count"],
+      ).toBe("0");
+    });
+
+    it("falls back when crew_count is NaN", () => {
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: NaN }, null)["crew-count"],
+      ).toBe("some");
+    });
+
+    it("falls back when crew_count is a non-scalar object (dropped by the context-scalar filter before reaching the param resolver)", () => {
+      expect(
+        deriveAlertMessageParams(
+          "SHOW_FIRST_PUBLISHED",
+          { crew_count: { nested: true } } as unknown as Record<string, unknown>,
+          null,
+        )["crew-count"],
+      ).toBe("some");
+    });
   });
 
   describe("show-date (no identity segments — plain context ?? fallback)", () => {

@@ -156,13 +156,22 @@ function quoted(value: string | null, fallback: string): string {
 // interpolate()'s hyphen/underscore normalization (lib/messages/lookup.ts) so
 // a producer that writes `sheet_name` satisfies the `sheet-name` param the
 // same way it would satisfy a `<sheet-name>` template placeholder directly.
+// Count-like context (e.g. SHOW_FIRST_PUBLISHED's crew_count,
+// lib/sync/runScheduledCronSync.ts:2369) is written as a NUMBER by its
+// producer, not a string — accept finite numbers too (coerced the same way
+// interpolate() coerces them, via String(value)), while still rejecting
+// null/undefined (already excluded by the params lookup), NaN/non-finite,
+// and non-scalar values (booleans/objects never reach here as objects are
+// dropped by the context-scalar filter in deriveAlertMessageParams).
 function contextStringValue(
   params: Record<string, string | number | boolean | null | undefined>,
   hyphenKey: string,
 ): string | null {
   const underscoreKey = hyphenKey.replace(/-/g, "_");
   const value = params[hyphenKey] ?? params[underscoreKey];
-  return typeof value === "string" && value !== "" ? value : null;
+  if (typeof value === "string" && value !== "") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
 }
 
 // Identity > context > fallback (see module docstring). Identity value is
