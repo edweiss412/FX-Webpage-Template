@@ -823,9 +823,16 @@ export function BellPanel({
                   // honest signal. activityAt-DESC order is preserved within tiers.
                   groupActiveBySeverity(active).map((group) => (
                     <div key={group.tone}>
+                      {/* Subordinate to the section's uppercase "Active · N"
+                          eyebrow: sentence-case, non-tracked, text-subtle (AA on
+                          surface) so two stacked uppercase-tracked label tiers
+                          don't read as competing eyebrows (impeccable critique
+                          P2). 12px matches the shipped eyebrow size. `label`
+                          from TONE: critical→"Critical", notice→"Warning",
+                          info→"Notice" (display vocab; see TONE map). */}
                       <h4
                         data-testid={`bell-section-active-tier-${group.tone}`}
-                        className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint tabular-nums"
+                        className="px-4 pb-1 pt-2 text-xs font-semibold text-text-subtle tabular-nums"
                       >
                         {TONE[group.tone].label} · {group.rows.length}
                       </h4>
