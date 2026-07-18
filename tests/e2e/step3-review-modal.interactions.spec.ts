@@ -604,19 +604,19 @@ for (const { mode, width, height, hiddenNav } of TAB_MODES) {
 // attribute lifecycle is identical: steady tint instead of a fade, removed
 // with the attribute by the WARNING_HIGHLIGHT_MS timer) ──────────────────────
 
-test("§K13: callout View details jumps to the warning row in view, flash present then gone", async ({
+test("§K13: callout jump button jumps to the warning row in view, flash present then gone", async ({
   page,
 }) => {
   await openLive(page, { width: 1280, height: 800 });
 
   // The harness fixture maps 5 warn-severity crew-kind warnings → the crew
-  // section's §E3 callout (3 "View details" rows + a "+2 more" overflow row).
+  // section's §E3 callout (3 "Review in Parse warnings" rows + a "+2 more" overflow row).
   const callout = page.locator(
     `[data-testid="wizard-step3-card-${HARNESS_DFID}-section-crew-flag-callout"]`,
   );
   await expect(callout, "crew flag callout renders").toHaveCount(1);
   await callout
-    .getByRole("button", { name: /View details/ })
+    .getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ })
     .first()
     .click();
 
