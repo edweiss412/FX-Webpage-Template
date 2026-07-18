@@ -25,8 +25,9 @@
  * name appears nowhere else (the identity node is the sole source). Expected
  * strings are derived from the fixtures, NOT by round-tripping describeAlert.
  */
+import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { setLogSink, resetLogSink } from "@/lib/log";
 
@@ -143,6 +144,41 @@ function setAlerts(rows: AlertFixture[]) {
 
 async function renderSection() {
   return render(await PerShowAlertSection({ showId: SHOW_ID, slug: "spring-conference" }));
+}
+
+// condensed-alert-copy Task 8 harnesses (spec 2026-07-17 §4.2/§5). Both reuse
+// the file's showRows/setAlerts fixture pattern — no new mock plumbing.
+async function renderSectionWithRoleFlagsRow() {
+  mockState.showRows = [
+    { id: SHOW_ID, title: "II - RIA Investment Forum", slug: "ria-investment-forum" },
+  ];
+  setAlerts([
+    {
+      id: "role-flags-1",
+      code: "ROLE_FLAGS_NOTICE",
+      raised_at: "2026-05-04T10:00:00Z",
+      context: {
+        changes: [{ crew_name: "Doug Larson", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      },
+    },
+  ]);
+  return renderSection();
+}
+
+async function renderSectionWithNonMemberAlert() {
+  // PICKER_EPOCH_RESET (not in INLINE_IDENTITY_CODES) has a placeholder-free
+  // dougFacing template, so it always resolves — a regression pin proving the
+  // guard/suppression only fires for member codes.
+  mockState.showRows = [{ id: SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
+  setAlerts([
+    {
+      id: "picker-epoch-1",
+      code: "PICKER_EPOCH_RESET",
+      raised_at: "2026-05-04T10:00:00Z",
+      context: {},
+    },
+  ]);
+  return renderSection();
 }
 
 describe("PerShowAlertSection — at-a-glance identity line", () => {
@@ -271,5 +307,25 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
           r.source === "admin.perShowAlertSection" && /identity resolve degraded/.test(r.message),
       ),
     ).toBe(true);
+  });
+
+  // condensed-alert-copy Task 8 (spec 2026-07-17 §4.2/§5): derived message
+  // params + identity-chip suppression for INLINE_IDENTITY_CODES members.
+  test("ROLE_FLAGS_NOTICE renders inline-context copy, no identity line (spec 2026-07-17 §4.2)", async () => {
+    await renderSectionWithRoleFlagsRow();
+    expect(
+      screen.getByText(
+        "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-alert-identity")).toBeNull();
+  });
+
+  test("keeps the identity line when the template cannot resolve (guard path)", async () => {
+    // Same-shaped row but a NON-member code (PICKER_EPOCH_RESET) whose copy has
+    // no placeholders: a regression pin proving suppression is scoped to
+    // INLINE_IDENTITY_CODES, not every code whose template resolves.
+    await renderSectionWithNonMemberAlert();
+    expect(screen.getByTestId("per-show-alert-identity")).toBeInTheDocument();
   });
 });
