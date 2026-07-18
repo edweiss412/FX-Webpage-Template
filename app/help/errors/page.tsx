@@ -15,20 +15,18 @@ import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalo
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 import { Callout } from "@/app/help/_components/Callout";
 import { FAMILIES, OTHER, familyFor } from "@/app/help/errors/_families";
-
-// AC-11.6 predicate: severity !== "info" AND dougFacing != null AND all three
-// M11 fields non-null. The live-catalog biconditional in
-// tests/messages/_metaErrorCatalogDocs.test.ts proves the M11 fields are
-// populated for every predicate entry; this filter is the runtime mirror.
-function isRenderable(entry: MessageCatalogEntry): boolean {
-  return (
-    entry.severity !== "info" &&
-    entry.dougFacing !== null &&
-    entry.title !== null &&
-    entry.longExplanation !== null &&
-    entry.helpHref !== null
-  );
-}
+// Full-sweep copy plan (Task 9): the page's own renderability filter is now
+// the shared catalogDocsValidator predicate (single source with the T2-4
+// catalog-fill work and the live-catalog meta-test in
+// tests/messages/_metaErrorCatalogDocs.test.ts) instead of a locally
+// redefined `severity !== "info"` check. This drops the blanket info-severity
+// exclusion, so audience-gated info codes (ROLE_FLAGS_NOTICE,
+// SHOW_FIRST_PUBLISHED) render here like any other Doug-facing code, while
+// non-admin-alert info copy (audience undefined) stays excluded. The
+// live-catalog meta-test guarantees every predicate-true entry already has
+// non-null title/longExplanation/helpHref, so no separate field-null filter
+// is needed on top of the predicate.
+import { predicate as isRenderable } from "@/lib/messages/catalogDocsValidator";
 
 export default function ErrorsPage() {
   const entries = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])

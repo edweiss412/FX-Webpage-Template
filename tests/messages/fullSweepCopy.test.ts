@@ -9,6 +9,8 @@
 import { describe, expect, test } from "vitest";
 
 import { MESSAGE_CATALOG, messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { predicate, allM12FieldsNonNull } from "@/lib/messages/catalogDocsValidator";
+import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
 const BATCH_A: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }> = [
   {
@@ -282,5 +284,32 @@ describe("full-sweep copy batch C (§6.c — 17 codes)", () => {
 
   test("SHOW_FIRST_PUBLISHED title is filled per spec §3 ratified decision", () => {
     expect(messageFor("SHOW_FIRST_PUBLISHED").title).toBe("Show published");
+  });
+});
+
+/**
+ * Task 9 (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md
+ * §4.4): every one of the 45 ADMIN_ALERTS_CODES — the canonical registry of
+ * codes used in a production admin_alerts.upsert call, incl. the two
+ * severity:"info" codes ROLE_FLAGS_NOTICE and SHOW_FIRST_PUBLISHED — must be
+ * renderable on /help/errors: it satisfies the shared catalogDocsValidator
+ * predicate AND carries non-null title/longExplanation/helpHref (the
+ * `isRenderable`-shape check app/help/errors/page.tsx applies at render
+ * time). The WARN_/PARSE_ parse-warnings carve-out (spec §4.4, ratified
+ * E-content.md R2) changes helpHref's TARGET, not whether the code is
+ * renderable at all, so it is not exempted here.
+ */
+describe("full-sweep copy: all 45 ADMIN_ALERTS_CODES are renderable on /help/errors", () => {
+  test("registry has exactly 45 entries", () => {
+    expect(ADMIN_ALERTS_CODES).toHaveLength(45);
+  });
+
+  test.each(ADMIN_ALERTS_CODES)("%s satisfies the shared renderability predicate", (code) => {
+    const entry = MESSAGE_CATALOG[code];
+    expect(predicate(entry), `${code}: predicate(entry) must be true`).toBe(true);
+    expect(
+      allM12FieldsNonNull(entry),
+      `${code}: title/longExplanation/helpHref must all be non-null`,
+    ).toBe(true);
   });
 });

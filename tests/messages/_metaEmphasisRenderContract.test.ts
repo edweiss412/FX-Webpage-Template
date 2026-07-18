@@ -69,10 +69,13 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
     reason: "ADMIN_ROUTE_LOAD_FAILED only; marker-free.",
   },
   { file: "app/admin/settings/error.tsx", reason: "ADMIN_ROUTE_LOAD_FAILED only; marker-free." },
-  {
-    file: "app/help/errors/page.tsx",
-    reason: "Renders title/longExplanation only — those fields are pinned marker-free below.",
-  },
+  // (Task 9, full-sweep copy plan: app/help/errors/page.tsx's stale-entry row
+  // was removed here. Its old local `isRenderable` helper touched
+  // `entry.dougFacing` directly; that helper was replaced with an import of
+  // the shared catalogDocsValidator predicate, so the file no longer matches
+  // ACCESSOR_RE at all. It still renders title/longExplanation raw — those
+  // fields are pinned marker-free by the "title and longExplanation never
+  // contain emphasis markers" test below, independent of this registry.)
   // (Task 13: the consolidated page's `messageFor`-based bulk-ignore labelling
   // moved into lib/admin/sectionWarningModel.ts, so app/admin/show/[slug]/page.tsx
   // no longer touches catalog copy — its stale registry row was removed.)
