@@ -143,13 +143,16 @@ BellPanel passes `identityKeys={BELL_BOLD_IDENTITY_TOKENS}` (the narrow name-onl
 
 Chevron behavior changed expand→navigate (PR #472). Add a one-time dismissible hint for returning sighted users. Shown only until dismissed, on the **first** `ActiveRow` that has a chevron. Persist dismissal in `localStorage` under key `fxav:bell-chevron-hint:v1` (client-only; SSR renders nothing until mounted to avoid hydration mismatch).
 
-**Exact DOM shape (no nested interactive content — mirrors the existing chevron-not-in-button discipline in the OTHER direction):** a **non-interactive positioning wrapper** `<span className="relative inline-flex …">` contains BOTH the chevron `<a>` (unchanged, `SHOW_PAGE_LINK`, testid `bell-caret-${id}`) AND, as its DOM SIBLING (never a descendant of the chevron `<a>`), the hint chip. The chip is a `<span role="note" data-testid="bell-chevron-hint">` (absolutely positioned relative to the wrapper so it does not shift the chevron — DI/transition-audit verifies) holding the text "Chevron now opens the show page" and a **sibling** dismiss `<button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint">` (a `<button>`, NOT wrapped by any `<a>`; clicking it writes `localStorage` and unmounts the chip, never navigates). AT is already covered by the chevron's own `aria-label="Open show page"`; the chip is a supplemental visual affordance.
+**In-flow placement (NOT absolute — avoids clipping in the scroll container):** active rows render inside a `max-h-… overflow-y-auto` panel scroll container; an absolutely-positioned chip on the first chevron row could be clipped at the panel top/right edge and place its dismiss button outside the clickable area at mobile (≤420px) width. Instead the hint renders **in-flow** as the FIRST child of the active-rows list content (top of the scroll container's flowing content, before the first `ActiveRow`), so it can never clip, never create horizontal overflow, and its dismiss button is always within the panel. It is a single panel-level banner (one instance total), shown only when at least one active row has a chevron.
+
+**Exact DOM shape (no nested interactive content):** a full-width in-flow block `<div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle">` containing: the text "The ⌄ chevron now opens the show page" (the glyph is decorative, `aria-hidden`), a flex spacer, and a dismiss `<button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" className={GHOST_DISMISS}>` (its own top-level control, never wrapped by any `<a>` — clicking writes `localStorage` and unmounts, never navigates). The chevron `<a>` (testid `bell-caret-${id}`) is UNCHANGED and structurally unrelated to the banner. AT is already covered by the chevron's own `aria-label="Open show page"`; the banner is a supplemental visual affordance for returning sighted users.
 
 **Guard conditions:**
-- No chevron on any active row (all `slug === null`): no hint.
-- `localStorage` unavailable / already dismissed: no hint (fail-safe: absence, never an error).
-- Pre-mount (SSR / first paint): hint not rendered (mount-gated via a `useHasMounted`-style client hook) — prevents hydration mismatch and flash.
-- Only ONE hint instance across the panel (on the first chevron-bearing row), not one per row.
+- No chevron on any active row (all `slug === null`): no banner (nothing to hint about).
+- `localStorage` unavailable / already dismissed: no banner (fail-safe: absence, never an error).
+- Pre-mount (SSR / first paint): banner not rendered (mount-gated via a `useHasMounted`-style client hook) — prevents hydration mismatch and flash.
+- Exactly ONE banner instance total (panel-level, top of the active list), never per-row.
+- Empty active list: no banner.
 
 ### WI-6 — PerShow link tap-target parity
 
@@ -178,14 +181,14 @@ States are largely static per row; the animated surfaces are the WI-5 hint and e
 
 | State pair | Treatment |
 |------------|-----------|
-| Hint visible → dismissed | Instant removal on dismiss click (no exit animation needed; `localStorage` write + unmount). Acceptable per prior BellPanel hover-only motion budget. |
-| Hint absent (dismissed) → visible | Never re-appears within a browser profile (one-time). No transition. |
-| Pre-mount → mounted (hint) | Hint mounts silently after `useHasMounted` flips; no entrance animation (avoids flash). |
+| Hint banner visible → dismissed | Instant removal on dismiss click (no exit animation needed; `localStorage` write + unmount). In-flow, so rows below shift up instantly. Acceptable per prior BellPanel hover-only motion budget. |
+| Hint banner absent (dismissed) → visible | Never re-appears within a browser profile (one-time). No transition. |
+| Pre-mount → mounted (banner) | Banner mounts silently after `useHasMounted` flips; no entrance animation (avoids flash). Because it is in-flow at the list top, its mount pushes rows down by its height (no overlap, no clip). |
 | Row unread (`bg-stale-tint`) → read (`hover:bg-surface-sunken`) | Existing `transition-colors motion-safe:duration-fast` on row `:363` — unchanged by restructure. |
 | Message block present ↔ absent | Instant (conditional render); no animation — consistent with today. |
 | `<ul>` multi-change ↔ single-sentence | Instant (mutually exclusive render branches on the same alert code); no compound transition — a given alert row does not toggle change-count live. |
 
-Compound transition check: the hint dismiss occurs independently of row read-state; dismissing the hint does not alter row layout (chip lives in an absolutely-positioned or margin-flowed wrapper that reserves no layout when gone). Verify in the transition-audit task that hint mount/unmount does not shift the chevron position.
+Compound transition check: the banner dismiss occurs independently of row read-state. Because the banner is in-flow at the list top, dismissing it shifts rows up by its height (expected, not a bug) but never overlaps or clips a row. Verify in the transition-audit / layout task that (a) with the banner present the panel has NO horizontal overflow, (b) the banner and its dismiss button are fully within the panel bounds at both mobile and desktop widths, and (c) the banner never overlaps the first row's chevron (in-flow ⇒ trivially non-overlapping; assert the banner's bottom edge ≤ first row's top edge).
 
 ## 7. Test plan & anti-tautology
 
@@ -198,10 +201,10 @@ Compound transition check: the hint dismiss occurs independently of row read-sta
 - **BellPanel multi-change `<ul>`** (`tests/components/bellPanel*.test.tsx`): for a 4-change `ROLE_FLAGS_NOTICE` fixture, assert a real `<ul>` with 3 `<li>` + an overflow `<p>`; assert `<li>` font-weight is body (not bold) by asserting the class lacks `font-semibold`/`font-bold`; assert the `<ul>` is NOT a descendant of the mark-read `<button>` (query button subtree, assert no `<ul>`). Failure mode: `<ul>` nested in button (invalid HTML) or bold items.
 - **Message-out-of-button** (`tests/components/bellPanel*.test.tsx`): assert the message span and inline Learn-more `<a>` are siblings of, not descendants of, the toggle button; assert the toggle button's accessible name is the title only (clone the button subtree, assert it contains no message text). Failure mode: message still inside button.
 - **Learn-more inline** : assert `bell-help-${id}` is inside the message block, not in ActionCell (`bell-action-*` container); assert ActionCell has no `bell-help-*`.
-- **Chevron hint** (`tests/components/bellPanelDeferrals.test.tsx` or new `bellChevronHint.test.tsx`): assert hint absent pre-mount; present after mount when not dismissed; absent after dismiss (localStorage set); only one hint across a multi-row feed; absent when all rows lack a slug. Mock `localStorage`. **No-nested-interactive invariant:** assert `bell-chevron-hint-dismiss` is NOT a descendant of `bell-caret-${id}` (query the caret subtree, assert no button), and that clicking dismiss does not navigate (assert no href-follow / the click handler is the dismiss handler, not the chevron `<a>`).
+- **Chevron hint** (`tests/components/bellPanelDeferrals.test.tsx` or new `bellChevronHint.test.tsx`): assert banner absent pre-mount; present after mount when not dismissed; absent after dismiss (localStorage set); exactly one banner across a multi-row feed; absent when all rows lack a slug; absent on empty list. Mock `localStorage`. **No-nested-interactive invariant:** assert `bell-chevron-hint-dismiss` is NOT a descendant of any `bell-caret-${id}` (query every caret subtree, assert no button), and that clicking dismiss unmounts the banner (does not navigate — the handler is the dismiss handler on a top-level `<button>`, not the chevron `<a>`).
 - **PerShow tap-target** (`tests/components/admin/perShowAlertActionLink.test.tsx` / `HelpLink.test.tsx`): assert action + Learn-more classNames now include `min-h-tap-min` AND `ring-offset-surface`. Failure mode: parity regression.
-- **Layout (real-browser)** `tests/e2e/bell-panel-layout.spec.ts`: DI-1..DI-4 with chevron-present + chevron-absent fixtures. jsdom insufficient.
-- **Transition-audit** (jsdom ok for prop presence): enumerate the hint's mount/dismiss; assert dismiss removes it without shifting `bell-caret` x-position (real-browser for the position check).
+- **Layout (real-browser)** `tests/e2e/bell-panel-layout.spec.ts`: DI-1..DI-4 with chevron-present + chevron-absent fixtures. jsdom insufficient. **Chevron-hint banner geometry — at mobile (≤420px) AND desktop widths:** with the banner present, assert (a) panel has no horizontal overflow (`panel.scrollWidth <= panel.clientWidth + 0.5`), (b) `bell-chevron-hint` and `bell-chevron-hint-dismiss` bounding rects are fully within the panel's rect (left/right/top/bottom within bounds), (c) the dismiss button rect is ≥44px tap target and clickable (perform the click, assert the banner unmounts), (d) banner bottom edge ≤ first `ActiveRow` top edge (in-flow, non-overlapping).
+- **Transition-audit** (jsdom ok for prop presence): enumerate the banner's mount/dismiss conditional; assert dismiss removes it; assert no `AnimatePresence`/`exit` needed (instant is deliberate). Real-browser (in the layout spec) covers the geometry / non-overlap.
 
 ## 8. Meta-test inventory
 
