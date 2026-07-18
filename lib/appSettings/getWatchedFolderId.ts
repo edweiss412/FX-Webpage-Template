@@ -1,3 +1,4 @@
+import { isPlausibleDriveFolderId } from "@/lib/drive/isPlausibleFolderId";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type AppSettingsSupabaseClient = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -67,11 +68,15 @@ export async function getActiveWatchedFolder(
       watched_folder_id: string | null;
       watched_folder_name: string | null;
     } | null;
-    if (row?.watched_folder_id)
+    // Gate BOTH the persisted value and the env fallback on the Drive-id shape.
+    // An implausible value (a stray `.`, whitespace, junk) degrades to
+    // "no folder configured" (safe cron skip) instead of a `'.' in parents`
+    // Drive query that 404s (FXAV-CREW-PAGES-4).
+    if (isPlausibleDriveFolderId(row?.watched_folder_id))
       return { folderId: row.watched_folder_id, folderName: row.watched_folder_name ?? null };
     if (!row) {
       const folderId = firstBootEnvFolderId();
-      if (folderId) return { folderId, folderName: null };
+      if (isPlausibleDriveFolderId(folderId)) return { folderId, folderName: null };
     }
     return { kind: "no_folder_configured" };
   } catch (cause) {
@@ -106,10 +111,13 @@ export async function getActiveWatchedFolderId(
     }
 
     const row = data as AppSettingsFolderRow | null;
-    if (row?.watched_folder_id) return { folderId: row.watched_folder_id };
+    // Gate BOTH the persisted value and the env fallback on the Drive-id shape
+    // (see getActiveWatchedFolder above; FXAV-CREW-PAGES-4).
+    if (isPlausibleDriveFolderId(row?.watched_folder_id))
+      return { folderId: row.watched_folder_id };
     if (!row) {
       const folderId = firstBootEnvFolderId();
-      if (folderId) return { folderId };
+      if (isPlausibleDriveFolderId(folderId)) return { folderId };
     }
     return { kind: "no_folder_configured" };
   } catch (cause) {
