@@ -64,17 +64,22 @@ test("callout renders NO role-recognize control (demoted to preview); list still
   // callout host (chrome context carries calloutEntries; wizardSessionId present)
   const callout = render(calloutHost([{ warning: w, index: 0 }]));
   const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+  // Assert the CONTROL ROOT is gone, not just its trigger/panel leaves — the
+  // root (role-recognize-control) is the broadest proof (RoleRecognizeControl.tsx:178/199/246/260).
+  expect(within(box).queryByTestId("role-recognize-control-callout")).toBeNull();
   expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
   expect(within(box).queryByTestId("role-recognize-panel-callout")).toBeNull();
+  // Static preview affordances remain (transition-audit: instant, no animated mount).
+  expect(within(box).getByText(/View details/)).toBeTruthy();
   cleanup();
   // list host — the sole actionable site keeps the control
   const list = renderBreakdown([w], { decisions: [] });
   const row = list.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
-  expect(within(row).getByTestId("role-recognize-trigger-list")).toBeTruthy();
+  expect(within(row).getByTestId("role-recognize-control-list")).toBeTruthy();
 });
 ```
 
-(Reuse the `calloutHost` helper already defined at `:265-292`; if it hardcodes a use-raw fixture, parameterize it or use `localCalloutHost` from `:372`. Keep whichever host mounts the callout via `Step3SectionChromeContext` with `calloutEntries`.)
+(Reuse the `calloutHost` helper defined at `:280` — it mounts the callout via `Step3SectionChromeContext` with `calloutEntries`; its chrome value comes from `chromeValue()` at `:267`. Both are role-token-agnostic — they render whatever entries you pass.)
 
 - [ ] **Step 2: Rework the use-raw callout test (`:369-408`, `:405`) into the use-raw removal proof**
 
@@ -85,7 +90,7 @@ Invert the callout assertion at `:405`:
 expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
 ```
 
-Keep the list assertions (`:399-400`) unchanged (list still mounts `use-raw-control-callout`'s sibling `use-raw-control-list`). Leave the `localCalloutHost` chrome fields (`wizardSessionId`, `useRawDecisions`) in place for now — Task 2 removes them once the `Step3SectionChrome` type drops them.
+(`use-raw-control` IS the control root, `UseRawControl.tsx:412/427/474` — no separate root/leaf split, so this single query is the full proof.) Keep the list assertions (`:399-400`) unchanged (list still mounts `use-raw-control-list`). Leave the `localCalloutHost` chrome fields (`wizardSessionId`, `useRawDecisions`) in place for now — Task 2 removes them once the `Step3SectionChrome` type drops them.
 
 - [ ] **Step 3: Run the reworked tests — verify they FAIL (RED)**
 
@@ -152,9 +157,16 @@ In `ShowReviewSurface.tsx`, delete from the `Step3SectionChromeContext.Provider`
 
 **KEEP** the `calloutEntries`/`onJumpToWarning` spread (`:838-840`) and its `isStaged(data)` gate — the preview still needs entries + the jump callback, and stays staged-only (spec §5.3).
 
-- [ ] **Step 4: Fix the `localCalloutHost` fixture**
+- [ ] **Step 4: Fix BOTH chrome fixtures**
 
-In `warningsBreakdownControls.test.tsx`, delete `wizardSessionId: WSID,` and `useRawDecisions: [],` from the `localCalloutHost` chrome value (`:383-384`) — those fields no longer exist on `Step3SectionChrome`, so the fixture won't typecheck otherwise. (The callout preview no longer needs them.)
+There are TWO chrome-object fixtures carrying the removed fields — delete `wizardSessionId: …,` and `useRawDecisions: …,` from EACH:
+- `chromeValue()` helper (`:271-272`, `wizardSessionId: WSID` + `useRawDecisions: []`) — feeds `calloutHost` (`:280`).
+- `localCalloutHost` inline chrome value (`:383-384`, same two fields).
+
+⚠️ `chromeValue()` returns an **unannotated** object, so excess-property checking does NOT fire when it's assigned to the typed Provider `value` (structural subtyping allows a source with extra fields) — `pnpm typecheck` will NOT flag the stale fields (Codex plan-R1). They must be removed by hand. After removal, grep to confirm zero survivors:
+
+Run: `grep -n "wizardSessionId\|useRawDecisions" tests/components/admin/wizard/warningsBreakdownControls.test.tsx`
+Expected: only references inside `renderBreakdown`/`WarningsBreakdown` list context (which reads them from `SectionData`, valid) or the `-list` test bodies — NONE inside a `Step3SectionChromeContext` chrome value.
 
 - [ ] **Step 5: Typecheck + run the callout suite — verify GREEN**
 
@@ -173,49 +185,26 @@ WarningsBreakdown. Fixture cleanup for localCalloutHost."
 
 ---
 
-### Task 3: Transition-audit confirmation (SectionFlagCallout is static preview)
+### Task 3: Transition-audit verification (non-TDD — no separate test commit)
 
-**Files:**
-- Test: `tests/components/admin/wizard/warningsBreakdownControls.test.tsx` (add one assertion) OR reuse `step3ReviewModal.transitions.test.tsx` (Task 4 sweep decides placement)
+**Files:** none modified (verification-only).
 
 **Interfaces:**
 - Consumes: Task 1's preview-only `SectionFlagCallout`.
 
-Per the spec §8 transition inventory + the project transition-audit rule: `SectionFlagCallout` after removal has only **deliberate static, instant** conditionals (judgment lead `:577`, overflow `:636`) and **no** `AnimatePresence` / animated conditional mount (the removed control boundaries owned their own transitions).
+Per the spec §8 transition inventory + the project transition-audit rule. This is **verification-only** — the behavioral proof (callout renders no animated control subtree; static "View details" affordance remains) already lives in Task 1's test, which had a genuine RED phase. Adding a separate test here would PASS immediately (controls already gone), violating the TDD-per-task RED requirement (Codex plan-R1). So Task 3 is a grep/inspection gate with no test and no commit of its own.
 
-- [ ] **Step 1: Write the audit assertion (RED if a control mount lingers)**
+- [ ] **Step 1: Grep-confirm no `AnimatePresence` / `motion.` / animate utility inside `SectionFlagCallout`**
 
-Add to the callout describe block:
-
-```tsx
-test("callout preview has no AnimatePresence / animated mount (static instant only)", () => {
-  const w = roleWarning("SLED DRIVER");
-  const callout = render(calloutHost([{ warning: w, index: 0 }]));
-  const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-  // No mounted control subtrees (they owned the only animations in the callout).
-  expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
-  expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
-  // Static preview affordances remain: title + View details jump.
-  expect(within(box).getByText(/View details/)).toBeTruthy();
-});
-```
-
-- [ ] **Step 2: Run — verify PASS (GREEN, controls already removed by Task 1)**
-
-Run: `pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx -t "AnimatePresence"`
-Expected: PASS.
-
-- [ ] **Step 3: Grep-confirm no `AnimatePresence` / `motion.` inside SectionFlagCallout**
-
-Run: `sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "AnimatePresence\|motion\.\|animate-\[" || echo "NONE — static preview confirmed"`
+Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-callout-preview-demotion && sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "AnimatePresence\|motion\.\|animate-\[" || echo "NONE — static preview confirmed"`
 Expected: `NONE — static preview confirmed`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 2: Confirm the static conditionals remain (deliberate, instant)**
 
-```bash
-git add tests/components/admin/wizard/warningsBreakdownControls.test.tsx
-git commit --no-verify -m "test(crew-page): transition-audit — callout preview is static/instant, no animated mount"
-```
+Run: `sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "isJudgment ?\|extra > 0 ?" | head`
+Expected: two matches — the judgment lead + "+N more" overflow ternaries (spec §8 keeps them; they are instant static conditionals, NOT animated mounts).
+
+No commit — this task gates on the two greps only. Its assertion of the render is carried by Task 1's committed test.
 
 ---
 
@@ -347,6 +336,41 @@ Expected: clean.
 
 Run: `sed -n '532,647p' components/admin/wizard/step3ReviewSections.tsx | grep -n "UseRawControlBoundary\|RoleRecognizeControlBoundary" || echo "NONE — callout is preview-only"`
 Expected: `NONE — callout is preview-only`.
+
+---
+
+### Task 8: Close-out (autonomous-ship Stage 4)
+
+**Files:** none (integration + ship gate). Run by the orchestrator after Tasks 1–7 land, per the `AGENTS.md` autonomous-ship pipeline (this is a user-approved autonomous ship; both user-review gates waived).
+
+Not a TDD task — the whole-diff review + merge pipeline.
+
+- [ ] **Step 1: Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY)**
+
+Send the entire implementation diff (`git diff origin/main...HEAD`) to Codex with fresh-eyes posture. Iterate to APPROVE (no round budget). Triage findings via deferral discipline (land-now / `DEFERRED.md` / `BACKLOG.md`). The impeccable dual-gate (Task 5) must have run FIRST.
+
+- [ ] **Step 2: Push + open PR**
+
+```bash
+git push -u origin feat/use-raw-callout-preview-demotion
+gh pr create --title "feat(crew-page): demote SectionFlagCallout to preview (resolve USE-RAW-FULL-LIST-1)" --body "<summary + spec/plan links + impeccable dispositions>"
+```
+
+- [ ] **Step 3: Real CI green (not just local)**
+
+`gh pr checks <PR#> --watch`. Confirm `mergeStateStatus` is CLEAN (not DIRTY/behind base). Local-green + adversarial-APPROVE are necessary but NOT sufficient — the GitHub Actions run is the gate. If DIRTY/behind `main`, rebuild on `origin/main` and re-push.
+
+- [ ] **Step 4: Merge (merge commit) + fast-forward local main**
+
+```bash
+gh pr merge <PR#> --merge
+git checkout main && git fetch origin && git merge --ff-only origin/main
+git rev-list --left-right --count main...origin/main   # expect: 0  0
+```
+
+- [ ] **Step 5: Write the handoff / milestone note**
+
+Record the impeccable §12 findings + dispositions, adversarial rounds, and CI result. Confirm `DEFERRED.md` no longer lists USE-RAW-FULL-LIST-1 and `BACKLOG.md` twin is RESOLVED (Task 6).
 
 ---
 
