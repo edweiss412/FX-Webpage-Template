@@ -36,7 +36,7 @@
  * more" note). Tap-target audit adds the report disclosure toggle (the form
  * behind it is collapsed by default per follow-ups-b2 §D — the submit button
  * is measured in the LIVE interactions spec after an expand step), a crew
- * callout "View details" button, and the diagrams folder link.
+ * callout jump button, and the diagrams folder link.
  *
  * Plus (§15/§16): tap-target audit (grab strip, every visible chip, every
  * visible rail item, footer buttons ≥44px tall; a crew tel anchor ≥44×44);
@@ -408,7 +408,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
     }
 
     // Follow-ups Task 14 additions: the report disclosure toggle, a crew-callout
-    // "View details" jump button (§E3), and the diagrams folder link (§B3) are
+    // action-forward jump button (§E3), and the diagrams folder link (§B3) are
     // all new interactive targets — each ≥44px tall (parent-spec §15 rule).
     // Follow-ups-b2 §D: the report form is collapsed by default, so this STATIC
     // harness (react-dom/server — no interactivity) measures the always-present
@@ -417,7 +417,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
     for (const [label, sel] of [
       ["report toggle", `[data-testid="wizard-step3-card-${HARNESS_DFID}-report-toggle"]`],
       [
-        "callout View details",
+        "callout jump",
         `[data-testid="wizard-step3-card-${HARNESS_DFID}-section-crew-flag-callout"] button`,
       ],
       [

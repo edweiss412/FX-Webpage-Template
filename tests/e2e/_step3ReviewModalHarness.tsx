@@ -50,7 +50,7 @@ const HARNESS_DIAGRAM_TILE_CAP = 12;
  *  the layout spec derives tile expectations from the fixture, not literals. */
 export const HARNESS_DIAGRAM_STUB_COUNT = HARNESS_DIAGRAM_TILE_CAP + 3;
 /** Spec §E3 callout row cap, duplicated (same rationale as the tile cap):
- *  CALLOUT_MAX_ENTRIES + 2 crew warnings → a callout with "View details" rows
+ *  CALLOUT_MAX_ENTRIES + 2 crew warnings → a callout with jump-button rows
  *  AND a "+2 more in Parse warnings" overflow row both render (§K13). */
 const HARNESS_CALLOUT_MAX_ENTRIES = 3;
 export const HARNESS_CREW_WARNING_COUNT = HARNESS_CALLOUT_MAX_ENTRIES + 2;

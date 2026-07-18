@@ -882,7 +882,9 @@ describe("§H compound (a): jump-link clicked during an in-flight nav glide — 
         vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1); // old timer: 1ms left
       });
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-      fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+      fireEvent.click(
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      );
       expect(navActiveId(q, "rail")).toBe("warnings"); // target replaced immediately
       // Only the LAST target releases on settle: parking at the OLD click's
       // target holds (a stale-target release would re-derive here).
@@ -914,7 +916,9 @@ describe("§H compound (a): jump-link clicked during an in-flight nav glide — 
     try {
       fireEvent.click(q.getByTestId(tid(`rail-item-${defs[defs.length - 1]!.id}`)));
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-      fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+      fireEvent.click(
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      );
       // Old target frame: held (replaced target owns the release).
       scrollAt(content, absTop(defs.length - 1) - 8);
       expect(navActiveId(q, "rail")).toBe("warnings");
@@ -943,7 +947,9 @@ describe("§H compound (b): unmount during an active highlight + active suppress
       });
       const ambient = vi.getTimerCount();
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-      fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+      fireEvent.click(
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      );
       // Both §H states active: the one-shot highlight attribute is on the row
       // (its WARNING_HIGHLIGHT_MS timer pending) AND the §A2 settle timer runs.
       expect(
