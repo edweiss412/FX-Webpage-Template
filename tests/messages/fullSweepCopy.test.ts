@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/lookup";
+import { MESSAGE_CATALOG, messageFor, type MessageCode } from "@/lib/messages/lookup";
 
 const BATCH_A: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }> = [
   {
@@ -91,7 +91,11 @@ describe("full-sweep copy batch A (§6.a — 13 codes)", () => {
  * Full-sweep copy batch B (spec docs/superpowers/specs/2026-07-18-alert-copy-
  * full-sweep-design.md §6.b — 15 codes). Same data-driven shape as batch A.
  */
-const BATCH_B: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }> = [
+const BATCH_B: ReadonlyArray<{
+  code: MessageCode;
+  dougFacingSubstring: string;
+  helpHrefOverride?: string;
+}> = [
   {
     code: "LIVE_ROW_CONFLICT",
     dougFacingSubstring: "is already being processed by the live folder sync",
@@ -103,6 +107,10 @@ const BATCH_B: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
   {
     code: "PARSE_ERROR_LAST_GOOD",
     dougFacingSubstring: "latest edit didn't parse, so the previous approved version",
+    // Ratified WARN_/PARSE_ parse-warnings carve-out (design doc §4.4; ratified
+    // E-content.md R2) — see 8dfdef812, which restored this after the §6.b batch
+    // briefly moved it onto the generic /help/errors# pattern.
+    helpHrefOverride: "/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD",
   },
   {
     code: "SHEET_UNAVAILABLE",
@@ -157,6 +165,103 @@ const BATCH_B: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
 describe("full-sweep copy batch B (§6.b — 15 codes)", () => {
   test.each(BATCH_B)(
     "$code: helpfulContext null, longExplanation/title non-null, helpHref pinned, dougFacing updated",
+    ({ code, dougFacingSubstring, helpHrefOverride }) => {
+      const entry = MESSAGE_CATALOG[code];
+      expect(entry.helpfulContext).toBeNull();
+      expect(entry.longExplanation).not.toBeNull();
+      expect(entry.title).not.toBeNull();
+      expect(entry.helpHref).toBe(helpHrefOverride ?? `/help/errors#${code}`);
+      expect(entry.dougFacing).not.toBeNull();
+      expect(entry.dougFacing).toContain(dougFacingSubstring);
+    },
+  );
+
+  test("all 15 batch-B codes are present in MESSAGE_CATALOG", () => {
+    for (const { code } of BATCH_B) {
+      expect(MESSAGE_CATALOG[code]).toBeDefined();
+    }
+    expect(BATCH_B).toHaveLength(15);
+  });
+});
+
+/**
+ * Full-sweep copy batch C (spec docs/superpowers/specs/2026-07-18-alert-copy-
+ * full-sweep-design.md §6.c — 17 codes). Same data-driven shape as batch A/B.
+ */
+const BATCH_C: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }> = [
+  {
+    code: "SHOW_FIRST_PUBLISHED",
+    dougFacingSubstring: "is now live for crew at its share-token URL",
+  },
+  {
+    code: "SHOW_UNPUBLISHED",
+    dougFacingSubstring: "crew who open its link see a 'not available right now' page",
+  },
+  {
+    code: "EMAIL_DELIVERY_FAILED",
+    dougFacingSubstring: "couldn't be sent. We'll keep retrying automatically",
+  },
+  {
+    code: "EMAIL_NOT_CONFIGURED",
+    dougFacingSubstring: "sync-problem alerts, the daily digest, and auto-publish undo emails",
+  },
+  {
+    code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    dougFacingSubstring: "has been stuck for more than 15 minutes",
+  },
+  {
+    code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    dougFacingSubstring: "stalled after moving some assets",
+  },
+  {
+    code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    dougFacingSubstring: "is stuck — crew pages are still protected",
+  },
+  {
+    code: "REPORT_ORPHANED_LOST_LEASE",
+    dougFacingSubstring: "was auto-closed during a retry race",
+  },
+  {
+    code: "REPORT_LOOKUP_INCONCLUSIVE",
+    dougFacingSubstring: "couldn't confirm whether a report for",
+  },
+  {
+    code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    dougFacingSubstring: "Recovery is paused until Eric reviews the duplicates",
+  },
+  {
+    code: "REPORT_OPEN_ORPHAN_LABEL",
+    dougFacingSubstring: "carries the orphan-cleanup label",
+  },
+  {
+    code: "REPORT_LEASE_THRASHING",
+    dougFacingSubstring: "retries are racing against leases",
+  },
+  {
+    code: "STALE_ORPHAN_REPORT",
+    dougFacingSubstring: "expired before it could create a GitHub issue",
+  },
+  {
+    code: "TILE_SERVER_RENDER_FAILED",
+    dougFacingSubstring: "a section failed to load on the server",
+  },
+  {
+    code: "TILE_PROJECTION_FETCH_FAILED",
+    dougFacingSubstring: "one or more data sources couldn't load",
+  },
+  {
+    code: "BRANCH_PROTECTION_DRIFT",
+    dougFacingSubstring: "no longer matches the X.6 contract",
+  },
+  {
+    code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    dougFacingSubstring: "cannot authenticate with GitHub",
+  },
+];
+
+describe("full-sweep copy batch C (§6.c — 17 codes)", () => {
+  test.each(BATCH_C)(
+    "$code: helpfulContext null, longExplanation/title non-null, helpHref pinned, dougFacing updated",
     ({ code, dougFacingSubstring }) => {
       const entry = MESSAGE_CATALOG[code];
       expect(entry.helpfulContext).toBeNull();
@@ -168,10 +273,14 @@ describe("full-sweep copy batch B (§6.b — 15 codes)", () => {
     },
   );
 
-  test("all 15 batch-B codes are present in MESSAGE_CATALOG", () => {
-    for (const { code } of BATCH_B) {
+  test("all 17 batch-C codes are present in MESSAGE_CATALOG", () => {
+    for (const { code } of BATCH_C) {
       expect(MESSAGE_CATALOG[code]).toBeDefined();
     }
-    expect(BATCH_B).toHaveLength(15);
+    expect(BATCH_C).toHaveLength(17);
+  });
+
+  test("SHOW_FIRST_PUBLISHED title is filled per spec §3 ratified decision", () => {
+    expect(messageFor("SHOW_FIRST_PUBLISHED").title).toBe("Show published");
   });
 });

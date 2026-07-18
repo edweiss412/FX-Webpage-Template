@@ -210,13 +210,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     "followUp": "Eric → restore branch protection per X.6 contract",
-    "helpfulContext": "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the eight required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
+    "helpfulContext": null,
   },
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED": {
     "crewFacing": null,
     "dougFacing": "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     "followUp": "Eric → rotate GH App / PAT within 24h",
-    "helpfulContext": "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required X.* checks. Rotate the GitHub App token or fallback PAT, then confirm the scheduled branch-protection job succeeds again; otherwise drift could go undetected until the reader check's freshness window expires.",
+    "helpfulContext": null,
   },
   "CALLBACK_CLAIM_THREW": {
     "crewFacing": null,
@@ -336,13 +336,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     "followUp": "Eric → check provider key / verified sending domain",
-    "helpfulContext": "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
+    "helpfulContext": null,
   },
   "EMAIL_NOT_CONFIGURED": {
     "crewFacing": null,
     "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. The developer configures this on the deployment.",
     "followUp": "Eric → configure email env (provider key / sending address / site address) on the deployment",
-    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
+    "helpfulContext": null,
   },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,
@@ -760,9 +760,9 @@ export const SPEC_CODES = {
   },
   "PENDING_SNAPSHOT_DELETE_STUCK": {
     "crewFacing": null,
-    "dougFacing": "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
+    "dougFacing": "A diagram snapshot cleanup for <show-name> is stuck — crew pages are still protected, but storage cleanup needs repair.",
     "followUp": "Doug → run snapshot repair; if persistent, Eric",
-    "helpfulContext": "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
+    "helpfulContext": null,
   },
   "PENDING_SNAPSHOT_NOT_STUCK": {
     "crewFacing": null,
@@ -780,13 +780,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-promote-repair admin tool",
-    "helpfulContext": "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
+    "helpfulContext": null,
   },
   "PENDING_SNAPSHOT_ROLLBACK_STUCK": {
     "crewFacing": null,
     "dougFacing": "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-rollback-repair admin tool",
-    "helpfulContext": "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
+    "helpfulContext": null,
   },
   "PENDING_SYNC_NOT_FOUND": {
     "crewFacing": null,
@@ -948,7 +948,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     "followUp": "Eric → inspect duplicate report issues and close the incorrect one",
-    "helpfulContext": "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
+    "helpfulContext": null,
   },
   "REPORT_HORIZON_EXPIRED": {
     "crewFacing": "This report attempt has expired. Please open a fresh report if the issue still applies.",
@@ -960,25 +960,25 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Bug-report processing is thrashing on <show-name> — retries are racing against leases. This usually means the lease window needs tuning.",
     "followUp": "Eric → tune lease window",
-    "helpfulContext": "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
+    "helpfulContext": null,
   },
   "REPORT_LOOKUP_INCONCLUSIVE": {
     "crewFacing": "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     "dougFacing": "We couldn't confirm whether a report for <show-name> went through. Try again in a few minutes.",
     "followUp": "Eric → review GitHub issue lookup and retry state",
-    "helpfulContext": "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
+    "helpfulContext": null,
   },
   "REPORT_OPEN_ORPHAN_LABEL": {
     "crewFacing": null,
     "dougFacing": "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     "followUp": "Eric → inspect the labeled issue",
-    "helpfulContext": "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
+    "helpfulContext": null,
   },
   "REPORT_ORPHANED_LOST_LEASE": {
     "crewFacing": null,
     "dougFacing": "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     "followUp": "Eric → review orphan, tune lease window if recurring",
-    "helpfulContext": "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this code keeps appearing, the developer needs to extend the lease window.",
+    "helpfulContext": null,
   },
   "REPORT_PIPELINE_FAILED": {
     "crewFacing": "The report system hit a server error before it could finish. Please try again in a few minutes.",
@@ -1138,9 +1138,9 @@ export const SPEC_CODES = {
   },
   "SHOW_FIRST_PUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page — crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
+    "dougFacing": "<sheet-name> is now live for crew at its share-token URL — <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
     "followUp": null,
-    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page — crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
+    "helpfulContext": null,
   },
   "SHOW_PUBLISHED_BY_ADMIN": {
     "crewFacing": null,
@@ -1186,9 +1186,9 @@ export const SPEC_CODES = {
   },
   "SHOW_UNPUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ has been unpublished. Its crew link is paused — crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
+    "dougFacing": "<sheet-name> has been unpublished — crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
     "followUp": "Doug → republish from the show's page when ready",
-    "helpfulContext": "This show has been unpublished — from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed — the same link works again when you republish, your sheet is unchanged and keeps syncing, and the show stays in Active shows. Turn Published back on from the show's page when you're ready.",
+    "helpfulContext": null,
   },
   "SHOW_VERSION_AUTH_FAILED": {
     "crewFacing": null,
@@ -1326,7 +1326,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     "followUp": "Eric → inspect report-reaper logs if this recurs",
-    "helpfulContext": "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
+    "helpfulContext": null,
   },
   "STALE_PUSH_ABORTED": {
     "crewFacing": null,
@@ -1384,15 +1384,15 @@ export const SPEC_CODES = {
   },
   "TILE_PROJECTION_FETCH_FAILED": {
     "crewFacing": null,
-    "dougFacing": "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
+    "dougFacing": "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load — refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
-    "helpfulContext": "The crew page loaded, but one or more of its data sources failed to fetch from the server. The page rendered with the data that did load. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click 'Report' so the developer can investigate.",
+    "helpfulContext": null,
   },
   "TILE_SERVER_RENDER_FAILED": {
     "crewFacing": "This section couldn't load — last good data shown.",
-    "dougFacing": "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
+    "dougFacing": "<sheet-name>: a section failed to load on the server and will keep retrying — refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
-    "helpfulContext": "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
+    "helpfulContext": null,
   },
   "TRAVEL_FLIGHT_AMBIGUOUS_TABLE": {
     "crewFacing": null,

@@ -1080,25 +1080,24 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     severity: "info",
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
+      "<sheet-name> is now live for crew at its share-token URL \u2014 <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
     crewFacing: null,
     followUp: null,
-    helpfulContext:
-      "We auto-published this show because the parse looked clean \u2014 all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
-    title: null,
-    longExplanation: null,
-    helpHref: null,
+    helpfulContext: null,
+    title: "Show published",
+    longExplanation:
+      "This show auto-published because the parse looked clean and all safety checks passed. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
+    helpHref: "/help/errors#SHOW_FIRST_PUBLISHED",
   },
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
     resolution: "auto",
     audience: "doug",
     dougFacing:
-      "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
+      "<sheet-name> has been unpublished \u2014 crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
     crewFacing: null,
     followUp: "Doug \u2192 republish from the show's page when ready",
-    helpfulContext:
-      "This show has been unpublished \u2014 from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed \u2014 the same link works again when you republish, your sheet is unchanged and keeps syncing, and the show stays in Active shows. Turn Published back on from the show's page when you're ready.",
+    helpfulContext: null,
     title: "Show unpublished",
     longExplanation:
       "This show has been unpublished — from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed — the same link works again when you republish, and the sheet keeps syncing. Turn Published back on from the show's page when you're ready.",
@@ -2035,8 +2034,7 @@ export const MESSAGE_CATALOG = {
       "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-promote-repair admin tool",
-    helpfulContext:
-      "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
+    helpfulContext: null,
     title: "Snapshot promotion stuck",
     longExplanation:
       "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
@@ -2053,8 +2051,7 @@ export const MESSAGE_CATALOG = {
       "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-rollback-repair admin tool",
-    helpfulContext:
-      "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
+    helpfulContext: null,
     title: "Snapshot rollback stalled",
     longExplanation:
       "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
@@ -2071,8 +2068,7 @@ export const MESSAGE_CATALOG = {
       "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     crewFacing: null,
     followUp: "Eric → restore branch protection per X.6 contract",
-    helpfulContext:
-      "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the eight required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
+    helpfulContext: null,
     title: "Branch protection drift",
     longExplanation:
       "The branch-protection monitor found that the main-branch protection no longer matches the X.6 contract: a required check is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes / deletions are allowed. Restore the settings so pull requests cannot merge without the full audit suite.",
@@ -2089,8 +2085,7 @@ export const MESSAGE_CATALOG = {
       "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     crewFacing: null,
     followUp: "Eric → rotate GH App / PAT within 24h",
-    helpfulContext:
-      "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required X.* checks. Rotate the GitHub App token or fallback PAT, then confirm the scheduled branch-protection job succeeds again; otherwise drift could go undetected until the reader check's freshness window expires.",
+    helpfulContext: null,
     title: "Branch-protection monitor can't auth",
     longExplanation:
       "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required checks. Rotate the GitHub App token or fallback PAT and confirm the scheduled job succeeds again.",
@@ -2288,8 +2283,7 @@ export const MESSAGE_CATALOG = {
       "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     crewFacing: null,
     followUp: "Eric → check provider key / verified sending domain",
-    helpfulContext:
-      "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
+    helpfulContext: null,
     title: "Couldn't send a notification email",
     longExplanation:
       "A notification email couldn't be delivered through the email provider. We retry automatically; a persistent failure usually means the provider API key or sending domain needs attention in settings.",
@@ -2308,8 +2302,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp:
       "Eric → configure email env (provider key / sending address / site address) on the deployment",
-    helpfulContext:
-      "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
+    helpfulContext: null,
     title: "Email notifications not set up",
     longExplanation:
       "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts in the dashboard, and each show's Published toggle keeps working.",
@@ -2323,11 +2316,10 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "One piece of a crew page had trouble drawing and fell back safely. The developer can look; the rest of the page is fine.",
     dougFacing:
-      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
+      "<sheet-name>: a section failed to load on the server and will keep retrying — refresh in a minute. Tell the developer if it persists.",
     crewFacing: "This section couldn't load — last good data shown.",
     followUp: "Doug → refresh / Report; Eric → investigate",
-    helpfulContext:
-      "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
+    helpfulContext: null,
     title: "Page section failed to render",
     longExplanation:
       "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying; refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
@@ -2341,11 +2333,10 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "A crew page couldn't load one section's data this time. It retries automatically, and the developer can review it.",
     dougFacing:
-      "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
+      "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load — refresh in a minute. Tell the developer if it persists.",
     crewFacing: null,
     followUp: "Doug → refresh / Report; Eric → investigate",
-    helpfulContext:
-      "The crew page loaded, but one or more of its data sources failed to fetch from the server. The page rendered with the data that did load. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click 'Report' so the developer can investigate.",
+    helpfulContext: null,
     title: "Some show data couldn't load",
     longExplanation:
       "The crew page rendered, but one or more of its data sources failed to fetch from the server. The page shows the data that did load; the affected sections fall back. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click Report so the developer can investigate.",
@@ -2385,8 +2376,7 @@ export const MESSAGE_CATALOG = {
       "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     crewFacing: null,
     followUp: "Eric → review orphan, tune lease window if recurring",
-    helpfulContext:
-      "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this code keeps appearing, the developer needs to extend the lease window.",
+    helpfulContext: null,
     title: "Duplicate report issue auto-closed",
     longExplanation:
       "Two retries of the same bug-report submission both succeeded in creating GitHub issues (a lease race condition). We auto-closed the duplicate. Click through to confirm; if this keeps appearing, the developer needs to extend the lease window.",
@@ -2420,8 +2410,7 @@ export const MESSAGE_CATALOG = {
       "Bug-report processing is thrashing on <show-name> — retries are racing against leases. This usually means the lease window needs tuning.",
     crewFacing: null,
     followUp: "Eric → tune lease window",
-    helpfulContext:
-      "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
+    helpfulContext: null,
     title: "Bug-report leases thrashing",
     longExplanation:
       "Bug-report submissions for this show are racing against their own leases, with too many retries firing inside the lease window. Usually this means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
@@ -2773,11 +2762,10 @@ export const MESSAGE_CATALOG = {
     dougSummary:
       "An old diagram version is slow to clean up. It's harmless, and the developer will tidy it up.",
     dougFacing:
-      "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
+      "A diagram snapshot cleanup for <show-name> is stuck — crew pages are still protected, but storage cleanup needs repair.",
     crewFacing: null,
     followUp: "Doug → run snapshot repair; if persistent, Eric",
-    helpfulContext:
-      "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
+    helpfulContext: null,
     title: "Snapshot cleanup stuck",
     longExplanation:
       "Old diagram snapshot cleanup is stuck: a pending row is marked for deletion but the storage prefix hasn't been reclaimed. Crew pages are still protected, but storage cleanup needs repair.",
@@ -2842,8 +2830,7 @@ export const MESSAGE_CATALOG = {
       "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     crewFacing: null,
     followUp: "Eric → inspect duplicate report issues and close the incorrect one",
-    helpfulContext:
-      "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
+    helpfulContext: null,
     title: "Multiple live issues for one report",
     longExplanation:
       "The bug-report recovery scan found more than one non-orphan GitHub issue with the same report marker. The system fails closed instead of choosing a winner; Eric needs to review the duplicates.",
@@ -2875,8 +2862,7 @@ export const MESSAGE_CATALOG = {
     crewFacing:
       "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     followUp: "Eric → review GitHub issue lookup and retry state",
-    helpfulContext:
-      "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
+    helpfulContext: null,
     title: "Report lookup inconclusive",
     longExplanation:
       "The bug-report recovery path couldn't conclusively list recent GitHub issues for this report, so it refused to create a duplicate issue. Try again in a few minutes.",
@@ -2893,8 +2879,7 @@ export const MESSAGE_CATALOG = {
       "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     crewFacing: null,
     followUp: "Eric → inspect the labeled issue",
-    helpfulContext:
-      "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
+    helpfulContext: null,
     title: "Open issue carries orphan label",
     longExplanation:
       "Orphan cleanup should close issues with the 'not planned' state. Seeing the orphan label on an open issue means manual intervention happened or GitHub returned an unexpected state. Eric needs to review and either re-close the issue or remove the label.",
@@ -3062,8 +3047,7 @@ export const MESSAGE_CATALOG = {
       "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     crewFacing: null,
     followUp: "Eric → inspect report-reaper logs if this recurs",
-    helpfulContext:
-      "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
+    helpfulContext: null,
     title: "Stale bug-report reservation expired",
     longExplanation:
       "A bug-report reservation aged past the 24-hour recovery horizon with its processing lease expired and was deleted by the reaper. No user action is needed unless this repeats.",

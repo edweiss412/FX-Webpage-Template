@@ -117,22 +117,20 @@ describe("M6 sync message catalog", () => {
     expect(MESSAGE_CATALOG.SHOW_FIRST_PUBLISHED).toMatchObject({
       severity: "info",
       dougFacing:
-        // M12.13: the undo now DELIVERS (in-app always; emailed token+r
-        // confirm link when configured) — the copy stopped pretending
-        // archive-from-the-page is the only recovery.
-        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
+        // Full-sweep batch C (spec 2026-07-18-alert-copy-full-sweep-design.md
+        // §6.c): condensed to <=2 sentences, bare identity tokens,
+        // helpfulContext migrated to longExplanation on /help/errors.
+        "<sheet-name> is now live for crew at its share-token URL \u2014 <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
       crewFacing: null,
       followUp: null,
-      helpfulContext:
-        "We auto-published this show because the parse looked clean \u2014 all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
+      helpfulContext: null,
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:
-        "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
+        "<sheet-name> has been unpublished \u2014 crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
       crewFacing: null,
       followUp: "Doug → republish from the show's page when ready",
-      helpfulContext:
-        "This show has been unpublished \u2014 from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed \u2014 the same link works again when you republish, your sheet is unchanged and keeps syncing, and the show stays in Active shows. Turn Published back on from the show's page when you're ready.",
+      helpfulContext: null,
     });
   });
 });

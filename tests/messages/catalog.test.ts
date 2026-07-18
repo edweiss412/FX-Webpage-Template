@@ -278,7 +278,7 @@ describe("messageFor interpolation", () => {
   // so the assertions would fail if interpolation were removed.
   test("TILE_SERVER_RENDER_FAILED substitutes <sheet-name> from snake_case sheet_name param", () => {
     const entry = messageFor("TILE_SERVER_RENDER_FAILED", { sheet_name: "Demo Show" });
-    expect(entry.dougFacing).toContain("*Demo Show*");
+    expect(entry.dougFacing).toContain("Demo Show");
     expect(entry.dougFacing).not.toContain("<sheet-name>");
   });
 
@@ -294,7 +294,7 @@ describe("messageFor interpolation", () => {
       show_date: "Apr 6",
     });
     expect(entry.dougFacing).toContain("Spring Conference");
-    expect(entry.dougFacing).toContain("_12_");
+    expect(entry.dougFacing).toContain("12 crew");
     expect(entry.dougFacing).toContain("Apr 6");
     expect(entry.dougFacing).not.toContain("<sheet-name>");
     expect(entry.dougFacing).not.toContain("<crew-count>");
