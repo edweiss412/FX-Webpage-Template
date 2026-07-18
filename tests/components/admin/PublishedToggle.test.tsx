@@ -306,7 +306,8 @@ describe("PublishedToggle — inline variant", () => {
     const FINALIZE_SKIN = ["bg-surface-sunken", "border-border", "text-xs", "text-text-subtle"];
     // Fixed FORBIDDEN (prior test anchored `$` right after `max-w-`/`min-w-`, so a real `max-w-60`
     // never matched): prefix-match width caps + single-side anchors so any regression trips it.
-    const FORBIDDEN = /^(left-0|right-0|left-\d|right-\d|w-max|w-\d+|max-w-\S+|min-w-\S+|translate-x-)/;
+    const FORBIDDEN =
+      /^(left-0|right-0|left-\d|right-\d|w-max|w-\d+|max-w-\S+|min-w-\S+|translate-x-)/;
 
     // Finalize chip (in-flow).
     const { unmount } = renderInline({ published: true, finalizeOwned: true });
