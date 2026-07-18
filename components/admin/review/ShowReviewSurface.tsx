@@ -137,6 +137,7 @@ export function ShowReviewSurface({
   data,
   scrollerRef,
   layout,
+  syncHash,
   extraSectionsBefore,
   extraSectionsAfter,
   renderSectionExtras,
@@ -148,6 +149,9 @@ export function ShowReviewSurface({
   isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
   scrollerRef: RefObject<HTMLElement | null>; // the scroll container the SHELL owns
   layout: "modal" | "page"; // modal: current <lg chip rail + ≥lg two-pane inside dialog; page: full-page two-pane
+  syncHash?: boolean; // §6.4: gates BOTH hash effects (nav-click replaceState + mount restore).
+  // Default `layout === "page"` — Step3 passes nothing (modal default false,
+  // byte-identical); the published review modal passes `syncHash` explicitly.
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
   renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
@@ -159,6 +163,10 @@ export function ShowReviewSurface({
   // in staged mode it is the drive file id (byte-identical to the modal), in
   // published mode it falls back to the mode-agnostic `driveFileId`.
   const dfid = isStaged(data) ? data.dfid : (data.driveFileId ?? "");
+
+  // §6.4: hash sync defaults ON for the page shell only; a shell that owns the
+  // URL (the published review modal) opts in explicitly.
+  const hashSync = syncHash ?? layout === "page";
 
   // ── Section registry + statuses (spec §6.1/§7) — ONE memoized derivation
   // feeds both navs and the section panels. ──
@@ -291,11 +299,12 @@ export function ShowReviewSurface({
    *  (jsdom has no Element#scrollTo; tests stub it — guard keeps this safe.) */
   function handleNavClick(id: string) {
     setActive(id);
-    // Deep-link the hash (spec §10) — page mode only, so the modal never mutates
-    // the page URL (byte-identical rail behavior). replaceState (not
-    // `location.hash =`) updates the URL WITHOUT the browser's native anchor
-    // jump, letting the pane's motion-safe smooth-scroll below own the glide.
-    if (layout === "page" && typeof window !== "undefined") {
+    // Deep-link the hash (spec §10; §6.4 syncHash gate) — Step3's modal default
+    // is OFF, so it never mutates the page URL (byte-identical rail behavior).
+    // replaceState (not `location.hash =`) updates the URL WITHOUT the browser's
+    // native anchor jump, letting the pane's motion-safe smooth-scroll below own
+    // the glide.
+    if (hashSync && typeof window !== "undefined") {
       window.history.replaceState(null, "", `#${id}`);
     }
     const scroller = scrollerRef.current;
@@ -481,29 +490,37 @@ export function ShowReviewSurface({
     // no-extras path re-fires identically to before.
   }, [railItemIds, scrollerRef]);
 
-  // ── §10 hash deep-link restore (page mode only) ─────────────────────────────
+  // ── §10 hash deep-link restore (§6.4 syncHash gate) ─────────────────────────
   // On mount, if `location.hash` names a rail item, glide to it via the SAME
   // nav-click accessor rail clicks use (one code path → identical scroll-spy
-  // suppression + coordinate math). A `#overview` anchor is also natively
-  // resolvable (OverviewSection carries `id="overview"`); this generalizes the
-  // restore to registry ids too (e.g. `#crew`, which has no DOM id). Runs once
-  // (ref-guarded); the modal never touches the page URL so it is page-mode only.
+  // suppression + coordinate math). Restore-target resolution (§6.4/D7):
+  // (1) rail id → existing rail scroll; (2) else an in-scroller DOM id
+  // (`#share-access`) → `scrollIntoView` — a portal-rendered modal never gets
+  // the browser's native fragment scroll, so it is re-applied here; (3) else
+  // no-op. Runs once (ref-guarded); Step3's modal default keeps it off.
   const hashRestoredRef = useRef(false);
   useEffect(() => {
-    if (layout !== "page" || hashRestoredRef.current) return;
+    if (!hashSync || hashRestoredRef.current) return;
     if (typeof window === "undefined") return;
     const target = window.location.hash.replace(/^#/, "");
-    if (!target || !railItemIds.includes(target)) return;
-    hashRestoredRef.current = true;
-    // One frame so the pane has real layout before the glide is measured.
-    const raf = requestAnimationFrame(() => handleNavClick(target));
-    return () => cancelAnimationFrame(raf);
+    if (!target) return;
+    if (railItemIds.includes(target)) {
+      hashRestoredRef.current = true;
+      // One frame so the pane has real layout before the glide is measured.
+      const raf = requestAnimationFrame(() => handleNavClick(target));
+      return () => cancelAnimationFrame(raf);
+    }
+    const el = scrollerRef.current?.querySelector(`#${CSS.escape(target)}`);
+    if (el) {
+      hashRestoredRef.current = true;
+      el.scrollIntoView();
+    }
     // handleNavClick is a stable render-local closure over refs; re-running on
     // its identity would re-scroll every render. Guarded by hashRestoredRef +
     // gated on railItemIds (stable once mounted). (same omit convention as the
     // scroll-spy effect above.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, railItemIds]);
+  }, [hashSync, railItemIds, scrollerRef]);
 
   // ── §A3 sliding rail indicator (desktop rail only) ─────────────────────────
   // ONE shared indicator, positioned from the ACTIVE rail button's measured
