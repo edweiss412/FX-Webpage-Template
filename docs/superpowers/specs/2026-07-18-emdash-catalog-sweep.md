@@ -39,7 +39,7 @@ Enumerated against the full `MessageCatalogEntry` type (`lib/messages/catalog.ts
 
 **Explicitly OUT of scope:**
 - `helpHref` (URLs) and file comments — not copy.
-- `--` (double hyphen). §9 also bans `--`, but DEFERRED `ALERT-COPY-EMDASH-1` is scoped to em dashes; `--` is a separate, unfiled concern. Not swept here (noted so a reviewer doesn't relitigate: intentional scope boundary).
+- `--` (double hyphen) SWEEP: there are 0 existing `--` in rendered-prose values (runtime-verified), so there is nothing to sweep. The widened audit (§6) DOES assert no `--` on the rendered-prose fields as a forward guard so the em-dash sweep cannot introduce one; that guard is green today. (This is not a scope expansion — no existing copy changes for `--`.)
 - En dash (`–`, U+2013) and hyphen (`-`) — not banned, not touched.
 
 ## 3. §12.4 three-way lockstep (dougFacing, helpfulContext, crewFacing, followUp)
@@ -102,7 +102,7 @@ const AUDITED_FIELDS = (Object.keys(FIELD_POLICY) as (keyof MessageCatalogEntry)
   .filter((f) => FIELD_POLICY[f] === "rendered-prose");
 ```
 
-The audit walks every entry in the runtime `MESSAGE_CATALOG` and, for each field in `AUDITED_FIELDS`, asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
+The audit walks every entry in the runtime `MESSAGE_CATALOG` and, for each field in `AUDITED_FIELDS`, asserts the value contains **neither `—` (U+2014) nor `--` (double hyphen)** — DESIGN.md §9 bans both, and the replacement rules (§5) forbid a `—`→`--` swap, so the guard covers both to stop a rushed replacement from trading one §9 violation for another. Both checks run on the same `AUDITED_FIELDS` set. (Current `--` count in rendered-prose values: **0** — the `--` assertion is green from the start and is a forward guard, not a sweep; see §7.) Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
 
 - Exhaustiveness is **compiler-enforced**: `FIELD_POLICY` is typed `Record<keyof MessageCatalogEntry, FieldPolicy>`, so any future field added to the type fails `pnpm typecheck` until it is explicitly classified `rendered-prose` (audited) or one of the `excluded-*` values. This is the fails-by-default guarantee at the TYPE level, closing the class permanently — not just for new values, but for new fields.
 - Current classification (7 rendered-prose + 7 excluded = 14 fields, the full `MessageCatalogEntry` surface) matches §2.1.
@@ -135,7 +135,7 @@ The widened audit test in §6 IS this same runtime-walk asserted to be 0, so the
 
 ## 8. Test plan
 
-1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (179 failures).
+1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` to assert no `—` AND no `--` across the `AUDITED_FIELDS` set → RED on em dashes (179 failures); the `--` half is green from the start (0 today) and guards the sweep.
 2. `fix(messages)`: sweep em dashes — catalog.ts (all seven rendered-prose fields; dougSummary 0 today) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
 3. Gates that must stay green: `test:audit:x1-catalog-parity` (catalog↔§12.4), the new hygiene audit, `tests/notify/templates.test.ts`, full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 
