@@ -30,10 +30,7 @@ async function loadPage() {
   return mod.default;
 }
 
-function call(
-  slug: string,
-  searchParams?: Record<string, string | string[]>,
-): Promise<unknown> {
+function call(slug: string, searchParams?: Record<string, string | string[]>): Promise<unknown> {
   return loadPage().then((Page) =>
     Page({
       params: Promise.resolve({ slug }),
@@ -76,21 +73,21 @@ describe("/admin/show/[slug] legacy redirect (spec §3)", () => {
   });
 
   test("re-appends incoming alert_id and review params", async () => {
-    await expect(
-      call("east-coast", { alert_id: "abc-123", review: "1" }),
-    ).rejects.toThrow("NEXT_REDIRECT:/admin?show=east-coast&alert_id=abc-123&review=1");
+    await expect(call("east-coast", { alert_id: "abc-123", review: "1" })).rejects.toThrow(
+      "NEXT_REDIRECT:/admin?show=east-coast&alert_id=abc-123&review=1",
+    );
   });
 
   test("repeated keys keep the FIRST value only", async () => {
-    await expect(
-      call("east-coast", { alert_id: ["first-id", "second-id"] }),
-    ).rejects.toThrow("NEXT_REDIRECT:/admin?show=east-coast&alert_id=first-id");
+    await expect(call("east-coast", { alert_id: ["first-id", "second-id"] })).rejects.toThrow(
+      "NEXT_REDIRECT:/admin?show=east-coast&alert_id=first-id",
+    );
   });
 
   test("an incoming `show` param is DROPPED — the path slug wins", async () => {
-    await expect(
-      call("path-slug", { show: "query-slug", alert_id: "a1" }),
-    ).rejects.toThrow("NEXT_REDIRECT:/admin?show=path-slug&alert_id=a1");
+    await expect(call("path-slug", { show: "query-slug", alert_id: "a1" })).rejects.toThrow(
+      "NEXT_REDIRECT:/admin?show=path-slug&alert_id=a1",
+    );
     expect(redirectMock).toHaveBeenCalledWith("/admin?show=path-slug&alert_id=a1");
   });
 
