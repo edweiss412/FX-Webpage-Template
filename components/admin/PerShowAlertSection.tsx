@@ -366,6 +366,11 @@ export async function PerShowAlertSection({
                   href={helpHref}
                   data-testid={`per-show-alert-help-link-${alert.id}`}
                   className="self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  aria-label={`Learn more about ${
+                    (alert.code in MESSAGE_CATALOG &&
+                      messageFor(alert.code as MessageCode).title) ||
+                    "this alert"
+                  }`}
                 >
                   Learn more
                 </a>

@@ -294,7 +294,12 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           group, low-emphasis so it never competes with Dismiss/Retry/View in
           telemetry. helpHref null (uncataloged or no catalog helpHref) hides it. */}
       {helpHref ? (
-        <a href={helpHref} data-testid={`bell-help-${entry.alertId}`} className={HELP_LINK}>
+        <a
+          href={helpHref}
+          data-testid={`bell-help-${entry.alertId}`}
+          className={HELP_LINK}
+          aria-label={`Learn more about ${rowCopy(entry.code).title}`}
+        >
           Learn more
         </a>
       ) : null}
