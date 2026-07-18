@@ -146,7 +146,7 @@ export const MESSAGE_CATALOG = {
     title: "Latest edit didn't parse",
     longExplanation:
       "This appears when a recent edit to the sheet introduces something the parser can't read. We keep the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong; fixing the sheet lets the next sync replace the stale data.",
-    helpHref: "/help/errors#PARSE_ERROR_LAST_GOOD",
+    helpHref: "/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD",
   },
   RESYNC_SHRINK_HELD: {
     code: "RESYNC_SHRINK_HELD",

@@ -43,7 +43,7 @@
 - No markup change. Params derivation gains the new fallbacks automatically via `deriveAlertMessageParams`; coverage pinned by the (extended) template-coverage meta-test.
 
 ### 4.4 Help errors page (`app/help/errors/`)
-- Every one of the 45 codes becomes renderable: fill `longExplanation` (adapted from old helpfulContext; where helpfulContext was thin, adapt from dougFacing's dropped detail) and `helpHref: "/help/errors#<CODE>"` and ensure non-null title.
+- Every one of the 45 codes becomes renderable: fill `longExplanation` (adapted from old helpfulContext; where helpfulContext was thin, adapt from dougFacing's dropped detail) and `helpHref: "/help/errors#<CODE>"` and ensure non-null title. **Exception (ratified carve-out, E-content.md R2):** WARN_/PARSE_ codes keep `helpHref: "/help/admin/parse-warnings#<CODE>"` — the dedicated parse-warnings page is the richer curated target, pinned by `_metaErrorCatalogDocs.test.ts:237`. For this sweep that means PARSE_ERROR_LAST_GOOD retains its parse-warnings anchor.
 - `isRenderable` (`app/help/errors/page.tsx:23-31`) drops the `severity !== "info"` clause: renderable = dougFacing, title, longExplanation, helpHref all non-null. (Info-severity alert codes like ROLE_FLAGS_NOTICE and SHOW_FIRST_PUBLISHED carry real education content after migration.)
 - `_families.ts` gains prefixes for any of the 45 codes not already covered by the 7 families, so none land in the "Other" fallback (pinned by `tests/help/errors-grouping.test.tsx`).
 
