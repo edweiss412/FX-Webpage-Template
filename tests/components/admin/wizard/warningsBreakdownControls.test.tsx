@@ -299,7 +299,9 @@ describe("SectionFlagCallout preview — no controls (USE-RAW-FULL-LIST-1 demoti
     expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
     expect(within(box).queryByTestId("role-recognize-panel-callout")).toBeNull();
     // Anti-overstrip: the preview STILL renders the entry title + View details jump.
-    expect(within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length).toBeGreaterThan(0);
+    expect(
+      within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length,
+    ).toBeGreaterThan(0);
     expect(within(box).getByText(/View details/)).toBeTruthy();
     cleanup();
     // List = sole actionable site; still mounts the recognize-role control.
@@ -391,7 +393,9 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
     const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
     expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
     // Anti-overstrip: preview still renders title + View details for this fixture too.
-    expect(within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length).toBeGreaterThan(0);
+    expect(
+      within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length,
+    ).toBeGreaterThan(0);
     expect(within(box).getByText(/View details/)).toBeTruthy();
   });
 });
