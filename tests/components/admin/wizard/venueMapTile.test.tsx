@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("VenueMapTile", () => {
-  test("VCR-3: empty query + valid mapHref → stripe + Directions anchor, NO <img>", () => {
+  test("VCR-3/VCR-4: empty query + valid mapHref → stripe + Directions anchor + glyph, NO <img>, NO `map` label", () => {
     const { container } = render(<VenueMapTile query="" mapHref="https://m.co" />);
     const tile = container.querySelector('[data-testid="venue-map-tile"]') as HTMLAnchorElement;
     expect(tile.tagName).toBe("A");
@@ -18,6 +18,31 @@ describe("VenueMapTile", () => {
     expect(container.querySelector('[data-testid="venue-map-fallback"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="venue-directions"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="venue-map-img"]')).toBeNull(); // nothing to geocode
+    // VCR-4: the terminal degraded tile shows a deliberate glyph empty-state,
+    // NOT the transient `map` corner label (which would read as "map loading").
+    const glyph = container.querySelector('[data-testid="venue-map-no-preview"]');
+    expect(glyph).not.toBeNull();
+    expect(container.querySelector('[data-testid="venue-map-label"]')).toBeNull();
+    // Caption asserted on the glyph's OWN subtree (anti-tautology — not the tile).
+    expect(glyph!.textContent).toContain("no preview");
+  });
+
+  test("VCR-4: standard tile (query + mapHref) → `map` corner label, NO glyph, has <img>", () => {
+    const { container } = render(
+      <VenueMapTile query="The Masonic, SF" mapHref="https://maps.google.com/?q=x" />,
+    );
+    const label = container.querySelector('[data-testid="venue-map-label"]');
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toContain("map");
+    expect(container.querySelector('[data-testid="venue-map-no-preview"]')).toBeNull();
+    expect(container.querySelector('[data-testid="venue-map-img"]')).not.toBeNull();
+  });
+
+  test("VCR-4: div branch (query, no mapHref) → `map` corner label, no glyph, no directions", () => {
+    const { container } = render(<VenueMapTile query="X" mapHref={null} />);
+    expect(container.querySelector('[data-testid="venue-map-label"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="venue-map-no-preview"]')).toBeNull();
+    expect(container.querySelector('[data-testid="venue-directions"]')).toBeNull();
   });
 
   test("guard: empty query + null mapHref → renders nothing", () => {

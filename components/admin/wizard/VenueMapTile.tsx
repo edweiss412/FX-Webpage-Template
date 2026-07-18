@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactElement, useEffect, useState } from "react";
-import { Navigation } from "lucide-react";
+import { MapPin, Navigation } from "lucide-react";
 
 /** Read the pre-hydration-stamped theme (app/layout.tsx NO_FOUC_SCRIPT →
  * document.documentElement.dataset.theme; same read as ThemeToggle.tsx:69). */
@@ -52,12 +52,40 @@ export function VenueMapTile({
             "repeating-linear-gradient(45deg, var(--color-surface-sunken) 0 10px, var(--color-surface) 10px 20px)",
         }}
       />
-      <span
-        aria-hidden="true"
-        className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-subtle"
-      >
-        map
-      </span>
+      {/* Corner `map` label — only on the loading/standard tile (query !== ""),
+          where the <img> is coming; a transient placeholder for the raster. On
+          the terminal degraded tile (empty query) it would falsely read as "map
+          loading", so it is swapped for the glyph empty-state below (VCR-4). */}
+      {query !== "" ? (
+        <span
+          data-testid="venue-map-label"
+          aria-hidden="true"
+          className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-subtle"
+        >
+          map
+        </span>
+      ) : null}
+      {/* Terminal degraded tile (empty query, valid mapHref → no <img> ever): a
+          deliberate "no preview" glyph empty-state so it reads as intentional,
+          not as a still-loading map (VCR-4). Decorative (aria-hidden) — the
+          anchor's aria-label carries the actionable meaning and Directions
+          carries the action; this adds no screen-reader-announced element.
+          The overlay stops at bottom-14 (56px), reserving the Directions
+          button's zone (bottom-2.5 10px + min-h-tap-min 44px = 54px) so the
+          compact horizontal marker centers in the free space ABOVE the button
+          and stays fully visible even at the min-h-tile-min-h (96px) floor —
+          the height a terminal tile defaults to on desktop, where a taller
+          stacked group would render behind the opaque button (VCR-4 critique). */}
+      {query === "" ? (
+        <span
+          data-testid="venue-map-no-preview"
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 bottom-14 flex items-center justify-center gap-1.5 text-text-subtle"
+        >
+          <MapPin aria-hidden="true" className="size-4" />
+          <span className="font-mono text-[10px] tracking-wide">no preview</span>
+        </span>
+      ) : null}
       {/* (2) real map overlay — mounted only once the post-hydration effect
           resolves the theme (theme !== null). At SSR + first client render theme
           is null → no <img>, so no wrong-theme raster is fetched at first paint

@@ -219,7 +219,7 @@ No `AnimatePresence`, no `exit`/`initial` props introduced. The transition-audit
 
 - Eyebrows: `VENUE`, `LOADING DOCK` (uppercase via `.eyebrow` tracking token).
 - Button: `Directions`.
-- Fallback tile label: `map` (mono, matches mock).
+- Fallback tile label: `map` (mono, matches mock). (VCR-4 2026-07-17: the terminal link-only tile — empty `query`, valid `mapHref`, no `<img>` ever — replaces this label with a centered `MapPin` "no preview" glyph empty-state so it doesn't read as a still-loading map; the standard/loading tile keeps `map`.)
 - Empty state: `No venue details parsed.` (unchanged).
 - No error codes surface to the UI under any failure branch (invariant 5): a failed map silently shows the fallback tile; there is no "map unavailable" error text.
 - No em dashes in any rendered copy.
