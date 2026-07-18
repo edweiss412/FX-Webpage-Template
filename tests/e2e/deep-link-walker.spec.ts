@@ -249,3 +249,73 @@ for (const row of allWalkableRows) {
     await assertTarget(page, root, row);
   });
 }
+
+// Gap fix (2026-07-17): the "Recently auto-applied" strip must sit directly
+// beneath the Needs-attention inbox (no detached band). Originally this guarded
+// an `h-full` inbox root that ballooned inside the items-stretch-stretched
+// sidebar column. The two-col split is now a grid with `items-start` (2026-07-17
+// ignored-sheets order fix): the inbox column is content-sized, NEVER stretched
+// to a taller shows column, so the ballooning condition can no longer arise — the
+// strip follows the inbox by content flow. The assertion is therefore now a
+// direct adjacency check (strip top ≈ inbox bottom + the wrapper's gap-3), which
+// still fails loudly on any future layout that detaches the strip. Real-browser
+// only (jsdom can't compute layout). Reuses the help-docs locked seeds:
+// walker-first-seen pending_syncs populates the inbox, the sentinel auto_apply
+// show_change_log renders the strip — NO new DB write here. Desktop-only (the
+// inbox column is hidden below 720px; this spec also runs the mobile help-docs
+// project).
+test("recently-auto-applied strip sits directly beneath the needs-attention inbox (no gap)", async ({
+  page,
+}) => {
+  test.skip(
+    test.info().project.name !== "help-docs-desktop",
+    "desktop-only dashboard two-column layout",
+  );
+  await setDashboardAdminState();
+  await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
+  const response = await page.goto(`${BASE_URL}/admin`, { waitUntil: "domcontentloaded" });
+  expect(response?.ok(), "/admin should load").toBe(true);
+
+  const inbox = page.getByTestId("needs-attention-inbox");
+  const strip = page.getByTestId("recent-auto-applied-strip");
+  await expect(inbox, "populated inbox present").toBeVisible();
+  await expect(strip, "strip present").toBeVisible();
+  // OK-path proof (not the infra_error fallback, whose header also carries the ?):
+  await expect(page.getByTestId("recent-auto-applied-count-chip")).toBeVisible();
+  await expect(page.getByTestId("auto-applied-error")).toHaveCount(0);
+
+  // Also force the shows column tall (DOM-only, no DB write) to reproduce the
+  // real-world long-Active-shows condition that used to stretch the sidebar and
+  // detach the strip. Under the grid+items-start split this must NOT propagate to
+  // the inbox column (it stays content-sized) — so the strip stays adjacent to the
+  // inbox regardless. Fail loud if the target is missing (future testid rename).
+  const forced = await page.evaluate(() => {
+    const col = document.querySelector('[data-testid="dashboard-shows-col"]');
+    if (!(col instanceof HTMLElement)) return false;
+    col.style.minHeight = "2000px";
+    return true;
+  });
+  expect(forced, "dashboard-shows-col must exist to induce the tall-shows-column condition").toBe(
+    true,
+  );
+  await expect(strip).toBeVisible();
+
+  const inboxBox = await inbox.boundingBox();
+  const stripBox = await strip.boundingBox();
+  expect(inboxBox, "inbox has a box").not.toBeNull();
+  expect(stripBox, "strip has a box").not.toBeNull();
+  // THE FIX (adjacency): the strip sits DIRECTLY beneath the inbox — its top is at
+  // the inbox bottom plus only the wrapper's gap-3 (12px). The detached-band
+  // regression (an h-full inbox ballooning in a stretched column, or any layout
+  // that re-parents/strands the strip) would push this to hundreds/~1500px. A
+  // small band tolerates sub-pixel rounding + the 12px flex gap without admitting
+  // a real gap. Even with the shows column forced to 2000px, items-start keeps the
+  // inbox column content-sized so this stays tight.
+  const gap = stripBox!.y - (inboxBox!.y + inboxBox!.height);
+  expect(
+    gap,
+    `strip top - inbox bottom = ${Math.round(gap)}px — the strip must follow the inbox ` +
+      `content (≈ gap-3 = 12px), not detach into a band below a stretched column`,
+  ).toBeLessThanOrEqual(20);
+  expect(gap, "strip must not overlap the inbox").toBeGreaterThanOrEqual(-2);
+});

@@ -28,14 +28,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - uses: supabase/setup-cli@v1
         with:
           # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which rate-limits
@@ -61,6 +54,26 @@ jobs:
       # then a fast no-op; on a miss it downloads + repopulates the cache).
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
+      # Restore the Next compiler cache for the :3004 help-docs webServer build
+      # (playwright.config.ts:316 runs `pnpm build` with NEXT_DIST_DIR=
+      # .next-screenshots-help — next.config distDir = NEXT_DIST_DIR ?? ".next").
+      # Caches ONLY <distDir>/cache (the compiler cache, NOT build output), so a
+      # warm build skips recompiling unchanged modules (~30s). Safe here: this
+      # job is the deep-link WALKER (not a byte-comparison screenshot gate — it
+      # asserts DOM affordances, not pixels), runs on the HOST (not the pinned
+      # Docker container the screenshots gates use), and this workflow is NOT a
+      # required check, so a cold-vs-warm build divergence can only fail the
+      # walker's own assertions, never a merge-blocking pixel diff. `github.sha`
+      # in the key makes each run save a fresh entry (cache entries are
+      # immutable per key); restore-keys falls back to the most recent prefix.
+      - name: Restore Next build cache (help-docs :3004 build)
+        uses: actions/cache@v4
+        with:
+          path: .next-screenshots-help/cache
+          key: ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-
+            ${{ runner.os }}-nextcache-help-
       - name: Run walker (mobile + desktop)
         env:
           # help-docs-setup.ts asserts these in the TEST-RUNNER process —

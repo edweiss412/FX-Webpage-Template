@@ -3,6 +3,18 @@
 import { Fragment, useRef, useState, useTransition } from "react";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { WarningControlSite } from "@/components/admin/warningControlSite";
+
+// Kind → radiogroup accessible name (spec 2026-07-17 §6.2). Exhaustive over the
+// UseRawResolution parsed-kind union; a new kind is a compile error here.
+const RADIOGROUP_LABEL: Record<
+  Extract<UseRawResolution, { resolvable: true }>["parsed"]["kind"],
+  string
+> = {
+  rooms: "Which reading crew pages use for the room split",
+  hotels: "Which reading crew pages use for the hotel guest split",
+  dates: "Which reading crew pages use for the show dates",
+};
 
 /**
  * `<UseRawControl>` — the shared presentational control for the three recoverable
@@ -350,12 +362,15 @@ export function UseRawControl({
   warning,
   decision,
   onToggle,
+  site,
 }: {
   warning: Pick<ParseWarning, "code" | "resolution">;
   /** The persisted decision for this warning's `(code, contentHash)`, or undefined. */
   decision: UseRawDecision | undefined;
   /** Binds to the surface's server action; resolves after the re-read. */
   onToggle: (useRaw: boolean) => Promise<void> | void;
+  /** spec 2026-07-17 §4: the render site; absent → bare (unsuffixed) testids. */
+  site?: WarningControlSite;
 }) {
   const [isPending, startTransition] = useTransition();
   // Local error surface: a typed action failure re-reads state and shows plain copy.
@@ -370,6 +385,10 @@ export function UseRawControl({
   // Roving-focus targets for the WAI radio arrow-key contract.
   const parsedRowRef = useRef<HTMLButtonElement | null>(null);
   const rawRowRef = useRef<HTMLButtonElement | null>(null);
+
+  // spec 2026-07-17 §6.1: leaf testids gain a `-${site}` suffix when a site is
+  // declared (absent → bare, byte-identical to the pre-2026-07-17 output).
+  const tid = (base: string) => (site ? `${base}-${site}` : base);
 
   const state = deriveUseRawControlState(warning, decision, isPending);
   if (state === null) return null;
@@ -389,7 +408,11 @@ export function UseRawControl({
   // Guard states carry no toggle.
   if (state === "legacy-unavailable") {
     return (
-      <p data-testid="use-raw-control" data-state={state} className="mt-1 text-xs text-text-subtle">
+      <p
+        data-testid={tid("use-raw-control")}
+        data-state={state}
+        className="mt-1 text-xs text-text-subtle"
+      >
         Re-sync this show to enable the &ldquo;use the sheet&rsquo;s raw value&rdquo; option.
       </p>
     );
@@ -400,7 +423,11 @@ export function UseRawControl({
         ? DISABLED_REASON[warning.resolution.reason]
         : "";
     return (
-      <p data-testid="use-raw-control" data-state={state} className="mt-1 text-xs text-text-subtle">
+      <p
+        data-testid={tid("use-raw-control")}
+        data-state={state}
+        className="mt-1 text-xs text-text-subtle"
+      >
         {reason}
       </p>
     );
@@ -408,6 +435,7 @@ export function UseRawControl({
 
   // From here on the warning is resolvable — narrow it for the value formatters.
   const resolution = warning.resolution as Extract<UseRawResolution, { resolvable: true }>;
+  const radiogroupLabel = RADIOGROUP_LABEL[resolution.parsed.kind];
   const parsed = parsedFields(resolution);
   const raw = formatRaw(resolution);
   const busy = state === "pending";
@@ -442,10 +470,14 @@ export function UseRawControl({
   };
 
   return (
-    <div data-testid="use-raw-control" data-state={state} className="mt-1.5 flex flex-col gap-1.5">
+    <div
+      data-testid={tid("use-raw-control")}
+      data-state={state}
+      className="mt-1.5 flex flex-col gap-1.5"
+    >
       <div
         role="radiogroup"
-        aria-label="Which reading crew pages use"
+        aria-label={radiogroupLabel}
         className="flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border bg-surface"
       >
         <ChoiceRow
@@ -453,13 +485,13 @@ export function UseRawControl({
           disabled={busy}
           label="Our reading"
           marker={marker}
-          buttonTestId="use-raw-toggle-off"
+          buttonTestId={tid("use-raw-toggle-off")}
           onSelect={() => fire(false)}
           onArrowKey={() => arrowFrom("parsed")}
           buttonRef={parsedRowRef}
         >
           <span
-            data-testid="use-raw-parsed"
+            data-testid={tid("use-raw-parsed")}
             className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs"
           >
             {parsed.map((f, i) => (
@@ -483,12 +515,15 @@ export function UseRawControl({
           disabled={busy}
           label={rawLabel}
           marker={marker}
-          buttonTestId="use-raw-toggle-on"
+          buttonTestId={tid("use-raw-toggle-on")}
           onSelect={() => fire(true)}
           onArrowKey={() => arrowFrom("raw")}
           buttonRef={rawRowRef}
         >
-          <span data-testid="use-raw-raw" className="min-w-0 wrap-break-word text-xs text-text">
+          <span
+            data-testid={tid("use-raw-raw")}
+            className="min-w-0 wrap-break-word text-xs text-text"
+          >
             {/* Matched runs get a dotted underline so the split boundaries read
                 as the gaps between runs — text content itself never changes
                 (the label's "exactly" claim stays true). Fail-soft: no anchor
@@ -511,13 +546,13 @@ export function UseRawControl({
       </div>
 
       {state === "apply-pending" && (
-        <p data-testid="use-raw-pending-note" className="text-xs text-text-subtle">
+        <p data-testid={tid("use-raw-pending-note")} className="text-xs text-text-subtle">
           Saved. The crew-visible values will update on the next successful sync.
         </p>
       )}
 
       {state === "clear-pending" && (
-        <p data-testid="use-raw-pending-note" className="text-xs text-text-subtle">
+        <p data-testid={tid("use-raw-pending-note")} className="text-xs text-text-subtle">
           Reverting. The crew-visible values still show the sheet&rsquo;s text until the next
           successful sync.
         </p>
@@ -531,14 +566,14 @@ export function UseRawControl({
 
       {failed && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <p data-testid="use-raw-error" role="alert" className="text-xs text-warning-text">
+          <p data-testid={tid("use-raw-error")} role="alert" className="text-xs text-warning-text">
             That didn&rsquo;t save. The cell may have changed.
           </p>
           {/* Deferred P3: retry re-fires the SAME choice (pendingChoice is
               always set once a toggle has fired, and `failed` implies one did). */}
           <button
             type="button"
-            data-testid="use-raw-retry"
+            data-testid={tid("use-raw-retry")}
             onClick={() => {
               if (pendingChoice) fire(pendingChoice === "raw");
             }}

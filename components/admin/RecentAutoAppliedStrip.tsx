@@ -33,6 +33,7 @@ import type {
 import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import { CollapsePanel } from "@/components/admin/CollapsePanel";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -121,6 +122,50 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
       </div>
     );
   }
+  if (d.kind === "fields") {
+    // Structured field list (REDESIGN-3). Field NAME is the entry heading (owner
+    // direction: weighted OVER the diff); the From→To / note is supporting detail.
+    // Render ALL entries — no "+N more" collapse (a whole-row Accept must never
+    // dismiss an applied change Doug never saw). The "Unavailable" / "Other changes"
+    // markers render as a distinct warm-yellow warning row (never red; §1 color-blind
+    // floor pairs the fill with text).
+    return (
+      <ul className="mt-1 flex flex-col">
+        {d.entries.map((e, i) => {
+          const isMarker = e.label === "Unavailable" || e.label === "Other changes";
+          if (isMarker) {
+            return (
+              <li
+                key={i}
+                className="mt-1.5 flex items-start gap-2 rounded-md bg-warning-bg px-2.5 py-1.5 text-sm text-warning-text"
+              >
+                <span className="wrap-break-word">{e.note}</span>
+              </li>
+            );
+          }
+          return (
+            <li key={i} className="border-t border-border py-2.5 first:border-t-0 first:pt-0.5">
+              <p className="wrap-break-word text-[15px] font-semibold leading-tight text-text-strong">
+                {e.label}
+              </p>
+              {e.note != null ? (
+                <p className="wrap-break-word mt-1 pl-0.5 text-sm text-text-subtle">{e.note}</p>
+              ) : (
+                <div className="mt-1 grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
+                  <span className={cap}>From</span>
+                  <span className="wrap-break-word text-sm text-text-subtle line-through">
+                    {e.from}
+                  </span>
+                  <span className={cap}>To</span>
+                  <span className="wrap-break-word text-sm text-text">{e.to}</span>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   const removed = d.caption === "Removed";
   return (
     <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">
@@ -176,13 +221,31 @@ function KindDotCluster({ rows }: { rows: AutoAppliedRow[] }) {
       className="flex shrink-0 items-center gap-1"
       aria-label={`Change kinds: ${kinds.map(labelFor).join(", ")}`}
     >
-      {shown.map((k) => (
-        <span
-          key={k}
-          aria-hidden="true"
-          className={`size-2 rounded-full ${KIND_PILL[k]?.dot ?? FALLBACK_PILL.dot}`}
-        />
-      ))}
+      {shown.map((k) =>
+        k === "crew_removed" ? (
+          // KINDDOT-1: the destructive kind gets a shape-distinct non-color tell
+          // (a centered minus-bar) so a color-vision-limited operator can tell
+          // "Removed" from the near-identical "Renamed" review hue at a glance.
+          // bg stays a literal (Tailwind v4 JIT scans literals); aria-hidden on
+          // the wrapper hides the whole marker subtree, so the aria-label text
+          // channel (which names every kind) remains the sole AT source.
+          <span
+            key={k}
+            aria-hidden="true"
+            data-testid="auto-applied-kind-marker"
+            className="flex size-2 items-center justify-center"
+          >
+            <span className="h-0.5 w-2 rounded-full bg-status-warn" />
+          </span>
+        ) : (
+          <span
+            key={k}
+            aria-hidden="true"
+            data-testid="auto-applied-kind-marker"
+            className={`size-2 rounded-full ${KIND_PILL[k]?.dot ?? FALLBACK_PILL.dot}`}
+          />
+        ),
+      )}
       {overflow > 0 ? (
         <span aria-hidden="true" className="text-xs font-semibold text-text-subtle">
           +{overflow}
@@ -205,9 +268,10 @@ function StripRow({
   // is not a card-in-card inside the group card. Multi-row keeps per-row cards.
   flatten?: boolean;
 }) {
-  // Crew kinds carry a structured diff → show a "Crew member" entity label; the
-  // none-kinds (field/email/unknown) render their summary sentence instead.
-  const isCrew = row.diff.kind !== "none";
+  // Only the CREW diff kinds carry a "Crew member" entity label. Keyed on the
+  // specific crew kinds — NOT `!== "none"` — so the `fields` variant (a show-field
+  // change, not a crew member) never renders "Crew member" (REDESIGN-3 §6).
+  const isCrew = row.diff.kind === "fromTo" || row.diff.kind === "single";
   return (
     <li
       data-testid={`auto-applied-row-${row.id}`}
@@ -386,7 +450,19 @@ function GroupSection({
         </button>
       </GroupHeading>
 
-      <CollapsePanel open={open} id={panelId} label={`Auto-applied changes for ${group.showName}`}>
+      {/* region={false}: the strip can render up to STRIP_RENDER_CAP=50 groups, so
+          a region landmark per group would swamp the AT landmark list (WAI-APG
+          cautions against many regions). The toggle above already names + controls
+          this panel (aria-expanded + aria-controls={panelId}, show-name as its
+          accessible name), so the landmark adds nothing. The two singleton
+          disclosures (IgnoredSheets, AddAdmin) keep region=true. See
+          COLLAPSE-REGION-1 / BL-COLLAPSEPANEL-REGION-OPTOUT. */}
+      <CollapsePanel
+        open={open}
+        region={false}
+        id={panelId}
+        label={`Auto-applied changes for ${group.showName}`}
+      >
         <div>
           {/* Bulk actions sit on their OWN row underneath the show name, not beside
               it — and outside the toggle <button> (a11y: no nested interactives). */}
@@ -497,6 +573,60 @@ function GroupSection({
   );
 }
 
+// The strip's section header. On the DASHBOARD (headingLevel 4 → showAffordances)
+// it mirrors the "Needs attention" header: a flex row carrying a section count
+// chip (total un-dispositioned backlog = renderedCount + overflowCount) plus a "?"
+// HoverHelp. On the shared /admin/needs-attention page (headingLevel 2 →
+// !showAffordances) it early-returns the BARE heading — no wrapper div, DOM
+// byte-for-byte identical to before this change (that page has its own header
+// help). The <HoverHelp> literal stays in source unconditionally so the
+// affordance-matrix parity scanner resolves its testid.
+function StripHeader({
+  SectionHeading,
+  headingId,
+  count,
+  showAffordances,
+}: {
+  SectionHeading: "h2" | "h4";
+  headingId: string;
+  // Total backlog to show in the chip; null when there is no data to count
+  // (infra_error) — the chip is then omitted but the help stays.
+  count: number | null;
+  showAffordances: boolean;
+}) {
+  const heading = (
+    <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
+      Recently auto-applied
+    </SectionHeading>
+  );
+  if (!showAffordances) return heading;
+  return (
+    <div className="flex items-center gap-2">
+      {heading}
+      {count !== null ? (
+        <span
+          data-testid="recent-auto-applied-count-chip"
+          className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+        >
+          {count}
+        </span>
+      ) : null}
+      <HoverHelp
+        label="Help: Recently auto-applied"
+        testId="recent-auto-applied-help"
+        rootTestId="help-affordance--dashboard-recently-auto-applied--tooltip"
+        learnMore={{ href: "/help/admin/review-queues#re-stage" }}
+      >
+        <p>
+          Changes that already went live on their own — crew added, removed, or renamed, plus
+          schedule and field edits. Accept to clear them from this list, or undo the ones you
+          didn&apos;t want.
+        </p>
+      </HoverHelp>
+    </div>
+  );
+}
+
 export function RecentAutoAppliedStrip({
   data,
   actions,
@@ -520,6 +650,9 @@ export function RecentAutoAppliedStrip({
   const headingId = useId();
   const SectionHeading = headingLevel === 2 ? "h2" : "h4";
   const groupHeadingTag = headingLevel === 2 ? "h3" : "h5";
+  // Count chip + "?" help are DASHBOARD-only (headingLevel 4). The shared
+  // /admin/needs-attention page (headingLevel 2) keeps its bare heading.
+  const showAffordances = headingLevel === 4;
 
   if (data.kind === "infra_error") {
     // Bounded, plain-language fallback — never the raw kind token or internal
@@ -531,9 +664,12 @@ export function RecentAutoAppliedStrip({
         className="flex flex-col gap-2"
         aria-labelledby={headingId}
       >
-        <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
-          Recently auto-applied
-        </SectionHeading>
+        <StripHeader
+          SectionHeading={SectionHeading}
+          headingId={headingId}
+          count={null}
+          showAffordances={showAffordances}
+        />
         <p
           role="status"
           data-testid="auto-applied-error"
@@ -554,9 +690,12 @@ export function RecentAutoAppliedStrip({
       className="flex flex-col gap-2"
       aria-labelledby={headingId}
     >
-      <SectionHeading id={headingId} className="text-base font-semibold text-text-strong">
-        Recently auto-applied
-      </SectionHeading>
+      <StripHeader
+        SectionHeading={SectionHeading}
+        headingId={headingId}
+        count={data.renderedCount + data.overflowCount}
+        showAffordances={showAffordances}
+      />
       <ul className="flex flex-col gap-2">
         {data.groups.map((group) => (
           <GroupSection

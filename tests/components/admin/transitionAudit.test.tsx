@@ -3,6 +3,7 @@
 // transition treatment of every new admin surface and pins it:
 //
 //   | Live status dot      | CSS ping; DISABLED under prefers-reduced-motion   |
+//   | Synced dot heartbeat | subtle CSS pulse on positive+pulse (sync surfaces); slower/smaller than the live ping; DISABLED under prefers-reduced-motion |
 //   | Copy chip            | idle→copied→idle text swap, instant, no layout shift |
 //   | Rotate / Reset       | preserve existing button-state behavior (no change) |
 //   | Route enter          | INSTANT (V6 decision — no mount animation)        |
@@ -56,6 +57,22 @@ describe("transition audit (§10)", () => {
     expect(dot.parentElement?.querySelector(".animate-ping")).toBeNull();
   });
 
+  it("positive+pulse renders the subtle heartbeat halo, disabled under prefers-reduced-motion", () => {
+    // Sanctioned second animation (SYNC-PULSE-1): a slower/smaller heartbeat behind the
+    // synced dot on the sync surfaces. Distinct from the live ping (never animate-ping) and
+    // motion-reduce gated, same as the ping.
+    render(<StatusIndicator status="positive" label="Synced" pulse />);
+    const halo = screen.getByTestId("status-pulse-positive");
+    expect(halo.className).toMatch(/animate-\[sync-heartbeat_/);
+    expect(halo.className).not.toMatch(/animate-ping/); // it is NOT the live ping
+    expect(halo.className).toMatch(/motion-reduce:hidden/);
+  });
+
+  it("the heartbeat pulse does not fire without the pulse flag (positive dot stays static)", () => {
+    render(<StatusIndicator status="positive" label="Synced" />);
+    expect(screen.queryByTestId("status-pulse-positive")).toBeNull();
+  });
+
   it("StatusIndicator is a pure server component — no useState/useEffect (no shared timeout state)", () => {
     const s = src("components/admin/StatusIndicator.tsx");
     expect(s).not.toMatch(/useState|useEffect|"use client"/);
@@ -74,9 +91,14 @@ describe("transition audit (§10)", () => {
   it("route enter is instant — no mount-animation classes on the new surfaces (V6)", () => {
     for (const rel of SERVER_RENDERED) {
       const s = src(rel);
-      // No prototype route-enter/stagger mount animations; the only animate-*
-      // utility allowed is the live-dot ping inside StatusIndicator.
-      const animateMatches = (s.match(/animate-\[|route-enter|stagger/g) ?? []).filter(Boolean);
+      // No prototype route-enter/stagger mount animations. The only sanctioned motion on
+      // these surfaces is the live-dot ping (`animate-ping`) and the synced-dot heartbeat
+      // (`animate-[sync-heartbeat_…]`, SYNC-PULSE-1) — both inside StatusIndicator, both
+      // status-dot micro-signals, not mount/route-enter transitions. Any OTHER arbitrary
+      // `animate-[…]` (a route-enter, a stagger, a framer refugee) still fails here.
+      const animateMatches = (s.match(/animate-\[[^\]]*\]|route-enter|stagger/g) ?? []).filter(
+        (m) => !m.startsWith("animate-[sync-heartbeat"),
+      );
       expect(animateMatches, `${rel} should have no mount/route-enter animation`).toEqual([]);
     }
   });

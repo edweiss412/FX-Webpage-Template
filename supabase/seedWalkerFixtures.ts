@@ -67,6 +67,12 @@ const WALKER_ALERT_CODE = "DRIVE_FETCH_FAILED";
 
 const SEED_TIMESTAMP = "2026-03-24T15:00:00.000Z";
 
+// Stable created_by sentinel for the one un-dispositioned auto-applied change we
+// seed on the base RPAS show so the dashboard "Recently auto-applied" strip (and
+// its "?" help affordance) renders for the deep-link walker. Namespaced under
+// `seed-fixture:` so the base seed's prefix cleanup removes it (capture isolation).
+const AUTO_APPLIED_SENTINEL = "seed-fixture:walker-auto-applied";
+
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -259,6 +265,39 @@ function alertSeedSql(): string {
   `;
 }
 
+// One un-dispositioned auto-applied change on the base-seed RPAS show so the
+// dashboard's "Recently auto-applied" strip renders. show_change_log is NOT in
+// the per-show advisory-lock table set (plan-wide invariant 2), so no lock is
+// needed — it rides inside the seeder tx alongside alertSeedSql() purely for
+// atomicity. Idempotent via the stable created_by sentinel.
+//
+// NON-UNDOABLE by design: change_kind='field_changed' is outside UNDOABLE_KINDS
+// (lib/admin/loadRecentAutoApplied.ts), so the strip renders an Accept-only row
+// with no Undo control — the walker only needs the strip + help visible, and a
+// crew_added fixture would have surfaced an Undo button whose RPC keys on
+// entity_ref→crew_members (which this fixture does not populate). field_changed's
+// diff is {kind:"none"}, so it renders its summary sentence — no after_image /
+// entity_ref / crew row needed.
+function autoAppliedSeedSql(): string {
+  return `
+    do $$
+    begin
+      if not exists (select 1 from public.shows where slug = ${sqlString(RPAS_SLUG)}) then
+        raise exception 'base-seed show ${RPAS_SLUG} missing — run pnpm db:seed before seedWalkerFixtures';
+      end if;
+    end $$;
+
+    delete from public.show_change_log where created_by = ${sqlString(AUTO_APPLIED_SENTINEL)};
+
+    insert into public.show_change_log
+      (show_id, drive_file_id, occurred_at, source, change_kind, summary,
+       status, individually_undoable, created_by)
+    select id, drive_file_id, ${sqlTimestamp(SEED_TIMESTAMP)}, 'auto_apply', 'field_changed',
+      'Updated the main-stage call time', 'applied', false, ${sqlString(AUTO_APPLIED_SENTINEL)}
+      from public.shows where slug = ${sqlString(RPAS_SLUG)};
+  `;
+}
+
 function walkerSeedSql(): string {
   // Insert-side per-show advisory locks, drive_file_id-sorted ascending
   // (deterministic order matching the base seed's _locked_seed_ids sweep).
@@ -285,6 +324,8 @@ function walkerSeedSql(): string {
 
     ${alertSeedSql()}
 
+    ${autoAppliedSeedSql()}
+
     commit;
   `;
 }
@@ -296,7 +337,7 @@ function main(): void {
     encoding: "utf8",
   });
   process.stdout.write(
-    `Seeded walker fixtures: ${WALKER_SHOWS.length} shows + 1 first-seen pending_sync + 1 ${WALKER_ALERT_CODE} alert.\n`,
+    `Seeded walker fixtures: ${WALKER_SHOWS.length} shows + 1 first-seen pending_sync + 1 ${WALKER_ALERT_CODE} alert + 1 auto-applied change.\n`,
   );
 }
 

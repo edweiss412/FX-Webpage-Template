@@ -440,7 +440,7 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
     // Second sync WITH the mapping: the overlay grants A1 onto the existing row, so the crew diff
     // sees prior [] → new [A1]. A1 is a SCOPE-TILE flag (no cross-viewer capability), so post
     // capability-narrow (2026-07-17) it does NOT surface a ROLE_FLAGS_NOTICE — it gets an
-    // identifiable change-log row (writeRoleChangeLogRows) instead. The consumed warning is absent
+    // identifiable structured entry in the auto-apply field_changed row (buildFieldChangesRow) instead. The consumed warning is absent
     // and the granted flag lands — the full §13 e2e assertion (flag application unchanged).
     const second = await runWith(tx, {
       modifiedTime: "2026-05-08T13:00:00.000Z",

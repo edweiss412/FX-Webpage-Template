@@ -593,7 +593,7 @@ describe("runPhase2 destructive snapshot", () => {
 
   // Capability-narrow (2026-07-17): scope-tile-only changes (department/additive flags that only
   // affect the crew member's OWN page tiles, no cross-viewer capability) NO LONGER emit
-  // ROLE_FLAGS_NOTICE — they get a change-log row instead (writeRoleChangeLogRows). Only a
+  // ROLE_FLAGS_NOTICE — they get a structured entry in the auto-apply field_changed row (buildFieldChangesRow) instead. Only a
   // capability toggle (LEAD or FINANCIALS) fires the bell/event.
   test.each([
     {

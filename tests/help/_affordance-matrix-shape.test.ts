@@ -45,6 +45,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--dashboard-archived-shows--tooltip",
         "help-affordance--dashboard-footer--tour",
         "help-affordance--dashboard-needs-attention--tooltip",
+        "help-affordance--dashboard-recently-auto-applied--tooltip",
         "help-affordance--dashboard-restage--legend",
         "help-affordance--first-seen-review-card--tooltip",
         "help-affordance--ignored-sheets-page--tooltip",
@@ -91,7 +92,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 18 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
+  it("pins the 19 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
     // 20 base + 2 step-3 redesign views (Unpublished / Ignored sheets) − 1 removed
     // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed)
@@ -99,7 +100,8 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     // − 1 removed Unpublished (Held shows) page (folded into the dashboard list)
     // − 3 per-show Crew / Sync-footer / Data-quality tooltips RETIRED by Task 16
     //   (impeccable) when the consolidated-show-page rebuild dissolved their sections.
-    expect(concrete).toHaveLength(18);
+    // + 1 recently-auto-applied strip header help (2026-07-17 header parity).
+    expect(concrete).toHaveLength(19);
     const ids = concrete.map((r) => r.testid);
     expect(ids).not.toContain("help-affordance--per-show-data-quality--tooltip");
     expect(ids).not.toContain("help-affordance--per-show-crew--tooltip");

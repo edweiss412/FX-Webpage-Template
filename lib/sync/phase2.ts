@@ -3,7 +3,6 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult, ParseWarning, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
-import { writeRoleChangeLogRows } from "@/lib/sync/changeLog/writeRoleChangeLogRows";
 import { writeUseRawStaleChanges } from "@/lib/sync/changeLog/writeUseRawStaleChanges";
 import { applyUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import {
@@ -244,7 +243,7 @@ function roleFlagsEqual(left: readonly string[], right: readonly string[]): bool
 // (lib/visibility/scopeTiles.ts:141, lib/data/getShowForViewer.ts:380). The scope-tile flags
 // (A1/A2/V1/L1/BO/SHOP/…) only change which tile a crew member sees on their OWN page — no
 // cross-viewer capability. The ROLE_FLAGS_NOTICE bell alert + the durable LEAD_ROLE_APPLIED event
-// fire on capability changes only; scope-tile changes get a change-log row (writeRoleChangeLogRows).
+// fire on capability changes only; scope-tile changes get a structured entry in the auto-apply field_changed row (buildFieldChangesRow).
 const CAPABILITY_FLAGS = ["LEAD", "FINANCIALS"] as const;
 function isCapabilityFlag(flag: string): boolean {
   return flag === "LEAD" || flag === "FINANCIALS";
@@ -596,24 +595,6 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
           },
         }
       : undefined;
-
-  // Identifiable role-change change-log rows (spec §2.4). Written UNCONDITIONALLY of feedPolicy from
-  // this shared runPhase2 point so both the cron auto-apply AND staged-apply paths get a discrete
-  // per-member row for every applied role_flags change on a has-a-prior member (capability OR
-  // scope-tile). Guarded on `port` (the DB write needs it); the capability AUDIT (notice + durable
-  // event) is port-independent, so a missing port drops only the Doug-visible row, never the audit.
-  if (port) {
-    await callTx("writeRoleChangeLogRows", () =>
-      writeRoleChangeLogRows(
-        port,
-        snapshot.showId,
-        args.driveFileId,
-        snapshot.previousCrewMembers ?? [],
-        applyOutcome.appliedCrewMembers,
-        args.identityLinkRenames ?? [],
-      ),
-    );
-  }
 
   // §10 point 2/4: gate the applied role mappings against PRIOR-PERSISTED state only — the same
   // prior-crew source capabilityRoleChangesForNotice diffs (snapshot.previousCrewMembers) plus the

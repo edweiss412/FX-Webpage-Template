@@ -207,6 +207,84 @@ describe("cron missingShows loop", () => {
       "committed:archived-file",
     ]);
   });
+
+  // BL-CRON-SYNTHETIC-SHOW-SKIP: a leaked test-seed show (synthetic drive_file_id,
+  // published=true, never in Drive) must NOT enter the missing-shows loop — it can
+  // never resolve, so processing it just marks SHEET_UNAVAILABLE every tick forever.
+  // A real missing show alongside it is still reconciled.
+  test("excludes synthetic-drive_file_id shows from the missing-shows loop; real ones still processed", async () => {
+    const { runScheduledCronSync, SHEET_UNAVAILABLE } =
+      await import("@/lib/sync/runScheduledCronSync");
+    const realGoneId = "44444444-4444-4444-8444-444444444444";
+    const syntheticId = "55555555-5555-4555-8555-555555555555";
+    const locked: string[] = [];
+
+    const result = await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [], // nothing listed -> live shows are "missing"
+      listLiveShows: async () => [
+        {
+          showId: realGoneId,
+          driveFileId: "1RealDriveFileIdThatLeftTheFolder0000000000",
+          lastSeenModifiedTime: null,
+          wizardSessionId: null,
+          title: "Real Gone Show",
+        },
+        {
+          showId: syntheticId,
+          driveFileId: "drv-8bce1aa5-0f15-41ca-a1f9-d5f338f19f55", // seedShow leak
+          lastSeenModifiedTime: null,
+          wizardSessionId: null,
+          title: "T",
+        },
+      ],
+      withShowLock: (async (driveFileId: string) => {
+        locked.push(driveFileId);
+        return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
+      }) as never,
+      writeSyncCronHeartbeat: async () => ({ kind: "ok" }) as never,
+    });
+
+    // The synthetic show is never locked/marked; only the real missing show is.
+    expect(locked).toEqual(["1RealDriveFileIdThatLeftTheFolder0000000000"]);
+    expect(result.processed.map((p) => p.driveFileId)).toEqual([
+      "1RealDriveFileIdThatLeftTheFolder0000000000",
+    ]);
+  });
+
+  // Codex R1 MEDIUM: the synthetic SHAPE is not proof — a real Drive id could
+  // coincidentally match it. The exclusion ANDs shape with `lastSeenModifiedTime
+  // === null` (a leak never synced). So a show on the synthetic shape that HAS a
+  // watermark (i.e. it synced before leaving the folder) is a genuine gone-show
+  // and MUST still be reconciled, not silently dropped.
+  test("a synthetic-shaped show that HAS synced (non-null watermark) is still reconciled", async () => {
+    const { runScheduledCronSync, SHEET_UNAVAILABLE } =
+      await import("@/lib/sync/runScheduledCronSync");
+    const coincidentalId = "66666666-6666-4666-8666-666666666666";
+    const locked: string[] = [];
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [],
+      listLiveShows: async () => [
+        {
+          showId: coincidentalId,
+          // Matches isSyntheticDriveFileId's shape, but this show synced before.
+          driveFileId: "drive-8bce1aa5-0f15-41ca-a1f9-d5f338f19f55",
+          lastSeenModifiedTime: "2026-05-08T12:05:00.000Z", // NON-null → genuine
+          wizardSessionId: null,
+          title: "Real Show On A Coincidental Shape",
+        },
+      ],
+      withShowLock: (async (driveFileId: string) => {
+        locked.push(driveFileId);
+        return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
+      }) as never,
+      writeSyncCronHeartbeat: async () => ({ kind: "ok" }) as never,
+    });
+
+    expect(locked).toEqual(["drive-8bce1aa5-0f15-41ca-a1f9-d5f338f19f55"]);
+  });
 });
 
 describe("push runner", () => {

@@ -157,8 +157,8 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     let roleCount = 0;
     warnings.forEach((w, i) => {
       const row = q.getByTestId(`wizard-step3-card-${DFID}-warning-${i}`);
-      const hasUseRaw = within(row).queryAllByTestId("use-raw-control").length;
-      const hasRole = within(row).queryAllByTestId("role-recognize-control").length;
+      const hasUseRaw = within(row).queryAllByTestId("use-raw-control-list").length;
+      const hasRole = within(row).queryAllByTestId("role-recognize-control-list").length;
       useRawCount += hasUseRaw;
       roleCount += hasRole;
       if (w === OUT_OF_SCOPE) {
@@ -184,8 +184,8 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
 
   test("absent wizardSessionId → zero controls (existing standalone mounts protected)", () => {
     const q = renderBreakdown([roomSplitWarning(1), roleWarning("X")], { session: false });
-    expect(q.queryAllByTestId("use-raw-control")).toHaveLength(0);
-    expect(q.queryAllByTestId("role-recognize-control")).toHaveLength(0);
+    expect(q.queryAllByTestId("use-raw-control-list")).toHaveLength(0);
+    expect(q.queryAllByTestId("role-recognize-control-list")).toHaveLength(0);
   });
 
   test("decision binds by contentHash, not code alone (spec §7.3)", () => {
@@ -195,10 +195,10 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     const row0 = q.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
     const row1 = q.getByTestId(`wizard-step3-card-${DFID}-warning-1`);
     // preference:"raw", applied:false on the wizard surface → "apply-pending".
-    expect(within(row0).getByTestId("use-raw-control").getAttribute("data-state")).toBe(
+    expect(within(row0).getByTestId("use-raw-control-list").getAttribute("data-state")).toBe(
       "apply-pending",
     );
-    expect(within(row1).getByTestId("use-raw-control").getAttribute("data-state")).toBe(
+    expect(within(row1).getByTestId("use-raw-control-list").getAttribute("data-state")).toBe(
       "transform-active",
     );
   });
@@ -227,10 +227,10 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     });
     const def = step3Sections(d).find((s) => s.id === "warnings")!;
     const q = render(<>{def.render(d)}</>);
-    expect(q.getAllByTestId("use-raw-control")).toHaveLength(N);
+    expect(q.getAllByTestId("use-raw-control-list")).toHaveLength(N);
     // The threaded decision reaches the matching row (production decisionFor path).
     const row0 = q.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
-    expect(within(row0).getByTestId("use-raw-control").getAttribute("data-state")).toBe(
+    expect(within(row0).getByTestId("use-raw-control-list").getAttribute("data-state")).toBe(
       "apply-pending",
     );
   });
@@ -240,8 +240,8 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     const q = renderBreakdown([roomSplitWarning(0), w], { decisions: [] });
     // Open the role panel on the LAST row (index 1) — non-default local state.
     const rowBefore = q.getByTestId(`wizard-step3-card-${DFID}-warning-1`);
-    fireEvent.click(within(rowBefore).getByTestId("role-recognize-trigger"));
-    expect(within(rowBefore).getByTestId("role-recognize-panel")).toBeTruthy();
+    fireEvent.click(within(rowBefore).getByTestId("role-recognize-trigger-list"));
+    expect(within(rowBefore).getByTestId("role-recognize-panel-list")).toBeTruthy();
 
     // Insert a NEW warning BEFORE it (the role warning's index shifts 1 → 2).
     q.rerender(
@@ -254,10 +254,10 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     );
     // The panel followed the warning identity (now index 2)…
     const roleRow = q.getByTestId(`wizard-step3-card-${DFID}-warning-2`);
-    expect(within(roleRow).queryByTestId("role-recognize-panel")).toBeTruthy();
+    expect(within(roleRow).queryByTestId("role-recognize-panel-list")).toBeTruthy();
     // …and did NOT migrate to the inserted warning now at index 1.
     const inserted = q.getByTestId(`wizard-step3-card-${DFID}-warning-1`);
-    expect(within(inserted).queryByTestId("role-recognize-panel")).toBeNull();
+    expect(within(inserted).queryByTestId("role-recognize-panel-list")).toBeNull();
   });
 });
 
@@ -298,8 +298,8 @@ describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
     );
     const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
     // Expand the FIRST entry's role panel (belongs to `role`).
-    fireEvent.click(within(callout).getAllByTestId("role-recognize-trigger")[0]!);
-    expect(within(callout).getAllByTestId("role-recognize-panel")).toHaveLength(1);
+    fireEvent.click(within(callout).getAllByTestId("role-recognize-trigger-callout")[0]!);
+    expect(within(callout).getAllByTestId("role-recognize-panel-callout")).toHaveLength(1);
 
     // Upstream insertion shifts every full-array index AND swaps the entry
     // order: `role` (whose panel is open) moves from entry 0 to entry 1.
@@ -312,7 +312,7 @@ describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
       ]),
     );
     const calloutAfter = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-    const panels = within(calloutAfter).getAllByTestId("role-recognize-panel");
+    const panels = within(calloutAfter).getAllByTestId("role-recognize-panel-callout");
     expect(panels).toHaveLength(1);
     // Locate by durable identity (the entry containing role's token), not index.
     const panelEntry = panels[0]!.closest("div.flex.flex-col");
@@ -329,13 +329,13 @@ describe("duplicate role-control siblings (spec §4.6 stale-sibling contract, UI
   const twin = () => [roleWarning("SLED DRIVER"), roleWarning("SLED DRIVER")];
 
   async function saveVia(row: HTMLElement) {
-    fireEvent.click(within(row).getByTestId("role-recognize-trigger"));
-    fireEvent.click(within(row).getByTestId("role-recognize-check-A1"));
-    fireEvent.click(within(row).getByTestId("role-recognize-save"));
+    fireEvent.click(within(row).getByTestId("role-recognize-trigger-list"));
+    fireEvent.click(within(row).getByTestId("role-recognize-check-A1-list"));
+    fireEvent.click(within(row).getByTestId("role-recognize-save-list"));
     await waitFor(() =>
       expect(
-        within(row).queryByTestId("role-recognize-saved") ??
-          within(row).queryByTestId("role-recognize-conflict"),
+        within(row).queryByTestId("role-recognize-saved-list") ??
+          within(row).queryByTestId("role-recognize-conflict-list"),
       ).toBeTruthy(),
     );
   }
@@ -344,12 +344,12 @@ describe("duplicate role-control siblings (spec §4.6 stale-sibling contract, UI
     const q = renderBreakdown(twin(), { decisions: [] });
     const rows = [0, 1].map((i) => q.getByTestId(`wizard-step3-card-${DFID}-warning-${i}`));
     await saveVia(rows[0]!);
-    expect(within(rows[0]!).getByTestId("role-recognize-saved")).toBeTruthy();
+    expect(within(rows[0]!).getByTestId("role-recognize-saved-list")).toBeTruthy();
     // The sibling stayed mounted in create mode (no client refresh, §8.1) …
-    expect(within(rows[1]!).getByTestId("role-recognize-trigger")).toBeTruthy();
+    expect(within(rows[1]!).getByTestId("role-recognize-trigger-list")).toBeTruthy();
     // … and its save resolves via the action's EXISTING-ROW branch (mock: ok).
     await saveVia(rows[1]!);
-    expect(within(rows[1]!).getByTestId("role-recognize-saved")).toBeTruthy();
+    expect(within(rows[1]!).getByTestId("role-recognize-saved-list")).toBeTruthy();
   });
 
   test("sibling save with different grants → benign conflict notice, never a raw code", async () => {
@@ -358,10 +358,61 @@ describe("duplicate role-control siblings (spec §4.6 stale-sibling contract, UI
     await saveVia(rows[0]!);
     vi.mocked(mapRoleTokenStaged).mockResolvedValueOnce({ ok: false, code: "conflict" } as never);
     await saveVia(rows[1]!);
-    expect(within(rows[1]!).getByTestId("role-recognize-conflict")).toBeTruthy();
-    expect(within(rows[1]!).queryByTestId("role-recognize-error")).toBeNull();
+    expect(within(rows[1]!).getByTestId("role-recognize-conflict-list")).toBeTruthy();
+    expect(within(rows[1]!).queryByTestId("role-recognize-error-list")).toBeNull();
     // Invariant 5: the machine token never renders.
     expect(rows[1]!.textContent).not.toContain("conflict_code");
     expect(rows[1]!.textContent).not.toMatch(/\bUNKNOWN_ROLE_TOKEN\b/);
+  });
+});
+
+describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
+  // Local callout host (the callout mounts via ModalSectionChrome when the chrome
+  // context carries calloutEntries; useRawDecisions: [] so the use-raw boundary mounts).
+  function localCalloutHost(entries: { warning: ParseWarning; index: number }[]) {
+    return (
+      <Step3SectionChromeContext.Provider
+        value={{
+          Icon: (() => null) as never,
+          label: "Crew",
+          flagged: true,
+          sectionId: "crew" as const,
+          dfid: DFID,
+          calloutEntries: entries,
+          onJumpToWarning: () => {},
+          wizardSessionId: WSID,
+          useRawDecisions: [],
+        }}
+      >
+        <BreakdownSection testId="callout-host" label="Crew" count={null}>
+          <p>body</p>
+        </BreakdownSection>
+      </Step3SectionChromeContext.Provider>
+    );
+  }
+
+  test("one warning rendered at callout + list yields distinct, non-colliding control testids", () => {
+    const w = roomSplitWarning(0); // existing in-scope ROOM_HEADER_SPLIT_AMBIGUOUS fixture (:59)
+    // list host
+    const list = renderBreakdown([w], { decisions: [] });
+    const row = list.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
+    expect(within(row).getByTestId("use-raw-control-list")).toBeTruthy();
+    expect(within(row).queryByTestId("use-raw-control-callout")).toBeNull();
+    cleanup();
+    // callout host
+    const callout = render(localCalloutHost([{ warning: w, index: 0 }]));
+    const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    expect(within(box).getByTestId("use-raw-control-callout")).toBeTruthy();
+    expect(within(box).queryByTestId("use-raw-control-list")).toBeNull();
+  });
+});
+
+describe("non-blocking copy requalification (spec 2026-07-17 §9)", () => {
+  test("headline drops 'informational', keeps 'don't block publishing', names the optional fix", () => {
+    const q = renderBreakdown([roleWarning("SLED DRIVER")], { decisions: [] });
+    const line = q.getByTestId(`wizard-step3-card-${DFID}-warnings-nonblocking`);
+    expect(line.textContent!).toMatch(/don.t block publishing/i);
+    expect(line.textContent!).not.toMatch(/informational/i);
+    expect(line.textContent!).toMatch(/optional fix/i);
   });
 });

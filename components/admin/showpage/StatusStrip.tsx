@@ -185,7 +185,8 @@ export function StatusStrip({
         <span data-testid="strip-sync-age" className="flex shrink-0 items-center gap-2">
           {/* One health dot, colored by sync HEALTH (last_sync_status bucket) — NOT the
               edit time. It pairs with both text lines (the color-blind floor). */}
-          <StatusDot status={sync.bucket} />
+          {/* pulse: subtle heartbeat on the healthy/synced dot (no-op on non-positive). */}
+          <StatusDot status={sync.bucket} pulse />
           {/* Synced (last-checked) over Edited (last-synced), stacked and equally weighted
               — same size/color, neither is the "primary" of the pair. */}
           <span className="flex flex-col text-xs/tight text-text-subtle tabular-nums">

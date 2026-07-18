@@ -308,11 +308,71 @@ it("kind-dot cluster: >4 distinct kinds → 4 dots + a +N overflow marker", () =
     />,
   );
   const cluster = screen.getByTestId("auto-applied-kind-dots");
-  const dotEls = [...cluster.querySelectorAll("span[aria-hidden='true']")].filter((el) =>
-    el.className.includes("rounded-full"),
-  );
-  expect(dotEls.length).toBe(4);
+  // Count top-level markers by testid, not by `.rounded-full` — the destructive
+  // crew_removed marker is a non-rounded minus-bar wrapper (KINDDOT-1), so a
+  // shape filter would miscount. Marker identity is shape-independent.
+  const markerEls = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markerEls.length).toBe(4);
   expect(cluster.textContent ?? "").toContain("+2");
+});
+
+it("kind-dot cluster: destructive crew_removed renders a minus-bar (non-color tell), not a disc", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_removed", "crew_added"])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(2);
+  // the removed marker is the minus-bar wrapper: NOT a rounded-full disc itself,
+  // and it contains an h-0.5 w-2 rounded-full bar.
+  const removedMarker = markers.find((m) => m.querySelector(".h-0\\.5.w-2"));
+  expect(removedMarker).toBeTruthy();
+  expect(removedMarker!.className).not.toContain("rounded-full");
+  expect(removedMarker!.querySelector(".h-0\\.5.w-2.rounded-full")).toBeTruthy();
+  // the non-removed (added) marker stays a filled size-2 rounded-full disc.
+  const discs = markers.filter(
+    (m) => m.className.includes("size-2") && m.className.includes("rounded-full"),
+  );
+  expect(discs.length).toBe(1);
+});
+
+it("kind-dot cluster: no crew_removed → all markers are filled discs, no minus-bar", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData(["crew_renamed", "crew_added"])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(2);
+  expect(markers.every((m) => m.className.includes("rounded-full"))).toBe(true);
+  expect(cluster.querySelector(".h-0\\.5.w-2")).toBeNull();
+});
+
+it("kind-dot cluster: destructive minus-bar stays visible with all 5 kinds (never in +N overflow)", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={groupData([
+        "crew_removed",
+        "crew_renamed",
+        "crew_added",
+        "field_changed",
+        "crew_email_changed",
+      ])}
+      actions={noopActions()}
+    />,
+  );
+  const cluster = screen.getByTestId("auto-applied-kind-dots");
+  // 5 known kinds → 4 shown markers + "+1"; crew_removed (KIND_ORDER[0]) is shown.
+  const markers = [...cluster.querySelectorAll('[data-testid="auto-applied-kind-marker"]')];
+  expect(markers.length).toBe(4);
+  expect(markers.some((m) => m.querySelector(".h-0\\.5.w-2"))).toBe(true);
+  expect(cluster.textContent ?? "").toContain("+1");
+  expect(cluster.getAttribute("aria-label") ?? "").toContain("Removed");
 });
 
 it("kind-dot cluster: empty rows → renders nothing", () => {
@@ -941,4 +1001,186 @@ it("FLOW4-7: infra_error section is also a named region via aria-labelledby, no 
   const region = screen.getByRole("region", { name: "Recently auto-applied" });
   expect(region).not.toHaveAttribute("aria-label");
   expect(region).toHaveAttribute("aria-labelledby");
+});
+
+// ── Header parity: count chip + ? help (dashboard-only) ───────────────────────
+// The dashboard strip header gains a section count chip + a HoverHelp "?" icon,
+// mirroring the "Needs attention" header. Both are gated on headingLevel===4 so
+// the shared /admin/needs-attention page (headingLevel 2) keeps its bare heading.
+
+it("HEADERPARITY: dashboard header shows a count chip = renderedCount + overflowCount", () => {
+  const data = okData();
+  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} />);
+  const chip = screen.getByTestId("recent-auto-applied-count-chip");
+  // Derived from the fixture, not a bare literal: 4 + 3 = 7.
+  expect(chip).toHaveTextContent(String(data.renderedCount + data.overflowCount));
+});
+
+it("HEADERPARITY: dashboard header renders the ? help affordance linking review-queues#re-stage", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const root = screen.getByTestId("help-affordance--dashboard-recently-auto-applied--tooltip");
+  const learnMore = within(root).getByRole("link", { name: /learn more/i });
+  expect(learnMore).toHaveAttribute("href", "/help/admin/review-queues#re-stage");
+});
+
+it("HEADERPARITY: dashboard infra_error branch keeps the help but shows NO count chip", () => {
+  render(
+    <RecentAutoAppliedStrip data={{ kind: "infra_error", message: "x" }} actions={noopActions()} />,
+  );
+  expect(
+    screen.getByTestId("help-affordance--dashboard-recently-auto-applied--tooltip"),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId("recent-auto-applied-count-chip")).toBeNull();
+});
+
+it("HEADERPARITY: needs-attention page (headingLevel 2) renders neither chip nor help, bare heading DOM", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} headingLevel={2} />);
+  expect(screen.queryByTestId("recent-auto-applied-count-chip")).toBeNull();
+  expect(
+    screen.queryByTestId("help-affordance--dashboard-recently-auto-applied--tooltip"),
+  ).toBeNull();
+  // Bare-DOM contract: the heading is a direct child of the strip <section>, NOT
+  // wrapped in a flex chrome div (Codex R4 finding 2).
+  const heading = screen.getByRole("heading", { level: 2, name: "Recently auto-applied" });
+  expect(heading.parentElement).toHaveAttribute("data-testid", "recent-auto-applied-strip");
+});
+
+// ── REDESIGN-3: structured field_changed diff (kind:"fields") ────────────────
+import type { FieldChangeEntry } from "@/lib/sync/changeLog/fieldChanges";
+
+function fieldsData(
+  entries: FieldChangeEntry[],
+  summary = "COI status changed on this sync",
+): Extract<RecentAutoApplied, { kind: "ok" }> {
+  return {
+    kind: "ok",
+    renderedCount: 1,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: "show-x",
+        slug: "x",
+        showName: "Test Show",
+        rows: [
+          {
+            id: "f1",
+            changeKind: "field_changed",
+            summary,
+            occurredAt: "2026-07-07T08:00:00Z",
+            undoable: false,
+            diff: { kind: "fields", entries },
+          },
+        ],
+        acceptableIds: ["f1"],
+        undoableIds: [],
+      },
+    ],
+  };
+}
+
+it("REDESIGN-3: renders a fields diff with the field name as the heading", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        { label: "COI status", from: "(none)", to: "received", note: null },
+        { label: "Role — Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
+        { label: "PO number", from: null, to: null, note: "cleared on this sync" },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(screen.getByText("COI status")).toBeInTheDocument();
+  expect(screen.getByText("Role — Jordan A. Lee")).toBeInTheDocument();
+  expect(screen.getByText("cleared on this sync")).toBeInTheDocument();
+  // field label is the heading — carries semibold weight (over the diff values).
+  expect(screen.getByText("COI status")).toHaveClass("font-semibold");
+});
+
+it("REDESIGN-3: the fields branch adds no transition wrapper (empty inventory)", () => {
+  const { container } = render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([{ label: "COI status", from: "(none)", to: "received", note: null }])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(container.querySelector("[data-framer-appear-id]")).toBeNull();
+});
+
+it("REDESIGN-3: a field_changed (fields) row renders NO 'Crew member' label", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([{ label: "COI status", from: "(none)", to: "received", note: null }])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  expect(screen.queryByText("Crew member")).toBeNull();
+});
+
+it("REDESIGN-3: crew rows STILL render the 'Crew member' label", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  expect(screen.getAllByText("Crew member").length).toBeGreaterThan(0);
+});
+
+it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
+  const lname = "Role — " + "N".repeat(110);
+  const lfrom = "F".repeat(120);
+  const lto = "T".repeat(120);
+  const lnote = "P".repeat(120);
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        { label: lname, from: lfrom, to: lto, note: null },
+        { label: "Pull sheet", from: null, to: null, note: lnote },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  for (const s of [lname, lfrom, lto, lnote]) {
+    expect(screen.getByText(s)).toHaveClass("wrap-break-word");
+  }
+});
+
+it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
+  const entries: FieldChangeEntry[] = Array.from({ length: 14 }, (_, i) => ({
+    label: `Role — Person ${i}`,
+    from: "A1",
+    to: "A1, LEAD",
+    note: null,
+  }));
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData(entries, "Role changed on this sync")}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  for (let i = 0; i < 14; i++) {
+    expect(screen.getByText(`Role — Person ${i}`)).toBeInTheDocument();
+  }
+  expect(screen.queryByText(/\+\d+ more|show more/i)).toBeNull();
+});
+
+it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () => {
+  render(
+    <RecentAutoAppliedStrip
+      data={fieldsData([
+        {
+          label: "Unavailable",
+          from: null,
+          to: null,
+          note: "1 field change on this sync — details unavailable",
+        },
+      ])}
+      actions={noopActions()}
+      defaultExpanded
+    />,
+  );
+  const marker = screen.getByText(/details unavailable/);
+  expect(marker).toBeInTheDocument();
+  expect(marker.closest("li")).toHaveClass("bg-warning-bg");
 });

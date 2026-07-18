@@ -614,6 +614,7 @@ function SectionFlagCallout({
                 driveFileId={dfid}
                 warning={warning}
                 decision={decisionFor(warning)}
+                site="callout"
               />
             ) : null}
             {/* spec 2026-07-15 §8.1: recognize-role control for
@@ -625,6 +626,7 @@ function SectionFlagCallout({
                 wizardSessionId={wizardSessionId}
                 driveFileId={dfid}
                 warning={warning}
+                site="callout"
               />
             ) : null}
           </div>
@@ -2293,8 +2295,10 @@ export function reviewWarningTitle(w: ParseWarning): string {
  * through `reviewWarningTitle` (hardened, spec §8); cataloged codes also show
  * their `helpfulContext`. The bare `code` is NEVER rendered (invariant 5).
  *
- * One explicit line states that warnings are informational and do NOT block
- * publishing, so the count badge stops reading as an error. Severity is shown
+ * One explicit line states that warnings do NOT block publishing and that some
+ * rows carry an optional fix, so the count badge stops reading as an error and
+ * the now-consequential controls below it aren't undersold as "informational".
+ * Severity is shown
  * as an icon chip (warn/info) + a small dot + label. Zero warnings render the
  * AFFIRMATIVE empty state (spec §3.10) — the all-clean state is a sentence,
  * not an absent panel. No publish-gate logic changes here.
@@ -2341,7 +2345,8 @@ export function WarningsBreakdown({
             data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
             className="text-xs text-text-subtle"
           >
-            These are informational and don&rsquo;t block publishing.
+            These warnings don&rsquo;t block publishing. Some include an optional fix you can apply
+            below.
           </p>
           <ul className="flex flex-col gap-3">
             {warnings.map((w, i) => {
@@ -2432,6 +2437,7 @@ export function WarningsBreakdown({
                         driveFileId={dfid}
                         warning={w}
                         decision={findUseRawDecision(w, useRawDecisions)}
+                        site="list"
                       />
                     ) : null}
                     {wizardSessionId && dfid ? (
@@ -2440,6 +2446,7 @@ export function WarningsBreakdown({
                         wizardSessionId={wizardSessionId}
                         driveFileId={dfid}
                         warning={w}
+                        site="list"
                       />
                     ) : null}
                   </div>
