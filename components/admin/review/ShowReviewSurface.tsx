@@ -41,12 +41,14 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
+  findUseRawDecision,
   ROOMS_CAP,
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
   Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
 // source-marker audit pins `export const WARNING_HIGHLIGHT_MS = 1600;` to that
@@ -832,7 +834,21 @@ export function ShowReviewSurface({
                   // decisions/session need thread here; WarningsBreakdown reads
                   // them from SectionData as the sole actionable site.)
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
-                    ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
+                    ? {
+                        // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with
+                        // whether the sole actionable site (WarningsBreakdown) would
+                        // render a fix control for it, so the jump label reads "Fix"
+                        // only where a fix exists. Decisions are present here because
+                        // the callout only mounts under isStaged(data).
+                        calloutEntries: bySection.get(s.id)!.map((e) => ({
+                          ...e,
+                          offersFix: warningOffersFix(
+                            e.warning,
+                            findUseRawDecision(e.warning, data.useRawDecisions),
+                          ),
+                        })),
+                        onJumpToWarning: jumpToWarning,
+                      }
                     : {}),
                 }}
               >

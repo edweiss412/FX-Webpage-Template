@@ -1879,7 +1879,9 @@ describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec �
     scrollAt(content, absTop(1) + 10);
     expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
     const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
-    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+    fireEvent.click(
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+    );
     expect(navActiveId(q, "rail")).toBe("warnings");
     // Mid-glide frame at an unrelated position: held on 'warnings'.
     scrollAt(content, absTop(2) + 10);
@@ -2374,7 +2376,9 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
     expect(q.getByTestId(tid("section-crew")).contains(callout)).toBe(true);
 
     // Exactly CALLOUT_MAX_ENTRIES title rows, each with a jump button.
-    const jumpButtons = within(callout).getAllByRole("button", { name: /View details/ });
+    const jumpButtons = within(callout).getAllByRole("button", {
+      name: /^(?:Fix|Review) in Parse warnings/,
+    });
     expect(jumpButtons).toHaveLength(CALLOUT_MAX_ENTRIES);
 
     // Overflow line derived from the fixture length, itself a button.
@@ -2390,9 +2394,9 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
     const d = sectionData({ warnings: crewWarnings(CALLOUT_MAX_ENTRIES) });
     const { q } = renderModal({ d });
     const callout = q.getByTestId(calloutTid("crew"));
-    expect(within(callout).getAllByRole("button", { name: /View details/ })).toHaveLength(
-      CALLOUT_MAX_ENTRIES,
-    );
+    expect(
+      within(callout).getAllByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+    ).toHaveLength(CALLOUT_MAX_ENTRIES);
     expect(within(callout).queryByText(/more in Parse warnings/)).toBeNull();
   });
 
@@ -2431,6 +2435,61 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
     const callout = q.getByTestId(calloutTid("crew"));
     expect(within(callout).getByText("A parse issue was recorded for this sheet.")).toBeTruthy();
     expect(callout.textContent).not.toContain("OPENING_REEL_UNREADABLE");
+  });
+});
+
+describe("Step3ReviewModal — callout jump label (CALLOUT-PREVIEW-ACTION-CUE-1)", () => {
+  function roleWarning(kind: string): ParseWarning {
+    return {
+      severity: "warn",
+      code: "UNKNOWN_ROLE_TOKEN",
+      message: "",
+      blockRef: { kind },
+      roleToken: "STROBE_TECH",
+    };
+  }
+  function calloutTid(sectionId: string): string {
+    return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
+  }
+
+  test("flagged + fixable (UNKNOWN_ROLE_TOKEN + token) → 'Fix in Parse warnings'", () => {
+    const d = sectionData({ warnings: [roleWarning("crew")] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(within(callout).getByRole("button", { name: /^Fix in Parse warnings\b/ })).toBeTruthy();
+    expect(
+      within(callout).queryByRole("button", { name: /^Review in Parse warnings\b/ }),
+    ).toBeNull();
+  });
+
+  test("flagged + NON-fixable (SOME_CODE) → 'Review in Parse warnings' (no blanket Fix)", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(
+      within(callout).getByRole("button", { name: /^Review in Parse warnings\b/ }),
+    ).toBeTruthy();
+    expect(within(callout).queryByRole("button", { name: /^Fix in Parse warnings\b/ })).toBeNull();
+  });
+
+  test("judgment variant → 'Review in Parse warnings' (calm, even if technically fixable)", () => {
+    const d = sectionData({ warnings: [judgmentWarning("rooms")] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("rooms"));
+    expect(
+      within(callout).getByRole("button", { name: /^Review in Parse warnings\b/ }),
+    ).toBeTruthy();
+  });
+
+  test("visible label excludes the sr-only suffix", () => {
+    const d = sectionData({ warnings: [roleWarning("crew")] });
+    const { q } = renderModal({ d });
+    const btn = within(q.getByTestId(calloutTid("crew"))).getByRole("button", {
+      name: /^Fix in Parse warnings\b/,
+    });
+    const clone = btn.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    expect(clone.textContent?.trim()).toBe("Fix in Parse warnings");
   });
 });
 
@@ -2477,7 +2536,7 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
     return [info, ...Array.from({ length: warnCount }, () => warning("crew"))];
   }
 
-  test("jump: click 'View details' → aria-current moves to the warnings rail item; the li located via data-warning-index gets the flash attribute; cleared after WARNING_HIGHLIGHT_MS; no id attributes anywhere", () => {
+  test("jump: click the callout jump button → aria-current moves to the warnings rail item; the li located via data-warning-index gets the flash attribute; cleared after WARNING_HIGHLIGHT_MS; no id attributes anywhere", () => {
     stubScrollTo();
     vi.useFakeTimers();
     const d = sectionData({ warnings: warningsWithInfoPrefix(1) });
@@ -2488,7 +2547,9 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
     expect(warnIndex).toBeGreaterThan(0); // the info prefix shifts it — full-array contract
 
     const callout = q.getByTestId(calloutTid("crew"));
-    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+    fireEvent.click(
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+    );
 
     // aria-current moved to the warnings item on the rail (container-scoped).
     const rail = q.getByTestId(tid("rail"));
@@ -2531,7 +2592,9 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
     expect(warnIndices).toHaveLength(2);
 
     const callout = q.getByTestId(calloutTid("crew"));
-    const buttons = within(callout).getAllByRole("button", { name: /View details/ });
+    const buttons = within(callout).getAllByRole("button", {
+      name: /^(?:Fix|Review) in Parse warnings/,
+    });
     const content = q.getByTestId(tid("content"));
     const liA = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[0]}"]`)!;
     const liB = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[1]}"]`)!;

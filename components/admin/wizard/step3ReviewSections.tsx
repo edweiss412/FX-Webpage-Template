@@ -460,7 +460,7 @@ export type Step3SectionChrome = {
    * `warnings` (its body IS the warning list — a callout would be circular).
    * Optional/ABSENT everywhere else (exactOptionalPropertyTypes).
    */
-  calloutEntries?: readonly { warning: ParseWarning; index: number }[];
+  calloutEntries?: readonly { warning: ParseWarning; index: number; offersFix?: boolean }[];
   /**
    * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
    * to that row + flashes it; `null` is the "+N more" section-top jump
@@ -530,14 +530,15 @@ function SectionFlagCallout({
 }: {
   dfid: string;
   sectionId: SectionId;
-  entries: readonly { warning: ParseWarning; index: number }[];
+  entries: readonly { warning: ParseWarning; index: number; offersFix?: boolean }[];
   onJump: (index: number | null) => void;
   /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
    *  informational tone + a lead "we made a judgment call" line. Default flagged. */
   variant?: "flagged" | "judgment";
 }) {
   // spec 2026-07-17 (USE-RAW-FULL-LIST-1): the callout is a PREVIEW — title +
-  // "View details" jump only. It mounts NO use-raw / recognize-role controls;
+  // action-forward jump only ("Fix in Parse warnings" / "Review in Parse
+  // warnings"). It mounts NO use-raw / recognize-role controls;
   // WarningsBreakdown is the sole actionable site, so a warning has exactly one
   // live control instance (no stale-sibling divergence across two mounts).
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
@@ -566,12 +567,20 @@ function SectionFlagCallout({
           We made a judgment call reading this. Worth a glance.
         </p>
       ) : null}
-      {shown.map(({ warning, index }, k) => {
+      {shown.map(({ warning, index, offersFix }, k) => {
         const title = reviewWarningTitle(warning); // §8 hardening applies transitively
         // Entry text names the specific field when the warning carries one
         // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
         const fieldLabel = fieldLabelFor(warning.blockRef?.field);
+        // CALLOUT-PREVIEW-ACTION-CUE-1: name the action + destination so the
+        // preview never reads as passive FYI. "Fix" ONLY where the sole
+        // actionable site (WarningsBreakdown) renders a fix control for THIS
+        // warning (`offersFix`); judgment stays calm ("Review") by contract
+        // (spec 2026-07-07 §7.3). Missing/false offersFix fail-safes to
+        // "Review" — never a false "Fix".
+        const jumpLabel =
+          isJudgment || offersFix !== true ? "Review in Parse warnings" : "Fix in Parse warnings";
         return (
           <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -585,13 +594,13 @@ function SectionFlagCallout({
                 onClick={() => onJump(index)}
                 className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
-                View details<span className="sr-only"> for {title}</span>
+                {jumpLabel} <span className="sr-only">for {title}</span>
               </button>
             </div>
             {/* spec 2026-07-17 (USE-RAW-FULL-LIST-1): NO controls here — the
                 callout is preview-only. The use-raw / recognize-role controls
-                live solely in WarningsBreakdown (reached via "View details"),
-                so each warning has exactly one live control instance. */}
+                live solely in WarningsBreakdown (reached via the jump), so each
+                warning has exactly one live control instance. */}
           </div>
         );
       })}
