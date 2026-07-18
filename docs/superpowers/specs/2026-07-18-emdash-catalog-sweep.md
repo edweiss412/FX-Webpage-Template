@@ -23,8 +23,17 @@ A catalog field is in scope iff its value is rendered in the UI. Confirmed rende
 | `followUp` | developer health-alert row body (`components/admin/telemetry/HealthAlertsPanel.tsx:81,111-113` renders `raw?.followUp` via `renderCatalogEmphasis`) | **YES** | 2 |
 | `title` | alert titles (BellPanel `rowCopy`, `/help/errors` `<h3>`) | no | 5 |
 | `longExplanation` | `/help/errors` `<p>` (`app/help/errors/page.tsx:93`) | no | 51 |
+| `dougSummary` | app-health popover (`lib/admin/healthRollup.ts:96` `dougSummaryFor` → `AppHealthPopover.tsx:113` `line.text`) | no | 0 |
 
-**In scope for the sweep: 172 occurrences** across those six fields.
+**In scope for the sweep: 172 occurrences** across those seven fields (`dougSummary` is 0 today — it carries no em dash — but is in the audit for fails-by-default completeness, so a future health-code addition can't smuggle one in).
+
+### 2.1 Completeness — the rendered-prose field set is type-derived (not ad hoc)
+
+Enumerated against the full `MessageCatalogEntry` type (`lib/messages/catalog.ts:1-24`) so the audit provably covers every rendered-prose field:
+
+- **Rendered prose (audited, 7):** `dougFacing`, `crewFacing`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `dougSummary`.
+- **Not prose (excluded):** `code` (identifier), `helpHref` (URL — an em dash in a URL is a different bug class, not §9 rendered-prose; the 4 `helpHref` em-dash attributions in raw greps are trailing comments).
+- **Enums (excluded, no free text):** `severity`, `adminSurface`, `audience`, `healthWeight`, `resolution`.
 
 > Round-1 correction (Codex): `followUp` was initially scoped out as "never rendered." That was wrong — `HealthAlertsPanel` renders it (line 111-113), and two values carry em dashes (`ROLE_TOKEN_MAPPED`/`ALERT_BELL_FEED_FAILED`: `"none — informational"`, `"none — transient read failure"`). It is now in scope AND is a §12.4-coupled field (present in `SpecCodePayload`), so it rides the three-way lockstep. `HealthAlertsPanel` renders only `title`, `dougFacing`, and `followUp` — all now in scope, no further field missed.
 
@@ -57,9 +66,9 @@ Distinguish per cell:
 
 The regen + x1 parity is fail-loud per-code: after all edits, `pnpm gen:spec-codes` + `pnpm test:audit:x1-catalog-parity` will report `catalog <CODE>.<field> differs from §12.4` for any missed propagation OR any accidentally-corrupted null marker. Iterate to green before commit.
 
-## 4. Catalog-only fields (title, longExplanation)
+## 4. Catalog-only fields (title, longExplanation, dougSummary)
 
-`title` and `longExplanation` are NOT in `SpecCodePayload` (no x1 coupling — verified: `SpecCodePayload` = `{dougFacing, crewFacing, followUp, helpfulContext}`). Their em dashes are edited in `lib/messages/catalog.ts` **only** — no spec edit, no regen needed for these.
+`title`, `longExplanation`, and `dougSummary` are NOT in `SpecCodePayload` (no x1 coupling — verified: `SpecCodePayload` = `{dougFacing, crewFacing, followUp, helpfulContext}`). Their em dashes are edited in `lib/messages/catalog.ts` **only** — no spec edit, no regen needed for these.
 
 ## 5. Replacement rules
 
@@ -72,9 +81,9 @@ Each `—` is replaced with the context-appropriate substitute per §9 (comma, c
 
 ## 6. Widened audit test (the deliverable that pins the class closed)
 
-Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home). It walks every entry in the runtime `MESSAGE_CATALOG` and, for each **rendered** field `[dougFacing, crewFacing, helpfulContext, followUp, title, longExplanation]`, asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
+Add an em-dash assertion to `tests/messages/_metaCatalogCopyHygiene.test.ts` (the existing catalog copy-hygiene meta-test — natural home). It walks every entry in the runtime `MESSAGE_CATALOG` and, for each **rendered-prose** field `[dougFacing, crewFacing, helpfulContext, followUp, title, longExplanation, dougSummary]` (the §2.1 type-derived set), asserts the value contains no `—` (U+2014). Because x1 already pins catalog↔spec for the four coupled fields (dougFacing, crewFacing, helpfulContext, followUp), an em-dash-free runtime catalog transitively guarantees §12.4 is em-dash-free on the coupled fields too (no separate spec-side audit needed).
 
-- `developer` and `helpHref`/comment content are excluded from the walk (not rendered copy). `followUp` IS included (it renders in HealthAlertsPanel).
+- Non-prose fields (`code`, `helpHref`) and enums (`severity`/`adminSurface`/`audience`/`healthWeight`/`resolution`) are excluded (§2.1). `followUp` and `dougSummary` ARE included (both render).
 - Fail message names `CODE.field` + the offending value slice, matching the file's existing violation-report style.
 - Test is **fails-by-default**: a future catalog addition with an em dash in a rendered field trips it.
 
@@ -92,12 +101,12 @@ TDD order — land the widened audit test FIRST and observe it fail on the curre
 ## 8. Test plan
 
 1. `test(messages)`: widen `_metaCatalogCopyHygiene.test.ts` em-dash audit across rendered fields → RED (172 failures).
-2. `fix(messages)`: sweep em dashes — catalog.ts (all six rendered fields) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
+2. `fix(messages)`: sweep em dashes — catalog.ts (all seven rendered-prose fields; dougSummary 0 today) + master spec §12.4 (dougFacing/crewFacing/followUp cells + helpfulContext appendix) + `pnpm gen:spec-codes` → GREEN.
 3. Gates that must stay green: `test:audit:x1-catalog-parity` (catalog↔§12.4), the new hygiene audit, `tests/notify/templates.test.ts`, full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 
 ## 9. Files touched
 
-- `lib/messages/catalog.ts` (edit — 172 substitutions across 6 rendered fields)
+- `lib/messages/catalog.ts` (edit — 172 substitutions across the 6 fields that carry em dashes; dougSummary is audited but has 0)
 - `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (edit — §12.4 table + appendix, coupled fields dougFacing/crewFacing/followUp/helpfulContext only)
 - `lib/messages/__generated__/spec-codes.ts` (regenerated, committed)
 - `tests/messages/_metaCatalogCopyHygiene.test.ts` (edit — add rendered-field em-dash audit)
