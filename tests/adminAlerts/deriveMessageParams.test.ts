@@ -33,14 +33,65 @@ describe("deriveAlertMessageParams — identity params", () => {
     expect(p["show-name"]).toBe("this show");
   });
 
-  it("passes context scalars through and lets derived keys win on collision", () => {
+  it("passes context scalars through unmodified", () => {
     const p = deriveAlertMessageParams(
       "BRANCH_PROTECTION_DRIFT",
-      { repo: "edweiss412/FX-Webpage-Template", "show-name": "spoofed" },
+      { repo: "edweiss412/FX-Webpage-Template" },
       null,
     );
     expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
-    expect(p["show-name"]).toBe("this show");
+  });
+
+  // Fix Round 1 (param priority): identity-resolved value > context-derived
+  // value > fallback phrase. Fallback applies ONLY when neither identity nor
+  // context supplies the value — a resolved identity value must still win
+  // over a conflicting context value (real anti-spoof), but identity being
+  // null must NOT clobber a context-supplied value down to the fallback
+  // (that was the SHEET_UNAVAILABLE regression: Task 8 swapped
+  // PerShowAlertSection.tsx from raw context passthrough to this function,
+  // and identity resolution for that alert is null, so the old
+  // unconditional-override wiped out context.sheet_name).
+  describe("priority chain: identity > context > fallback", () => {
+    it("show-name: identity wins over a conflicting context value", () => {
+      const p = deriveAlertMessageParams(
+        "BRANCH_PROTECTION_DRIFT",
+        { "show-name": "context-supplied" },
+        identity([{ label: "Show", value: "II - East Coast 2026" }]),
+      );
+      expect(p["show-name"]).toBe("'II - East Coast 2026'");
+    });
+
+    it("sheet-name: identity null, context sheet_name present → context value wins (SHEET_UNAVAILABLE shape)", () => {
+      const p = deriveAlertMessageParams(
+        "SHEET_UNAVAILABLE",
+        { sheet_name: "Validation — Normal day (R1)" },
+        null,
+      );
+      expect(p["sheet-name"]).toBe("Validation — Normal day (R1)");
+    });
+
+    it("sheet-name: identity null, context missing → fallback phrase", () => {
+      const p = deriveAlertMessageParams("SHEET_UNAVAILABLE", null, null);
+      expect(p["sheet-name"]).toBe("this sheet");
+    });
+
+    it("show-name: identity null, context show_name present → context value wins", () => {
+      const p = deriveAlertMessageParams(
+        "REPORT_LEASE_THRASHING",
+        { show_name: "II - RIA Investment Forum" },
+        null,
+      );
+      expect(p["show-name"]).toBe("II - RIA Investment Forum");
+    });
+
+    it("repo (Task 9 param): identity has no repo segment, so context always wins over fallback when present — unaffected by the chain fix", () => {
+      const p = deriveAlertMessageParams(
+        "BRANCH_PROTECTION_DRIFT",
+        { repo: "edweiss412/FX-Webpage-Template" },
+        identity([{ label: "Show", value: "unrelated" }]),
+      );
+      expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
+    });
   });
 
   // Task 9 (spec 2026-07-17 §4.2): the telemetry health panel has no

@@ -7,8 +7,17 @@
  * catalog dougFacing templates can name the sheet/show inline. Every derived
  * key always resolves (fallback phrases), so converted codes never leak a
  * literal <placeholder>; the render-site unresolved-placeholder guard stays as
- * defense-in-depth only. Derived keys override context keys on collision (a
- * producer bag can never spoof the resolved identity). Pure — no I/O.
+ * defense-in-depth only.
+ *
+ * Priority chain per param: identity-resolved value (rename-proof, preferred;
+ * always wins over context when present — real anti-spoof) > context-derived
+ * value (producer-supplied, read with the same hyphen/underscore
+ * normalization `interpolate()` uses — see lib/messages/lookup.ts) > fallback
+ * phrase. Fallback applies ONLY when neither identity nor context supplies
+ * the value (Fix Round 1: identity resolving to null must NOT clobber a
+ * context-supplied value — see tests/adminAlerts/deriveMessageParams.test.ts
+ * and the SHEET_UNAVAILABLE regression in
+ * tests/components/admin/perShowAlertInterpolation.test.tsx). Pure — no I/O.
  */
 import type { MessageParams } from "@/lib/messages/lookup";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
@@ -26,6 +35,33 @@ function segmentValue(identity: AlertIdentity | null, label: string): string | n
 
 function quoted(value: string | null, fallback: string): string {
   return value ? `'${value}'` : fallback;
+}
+
+// Read a producer-supplied context value under either key form, mirroring
+// interpolate()'s hyphen/underscore normalization (lib/messages/lookup.ts) so
+// a producer that writes `sheet_name` satisfies the `sheet-name` param the
+// same way it would satisfy a `<sheet-name>` template placeholder directly.
+function contextStringValue(
+  params: Record<string, string | number | boolean | null | undefined>,
+  hyphenKey: string,
+): string | null {
+  const underscoreKey = hyphenKey.replace(/-/g, "_");
+  const value = params[hyphenKey] ?? params[underscoreKey];
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+// Identity > context > fallback (see module docstring). Identity value is
+// quoted for the "rename-proof" resolved-identity display convention;
+// context value is used as the producer wrote it (unquoted — restores the
+// pre-Task-8 raw-passthrough rendering for the context tier).
+function resolveNamedParam(
+  params: Record<string, string | number | boolean | null | undefined>,
+  hyphenKey: string,
+  identityValue: string | null,
+  fallback: string,
+): string {
+  if (identityValue) return quoted(identityValue, fallback);
+  return contextStringValue(params, hyphenKey) ?? fallback;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -95,8 +131,18 @@ export function deriveAlertMessageParams(
       params[key] = value;
     }
   }
-  params["sheet-name"] = quoted(segmentValue(identity, "Sheet"), "this sheet");
-  params["show-name"] = quoted(segmentValue(identity, "Show"), "this show");
+  params["sheet-name"] = resolveNamedParam(
+    params,
+    "sheet-name",
+    segmentValue(identity, "Sheet"),
+    "this sheet",
+  );
+  params["show-name"] = resolveNamedParam(
+    params,
+    "show-name",
+    segmentValue(identity, "Show"),
+    "this show",
+  );
   // repo / file_name / attempted_action are raw contextField-sourced
   // placeholders (spec §6): normally always present because their producers
   // write them at upsert time, but the telemetry health panel (Task 9, spec
