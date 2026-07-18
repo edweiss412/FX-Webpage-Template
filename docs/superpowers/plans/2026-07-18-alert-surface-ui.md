@@ -454,9 +454,13 @@ it("shows one in-flow hint banner after mount", async () => {
   expect(await screen.findByTestId("bell-chevron-hint")).toBeInTheDocument();
   expect(screen.getAllByTestId("bell-chevron-hint")).toHaveLength(1);
 });
-it("absent when all rows lack a slug", () => {
+it("absent when all rows lack a slug (asserted AFTER the storage effect runs)", async () => {
+  const spy = vi.spyOn(Storage.prototype, "getItem");
   renderPanel(feedNoSlugs);
-  expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
+  await waitFor(() => expect(spy).toHaveBeenCalled());   // effect ran (status=available), not just pre-mount
+  await act(async () => {});
+  expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();  // still absent → hasChevronRow gate works
+  spy.mockRestore();
 });
 it("dismiss unmounts + persists; dismiss button not inside any chevron <a>", async () => {
   renderPanel(feedWithChevronRows);
@@ -466,10 +470,14 @@ it("dismiss unmounts + persists; dismiss button not inside any chevron <a>", asy
   expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   expect(window.localStorage.getItem("fxav:bell-chevron-hint:v1")).toBeTruthy();
 });
-it("already-dismissed → no banner", () => {
+it("already-dismissed → no banner (asserted AFTER the storage read, so a broken impl that ignores the flag fails)", async () => {
   window.localStorage.setItem("fxav:bell-chevron-hint:v1", "1");
-  renderPanel(feedWithChevronRows);
-  expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
+  const spy = vi.spyOn(Storage.prototype, "getItem");
+  renderPanel(feedWithChevronRows);   // chevron rows PRESENT, so only the dismissed flag suppresses it
+  await waitFor(() => expect(spy).toHaveBeenCalledWith("fxav:bell-chevron-hint:v1"));  // read happened
+  await act(async () => {});
+  expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();  // dismissed flag honored post-effect
+  spy.mockRestore();
 });
 // POSITIVE CONTROL — proves the harness flushes the mount effect and WOULD show the banner.
 // Without this, the throwing-storage "absent" assertions could pass merely because the effect
