@@ -60,28 +60,4 @@ describe("inline-identity contract", () => {
       "WIZARD_SESSION_SUPERSEDED_RACE",
     ]);
   });
-
-  it("membership matches RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS in tests/messages/catalog.test.ts", () => {
-    // Re-derived here (not imported — that set is module-local to the other
-    // test file) to keep the two lists in lockstep per the Task 3 review
-    // round: adding/removing a code from one without the other is a bug.
-    const RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS = new Set([
-      "ROLE_FLAGS_NOTICE",
-      "WIZARD_SESSION_SUPERSEDED_RACE",
-      "PENDING_SNAPSHOT_PROMOTE_STUCK",
-      "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-      "BRANCH_PROTECTION_DRIFT",
-      "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-      "EMAIL_DELIVERY_FAILED",
-      "REPORT_ORPHANED_LOST_LEASE",
-      "REPORT_LEASE_THRASHING",
-      "REPORT_DUPLICATE_LIVE_MATCHES",
-      "REPORT_LOOKUP_INCONCLUSIVE",
-      "REPORT_OPEN_ORPHAN_LABEL",
-      "STALE_ORPHAN_REPORT",
-    ]);
-    expect([...INLINE_IDENTITY_CODES].sort()).toEqual(
-      [...RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS].sort(),
-    );
-  });
 });

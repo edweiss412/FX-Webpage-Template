@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 
 import {
   MESSAGE_CATALOG,
@@ -161,12 +162,13 @@ describe("message catalog", () => {
   // and the parser warning text (lib/sync/enrichWithDrivePins.ts:134). If a
   // renderer ever consumes this dougFacing, split the variants first.
   //
-  // RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS (condensed-alert-copy spec
-  // 2026-07-17) is allowlisted from the wrapper check ONLY — the annotation
-  // and wrapping-quotes checks above still apply to these rows in full.
-  // ROLE_FLAGS_NOTICE plus the 12 codes woven with identity placeholders in
-  // §6 all carry BARE `<token>` placeholders by design: they're resolved at
-  // render time by deriveAlertMessageParams
+  // INLINE_IDENTITY_CODES (imported above, from
+  // lib/adminAlerts/alertIdentityMap.ts — the production chip-suppression
+  // registry added in commit 6876068e3) is allowlisted from the wrapper
+  // check ONLY — the annotation and wrapping-quotes checks above still apply
+  // to these rows in full. ROLE_FLAGS_NOTICE plus the other 12 codes woven
+  // with identity placeholders in §6 all carry BARE `<token>` placeholders
+  // by design: they're resolved at render time by deriveAlertMessageParams
   // (lib/adminAlerts/deriveMessageParams.ts) before the string ever reaches
   // ErrorExplainer/AlertBanner, so an unresolved wrapper is never rendered
   // literally the way it would be for the emphasis-styled rows this check
@@ -174,21 +176,8 @@ describe("message catalog", () => {
   // (bulleted lines), so a symmetric emphasis wrapper can't apply to it at
   // all. This allowlist does not relax the check for typos on any other
   // row — it only recognizes that bare placeholders here are deliberate.
-  const RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS = new Set([
-    "ROLE_FLAGS_NOTICE",
-    "WIZARD_SESSION_SUPERSEDED_RACE",
-    "PENDING_SNAPSHOT_PROMOTE_STUCK",
-    "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-    "BRANCH_PROTECTION_DRIFT",
-    "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-    "EMAIL_DELIVERY_FAILED",
-    "REPORT_ORPHANED_LOST_LEASE",
-    "REPORT_LEASE_THRASHING",
-    "REPORT_DUPLICATE_LIVE_MATCHES",
-    "REPORT_LOOKUP_INCONCLUSIVE",
-    "REPORT_OPEN_ORPHAN_LABEL",
-    "STALE_ORPHAN_REPORT",
-  ]);
+  // Importing the registry directly (rather than re-typing the code list)
+  // keeps this allowlist and the production set in lockstep by construction.
   test("no rendered copy carries spec-authoring annotations, wrapping quotes, or mismatched placeholder wrappers", () => {
     const UNRENDERED_SCENARIO_VARIANT_ROWS = new Set(["DIAGRAMS_EMBEDDED_NONE_FOUND"]);
     const SYMMETRIC_WRAPPERS = new Set(["_", "*", "`"]);
@@ -204,7 +193,7 @@ describe("message catalog", () => {
         if (copy.startsWith('"') && copy.endsWith('"')) {
           offenders.push(`${code}.${surface}: literal wrapping quotes around entire copy`);
         }
-        if (RENDER_TIME_RESOLVED_PLACEHOLDER_ROWS.has(code)) continue;
+        if (INLINE_IDENTITY_CODES.has(code)) continue;
         // Placeholder wrappers must be a symmetric pair from the allowed set;
         // anything else abutting `<token>` is a typo (e.g. `*<minutes>_`).
         for (const match of copy.matchAll(/(.)?<([a-zA-Z][a-zA-Z0-9_-]*)>(.)?/g)) {
