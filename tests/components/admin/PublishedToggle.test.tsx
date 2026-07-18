@@ -303,7 +303,7 @@ describe("PublishedToggle — inline variant", () => {
     ]);
     // Finalize chip must carry NONE of the absolute-geometry tokens (it is in-flow, CASP2-4 item 1).
     const ABSOLUTE_GEOMETRY = ["absolute", "inset-x-0", "top-full", "z-40", "mt-1"];
-    const FINALIZE_SKIN = ["bg-surface-sunken", "border-border-strong", "text-xs", "text-text-subtle"];
+    const FINALIZE_SKIN = ["bg-surface-sunken", "border-border", "text-xs", "text-text-subtle"];
     // Fixed FORBIDDEN (prior test anchored `$` right after `max-w-`/`min-w-`, so a real `max-w-60`
     // never matched): prefix-match width caps + single-side anchors so any regression trips it.
     const FORBIDDEN = /^(left-0|right-0|left-\d|right-\d|w-max|w-\d+|max-w-\S+|min-w-\S+|translate-x-)/;

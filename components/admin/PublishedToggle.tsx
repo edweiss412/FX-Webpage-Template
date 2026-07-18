@@ -62,10 +62,12 @@ const POPOVER_POSITION =
 // `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
 // longer-lived server state, so an absolute banner would float over the rail content below the
 // sticky strip for the whole window; an in-flow chip stays inside the strip's own flow (CASP2-4
-// item 1). Calm sunken plate + strong border reads as a strip-chrome-adjacent signal, distinct
-// from the strip's own bg-surface. whitespace-nowrap + shrink-0 keep it on one line.
+// item 1). Calm sunken plate reads as a strip-chrome-adjacent signal, distinct from the strip's
+// own bg-surface via the fill step; `border-border` matches the sibling strip badges (archived /
+// alert), not the heavier `border-strong` the old full-width banner needed. whitespace-nowrap +
+// shrink-0 keep it on one line.
 const FINALIZE_CHIP =
-  "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border-strong bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle";
+  "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle";
 
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */
