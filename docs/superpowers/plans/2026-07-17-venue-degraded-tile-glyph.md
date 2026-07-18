@@ -153,7 +153,7 @@ git commit --no-verify -m "docs: mark VCR-4 resolved + note the ratified map-lab
 
 ### Task 2: Impeccable dual-gate + whole-diff review
 
-**This is a review/gate task — no RED-test step (exempt from TDD's failing-test-first rule; it verifies, it does not add behavior). It ends in a commit only if the gate surfaces a code fix.**
+**This is a review/gate task — no RED-test step (exempt from TDD's failing-test-first rule; it verifies, it does not add behavior). Step 5 ALWAYS commits the §12 gate-results evidence (even when the gate is clean); a gate-surfaced code fix is an additional commit.**
 
 - [ ] **Step 1: Impeccable setup gates**
 
@@ -191,13 +191,19 @@ If the gate was clean, §12 records "no code change — critique + audit clean";
 
 - [ ] **Step 6: Whole-diff cross-model review (Codex) → APPROVE**
 
-Fresh-eyes whole-diff adversarial review. Iterate to APPROVE. Then push → real CI green → `gh pr merge --merge` → fast-forward local `main`, verifying it is exactly even with origin:
+Fresh-eyes whole-diff adversarial review. Iterate to APPROVE. Then push → real CI green → `gh pr merge --merge` → fast-forward local `main`, verifying it is exactly even with origin. The main checkout may be on a different branch (sibling worktrees leave it on a feature branch), so do NOT assume `main` is HEAD — fast-forward the ref in whichever way is safe:
 
 ```bash
-git -C /Users/ericweiss/FX-Webpage-Template fetch origin
-git -C /Users/ericweiss/FX-Webpage-Template merge --ff-only origin/main
-git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main   # expect: 0    0
+MAIN=/Users/ericweiss/FX-Webpage-Template
+git -C "$MAIN" fetch origin
+if [ "$(git -C "$MAIN" symbolic-ref --short HEAD)" = "main" ]; then
+  git -C "$MAIN" merge --ff-only origin/main        # main IS checked out here
+else
+  git -C "$MAIN" branch -f main origin/main         # main not checked out anywhere → move the ref directly
+fi
+git -C "$MAIN" rev-list --left-right --count main...origin/main   # expect exactly: 0    0
 ```
+(`git branch -f main origin/main` refuses if `main` is checked out in ANY worktree, so it fails loud rather than corrupting a checkout — the `if` routes to `merge --ff-only` in that case.)
 
 ---
 
