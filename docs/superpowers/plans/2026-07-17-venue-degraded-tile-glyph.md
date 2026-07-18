@@ -103,15 +103,19 @@ Replace the corner-label `<span>` (`:55-60`) with the gated label + glyph pair:
 ) : null}
 {/* Terminal degraded tile (empty query, valid mapHref → no <img> ever): a
     deliberate "no preview" glyph empty-state so it does not read as a still-
-    loading map (VCR-4). Decorative (aria-hidden) — the anchor's aria-label
-    carries the actionable meaning; Directions carries the action. */}
+    loading map (VCR-4). Compact HORIZONTAL marker in an overlay bounded
+    top-0 bottom-14 (reserves the Directions button's 54px zone) so it stays
+    fully visible above the button at the 96px tile floor — a vertical
+    inset-0/pb-9/size-6 stack renders the caption behind the button there
+    (spec §2.2; VCR-4 critique P1). Decorative (aria-hidden) — the anchor's
+    aria-label carries the actionable meaning; Directions carries the action. */}
 {query === "" ? (
   <span
     data-testid="venue-map-no-preview"
     aria-hidden="true"
-    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pb-9 text-text-subtle"
+    className="absolute inset-x-0 top-0 bottom-14 flex items-center justify-center gap-1.5 text-text-subtle"
   >
-    <MapPin aria-hidden="true" className="size-6" />
+    <MapPin aria-hidden="true" className="size-4" />
     <span className="font-mono text-[10px] tracking-wide">no preview</span>
   </span>
 ) : null}
