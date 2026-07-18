@@ -206,14 +206,18 @@ describe("BellPanel — sections (spec §7.3)", () => {
     // Metacharacter row: the value renders LITERALLY (asterisks + underscores
     // intact — an interpolate-then-parse implementation would consume `*draft*`
     // into <em>draft</em> and lose the raw characters), and the value's own
-    // markers spawn NO emphasis nodes (the template's authored `_…_` around the
-    // placeholder is allowed; the value's own `*draft*` is not).
+    // markers spawn NO emphasis nodes. WI-3: `<sheet-name>` is a name-tier
+    // identity token, so the WHOLE value renders BOLD (identity-bold) — but the
+    // value's own `*draft*` must NOT split it into a nested <em>draft</em> or a
+    // fragment <strong>; the single strong wraps the entire literal value.
     const metaRow = within(panel).getByTestId("bell-entry-meta");
     expect(metaRow.textContent).toContain(metaValue);
     expect(Array.from(metaRow.querySelectorAll("em")).some((e) => e.textContent === "draft")).toBe(
       false,
     );
-    expect(metaRow.querySelector("strong")).toBeNull();
+    const metaStrongs = Array.from(metaRow.querySelectorAll("strong"));
+    expect(metaStrongs.some((s) => s.textContent === metaValue)).toBe(true);
+    expect(metaStrongs.some((s) => s.textContent === "draft")).toBe(false);
   });
 
   it("uncataloged entry code renders a generic fallback, never the raw code, without throwing (§6.2)", async () => {

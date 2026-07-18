@@ -327,11 +327,14 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
 
   it("renders the interpolated one-line message and suppresses the identity chip", async () => {
     await renderPanelWith([roleFlagsEntry]);
-    expect(
-      screen.getByText(
-        "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
-      ),
-    ).toBeTruthy();
+    // The sheet name renders inside a <strong> (WI-3 identity-bold), so the copy
+    // is split across elements — assert the block's concatenated textContent.
+    const block = screen.getByTestId(`bell-msg-${roleFlagsEntry.alertId}`);
+    expect(block.textContent).toContain(
+      "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Lead changes must be confirmed in the show page.",
+    );
+    // And the identity name IS bold (name-tier, not the prose).
+    expect(block.querySelector("strong")?.textContent).toBe("'II - RIA Investment Forum'");
     expect(screen.queryByTestId(`bell-identity-${roleFlagsEntry.alertId}`)).toBeNull();
     expect(screen.queryByTestId(`bell-caret-${roleFlagsEntry.alertId}`)).toBeNull(); // fixture's slug is null (unset — makeEntry defaults to null)
   });
@@ -467,6 +470,48 @@ describe("WI-1/WI-2 ActiveRow restructure — message out of button, right-flush
     ).not.toBeNull();
     // The separate IdentityChip IS suppressed for this inline code.
     expect(screen.queryByTestId("bell-identity-ir")).toBeNull();
+  });
+});
+
+describe("WI-3 BellPanel identity-bold wiring", () => {
+  async function renderRow(entry: BellEntry) {
+    routeFetch(feedBody({ entries: [entry] }));
+    const utils = renderPanel();
+    await within(utils.getByTestId("bell-panel")).findByTestId("bell-section-active");
+    return utils;
+  }
+
+  const singleChange = makeEntry({
+    alertId: "sn",
+    code: "ROLE_FLAGS_NOTICE",
+    context: { changes: [{ crew_name: "Doug", prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }] },
+    messageParams: {
+      "sheet-name": "'East Coast'",
+      "role-changes": "Doug's role changed from A1 to A1 + LEAD.",
+      "lead-hint": " Lead changes must be confirmed in the show page.",
+    },
+  });
+
+  it("bolds the identity name in the message, not the surrounding prose", async () => {
+    await renderRow(singleChange);
+    const block = screen.getByTestId("bell-msg-sn");
+    const strong = block.querySelector("strong");
+    expect(strong?.textContent).toBe("'East Coast'");
+  });
+
+  it("single-change ROLE_FLAGS_NOTICE sentence is not bolded by ANY strong node", async () => {
+    await renderRow(singleChange);
+    const block = screen.getByTestId("bell-msg-sn");
+    // querySelector returns only the FIRST strong (the sheet name); check EVERY
+    // strong so a second one wrapping the whole role-change sentence can't hide.
+    for (const strong of block.querySelectorAll("strong")) {
+      expect(strong.textContent ?? "").not.toContain("role changed");
+      expect(strong.textContent ?? "").not.toContain("was added");
+    }
+    // Positively: the sheet name IS bold, so bolding is active (not simply absent).
+    expect(
+      [...block.querySelectorAll("strong")].some((s) => s.textContent === "'East Coast'"),
+    ).toBe(true);
   });
 });
 

@@ -71,6 +71,7 @@ import {
 } from "@/lib/messages/lookup";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
+import { BELL_BOLD_IDENTITY_TOKENS } from "@/lib/adminAlerts/deriveMessageParams";
 import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
@@ -466,7 +467,9 @@ function ActiveRow({
             data-testid={`bell-msg-${entry.alertId}`}
             className="mt-1 whitespace-pre-line wrap-break-word text-sm text-text-subtle"
           >
-            {message && messageResolved ? <span>{renderCatalogEmphasis(message, params)}</span> : null}
+            {message && messageResolved ? (
+              <span>{renderCatalogEmphasis(message, params, BELL_BOLD_IDENTITY_TOKENS)}</span>
+            ) : null}
             {helpHref ? (
               <>
                 {message && messageResolved ? " " : null}
