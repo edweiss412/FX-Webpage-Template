@@ -2,6 +2,13 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Wizard callout preview action cue (2026-07-18)
+
+### CALLOUT-PREVIEW-ACTION-CUE-1 — [critique P1 → dispositioned P2] Demoted preview read as FYI; no cue the fix lives in Parse warnings — ✅ RESOLVED
+
+- **What:** after the USE-RAW-FULL-LIST-1 demotion, `SectionFlagCallout`'s per-entry jump button read the passive "View details", giving no cue the fix lived in the Parse-warnings breakdown (visibility-of-status heuristic 2/4).
+- **Resolution:** ✅ RESOLVED 2026-07-18 — `feat/callout-preview-action-cue` (spec + plan `docs/superpowers/{specs,plans}/2026-07-18-callout-preview-action-cue`). The jump label is now action-forward and destination-naming, gated on real actionability: **flagged + a fix control renders at the destination → "Fix in Parse warnings"; else / judgment (calm-tone contract) → "Review in Parse warnings"**. Actionability comes from a new pure `warningOffersFix` (`lib/admin/warningFixAffordance.ts`) that reuses `deriveUseRawControlState` (use-raw branch) + the `UNKNOWN_ROLE_TOKEN`+token gate (role branch); the producer (`ShowReviewSurface`) tags each preview entry, `SectionFlagCallout` stays presentational. A parity meta-test (`tests/admin/warningFixAffordance.test.tsx`) pins the predicate to BOTH boundaries' live render gates (use-raw: direct deriver call; role: renders `RoleRecognizeControlBoundary`). Also fixed a latent accessible-name whitespace bug (the sr-only leading space was trimmed → "detailsfor"). The judgment-lead line stayed untouched (Codex spec review R1–R7; the "Fix only where fixable" refinement was an explicit user decision after review surfaced that flagged ≠ guaranteed-fixable). Invariant-8 impeccable dual-gate: critique APPROVE (2/4 → 4/4 visibility-of-status, no findings), audit PASS (5×4/4, no findings). Related resolved twin: `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION`.
+
 ## Per-day schedule/key-times — impeccable gate (2026-06-22)
 
 Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `per-day-schedule-keytimes` vs `aef09fbc`. Full findings + dispositions in `.superpowers/sdd/task-19-impeccable-report.md`. Gate verdict: critique 34/40 PASS, audit 18/20 PASS, deterministic detector `[]`, zero CRITICAL. No HIGH/CRITICAL left unaddressed — F1 and F2 are FIX-RECOMMENDED to the implementer; the entries below are the explicit DEFER fallbacks + the P3 polish/real-browser items.

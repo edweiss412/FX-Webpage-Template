@@ -70,7 +70,7 @@ The Step-3 wizard renders the use-raw toggle only inside `SectionFlagCallout`, w
 
 ## BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION — demote SectionFlagCallout to pure preview (title + jump only)
 
-**Status:** ✅ RESOLVED — `feat/use-raw-callout-preview-demotion` (2026-07-17; spec + plan `docs/superpowers/{specs,plans}/2026-07-17-use-raw-callout-preview-demotion*`). Deliberately overrode the ratified keep-both: stripped the `UseRawControlBoundary` + `RoleRecognizeControlBoundary` mounts from `SectionFlagCallout` so `WarningsBreakdown` is the sole actionable site (one live control instance per warning; divergence structurally impossible). Resolves `DEFERRED.md` USE-RAW-FULL-LIST-1 (moved to `DEFERRED-archive.md`). Impeccable dual-gate: audit 20/20, critique clean; one follow-on UX note → `DEFERRED.md` §CALLOUT-PREVIEW-ACTION-CUE-1.
+**Status:** ✅ RESOLVED — `feat/use-raw-callout-preview-demotion` (2026-07-17; spec + plan `docs/superpowers/{specs,plans}/2026-07-17-use-raw-callout-preview-demotion*`). Deliberately overrode the ratified keep-both: stripped the `UseRawControlBoundary` + `RoleRecognizeControlBoundary` mounts from `SectionFlagCallout` so `WarningsBreakdown` is the sole actionable site (one live control instance per warning; divergence structurally impossible). Resolves `DEFERRED.md` USE-RAW-FULL-LIST-1 (moved to `DEFERRED-archive.md`). Impeccable dual-gate: audit 20/20, critique clean; one follow-on UX note → `CALLOUT-PREVIEW-ACTION-CUE-1`, itself ✅ RESOLVED 2026-07-18 (`feat/callout-preview-action-cue`; action-forward "Fix/Review in Parse warnings" jump label — see `DEFERRED-archive.md`).
 
 **Filed:** 2026-07-16 (use-raw full-list dual-gate, `DEFERRED.md` USE-RAW-FULL-LIST-1) · **Class:** UX simplification (P1→ratified+deferred) · **Effort:** S
 
