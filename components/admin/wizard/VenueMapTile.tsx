@@ -69,14 +69,20 @@ export function VenueMapTile({
           deliberate "no preview" glyph empty-state so it reads as intentional,
           not as a still-loading map (VCR-4). Decorative (aria-hidden) — the
           anchor's aria-label carries the actionable meaning and Directions
-          carries the action; this adds no screen-reader-announced element. */}
+          carries the action; this adds no screen-reader-announced element.
+          The overlay stops at bottom-14 (56px), reserving the Directions
+          button's zone (bottom-2.5 10px + min-h-tap-min 44px = 54px) so the
+          compact horizontal marker centers in the free space ABOVE the button
+          and stays fully visible even at the min-h-tile-min-h (96px) floor —
+          the height a terminal tile defaults to on desktop, where a taller
+          stacked group would render behind the opaque button (VCR-4 critique). */}
       {query === "" ? (
         <span
           data-testid="venue-map-no-preview"
           aria-hidden="true"
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pb-9 text-text-subtle"
+          className="absolute inset-x-0 top-0 bottom-14 flex items-center justify-center gap-1.5 text-text-subtle"
         >
-          <MapPin aria-hidden="true" className="size-6" />
+          <MapPin aria-hidden="true" className="size-4" />
           <span className="font-mono text-[10px] tracking-wide">no preview</span>
         </span>
       ) : null}

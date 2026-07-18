@@ -73,18 +73,29 @@ Glyph empty-state (new), rendered only when `query === ""`:
   <span
     data-testid="venue-map-no-preview"
     aria-hidden="true"
-    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pb-9 text-text-subtle"
+    className="absolute inset-x-0 top-0 bottom-14 flex items-center justify-center gap-1.5 text-text-subtle"
   >
-    <MapPin aria-hidden="true" className="size-6" />
+    <MapPin aria-hidden="true" className="size-4" />
     <span className="font-mono text-[10px] tracking-wide">no preview</span>
   </span>
 ) : null}
 ```
 
-`pb-9` (36px bottom padding) lifts the centered group clear of the Directions button, which sits
-inset at `bottom-2.5` with `min-h-tap-min` (`:91-99`); the glyph therefore centers in the visual
-space **above** the button, not behind it. Import: add `MapPin` to the existing
-`import { Navigation } from "lucide-react"` line (`:4`) → `import { MapPin, Navigation } from "lucide-react"`.
+**Geometry (critical — the terminal tile floors to 96px on desktop).** A terminal tile means
+`query === ""` ⇒ both name and address are empty (§2.1) ⇒ the text column is just the `Venue`
+eyebrow (+ optional city). At `≥sm` the map region is `self-stretch` (DI-1) to the text column,
+so it floors to `min-h-tile-min-h` (**96px**, `app/globals.css`) — i.e. the terminal tile renders
+at 96px **by default** on desktop (Doug's primary at-desk surface). The Directions button sits
+inset at `bottom-2.5` (10px) with `min-h-tap-min` (44px), occupying the bottom **54px**, so only
+the top **42px** is free at the 96px floor. A stacked (vertical) group would not fit above the
+button and would render **behind** the opaque `bg-surface` button. Therefore the glyph is a
+**compact horizontal marker** (icon + caption side by side, `size-4` icon ≈ 16px tall), and the
+overlay is bounded `top-0 bottom-14` (reserving 56px ≥ the 54px button zone) rather than
+`inset-0` + bottom padding — so the marker centers in the free top zone and stays fully visible at
+96px, 116px, and 160px, both themes. (Verified by real-browser render; this replaces an earlier
+`inset-0 flex-col … pb-9 size-6` draft that the VCR-4 critique proved occluded the caption at the
+96px floor.) Import: add `MapPin` to the existing `import { Navigation } from "lucide-react"` line
+(`:4`) → `import { MapPin, Navigation } from "lucide-react"`.
 
 ### 2.3 Accessibility
 
@@ -142,15 +153,19 @@ The stripe base (`venue-map-fallback`, `:47`) and the Directions span (`venue-di
 
 ## 6. Dimensional invariants
 
-The glyph layer is `absolute inset-0` — a self-contained overlay, exactly like the existing
-stripe (`:49`), corner label (`:57`), `<img>` (`:84`), and Directions (`:94`) layers. It adds
-**no** parent→child stretch dependency to the fixed-height map region
+The glyph layer is an absolutely-positioned overlay bounded `inset-x-0 top-0 bottom-14` — a
+self-contained overlay, like the existing stripe, corner label, `<img>`, and Directions layers.
+It adds **no** parent→child stretch dependency to the fixed-height map region
 (`h-40 sm:h-auto self-stretch`, `step3ReviewSections.tsx:994`; DI-1,
 `2026-07-06-venue-card-redesign-design.md:186`). Internal centering uses
-`flex flex-col items-center justify-center` on the absolutely-positioned overlay itself, whose box
-is `inset-0` (fills the region) — no reliance on Tailwind v4 default `align-items`. No layout-
-dimensions Playwright task is required (no new fixed-parent→flex-child height contract; the region
-geometry is unchanged and already covered by `tests/e2e/step3-review-modal.layout.spec.ts`).
+`flex items-center justify-center` on the overlay itself, whose box is fully constrained
+(`inset-x-0 top-0 bottom-14`) — no reliance on Tailwind v4 default `align-items`. The `bottom-14`
+offset (56px) deliberately reserves the Directions button's bottom zone (10px inset + 44px
+tap-min = 54px) so the marker centers **only** in the free space above the button and never renders
+behind it, at every tile height incl. the 96px floor (§2.2). No layout-dimensions Playwright task
+is required (no new fixed-parent→flex-child height contract; the region geometry is unchanged and
+already covered by `tests/e2e/step3-review-modal.layout.spec.ts`), but the fix WAS real-browser
+render-verified at 96/116/160px × both themes per the VCR-4 critique loop.
 
 ## 7. Transition inventory (spec §8 parity — all instant)
 
@@ -249,9 +264,12 @@ both states), deriving presence/absence from the `query`/`mapHref` inputs:
 
 ## 13. Numeric sweep
 
-- Icon size: `size-6` (24px) — single literal, glyph icon only.
+- Icon size: `size-4` (16px) — compact so the horizontal marker fits in the 42px free zone above
+  the button at the 96px floor. Single literal, glyph icon only.
 - Caption: `text-[10px]` — matches the existing corner label size (`:57`), single literal.
-- Glyph bottom padding: `pb-9` (36px) — clears the Directions button (`min-h-tap-min` ≈ 44px inset
-  at `bottom-2.5` ≈ 10px). Single literal.
+- Glyph overlay bottom offset: `bottom-14` (56px) — reserves the Directions button zone (`bottom-2.5`
+  10px + `min-h-tap-min` 44px = 54px), 2px margin. Single literal. (Replaces the earlier `pb-9`.)
+- Tile-height floor: `min-h-tile-min-h` = 96px (`app/globals.css`), tap-min = 44px — the geometry
+  the marker must fit above; not new literals (existing tokens).
 - Terminal predicate literal: `query === ""` / `query !== ""` — mirrors existing `:69` (`query !== ""`).
 - No other numeric literals introduced.
