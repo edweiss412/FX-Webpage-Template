@@ -16,6 +16,12 @@
  *     rehydrates HelpAffordance on the new mount.
  *   - Legacy persisted shape (no errorCode field) renders the resume
  *     banner gracefully without HelpAffordance, no crash.
+ *
+ * Uses REPORT_PIPELINE_FAILED as the cataloged failed-retryable code (not
+ * one of the 45 ADMIN_ALERTS_CODES, so alert-copy-full-sweep §5's
+ * helpfulContext:null rule doesn't apply to it): the report route's 502
+ * matches its dougFacing/helpfulContext content 1:1. REPORT_LOOKUP_INCONCLUSIVE
+ * (the prior fixture code) is now an admin alert code with helpfulContext:null.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -69,7 +75,7 @@ function defaultProps(surface: "admin" | "crew") {
 
 describe("ReportModal §9.0.1 explainer on admin error states", () => {
   test("admin: failed-retryable with cataloged code renders HelpAffordance", async () => {
-    const code = "REPORT_LOOKUP_INCONCLUSIVE";
+    const code = "REPORT_PIPELINE_FAILED";
     const expectedContext = MESSAGE_CATALOG[code]?.helpfulContext;
     expect(typeof expectedContext).toBe("string");
 
@@ -87,7 +93,7 @@ describe("ReportModal §9.0.1 explainer on admin error states", () => {
 
   test("crew: failed-retryable with the same code does NOT render HelpAffordance", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(502, { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" }),
+      jsonResponse(502, { ok: false, code: "REPORT_PIPELINE_FAILED" }),
     );
     render(<ReportModal {...defaultProps("crew")} />);
     fireEvent.change(screen.getByTestId("report-modal-textarea"), {
@@ -102,7 +108,7 @@ describe("ReportModal §9.0.1 explainer on admin error states", () => {
 
 describe("ReportModal cross-mount resume rehydration (Codex R4 finding 2)", () => {
   test("admin: persisted errorCode rehydrates HelpAffordance on resumed mount", async () => {
-    const code = "REPORT_LOOKUP_INCONCLUSIVE";
+    const code = "REPORT_PIPELINE_FAILED";
     const expectedContext = MESSAGE_CATALOG[code]?.helpfulContext;
     expect(typeof expectedContext).toBe("string");
 

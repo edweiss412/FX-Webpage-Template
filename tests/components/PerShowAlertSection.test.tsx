@@ -39,6 +39,32 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(""),
 }));
 
+// Guard-path test only (below): every real code with an identity segment is
+// now an INLINE_IDENTITY_CODES member whose params always resolve (full-sweep
+// §3 always-resolving fallbacks), so there's no longer a real code+context
+// combo that leaves a member's template unresolved. To still exercise
+// PerShowAlertSection's fail-safe guard (the chip must never drop when a
+// member's template fails to interpolate), this delegates to the REAL
+// deriveAlertMessageParams for every test except the one that flips
+// `forceUnresolvedMemberParams`, which strips show-name/crew-row-count so
+// AMBIGUOUS_EMAIL_BINDING's template is left with unresolved placeholders.
+// PerShowAlertSection is imported statically above, so a plain vi.mock (not
+// per-test vi.doMock) is required — it's hoisted above that import.
+const mockParamsState = vi.hoisted(() => ({ forceUnresolvedMemberParams: false }));
+vi.mock("@/lib/adminAlerts/deriveMessageParams", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/adminAlerts/deriveMessageParams")>();
+  return {
+    ...actual,
+    deriveAlertMessageParams: (...args: Parameters<typeof actual.deriveAlertMessageParams>) => {
+      if (!mockParamsState.forceUnresolvedMemberParams)
+        return actual.deriveAlertMessageParams(...args);
+      const real = actual.deriveAlertMessageParams(...args);
+      const { "show-name": _showName, "crew-row-count": _crewRowCount, ...rest } = real;
+      return rest;
+    },
+  };
+});
+
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
 
 type AlertFixture = {
@@ -165,19 +191,29 @@ async function renderSectionWithRoleFlagsRow() {
   return renderSection();
 }
 
-async function renderSectionWithNonMemberAlert() {
-  // PICKER_EPOCH_RESET (not in INLINE_IDENTITY_CODES) has a placeholder-free
-  // dougFacing template, so it always resolves — a regression pin proving the
-  // guard/suppression only fires for member codes.
+// full-sweep §3 gave every placeholder an always-resolving fallback in
+// deriveAlertMessageParams, so as of this sweep EVERY code with an identity
+// segment is also an INLINE_IDENTITY_CODES member whose template always
+// resolves (`§6` inline_member:yes rows == the segmented rows in
+// alertIdentityMap.ts) — there is no longer a real catalog code that is
+// segmented, non-member, AND places no placeholder. To still exercise the
+// component's guard branch (PerShowAlertSection.tsx:401 — the chip must
+// never drop when a member code's template FAILS to interpolate), this stubs
+// deriveAlertMessageParams for one render so a real member code
+// (AMBIGUOUS_EMAIL_BINDING) resolves its identity segments normally but its
+// message params omit `show-name`/`crew-row-count`, leaving those two
+// placeholders unresolved in the rendered template.
+async function renderSectionWithUnresolvedMemberTemplate() {
   mockState.showRows = [{ id: SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
   setAlerts([
     {
-      id: "picker-epoch-1",
-      code: "PICKER_EPOCH_RESET",
+      id: "unresolved-member-1",
+      code: "AMBIGUOUS_EMAIL_BINDING",
       raised_at: "2026-05-04T10:00:00Z",
-      context: {},
+      context: { email: "jamie@example.com" },
     },
   ]);
+  mockParamsState.forceUnresolvedMemberParams = true;
   return renderSection();
 }
 
@@ -188,6 +224,7 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     mockState.showRows = [];
     mockState.failAlertRead = false;
     mockState.failIdentityRead = false;
+    mockParamsState.forceUnresolvedMemberParams = false;
   });
   afterEach(() => {
     cleanup();
@@ -201,7 +238,13 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
   // (HealthAlertsPanel). Here the per-show identity line is verified with
   // doug-VISIBLE codes: AMBIGUOUS_EMAIL_BINDING (Show · email) and, for the
   // show-scoping-via-injected-showId case, PICKER_EPOCH_RESET (Show only).
-  test("(a) AMBIGUOUS_EMAIL_BINDING → identity line renders email · show title (anti-tautology)", async () => {
+  test("(a) AMBIGUOUS_EMAIL_BINDING → identity woven inline into the message, no separate identity chip (full-sweep §6.a)", async () => {
+    // alert-copy-full-sweep §6.a: AMBIGUOUS_EMAIL_BINDING joined
+    // INLINE_IDENTITY_CODES, so its Show/email/crew-row-count identity now
+    // renders INLINE in the dougFacing message itself (lib/messages/catalog.ts
+    // AMBIGUOUS_EMAIL_BINDING.dougFacing) instead of the separate
+    // per-show-alert-identity chip — the chip is suppressed for member codes
+    // whose template resolved (component guard, PerShowAlertSection.tsx:401).
     mockState.showRows = [{ id: SHOW_ID, title: "Spring Conference", slug: "spring-conference" }];
     setAlerts([
       {
@@ -211,25 +254,23 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
         context: { email: "jamie@example.com" },
       },
     ]);
-    const { getByTestId, container } = await renderSection();
-    const identity = getByTestId("per-show-alert-identity");
-    // Show resolves via the section's injected `showId` prop; email is projected
-    // from context.email. Expected derived from the fixtures, not describeAlert.
-    expect(identity.textContent).toContain("jamie@example.com");
-    expect(identity.textContent).toContain("Show: Spring Conference");
-    // Anti-tautology: clone the row, remove the identity node, and prove the
-    // email is rendered NOWHERE else — the identity node is the sole source.
-    const clone = container.cloneNode(true) as HTMLElement;
-    clone.querySelector("[data-testid=per-show-alert-identity]")?.remove();
-    expect(clone.textContent).not.toContain("jamie@example.com");
+    const { getByTestId, queryByTestId } = await renderSection();
+    const row = getByTestId("per-show-alert-ambig-1");
+    // Show resolves via the section's injected `showId` prop; email is
+    // projected from context.email; crew-row-count has no context value so it
+    // falls back to "two or more crew rows" (spec §3, new fallback param).
+    expect(row.textContent).toContain(
+      "In 'Spring Conference', jamie@example.com is shared by two or more crew rows, so Google login can't safely tell who's who.",
+    );
+    expect(queryByTestId("per-show-alert-identity")).toBeNull();
   });
 
-  test("(b) PICKER_EPOCH_RESET (show-only, NO drive_file_id) → identity renders the SHOW-NAME segment via injected showId", async () => {
-    // No drive_file_id and no show_id in context — the ONLY way the resolver
-    // can produce a Show segment is the section injecting its `showId` prop as
-    // the row's show_id. Stub the shows read for that showId. (crew-names /
-    // ROLE_FLAGS_NOTICE identity is health-audience now → covered on the
-    // HealthAlertsPanel, not here.)
+  test("(b) PICKER_EPOCH_RESET → identity woven inline via injected showId, no separate identity chip (full-sweep §6.a)", async () => {
+    // alert-copy-full-sweep §6.a: PICKER_EPOCH_RESET joined
+    // INLINE_IDENTITY_CODES too — its Show segment (resolved via the
+    // section's injected `showId` prop, since context carries neither
+    // drive_file_id nor show_id) now renders inline in the message rather
+    // than the separate identity chip.
     mockState.showRows = [{ id: SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
     setAlerts([
       {
@@ -239,8 +280,11 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
         context: {},
       },
     ]);
-    const { getByTestId } = await renderSection();
-    expect(getByTestId("per-show-alert-identity").textContent).toBe("Show: East Coast Spectacular");
+    const { getByTestId, queryByTestId } = await renderSection();
+    expect(getByTestId("per-show-alert-picker-epoch-1").textContent).toContain(
+      "Picker selections for 'East Coast Spectacular' were reset.",
+    );
+    expect(queryByTestId("per-show-alert-identity")).toBeNull();
   });
 
   test("global code (SHOW_UNPUBLISHED) → NO identity line, alert still renders", async () => {
@@ -273,7 +317,7 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("resolver infra_error → alert renders, SURVIVING partial identity still shows, no crash, degraded event logged", async () => {
+  test("resolver infra_error → alert renders, SURVIVING partial identity still shows inline, no crash, degraded event logged", async () => {
     const records: Array<{ source: string; message: string }> = [];
     setLogSink((record) => {
       records.push({ source: record.source, message: record.message });
@@ -283,7 +327,14 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     // The email segment is projected from context.email WITHOUT a DB read, so it
     // SURVIVES the failed show lookup. Per the spec §3.2 F9/P5 partial-degradation
     // contract (Codex whole-diff R2 MEDIUM), the caller must still render the
-    // surviving segment — NOT drop the whole partial map.
+    // surviving segment — NOT drop the whole partial map. Post full-sweep §6.a,
+    // AMBIGUOUS_EMAIL_BINDING is an INLINE_IDENTITY_CODES member, so the
+    // surviving/degraded identity renders WOVEN INTO the message (no separate
+    // chip): email resolves to its real context value while the show segment,
+    // which needed the failed DB read, falls back to the generic "this show"
+    // param (deriveMessageParams.ts always-resolving fallback) instead of the
+    // real title — proving partial degradation without ever leaking a raw
+    // placeholder or crashing.
     mockState.failIdentityRead = true;
     setAlerts([
       {
@@ -293,14 +344,17 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
         context: { email: "jamie@example.com" },
       },
     ]);
-    const { getByTestId } = await renderSection();
-    expect(getByTestId("per-show-alert-infra-1")).not.toBeNull(); // alert still renders
-    // The surviving email segment renders; the Show segment (which needed the
-    // failed DB read) does NOT — proving partial degradation, not all-or-nothing.
-    const identity = getByTestId("per-show-alert-identity");
-    expect(identity.textContent).toContain("jamie@example.com");
-    // The Show segment needed the failed DB read, so its label is absent.
-    expect(identity.textContent).not.toContain("Show:");
+    const { getByTestId, queryByTestId } = await renderSection();
+    const row = getByTestId("per-show-alert-infra-1"); // alert still renders
+    expect(row.textContent).toContain(
+      "In this show, jamie@example.com is shared by two or more crew rows, so Google login can't safely tell who's who.",
+    );
+    // The Show segment needed the failed DB read, so the real title never
+    // appears — only the generic fallback above.
+    expect(row.textContent).not.toContain("Spring Conference");
+    // No separate identity chip: the member-code template resolved (via the
+    // fallback param), so the chip is suppressed per the component guard.
+    expect(queryByTestId("per-show-alert-identity")).toBeNull();
     expect(
       records.some(
         (r) =>
@@ -322,10 +376,16 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
   });
 
   test("keeps the identity line when the template cannot resolve (guard path)", async () => {
-    // Same-shaped row but a NON-member code (PICKER_EPOCH_RESET) whose copy has
-    // no placeholders: a regression pin proving suppression is scoped to
-    // INLINE_IDENTITY_CODES, not every code whose template resolves.
-    await renderSectionWithNonMemberAlert();
+    // AMBIGUOUS_EMAIL_BINDING (an INLINE_IDENTITY_CODES member) with its
+    // message params stubbed to omit show-name/crew-row-count: the template
+    // fails to interpolate (safeDougFacingTemplate → null), so the component
+    // falls back to "Something needs your attention on this show." AND keeps
+    // the identity chip visible — a regression pin proving the chip is a
+    // fail-safe that never drops just because a code is a member, only when
+    // its template actually resolved.
+    await renderSectionWithUnresolvedMemberTemplate();
+    const row = screen.getByTestId("per-show-alert-unresolved-member-1");
+    expect(row.textContent).toContain("Something needs your attention on this show.");
     expect(screen.getByTestId("per-show-alert-identity")).toBeInTheDocument();
   });
 });
