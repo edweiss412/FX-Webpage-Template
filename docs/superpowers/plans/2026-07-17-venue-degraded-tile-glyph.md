@@ -209,4 +209,40 @@ git -C "$MAIN" rev-list --left-right --count main...origin/main   # expect exact
 
 ## §12 Gate results
 
-_(Recorded during Task 2.)_
+Invariant-8 impeccable v3 dual-gate, both dispatched as fresh EXTERNAL subagents (the implementing
+session does not self-attest). Scope: the VCR-4 diff (`components/admin/wizard/VenueMapTile.tsx`).
+
+**`/impeccable critique` — real-browser render (esbuild-bundled live component + project Tailwind + Playwright, 96/116/160px × light/dark):**
+- **[P1] BLOCK → FIXED.** At the `min-h-tile-min-h` (96px) floor — which the terminal tile hits
+  **by default on desktop** (empty query ⇒ eyebrow-only text column ⇒ `self-stretch` region floors)
+  — the original stacked `inset-0 flex-col … pb-9 size-6` glyph rendered the "no preview" caption
+  **behind** the opaque `bg-surface` Directions button (measured −10.8px), so the disambiguating
+  copy (the whole deliverable) was invisible in Doug's primary at-desk case. **Fix:** compact
+  horizontal marker (`size-4` icon + inline caption) in an overlay bounded `top-0 bottom-14`
+  (reserves the 54px button zone). **Re-render verified** caption fully visible with a positive
+  gap at all 6 cells (96px floor: box +2.0px / caption baseline +14.3px clear). Commit `fb4b65635`.
+- **[PASS]** Craft (mono caption echoes the tile's `map` motif; restrained; reads as intentional
+  empty-state, not slop); contrast (`text-text-subtle` legible on both stripe bands, both themes);
+  no banned patterns (no side-stripe/gradient-text/glassmorphism; no backing chip); a11y +
+  no-motion + DOM structure correct.
+- **Verdict:** BLOCK (R1) → **PASS** after the fix + render re-verification.
+
+**`/impeccable audit` — technical a11y/perf/responsive:**
+- **[PASS]** A11y: glyph group `aria-hidden` (decorative); anchor `aria-label` carries the sole
+  actionable meaning; no SR content hidden, no duplicate label.
+- **[PASS]** Contrast recomputed from real tokens: light 6.09:1 (`#5a5b62`/`#f4f3f1`) / 6.76:1 (on
+  `#ffffff`); dark 6.94:1 (`#9c9a93`/`#0b0c10`) / 6.35:1 (on `#16171c`) — worst case 6.09:1 clears
+  caption 4.5:1 (10px) and icon 3:1 (1.4.11) with margin.
+- **[PASS]** Motion: none introduced; `venueTransitionAudit.test.ts` + `venueMapTile.test.tsx` green.
+- **[PASS]** Detector: no new real finding; the `broken-image` hits are the known-FP class
+  (comment substrings + the ratified proxy `<img>`).
+- The audit's one **[P3]** (glyph overlap at the 96px floor) is **superseded** by the critique's
+  P1 fix (same root cause; the horizontal-marker + `bottom-14` change resolves both).
+- **Verdict:** **PASS** (no P0/P1/P2).
+
+**Deterministic design hook (per-edit):** every `broken-image` finding on `VenueMapTile.tsx` was a
+false positive (comment `<img>` substrings + the pre-existing ratified dynamic-proxy `<img>`); the
+glyph is an SVG, adds no raster. No config-ignore added.
+
+**Net:** dual-gate PASS after one fix cycle. No `DEFERRED.md` entry required (the P1 was fixed
+in-branch, no residual).
