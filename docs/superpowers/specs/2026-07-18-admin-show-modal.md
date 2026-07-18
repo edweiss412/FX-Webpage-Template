@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The consolidated per-show admin review page at `/admin/show/[slug]` (`app/admin/show/[slug]/page.tsx:76`) is replaced by a modal — `PublishedReviewModal` — rendered over the admin dashboard at `/admin?show=<slug>`. The modal reuses the wizard Step-3 modal's chrome by extracting a shared `ReviewModalShell` from `components/admin/wizard/Step3ReviewModal.tsx`, and reaches full content parity with today's page (overview + share/access, parsed sections with warning controls, alerts, changes feed, publish/archive footer). The old URL becomes a server redirect. Motivation (user-stated): chrome consistency between the wizard review modal and the published review surface, lower navigation friction, less duplicate shell code.
+The consolidated per-show admin review page at `/admin/show/[slug]` (`app/admin/show/[slug]/page.tsx:76`) is replaced by a modal — `PublishedReviewModal` — rendered over the admin dashboard at `/admin?show=<slug>`. The modal reuses the wizard Step-3 modal's chrome by extracting a shared `ReviewModalShell` from `components/admin/wizard/Step3ReviewModal.tsx`, and reaches full content parity with today's page (overview + share/access, parsed sections with warning controls, alerts, changes feed, and the existing publish/archive controls — the StatusStrip inline toggle and the Overview archive row; the modal has NO footer). The old URL becomes a server redirect. Motivation (user-stated): chrome consistency between the wizard review modal and the published review surface, lower navigation friction, less duplicate shell code.
 
 Non-goals: the wizard Step-3 modal's behavior, content, and footer variants are UNCHANGED (its existing test suite must pass; the only permitted diffs in step3 files are the mechanical shell-consumption refactor). The preview subtree `app/admin/show/[slug]/preview/[crewId]/` and the staged review page `app/admin/show/staged/[stagedId]/` are untouched.
 
@@ -20,14 +20,14 @@ Non-goals: the wizard Step-3 modal's behavior, content, and footer variants are 
 | D4 | **AMENDED from brainstorm:** server actions in `app/admin/show/[slug]/_actions/` **stay in place** (brainstorm said move to `app/admin/_actions/show/`). | The `[slug]` dir survives regardless (preview subtree + redirect page). Moving would stale-out 13 `AUDITABLE_MUTATIONS` `file:` rows (`tests/log/_auditableMutations.ts:56–373`), two `readFileSync` paths in `tests/auth/advisoryLockRpcDeadlock.test.ts:154,179`, the read-path-pin allowlist row (`tests/admin/_showReviewReadPathPin.test.ts:78`), and drop the files out of the `serverNoClientValueCall` audit root (`tests/admin/serverNoClientValueCall.test.ts:29`) — all churn, zero functional gain. Actions are route-agnostic `"use server"` modules. |
 | D5 | Surviving showpage components (`OverviewSection`, `ChangesSection`, `StatusStrip`, `sectionWarningExtras`) stay in `components/admin/showpage/`; `PublishedReviewPage.tsx` is deleted and `PublishedReviewModal.tsx` is created in the same dir. | Dir is pinned by many tests (`tests/components/admin/showpage/*`, `tests/components/admin/dataGapsTransitionAudit.test.tsx:57,133`); renaming the dir is pure churn. |
 | D6 | CSS data-attribute hooks: shell takes a `dataAttrPrefix` prop (`"step3-review"` for the wizard consumer, `"review-modal"` for the published consumer). `app/globals.css` entrance/reduced-motion rules (`app/globals.css:768–790`) gain the second selector alongside the first. | Step-3 DOM and its attr-name-asserting tests stay byte-identical; no duplicate animation CSS. |
-| D7 | Hash-anchor deep links (`#share-access`, `#resync` from `lib/adminAlerts/alertActions.ts:51,112`; `#overview` from StatusStrip) keep working inside the modal via a new `syncHash` opt-in on `ShowReviewSurface` (see §6.4). | Browsers re-apply the URL fragment across a redirect, so legacy emailed links `/admin/show/<slug>#share-access` land on `/admin?show=<slug>#share-access` and scroll correctly. |
+| D7 | Hash-anchor deep links keep working inside the modal via a new `syncHash` opt-in on `ShowReviewSurface` (see §6.4). The restore effect today only accepts rail ids (`ShowReviewSurface.tsx:492-500`); under `syncHash` it gains a fallback: a non-rail target resolves via `getElementById` inside the scroller and `scrollIntoView`. This covers `#share-access` (a real inner DOM id, `OverviewSection.tsx:109`) and `#overview` (rail id). `#resync` has NO DOM id today (dead fragment — `OverviewSection.tsx:126-137`): the `RESYNC_SHRINK_HELD` builder (`lib/adminAlerts/alertActions.ts:112`) is updated to `#overview` (the sheet/sync block lives inside the Overview section), retiring the dead fragment. | Browsers re-apply the URL fragment across a redirect, so legacy emailed links land on `/admin?show=<slug>#share-access` and scroll correctly; legacy `#resync` links simply don't scroll — identical to their behavior today. |
 | D8 | Unknown slug or snapshot `not_admin_or_missing` → `redirect("/admin")` (param stripped, no modal, no error). Snapshot `infra_error` → throw to the existing admin error boundary (`app/admin/error.tsx`), same as today (`app/admin/show/[slug]/page.tsx:142-144`). | Silent-drop matches dashboard filter posture; invariant 5 (no raw codes) preserved. |
 | D9 | Open/close navigation mutates ONLY the `show` / `alert_id` params and preserves all others (notably `bucket=archived`). | Archived-bucket context survives opening/closing a show. |
 
 ## 3. URL contract
 
 - **Canonical:** `/admin?show=<slug>` renders the dashboard with `PublishedReviewModal` open for that show. `&alert_id=<uuid>` additionally scrolls the modal to the Alerts area and highlights the matching alert row (today's `highlightAlertId` mechanism, `components/admin/PerShowAlertSection.tsx:311,336-339`).
-- **Legacy:** `app/admin/show/[slug]/page.tsx` is rewritten to a minimal server component that calls `redirect("/admin?show=" + encodeURIComponent(slug) + <passthrough>)` where `<passthrough>` re-appends every incoming searchParam (e.g. `alert_id`, the inert `review` param produced by `app/admin/show/staged/[stagedId]/page.tsx:238`) as additional query params. Fragment survives via browser behavior. `app/admin/show/[slug]/loading.tsx` is deleted (redirects don't paint).
+- **Legacy:** `app/admin/show/[slug]/page.tsx` is rewritten to a minimal server component that calls `redirect("/admin?show=" + encodeURIComponent(slug) + <passthrough>)`. `<passthrough>` re-appends incoming searchParams (e.g. `alert_id`, the inert `review` param produced by `app/admin/show/staged/[stagedId]/page.tsx:238`) with normalization: an incoming `show` param is DROPPED (the path slug wins — no duplicate/conflicting `show`), and for any repeated key only the first value is kept. Fragment survives via browser behavior. `app/admin/show/[slug]/loading.tsx` is deleted (redirects don't paint).
 - **Wizard mode:** when `app/admin/page.tsx` takes an OnboardingWizard branch (`app/admin/page.tsx:171,199,211`), `?show` is ignored (no modal mounts). Wizard-mode admin has no published shows to review; silently inert, not an error.
 - **Open:** dashboard link sites navigate with `<Link href={buildShowModalHref(slug, currentParams)} scroll={false}>`. **Close** (X button, scrim tap, Esc, sheet drag-dismiss, back button): `router.push` to the same URL minus `show`/`alert_id`, `{ scroll: false }`. A `useShowModalNav()` client helper owns both param computations (single source of truth).
 
@@ -45,7 +45,7 @@ Non-goals: the wizard Step-3 modal's behavior, content, and footer variants are 
 | `components/admin/telemetry/HealthAlertsPanel.tsx:137` | `/admin/show/${slug}` | modal href |
 | `components/admin/PreviewBanner.tsx:116` | `/admin/show/${slug}` (exit preview) | modal href |
 | `lib/adminAlerts/alertActions.ts:51` | `/admin/show/${slug}#share-access` | `/admin?show=<slug>#share-access` |
-| `lib/adminAlerts/alertActions.ts:112` | `/admin/show/${slug}#resync` | `/admin?show=<slug>#resync` |
+| `lib/adminAlerts/alertActions.ts:112` | `/admin/show/${slug}#resync` (dead fragment today) | `/admin?show=<slug>#overview` (D7) |
 | `app/show/[slug]/unpublish/blocks.tsx:66` | `/admin/show/${slug}` | modal href |
 | `app/admin/show/[slug]/preview/[crewId]/page.tsx:150,186,215` | `/admin/show/${slug}` (back links) | modal href |
 | `lib/notify/templates/digest.ts:16`, `lib/notify/templates/realtimeProblem.ts:93`, `lib/reports/submit.ts:312` | absolute `${origin}/admin/show/${slug}` | absolute `${origin}/admin?show=<slug>`; already-sent emails ride the redirect |
@@ -65,7 +65,7 @@ New async server component `app/admin/_showReviewModal.tsx` exporting `ShowRevie
 6. Warning model, roster cap (`CREW_ROSTER_READ_CAP`, `:288-303`), isLive, openSheetHref — all unchanged.
 7. Renders `<ShareTokenProvider key={showId} …>` wrapping `<PublishedReviewModal …>` with the same prop payload `PublishedReviewPage` receives today (`:352-380`), plus `alertId`.
 
-`app/admin/page.tsx` changes: searchParams type gains `show?: string; alert_id?: string`; in the non-wizard branch, after `DashboardWithHeader`, when `show` is present render `<Suspense fallback={<ShowReviewModalSkeleton/>}><ShowReviewModal slug={sp.show} alertId={sp.alert_id ?? null}/></Suspense>`. Dashboard paints immediately; modal streams. Skeleton = shell chrome + loading blocks (replaces the deleted `loading.tsx` treatment) inside an open, non-interactive modal frame so the open gesture has immediate feedback.
+`app/admin/page.tsx` changes: searchParams type gains `show?: string | string[]; alert_id?: string | string[]`, normalized through a shared `firstParam()` helper (first element wins, empty string → absent — §6.2 guard table); in the non-wizard branch, after `DashboardWithHeader`, when `show` is present render `<Suspense fallback={<ShowReviewModalSkeleton/>}><ShowReviewModal slug={sp.show} alertId={sp.alert_id ?? null}/></Suspense>`. Dashboard paints immediately; modal streams. Skeleton = shell chrome + loading blocks (replaces the deleted `loading.tsx` treatment) inside an open, non-interactive modal frame so the open gesture has immediate feedback.
 
 Mutations: every server action reachable from the modal must revalidate `/admin` (feed/archive/setPublished/unarchive already do — `archive.ts:38`, `unarchive.ts:42`, `setPublished.ts:37`, `feed.ts:183,219`; `useRaw.ts`/`roleToken.ts` go through `revalidateShow(id)` — the plan verifies it covers `/admin` and extends it if not). `revalidatePath("/admin/show/[slug]")` calls stay harmless (route still exists as redirect) but are dropped where touched.
 
@@ -107,13 +107,28 @@ API: `{ open: boolean; onClose(): void; labelledBy: string; dataAttrPrefix: "ste
 | `archived === true` | — | read-only: no share slot, no publish footer action (unpublished-archived state), archive row shows unarchive |
 | snapshot sections empty | — | `renderedSectionIds` drives rail exactly as today (`page.tsx:264`) |
 
+Shell API + route-param guards:
+
+| Input | Edge | Behavior |
+|-------|------|----------|
+| `open` | `false` | shell renders nothing (no portal, no scrim); effects (scroll lock, inert, Esc) torn down |
+| `footer` | omitted/undefined | no footer element rendered — no empty bar, body extends to panel bottom (§6.6 equations) |
+| `scrollerRef` | omitted | shell still renders its internal scroller; ref is a pass-out convenience only |
+| `labelledBy` | — | required string; consumer MUST render an element with that id inside `header` (h2 pattern); a11y test asserts the wiring |
+| `dataAttrPrefix` | — | closed union `"step3-review" \| "review-modal"` — compile-time exhaustive, no runtime guard needed |
+| `header`/`children` | empty node | shell renders chrome regardless; content emptiness is the consumer's concern |
+| `?show` | `""` or array (`?show=a&show=b`) | empty string → treated as absent (no modal); array → first element wins (one shared `firstParam()` normalizer in the dashboard page) |
+| `?alert_id` | `""` / array / non-matching id | empty → null; array → first element; non-matching → no highlight (existing `PerShowAlertSection` behavior) |
+
 ### 6.3 Mode boundaries
 
 Exactly one mode: published review (`PublishedSectionData`, discriminant `mode:"published"`, `components/admin/review/sectionData.ts:70-84`). No staged logic; `Step3ReviewResolution`, dirty-rescan, finalize-demoted footers belong to Step3 only. Responsive boundaries inherited from shell: bottom sheet `<sm` (grab strip, drag-dismiss, safe-area footer), centered panel `≥sm`, two-pane rail `≥lg` (ShowReviewSurface internal).
 
 ### 6.4 `syncHash` on ShowReviewSurface
 
-New optional prop `syncHash?: boolean`, default `layout === "page"`. Gates the existing hash `replaceState` (`ShowReviewSurface.tsx:298`) and hash-restore-on-mount (`:492-506`) effects. `PublishedReviewModal` passes `syncHash` explicitly true; Step3 passes nothing (modal default false — behavior unchanged). This makes `#share-access` / `#resync` / `#overview` scroll targets work inside the modal.
+New optional prop `syncHash?: boolean`, default `layout === "page"`. Gates the existing hash `replaceState` (`ShowReviewSurface.tsx:298`) and hash-restore-on-mount (`:492-506`) effects. `PublishedReviewModal` passes `syncHash` explicitly true; Step3 passes nothing (modal default false — behavior unchanged).
+
+Restore-target resolution under `syncHash` (D7): (1) if the fragment is a rail id (`railItemIds.includes(target)`, today's behavior) → existing rail scroll; (2) else if `scroller.querySelector('#' + CSS.escape(target))` resolves → `scrollIntoView` on that element (covers `#share-access`); (3) else no-op. This fallback replaces the native browser fragment scroll that a portal-rendered modal cannot get for free. Producers after this change emit only `#share-access` and `#overview` (D7 retires `#resync`).
 
 ### 6.5 Transition inventory
 
@@ -133,7 +148,10 @@ Compound: drag-dismiss started, then viewport crosses `sm` → matchMedia cleanu
 ### 6.6 Dimensional invariants
 
 - Panel: `max-h-[85vh]` (mobile sheet) / `sm:max-h-[80vh]`, `sm:max-w-5xl` — shell-owned (`Step3ReviewModal.tsx:629-633`).
-- Panel internal column: header (auto) + body (flex-1, `min-h-0`, the ONLY scroller); no footer in the published modal. Body scroller must satisfy `scroller.height === panel.clientHeight − header.height` within 0.5px (real-browser assertion; Tailwind v4 does not default flex stretch).
+- Panel internal column per mode (no footer in the published modal; real-browser assertions within 0.5px; Tailwind v4 does not default flex stretch):
+  - **Sheet (`<sm`):** `grab.height + header.height + body.height === panel.clientHeight` — the grab strip is visible (`sm:hidden`, shell) and participates, matching the existing step3 equation (`tests/e2e/step3-review-modal.layout.spec.ts:219-235`).
+  - **Popup (`≥sm`) and two-pane (`≥lg`):** `header.height + body.height === panel.clientHeight` (grab hidden, no footer).
+  - Body is `flex-1 min-h-0` and the ONLY scroller in every mode.
 - ShowReviewSurface rail/panel dimensions inside `layout="modal"`: identical to Step3's usage; existing step3 layout spec covers the shell; a published-modal layout spec re-asserts against the taller content.
 
 ## 7. Meta-test / registry blast radius (every cell gets an action)
@@ -141,6 +159,9 @@ Compound: drag-dismiss started, then viewport crosses `sm` → matchMedia cleanu
 | Pinned surface | File | Action |
 |----------------|------|--------|
 | Read-path pin walk roots + non-vacuous list | `tests/admin/_showReviewReadPathPin.test.ts:36-42,129-137` | add `app/admin/_showReviewModal.tsx` to walked files + non-vacuous list; `page.tsx` remains (redirect, no `.from`) |
+| Supabase infra-contract registry row | `tests/admin/_metaInfraContract.test.ts:405-407` (`surface: app/admin/show/[slug]/page.tsx` — client construction, slug lookup, finalize-owned RPC contract) | retarget `surface` to `app/admin/_showReviewModal.tsx`; contract text unchanged (reads transplant verbatim) |
+| Admin-outcome forensic-code registry | `tests/log/_metaAdminOutcomeContract.test.ts:216-249` (`ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED`, `ADMIN_SHOW_LOOKUP_FAILED`, `ADMIN_SHOW_LOOKUP_THREW`, `ADMIN_SHOW_CHANGE_FEED_READ_FAILED`, `ADMIN_SHOW_CREW_ROSTER_OVERFLOW`, … pinned to `page.tsx`) | retarget every row's `file:` to `app/admin/_showReviewModal.tsx`; codes and emit sites unchanged |
+| Page behavioral suite | `tests/app/admin/perShowPage.test.tsx` (returned-error + thrown coverage cited by the infra-contract row) | retarget to the loader component; assertions unchanged (same reads, same codes) |
 | Snapshot RPC single-caller | same `:159-180` | unchanged (loader calls helper) |
 | AUDITABLE_MUTATIONS rows | `tests/log/_auditableMutations.ts:56-373` | unchanged (D4: actions don't move) |
 | Advisory-lock deadlock pin | `tests/auth/advisoryLockRpcDeadlock.test.ts:154,179` | unchanged (D4) |
@@ -167,7 +188,7 @@ TDD per task. Highlights (full breakdown in plan):
 
 1. **Shell extraction proof:** entire existing step3 unit + transition + e2e suites pass with zero edits after the refactor. This is the acceptance test for "step3 stays how it is."
 2. **Modal unit/RTL:** composition (sections order Overview→…→Changes), guard-condition matrix (§6.2 rows), StatusStrip publish-toggle gating (`published`/`archived` states unchanged), `syncHash` default-off for step3 usage (anti-regression: assert Step3 renders no hash effect).
-3. **Real-browser (Playwright, pinned image):** layout spec — sheet `<sm` vs panel `≥sm`, `getBoundingClientRect` header/body/footer invariant (§6.6) at 375px and 1280px; interactions spec — focus trap (initial focus close, Tab cycle, restore), Esc, scrim, drag-dismiss threshold + slop, close preserves `bucket` param, back-button closes; deep-link spec — `/admin?show=<slug>` cold load, `alert_id` highlight ring + scroll, `#share-access` fragment scroll, legacy `/admin/show/<slug>?alert_id=x#share-access` redirect lands with param+fragment intact, unknown slug redirects to bare `/admin`.
+3. **Real-browser (Playwright, pinned image):** layout spec — sheet `<sm` vs panel `≥sm`, `getBoundingClientRect` per-mode equations from §6.6 (sheet includes grab strip; popup/two-pane exclude it; no footer) at 375px and 1280px; interactions spec — focus trap (initial focus close, Tab cycle, restore), Esc, scrim, drag-dismiss threshold + slop, close preserves `bucket` param, back-button closes; deep-link spec — `/admin?show=<slug>` cold load, `alert_id` highlight ring + scroll, `#share-access` fragment scroll, legacy `/admin/show/<slug>?alert_id=x#share-access` redirect lands with param+fragment intact, unknown slug redirects to bare `/admin`.
 4. **Anti-tautology:** deep-link assertions read from the live DOM inside `[data-review-modal-panel]` (scoped, not page-wide); expected show titles/params derived from seeded fixtures, not hardcoded; unknown-slug case asserts BOTH absence of modal AND stripped URL.
 5. **Meta-test updates:** exactly the §7 matrix — each is its own plan task paired with the change that breaks it.
 6. **Impeccable dual-gate** (critique + audit) on the affected diff before cross-model review (invariant 8); UI work is Opus-only.
