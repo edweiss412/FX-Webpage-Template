@@ -157,7 +157,11 @@ git commit --no-verify -m "docs: mark VCR-4 resolved + note the ratified map-lab
 
 - [ ] **Step 1: Impeccable setup gates**
 
-Run `node .claude/skills/impeccable/scripts/context.mjs` (loads PRODUCT.md + DESIGN.md) → read the register reference (`reference/product.md` — admin tool UI). No re-run if already loaded this session.
+`.claude/` is gitignored + per-machine, so `.claude/skills/impeccable/scripts/context.mjs` does **not** exist in a fresh worktree. Run the script from the **loaded skill base directory** the runtime reports (per the impeccable skill's own setup rule: "if the runtime shows this skill's loaded base directory, run `node <skill-base-dir>/scripts/context.mjs` instead"). On this machine that is the plugin cache:
+```bash
+node "/Users/ericweiss/.claude/plugins/cache/impeccable/impeccable/3.9.1/skills/impeccable/scripts/context.mjs"
+```
+(loads PRODUCT.md + DESIGN.md; keep cwd at the worktree, not the skill dir). Then read the register reference `reference/product.md` (admin tool UI) from that same base dir. If already loaded this session, do not re-run.
 
 - [ ] **Step 2: `/impeccable critique` on the diff**
 
@@ -171,17 +175,29 @@ Technical a11y/perf/responsive pass on the diff. Confirm: glyph `aria-hidden` co
 
 Fix any P0/P1 in-branch (micro RED→GREEN→commit cycle if the fix is behavioral); DEFERRED.md entry for anything explicitly deferred. Record findings + dispositions in §12 of this plan (append a "Gate results" section).
 
-- [ ] **Step 5: Commit any gate fix**
+- [ ] **Step 5: Commit the §12 gate results (always) + any gate fix**
+
+The §12 "Gate results" write is **mandatory regardless of outcome** (gate-evidence discipline — a clean gate still records its verdicts + dispositions). Commit it even when the gate surfaced no code change:
 
 ```bash
 cd ~/fxav-worktrees/venue-degraded-tile-glyph
-git add -A && git commit --no-verify -m "fix(admin): <impeccable finding> on VCR-4 glyph tile"
+# If the gate produced a code fix, stage it too (micro RED→GREEN cycle already committed if behavioral).
+git add docs/superpowers/plans/2026-07-17-venue-degraded-tile-glyph.md DEFERRED.md
+git commit --no-verify -m "docs: record VCR-4 impeccable dual-gate results (§12)"
+# Separately, any code fix from the gate:
+# git add components/admin/wizard/VenueMapTile.tsx && git commit --no-verify -m "fix(admin): <impeccable finding> on VCR-4 glyph tile"
 ```
-(Skip if the gate surfaced no code change — record "no code change" in §12.)
+If the gate was clean, §12 records "no code change — critique + audit clean"; the commit above still lands the evidence.
 
 - [ ] **Step 6: Whole-diff cross-model review (Codex) → APPROVE**
 
-Fresh-eyes whole-diff adversarial review. Iterate to APPROVE. Then push → real CI green → `gh pr merge --merge` → ff local main (verify `rev-list --left-right --count main...origin/main == 0 0`).
+Fresh-eyes whole-diff adversarial review. Iterate to APPROVE. Then push → real CI green → `gh pr merge --merge` → fast-forward local `main`, verifying it is exactly even with origin:
+
+```bash
+git -C /Users/ericweiss/FX-Webpage-Template fetch origin
+git -C /Users/ericweiss/FX-Webpage-Template merge --ff-only origin/main
+git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main   # expect: 0    0
+```
 
 ---
 
