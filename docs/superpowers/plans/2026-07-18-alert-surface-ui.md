@@ -335,7 +335,11 @@ it("occurrence chip survives inline-identity codes (suppressChip gates only Iden
 });
 ```
 
-- [ ] **Step 1b: Author the DI real-browser assertions (red-first for the layout gate)** in `tests/e2e/bell-panel-layout.spec.ts`: DI-1 (`meta.right <= caret.left`, caret-absent `<= panelContentRight`), DI-2 (`caret.right === panelContentRight` ±0.5px), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`) — chevron-present + chevron-absent fixtures. These reference the NEW testids (`bell-header/-meta/-time`) so they fail before the restructure.
+- [ ] **Step 1b: Author the DI real-browser assertions (red-first for the layout gate)** in `tests/e2e/bell-panel-layout.spec.ts`, chevron-present + chevron-absent fixtures. Reference the NEW testids (`bell-header/-meta/-time`) so they fail before the restructure:
+  - **DI-1 (actual flush, not `<=`):** chevron-present → `caret.left - meta.right` **equals the header flex gap** (`gap-2` = 8px) within ±1px (proves the meta group sits immediately left of the chevron, not stopped short in the title column). Chevron-absent (`slug === null`) → `abs(headerContentRight - meta.right) <= 0.5px` where `headerContentRight = bell-header.right - paddingRight` (proves the meta group is flush to the row content right edge — the core screenshot fix, especially for slug-null rows). A bare `meta.right <= caret.left` is INSUFFICIENT — it accepts a far-left timestamp; assert the equality/flush.
+  - **DI-2:** `abs(caret.right - headerContentRight) <= 0.5px`.
+  - **DI-3:** `toggle.height >= 44`; toggle does not overflow the header row.
+  - **DI-4:** `time.right >= toggle.right` (timestamp sits to the RIGHT of the title column).
 
 - [ ] **Step 2: Run red** — `pnpm exec vitest run tests/components/bellPanelRedesign.test.tsx` (FAIL) AND `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (FAIL — new testids absent / right-flush not yet true). Both RED before impl.
 
@@ -565,7 +569,7 @@ This Task 8 is the CONSOLIDATED verification: re-run the full `bell-panel-layout
 
 **Files:** `tests/e2e/bell-panel-layout.spec.ts` (extended in T3/T6; verified here).
 
-- [ ] **Step 1:** Run `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` at both widths; confirm DI-1 (`meta.right <= caret.left`, or caret-absent `<= panelContentRight`), DI-2 (`caret.right === panelContentRight` ±0.5px), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`), and hint geometry (`panel.scrollWidth <= clientWidth+0.5`; hint+dismiss rects within panel; `dismiss.height >= 44` + click unmounts; `hint.bottom <= firstRow.top`) all PASS.
+- [ ] **Step 1:** Run `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` at both widths; confirm DI-1 (**actual flush** — chevron-present `caret.left - meta.right ≈ 8px ±1`; chevron-absent `abs(headerContentRight - meta.right) <= 0.5px`; NOT a bare `<=`), DI-2 (`abs(caret.right - headerContentRight) <= 0.5px`), DI-3 (`toggle.height >= 44`, no row overflow), DI-4 (`time.right >= toggle.right`), and hint geometry (`panel.scrollWidth <= clientWidth+0.5`; hint+dismiss rects within panel; `dismiss.height >= 44` + click unmounts; `hint.bottom <= firstRow.top`) all PASS.
 - [ ] **Step 2:** If any fails, fix the owning BellPanel classes (Tailwind-v4 non-stretch surprises surface here) and re-run.
 - [ ] **Step 3: Commit** (only if the spec file changed here) — `test(admin): consolidated real-browser BellPanel layout verification gate (WI-1/WI-5)`.
 
