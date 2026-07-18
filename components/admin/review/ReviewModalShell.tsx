@@ -95,6 +95,47 @@ function OpenReviewModalShell({
   // Server/hydration render in place first (identical markup), portal after mount.
   const mounted = useHasMounted();
 
+  // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
+  // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
+  // beyond `aria-modal`, which browse-mode readers honor inconsistently). Once
+  // portaled, the modal is a SIBLING of `[data-inert-root]`, so inerting the
+  // shell never inerts the dialog. Restore prior state on unmount (== close).
+  // Runs client-only (effects never fire on the server).
+  //
+  // This effect OWNS the outer focus save/restore and MUST be declared BEFORE
+  // `useDialogFocus` (memory-#437 class): React runs effect cleanups in
+  // DECLARATION order, and applying `inert` to an ancestor BLURS the focused
+  // trigger — so the snapshot must be taken here (pre-inert), and the restore
+  // must run in THIS cleanup (post-un-inert). A later-declared inert cleanup
+  // would leave the background inert while useDialogFocus restores, making
+  // `.focus()` a silent no-op that drops focus to <body>. useDialogFocus's own
+  // restore then targets the post-inert activeElement (<body>) — a harmless
+  // no-op. Real-browser coverage (jsdom does not enforce inert):
+  // published-review-modal.interactions.spec.ts "focus continuity".
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-inert-root]"));
+    const prev = roots.map((el) => ({
+      el,
+      hadInert: el.hasAttribute("inert"),
+      ariaHidden: el.getAttribute("aria-hidden"),
+    }));
+    for (const el of roots) {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+    return () => {
+      for (const { el, hadInert, ariaHidden } of prev) {
+        if (!hadInert) el.removeAttribute("inert");
+        if (ariaHidden === null) el.removeAttribute("aria-hidden");
+        else el.setAttribute("aria-hidden", ariaHidden);
+      }
+      if (previouslyFocused instanceof HTMLElement && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+    };
+  }, []);
+
   // Initial focus → the consumer's close button; Tab-trap inside the panel;
   // restore focus to the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
   useDialogFocus(panelRef, initialFocusRef);
@@ -126,32 +167,6 @@ function OpenReviewModalShell({
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
-    };
-  }, []);
-
-  // §S3C-2: while open, mark the admin shell `inert` + `aria-hidden` so a
-  // virtual-cursor SR user cannot browse behind the dialog (belt-and-suspenders
-  // beyond `aria-modal`, which browse-mode readers honor inconsistently). The
-  // modal is portaled to <body> (above), a SIBLING of `[data-inert-root]`, so
-  // inerting the shell never inerts the dialog. Restore prior state on unmount
-  // (== close). Runs client-only (effects never fire on the server).
-  useEffect(() => {
-    const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-inert-root]"));
-    const prev = roots.map((el) => ({
-      el,
-      hadInert: el.hasAttribute("inert"),
-      ariaHidden: el.getAttribute("aria-hidden"),
-    }));
-    for (const el of roots) {
-      el.setAttribute("inert", "");
-      el.setAttribute("aria-hidden", "true");
-    }
-    return () => {
-      for (const { el, hadInert, ariaHidden } of prev) {
-        if (!hadInert) el.removeAttribute("inert");
-        if (ariaHidden === null) el.removeAttribute("aria-hidden");
-        else el.setAttribute("aria-hidden", ariaHidden);
-      }
     };
   }, []);
 

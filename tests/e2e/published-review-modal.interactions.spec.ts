@@ -103,6 +103,19 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // The skeleton twin is gone once the swap commits — from here every
     // shell-testid locator (grab/close/backdrop) resolves uniquely.
     await expect(page.locator(MODAL_ANY)).toHaveCount(1);
+    // Synthetic gestures must not race the swap's passive-effect flush: the
+    // commit makes the loaded frame visible BEFORE its effects (initial focus,
+    // the shell's document Esc listener, the grab's drag listeners) have run,
+    // and a keypress/pointerdown in that gap is silently lost. Initial focus
+    // landing on the close button proves the flush completed (the listener
+    // effects are declared in the same component and flush together). Real
+    // users can't beat this window; a synthetic gesture can.
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "loaded modal's effect flush completed (initial focus applied)" },
+      )
+      .toBe(`${BASE}-close`);
   }
 
   function urlParts(page: Page) {
@@ -176,6 +189,58 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       expect(cur!.inPanel, `press ${press}: focus stays inside the panel`).toBe(true);
       expect(cur!.visible, `press ${press}: focused element is visible`).toBe(true);
     }
+  });
+
+  test("focus continuity: Esc-close restores focus to the still-mounted dashboard trigger (real inert)", async ({
+    page,
+  }) => {
+    // Task 14 audit P2 (memory #437 class): the shell's inert effect must own
+    // the outer save/restore and be declared BEFORE useDialogFocus — React runs
+    // effect cleanups in DECLARATION order, so a later-declared inert cleanup
+    // leaves the dashboard inert while useDialogFocus restores, and `.focus()`
+    // on an inert-subtree element no-ops → focus drops to <body>. jsdom does
+    // NOT enforce inert focus-blocking, so this MUST run in a real browser.
+    // Unlike step3 (trigger unmounts with the wizard card), the dashboard row
+    // trigger persists across the URL-driven close — the restore must land.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize(POPUP);
+    await page.goto("/admin");
+    const trigger = page.locator(`[data-testid="shows-table-row-${show.slug}"]`);
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    // Let hydration + first-paint effects settle: a post-focus hydration
+    // re-render would swap the DOM node and silently drop focus to <body>,
+    // making Enter a no-op on the wrong element.
+    await page.waitForLoadState("networkidle");
+
+    await trigger.focus();
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "trigger row link holds focus before open" },
+      )
+      .toBe(`shows-table-row-${show.slug}`);
+
+    // Open via the trigger itself (Enter on the focused Link → client nav).
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("show"), {
+        message: "Enter on the trigger navigates to ?show=<slug>",
+        timeout: 10_000,
+      })
+      .toBe(show.slug);
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(MODAL_ANY)).toHaveCount(1);
+
+    // Close via Esc (URL-driven unmount) — focus must return to the trigger,
+    // which requires the background to be UN-inerted before the restore fires.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "focus restored to the dashboard trigger after close" },
+      )
+      .toBe(`shows-table-row-${show.slug}`);
   });
 
   // ── Close affordances → URL contract (§3) ──────────────────────────────────

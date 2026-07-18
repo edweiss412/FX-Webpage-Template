@@ -169,7 +169,10 @@ function baseProps(
   };
 }
 
-function renderModal(overrides: Partial<PublishedReviewModalProps> = {}, warnings?: ParseWarning[]) {
+function renderModal(
+  overrides: Partial<PublishedReviewModalProps> = {},
+  warnings?: ParseWarning[],
+) {
   const props = baseProps(overrides, warnings);
   const view = render(
     <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
@@ -189,9 +192,8 @@ function renderModal(overrides: Partial<PublishedReviewModalProps> = {}, warning
 // the alert effect and the rail-click hash write are observable.
 const scrollIntoViewSpy = vi.fn();
 const hadScrollIntoView = "scrollIntoView" in HTMLElement.prototype;
-const originalScrollIntoView = (
-  HTMLElement.prototype as unknown as { scrollIntoView?: () => void }
-).scrollIntoView;
+const originalScrollIntoView = (HTMLElement.prototype as unknown as { scrollIntoView?: () => void })
+  .scrollIntoView;
 const originalScrollTo = (HTMLElement.prototype as unknown as { scrollTo?: () => void }).scrollTo;
 
 beforeEach(() => {
@@ -292,7 +294,7 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
   });
 
-  it("passes layout=\"modal\" + syncHash to ShowReviewSurface (source pin — the layout prop's only runtime effect is the hashSync default, so the DOM cannot discriminate it)", () => {
+  it('passes layout="modal" + syncHash to ShowReviewSurface (source pin — the layout prop\'s only runtime effect is the hashSync default, so the DOM cannot discriminate it)', () => {
     const s = componentSrc();
     expect(s).toMatch(/layout="modal"/);
     expect(s).toMatch(/\bsyncHash\b/);
@@ -329,6 +331,32 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(badge.textContent).toContain(String(alertCount));
     // Inside the Overview rail button, exactly as the page composed it.
     expect(screen.getByTestId(railTid("rail-item-overview")).contains(badge)).toBe(true);
+  });
+
+  it("rail badge separates count and sr-only unit with a VISIBLE space node (accName-safe)", () => {
+    // Task 14 audit P3 (memory #470 class): a leading space INSIDE the sr-only
+    // span is trimmed during accessible-name computation, so "3" + " open
+    // alerts" announces as "3open alerts". The space must be its own visible
+    // text node BETWEEN the count and the sr-only span, and the sr-only text
+    // must not lean on internal leading whitespace. (Real-browser accName
+    // trimming can't be observed in jsdom — this pins the DOM shape instead.)
+    renderModal({ alertCount: 3 });
+    const badge = screen.getByTestId("overview-rail-badge");
+    const srOnly = badge.querySelector(".sr-only");
+    expect(srOnly, "badge renders an sr-only unit span").not.toBeNull();
+    expect(
+      srOnly!.textContent!.startsWith(" "),
+      "sr-only text must NOT start with a space (trimmed in accName)",
+    ).toBe(false);
+    const nodesBeforeSrOnly: string[] = [];
+    for (const node of Array.from(badge.childNodes)) {
+      if (node === srOnly) break;
+      if (node.nodeType === Node.TEXT_NODE) nodesBeforeSrOnly.push(node.textContent ?? "");
+    }
+    expect(
+      nodesBeforeSrOnly.some((t) => /\s$/.test(t)),
+      "a visible text node ending in whitespace precedes the sr-only span",
+    ).toBe(true);
   });
 
   it("wires the per-section warning extras (a crew warning renders the crew section's controls)", () => {

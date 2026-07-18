@@ -170,9 +170,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               data-testid="overview-rail-badge"
               className="ml-auto inline-flex shrink-0 items-center rounded-pill bg-warning-bg px-1.5 text-xs font-semibold tabular-nums text-warning-text"
             >
-              {alertCount}
-              {/* The count alone reads as a bare number to a screen reader; name the unit. */}
-              <span className="sr-only"> open {alertCount === 1 ? "alert" : "alerts"}</span>
+              {/* The count alone reads as a bare number to a screen reader; name
+                  the unit. The separator space is its OWN visible text node — a
+                  leading space inside the sr-only span is trimmed during
+                  accessible-name computation ("3open alerts", memory-#470 class). */}
+              {alertCount}{" "}
+              <span className="sr-only">open {alertCount === 1 ? "alert" : "alerts"}</span>
             </span>
           ),
         }
