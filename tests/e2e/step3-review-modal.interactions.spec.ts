@@ -138,25 +138,20 @@ test.beforeAll(async () => {
 <body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  // 3. Bundle the live entry (version-pinned dlx, like the tailwind CLI).
-  //    --external:node:fs keeps the harness's never-executed main-guard
-  //    `require("node:fs")` out of the browser resolve pass; the banner shims
-  //    `process` for Next client-runtime env reads beyond NODE_ENV.
+  // 3. Bundle the live entry via the pinned esbuild JS-API helper. A plain
+  //    `esbuild --bundle` cannot resolve this graph: <Step3ReviewModal> reaches
+  //    two `"use server"` actions (which Next elides to RPC refs, dropping their
+  //    postgres/node:crypto/node:async_hooks subtree from the client bundle) plus
+  //    a node:crypto import Next tree-shakes. The helper replicates that elision
+  //    and empties node builtins so the browser bundle matches Next semantics —
+  //    see tests/e2e/_step3ReviewModalBundle.mjs for the full rationale.
   execFileSync(
-    "pnpm",
+    process.execPath,
     [
-      "dlx",
-      "esbuild@0.28.0",
+      join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
       join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
+      join(workDir, "bundle.js"),
+      join(REPO_ROOT, "tsconfig.json"),
     ],
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
   );
