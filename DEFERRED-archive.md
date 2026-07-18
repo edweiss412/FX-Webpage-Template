@@ -2,6 +2,30 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Alert-surface UI pass (2026-07-18)
+
+Source: ARC-2 of the alert-surface ship (`feat/alert-surface-ui`, spec + plan `docs/superpowers/{specs,plans}/2026-07-18-alert-surface-ui{,.md}`), branched off the merged EMDASH-1 (ARC-1). Six work items (WI-1..WI-6) closed these four deferrals. Invariant-8 impeccable dual-gate on the diff: **critique 38/40 (AI-slop CLEAN, zero P0/P1), audit 19/20 Excellent (zero P0/P1)**; three P2s fixed in-branch (hint glyph↔affordance match, "+N more" overflow contrast text-faint→text-subtle, mark-read action-name aria-label), remaining P3s acceptable at the AA floor.
+
+### ALERT-COPY-IDENTITY-BOLD-1 — [P3] Woven identity names render plain mid-sentence in stacked alert lists — ✅ RESOLVED
+
+- **What:** condensed inline-context copy put the show/sheet name in plain text inside the sentence; scanning a stacked bell list, Doug couldn't quickly spot WHICH show. Spec-ratified bare tokens (PR #469) meant emphasis couldn't ride the template.
+- **Resolution:** ✅ RESOLVED via WI-3 — `renderCatalogEmphasis` gained a 3rd arg `identityKeys?: ReadonlySet<string>`; BellPanel passes a NARROW `BELL_BOLD_IDENTITY_TOKENS = {show-name, sheet-name, crew-name}` (explicitly excludes counts/role-changes/operational tokens), bolding the identity param's `<strong>` at render (weight, not template markup — composes with `*`/`**`). Contrast 16–19:1. Narrowness pinned by `tests/messages/_metaEmphasisRenderContract.test.ts` (subset guard).
+
+### ALERT-CHEVRON-HINT-1 — [P3] Chevron behavior changed (expand → navigate) with no transition affordance — ✅ RESOLVED
+
+- **What:** the bell caret was reworked from longform expander to show-page nav link (user-ratified). `aria-label` covered AT; a returning sighted user who learned "chevron = expand" got no hint.
+- **Resolution:** ✅ RESOLVED via WI-5 — a single one-time dismissible, panel-level IN-FLOW note (`bell-chevron-hint` + `-dismiss`) at the top of the active list, shown once until dismissed and only when ≥1 active row carries a chevron. In-flow (not absolute) so it never clips in the scroll container. Backed by `useDismissibleOnce` (3-state checking/available/unavailable + module-level `memDismissed` fallback → hydration-flash-free, private-mode-safe, remount-durable, throwing-storage-safe). The hint depicts the ACTUAL affordance glyph (ChevronRight, not a decorative caret — impeccable P2 fix).
+
+### ALERT-MULTI-CHANGE-TONE-1 — [P2→ratified] Multi-change ROLE_FLAGS_NOTICE renders as bold verbless bullet block; "show page" can appear 3× — ✅ RESOLVED
+
+- **What:** the multi-change branch rendered as a bold pre-line string with a repeated "— see show page" tail (P2s: bold weight, phrase repetition, em-dash).
+- **Resolution:** ✅ RESOLVED via WI-4 — `deriveMessageParams` gained a structured `roleChangeLines(changes) → {header, items, overflow}` helper (`parseChanges`/`RoleChange` exported); BellPanel splits `dougFacing` on the literal `<role-changes>` token and renders a real semantic `<ul>` of body-weight `<li>` items (cap 3 + "+N more"), dropping the "— see show page" tail (the chevron already carries nav). Em dashes swept from `ROLE_CHANGES_FALLBACK` + overflow (found live in runtime strings ARC-1's catalog-field audit didn't scan). Overflow line contrast raised to text-subtle (impeccable P2 fix).
+
+### PERSHOW-LINK-TAPTARGET-1 — [P3, pre-existing] Per-show action/help links lack the tap-target/focus-ring sizing BellPanel's equivalents carry — ✅ RESOLVED
+
+- **What:** `PerShowAlertSection` action + Learn-more links followed that file's quiet-link pattern (no `min-h-tap-min`/`ring-offset-surface`) while BellPanel's equivalents carried both. Pre-existing inconsistency.
+- **Resolution:** ✅ RESOLVED via WI-6 — both links gained `inline-flex items-center min-h-tap-min ring-offset-surface`, aligning with BellPanel's vocabulary (44px height floor for the venue phone; inline-prose exception still covers min-width). Regression-pinned in `tests/components/admin/perShowAlertActionLink.test.tsx`.
+
 ## Catalog-wide em-dash sweep (2026-07-18)
 
 ### ALERT-COPY-EMDASH-1 — [P3] Legacy em dashes remain in catalog copy despite DESIGN.md §9 ban — ✅ RESOLVED
