@@ -11,3 +11,8 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-04-alert-audience-split.md`](./2026-07-04-alert-audience-split.md) | 2026-07-04 |
 | [`2026-07-04-alert-resolve-truthing.md`](./2026-07-04-alert-resolve-truthing.md) | 2026-07-04 |
 | [`2026-07-05-bell-notification-center-design.md`](./2026-07-05-bell-notification-center-design.md) | 2026-07-05 |
+| [`2026-07-06-bell-notification-redesign.md`](./2026-07-06-bell-notification-redesign.md) | 2026-07-06 |
+| [`2026-07-16-notify-email-batching.md`](./2026-07-16-notify-email-batching.md) | 2026-07-16 |
+| [`2026-07-17-bell-triage-severity-grouping.md`](./2026-07-17-bell-triage-severity-grouping.md) | 2026-07-17 |
+| [`2026-07-17-condensed-alert-copy-design.md`](./2026-07-17-condensed-alert-copy-design.md) | 2026-07-17 |
+| [`2026-07-17-role-flags-notice-lead-only-doug.md`](./2026-07-17-role-flags-notice-lead-only-doug.md) | 2026-07-17 |

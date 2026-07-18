@@ -14,3 +14,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-03-stage-filtered-schedule.md`](./2026-07-03-stage-filtered-schedule.md) | 2026-07-03 |
 | [`2026-07-05-issue-307-schedule-transport-fidelity.md`](./2026-07-05-issue-307-schedule-transport-fidelity.md) | 2026-07-05 |
 | [`2026-07-05-schedule-show-day-labels.md`](./2026-07-05-schedule-show-day-labels.md) | 2026-07-05 |
+| [`2026-07-06-show-start-schedule-label.md`](./2026-07-06-show-start-schedule-label.md) | 2026-07-06 |
