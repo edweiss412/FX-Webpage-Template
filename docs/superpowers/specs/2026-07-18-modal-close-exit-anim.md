@@ -40,8 +40,21 @@ A new shell-internal `requestClose()` replaces every direct `onClose` call on th
 `requestClose` behavior:
 
 1. **Re-entrancy guard.** If `dismissingRef.current` is already `true`, return (a close is in flight — no double-fire, no re-animate). Reuses the existing `dismissingRef` (`ReviewModalShell.tsx:206`) that the drag-dismiss already sets.
-2. **Reduced motion.** If `window.matchMedia("(prefers-reduced-motion: reduce)").matches`, set `dismissingRef = true` and call `onClose()` immediately (current instant behavior — the ratified reduced-motion collapse). No animation.
-3. **Animate.** Otherwise set `dismissingRef = true`, neutralize the entrance (`panel.style.animation = "none"`; the C1 rationale at `:238-243`), apply the mode-appropriate exit inline styles (§3.2), fade the scrim (§3.2), and call `onClose()` on the panel's `transitionend` (transform) OR a fallback timer — the exact `finish()` pattern the drag-dismiss uses (`:284-299`), matched to the same duration token.
+2. **Cancel any active drag (fixes the compound race, §6).** Before animating, if `dragRef.current !== null`: release its pointer capture and set `dragRef.current = null`. A pointer sequence that was mid-drag when Esc/X fired then finds `dragRef === null` at `pointerup` and early-returns at the existing guard (`ReviewModalShell.tsx:260`), so it can NEVER run the spring-back branch that would overwrite the exiting panel with `translateY(0)`. Belt-and-suspenders: `handleGrabPointerEnd` also early-returns when `dismissingRef.current` is `true`. Also clear any pending `settleTimerRef` (a spring-back settle must not fight the committed exit).
+3. **Reduced motion.** If `window.matchMedia("(prefers-reduced-motion: reduce)").matches`, set `dismissingRef = true` and fire the close **immediately** (per §3.1a timing) with no animation — the ratified reduced-motion collapse. No overlay-release dance is needed (the node unmounts almost immediately).
+4. **Animate.** Otherwise set `dismissingRef = true`, neutralize the entrance (`panel.style.animation = "none"`; the C1 rationale at `:238-243`), apply the mode-appropriate exit inline styles (§3.2), fade the scrim (§3.2). The **close fires per §3.1a** (immediately for `navigate`, at exit-end for `unmount`); the exit-end signal is the panel's `transitionend` (transform) OR a fallback timer — the exact `finish()` pattern the drag-dismiss uses (`:284-299`), matched to the mode's duration token.
+
+### 3.1a `closeBehavior` — when `onClose` actually fires (fixes the slow-Published-RSC finding)
+
+The two consumers' `onClose` are fundamentally different and need opposite firing timing. A new prop `closeBehavior?: "unmount" | "navigate"` (default `"unmount"`) selects it:
+
+| | `"unmount"` (Step3 — default) | `"navigate"` (Published passes this) |
+|---|---|---|
+| What `onClose` does | **synchronous** parent unmount (`Step3ReviewModal`'s host removes the modal) | `useShowModalNav().close` — a `router.push` (async; the route change unmounts later) |
+| When shell calls `onClose` | at **exit-end** (transitionend/fallback). Calling it at start would unmount the shell instantly and kill the animation. | **immediately** at `requestClose` start — the push overlaps the animation (truly optimistic). The panel animates locally; the route change unmounts when the RSC roundtrip lands. |
+| Why not the other timing | early → animation dies (sync unmount) | late → the push starts only after the animation, so on a slow RSC the faded-but-mounted overlay keeps scrim/inert/scroll-lock active and traps the page behind an invisible layer (the exact failure this feature must fix, Codex R1) |
+
+**`navigate`-mode overlay release (the anti-trap).** In `navigate` mode `onClose` fired at start, but the shell node lingers until the route lands. If the exit animation completes while still mounted (slow RSC), the shell **releases the overlay** at exit-end so the invisible node never traps the user: restore `document.body.style.overflow`, un-inert + un-`aria-hidden` the `[data-inert-root]` background roots, and set the dialog root `pointer-events: none` + `aria-hidden="true"`. This is the SAME restore the unmount cleanup runs; it is factored into one idempotent `releaseOverlay()` guarded by an `overlayReleasedRef` so whichever fires first (early release OR unmount cleanup) wins and the other no-ops. **Focus restore stays at unmount** (unchanged — the memory-#437 inert/focus declaration-order contract in the first effect is untouched; `releaseOverlay` does not move focus). In `unmount` mode `releaseOverlay` never runs early (the exit-end IS the unmount).
 
 ### 3.2 Exit treatment (mode-aware, JS-inline)
 
@@ -54,7 +67,7 @@ Mode is read from `window.matchMedia("(min-width: 640px)").matches` (the `sm` bo
 
 Panel transition property: sheet = `transform var(--duration-normal) var(--ease-out-quart)`; desktop = `opacity … , transform …` at `--duration-fast`. The `transitionend` listener keys on `propertyName === "transform"` (present in both modes) — the same predicate the drag path uses (`:295-296`).
 
-**Scrim fade (both modes):** a new `scrimRef` lets `requestClose` set `scrim.style.animation = "none"; scrim.style.transition = "opacity <dur> ease-out"; scrim.style.opacity = "0"`, where `<dur>` matches the panel's mode duration. The scrim fade is cosmetic and does NOT gate `onClose` (the panel `transform` transitionend does); if the scrim's own transitionend never fires it is harmless.
+**Scrim fade (both modes):** a new `scrimRef` lets `requestClose` set `scrim.style.animation = "none"; scrim.style.transition = "opacity <dur> ease-out"; scrim.style.opacity = "0"`, where `<dur>` matches the panel's mode duration. The scrim fade is cosmetic and does NOT gate the exit-end signal (the panel `transform` transitionend / fallback does — which drives `unmount`-mode `onClose` and `navigate`-mode `releaseOverlay`); if the scrim's own transitionend never fires it is harmless.
 
 Entrance is unchanged: `step3-details-sheet-rise` / `step3-details-pop-in` / `step3-details-scrim-in` (`app/globals.css:717-792`) still play on open.
 
@@ -66,17 +79,20 @@ The header **X** button is rendered inside each consumer's `header` slot (`Publi
 - `OpenReviewModalShell` wraps its rendered tree in `<ReviewModalCloseContext.Provider value={requestClose}>` so everything under the panel — including the `header` slot — can read it.
 - A shared **`ModalCloseButton`** component (`forwardRef`, in `components/admin/review/`) reads the context and renders the X: `aria-label="Close"`, the `X` icon, `onClick={requestClose}`, `data-testid` via prop, `className` carried verbatim from the two identical existing buttons. Because it renders **inside** the provider (in the header slot), the context resolves correctly — a hook call at the consumer's own top level would NOT (it sits above the provider). Each consumer replaces its inline X `<button>` with `<ModalCloseButton>` and forwards `initialFocusRef` for the initial-focus contract (`ReviewModalShell.tsx:141`).
 
-The shell's `onClose` prop is unchanged: consumers still pass their raw close (`close` / parent-unmount `onClose`). The shell derives `requestClose` from `onClose` internally. Consumers pass NO new prop.
+The shell's `onClose` prop is unchanged: consumers still pass their raw close (`close` / parent-unmount `onClose`). The shell derives `requestClose` from `onClose` internally. `PublishedReviewModal` additionally passes `closeBehavior="navigate"` (§3.1a); `Step3ReviewModal` passes nothing (defaults `"unmount"`).
 
 ## 4. Guard conditions
 
 | Input / state | Behavior |
 |---------------|----------|
-| `requestClose` fired while `dismissingRef` already true (double Esc, Esc-then-X) | no-op (guard 3.1.1) — one exit, one `onClose` |
-| reduced motion | instant `onClose`, no animation (guard 3.1.2) |
-| `panelRef.current` null at fire time | call `onClose()` immediately (no panel to animate — defensive, mirrors drag `:275`) |
-| `matchMedia` unavailable (jsdom) | treat as reduced-motion path → instant `onClose` (jsdom has no `matchMedia`; guarded exactly like `:350`) |
-| Published: RSC roundtrip slower than the exit animation | panel already at its exit end-state (`translateY(100%)` / `opacity:0`), `dismissingRef` true → sits invisible, no re-animate, unmounts when the route change lands. `close` always strips `show` so the route always changes. |
+| `requestClose` fired while `dismissingRef` already true (double Esc, Esc-then-X, scrim-then-Esc) | no-op (guard §3.1 step 1) — one exit, one close |
+| drag in progress when Esc/X fires | `requestClose` releases the drag's pointer capture + nulls `dragRef` (§3.1 step 2); the pending `pointerup` early-returns → NO spring-back overwrite of the exiting panel |
+| reduced motion | fire close immediately per §3.1a, no animation (guard §3.1 step 3) |
+| `panelRef.current` null at fire time | fire close immediately per §3.1a (no panel to animate — defensive, mirrors drag `:275`) |
+| `matchMedia` unavailable (jsdom) | treat as reduced-motion path → immediate close (jsdom has no `matchMedia`; guarded exactly like `:350`) |
+| **Published (`navigate`): RSC roundtrip slower than the exit animation** | `onClose` (push) already fired at start; panel sits at its exit end-state; at exit-end `releaseOverlay()` restores body scroll + un-inerts the background + sets the dialog `pointer-events:none` → the invisible node does NOT trap the page. Unmounts when the route lands; `releaseOverlay` is idempotent (`overlayReleasedRef`), so the unmount cleanup's restore no-ops. `close` always strips `show`, so the route always changes. |
+| Published (`navigate`): RSC faster than the animation | route change unmounts the modal mid-animation → exit cut short (snappy). Acceptable — optimistic close is best-effort animation. |
+| Step3 (`unmount`): exit-end | `onClose` fires at exit-end → parent unmounts. `releaseOverlay` never runs early. |
 | viewport crosses `sm` mid-exit | the existing matchMedia cleanup (`:337-372`) already guards `!dismissingRef.current` before clearing inline styles (`:361`) — a committed exit is not yanked back. Unchanged. |
 | unmount mid-exit (parent unmounts before transitionend) | existing unmount cleanup clears the fallback timers (`:368-369`) — no late `onClose` after unmount |
 
@@ -92,22 +108,22 @@ The master spec §6.5 row (`docs/superpowers/specs/2026-07-18-admin-show-modal.m
 
 to:
 
-> `open → closed (X/scrim/Esc/grab-tap) | optimistic exit animation — reverse of entrance (sheet: translateY(100%) slide-down; desktop: fade + scale 0.98 + translateY 8px), scrim fades out, then onClose fires behind it (shell requestClose). Reduced motion → instant unmount. Back-button unmount is a route change (no exit animation — no requestClose in the browser-back path).`
+> `open → closed (X/scrim/Esc/grab-tap) | optimistic exit animation via shell requestClose — reverse of entrance (sheet: translateY(100%) slide-down; desktop: fade + scale 0.98 + translateY 8px) + scrim fade. navigate mode (Published): onClose/router.push fires immediately so nav overlaps the animation, and releaseOverlay() drops the overlay at exit-end so a slow RSC never traps the page. unmount mode (Step3): onClose fires at exit-end. Reduced motion → instant close. Back-button unmount is a route change (no requestClose in the popstate path).`
 
 Full inventory for THIS feature's states (N=4: open, exiting, closed, reduced-motion-instant):
 
 | Transition | Treatment |
 |------------|-----------|
 | closed → open | entrance (unchanged): `step3-details-sheet-rise` `<sm` / `step3-details-pop-in` `≥sm` + `step3-details-scrim-in` (`app/globals.css:772-792`) |
-| open → exiting (X/Esc/scrim/grab-tap) | `requestClose`: mode-aware reverse (§3.2) + scrim fade, JS-inline |
-| exiting → closed | `onClose` on panel `transform` transitionend or fallback timer (§3.1.3); unmount clears inline styles |
-| open → closed, reduced motion | instant `onClose` — no animation (§3.1.2) — preserves the ratified reduced-motion collapse |
+| open → exiting (X/Esc/scrim/grab-tap) | `requestClose`: cancel active drag (§3.1 step 2) + mode-aware reverse (§3.2) + scrim fade, JS-inline; `onClose` timing per §3.1a |
+| exiting → closed | `navigate`: route change unmounts (push fired at start); `releaseOverlay` at exit-end if still mounted. `unmount`: `onClose` at panel `transform` transitionend / fallback (§3.1 step 4). Unmount clears inline styles. |
+| open → closed, reduced motion | immediate close — no animation (§3.1 step 3) — preserves the ratified reduced-motion collapse |
 | open → closed, drag past threshold | **unchanged** — existing slide-down (`ReviewModalShell.tsx:276-299`); scrim not faded (out of scope, §8) |
 | open → closed, browser Back | **unchanged** — route change unmounts; `requestClose` is not in this path (no in-app affordance fires) |
 
 **Compound transitions:**
 - exit committed, then viewport crosses `sm` → matchMedia cleanup guards `!dismissingRef.current` (`:361`), exit not interrupted. Unchanged.
-- drag in progress, then X/Esc pressed → today Esc unmounts mid-drag; now `requestClose` runs, but a drag sets no `dismissingRef` until past-threshold, so `requestClose` animates from the drag's current inline transform. The guard (3.1.1) prevents a *second* `requestClose`; the drag's own pointer handlers still resolve harmlessly on the departing panel (pointer capture released by the unmount cleanup `:365-370`). Acceptance: no stranded capture, one `onClose`.
+- **drag in progress, then X/Esc pressed** → `requestClose` cancels the drag first (§3.1 step 2): releases the grab's pointer capture and nulls `dragRef`, so the eventual `pointerup` early-returns at `:260` and CANNOT run the spring-back that would overwrite the exiting panel with `translateY(0)`. The exit animates from the drag's current inline transform (continuous). `dismissingRef` blocks a second `requestClose`. Acceptance (real-browser test, §9.4): hold a mid-drag, press Esc, release the pointer AFTER the fallback timer — the panel exits and closes exactly once, no visible snap-back.
 - `requestClose` fired twice fast (Esc, then scrim before unmount) → second is a no-op (guard). One exit.
 
 ## 7. Design decision — JS-inline exit, not twinned CSS keyframes
@@ -134,20 +150,23 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed 
 
 ## 9. Test surface
 
-1. **Shell unit (`reviewModalShell.test.tsx`)** — `requestClose` reduced-motion path (jsdom has no `matchMedia` → instant `onClose`); scrim/Esc/grab route through it (still call `onClose` exactly once in jsdom's instant path); re-entrancy guard fires `onClose` once for double-Esc. The entrance twin-scan (`:186-197`) must stay unchanged and green (count === 3).
+1. **Shell unit (`reviewModalShell.test.tsx`)** — in jsdom (`matchMedia` absent → reduced-motion path per §3.1 step 3) scrim/Esc/grab route through `requestClose` and call `onClose` exactly once; re-entrancy guard fires `onClose` once for double-Esc/Esc-then-scrim. `closeBehavior` prop: `unmount` and (default) both call `onClose` once in the jsdom instant path. The entrance twin-scan (`:186-197`) must stay unchanged and green (count === 3).
 2. **`ModalCloseButton` unit** — reads context, forwards ref, `onClick` calls the provided `requestClose`; default no-op context when rendered outside a provider.
 3. **`pageTransitions.test.tsx`** — `PublishedReviewModal` conditional count stays **1** and no-motion assertions stay green (regression guard, no edit expected).
-4. **Real-browser (`published-review-modal.interactions.spec.ts`)** — the §6.5 assertion flips: X / Esc / scrim now leave an exit-animated frame (panel carries the exit `transform`/`opacity` inline, scrim opacity → 0) BEFORE the URL strips `show`/`alert_id`; reduced-motion run still collapses to instant unmount; drag-dismiss unchanged. This is the anti-tautology gate: assert the panel's computed exit transform/opacity is non-identity during the exit window, then assert unmount + URL strip.
-5. **Transition-audit** — enumerate the four affordances' handlers all resolve to `requestClose`; assert reduced-motion + null-panel guards; assert `dismissingRef` re-entrancy.
+4. **Real-browser (`published-review-modal.interactions.spec.ts`)** — three groups:
+   (a) **exit-animation flip** — the §6.5 assertion flips: X / Esc / scrim leave an exit-animated frame (panel carries a non-identity exit `transform`/`opacity` inline, scrim opacity → 0) BEFORE the modal frame leaves the DOM and the URL strips `show`/`alert_id`. Anti-tautology: sample the panel's *computed* transform/opacity during the exit window and assert non-identity, then assert removal + URL strip. Reduced-motion run collapses to instant (no exit frame).
+   (b) **slow-navigation anti-trap** (finding 2) — with the RSC/route delayed, assert that after the exit animation completes the background is interactable: `[data-inert-root]` no longer has `inert`, `document.body.style.overflow` is restored, and the dialog root is `pointer-events:none` — i.e. `releaseOverlay` fired and the invisible node does not trap the page.
+   (c) **compound drag-held + Esc** (finding 1) — press-and-hold the grab past slop, press Esc, release the pointer AFTER the fallback timer; assert the panel exits and the modal closes exactly once with no `translateY(0)` snap-back frame.
+5. **Transition-audit** — enumerate the four affordances' handlers all resolve to `requestClose`; assert the §3.1 guards exist (drag-cancel, reduced-motion, null-panel, `dismissingRef` re-entrancy) and that `handleGrabPointerEnd` early-returns on `dismissingRef`.
 
 ## 10. Files
 
 | File | Change |
 |------|--------|
-| `components/admin/review/ReviewModalShell.tsx` | `requestClose`, `scrimRef`, `ReviewModalCloseContext` + `useReviewModalClose`, provider wrap; scrim/Esc/grab → `requestClose` |
+| `components/admin/review/ReviewModalShell.tsx` | `requestClose` (+ drag-cancel), `closeBehavior` prop, `scrimRef`, `releaseOverlay()` + `overlayReleasedRef`, `ReviewModalCloseContext` + `useReviewModalClose`, provider wrap; scrim/Esc/grab → `requestClose`; `handleGrabPointerEnd` early-return on `dismissingRef` |
 | `components/admin/review/ModalCloseButton.tsx` | new shared X button (forwardRef, context consumer) |
-| `components/admin/showpage/PublishedReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef` |
-| `components/admin/wizard/Step3ReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef`; pass `closeBehavior="navigate"` |
+| `components/admin/wizard/Step3ReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef` (default `unmount`) |
 | `docs/superpowers/specs/2026-07-18-admin-show-modal.md` | §6.5 row amendment (§6 above) |
 | `DEFERRED.md` | resolve `MODAL-CLOSE-EXIT-ANIM-1` |
 | tests (§9) | shell unit, ModalCloseButton unit, interactions spec flip, transition-audit |
