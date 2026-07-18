@@ -121,6 +121,14 @@ function safeDougFacingTemplate(code: string, params: MessageParams | undefined)
   return template;
 }
 
+// helpHref (impeccable critique P1 — alert-copy full-sweep): the catalog's
+// longform education link for this code, or null when uncataloged/no catalog
+// helpHref is set.
+function catalogHelpHref(code: string): string | null {
+  if (!(code in MESSAGE_CATALOG)) return null;
+  return messageFor(code as MessageCode).helpHref;
+}
+
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
 // for the §B Supabase call-boundary contract (AGENTS.md §1.9).
 export async function fetchPerShowAlerts(
@@ -320,6 +328,7 @@ export async function PerShowAlertSection({
           const dataGapsDigest =
             alert.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(alert.context) : null;
           const action = resolveAlertAction(alert.code, alert.context, { slug });
+          const helpHref = catalogHelpHref(alert.code);
           return (
             <li
               key={alert.id}
@@ -345,6 +354,20 @@ export async function PerShowAlertSection({
                 >
                   {action.label}
                   {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                </a>
+              ) : null}
+              {/* Learn more (impeccable critique P1): appended after the
+                  per-code action link, low-emphasis (subtle/quiet — not the
+                  action link's text-text-strong weight) so it never competes
+                  with a real action. helpHref null (uncataloged or no catalog
+                  helpHref) hides it. */}
+              {helpHref ? (
+                <a
+                  href={helpHref}
+                  data-testid={`per-show-alert-help-link-${alert.id}`}
+                  className="self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                >
+                  Learn more
                 </a>
               ) : null}
               {failedKeys && failedKeys.length > 0 ? (

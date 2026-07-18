@@ -221,10 +221,19 @@ const GHOST_DISMISS =
 // LINK_CTA's text-link padding.
 const SHOW_PAGE_LINK =
   "inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+// Low-emphasis wayfinding link (impeccable critique P1 — alert-copy full-sweep):
+// routes to the code's longform /help/errors education. Quiet by default
+// (text-subtle, underline only on hover/focus) so it never competes with
+// LINK_CTA's accent weight or the row's real actions; keeps the 44px tap floor.
+const HELP_LINK =
+  "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 
 function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
   const isWatch = entry.code === WATCH_CODE;
+  // helpHref (impeccable critique P1): the catalog's longform education link
+  // for this code, or null when uncataloged/no helpHref is set.
+  const helpHref = isMessageCode(entry.code) ? messageFor(entry.code).helpHref : null;
 
   const onResolve = useCallback(async () => {
     if (resolving) return; // guard against double-fire (no form action here)
@@ -280,6 +289,14 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
         <form action={retryWatchSubscriptionFormAction}>
           <RetryWatchButton ringOffset="surface" />
         </form>
+      ) : null}
+      {/* Learn more (impeccable critique P1): last item in the leading actions
+          group, low-emphasis so it never competes with Dismiss/Retry/View in
+          telemetry. helpHref null (uncataloged or no catalog helpHref) hides it. */}
+      {helpHref ? (
+        <a href={helpHref} data-testid={`bell-help-${entry.alertId}`} className={HELP_LINK}>
+          Learn more
+        </a>
       ) : null}
       <span className="flex-1" />
       {entry.isHealth ? null : entry.isAutoResolving ? (
@@ -378,10 +395,11 @@ function ActiveRow({
         {/* Row header: the mark-read toggle button LEADS; the show-page chevron
             (rendered only when entry.slug is non-null — spec §4.1) is a DOM
             SIBLING to its right, never nested inside the button (a link nested
-            inside a button is a nested-interactive a11y violation). items-start
-            keeps both pinned to the row's top regardless of how many lines the
-            title/message wrap to. */}
-        <div className="flex items-start gap-1">
+            inside a button is a nested-interactive a11y violation). items-center
+            (impeccable critique P2) optically centers the chevron against the
+            title/timestamp line instead of pinning it to the row's top, which
+            read crowded/off-baseline next to the header's top-right micro-text. */}
+        <div className="flex items-center gap-1">
           {/* min-h-tap-min: this is the primary per-row gesture (mark-read). A
               title-only row would otherwise render the affordance well under
               the 44px floor PRODUCT.md mandates for a phone on the venue
