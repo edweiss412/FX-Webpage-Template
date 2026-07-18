@@ -83,7 +83,7 @@ describe("warningOffersFix — role branch", () => {
 
 describe("warningOffersFix — use-raw branch", () => {
   it("true for each in-scope resolvable code (no decision, and with a persisted decision)", () => {
-    const decided: UseRawDecision = { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", preference: "raw", applied: true };
+    const decided: UseRawDecision = { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", target: { kind: "rooms" }, preference: "raw", applied: true, decidedAt: "2026-01-01T00:00:00Z", decidedBy: "tester" };
     for (const code of IN_SCOPE) {
       const w = { code, resolution: resolvable() } as ParseWarning;
       expect(warningOffersFix(w, undefined)).toBe(true);
@@ -116,7 +116,7 @@ describe("warningOffersFix ↔ deriveUseRawControlState parity (drift guard)", (
     ];
     const decisions: (UseRawDecision | undefined)[] = [
       undefined,
-      { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", preference: "raw", applied: true },
+      { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", contentHash: "hash-1", target: { kind: "rooms" }, preference: "raw", applied: true, decidedAt: "2026-01-01T00:00:00Z", decidedBy: "tester" },
     ];
     for (const code of codes)
       for (const resolution of resolutions)
