@@ -300,17 +300,6 @@ export async function PerShowAlertSection({
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
           const copyTemplate = safeDougFacingTemplate(alert.code, alert.messageParams);
-          // Plain-language explanation, rendered ALWAYS-VISIBLE below the alert
-          // title (no "What does this mean?" disclosure toggle, no "Learn more →"
-          // link — the former per-row <HelpAffordance>). Unknown/log-only codes
-          // carry null helpfulContext → the block simply drops.
-          const helpfulContext =
-            alert.code in MESSAGE_CATALOG
-              ? messageFor(
-                  alert.code as MessageCode,
-                  (alert.context as MessageParams | null) ?? undefined,
-                ).helpfulContext
-              : null;
           const isHighlighted = highlightAlertId === alert.id;
           // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
           // crew-page data domains whose sub-query failed in context.failedKeys
@@ -345,15 +334,6 @@ export async function PerShowAlertSection({
                   ? renderCatalogEmphasis(copyTemplate, alert.messageParams)
                   : "Something needs your attention on this show."}
               </p>
-              {helpfulContext ? (
-                <div
-                  data-testid={`per-show-alert-help-${alert.id}`}
-                  className="mt-1 flex flex-col gap-1 text-sm text-text-subtle"
-                >
-                  <p className="font-medium">What does this mean?</p>
-                  <p className="max-w-prose">{helpfulContext}</p>
-                </div>
-              ) : null}
               {/* Per-code action link (spec 2026-07-04-alert-action-links §7.1). Fail-quiet:
                   resolveAlertAction returns null for unregistered codes or failed guards. */}
               {action ? (

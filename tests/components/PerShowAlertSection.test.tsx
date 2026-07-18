@@ -65,6 +65,29 @@ vi.mock("@/lib/adminAlerts/deriveMessageParams", async (importOriginal) => {
   };
 });
 
+// Task 8 (alert-copy-full-sweep §4.2): the always-visible "What does this
+// mean?" help block was DELETED — its content lives on /help/errors now.
+// Every admin code's helpfulContext is already null post-T7, so the block is
+// dead-by-fixture-data for every other test in this file; to prove the
+// DELETION (not just that no fixture happens to trigger it), this forces
+// messageFor().helpfulContext to a non-null sentinel and asserts the block
+// still never renders. PerShowAlertSection is imported statically above, so
+// this mock is hoisted the same way as the deriveMessageParams mock.
+const mockHelpfulContextState = vi.hoisted(() => ({
+  forceHelpfulContext: null as string | null,
+}));
+vi.mock("@/lib/messages/lookup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/messages/lookup")>();
+  return {
+    ...actual,
+    messageFor: (...args: Parameters<typeof actual.messageFor>) => {
+      const real = actual.messageFor(...args);
+      if (mockHelpfulContextState.forceHelpfulContext === null) return real;
+      return { ...real, helpfulContext: mockHelpfulContextState.forceHelpfulContext };
+    },
+  };
+});
+
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
 
 type AlertFixture = {
@@ -225,6 +248,7 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     mockState.failAlertRead = false;
     mockState.failIdentityRead = false;
     mockParamsState.forceUnresolvedMemberParams = false;
+    mockHelpfulContextState.forceHelpfulContext = null;
   });
   afterEach(() => {
     cleanup();
@@ -387,5 +411,27 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     const row = screen.getByTestId("per-show-alert-unresolved-member-1");
     expect(row.textContent).toContain("Something needs your attention on this show.");
     expect(screen.getByTestId("per-show-alert-identity")).toBeInTheDocument();
+  });
+
+  test("Task 8: always-visible help block never renders, even if a code's helpfulContext were non-null (content moved to /help/errors)", async () => {
+    // Every admin code's real catalog helpfulContext is already null
+    // post-T7, so a plain fixture render can't distinguish "deleted" from
+    // "happened not to trigger." Force messageFor().helpfulContext to a
+    // non-null sentinel via the module mock above and prove the block still
+    // never renders and the sentinel text never appears anywhere in the row.
+    mockHelpfulContextState.forceHelpfulContext = "SENTINEL_HELP_TEXT_SHOULD_NEVER_RENDER";
+    setAlerts([
+      {
+        id: "help-block-1",
+        code: "SHOW_UNPUBLISHED",
+        raised_at: "2026-05-04T10:00:00Z",
+      },
+    ]);
+    const { getByTestId, queryByTestId, queryByText } = await renderSection();
+    // Sanity: the row itself still renders (the deletion didn't break the row).
+    expect(getByTestId("per-show-alert-help-block-1")).not.toBeNull();
+    expect(queryByTestId("per-show-alert-help-help-block-1")).toBeNull();
+    expect(queryByText("What does this mean?")).toBeNull();
+    expect(queryByText("SENTINEL_HELP_TEXT_SHOULD_NEVER_RENDER")).toBeNull();
   });
 });
