@@ -342,9 +342,10 @@ it("timestamp + chip live in the row-level right-group, not the button", () => {
 
 - [ ] **Step 5: Commit**
 ```bash
-git add components/admin/BellPanel.tsx tests/components/bellPanelRedesign.test.tsx
+git add components/admin/BellPanel.tsx tests/components/bellPanelRedesign.test.tsx tests/e2e/bell-panel-layout.spec.ts
 git commit --no-verify -m "feat(admin): BellPanel row restructure — title-only mark-read, right-flush meta, orphan-safe message block, Learn-more inline (WI-1/WI-2)"
 ```
+**MUST stage `tests/e2e/bell-panel-layout.spec.ts`** (the DI assertions authored in Step 1b) — else the layout gate ships uncommitted and CI never covers the right-flush/no-overflow contracts.
 
 ---
 
@@ -360,11 +361,17 @@ it("bolds the identity name in the message, not the surrounding prose", () => {
   const strong = block.querySelector("strong");
   expect(strong?.textContent).toBe("'East Coast'");
 });
-it("single-change ROLE_FLAGS_NOTICE sentence is not fully bold", () => {
-  renderActiveRow(entryRoleFlagsSingle);
+it("single-change ROLE_FLAGS_NOTICE sentence is not bolded by ANY strong node", () => {
+  renderActiveRow(entryRoleFlagsSingle);   // "In <sheet-name>, <role-changes>", single change → sentence prose
   const block = screen.getByTestId(`bell-msg-${id}`);
-  // the role-change sentence text is not inside <strong>
-  expect(block.querySelector("strong")?.textContent ?? "").not.toContain("role changed");
+  // check EVERY strong node (querySelector returns only the first — the sheet name — which would
+  // hide a second strong wrapping the whole role-change sentence). Assert no strong carries the prose.
+  for (const strong of block.querySelectorAll("strong")) {
+    expect(strong.textContent ?? "").not.toContain("role changed");
+    expect(strong.textContent ?? "").not.toContain("was added");
+  }
+  // and positively: the sheet name IS bold (so we know bolding is active, not simply absent)
+  expect([...block.querySelectorAll("strong")].some((s) => s.textContent === "'East Coast'")).toBe(true);
 });
 ```
 - [ ] **Step 2: Run red** → FAIL (message uses 2-arg renderCatalogEmphasis).
@@ -453,20 +460,33 @@ it("already-dismissed → no banner", () => {
   renderPanel(feedWithChevronRows);
   expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
 });
-it("accessor throw: panel renders, banner absent AFTER the mount effect (status=unavailable)", async () => {
+// POSITIVE CONTROL — proves the harness flushes the mount effect and WOULD show the banner.
+// Without this, the throwing-storage "absent" assertions could pass merely because the effect
+// never ran (still in `checking`). This test pins that the effect DOES flip status→available.
+it("positive control: working storage + not dismissed → banner appears after effect", async () => {
+  renderPanel(feedWithChevronRows);
+  expect(await screen.findByTestId("bell-chevron-hint")).toBeInTheDocument();
+});
+it("accessor throw: effect runs, hits storage, throws → status=unavailable, banner stays absent", async () => {
   const orig = Object.getOwnPropertyDescriptor(window, "localStorage");
-  Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("blocked"); } });
+  const getter = vi.fn(() => { throw new Error("blocked"); });
+  Object.defineProperty(window, "localStorage", { configurable: true, get: getter });
   try {
     expect(() => renderPanel(feedWithChevronRows)).not.toThrow();
-    // wait past the mount effect, then assert still absent (not just pre-effect)
-    await waitFor(() => expect(screen.queryByTestId("bell-chevron-hint")).toBeNull());
+    // EVIDENCE the effect ran (accessor was invoked ≥1 by the probe) — not merely pre-mount `checking`
+    await waitFor(() => expect(getter).toHaveBeenCalled());
+    // flush any further effect ticks, then assert STILL absent (fail-safe on read-throw)
+    await act(async () => {});
+    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   } finally { if (orig) Object.defineProperty(window, "localStorage", orig); }
 });
-it("getItem throw: banner absent after mount effect", async () => {
+it("getItem throw: probe called, banner absent after effect", async () => {
   const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("x"); });
   try {
     renderPanel(feedWithChevronRows);
-    await waitFor(() => expect(screen.queryByTestId("bell-chevron-hint")).toBeNull());
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("fxav:bell-chevron-hint:v1"));  // effect ran
+    await act(async () => {});
+    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   } finally { spy.mockRestore(); }
 });
 it("setItem throw on dismiss: unmounts locally, no crash, no navigation", async () => {
@@ -484,7 +504,7 @@ it("setItem throw on dismiss: unmounts locally, no crash, no navigation", async 
 - [ ] **Step 2: Run red** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` (FAIL) + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` (hint-geometry FAIL). All RED before impl.
 - [ ] **Step 3: Implement** `useDismissibleOnce` with the 3-state `status` contract: `const [status, setStatus] = useState<"checking"|"available"|"unavailable">("checking")`, `const [dismissed, setDismissed] = useState(false)`; a mount `useEffect` does `try { const v = window.localStorage.getItem(key); setDismissed(v != null); setStatus("available"); } catch { setStatus("unavailable"); }`; `dismiss = () => { setDismissed(true); try { window.localStorage.setItem(key, "1"); } catch {} }`. Render the banner in BellPanel: `hasChevronRow = rows.some(r => r.slug !== null)`; `{status === "available" && !dismissed && hasChevronRow && <div role="note" data-testid="bell-chevron-hint" className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"><span>The <span aria-hidden="true">⌄</span> chevron now opens the show page</span><span className="flex-1" /><button type="button" data-testid="bell-chevron-hint-dismiss" aria-label="Dismiss hint" onClick={dismiss} className={GHOST_DISMISS}>Dismiss</button></div>}` as the FIRST child of the active-rows list content (before the `.map` of rows). Banner suppressed while `"checking"` (pre-effect, avoids flash) and while `"unavailable"` (fail-safe).
 - [ ] **Step 4: Run green** → `pnpm exec vitest run tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx` + `pnpm exec playwright test tests/e2e/bell-panel-layout.spec.ts` → PASS.
-- [ ] **Step 5: Commit** — `feat(admin): one-time dismissible chevron-hint banner + throwing-safe useDismissibleOnce (WI-5)`.
+- [ ] **Step 5: Commit** — stage ALL files authored in this task: `git add components/admin/BellPanel.tsx components/admin/useDismissibleOnce.ts tests/components/bellChevronHint.test.tsx tests/components/bellPanelTransitionAudit.test.tsx tests/e2e/bell-panel-layout.spec.ts` then `git commit --no-verify -m "feat(admin): one-time dismissible chevron-hint banner + throwing-safe useDismissibleOnce (WI-5)"`. **MUST stage the Playwright hint-geometry (Step 1b) and transition-audit (Step 1c) specs** — else those gates ship uncommitted.
 
 ---
 
