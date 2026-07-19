@@ -1022,7 +1022,7 @@ pass `attentionItems` + `alertsDegraded`; delete the `alertSlot`/`alertCount` li
 ### Task 9: full gates + close-out prep
 
 - [ ] `pnpm test` (full unit suite), `pnpm typecheck`, `pnpm exec eslint . --max-warnings 0` (canonical Tailwind order), `pnpm format:check`, `pnpm build` — all green locally (pre-push gates memory: scoped runs miss regressions).
-- [ ] `rg -n 'alertCount|alertSlot' app components tests` → zero stale references.
+- [ ] `rg -n 'alertCount|alertSlot' app components tests` → remaining hits are ONLY non-migration mentions (StatusStrip's unrelated internals/comments, unrelated test names — e.g. `StatusStrip.tsx:142`, `statusStrip.test.tsx:322`, `loadNeedsAttention.test.ts:413`, `AdminNav.test.tsx:90`); zero hits referencing the RETIRED modal/loader/OverviewSection props.
 - [ ] BACKLOG.md: add `BL-ADMIN-PARSEPANEL-ORPHANED` (ParsePanel/StagedReviewCard live-scope mount orphaned since #476; spec §14 notes) — single line, no scope creep.
 - [ ] Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff — P0/P1 fixed or DEFERRED.md rows (invariant 8) — run BEFORE the Stage-4 cross-model review.
 - [ ] Commit any gate fixes per-task-style; then Stage 4 (whole-diff Codex review → push → PR → CI → merge).
