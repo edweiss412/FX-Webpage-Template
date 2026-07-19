@@ -32,6 +32,26 @@
 
 ---
 
+### Task 0: Author the real-browser spec RED (TDD gate for Tasks 1+3)
+
+**Files:**
+- Create: `tests/e2e/published-review-modal.crew-actions.spec.ts` (full content in Task 3 Step 1 — write it NOW, verbatim)
+- Modify: `playwright.config.ts:70`, `.github/workflows/published-modal-e2e.yml` (wiring per Task 3 Step 2 — do it NOW)
+
+- [ ] **Step 1:** Write the spec file exactly as given in Task 3 Step 1, and apply the CI wiring exactly as given in Task 3 Step 2.
+- [ ] **Step 2: Run to verify RED** (real-browser gate fails before any implementation exists):
+
+Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
+Expected: FAIL — every test times out on `crew-row-menu-button-*` (no trigger rendered yet).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add -A && git commit --no-verify -m "test(admin): RED crew-row menu e2e — dimensions, stacking, scroll-edge, reset round-trip + CI wiring"
+```
+
+---
+
 ### Task 1: CrewRowActions + CrewBreakdown wiring + unit tests
 
 **Files:**
@@ -1247,7 +1267,7 @@ git add -A && git commit --no-verify -m "refactor(admin): PickerResetControl sli
 
 ---
 
-### Task 3: Live real-browser spec + CI wiring
+### Task 3: Real-browser spec GREEN (authored RED in Task 0)
 
 **Files:**
 - Create: `tests/e2e/published-review-modal.crew-actions.spec.ts`
@@ -1256,7 +1276,7 @@ git add -A && git commit --no-verify -m "refactor(admin): PickerResetControl sli
 **Interfaces:**
 - Consumes: `signInAs`/`signOut` (`tests/e2e/helpers/signInAs.ts`), `ADMIN_FIXTURE` (`tests/e2e/helpers/fixtures.ts`), `seedShowWithCrew`/`deleteSeededShow` (`tests/e2e/helpers/seedShowWithCrew.ts:106`), `settleDashboardAdminState` (`tests/e2e/helpers/dashboardState.ts`), the modal-open pattern from `published-review-modal.interactions.spec.ts:95-112`.
 
-- [ ] **Step 1: Write the spec** (full file; TOL 0.5; open pattern mirrors interactions spec — `emulateMedia reduce`, `goto /admin?show=<slug>`, wait modal visible + initial focus):
+- [ ] **Step 1: Spec content** (authored in Task 0; reproduced here as the canonical text — full file; TOL 0.5):
 
 ```ts
 /**
@@ -1492,19 +1512,19 @@ test("confirm reset round-trips: success banner appears at the panel top", async
 });
 ```
 
-- [ ] **Step 2: Wire CI.**
+- [ ] **Step 2: CI wiring** (applied in Task 0; verify it matches):
   - `playwright.config.ts` desktop-chromium testMatch: extend the alternation with `published-review-modal\.crew-actions` (alongside the existing `published-review-modal\.*` entries).
   - `.github/workflows/published-modal-e2e.yml`: add to `paths:`: `"tests/e2e/published-review-modal.crew-actions.spec.ts"`, `"components/admin/wizard/step3ReviewSections.tsx"`, `"components/admin/wizard/CrewRowActions.tsx"`; append `tests/e2e/published-review-modal.crew-actions.spec.ts` to the run command at `:126`.
 
-- [ ] **Step 3: Run locally** (needs local supabase + dev server per the workflow's local equivalent; the repo playwright config boots the webServer — beware sibling dev server on :3000, lsof-check first per known lesson):
+- [ ] **Step 3: Run locally — now GREEN** (lsof-check :3000 for a sibling dev server first, per known lesson):
 
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
-Expected: all tests PASS.
+Expected: all tests PASS (they were RED in Task 0; Tasks 1-2 made them pass).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Commit** (only if the spec needed fixes against real behavior)
 
 ```bash
-git add -A && git commit --no-verify -m "test(admin): live crew-row menu e2e — dimensions, stacking, scroll-edge, reset round-trip + CI wiring"
+git add -A && git commit --no-verify -m "test(admin): crew-row menu e2e green — adjustments from real-browser run"
 ```
 
 ---
