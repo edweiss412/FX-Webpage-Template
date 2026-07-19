@@ -22,7 +22,7 @@ Three modal-header renderings at a fixed 1024px panel width:
 1. **Locked — published header in the wizard's frame** (`#1a`) — the target.
    Header band (title + sheet-link icon, client/date subline, alert pill, close)
    over a separate bordered control strip (Published toggle, inline sync/edit
-   status, right-flushed neutral "Copy crew link").
+   status, ghost "Re-sync", right-flushed neutral "Copy crew link").
 2. **Wizard · Step 3 review** — faithful recreation of today's Step 3 header,
    labelled in-mock as "the target language". This is the shape (1) is being
    reconciled toward; it is NOT changing.
@@ -72,6 +72,16 @@ false positives and are deliberately left unfixed:
 
 No ignore-rule / ignore-file entry was persisted — a config change to the shared
 linter is not warranted for a single documentation artifact.
+
+## Revision history
+
+- **2026-07-18 initial** — header band + control strip, no Re-sync control.
+- **2026-07-18 revision** — adds a ghost "Re-sync" button to the control strip,
+  between the status line and the right-flushed Copy (no border, no background,
+  `--subtle` text at 13px, refresh glyph). This is the ONLY change between the
+  two revisions; everything else is byte-identical. It carries a real cost — see
+  the spec's ratified §4 amendment, because resync was deliberately placed in the
+  Overview rail section by the earlier consolidated-admin-show-page spec.
 
 ## Known intentional divergences from the mock
 
