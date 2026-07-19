@@ -1,335 +1,149 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+/**
+ * tests/admin/pickerResetControl.test.tsx — everyone-only surface
+ * (crew-row-controls spec §4.6; per-member reset moved to the crew row menu).
+ */
 import "@testing-library/jest-dom/vitest";
-
-vi.mock("@/lib/auth/picker/resetCrewMemberSelection", () => ({
-  resetCrewMemberSelection: vi.fn(),
-}));
-vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({
-  resetPickerEpoch: vi.fn(),
-}));
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PickerResetControl } from "@/app/admin/show/[slug]/PickerResetControl";
-import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
-import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
-import { getDougFacing } from "@/lib/messages/lookup";
 
-const SHOW_ID = "11111111-1111-1111-1111-111111111111";
-const ALICE = "aaaaaaaa-0000-0000-0000-000000000000";
-const BOB = "bbbbbbbb-0000-0000-0000-000000000000";
-const roster = [
-  { id: ALICE, name: "Alice", role: "A2" },
-  { id: BOB, name: "Bob", role: "A2" },
+const epochMock = vi.hoisted(() => vi.fn());
+const memberMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: epochMock }));
+vi.mock("@/lib/auth/picker/resetCrewMemberSelection", () => ({
+  resetCrewMemberSelection: memberMock,
+}));
+
+const SHOW_ID = "11111111-2222-4333-8444-555555555555";
+const CREW = [
+  { id: "c1111111-1111-4111-8111-111111111111", name: "Alice", role: "A1" },
+  { id: "c2222222-2222-4222-8222-222222222222", name: "Bob", role: "BO" },
 ];
 
-const mockMember = resetCrewMemberSelection as unknown as ReturnType<typeof vi.fn>;
-const mockAll = resetPickerEpoch as unknown as ReturnType<typeof vi.fn>;
-
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
-  vi.useRealTimers();
-});
 beforeEach(() => {
-  vi.useFakeTimers();
+  epochMock.mockReset();
+  memberMock.mockReset();
 });
+afterEach(cleanup);
 
-async function flush() {
-  vi.useRealTimers();
-  await Promise.resolve();
-  await Promise.resolve();
-}
+const allBtn = () => screen.getByTestId("picker-reset-all-button") as HTMLButtonElement;
+const confirmGo = () => screen.getByTestId("picker-reset-confirm-button") as HTMLButtonElement;
+const cancelBtn = () => screen.getByTestId("picker-reset-cancel-button") as HTMLButtonElement;
 
-describe("PickerResetControl", () => {
-  test("renders a member selector from the roster", () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    expect(screen.getByRole("option", { name: /Alice/ })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Bob/ })).toBeTruthy();
-  });
-
-  test("empty roster → no selector; reset-everyone DISABLED + helper text", () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={[]} />);
+describe("PickerResetControl (everyone-only)", () => {
+  it("renders heading, description, and NO per-member surface", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    expect(screen.getByRole("heading", { name: /Reset everyone[’']s pick/ })).toBeTruthy();
+    expect(
+      screen.getByText("Make everyone pick their name again on their next visit."),
+    ).toBeTruthy();
     expect(screen.queryByTestId("picker-reset-member-select")).toBeNull();
-    expect(screen.getByText(/No crew to reset yet/)).toBeTruthy();
-    expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(
-      true,
+    expect(screen.queryByTestId("picker-reset-member-button")).toBeNull();
+  });
+
+  it("empty roster: description swaps and the trigger is disabled", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={[]} />);
+    expect(screen.getByText("No crew to reset yet.")).toBeTruthy();
+    expect(allBtn().disabled).toBe(true);
+  });
+
+  it("trigger arms the confirm row with the everyone warning; Cancel focused (C3); C5 restores trigger focus", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
+    expect(screen.getByText(/Every device[’']s picker re-prompts on next visit\./)).toBeTruthy();
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    fireEvent.click(cancelBtn());
+    expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+    await vi.waitFor(() => expect(allBtn()).toHaveFocus());
+  });
+
+  it("4s auto-revert closes the confirm; stale Confirm cannot fire; member action NEVER called", () => {
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      const go = confirmGo();
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+      fireEvent.click(go);
+      expect(epochMock).not.toHaveBeenCalled();
+      expect(memberMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("confirm calls resetPickerEpoch({showId}); success banner + sr-only announce", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    expect(epochMock).toHaveBeenCalledWith({ showId: SHOW_ID });
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("picker-reset-ok").textContent).toContain(
+        "Everyone will pick again on their next visit.",
+      ),
     );
+    const region = document.querySelector('[role="status"][aria-live="polite"]')!;
+    expect(region.textContent).toContain("Everyone will pick again on their next visit.");
+    expect(memberMock).not.toHaveBeenCalled();
   });
 
-  test("empty name+role → id-derived placeholder label", () => {
-    render(
-      <PickerResetControl
-        showId={SHOW_ID}
-        crew={[{ id: "abcdef12-0000-0000-0000-000000000000", name: "", role: "" }]}
-      />,
-    );
-    expect(screen.getByRole("option", { name: /unnamed · abcdef12/ })).toBeTruthy();
-  });
-
-  test("per-member reset calls resetCrewMemberSelection with the selected id", async () => {
-    mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.change(screen.getByTestId("picker-reset-member-select"), {
-      target: { value: ALICE },
-    });
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await flush();
-    });
-    expect(resetCrewMemberSelection).toHaveBeenCalledWith({ showId: SHOW_ID, crewMemberId: ALICE });
-  });
-
-  test("not-found renders benign inline notice, not the crew catalog copy", async () => {
-    mockMember.mockResolvedValue({ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" });
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await flush();
-    });
-    await waitFor(() => {
+  it("a THROWN resetPickerEpoch settles to the generic error banner (no stranded resolving)", async () => {
+    epochMock.mockRejectedValue(new Error("network death"));
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() =>
       expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
-        /no longer on the roster/i,
-      );
-    });
-    const catalog = getDougFacing("PICKER_CREW_MEMBER_NOT_FOUND");
-    if (catalog) expect(container.textContent).not.toContain(catalog);
+        /Couldn't reset the picker/,
+      ),
+    );
+    expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
   });
 
-  test("no raw error code string appears in the DOM after a failure", async () => {
-    mockMember.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await flush();
-    });
-    await waitFor(() => {
+  it("failure shows the persistent error banner (survives past the 5s success window)", async () => {
+    epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
       expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
-        /couldn.t reset the picker/i,
+        /Couldn't reset the picker/,
       );
-    });
-    expect(container.textContent).not.toMatch(/PICKER_[A-Z_]+/);
+      expect(screen.getByTestId("picker-reset-error").getAttribute("role")).toBe("alert");
+      // Errors are NOT auto-dismissed — advance past SUCCESS_DISMISS_MS.
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+      // Invariant 5: no raw picker code ever reaches the DOM.
+      expect(document.body.textContent).not.toMatch(/PICKER_[A-Z_]+/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  test("reset-everyone calls resetPickerEpoch", async () => {
-    mockAll.mockResolvedValue({ ok: true, new_epoch: 5 });
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await flush();
-    });
-    expect(resetPickerEpoch).toHaveBeenCalledWith({ showId: SHOW_ID });
-  });
-
-  test("compound: changing the selected member while a per-member confirm is pending resets the confirm", () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.change(screen.getByTestId("picker-reset-member-select"), {
-      target: { value: ALICE },
-    });
-    fireEvent.click(screen.getByTestId("picker-reset-member-button")); // → confirm (Alice)
-    expect(screen.getByTestId("picker-reset-confirm-button")).toBeTruthy();
-    fireEvent.change(screen.getByTestId("picker-reset-member-select"), { target: { value: BOB } });
-    // the stale Alice confirm must NOT remain
-    expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
-  });
-
-  // PCR-1 item (c): DESIGN §focus specifies a ring PLUS a 2px offset. Every
-  // focusable control (idle + confirm) must carry the offset, not just the ring.
-  test("(c) every focusable control carries the DESIGN focus-ring offset", () => {
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    const checkAll = () => {
-      const focusables = container.querySelectorAll("button, select");
-      expect(focusables.length).toBeGreaterThan(0);
-      focusables.forEach((el) =>
-        expect((el as HTMLElement).className).toContain("focus-visible:ring-offset-2"),
-      );
-    };
-    checkAll(); // idle: select, per-member Reset, reset-everyone
-    fireEvent.click(screen.getByTestId("picker-reset-member-button")); // → confirm
-    checkAll(); // confirm + cancel
-  });
-
-  // PCR-1 (a) regression (Codex R3): the visible outcome banner must never
-  // render beside the still-"resolving" confirm actions — it appears only at rest.
-  test("(regression) success banner does not render beside the resolving confirm actions", async () => {
-    let resolve!: (v: unknown) => void;
-    mockMember.mockReturnValueOnce(
-      new Promise((r) => {
-        resolve = r;
-      }),
-    );
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await Promise.resolve();
-    });
-    // resolving: the "Resetting…" confirm button is present; NO banner yet
-    expect(screen.getByTestId("picker-reset-confirm-button")).toBeTruthy();
-    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
-    await act(async () => {
-      resolve({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    // settled: confirm actions gone, banner shown
-    expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
-    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
-  });
-
-  // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; an ERROR
-  // banner persists until the admin acts on it.
-  const DISMISS_MS = 5_000;
-  test("(d) success banner auto-dismisses after the window", async () => {
-    mockMember.mockResolvedValueOnce({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(DISMISS_MS + 1);
-    });
-    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
-  });
-
-  test("(d) error banner does NOT auto-dismiss", async () => {
-    mockMember.mockResolvedValueOnce({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(DISMISS_MS + 5_000);
-    });
-    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
-  });
-
-  // PCR-1 item (b): the row label is a heading (sits under the panel's <h3>),
-  // not a plain <p>, so the control is reachable in the SR heading outline.
-  test("(b) the row label is a heading", () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    expect(screen.getByRole("heading", { name: /Reset name picker/i })).toBeTruthy();
-  });
-
-  // PCR-1 item (a): the success announcement must live in a live region that is
-  // ALREADY mounted (and empty) before the success occurs, so SRs that skip
-  // insert-time announcements on a freshly-mounted region still announce it.
-  test("(a) a persistent, empty aria-live=polite status region exists at mount", () => {
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    const region = container.querySelector('[role="status"][aria-live="polite"]');
-    expect(region).not.toBeNull();
-    // no success banner yet — the region is present but empty
-    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
-  });
-
-  test("(a) the success text populates the SAME status region node captured at mount", async () => {
-    mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    // Capture the region node BEFORE any action; it must be empty and stable.
-    const region = container.querySelector('[role="status"][aria-live="polite"]');
-    expect(region).not.toBeNull();
-    expect(region!.textContent).toBe("");
-    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    // The announcement swaps INTO the pre-existing node (proves it was not a
-    // freshly mounted region), and the visible banner renders separately.
-    expect(region!.textContent).toMatch(/pick again/i);
-    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
-  });
-});
-
-// ---- Destructive-confirm pass (spec 2026-07-16-destructive-confirm-pass R4/F4) ----
-
-function expectDestructiveRecipe(el: HTMLElement) {
-  const tokens = el.className.split(/\s+/);
-  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
-    expect(tokens).toContain(t);
-  }
-  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
-    expect(tokens).not.toContain(t);
-  }
-  expect(
-    tokens
-      .filter((t) => t.split(":").slice(0, -1).includes("hover"))
-      .filter((t) => t.split(":").at(-1)!.startsWith("bg-")),
-  ).toEqual([]);
-}
-
-describe("PickerResetControl — destructive recipe + focus-safe open/close (R4, F4)", () => {
-  const memberBtn = () => screen.getByTestId("picker-reset-member-button") as HTMLButtonElement;
-  const confirmGo = () => screen.getByTestId("picker-reset-confirm-button") as HTMLButtonElement;
-  const cancel = () => screen.getByTestId("picker-reset-cancel-button") as HTMLButtonElement;
-
-  test("confirm-go carries the destructive recipe; cancel rejects both recipe tokens (C1/C2)", () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(memberBtn());
-    expectDestructiveRecipe(confirmGo());
-    const cancelTokens = cancel().className.split(/\s+/);
-    expect(cancelTokens).not.toContain("bg-warning-text");
-    expect(cancelTokens).not.toContain("text-warning-bg");
-  });
-
-  test("open focus (C3): entering confirm moves focus to the cancel button", async () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(memberBtn());
-    await vi.waitFor(() => expect(cancel()).toHaveFocus());
-  });
-
-  test("close focus (C5): cancel activation returns focus to the re-mounted member trigger", async () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(memberBtn());
-    await vi.waitFor(() => expect(cancel()).toHaveFocus());
-    fireEvent.click(cancel());
-    await vi.waitFor(() => expect(memberBtn()).toHaveFocus());
-  });
-
-  test("close focus (C5): cancelling a reset-everyone confirm restores the everyone trigger", async () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
-    await vi.waitFor(() => expect(cancel()).toHaveFocus());
-    fireEvent.click(cancel());
-    await vi.waitFor(() => expect(screen.getByTestId("picker-reset-all-button")).toHaveFocus());
-  });
-
-  test("close focus (C5): auto-revert with focus inside the confirm row restores the trigger", async () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.click(memberBtn());
-    await vi.waitFor(() => expect(cancel()).toHaveFocus());
-    act(() => {
-      vi.advanceTimersByTime(4_001);
-    });
-    await vi.waitFor(() => expect(memberBtn()).toHaveFocus());
-  });
-
-  test("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {
-    render(
-      <>
-        <PickerResetControl showId={SHOW_ID} crew={roster} />
-        <button type="button" data-testid="external-btn">
-          elsewhere
-        </button>
-      </>,
-    );
-    fireEvent.click(memberBtn());
-    await vi.waitFor(() => expect(cancel()).toHaveFocus());
-    const external = screen.getByTestId("external-btn");
-    act(() => external.focus());
-    act(() => {
-      vi.advanceTimersByTime(4_001);
-    });
-    expect(external).toHaveFocus();
-    expect(memberBtn()).not.toHaveFocus();
+  it("success banner auto-dismisses after 5s (fake timers)", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

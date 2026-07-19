@@ -46,6 +46,9 @@ on:
       - "tests/e2e/published-review-modal.deeplink.spec.ts"
       - "tests/e2e/published-review-modal.layout.spec.ts"
       - "tests/e2e/published-review-modal.prefetch.spec.ts"
+      - "tests/e2e/published-review-modal.crew-actions.spec.ts"
+      - "components/admin/wizard/step3ReviewSections.tsx"
+      - "components/admin/wizard/CrewRowActions.tsx"
       - "tests/e2e/_publishedReviewModalHarness.tsx"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
@@ -123,7 +126,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
