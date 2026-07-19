@@ -760,22 +760,31 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
     alert. Required panel shape:
 
     ```tsx
-    <div className="absolute inset-x-0 top-full z-50 …" aria-labelledby={msgId}>
+    <div
+      role="group"                    {/* explicit — a bare div with aria-labelledby
+                                          is not reliably exposed as a named region */}
+      aria-labelledby={msgId}
+      className="absolute inset-x-0 top-full z-50 …"
+    >
       <p id={msgId} role="alert">{catalogCopy}</p>
       <button aria-label="Dismiss sync error">…</button>
     </div>
     ```
 
-    The panel is labelled by its own message, so a keyboard user tabbing in
-    reaches a named region rather than an anonymous floating box, and the dismiss
+    `role="group"` is required, not optional: `aria-labelledby` on a plain `<div>`
+    gives the container an accessible name but no role to attach it to, so
+    assistive tech is not obliged to announce it as a named region. With the role
+    present, a keyboard user tabbing in reaches a named panel rather than an
+    anonymous floating box, and the dismiss
     button's name says WHAT it dismisses ("Dismiss sync error" / "Dismiss sync
     result") rather than a bare "Dismiss" that is ambiguous once two overlay
     types exist.
 
     **The dismiss control is a real interactive control** and inherits every
     contract that implies: `min-h-tap-min`/`min-w-tap-min` (44px floor), a
-    visible `focus-visible` ring matching its siblings, and a discernible
-    accessible name ("Dismiss"). It joins the overlay-open focus order after the
+    visible `focus-visible` ring matching its siblings, and the branch-specific
+    accessible name required above — "Dismiss sync error" / "Dismiss sync result",
+    never a bare "Dismiss". It joins the overlay-open focus order after the
     panel's own content. Pinned by T-TAP and T-RESYNC-FOCUS-ORDER (§11).
 
   A fragment generates no box, so the absolutely-positioned panels resolve their
@@ -1098,7 +1107,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
 | T-ALERT-PILL-LINK | Pill is an anchor with `href="#overview"` and name "2 alerts" | Regression to the mock's inert span — jump affordance lost (F1) |
 | T-ALERT-PILL-ZERO | `alertCount: 0` → no pill | Empty pill / "0 alerts" |
-| T-ALERT-CAP | Assert the full §6.6 table: 1 → `1 alert`; 2 → `2 alerts`; 1200 → visible `99+ alerts`, accessible name `99+ alerts (1200 total)`; at 375px the header right group stays ≤50% of the header's width and the title element keeps a non-zero width with no horizontal overflow | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes. NB: the assertion is deliberately NOT "same width as the 2-alert case" — `99+ alerts` is legitimately wider than `2 alerts`, so an equal-width assertion would be false-red and the tempting fix would be dropping the visible unit §6.6 requires |
+| T-ALERT-CAP | Assert the full §6.6 table: 1 → `1 alert`; 2 → `2 alerts`; 1200 → visible `99+ alerts`, accessible name `99+ alerts (1200 open alerts)`; at 375px the header right group stays ≤50% of the header's width and the title element keeps a non-zero width with no horizontal overflow | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes. NB: the assertion is deliberately NOT "same width as the 2-alert case" — `99+ alerts` is legitimately wider than `2 alerts`, so an equal-width assertion would be false-red and the tempting fix would be dropping the visible unit §6.6 requires |
 | T-ALERT-NOT-IN-STRIP | Strip contains no alert element | Alert rendered twice (moved but not removed) |
 | T-DIVIDER-ALERT-ONLY | `alertCount>0`, not live, no sync → strip renders NO control divider | §7's real bug: divider followed by nothing |
 | T-STATUS-INLINE | `editedRel` PRESENT → Synced and Edited sit on ONE line: assert both text nodes share a row (equal `getBoundingClientRect().top` within 2px, real browser) and a 3px separator renders between them | The headline delta of §4.5 silently not implemented — an implementer restyles colors/order but leaves the `flex-col` stack (`StatusStrip.tsx:235`). Every other status test (null-edited, error-bucket) passes against the stacked layout |
