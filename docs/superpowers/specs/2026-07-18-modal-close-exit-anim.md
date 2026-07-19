@@ -79,15 +79,34 @@ Mode reads `matchMedia("(min-width: 640px)")` — the `sm` boundary the shell al
 
 `transitionend` keys on `propertyName === "transform"` (present in both modes) — the same predicate the drag path uses (`:296`).
 
-**Start-state normalization (required on EVERY exit, not only the drag-cancel path).** The panel's inline `transition` is not in a known state when `requestClose` runs: an active drag latches `transition: "none"` (`:241`), and an un-dragged panel carries whatever the entrance left. Applying the exit transform without first establishing a transition would jump the panel to its end state instantly — no interpolation, no `transform` `transitionend`, close deferred to the fallback timer. Because that still *eventually* closes, it fails silently. The order is therefore fixed, and mirrors what the two existing drag-release paths already do (`:282`, `:304` both set `transition` before mutating `transform`):
+**Start-state normalization (required on EVERY exit).** `requestClose` can fire while the panel is in any of several live motion states, each leaving `transform` / `transition` / `animation` in a different condition. Applying the exit values against an unnormalized start state fails *silently*: the panel jumps to its end state with no interpolation, no `transform` `transitionend`, and the close lands on the fallback timer — visually broken, but still "closed", so endpoint assertions pass.
 
-1. Neutralize the entrance: `panel.style.animation = "none"`.
-2. Establish the start state: leave any existing inline `transform` in place (mid-drag position), or read the computed transform when there is none.
-3. Set the exit transition explicitly — `transform`/`opacity` over the mode's duration with `var(--ease-out-quart)`.
-4. Force a style flush between the start state and the exit values (read a layout property) so the two land in separate style resolutions; setting both in one frame collapses the transition.
-5. Apply the exit values (table above).
+**Panel motion-state inventory.** This table is exhaustive over the states the shell can produce; a new motion state may not be added to the shell without adding a row here and to the §7.6 audit.
 
-A drag-cancelled exit therefore animates continuously from the panel's current dragged offset to `translateY(100%)` rather than teleporting.
+| # | State | How it is detected | Panel condition at entry | Exit treatment |
+|---|---|---|---|---|
+| S1 | Resting | default | no inline `transform`; stylesheet governs | universal algorithm below |
+| S2 | Entering | entrance keyframes running | `animation` running; computed `transform`/`opacity` mid-interpolation | universal algorithm — snapshot **before** neutralizing (see step 1) |
+| S3 | Dragging | `dragRef.current !== null` | `transition: "none"` (`:241`); inline `transform: translateY(<dy>px)` | universal algorithm + cancel drag (§3.1 step 2) |
+| S4 | Spring-back settling | `settleTimerRef.current !== null` | `dragRef` already null; fast `transition`; `transform` interpolating toward `translateY(0px)`; a live `transitionend` listener + timer pending `clearPanelDragStyles()` | universal algorithm + **settle neutralization** below |
+| S5 | Dismissing (drag past threshold) | `dismissingRef.current === true` | exit already in flight | §3.1 step 1 re-entrancy guard returns; no second exit |
+| S6 | Tap-released | — | `clearPanelDragStyles()` already ran | identical to S1 |
+| S7 | Reduced motion / null panel | `matchMedia` / `panelRef` | n/a | §3.1 step 4 immediate close; no animation |
+
+**Universal algorithm (S1–S4, no per-state branching).** Ordering matters and mirrors what the two existing drag-release paths already do (`:282`, `:304` both set `transition` before mutating `transform`):
+
+1. **Snapshot first.** Read the *computed* `transform` and `opacity` — before touching `animation` or `transition`. This is what makes S2 correct: neutralizing the entrance first would let the panel jump to its resting style before the exit begins.
+2. **Neutralize** `animation = "none"` and `transition = "none"`.
+3. **Pin the snapshot** as inline `transform`/`opacity` — the exit's start state, whatever produced it.
+4. **Force a style flush** (read a layout property) so the start state and exit values land in separate style resolutions; setting both in one frame collapses the transition.
+5. **Set the exit transition** — `transform`/`opacity` over the mode's duration with `var(--ease-out-quart)`.
+6. **Apply the exit values** (table above).
+
+Snapshotting uniformly means no state needs special-casing: a drag-cancelled exit animates continuously from the dragged offset, an interrupted entrance continues from wherever it had reached, and a resting panel starts from identity.
+
+**Settle neutralization (S4).** A pending spring-back is not merely a start-state problem — it will actively corrupt the exit. `settle()` calls `clearPanelDragStyles()` (`:210-216`), which blanks `transform`, `transition` and `animation`; its only guard is `dragRef.current === null`, which is **true** during an exit, so it would wipe the exit styles mid-flight. Its `transitionend` listener is also still attached and would catch the *exit's* own transform event and fire early. `requestClose` must therefore clear `settleTimerRef` and ensure the settle path cannot run.
+
+**Structural defense:** guard `clearPanelDragStyles()` itself with an early `if (dismissingRef.current) return;`. The panel must never be handed back to stylesheet control while an exit is in flight, from *any* caller — this closes the class at the chokepoint rather than at each call site, and covers the mode-boundary/unmount hygiene effect (`:334-344`) that also calls it.
 
 **Scrim fade (both modes):** a new `scrimRef` (`:394`) lets `requestClose` set `animation = "none"`, `transition = "opacity <dur> ease-out"`, `opacity = "0"`. Cosmetic — it does NOT gate exit-end; if its own `transitionend` never fires that is harmless.
 
@@ -165,8 +184,10 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 
 **Compound transitions:**
 - exit committed, then viewport crosses `sm` → matchMedia cleanup guards `!dismissingRef.current`; exit not interrupted.
-- **drag held, then X/Esc** → drag cancelled first, so `pointerup` cannot spring back over the exiting panel. Exit animates from the drag's current transform (continuous). Acceptance in §7.5(d).
-- `requestClose` twice fast → second no-ops.
+- **drag held, then X/Esc** (S3) → drag cancelled first, so `pointerup` cannot spring back over the exiting panel. Exit animates from the drag's current transform (continuous). Acceptance in §7.5(d).
+- **spring-back in flight, then any close affordance** (S4) → settle timer cleared and `clearPanelDragStyles()` guarded by `dismissingRef`, so the pending settle can neither blank the exit styles nor consume the exit's `transitionend`. Exit animates from the panel's mid-settle position, *not* from the settle's `translateY(0px)` target. Acceptance in §7.5(e).
+- **entrance in flight, then any close affordance** (S2) → computed `transform`/`opacity` snapshotted before the entrance animation is neutralized, so the panel continues from where the entrance had reached instead of snapping to its resting style first. Both modes (desktop interpolates opacity *and* transform). Acceptance in §7.5(f).
+- `requestClose` twice fast → second no-ops (S5).
 
 ## 7. Test surface
 
@@ -179,7 +200,11 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
    (b) **exit-window action suppression** (`inert` is not enforced in jsdom) — in the Step3 harness, dismiss via Esc/X **and, separately, via drag-past-threshold**; within each exit window attempt to click Publish / Approve & apply / Ignore and assert the handler is NOT invoked and the modal still closes exactly once.
    (c) **focus continuity** — `main` already pins focus returning to the trigger across the close path (`7555c0316`). Assert it still holds with the animation interposed: focus lands on the trigger after exit-end, not mid-animation.
    (d) **compound drag-held + Esc** — hold the grab past slop, press Esc, release the pointer AFTER the fallback timer; assert one exit, one close, no `translateY(0)` snap-back frame. **Must assert animated progression, not just the endpoints:** sample the panel's *computed* `transform` at ≥2 points inside the exit window and assert the translateY strictly increases and is at some point strictly between the drag offset and the final `translateY(100%)` — an instant jump satisfies "eventually closed" and "never snapped back", so endpoint-only assertions pass while the regression ships. Assert the `transform` `transitionend` actually fires (exit-end reached by transition, not by the fallback timer). Same progression assertion applies to (a)'s non-drag exits, whose start state is normalized by the same §3.2 contract.
-6. **Transition-audit** — assert all four affordances resolve to `requestClose`, the §3.1 guards exist (step-0 disable, re-entrancy, drag-cancel, reduced-motion/null-panel), and `handleGrabPointerEnd` early-returns on `dismissingRef`.
+
+   (e) **close during spring-back (S4)** — drag the grab strip *sub*-threshold (past `DRAG_SLOP_PX`, under `DRAG_DISMISS_THRESHOLD_PX`), release, then close via Esc **inside the 120ms settle window**. Assert: ≥2 computed-transform samples show continuous progression toward `translateY(100%)`; the panel never reads `translateY(0px)` after the close (proving the pending settle neither completed over the exit nor blanked it); inline `transform` is non-empty throughout the exit (proving `clearPanelDragStyles()` did not fire); exactly one `onClose`; exit-end via `transform` `transitionend`, not the fallback timer.
+
+   (f) **close during entrance (S2)** — open the modal and close it inside the entrance window, in **both** sheet and desktop modes. Assert the panel's computed `transform`/`opacity` at the first post-close sample is the entrance's mid-flight value, *not* the resting style (identity transform / `opacity: 1`) — a snapshot-after-neutralize implementation snaps to resting first and fails this. Then assert continuous progression to the exit end state.
+6. **Transition-audit** — assert all four affordances resolve to `requestClose`, the §3.1 guards exist (step-0 disable, re-entrancy, drag-cancel, reduced-motion/null-panel), and `handleGrabPointerEnd` early-returns on `dismissingRef`. **Motion-state completeness (structural):** assert `clearPanelDragStyles()` early-returns on `dismissingRef.current` (the §3.2 chokepoint guard — the class defense, so it is pinned rather than left to convention), and that the §3.2 state inventory covers every motion state the shell can produce: enumerate the shell's motion-state sources (`dragRef`, `settleTimerRef`, `dismissTimerRef`, `dismissingRef`, the entrance animation) and fail if any lacks an S-row. A new motion state added without an inventory row must fail this test rather than silently inherit unnormalized exit behavior.
 
 ## 8. Out of scope
 
