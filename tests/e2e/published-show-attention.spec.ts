@@ -188,6 +188,12 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator(MENU)).toHaveCount(0);
     await expect(page.locator(MODAL)).toBeVisible();
+    // "Without reload" is load-bearing: stamp a window sentinel now — a full
+    // document reload (or navigation) would wipe it, so the final assertion
+    // proves the whole lifecycle ran in ONE document.
+    await page.evaluate(() => {
+      (window as unknown as { __attnNoReload?: boolean }).__attnNoReload = true;
+    });
     // Resolve the overview banner first. The pill is the durable signal: the
     // optimistic decrement fires immediately and the router.refresh()
     // reconcile (which unmounts the transient "✓ Confirmed" swap) converges on
@@ -220,5 +226,10 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await expect(
       page.locator(`${MODAL} [data-testid="per-show-alert-resolve-${crewAlertId}"]`),
     ).toHaveCount(0);
+    // The sentinel survived → no document reload anywhere in the lifecycle.
+    expect(
+      await page.evaluate(() => (window as unknown as { __attnNoReload?: boolean }).__attnNoReload),
+      "resolve lifecycle must not reload the document",
+    ).toBe(true);
   });
 });

@@ -248,10 +248,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       return;
     }
     if (actionable.length === 0) return;
-    autoOpenFiredRef.current = true;
     // rAF wrapper: the open is a paint-time reveal, and the lint contract
-    // (react-hooks/set-state-in-effect) forbids the sync form.
-    const raf = requestAnimationFrame(() => setMenuOpen(true));
+    // (react-hooks/set-state-in-effect) forbids the sync form. The guard is
+    // consumed INSIDE the callback: a cancelled frame (dep change before
+    // paint, or a StrictMode setup→cleanup→setup cycle) must leave the
+    // one-shot unconsumed so the re-run can reschedule the open.
+    const raf = requestAnimationFrame(() => {
+      autoOpenFiredRef.current = true;
+      setMenuOpen(true);
+    });
     return () => cancelAnimationFrame(raf);
   }, [alertId, actionable.length]);
 
