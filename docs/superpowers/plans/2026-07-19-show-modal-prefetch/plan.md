@@ -408,7 +408,7 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
 });
 ```
 
-- [ ] **Step 2: testMatch** — in `playwright.config.ts:71` (desktop-chromium), INSERT `published-review-modal\.prefetch|` into the existing alternation immediately after `published-review-modal\.layout|` — an insertion, never a rewrite; the post-edit tail must read `…|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|step3-review-modal\.interactions)…` with every pre-existing entry (including `\.layout`) intact. Verify with `rg -c "published-review-modal" playwright.config.ts` (the line must now contain 4 modal entries).
+- [ ] **Step 2: testMatch** — in `playwright.config.ts:71` (desktop-chromium), INSERT `published-review-modal\.prefetch|` into the existing alternation immediately after `published-review-modal\.layout|` — an insertion, never a rewrite; the post-edit tail must read `…|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|step3-review-modal\.interactions)…` with every pre-existing entry (including `\.layout`) intact. Verify with `rg -o 'published-review-modal\\.(interactions|deeplink|layout|prefetch)' playwright.config.ts | sort | uniq -c` — expected output: one count line for EACH of the four variants (interactions, deeplink, layout, prefetch), i.e. all four entries present; a dropped `.layout` or missing `.prefetch` shows up as a missing row.
 
 - [ ] **Step 3: Red-proof the gate, then verify green against a local prod server.**
 
