@@ -61,10 +61,9 @@ Replaces every direct `onClose` call on the four non-drag affordances:
 
 Behavior:
 
-0. **Non-dismissible guard.** If `closeAffordancesDisabled` (§3.4), return immediately — before any state change, inert, or animation.
-1. **Re-entrancy guard.** If `dismissingRef.current` (`:206`) is already `true`, return. One exit, one close.
+1. **Re-entrancy guard.** *(The former step 0 — the `closeAffordancesDisabled` guard — was DELETED by MODAL-SKELETON-CLOSE-1, `2026-07-19-modal-skeleton-close.md`: the skeleton now closes in both usages, and the prop is gone.)* If `dismissingRef.current` (`:206`) is already `true`, return. One exit, one close.
 2. **Cancel any active drag.** If `dragRef.current !== null`, release its pointer capture and null it, so the pending `pointerup` early-returns at the existing guard and can never run the spring-back that would overwrite the exiting panel with `translateY(0)`. Also clear `settleTimerRef` (`:208`). Belt-and-suspenders: `handleGrabPointerEnd` early-returns when `dismissingRef.current` is `true`. **Do NOT clear the inline `transform`** — it is the exit's start state (§3.2 start-state normalization); clearing it would snap the panel to `translateY(0)` before the exit begins.
-3. **Commit the dismiss — shared `beginDismiss()`.** Set `dismissingRef = true` and `dialogRef.current.inert = true` (the whole `role="dialog"` subtree, `:377`). **Also called by the drag-past-threshold branch** (§3.2), so every affordance inerts at dismiss-commit. This matters because `onClose` is now delayed 120–220ms by the animation while Step3's footer buttons remain wired to `handlePublish`/`handleUnpublish`/`handleApproveResolve`/`handleIgnoreResolve`; a fast click during the exit must not fire an action after dismissal. Today's instant unmount has no such window — the animation creates it, so the guard ships with it. `inert` does not block the transition or `transitionend`.
+3. **Commit the dismiss — shared `beginDismiss()`.** `beginDismiss` early-returns if `dismissingRef.current` is already set (idempotence — MODAL-SKELETON-CLOSE-1), then sets `dismissingRef = true`, `dialogRef.current.inert = true` (the whole `role="dialog"` subtree, `:377`), and fires the optional one-shot `onDismissStart?.()` (at dismiss-COMMIT, before exit styles and any exit-end `onClose` — the skeleton's server-fallback usage issues its close navigation here so a Suspense swap mid-exit cannot lose the close). **Also called by the drag-past-threshold branch** (§3.2), so every affordance inerts at dismiss-commit. This matters because `onClose` is now delayed 120–220ms by the animation while Step3's footer buttons remain wired to `handlePublish`/`handleUnpublish`/`handleApproveResolve`/`handleIgnoreResolve`; a fast click during the exit must not fire an action after dismissal. Today's instant unmount has no such window — the animation creates it, so the guard ships with it. `inert` does not block the transition or `transitionend`.
 4. **Reduced motion / null panel → immediate.** If `panelRef.current` is null, or `matchMedia("(prefers-reduced-motion: reduce)")` matches, or `matchMedia` is absent (jsdom): call `onClose()` with no animation. Byte-identical to today.
 5. **Animate.** Otherwise neutralize the entrance (`panel.style.animation = "none"`), apply the mode-appropriate exit styles (§3.2), fade the scrim, and call `onClose()` at exit-end — the panel's `transitionend` (transform) or a fallback timer, mirroring the drag path's `finish()` (`:293-299`).
 
@@ -148,20 +147,16 @@ The X sits in each consumer's `header` slot, so the shell cannot wire it directl
 - A shared **`ModalCloseButton`** (`forwardRef`, `components/admin/review/`) consumes the context and renders the X: `aria-label="Close"`, `X` icon, `onClick={requestClose}`, `data-testid` via prop, `className` carried verbatim from the two identical existing buttons. It renders **inside** the provider; a hook call at a consumer's top level would not resolve (it sits above the provider).
 - Each consumer swaps its inline `<button>` for `<ModalCloseButton>` and forwards `initialFocusRef` for the initial-focus contract (`:141`).
 
-### 3.4 The skeleton stays non-dismissible where it has no close
+### 3.4 The skeleton closes everywhere (AMENDED by MODAL-SKELETON-CLOSE-1)
 
-`ShowReviewModalSkeleton` now has **two** usages (`ShowReviewModalSkeleton.tsx:26,39`):
+**Amended** by `2026-07-19-modal-skeleton-close.md`. `ShowReviewModalSkeleton`'s two usages both pass a live `onClose`:
 
-| Usage | `onClose` | Required behavior |
+| Usage | Shell props | Behavior |
 |---|---|---|
-| Server Suspense fallback (no props) | `() => {}` no-op | affordances must stay **inert no-ops**, exactly as on `main` |
-| Client optimistic copy (`ShowsTable`, #485) | real cancel | scrim / Esc / grab **dismiss** the overlay |
+| Server Suspense fallback (no props) | `onDismissStart={useShowModalNav().close}` + `onClose` = instant client-side hide (`closing` state) | close nav issued at dismiss-commit; exit animation; hide at exit-end |
+| Client optimistic copy (`ShowsTable`, #485) | `onClose` = the passed cancel; NO `onDismissStart` | affordances dismiss with the exit animation, then the cancel runs |
 
-Rewiring the affordances to `requestClose` would otherwise regress the first usage: a scrim tap would set `dismissingRef`, inert the subtree, animate the frame off-screen, then call a no-op — leaving the loading frame hidden, inert, and scroll-locked where `main` does nothing at all.
-
-Contract: the shell takes `closeAffordancesDisabled?: boolean` (default `false`). The skeleton passes `closeAffordancesDisabled={onClose === undefined}` — deriving it from the prop it already branches on, so the two usages cannot drift. When set: `requestClose` returns at step 0, **and** `handleGrabPointerDown` early-returns so no drag can start, **and** `beginDismiss` early-returns defensively (the drag branch bypasses `requestClose`, so the step-0 guard alone would not cover it).
-
-`MODAL-SKELETON-CLOSE-1` stays deferred — this adds no close affordance, it preserves current behavior per usage.
+Historical note: between MODAL-CLOSE-EXIT-ANIM-1 and MODAL-SKELETON-CLOSE-1 the shell carried a `closeAffordancesDisabled?: boolean` prop (skeleton-only consumer) that made the server-fallback frame non-dismissible. That prop is deleted; the skeleton's real X, default nav-close, and the `beginDismiss` idempotence guard replace it.
 
 ## 4. Guard conditions
 
@@ -197,7 +192,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 
 §6.5's row becomes:
 
-> `open → closed (X/scrim/Esc/grab-tap) | exit animation via shell requestClose — reverse of entrance (sheet: translateY(100%); desktop: fade + scale 0.98 + translateY 8px) + scrim fade, then onClose at exit-end. Published's onClose remains #485's instant client-side hide + background URL catch-up. Reduced motion → instant. Back-button unmount is a route change (no requestClose in the popstate path). The Suspense-fallback skeleton stays non-interactive (MODAL-SKELETON-CLOSE-1 still deferred).`
+> `open → closed (X/scrim/Esc/grab-tap) | exit animation via shell requestClose — reverse of entrance (sheet: translateY(100%); desktop: fade + scale 0.98 + translateY 8px) + scrim fade, then onClose at exit-end. Published's onClose remains #485's instant client-side hide + background URL catch-up. Reduced motion → instant. Back-button unmount is a route change (no requestClose in the popstate path). The Suspense-fallback skeleton closes like the loaded modal (MODAL-SKELETON-CLOSE-1 resolved, `2026-07-19-modal-skeleton-close.md`).`
 
 | Transition | Treatment |
 |---|---|
@@ -207,7 +202,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 | open → closed, reduced motion | immediate — no animation |
 | open → closed, drag past threshold | **visual unchanged**; adds `beginDismiss` at commit |
 | open → closed, browser Back | **unchanged** — route change; `requestClose` not in this path |
-| skeleton (server fallback) | **no transition** — affordances are inert no-ops (§3.4) |
+| skeleton (server fallback) | exit animation; nav at dismiss-commit, hide at exit-end (§3.4, MODAL-SKELETON-CLOSE-1) |
 | skeleton (client optimistic) | exit animation, then the real cancel |
 
 **Compound transitions:**
@@ -223,7 +218,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 1. **Shell unit** — in jsdom (`matchMedia` absent → immediate path) scrim/Esc/grab route through `requestClose` and call `onClose` exactly once; re-entrancy fires it once for double-Esc/Esc-then-scrim. The entrance twin-scan must stay green at **exactly 3** contexts.
 2. **`ModalCloseButton` unit** — reads context, forwards ref, `onClick` calls the provided `requestClose`; default no-op outside a provider.
 3. **`pageTransitions.test.tsx`** — `PublishedReviewModal` conditional count stays **1**, no-motion assertions green. Regression guard, no edit expected.
-4. **Skeleton dual-usage (§3.4)** — for the **server-fallback** shape (no `onClose`), exercise scrim tap, Esc, grab-tap **and drag-past-threshold** and assert NONE sets `inert` or `dismissingRef`, applies an exit transform, or calls `onClose`; the frame stays visible and in place. Separately, for the **client optimistic** shape (real `onClose`), assert the affordances DO dismiss. Asserting only "no X button" would pass while the regression ships.
+4. **Skeleton dual-usage (§3.4, AMENDED by MODAL-SKELETON-CLOSE-1)** — for the **server-fallback** shape (no `onClose`), assert Esc/scrim/X/drag push the show-stripped URL at dismiss-COMMIT (before exit-end; fake timers), the hide lands at exit-end, and an unmount mid-exit (the Suspense swap) neither loses nor doubles the push. For the **client optimistic** shape (real `onClose`), assert the cancel fires once and the router is never touched.
 5. **Real-browser (`published-review-modal.interactions.spec.ts`)**:
    (a) **exit-animation flip** — the existing "open→closed is an INSTANT unmount" assertions (`:23`, `:254-292`) flip: X / Esc / scrim leave an exit-animated frame (panel carries a non-identity **computed** transform/opacity, scrim opacity → 0) BEFORE the frame leaves the DOM. #485's URL-strip polling is unchanged and must stay green. Reduced-motion run collapses to instant with no exit frame.
    (b) **exit-window action suppression** (`inert` is not enforced in jsdom) — in the Step3 harness, dismiss via **all five** affordances, each in its own run: Esc, X, **scrim tap**, **grab-strip tap**, and drag-past-threshold. Within each exit window attempt to click the variant's footer actions and assert the handler is NOT invoked and the modal still closes exactly once. **The three actions do not coexist:** Publish is in the non-resolution variant; Approve & apply and Ignore are in the resolution variant, and both can be disabled (choice-incomplete, `resolutionPending`, `isPublishRunActive`). Each action therefore needs a positive control proving it is live in the variant its suppression run uses — otherwise "handler not invoked" is satisfied by a button that was absent or disabled, and the run proves nothing about `inert`. All five are enumerated rather than testing Esc/X as representatives: `inert` is the only thing standing between a mid-exit click and a fired mutation, it is unenforceable in jsdom, and the two pointer-driven paths (scrim, grab-tap) reach `requestClose` through different call sites than the keyboard/button paths — the transition-audit scan proves they are *wired*, not that the window is actually inert in a real browser.
@@ -255,13 +250,13 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 
 | File | Change |
 |---|---|
-| `components/admin/review/ReviewModalShell.tsx` | `requestClose` + shared `beginDismiss()` (`dismissingRef` + `inert`, also called by the drag branch); `closeAffordancesDisabled?: boolean` prop gating step 0, `handleGrabPointerDown`, and `beginDismiss`; `scrimRef` + `dialogRef`; mode-aware exit styles + scrim fade; `ReviewModalCloseContext` + `useReviewModalClose` + provider wrap; `closeApiRef?: RefObject<(() => void) | null>` populated with `requestClose` in a layout effect and cleared on unmount (§3.1a); scrim/Esc/grab → `requestClose`; `handleGrabPointerEnd` early-return on `dismissingRef` |
+| `components/admin/review/ReviewModalShell.tsx` | `requestClose` + shared `beginDismiss()` (`dismissingRef` + `inert`, also called by the drag branch); `onDismissStart?: () => void` fired one-shot at dismiss-commit inside the idempotence-guarded `beginDismiss` (MODAL-SKELETON-CLOSE-1 — replaced `closeAffordancesDisabled`); `scrimRef` + `dialogRef`; mode-aware exit styles + scrim fade; `ReviewModalCloseContext` + `useReviewModalClose` + provider wrap; `closeApiRef?: RefObject<(() => void) | null>` populated with `requestClose` in a layout effect and cleared on unmount (§3.1a); scrim/Esc/grab → `requestClose`; `handleGrabPointerEnd` early-return on `dismissingRef` |
 | `components/admin/review/ModalCloseButton.tsx` | **new** shared X button (forwardRef, context consumer) |
 | `components/admin/showpage/PublishedReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef`. `closing`/`handleClose` untouched |
 | `components/admin/wizard/Step3ReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef`; owns `closeApiRef` and passes it to the shell; action-success closes (`:236`, `:245`, `:299`) call `closeApiRef.current?.()` instead of `onClose()` directly — no fallback (§3.1a) |
-| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | pass `closeAffordancesDisabled={onClose === undefined}` — derived from the existing prop branch |
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | (AMENDED by MODAL-SKELETON-CLOSE-1) default nav-close: `onDismissStart={close}` + `closing`-state hide in the server-fallback usage; real `ModalCloseButton` with initial focus |
 | `docs/superpowers/specs/2026-07-18-admin-show-modal.md` | §6.5 row amendment (§6) |
-| `DEFERRED.md` | resolve `MODAL-CLOSE-EXIT-ANIM-1`; `MODAL-SKELETON-CLOSE-1` stays |
+| `DEFERRED.md` | resolve `MODAL-CLOSE-EXIT-ANIM-1`; `MODAL-SKELETON-CLOSE-1` resolved later by `2026-07-19-modal-skeleton-close.md` (both archived) |
 | tests (§7) | shell unit, ModalCloseButton unit, skeleton dual-usage, interactions spec (a–h), transition-audit |
 
 ## 10. Invariants

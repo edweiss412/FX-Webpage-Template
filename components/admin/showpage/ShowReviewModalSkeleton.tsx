@@ -2,48 +2,54 @@
 
 /**
  * components/admin/showpage/ShowReviewModalSkeleton.tsx
- * (admin-show-modal spec §4 — Task 7 Suspense fallback)
+ * (admin-show-modal spec §4; MODAL-SKELETON-CLOSE-1 spec
+ * docs/superpowers/specs/2026-07-19-modal-skeleton-close.md)
  *
- * The open, non-interactive review-modal frame shown while the
+ * The open, CONTENT-non-interactive review-modal frame shown while the
  * `ShowReviewModal` server loader streams: the same `ReviewModalShell` chrome
  * (`dataAttrPrefix="review-modal"`, `testIdBase="published-show-review"`) the
  * loaded `PublishedReviewModal` renders, with loading blocks mirroring the
- * per-show route's `loading.tsx` skeleton — so the open gesture gets immediate
- * feedback and the swap to real content happens inside an identical frame.
+ * per-show route's old skeleton — so the open gesture gets immediate feedback
+ * and the swap to real content happens inside an identical frame.
  *
- * MUST be a client component with ZERO props: the shell requires an `onClose`
- * function and an `initialFocusRef`, and an RSC cannot serialize functions or
- * refs across the boundary — so the skeleton closes over a no-op `onClose` and
- * a local (deliberately empty) focus ref itself. The frame is transient and
- * non-interactive; the loaded modal replaces it with the real close
- * affordances, and `useDialogFocus` falls back to the panel when the ref stays
- * null.
+ * Close affordances are LIVE in both usages. A client component, so the
+ * server (Suspense-fallback) usage — which cannot receive a function across
+ * the RSC boundary — supplies its own default: the close NAV is issued at
+ * dismiss-COMMIT via the shell's `onDismissStart` (so a Suspense swap
+ * unmounting this frame mid-exit can never lose the close), and `onClose` at
+ * exit-end is just the instant client-side hide (#485 pattern). The CLIENT
+ * optimistic copy (ShowsTable) passes a real cancel and keeps its own
+ * semantics (no nav). Initial focus lands on the real X — same testid and
+ * position as the loaded modal's, so the §6.5 in-place swap keeps focus on
+ * the X.
  */
-import { useId, useRef } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { Skeleton } from "@/components/layout/Skeleton";
+import { useShowModalNav } from "@/components/admin/useShowModalNav";
 
 export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = {}) {
   const headingId = useId();
-  // Deliberately never attached: the skeleton renders no interactive control,
-  // so initial focus falls back to the panel (useDialogFocus contract).
-  const noFocusRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const { close } = useShowModalNav();
+  // Server-fallback default close: hide client-side at exit-end; the nav was
+  // already issued at dismiss-commit (onDismissStart below). No reset path
+  // needed — a reopen streams a fresh element (spec §2.1).
+  const [closing, setClosing] = useState(false);
+  const hide = useCallback(() => setClosing(true), []);
+  const isServerFallback = onClose === undefined;
 
   return (
     <ReviewModalShell
-      open
-      // Server (Suspense-fallback) usage passes NO props — the RSC boundary
-      // can't serialize a function, so there the affordances stay no-ops. The
-      // CLIENT optimistic copy (ShowsTable) passes a real cancel so scrim /
-      // Esc / grab dismiss the overlay instead of trapping the user.
-      onClose={onClose ?? (() => {})}
-      // Derived from the SAME branch as the no-op above, so the two cannot
-      // drift: no real close ⇒ no close affordances (spec §3.4).
-      closeAffordancesDisabled={onClose === undefined}
+      open={!closing}
+      onClose={onClose ?? hide}
+      // exactOptionalPropertyTypes: pass conditionally, never `?? undefined`.
+      {...(isServerFallback ? { onDismissStart: close } : {})}
       labelledBy={headingId}
       dataAttrPrefix="review-modal"
       testIdBase="published-show-review"
-      initialFocusRef={noFocusRef}
+      initialFocusRef={closeRef}
       header={
         // THREE-BAND FRAME (modal-header-reconciliation §6.1.1). The header
         // mirrors PublishedReviewModal's post-change shape EXACTLY — two
@@ -86,10 +92,13 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
               <Skeleton className="h-5 w-32 max-w-full" />
             </div>
           </div>
-          {/* Right action group: the 44px close-affordance placeholder,
-              unchanged, mirroring the loaded header's shrink-0 action cluster. */}
-          <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
-            <Skeleton className="size-tap-min shrink-0 rounded-sm" />
+          {/* Right action group. The close button is REAL, not a placeholder:
+              PR #495 wired the skeleton's close (MODAL-SKELETON-CLOSE-1), and a
+              focusable control may not sit inside an aria-hidden subtree — so
+              this group is NOT aria-hidden, unlike the bars above. Mirrors the
+              loaded header's shrink-0 action cluster. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <ModalCloseButton ref={closeRef} testId="published-show-review-close" />
           </div>
         </>
       }
@@ -117,7 +126,7 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
     >
       {/* Body: fills the panel column the way the surface root does
           (min-h-0 flex-1 — Tailwind v4 does not default `.flex` to stretch),
-          with block shapes mirroring the per-show loading.tsx skeleton. */}
+          with block shapes mirroring the old per-show loading skeleton. */}
       <div
         data-testid="published-show-review-loading"
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden bg-bg px-tile-pad py-4"
