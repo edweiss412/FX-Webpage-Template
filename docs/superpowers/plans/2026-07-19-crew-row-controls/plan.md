@@ -58,6 +58,7 @@
 - [ ] **Step 1: Write the failing unit tests** — `tests/components/admin/wizard/crewRowActions.test.tsx`. Render subject is `CrewBreakdown` (spec §8). Full file:
 
 ```tsx
+// @vitest-environment jsdom
 /**
  * tests/components/admin/wizard/crewRowActions.test.tsx
  * Spec: docs/superpowers/specs/2026-07-19-crew-row-controls.md §4, §5, §6, §8.
@@ -883,6 +884,7 @@ git add -A && git commit --no-verify -m "feat(admin): per-row crew action menu �
 - [ ] **Step 1: Rewrite the test file** to the everyone-only surface. Full replacement for `tests/admin/pickerResetControl.test.tsx`:
 
 ```tsx
+// @vitest-environment jsdom
 /**
  * tests/admin/pickerResetControl.test.tsx — everyone-only surface
  * (crew-row-controls spec §4.6; per-member reset moved to the crew row menu).
