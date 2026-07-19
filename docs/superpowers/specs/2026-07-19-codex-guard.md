@@ -109,7 +109,7 @@ Per attempt, the wrapper polls transcript+stderr sizes every `POLL_INTERVAL_SECS
 - **`stall`** — after first output byte (transcript or stderr): no growth in either for `stall-secs`.
 - **`no_output`** — no first byte within `first-output-secs`.
 
-**Precedence when several are true in the same poll: `total_timeout` > `attempt_timeout` > `stall` > `no_output`.** Every kill records its `killedReason`; the total deadline actively kills and reaps (it is not merely a post-attempt check — §9 scenario 9 pins this). All wall-clock caps are soft by up to `POLL_INTERVAL_SECS + KILL_GRACE_SECS` — documented, accepted.
+**Precedence when several are true in the same poll: `total_timeout` > `attempt_timeout` > `stall` > `no_output`.** Every kill records its `killedReason`; the total deadline actively kills and reaps (it is not merely a post-attempt check — §9 scenario 9 pins this). All wall-clock caps are soft by up to `POLL_INTERVAL_SECS + KILL_GRACE_SECS + REAP_AFTER_KILL_SECS` — documented, accepted.
 
 Why 420s stall and not the memory-documented 180–210s: upstream #23807 is a stall of *exactly 300s that then recovers*. A 210s trigger would kill runs that would have healed at 300s; 420s clears the recoverable stall with margin while staying far below the machine watchdog's 1500s notify threshold. Why file growth alone (no CPU pairing): between-turns quiet periods show 0% CPU legitimately; sustained output silence for 7 minutes is itself the sustained signal.
 
@@ -122,7 +122,7 @@ An attempt **fails** when any of: killed by §5; exited non-zero; **terminated b
 After a failed attempt, choose the FIRST matching rung. **Rung matching reads ONLY the stderr file of the attempt that just failed** — never earlier attempts (a historical match must not shadow later rungs), never stdout (reviewer prose discussing these very signatures must not trigger a destructive recovery; codex's own infra errors log to stderr).
 
 1. **Cache-TTL wedge** — stderr matches `/codex_models_manager::manager: failed to renew cache TTL/`:
-   acquire the cross-process lock `$CODEX_HOME/.codex-guard-cache-lock` (atomic `mkdir`; the dir contains a `pid` file). On success, back up `$CODEX_HOME/models_cache.json` to `--out`, delete it, retry fresh. **The lock is released in a `finally` — on success, on backup/delete failure, and on every wrapper exit path (including the §3 signal handler)**; a lock can therefore outlive its creator only via wrapper SIGKILL. **Lock age** = the lock dir's own mtime (stamped by `mkdir`). A lock older than `CACHE_LOCK_STALE_SECS` (§11) is broken via atomic `rename` to a unique tombstone (`.codex-guard-cache-lock.stale-<pid>-<random>`) followed by a fresh `mkdir` — rename atomicity guarantees exactly one concurrent breaker wins; a loser's failed rename is ordinary contention → rung skipped. Lock held by a live sibling, or backup/delete fails, or `CODEX_HOME`/cache file absent → the rung is **skipped** but records itself in the attempt (`recovery:"cache_ttl_skipped"`). **Matched-or-skipped, the rung consumes its once-per-run cap** — a stale signature can never shadow rung 2 on later failures. (`feedback_codex_models_cache_ttl_wedge_fix`; deleting the cache is safe for sibling codex processes by design of the fix — absence forces a fresh full fetch; the lock exists to serialize the backup+delete pair itself.)
+   acquire the **advisory** cross-process lock `$CODEX_HOME/.codex-guard-cache-lock` (atomic `mkdir`, then write an `owner` file containing this wrapper's pid). On success, back up `$CODEX_HOME/models_cache.json` to `--out`, delete it, retry fresh. **Release runs in a `finally` — on success, on backup/delete failure, and on every wrapper exit path (including the §3 signal handler) — and removes the lock ONLY if the `owner` file matches this wrapper's pid** (a wrapper can never release a sibling's lock). **Lock age** = the lock dir's own mtime. A lock older than `CACHE_LOCK_STALE_SECS` (§11) is broken via atomic `rename` to a unique tombstone (`.codex-guard-cache-lock.stale-<pid>-<random>`), after which the rung is **skipped for THIS run** (`recovery:"cache_ttl_skipped"`) — the break only clears the path for future acquisitions, so a breaker never acquires in the same pass and the rename-then-acquire ABA race cannot arise; a failed rename (sibling broke it first) is ordinary contention → skipped. The lock is deliberately advisory, not correctness-critical: backups land in per-run `--out` dirs (no clobber), the delete is idempotent, and cache absence is safe by design of the fix (forces a fresh full fetch) — any residual multi-process race is benign and accepted. Lock held by a live sibling, or backup/delete fails, or `CODEX_HOME`/cache file absent → the rung is **skipped** but records itself in the attempt (`recovery:"cache_ttl_skipped"`). **Matched-or-skipped, the rung consumes its once-per-run cap** — a stale signature can never shadow rung 2 on later failures. (`feedback_codex_models_cache_ttl_wedge_fix`; deleting the cache is safe for sibling codex processes by design of the fix — absence forces a fresh full fetch; the lock exists to serialize the backup+delete pair itself.)
 2. **Truncation resume** — process exited zero, `-o` invalid, and THIS attempt's transcript contains a session id (`/session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i` — never `ls ~/.codex/sessions`, which races with parallel sessions): spawn the resume attempt (§4). Once per run.
 3. **Generic transient** — anything else: plain retry. No per-run cap of its own (bounded by the budgets).
 
@@ -179,7 +179,7 @@ Semantics: `recovery` on attempt N = the rung selected AFTER N failed (null on s
 | `--artifact` | n/a | unreadable → exit 2; **present without `--fallback` → exit 2** | resolved absolute |
 | `--label` | `null` in result.json | chars outside `[A-Za-z0-9_-]` or len>64 → exit 2 | |
 | numeric flags | defaults §11 | non-positive/non-integer → exit 2; `--attempt-max-secs` > 1380 → exit 2 (§8 watchdog bound); `--stall-secs` or `--first-output-secs` ≥ `--attempt-max-secs` → exit 2 | env overrides per §11 domain column, same bounds |
-| env-only timing overrides | defaults §11 | `POLL_INTERVAL_SECS` > 30 or `KILL_GRACE_SECS` > 30 → exit 2 (§8: 1380 + 30 + 30 = 1440 < watchdog 1500) | decimals allowed on timing constants only |
+| env-only timing overrides | defaults §11 | `POLL_INTERVAL_SECS` > 30, `KILL_GRACE_SECS` > 30, or `REAP_AFTER_KILL_SECS` > 10 → exit 2 (§8: 1380 + 30 + 30 + 10 = 1450 < watchdog 1500) | decimals allowed on timing constants only |
 | `CODEX_HOME` | defaults `~/.codex` | resolved absolute; dir/cache absent → rung 1 skips (still consumes cap, §6) | |
 
 ## 8. Non-interference contract (existing infra)
@@ -216,7 +216,7 @@ Scenarios (each names the broken implementation it catches):
 15. **Admission gate** — remaining budget < MIN_ADMISSION_SECS after attempt 1 fails with TTL signature; assert run ends `total_timeout` AND the cache file was NOT deleted (side-effect-without-successor catch).
 16. **Wrapper signal cleanup** — test sends SIGTERM to the WRAPPER mid-attempt (fake spawns a helper grandchild, both write pidfiles); assert exit 3, `failureReason:"interrupted"`, best-effort result.json written, AND both pidfile processes dead (process-GROUP kill pin, not just direct child). (Lock-release coverage lives in scenario 18 — mid-ATTEMPT the lock is not held, so this scenario cannot observe it.)
 17. **attempt_timeout + precedence** — (a) fake emits output continuously (no stall) past attempt-max → `killedReason:"attempt_timeout"` (independent attempt-timeout pin); (b) budgets tuned so attempt-max and total-max expire in the SAME poll window → `killedReason:"total_timeout"` (same-poll precedence pin).
-18. **Lock lifecycle** — (a) TTL signature fires with `models_cache.json` made undeletable (perms) → rung skipped, `recovery:"cache_ttl_skipped"`, AND lock dir absent afterward (finally-release-on-failure pin — the same `finally` the signal handler uses); (b) pre-created lock dir with mtime older than `CACHE_LOCK_STALE_SECS` → broken via rename (tombstone dir exists), rung proceeds; (c) pre-created FRESH lock dir → rung skipped, cap consumed, lock untouched.
+18. **Lock lifecycle** — (a) TTL signature fires with `models_cache.json` made undeletable (perms) → rung skipped, `recovery:"cache_ttl_skipped"`, AND lock dir absent afterward (finally-release-on-failure pin — the same `finally` the signal handler uses); (b) pre-created lock dir with mtime older than `CACHE_LOCK_STALE_SECS` → broken via rename (tombstone dir exists, lock path clear), rung SKIPPED this run (`cache_ttl_skipped` — break-then-defer pin); (c) pre-created FRESH lock dir with a FOREIGN pid in `owner` → rung skipped, cap consumed, lock still present after wrapper exit (ownership-guarded release pin — finally must not remove a sibling's lock).
 19. **Homedir expansion** — `HOME` pointed at a temp dir: (a) `CODEX_HOME` set to a literal-tilde path (`~/custom-codex`) → rung 1's lock/cache effects land under `<tempHOME>/custom-codex` (literal-tilde regression pin); (b) `CODEX_HOME` unset → effects land under `<tempHOME>/.codex` (launch-cwd-resolution regression pin).
 
 Anti-tautology: expected values derive from fixture scenario definitions (random session ids asserted end-to-end; fake-recorded argv compared against §4 strings built independently in the test); no assertion merely checks "spawn was called"; kill assertions check real process liveness via the fake's pidfile.
@@ -240,7 +240,7 @@ New subsection under "Codex-specific notes": **"Codex dispatch guard (`codex-gua
 | Constant | Default | Env override (`CODEX_GUARD_<NAME>`) | Bound / note |
 | --- | --- | --- | --- |
 | `MAX_ATTEMPTS` | 3 | positive INTEGER only | ≥1 |
-| `ATTEMPT_MAX_SECS` | 1200 | positive decimal | validation max 1380 (§8: 1380+30+30=1440 < watchdog 1500) |
+| `ATTEMPT_MAX_SECS` | 1200 | positive decimal | validation max 1380 (§8: 1380+30+30+10=1450 < watchdog 1500) |
 | `TOTAL_MAX_SECS` | 1500 | positive decimal | |
 | `STALL_SECS` | 420 | positive decimal | > upstream 300s recoverable stall; < attempt max |
 | `FIRST_OUTPUT_SECS` | 120 | positive decimal | < attempt max |
@@ -248,7 +248,7 @@ New subsection under "Codex-specific notes": **"Codex dispatch guard (`codex-gua
 | `KILL_GRACE_SECS` | 5 | positive decimal | env-only; max 30 |
 | `MIN_ADMISSION_SECS` | 120 | positive decimal | env-only |
 | `CACHE_LOCK_STALE_SECS` | 600 | positive decimal | env-only; stale-lock break threshold (§6) |
-| `REAP_AFTER_KILL_SECS` | 10 | positive decimal | env-only; max 10; post-SIGKILL exit wait (§4) |
+| `REAP_AFTER_KILL_SECS` | 10 | positive decimal | env-only; max 10; post-SIGKILL exit wait (§4); included in §8 bound + §5 soft-cap |
 | `PROMPT_MAX_BYTES` | 2000000 | NO env override (constant) | |
 | Cache-TTL rung | once per run | — | matched-or-skipped both consume |
 | Resume rung | once per run | — | |
@@ -276,4 +276,5 @@ No zombie flags: every row has all four columns live.
 - The wrapper does not extend the PreToolUse guards to cover itself; background-launch is a documented convention, not enforced (machine-level hooks are out of repo scope; §8).
 - Plain `.mjs`, not TS: the global shim must run via bare `node` outside the repo's toolchain.
 - Same-`--out` mid-run races and wrapper-SIGKILL orphans: accepted limitations, documented (§2, §3).
-- Soft cap overrun by ≤ poll + grace (§5): accepted, documented.
+- Soft cap overrun by ≤ poll + grace + reap (§5): accepted, documented.
+- Advisory (not correctness-critical) cache lock; two-breaker residual races benign by idempotence (§6): accepted, documented, untested by design.
