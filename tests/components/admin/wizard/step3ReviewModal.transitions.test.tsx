@@ -80,7 +80,10 @@ import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { DURATION_NORMAL_FALLBACK_MS } from "@/components/admin/review/ReviewModalShell";
+import {
+  DURATION_NORMAL_FALLBACK_MS,
+  EXIT_FALLBACK_BUFFER_MS,
+} from "@/components/admin/review/ReviewModalShell";
 import { withReducedMotion } from "../../../helpers/reducedMotion";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 
@@ -245,7 +248,7 @@ describe("§11 T2: open → closed — exit animation, then unmount (MODAL-CLOSE
       // was already gone by this line — that flip is the feature.
       expect(q.queryByTestId(tid("modal"))).not.toBeNull();
       act(() => {
-        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
       });
       expect(q.queryByTestId(tid("modal"))).toBeNull();
       // The exit is driven by inline styles mirroring the drag path, NOT by a
@@ -263,7 +266,7 @@ describe("§11 T2: open → closed — exit animation, then unmount (MODAL-CLOSE
       fireEvent.click(q.getByTestId(tid("backdrop")));
       expect(q.queryByTestId(tid("modal"))).not.toBeNull();
       act(() => {
-        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
       });
       expect(q.queryByTestId(tid("modal"))).toBeNull();
     } finally {

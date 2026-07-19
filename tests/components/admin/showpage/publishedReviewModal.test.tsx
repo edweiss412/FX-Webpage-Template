@@ -37,7 +37,10 @@ import {
   PublishedReviewModal,
   type PublishedReviewModalProps,
 } from "@/components/admin/showpage/PublishedReviewModal";
-import { DURATION_NORMAL_FALLBACK_MS } from "@/components/admin/review/ReviewModalShell";
+import {
+  DURATION_NORMAL_FALLBACK_MS,
+  EXIT_FALLBACK_BUFFER_MS,
+} from "@/components/admin/review/ReviewModalShell";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
@@ -361,7 +364,7 @@ describe("PublishedReviewModal instant close (client hide before nav commit)", (
       // jsdom never fires transitionend — exit-end arrives via the fallback.
       // act() so the `closing` state update the close triggers is flushed.
       act(() => {
-        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
       });
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });

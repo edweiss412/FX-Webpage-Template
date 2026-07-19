@@ -492,20 +492,11 @@ describe("Step3ReviewModal — close paths", () => {
     });
   });
 
-  // The animated half — without this the file would pin ONLY reduced motion and
-  // a missing exit would ship green here.
-  test("with motion enabled every close path plays the exit BEFORE onClose", () => {
-    vi.useFakeTimers();
-    try {
-      const { q, onClose } = renderModal();
-      fireEvent.click(q.getByTestId(tid("close")));
-      expect(onClose).not.toHaveBeenCalled(); // exit in flight
-      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
-      expect(onClose).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  // The animated half for Step3 lives in step3ReviewModal.transitions.test.tsx
+  // (§11 T2), which pins "still mounted immediately after the affordance, gone
+  // after the fallback elapses" for both the close button and the scrim. Not
+  // duplicated here: the close paths above own the reduced-motion contract,
+  // and T2 owns the animated one.
 });
 
 // ── Shell classes + animation hooks (retired: responsive shell + hooks) ─────

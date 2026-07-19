@@ -26,6 +26,7 @@ import {
   useReviewModalClose,
   DURATION_FAST_FALLBACK_MS,
   DURATION_NORMAL_FALLBACK_MS,
+  EXIT_FALLBACK_BUFFER_MS,
   ReviewModalShell,
   type ReviewModalShellProps,
 } from "@/components/admin/review/ReviewModalShell";
@@ -193,7 +194,7 @@ describe("ReviewModalShell — close paths + initial focus", () => {
       // whole feature exists to remove.
       expect(onClose).not.toHaveBeenCalled();
       // jsdom never fires transitionend, so exit-end arrives via the fallback.
-      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
       expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -216,7 +217,7 @@ describe("ReviewModalShell — close paths + initial focus", () => {
       render(<Host onClose={onClose} />);
       fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
       expect(onClose).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
       expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

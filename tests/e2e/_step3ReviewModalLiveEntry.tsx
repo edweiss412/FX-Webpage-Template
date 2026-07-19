@@ -77,7 +77,6 @@ const params = new URLSearchParams(window.location.search);
 const DEFER_ACTIONS = params.get("deferActions") === "1";
 const WITH_RESOLUTION = params.get("resolution") === "1";
 
-// eslint-disable-next-line react-hooks/immutability -- test-harness window hook
 window.__resolveAction = (name: string, ok = true) => {
   pendingActions.get(name)?.(ok);
   pendingActions.delete(name);
@@ -107,11 +106,14 @@ function LiveHarness() {
       // TIMESTAMP are what §7.5(g)/(h) actually assert on — "exactly once" and
       // "at-or-after the exit's transitionend" are both unexpressible with a
       // boolean.
-      /* eslint-disable react-hooks/immutability -- test-harness window hooks */
+      /* eslint-disable react-hooks/immutability, react-hooks/purity --
+         test-harness window hooks; `performance.now()` here is an event-handler
+         timestamp, not render-time state — the spec needs the ORDERING of close
+         vs the exit's transitionend, which a count cannot express. */
       window.__modalClosed = true;
       window.__closeCount = (window.__closeCount ?? 0) + 1;
       window.__closeAt = performance.now();
-      /* eslint-enable react-hooks/immutability */
+      /* eslint-enable react-hooks/immutability, react-hooks/purity */
       setOpen(false);
     },
   });
