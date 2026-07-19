@@ -29,7 +29,7 @@
  * NEVER imported by the layout spec: Playwright's test transform rewrites JSX in
  * every .tsx it loads into component-testing payloads react-dom/server cannot
  * render, so the spec shells out to `tsx` to run this file's main-guard, which
- * writes { dfid, normal }.
+ * writes { dfid, normal, capped }.
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -190,7 +190,16 @@ const NOOP_OK = async () => ({ ok: true as const });
  *  React.createElement — Playwright's JSX transform would corrupt a
  *  spec-imported tree; createElement is untouched, so this stays renderable
  *  even if a future spec imports the module. */
-export function modalElement(): React.ReactElement {
+/** Open-alert count for the normal page. Two → the header pill renders its
+ *  uncapped plural form, which T-TAP probes for its 44px hit band. */
+export const HARNESS_ALERT_COUNT = 2;
+/** Open-alert count for the `capped` page — past §6.6's 99 cap, so the pill
+ *  renders "99+ alerts". Deliberately four digits: an UNCAPPED implementation
+ *  renders "1200 alerts", widening the header's shrink-0 right group and
+ *  squeezing the title at 375px, which is exactly what T-ALERT-CAP measures. */
+export const HARNESS_CAPPED_ALERT_COUNT = 1200;
+
+export function modalElement(alertCount: number = HARNESS_ALERT_COUNT): React.ReactElement {
   const data = buildPublishedSectionData(snapshot(), { slug: MODAL_SLUG });
   const bySection: SectionWarningRecord = {};
   const modal = React.createElement(PublishedReviewModal, {
@@ -209,7 +218,7 @@ export function modalElement(): React.ReactElement {
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
-    alertCount: 2,
+    alertCount,
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
     hasActionableWarnings: false,
     archiveAction: NOOP_OK,
@@ -238,8 +247,8 @@ export function modalElement(): React.ReactElement {
 }
 
 /** The open modal rendered to static markup (fixed overlay — no page shell). */
-export function renderModalHtml(): string {
-  return renderToStaticMarkup(modalElement());
+export function renderModalHtml(alertCount: number = HARNESS_ALERT_COUNT): string {
+  return renderToStaticMarkup(modalElement(alertCount));
 }
 
 /* Direct-execution entry: `tsx` runs THIS file (real JSX transform, `@/` paths)
@@ -255,6 +264,8 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     JSON.stringify({
       dfid: MODAL_DFID,
       normal: renderModalHtml(),
+      // §6.6 cap page — same tree, an over-cap alert count (T-ALERT-CAP).
+      capped: renderModalHtml(HARNESS_CAPPED_ALERT_COUNT),
     }),
   );
 }

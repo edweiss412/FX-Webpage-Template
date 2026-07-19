@@ -554,17 +554,23 @@ describe("show review modal loader — Changes + alerts (§5.4/§5.1)", () => {
     expect(screen.queryByTestId("change-feed-empty")).toBeNull();
   });
 
-  it("open alerts → strip alert badge shows the count; zero → no badge", async () => {
+  // REWRITTEN, not retired (modal-header-reconciliation §6.6, Task 5): the alert
+  // count moved from the strip badge to the modal HEADER pill. The intent this
+  // case owns — the loader's server-derived count reaches the rendered surface —
+  // survives verbatim; only the element it lands in changed.
+  it("open alerts → header alert pill shows the count; zero → no pill", async () => {
     state.alerts = [{ id: "a1" }, { id: "a2" }];
     await renderLoader();
-    const badge = screen.getByTestId("strip-alert-badge");
-    expect(badge.textContent).toMatch(/2/);
+    const pillEl = screen.getByTestId("published-show-review-alert-pill");
+    expect(pillEl.textContent).toMatch(/2/);
+    // The count must not ALSO render in the strip — the relocation is a move.
+    expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
   });
 
-  it("no open alerts → no strip alert badge", async () => {
+  it("no open alerts → no header alert pill", async () => {
     state.alerts = [];
     await renderLoader();
-    expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+    expect(screen.queryByTestId("published-show-review-alert-pill")).toBeNull();
   });
 });
 

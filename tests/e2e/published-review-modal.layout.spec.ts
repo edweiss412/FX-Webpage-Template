@@ -117,14 +117,23 @@ test.beforeAll(async () => {
   const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
     dfid: string;
     normal: string;
+    capped: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
 
   writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", pages.normal));
+  // §6.6 cap page: the same tree with an over-cap alert count (T-ALERT-CAP).
+  writeFileSync(join(workDir, "capped.html"), pageHtml("out.css", pages.capped));
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  writeFileSync(entryCss, `@source "${join(workDir, "harness.html")}";\n${globals}`);
+  // BOTH pages are Tailwind sources — a class that only the capped page uses
+  // (or a width that only its longer label triggers) must still generate, or
+  // T-ALERT-CAP would measure an unstyled pill.
+  writeFileSync(
+    entryCss,
+    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "capped.html")}";\n${globals}`,
+  );
   execFileSync(
     "pnpm",
     ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
@@ -152,13 +161,13 @@ test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server.close(() => r()));
 });
 
-async function openHarness(page: Page, viewport: { width: number; height: number }) {
+async function openHarness(page: Page, viewport: { width: number; height: number }, htmlPath = "") {
   // Reduced-motion emulation collapses the panel/scrim entrance animation
   // (app/globals.css `@media (prefers-reduced-motion: reduce)`) so geometry
   // is final on load — no animation-end waits, no flake.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize(viewport);
-  await page.goto(baseUrl);
+  await page.goto(baseUrl + htmlPath);
   await expect(page.locator(MODAL)).toBeVisible();
 }
 
@@ -334,5 +343,115 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       expect(comp.stripPadTop, `strip has no own top padding @ ${mode}`).toBe(0);
       expect(comp.stripPadBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
     });
+
+    // T-TAP (modal-header-reconciliation §11.1). A HIT-BEHAVIOR probe, NOT a
+    // rect measurement — this distinction is the whole point.
+    //
+    // The alert pill reaches the 44px floor through a `::before` pseudo-element
+    // (`before:-inset-y-3`), which `getBoundingClientRect()` on the anchor
+    // CANNOT see: the rect returns the ~24px visible pill. Asserting
+    // `rect.height >= 44` would therefore FAIL a CORRECT implementation, and
+    // the natural "fix" would be inflating the visible pill — destroying the
+    // slim header treatment the design requires. So we probe what a finger
+    // actually hits: elementFromPoint at the vertical extremes of the intended
+    // band must resolve to the anchor or a node it contains.
+    //
+    // The sheet-link clause rides along and is DECLARED NOT RED (plan §11 map):
+    // the anchor is already `size-tap-min` and is ratified unchanged
+    // (Watchpoint 1). It guards the header restructure against dropping it.
+    test(`T-TAP @ ${width}: the alert pill's hit band spans 44px (::before probe, not its rect)`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+      await expect(pill, `alert pill present @ ${mode} (fixture has open alerts)`).toHaveCount(1);
+
+      const probe = await pill.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const cx = box.left + box.width / 2;
+        // 21px above / below center → 42px spanned, comfortably inside the 44
+        // the ::before supplies, and outside the ~24px visible pill.
+        const topY = box.top + box.height / 2 - 21;
+        const botY = box.top + box.height / 2 + 21;
+        const hits = (y: number) => {
+          const hit = document.elementFromPoint(cx, y);
+          return hit !== null && (hit === el || el.contains(hit));
+        };
+        return { visibleHeight: box.height, top: hits(topY), bottom: hits(botY) };
+      });
+
+      // Non-vacuity: the probe only proves anything if the VISIBLE pill is
+      // genuinely shorter than the band it is claimed to cover. If someone
+      // inflated the pill to 44px the probe would pass trivially — and that is
+      // the design regression this test exists to prevent.
+      expect(
+        probe.visibleHeight,
+        `visible pill stays slim (${probe.visibleHeight}px) — the ::before, not the box, supplies the 44px floor`,
+      ).toBeLessThan(TAP_MIN);
+      expect(probe.top, `21px ABOVE the pill's center hits the pill @ ${mode}`).toBe(true);
+      expect(probe.bottom, `21px BELOW the pill's center hits the pill @ ${mode}`).toBe(true);
+
+      // Rider (declared NOT red): the sheet deep-link's own box is ≥44px.
+      const sheet = await page
+        .locator(`${MODAL} [data-testid="${BASE}-sheetlink"]`)
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(sheet.height, `sheet link height @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+      expect(sheet.width, `sheet link width @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    });
   }
+
+  // T-ALERT-CAP @375px (modal-header-reconciliation §6.6). `alertCount` is
+  // unbounded and the pill lives in the header's shrink-0 right group beside
+  // Close, so a four-digit count widens that group and squeezes the title —
+  // breaking the Step 3 frame this change exists to adopt.
+  //
+  // The assertion is DELIBERATELY NOT "same width as the 2-alert case":
+  // "99+ alerts" is legitimately wider than "2 alerts", so an equal-width
+  // assertion would be false-red, and the tempting fix would be dropping the
+  // visible unit §6.6 requires. What is asserted is that the group stays a
+  // MINORITY of the header and leaves the title real width.
+  test("T-ALERT-CAP @375: a 1200-alert count stays capped and never starves the title", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "capped.html");
+
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+
+    // Visible text is capped — with the sr-only exact count stripped, since
+    // that node is precisely what must NOT satisfy a "visible text" claim.
+    const visible = await pill.evaluate((el) => {
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+      return clone.textContent!.replace(/\s+/g, " ").trim();
+    });
+    expect(
+      visible,
+      "the UNIT stays visible past the cap — a bare '99+' is not self-explanatory",
+    ).toBe("99+ alerts");
+
+    const geom = await page.locator(HEADER).evaluate((header) => {
+      const title = header.querySelector('[data-testid$="-title"]')!;
+      const pillEl = header.querySelector('[data-testid$="-alert-pill"]')!;
+      // The right group is the pill's own shrink-0 cluster (pill + close).
+      const group = pillEl.parentElement!;
+      return {
+        headerWidth: header.getBoundingClientRect().width,
+        groupWidth: group.getBoundingClientRect().width,
+        titleWidth: title.getBoundingClientRect().width,
+      };
+    });
+
+    expect(
+      geom.groupWidth,
+      `right group ${geom.groupWidth} ≤ 50% of header ${geom.headerWidth}`,
+    ).toBeLessThanOrEqual(geom.headerWidth / 2);
+    expect(geom.titleWidth, "title keeps non-zero width at 375px").toBeGreaterThan(0);
+
+    const hOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(hOverflow, "no document h-scroll with a capped four-digit count @ 375").toBe(false);
+  });
 });

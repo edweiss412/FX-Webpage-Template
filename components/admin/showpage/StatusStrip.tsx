@@ -16,7 +16,8 @@
  * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
  *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · alert badge (if any) · copy-link (published + token only).
+ *                               · copy-link (published + token only). The alert badge
+ *                               MOVED to the modal header (modal-header-reconciliation §6.6).
  *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
  *                               no copy-link, no live badge — zero mutating affordances.
  *
@@ -32,7 +33,6 @@
  *   - no active share token   → copy-link hidden. "Active" = published: an unpublished show
  *                               keeps its token but the crew link is paused, so copying it
  *                               would hand out a dead link.
- *   - `alertCount` 0          → alert badge hidden.
  *
  * Live-now is NOT derived here (it needs the show timezone + wall clock): the page computes
  * `published && isShowLiveOnDate(dates, todayIso)` — the same rule the dashboard uses
@@ -48,7 +48,6 @@
  * `ml-auto` resolve against the BAND's width rather than the strip's shrink-wrapped one.
  */
 
-import { TriangleAlert } from "lucide-react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
@@ -84,8 +83,6 @@ export type StatusStripProps = {
   lastSyncStatus: string | null;
   /** Server "now" for deterministic relative formatting. */
   now: Date;
-  /** Open `admin_alerts` count for this show; 0 → the badge is hidden. */
-  alertCount: number;
 };
 
 export function StatusStrip({
@@ -99,7 +96,6 @@ export function StatusStrip({
   lastCheckedAt,
   lastSyncStatus,
   now,
-  alertCount,
 }: StatusStripProps) {
   const { token } = useShareToken();
 
@@ -131,11 +127,16 @@ export function StatusStrip({
 
   // CASP2-4 (item 2, approach A): a control/signal divider so the ON switch (bg-accent) and the
   // Live-now dot (bg-status-live = accent, SAME hue — globals.css:89) stop reading as one orange
-  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The three
-  // disjuncts are exactly the render conditions of the live/sync/alert elements below, so the
+  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The two
+  // disjuncts are exactly the render conditions of the live/sync elements below, so the
   // divider appears iff a signal renders beside the toggle. `hidden sm:block` — no vertical
   // divider on the wrapped 390px mobile row.
-  const hasSignal = isLive || (syncLabel != null && sync != null) || alertCount > 0;
+  //
+  // The former third disjunct (`alertCount > 0`) was DROPPED with the alert
+  // relocation (modal-header-reconciliation §7): the element it stood in for now
+  // lives in the modal header, so keeping it would draw a divider followed by
+  // nothing on an alerts-only show.
+  const hasSignal = isLive || (syncLabel != null && sync != null);
   const showControlDivider = !archived && hasSignal;
 
   return (
@@ -209,20 +210,10 @@ export function StatusStrip({
         </span>
       ) : null}
 
-      {alertCount > 0 ? (
-        <a
-          href="#overview"
-          data-testid="strip-alert-badge"
-          // The visible pill stays slim (text-xs); before:-inset-y-3 extends the HIT AREA to the
-          // 44px tap-min floor (PRODUCT a11y — no tiny click targets on the venue floor) without
-          // growing the pill, the same idiom the publish switch uses (PublishedToggle.tsx:143-145).
-          // Vertical-only extension keeps it from overlapping the strip's horizontal neighbours.
-          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-        >
-          <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
-          {alertCount} {alertCount === 1 ? "alert" : "alerts"}
-        </a>
-      ) : null}
+      {/* The alert badge lived here until modal-header-reconciliation §6.6 moved
+          it to the modal header as `published-show-review-alert-pill`. Do not
+          re-add it: rendered in both places, the count reads as two different
+          numbers the moment one of them lags. */}
 
       {copyUrl != null ? (
         <div data-testid="strip-copy-link" className="ml-auto shrink-0">

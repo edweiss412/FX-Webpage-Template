@@ -310,6 +310,54 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* §6.6 alert pill — RELOCATED from the control strip. It stays an
+                <a href="#overview"> (§F1, Watchpoint 4): the mock draws an
+                inert <span>, but that is a static-canvas artifact, and a span
+                would delete the only affordance connecting this count to the
+                alert list. `overviewSection.test.tsx` pins the jump target.
+
+                `before:-inset-y-3` is COPIED from the old strip badge, not
+                chosen fresh: text-xs (~16px line box) + py-1 (8px) ≈ a 24px
+                visible pill, and -inset-y-3 (12px per side) ≈ 48px ≥ the 44px
+                tap floor. `-inset-y-2` would yield ~40px and MISS it. T-TAP
+                probes the resolved hit band rather than trusting this
+                arithmetic (§11.1).
+
+                Guard (§7): the count is server-derived (an array length), so
+                the Number.isInteger gate is defensive-only — but an unguarded
+                render puts a literal "NaN alerts" in the header. */}
+            {Number.isInteger(alertCount) && alertCount > 0 ? (
+              <a
+                href="#overview"
+                data-testid={`${TESTID_BASE}-alert-pill`}
+                className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                {/* Decorative: the count text carries the meaning. Replaces the
+                    strip badge's TriangleAlert glyph per the mock. The token is
+                    live (globals.css `--color-status-review`) — never the mock hex. */}
+                <span
+                  aria-hidden="true"
+                  className="size-2 shrink-0 rounded-pill bg-status-review"
+                />
+                {/* Capped at 99+ (§6.6): `alertCount` is unbounded and this group
+                    is shrink-0 beside Close, so four digits squeeze the title at
+                    375px. The UNIT stays VISIBLE — a bare "99+" is not
+                    self-explanatory — and the exact count is preserved for
+                    assistive tech past the cap only (below it the visible text
+                    is already exact). */}
+                {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
+                {alertCount > 99 ? (
+                  <>
+                    {/* The separator is its OWN visible text node. A leading
+                        space INSIDE the sr-only span is trimmed during
+                        accessible-name computation, yielding
+                        "99+ alerts(1200 open alerts)" — the same bug class as
+                        the Overview rail badge above. */}{" "}
+                    <span className="sr-only">({alertCount} open alerts)</span>
+                  </>
+                ) : null}
+              </a>
+            ) : null}
             <button
               ref={closeRef}
               type="button"
@@ -337,7 +385,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           lastCheckedAt={lastCheckedAt}
           lastSyncStatus={lastSyncStatus}
           now={now}
-          alertCount={alertCount}
         />
       }
     >

@@ -14,12 +14,15 @@
  *   - archived strip still exposing the publish toggle / copy link (must be read-only),
  *     OR sneaking an Unarchive button into the strip (mock README delta 5: Unarchive is an
  *     Overview control; the strip caps at two actions).
- *   - alert badge rendered when the open count is 0 (spec §4 "hidden when 0").
+ *   - an alert element coming BACK into the strip (modal-header-reconciliation §6.6
+ *     relocated it to the modal header; rendered in both places = a duplicated count).
  *
  * Anti-tautology: sync/live/copy assertions scope INTO the element's own testid subtree so
  * a sibling that independently renders the same word (e.g. the toggle's "Published", the
  * copy button's "Copy") cannot satisfy them. Expected values derive from the props fixture.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 
@@ -37,6 +40,16 @@ afterEach(() => {
   cleanup();
   routerRefresh.mockClear();
 });
+
+/** Source path for the §6.5 dead-API scan (a deleted TS prop leaves no runtime trace). */
+const STRIP_SRC = join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "components/admin/showpage/StatusStrip.tsx",
+);
 
 // Fixed clock so formatRelative is deterministic. last_synced_at (Edited) 12 min before;
 // last_checked_at (the badge time for `ok`) 2 min before — distinct so assertions can tell
@@ -57,7 +70,6 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     lastCheckedAt: CHECKED_2M,
     lastSyncStatus: "ok",
     now: NOW,
-    alertCount: 0,
     ...overrides,
   };
 }
@@ -138,29 +150,43 @@ describe("StatusStrip", () => {
 
   describe("control divider (CASP2-4)", () => {
     it("renders the divider when the ONLY signal is isLive (isolates the isLive disjunct)", () => {
-      // baseProps sets lastSyncedAt: SYNCED_12M — null it and zero alerts so ONLY isLive drives
-      // hasSignal; a guard that dropped the isLive disjunct would still pass if sync co-fired.
-      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      // baseProps sets lastSyncedAt: SYNCED_12M — null it so ONLY isLive drives hasSignal;
+      // a guard that dropped the isLive disjunct would still pass if sync co-fired.
+      renderStrip({ isLive: true, lastSyncedAt: null });
       expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
     });
 
-    it("renders the divider when the only signal is an alert", () => {
-      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 1 });
+    it("renders the divider when the only signal is the sync line (isolates the sync disjunct)", () => {
+      renderStrip({ isLive: false, lastSyncedAt: SYNCED_12M });
       expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
     });
 
-    it("omits the divider when the show has no signal (not live, never synced, no alerts)", () => {
-      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 0 });
+    // REPLACES the pre-change case "renders the divider when the only signal is
+    // an alert", whose premise INVERTED: the alert left the strip (§6.6), so
+    // `alertCount > 0` is no longer a strip signal and keeping the disjunct
+    // would draw a divider with NOTHING after it.
+    //
+    // This case can no longer construct the alerts-only input — `alertCount` is
+    // not a StatusStrip prop any more — so it is a keep-green guard on the
+    // remaining two disjuncts, NOT the red proof. T-DIVIDER-ALERT-ONLY lives at
+    // the modal level (publishedReviewModal.test.tsx), the only surface that can
+    // still pass an alert count in.
+    it("omits the divider when the show has no signal (not live, never synced)", () => {
+      renderStrip({ isLive: false, lastSyncedAt: null });
       expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+      // Nothing follows the toggle: no live badge, no sync line, no alert.
+      expect(screen.queryByTestId("strip-live-badge")).toBeNull();
+      expect(screen.queryByTestId("strip-sync-age")).toBeNull();
+      expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
     });
 
     it("omits the divider when archived, even if a sync signal would render", () => {
-      renderStrip({ archived: true, lastSyncedAt: SYNCED_12M, alertCount: 3 });
+      renderStrip({ archived: true, lastSyncedAt: SYNCED_12M });
       expect(screen.queryByTestId("strip-control-divider")).toBeNull();
     });
 
     it("carries the responsive-suppression + decorative recipe", () => {
-      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      renderStrip({ isLive: true, lastSyncedAt: null });
       const divider = screen.getByTestId("strip-control-divider");
       expect(divider.className).toContain("hidden");
       expect(divider.className).toContain("sm:block");
@@ -220,51 +246,42 @@ describe("StatusStrip", () => {
     });
   });
 
-  describe("alert badge", () => {
-    it("hides the alert badge when the open count is 0", () => {
-      renderStrip({ alertCount: 0 });
-      expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+  // RETIRED + REPLACED (modal-header-reconciliation §6.6, Task 5). The former
+  // "alert badge" describe lost its SUBJECT: the badge moved to the modal
+  // header as `published-show-review-alert-pill`, and `alertCount` is no longer
+  // a StatusStrip prop at all. Every surviving assertion of intent — link to
+  // #overview, singular/plural, the before:-inset-y tap-min extension, the
+  // focus-ring offset — was carried to the pill's suite in
+  // publishedReviewModal.test.tsx, NOT dropped. What remains here is the guard
+  // that the badge does not come BACK: the strip must render no alert element
+  // no matter what props it is given, or the count renders twice.
+  describe("alert badge is gone from the strip (relocated to the header, §6.6)", () => {
+    it("renders no alert element in ANY strip mode", () => {
+      for (const overrides of [{}, { archived: true }, { isLive: true }, { published: false }]) {
+        cleanup();
+        renderStrip(overrides);
+        const strip = screen.getByTestId("show-status-strip");
+        expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+        // Shape-level, not testid-level: a re-added badge under a NEW testid
+        // would still be an #overview jump link inside the strip.
+        expect(strip.querySelector('a[href="#overview"]')).toBeNull();
+        expect(within(strip).queryByText(/\balerts?\b/i)).toBeNull();
+      }
     });
 
-    it("shows a count badge anchored to #overview when there are open alerts", () => {
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.getAttribute("href")).toBe("#overview");
-      expect(badge.textContent).toMatch(/3/);
-      expect(badge.textContent).toMatch(/alert/i);
-    });
-
-    it("uses the singular noun for a single alert", () => {
-      renderStrip({ alertCount: 1 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.textContent).toMatch(/\b1\b/);
-      expect(badge.textContent).not.toMatch(/alerts/i);
-    });
-
-    it("carries a 44px tap-min hit area without inflating the visual pill (PRODUCT a11y floor)", () => {
-      // The visible pill stays small (text-xs), but as an interactive chrome target it MUST
-      // meet 44×44 — extended via the same before:-inset hit-area pattern the publish switch
-      // uses (PublishedToggle.tsx), so the slim strip is unaffected.
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.className).toContain("relative");
-      expect(badge.className).toMatch(/before:-inset-y/);
-    });
-
-    it("renders the alert glyph as a committed lucide icon (svg), not a raw unicode glyph", () => {
-      // DESIGN §8: lucide-react is the icon system. The alert badge uses TriangleAlert
-      // (the same warning vocabulary as IgnoredSheetsDisclosure), never a raw '▲'.
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.querySelector("svg")).not.toBeNull();
-      expect(badge.textContent).not.toContain("▲");
-    });
-
-    it("completes the focus ring with an offset, matching the publish switch (CASP2-4 item 3)", () => {
-      renderStrip({ alertCount: 2 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.className).toContain("focus-visible:ring-offset-2");
-      expect(badge.className).toContain("focus-visible:ring-offset-surface");
+    it("StatusStrip's props no longer carry alertCount (dead API deleted, §6.5)", () => {
+      // A source scan, because a deleted TS prop is invisible to a runtime
+      // assertion — vitest strips types. `pnpm typecheck` is the other half.
+      //
+      // Comments are stripped first: the file deliberately DOCUMENTS the removed
+      // `alertCount > 0` disjunct so a future reader does not re-add it, and that
+      // prose must not read as a live reference.
+      const code = readFileSync(STRIP_SRC, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      expect(code).not.toMatch(/alertCount/);
+      // Non-vacuity: the comment-stripper must not have eaten the whole file.
+      expect(code).toMatch(/export function StatusStrip/);
     });
   });
 

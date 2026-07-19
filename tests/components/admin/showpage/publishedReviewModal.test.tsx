@@ -340,6 +340,123 @@ describe("PublishedReviewModal header subline (modal-header-reconciliation §6.3
   });
 });
 
+// ── §6.6 header alert pill (modal-header-reconciliation Task 5) ──────────────
+// The alert count MOVES here from the control strip, ATOMICALLY. It stays an
+// `<a href="#overview">` (§F1, Watchpoint 4): the mock draws an inert <span>,
+// but that is a static-canvas artifact — turning the pill into a span would
+// delete the only affordance connecting the header count to the alert list.
+//
+// The count is CAPPED at 99+ because `alertCount` is unbounded and the pill
+// sits in the header's shrink-0 right group beside Close; four digits there
+// squeeze the title at 375px. The UNIT stays visible (a bare "99+" is not
+// self-explanatory) and the exact count is preserved for assistive tech.
+
+describe("PublishedReviewModal header alert pill (modal-header-reconciliation §6.6)", () => {
+  const pill = () => screen.getByTestId(`${TB}-alert-pill`);
+
+  /** Visible text = the subtree with every sr-only node removed. Asserting
+   *  against raw textContent would let the sr-only suffix satisfy a "visible
+   *  text" claim, which is exactly the confusion the cap introduces. */
+  const visibleText = (el: HTMLElement): string => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    return clone.textContent!.replace(/\s+/g, " ").trim();
+  };
+
+  it("T-ALERT-PILL-LINK: renders an <a href='#overview'>, not an inert span", () => {
+    renderModal({ alertCount: 2 });
+    const el = pill();
+    expect(el.tagName).toBe("A");
+    expect(el.getAttribute("href")).toBe("#overview");
+    // The jump target the pill points at is pinned by overviewSection.test.tsx.
+    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(el);
+  });
+
+  it("T-ALERT-PILL-ZERO: alertCount=0 renders NO pill (not an empty one, not '0 alerts')", () => {
+    renderModal({ alertCount: 0 });
+    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
+    expect(screen.queryByText(/0 alerts/)).toBeNull();
+  });
+
+  it("T-ALERT-CAP: 1 → visible '1 alert', accessible name '1 alert' (singular, no suffix)", () => {
+    renderModal({ alertCount: 1 });
+    expect(visibleText(pill())).toBe("1 alert");
+    expect(screen.getByRole("link", { name: /^1 alert$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 2 → visible '2 alerts', accessible name '2 alerts' (below the cap, no suffix)", () => {
+    renderModal({ alertCount: 2 });
+    expect(visibleText(pill())).toBe("2 alerts");
+    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 1200 → visible '99+ alerts', accessible name '99+ alerts (1200 open alerts)'", () => {
+    renderModal({ alertCount: 1200 });
+    // The UNIT stays visible past the cap — a bare "99+" carries no meaning.
+    expect(visibleText(pill())).toBe("99+ alerts");
+    // Anchored: a name of "99+ alerts(1200 open alerts)" (the trimmed-leading-
+    // space bug this repo has hit before) must NOT satisfy this.
+    expect(screen.getByRole("link", { name: /^99\+ alerts \(1200 open alerts\)$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 99 is NOT capped (boundary — the cap fires strictly above 99)", () => {
+    renderModal({ alertCount: 99 });
+    expect(visibleText(pill())).toBe("99 alerts");
+    expect(screen.getByRole("link", { name: /^99 alerts$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 100 IS capped (boundary — the first capped value)", () => {
+    renderModal({ alertCount: 100 });
+    expect(visibleText(pill())).toBe("99+ alerts");
+    expect(screen.getByRole("link", { name: /^99\+ alerts \(100 open alerts\)$/ })).toBe(pill());
+  });
+
+  // §7 guard row. Defensive-only — `alertCount` is server-derived at
+  // _showReviewModal.tsx:270 (an array length, so a non-negative integer by
+  // construction) — but §7 promises stated behavior for EVERY input, and an
+  // unguarded render puts a literal "NaN alerts" in the header.
+  it.each([
+    ["negative", -1],
+    ["non-integer", 2.5],
+    ["NaN", Number.NaN],
+  ])("§7 guard: alertCount %s renders no pill (matches the 0 row, not an error state)", (_l, n) => {
+    renderModal({ alertCount: n });
+    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+  });
+
+  // T-ALERT-NOT-IN-STRIP — the relocation is a MOVE. Rendered twice is the
+  // failure mode a "moved but not removed" commit produces, and it is
+  // invisible to any assertion that only checks the pill exists.
+  it("T-ALERT-NOT-IN-STRIP: the count renders ONCE — the strip carries no alert element", () => {
+    renderModal({ alertCount: 2 });
+    expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+    const strip = screen.getByTestId("show-status-strip");
+    expect(strip.querySelector('a[href="#overview"]')).toBeNull();
+    expect(screen.getAllByRole("link", { name: /alerts?$/ })).toHaveLength(1);
+  });
+
+  // T-DIVIDER-ALERT-ONLY (§7). Asserted HERE, at the modal, because this is the
+  // only surface where `alertCount` is still a real prop — Task 5 deletes it
+  // from StatusStripProps, so the strip's own suite can no longer construct the
+  // alerts-only case and a strip-level version of this test would pass
+  // vacuously (undefined > 0 is false) rather than proving anything.
+  //
+  // Pre-change this renders a control divider followed by NOTHING: `hasSignal`
+  // includes an `alertCount > 0` disjunct, but the element that disjunct was
+  // standing in for has just moved to the header.
+  it("T-DIVIDER-ALERT-ONLY: alerts-only show renders NO strip control divider", () => {
+    renderModal({ alertCount: 2, isLive: false, lastSyncedAt: null, lastCheckedAt: null });
+    // The pill is present, so the show genuinely has alerts — without this the
+    // assertion below could pass for the trivial no-alerts reason.
+    expect(screen.getByTestId(`${TB}-alert-pill`)).toBeTruthy();
+    expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+    // Non-vacuity for the divider itself: nothing follows the toggle in the strip.
+    expect(screen.queryByTestId("strip-live-badge")).toBeNull();
+    expect(screen.queryByTestId("strip-sync-age")).toBeNull();
+  });
+});
+
 // ── Instant close (perceived-latency tier 1) ─────────────────────────────────
 // The close nav (`router.push` minus `show`/`alert_id`) is a full RSC
 // round-trip of the dashboard; the modal is server-rendered off searchParams,
