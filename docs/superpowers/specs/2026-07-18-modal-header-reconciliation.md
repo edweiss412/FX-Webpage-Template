@@ -652,8 +652,18 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
   with the exact count preserved for assistive tech:
 
   ```tsx
+  {/* The space before the sr-only span is its OWN visible text node — {" "} —
+      NOT a leading space inside the span. A leading space inside sr-only is
+      trimmed during accessible-name computation, yielding
+      "99+ alerts(1200 open alerts)". Same bug class as the Overview rail badge
+      (PublishedReviewModal.tsx:194-195). */}
   {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
-  {alertCount > 99 ? <span className="sr-only"> ({alertCount} open alerts)</span> : null}
+  {alertCount > 99 ? (
+    <>
+      {" "}
+      <span className="sr-only">({alertCount} open alerts)</span>
+    </>
+  ) : null}
   ```
 
   **The unit stays VISIBLE.** A bare `99+` in the header is not self-explanatory;
@@ -693,7 +703,16 @@ off the strip with `inset-x-0` / `top-full` (`PublishedToggle.tsx:50` documents
 the positioned-ancestor requirement). Re-sync adopts the same idiom:
 
 - `ReSyncButton` gains a `surface?: "flow" | "overlay"` prop, default `"flow"`
-  (today's behavior, byte-identical for every existing consumer).
+  (today's behavior, unchanged for every existing consumer).
+
+  **`surface` gates layout AND the dismiss affordance — both, and only in
+  overlay mode.** `"flow"` keeps today's non-dismissable in-flow panels exactly
+  as they are: no dismiss control, no role restructure, no `absolute`. The
+  dismiss controls specified below exist because a FLOATING panel can obstruct
+  the rail; an in-flow panel inside Overview's column cannot, so adding them
+  there would be unrequested scope on a surface this change is not touching.
+  Any implementation that renders a dismiss button in flow mode has over-applied
+  §6.7.
 - **`"overlay"` must return a FRAGMENT, not a wrapper `<div>`.** Today the
   component's root is `<div className="flex flex-col gap-3">`
   (`ReSyncButton.tsx:136-137`) — correct for Overview's column, wrong here. If it
@@ -753,8 +772,13 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
     binds Esc to closing the whole modal, so overloading it here would either
     dismiss the dialog or require fighting the shell's handler.
 
-    **Role semantics after adding the dismiss control.** The existing branches
-    use `role="alert"` (error) and `role="status"` (success). Those live-region
+    **Role semantics after adding the dismiss control — this is a RESTRUCTURE of
+    existing markup.** Today `role="alert"` sits on the error branch's CONTAINER
+    (`ReSyncButton.tsx:154`), which today holds only non-focusable content. Drop
+    a dismiss button into that same container and the live region now contains a
+    focusable control — the case this section exists to prevent. So the role must
+    MOVE to the message node as part of adding the button; it is not a new
+    attribute on a fresh element. Those live-region
     roles stay on the MESSAGE node only — never on a container that also holds
     the focusable dismiss button, which would announce the control as part of the
     alert. Required panel shape:
