@@ -969,15 +969,23 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
 
   /** Sample the panel's COMPUTED transform across the exit. Endpoint-only
    *  assertions ("eventually closed", "never snapped back") are BOTH satisfied by
-   *  an instant jump — the regression this catches. */
+   *  an instant jump — the regression this catches.
+   *
+   *  page.evaluate + querySelector, NEVER locator(PANEL).evaluate: a locator
+   *  evaluate AUTO-WAITS (timeout 0 = forever) for the element to be attached,
+   *  so once the panel unmounts mid-exit the call hangs the whole test — the
+   *  .catch was unreachable (rejection never happens; it waits). Under CI load
+   *  the ~20ms iterations stretch past exit-end and the panel detaches between
+   *  samples (surfaced by the prefetch PR's first real-CI run; the pre-armed
+   *  in-page-probe lesson from #492 applies to every post-gesture sampler). */
   async function sampleTransforms(page: Page, samples = 6): Promise<string[]> {
     const out: string[] = [];
     for (let i = 0; i < samples; i++) {
       out.push(
-        await page
-          .locator(PANEL)
-          .evaluate((el) => getComputedStyle(el).transform)
-          .catch(() => "gone"),
+        await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          return el ? getComputedStyle(el).transform : "gone";
+        }, PANEL),
       );
       await page.waitForTimeout(20);
     }
@@ -1002,10 +1010,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       await page.keyboard.press("Escape");
 
       // The window must EXIST — otherwise every assertion below is vacuous.
-      const firstTransform = await page
-        .locator(PANEL)
-        .evaluate((el) => getComputedStyle(el).transform)
-        .catch(() => "gone");
+      // (page.evaluate, not locator.evaluate — see sampleTransforms.)
+      const firstTransform = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).transform : "gone";
+      }, PANEL);
       expect(firstTransform, "exit window exists (panel is mid-transform)").not.toBe("none");
 
       const samples = await sampleTransforms(page);
@@ -1124,10 +1133,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       const ys = samples.map(translateYOf);
       expect(Math.max(...ys), "exit progresses despite the pending settle").toBeGreaterThan(0);
       // clearPanelDragStyles must not have blanked the inline transform.
-      const inline = await page
-        .locator(PANEL)
-        .evaluate((el) => (el as HTMLElement).style.transform)
-        .catch(() => "gone");
+      // (page.evaluate, not locator.evaluate — see sampleTransforms.)
+      const inline = await page.evaluate((sel) => {
+        const el = document.querySelector<HTMLElement>(sel);
+        return el ? el.style.transform : "gone";
+      }, PANEL);
       expect(
         inline === "gone" || inline !== "",
         "inline transform survived the pending settle",
@@ -1147,13 +1157,13 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         await openModal(page, viewport, { reducedMotion: "no-preference" });
         await armExitProbe(page);
         await page.keyboard.press("Escape");
-        const first = await page
-          .locator(PANEL)
-          .evaluate((el) => {
-            const cs = getComputedStyle(el);
-            return { transform: cs.transform, opacity: Number(cs.opacity) };
-          })
-          .catch(() => null);
+        // (page.evaluate, not locator.evaluate — see sampleTransforms.)
+        const first = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          return { transform: cs.transform, opacity: Number(cs.opacity) };
+        }, PANEL);
         if (first) {
           // A snapshot-AFTER-neutralize implementation snaps to the resting style
           // first (identity transform, opacity 1) before exiting.
