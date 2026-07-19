@@ -113,7 +113,11 @@ describe("deriveAttentionItems", () => {
   });
 
   it("maps a pending hold: critical tone, changes section, feed summary as title", () => {
-    const items = deriveAttentionItems({ alerts: [], feed: { entries: [holdEntry()] }, slug: SLUG });
+    const items = deriveAttentionItems({
+      alerts: [],
+      feed: { entries: [holdEntry()] },
+      slug: SLUG,
+    });
     expect(items).toHaveLength(1);
     expect(items[0]!.id).toBe("hold:hold-1");
     expect(items[0]!.tone).toBe("critical");

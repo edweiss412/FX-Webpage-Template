@@ -40,23 +40,32 @@ const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> =
 };
 
 export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {
+  if (!open) return null;
+  return (
+    <AttentionMenuPanel items={items} onClose={onClose} onNavigate={onNavigate} pillRef={pillRef} />
+  );
+}
+
+/** Mounted only while open — the entrance state and document listeners live on
+ *  the panel's own mount lifecycle (no sync setState in effects; re-subscribing
+ *  the two document listeners per render is the ReviewModalShell precedent). */
+function AttentionMenuPanel({
+  items,
+  onClose,
+  onNavigate,
+  pillRef,
+}: Omit<AttentionMenuProps, "open">) {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  // Stable handler refs so the document listeners never re-subscribe per render.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setEntered(false);
-      return;
-    }
+    // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
     const raf = requestAnimationFrame(() => setEntered(true));
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      onCloseRef.current();
+      onClose();
       pillRef.current?.focus();
     }
     function onPointerDown(e: PointerEvent) {
@@ -66,7 +75,7 @@ export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: Att
         !panelRef.current.contains(e.target) &&
         !pillRef.current?.contains(e.target)
       ) {
-        onCloseRef.current();
+        onClose();
       }
     }
     document.addEventListener("keydown", onKeyDown, true);
@@ -76,9 +85,7 @@ export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: Att
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [open, pillRef]);
-
-  if (!open) return null;
+  }, [onClose, pillRef]);
 
   const actionable = items.filter((i) => i.actionable);
   const clearingCount = items.length - actionable.length;

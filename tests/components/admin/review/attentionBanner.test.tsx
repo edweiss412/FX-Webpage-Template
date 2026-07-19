@@ -55,7 +55,10 @@ function item(over: {
   };
 }
 
-function renderBanner(it: AttentionItem, over: Partial<Parameters<typeof AttentionBanner>[0]> = {}) {
+function renderBanner(
+  it: AttentionItem,
+  over: Partial<Parameters<typeof AttentionBanner>[0]> = {},
+) {
   return render(
     <AttentionBanner
       item={it}
@@ -91,7 +94,9 @@ describe("AttentionBanner", () => {
   });
 
   test("template renders via emphasis; no literal markers; anchor + testid present", () => {
-    const it = item({ alert: { template: "Check **<sheet-name>**", params: { "sheet-name": "II - Demo" } } });
+    const it = item({
+      alert: { template: "Check **<sheet-name>**", params: { "sheet-name": "II - Demo" } },
+    });
     const { container } = renderBanner(it);
     const root = container.querySelector('[data-attention-anchor="alert:a1"]')!;
     expect(root).toBeTruthy();
@@ -122,7 +127,10 @@ describe("AttentionBanner", () => {
 
   test("help link when helpHref; absent when null", () => {
     renderBanner(item({ alert: { helpHref: "/help/errors#x" } }));
-    expect(screen.getByTestId("attention-banner-help-a1")).toHaveAttribute("href", "/help/errors#x");
+    expect(screen.getByTestId("attention-banner-help-a1")).toHaveAttribute(
+      "href",
+      "/help/errors#x",
+    );
     cleanup();
     const { container } = renderBanner(item({}));
     expect(container.querySelector('[data-testid="attention-banner-help-a1"]')).toBeNull();
@@ -145,7 +153,9 @@ describe("AttentionBanner", () => {
     );
     cleanup();
     const { container } = renderBanner(item({}));
-    expect(container.querySelector('[data-testid="attention-banner-failed-sources-a1"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="attention-banner-failed-sources-a1"]'),
+    ).toBeNull();
     expect(container.querySelector('[data-testid="attention-banner-data-gaps-a1"]')).toBeNull();
   });
 
@@ -162,7 +172,9 @@ describe("AttentionBanner", () => {
     expect(screen.getByTestId("per-show-alert-resolve-a1")).toBeInTheDocument();
     cleanup();
     const { container } = renderBanner(
-      item({ alert: { autoClearNote: "Clears automatically once the sheet is back or re-parses." } }),
+      item({
+        alert: { autoClearNote: "Clears automatically once the sheet is back or re-parses." },
+      }),
     );
     expect(screen.getByTestId("attention-banner-autoclear-a1")).toBeInTheDocument();
     expect(container.querySelector('[data-testid="per-show-alert-resolve-a1"]')).toBeNull();
@@ -185,14 +197,14 @@ describe("AttentionBanner", () => {
 
   test("tone stripe classes: notice → border-l-status-review; critical → border-l-status-degraded", () => {
     const { container } = renderBanner(item({}));
-    expect(
-      container.querySelector('[data-attention-anchor="alert:a1"]')!.className,
-    ).toContain("border-l-status-review");
+    expect(container.querySelector('[data-attention-anchor="alert:a1"]')!.className).toContain(
+      "border-l-status-review",
+    );
     cleanup();
     const { container: c2 } = renderBanner(item({ tone: "critical" }));
-    expect(
-      c2.querySelector('[data-attention-anchor="alert:a1"]')!.className,
-    ).toContain("border-l-status-degraded");
+    expect(c2.querySelector('[data-attention-anchor="alert:a1"]')!.className).toContain(
+      "border-l-status-degraded",
+    );
   });
 
   test("highlighted → aria-current true; otherwise absent", () => {

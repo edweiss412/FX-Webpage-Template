@@ -96,9 +96,7 @@ describe("AttentionMenu", () => {
 
   test("footer shows clearing count copy; absent when none clearing", () => {
     renderMenu();
-    expect(
-      screen.getByText("1 more clearing on their own — no action needed"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("1 more clearing on their own — no action needed")).toBeInTheDocument();
     cleanup();
     renderMenu({ items: [HOLD, ALERT] });
     expect(screen.queryByText(/clearing on their own/)).toBeNull();

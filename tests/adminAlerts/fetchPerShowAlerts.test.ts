@@ -138,9 +138,7 @@ describe("fetchPerShowAlerts crewName (§3.1a)", () => {
     const CREW_ID = "22222222-2222-4222-8222-222222222222";
     mockState.crewRows = [{ id: CREW_ID, show_id: SHOW_ID, name: "John Redcorn" }];
     mockState.showRows = [{ id: SHOW_ID, title: "Spring Conference", slug: "spring-conference" }];
-    setAlerts([
-      { id: "a1", code: "OAUTH_IDENTITY_CLAIMED", context: { crew_member_id: CREW_ID } },
-    ]);
+    setAlerts([{ id: "a1", code: "OAUTH_IDENTITY_CLAIMED", context: { crew_member_id: CREW_ID } }]);
     const rows = await fetchRows();
     expect(rows[0]!.crewName).toBe("John Redcorn");
   });

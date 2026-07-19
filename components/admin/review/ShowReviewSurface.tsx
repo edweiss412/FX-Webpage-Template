@@ -270,8 +270,7 @@ export function ShowReviewSurface({
    *  warnings. Absent prop → identical to the pre-attention rule. */
   function needsReview(id: SectionId): boolean {
     return (
-      (id === "warnings" ? hasWarnRow : flagged.has(id)) ||
-      (attentionSections?.has(id) ?? false)
+      (id === "warnings" ? hasWarnRow : flagged.has(id)) || (attentionSections?.has(id) ?? false)
     );
   }
 
@@ -420,9 +419,7 @@ export function ShowReviewSurface({
     // Quoted attribute selector: only backslash/quote need escaping (ids are
     // "alert:<uuid>" / "hold:<id>"). CSS.escape is absent in some jsdom envs.
     const selectorId = jump.itemId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const target = scroller?.querySelector<HTMLElement>(
-      `[data-attention-anchor="${selectorId}"]`,
-    );
+    const target = scroller?.querySelector<HTMLElement>(`[data-attention-anchor="${selectorId}"]`);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") {
       handleNavClick(jump.sectionId); // anchor missing → section-top, no flash
       return;

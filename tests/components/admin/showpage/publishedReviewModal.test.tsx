@@ -154,7 +154,10 @@ function pendingGateEntry(holdId = "hold-1"): FeedEntry {
 }
 
 /** Attention item fixtures (published-show-alerts §3.1). */
-function alertItem(over: Partial<AttentionItem> = {}, payload: Partial<NonNullable<AttentionItem["alert"]>> = {}): AttentionItem {
+function alertItem(
+  over: Partial<AttentionItem> = {},
+  payload: Partial<NonNullable<AttentionItem["alert"]>> = {},
+): AttentionItem {
   const alertId = (over.id ?? `alert:${ALERT_ID}`).replace(/^alert:/, "");
   return {
     id: `alert:${alertId}`,
@@ -436,12 +439,17 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
 
   const twoActionable = () => [alertItem({ id: "alert:p1" }), alertItem({ id: "alert:p2" })];
 
-  it("To confirm: actionable items render a BUTTON pill '2 to confirm' with aria-expanded", () => {
+  /** Auto-open is rAF-deferred (react-hooks/set-state-in-effect contract) —
+   *  await the menu instead of asserting synchronously. */
+  const findMenu = () => screen.findByTestId(`${TB}-attention-menu`);
+
+  it("To confirm: actionable items render a BUTTON pill '2 to confirm' with aria-expanded", async () => {
     renderModal({ attentionItems: twoActionable() });
     const el = pill();
     expect(el.tagName).toBe("BUTTON");
     expect(visibleText(el)).toBe("2 to confirm");
-    expect(el.getAttribute("aria-expanded")).toBe("true"); // auto-open on arrival
+    await findMenu(); // auto-open on arrival (rAF-deferred)
+    expect(el.getAttribute("aria-expanded")).toBe("true");
     expect(el.getAttribute("aria-controls")).toBeTruthy();
   });
 
@@ -467,15 +475,17 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("Degraded + one hold: the ACTIONABLE To-confirm pill wins, menu lists the hold, notice still renders (spec §5.1 degraded row)", () => {
+  it("Degraded + one hold: the ACTIONABLE To-confirm pill wins, menu lists the hold, notice still renders (spec §5.1 degraded row)", async () => {
     renderModal({ attentionItems: [holdItem()], alertsDegraded: true });
     expect(visibleText(pill())).toBe("1 to confirm");
+    await findMenu();
     expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
   it("cap: 100 actionable → visible '99+ to confirm', sr-only exact count; 99 NOT capped", () => {
-    const many = (n: number) => Array.from({ length: n }, (_, i) => alertItem({ id: `alert:m${i}` }));
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => alertItem({ id: `alert:m${i}` }));
     renderModal({ attentionItems: many(100) });
     expect(visibleText(pill())).toBe("99+ to confirm");
     expect(pill().textContent).toContain("(100 to confirm)");
@@ -511,41 +521,46 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
 // ── Auto-open + menu wiring + resolve lifecycle (spec §5.2/§6.3) ─────────────
 
 describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)", () => {
-  it("auto-open fires once on mount with actionable items; rerender keeps ONE menu", () => {
+  it("auto-open fires once on mount with actionable items; rerender keeps ONE menu", async () => {
     const { rerenderWith } = renderModal({ attentionItems: [alertItem({ id: "alert:p1" })] });
+    await screen.findByTestId(`${TB}-attention-menu`);
     expect(screen.getAllByTestId(`${TB}-attention-menu`)).toHaveLength(1);
     rerenderWith({ attentionItems: [alertItem({ id: "alert:p1" })] });
     expect(screen.getAllByTestId(`${TB}-attention-menu`)).toHaveLength(1);
   });
 
-  it("stale→fresh: mount with [] then items arriving via refresh reconcile → menu auto-opens", () => {
+  it("stale→fresh: mount with [] then items arriving via refresh reconcile → menu auto-opens", async () => {
     const { rerenderWith } = renderModal({ attentionItems: [] });
     expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
     rerenderWith({ attentionItems: [alertItem({ id: "alert:late" })] });
-    expect(screen.getByTestId(`${TB}-attention-menu`)).toBeTruthy();
+    expect(await screen.findByTestId(`${TB}-attention-menu`)).toBeTruthy();
   });
 
-  it("after the user closes the menu, MORE items arriving never re-open it", () => {
+  it("after the user closes the menu, MORE items arriving never re-open it", async () => {
     const { rerenderWith } = renderModal({ attentionItems: [alertItem({ id: "alert:p1" })] });
+    await screen.findByTestId(`${TB}-attention-menu`);
     fireEvent.click(screen.getByTestId(`${TB}-alert-pill`)); // toggle closed
     expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
     rerenderWith({
       attentionItems: [alertItem({ id: "alert:p1" }), alertItem({ id: "alert:p2" })],
     });
+    // Flush a frame: a pending auto-open rAF would fire here if the guard leaked.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
   });
 
-  it("alertId present → auto-open suppressed, even when items arrive late", () => {
+  it("alertId present → auto-open suppressed, even when items arrive late", async () => {
     const { rerenderWith } = renderModal({ attentionItems: [], alertId: ALERT_ID });
     rerenderWith({ attentionItems: [alertItem({ id: "alert:late" })], alertId: ALERT_ID });
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
   });
 
-  it("menu row click → menu closes, the item's banner anchor gets the one-shot flash", () => {
+  it("menu row click → menu closes, the item's banner anchor gets the one-shot flash", async () => {
     // Overview-routed item: its banner mounts in the Overview attention slot,
     // so the surface's jump finds a REAL anchor.
     renderModal({ attentionItems: [alertItem({ id: "alert:nav1" })] });
-    fireEvent.click(screen.getByTestId("attention-menu-row-alert:nav1"));
+    fireEvent.click(await screen.findByTestId("attention-menu-row-alert:nav1"));
     expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
     const anchor = document.querySelector('[data-attention-anchor="alert:nav1"]')!;
     expect(anchor).toBeTruthy();
@@ -564,13 +579,13 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(pillEl.textContent).toContain("In sync");
   });
 
-  it("archived pin (spec §7): hold gate forms still render on an archived show (no client-side gating exists)", () => {
+  it("archived pin (spec §7): hold gate forms still render on an archived show (no client-side gating exists)", async () => {
     renderModal({
       archived: true,
       attentionItems: [holdItem()],
       feed: { entries: [pendingGateEntry()], truncated: false },
     });
-    expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
+    expect(await screen.findByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
     const gateRow = document.querySelector('[data-attention-anchor="hold:hold-1"]')!;
     expect(gateRow).toBeTruthy();
     expect(gateRow.querySelector("form, button")).toBeTruthy();
@@ -878,7 +893,9 @@ describe("PublishedReviewModal alert_id deep link (spec §6.4 — one-shot)", ()
     });
     const anchor = document.querySelector(`[data-attention-anchor="alert:${ALERT_ID}"]`)!;
     anchor.removeAttribute("data-step3-warning-flash");
-    rerenderWith({ attentionItems: [alertItem({ id: `alert:${ALERT_ID}` }), alertItem({ id: "alert:extra" })] });
+    rerenderWith({
+      attentionItems: [alertItem({ id: `alert:${ALERT_ID}` }), alertItem({ id: "alert:extra" })],
+    });
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(false);
   });
 

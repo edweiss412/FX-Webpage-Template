@@ -97,9 +97,7 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await openModal(page);
     await expect(page.locator(MENU)).toBeVisible();
     await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
-    await expect(
-      page.locator(`${MENU} [data-testid^="attention-menu-row-"]`),
-    ).toHaveCount(2);
+    await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(2);
     const visible = await page.locator(PILL).evaluate((el) => {
       const clone = el.cloneNode(true) as HTMLElement;
       clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
@@ -118,13 +116,12 @@ test.describe("published show attention surface (spec §5/§6)", () => {
       const li = el.closest("li");
       if (!li) return { inLi: false, nameInRow: false, belowRow: false };
       const clone = li.cloneNode(true) as HTMLElement;
-      clone.querySelector('[data-attention-anchor]')?.remove();
+      clone.querySelector("[data-attention-anchor]")?.remove();
       const rowContent = li.firstElementChild!;
       return {
         inLi: true,
         nameInRow: (clone.textContent ?? "").includes(crewName),
-        belowRow:
-          el.getBoundingClientRect().top >= rowContent.getBoundingClientRect().bottom - 0.5,
+        belowRow: el.getBoundingClientRect().top >= rowContent.getBoundingClientRect().bottom - 0.5,
       };
     }, CREW_NAME);
     expect(placement.inLi, "banner is a descendant of a roster <li>").toBe(true);

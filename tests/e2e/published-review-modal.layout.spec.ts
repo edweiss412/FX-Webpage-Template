@@ -430,9 +430,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     // that node is precisely what must NOT satisfy a "visible text" claim.
     const visible = await pill.evaluate((el) => {
       const clone = el.cloneNode(true) as HTMLElement;
-      clone
-        .querySelectorAll('.sr-only, [aria-hidden="true"]')
-        .forEach((n) => n.remove());
+      clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
       return clone.textContent!.replace(/\s+/g, " ").trim();
     });
     expect(

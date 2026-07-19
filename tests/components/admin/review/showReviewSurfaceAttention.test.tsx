@@ -148,9 +148,7 @@ function Harness({
 function stubScrollerGeometry() {
   // jsdom: no layout — give the scroller scrollTo + non-zero geometry so the
   // jump path executes (the existing extras test's stub idiom).
-  const scroller = document.querySelector<HTMLElement>(
-    `[data-testid="${railTid("content")}"]`,
-  )!;
+  const scroller = document.querySelector<HTMLElement>(`[data-testid="${railTid("content")}"]`)!;
   Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
   Object.defineProperty(scroller, "scrollHeight", { value: 2000, configurable: true });
   const scrollToSpy = vi.fn();

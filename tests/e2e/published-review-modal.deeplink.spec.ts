@@ -327,6 +327,22 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
       )
       .toBe(`${BASE}-close`);
     await page.keyboard.press("Escape");
+    // published-show-alerts §5.2: this suite seeds an actionable alert, so the
+    // LOADED frame auto-opens the attention menu — the first Esc closes the
+    // MENU (capture-phase contract) and the second closes the modal. The
+    // SKELETON frame has no menu, so the first Esc already closed it. Handle
+    // both frames: if the modal survived Esc #1, the menu absorbed it.
+    const survived = await page
+      .locator(MODAL_ANY)
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (survived) {
+      await expect(page.locator(`${MODAL_ANY} [data-testid="${BASE}-attention-menu"]`)).toHaveCount(
+        0,
+      );
+      await page.keyboard.press("Escape");
+    }
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 10_000 });
     // The hide is client-side FIRST (#485); the close nav catches the URL up
     // in the background — so the strip is awaited, not asserted instantly.

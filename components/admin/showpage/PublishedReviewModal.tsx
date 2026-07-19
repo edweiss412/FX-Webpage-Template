@@ -223,9 +223,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
   }, []);
 
-  const onResolved = useCallback((id: string) => {
+  // Plain function (React Compiler memoizes; a manual useCallback over doneIds
+  // trips react-hooks/preserve-manual-memoization). §9 compound handled here in
+  // the event handler — no self-close effect: the LAST actionable item
+  // resolving closes an open menu.
+  const onResolved = (id: string) => {
     setDoneIds((prev) => new Set([...prev, id]));
-  }, []);
+    const remaining = attentionItems.filter(
+      (i) => i.actionable && i.id !== id && !doneIds.has(i.id),
+    );
+    if (remaining.length === 0) setMenuOpen(false);
+  };
 
   // Auto-open once per mount (§5.2); the guard consumes only when it DECIDES
   // (opens, or deep-link suppression) — NOT on first render, because the
@@ -239,16 +247,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       autoOpenFiredRef.current = true; // deep link wins for the whole mount (§6.4)
       return;
     }
-    if (actionable.length > 0) {
-      autoOpenFiredRef.current = true;
-      setMenuOpen(true);
-    }
+    if (actionable.length === 0) return;
+    autoOpenFiredRef.current = true;
+    // rAF wrapper: the open is a paint-time reveal, and the lint contract
+    // (react-hooks/set-state-in-effect) forbids the sync form.
+    const raf = requestAnimationFrame(() => setMenuOpen(true));
+    return () => cancelAnimationFrame(raf);
   }, [alertId, actionable.length]);
-
-  // §9 compound: the last actionable item resolving closes an open menu.
-  useEffect(() => {
-    if (menuOpen && actionable.length === 0) setMenuOpen(false);
-  }, [menuOpen, actionable.length]);
 
   // §6.4 one-shot alert_id deep link: a matching item jumps to its banner
   // anchor (aria-current + flash via the surface's attentionJump machinery);
@@ -275,21 +280,20 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // ── Banner placement buckets (§5.4) ────────────────────────────────────────
   const highlightedItemId = alertId != null ? `alert:${alertId}` : null;
-  const bannerFor = useCallback(
-    (item: AttentionItem, underCrewRow: boolean) => (
-      <AttentionBanner
-        key={item.id}
-        item={item}
-        slug={slug}
-        now={now}
-        underCrewRow={underCrewRow}
-        highlighted={item.id === highlightedItemId}
-        onResolved={onResolved}
-      />
-    ),
-    [slug, now, highlightedItemId, onResolved],
+  // Plain per-render derivation (React Compiler memoizes; manual useMemo over
+  // the unstable onResolved identity only fought the lint contract).
+  const bannerFor = (item: AttentionItem, underCrewRow: boolean) => (
+    <AttentionBanner
+      key={item.id}
+      item={item}
+      slug={slug}
+      now={now}
+      underCrewRow={underCrewRow}
+      highlighted={item.id === highlightedItemId}
+      onResolved={onResolved}
+    />
   );
-  const { crewAttention, overviewBanners } = useMemo(() => {
+  const { crewAttention, overviewBanners } = (() => {
     const byCrewKey = new Map<string, ReactNode[]>();
     const sectionTop: ReactNode[] = [];
     const overview: ReactNode[] = [];
@@ -319,7 +323,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     }
     const crew: CrewAttention = { byCrewKey, sectionTop };
     return { crewAttention: crew, overviewBanners: overview };
-  }, [attentionItems, data.crewMembers, bannerFor]);
+  })();
 
   const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
   const holdCount = actionable.filter((i) => i.kind === "hold").length;
@@ -398,9 +402,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               className="ml-auto inline-flex shrink-0 items-center rounded-pill bg-warning-bg px-1.5 text-xs font-semibold tabular-nums text-warning-text"
             >
               {holdCount}{" "}
-              <span className="sr-only">
-                pending {holdCount === 1 ? "change" : "changes"}
-              </span>
+              <span className="sr-only">pending {holdCount === 1 ? "change" : "changes"}</span>
             </span>
           ),
         }
