@@ -36,6 +36,7 @@ on:
       - "components/admin/showpage/**"
       - "components/admin/review/**"
       - "components/admin/ShowsTable.tsx"
+      - "components/admin/ArchivedShowRow.tsx"
       - "components/admin/useShowModalNav.ts"
       - "app/admin/_showReviewModal.tsx"
       - "app/admin/page.tsx"
@@ -44,6 +45,7 @@ on:
       - "tests/e2e/published-review-modal.interactions.spec.ts"
       - "tests/e2e/published-review-modal.deeplink.spec.ts"
       - "tests/e2e/published-review-modal.layout.spec.ts"
+      - "tests/e2e/published-review-modal.prefetch.spec.ts"
       - "tests/e2e/_publishedReviewModalHarness.tsx"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
@@ -85,6 +87,10 @@ jobs:
       TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
       # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
       BASELINE_SERVER_ONLY: "1"
+      # :3000 here IS a prod build (CI=true → pnpm build && pnpm start) — the
+      # prefetch spec's gate (it self-skips without this flag; dev servers
+      # never prefetch).
+      MODAL_PREFETCH_E2E: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -117,7 +123,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

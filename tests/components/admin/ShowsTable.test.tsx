@@ -1116,3 +1116,26 @@ describe("row pressed feedback", () => {
     );
   });
 });
+
+describe("modal-prefetch prop pins (spec 2026-07-19-show-modal-prefetch §2.1)", () => {
+  // Source-scan, not DOM: next/link CONSUMES `prefetch` (never forwarded to the
+  // anchor), so jsdom cannot observe it. Failure mode caught: the prop is
+  // removed, typoed, or downgraded (prefetch={false} / auto) — the open would
+  // silently fall back to the cold path on prod with zero test signal.
+  const rowLink = (src: string, testid: string) => {
+    const at = src.indexOf(testid);
+    expect(at, `${testid} Link present`).toBeGreaterThan(-1);
+    const open = src.lastIndexOf("<Link", at);
+    return src.slice(open, src.indexOf(">", at));
+  };
+
+  it("ShowsTable row Link carries prefetch={true}", () => {
+    const src = readFileSync("components/admin/ShowsTable.tsx", "utf8");
+    expect(rowLink(src, "shows-table-row-")).toMatch(/prefetch=\{true\}/);
+  });
+
+  it("ArchivedShowRow Open Link carries prefetch={true}", () => {
+    const src = readFileSync("components/admin/ArchivedShowRow.tsx", "utf8");
+    expect(rowLink(src, "archived-show-open-")).toMatch(/prefetch=\{true\}/);
+  });
+});

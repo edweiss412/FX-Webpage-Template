@@ -22,13 +22,17 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // One unified next/navigation mock: useShowModalNav (useRouter/useSearchParams),
 // StatusStrip's copy-link + feed/warning controls (useRouter().refresh()).
 const routerPush = vi.fn();
+// Stable spy (NOT a fresh vi.fn() per useRouter() call): the revalidate-on-open
+// contract asserts a CALL COUNT across renders — a per-call fn made that vacuous.
+const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: routerPush }),
+  useRouter: () => ({ refresh: routerRefresh, push: routerPush }),
   usePathname: () => "/admin",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -745,5 +749,32 @@ describe("PublishedReviewModal entrance suppression (§6.5 skeleton→loaded in-
     const panel = document.querySelector<HTMLElement>("[data-review-modal-panel]")!;
     expect(scrim.getAttribute("data-review-modal-entrance")).toBe("none");
     expect(panel.getAttribute("data-review-modal-entrance")).toBe("none");
+  });
+});
+
+describe("revalidate-on-open (spec 2026-07-19-show-modal-prefetch §3.2)", () => {
+  it("fires router.refresh() exactly once per mount — rerenders and StrictMode double-effects do not multiply it", () => {
+    routerRefresh.mockClear();
+    // StrictMode reproduces the dev double-effect (setup→cleanup→setup): the
+    // ref guard must dedupe it. Failure modes caught: dead revalidate (0 calls)
+    // and per-render/per-effect refresh storm (>1). ShareTokenProvider wrapper
+    // copied from renderModal — the tree consumes its context; StrictMode must
+    // own the mount, so renderModal itself is not reused.
+    const { rerender } = render(
+      <StrictMode>
+        <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
+          <PublishedReviewModal {...baseProps()} />
+        </ShareTokenProvider>
+      </StrictMode>,
+    );
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    rerender(
+      <StrictMode>
+        <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
+          <PublishedReviewModal {...baseProps()} />
+        </ShareTokenProvider>
+      </StrictMode>,
+    );
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 });
