@@ -75,6 +75,9 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
             context so archived context survives the open/close round-trip. */}
         <Link
           href={`/admin?bucket=archived&show=${encodeURIComponent(row.slug)}`}
+          // Full viewport prefetch — same contract as the active-bucket row
+          // (spec 2026-07-19-show-modal-prefetch §2.1).
+          prefetch={true}
           scroll={false}
           data-testid={`archived-show-open-${row.slug}`}
           className="inline-flex min-h-tap-min items-center justify-center self-center px-3 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"

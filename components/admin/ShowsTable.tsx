@@ -528,6 +528,10 @@ export function ShowsTable({
                 <li key={row.id}>
                   <Link
                     href={openHref(row.slug)}
+                    // Full viewport prefetch (spec 2026-07-19-show-modal-prefetch):
+                    // prod-only by Next's own rules; the href is byte-identical to
+                    // the clicked URL, so the open is served from the router cache.
+                    prefetch={true}
                     scroll={false}
                     onClick={handleRowClick(row.slug)}
                     data-testid={`shows-table-row-${row.slug}`}
