@@ -758,6 +758,26 @@ git commit --no-verify -m "test(admin): structural guards for close path, motion
 
 **Config:** the Step3 spec runs under `tests/e2e/standalone.config.ts` (`:17`); the published spec runs under the app Playwright config. Run them separately — do not assume one invocation covers both.
 
+**MOTION-POSTURE CONSTRAINT (verified — read before writing any case).** Both e2e specs default to `prefers-reduced-motion: reduce`, and `app/globals.css:411-413` zeroes `--duration-fast` / `--duration-normal` / `--duration-slow` to `0ms` under it:
+
+- `step3-review-modal.interactions.spec.ts:194` — `openLive()` hardcodes `emulateMedia({ reducedMotion: "reduce" })`.
+- `published-review-modal.interactions.spec.ts:98` — `openModal()` defaults to `"reduce"`, with an opt-in `{ reducedMotion: "no-preference" }` (used at `:452`, `:462`).
+
+Under reduced motion `requestClose` takes the **immediate** path (spec §3.1 step 4): there is no exit window, no exit transform, and no `transitionend`. Every animation case would therefore pass **vacuously** — (b)'s suppression matrix would find no action to suppress because the window it guards does not exist, and (g)/(h)'s "inside vs after the exit window" timing would be meaningless.
+
+Required posture per case:
+
+| Case | Posture |
+|---|---|
+| (a) exit-animation flip | `no-preference` for the animated assertions; a **separate** `reduce` run asserting the instant collapse (spec §7.5(a) requires both) |
+| (b) five-affordance suppression | `no-preference` — the exit window must exist |
+| (c) focus continuity | `no-preference` — the point is focus lands at exit-*end* |
+| (d)(e)(f)(g)(h) | `no-preference` |
+
+For the Step3 spec, follow the existing motion-enabled pattern rather than editing `openLive`: a dedicated `test.describe` with its own `openLiveWithMotion()` helper already exists at `:806-808` for exactly this reason. Do NOT flip `openLive`'s default — the other Step3 tests depend on reduced motion for determinism (documented in that spec's header note at `:35-38`).
+
+**Assert the window exists before asserting anything about it:** each `no-preference` case first confirms a non-identity computed transform (or a non-`0s` computed `transition-duration`) on the panel after dismissal. If that check fails the run is silently reduced-motion, and every downstream assertion in the case is vacuous.
+
 **VIEWPORT CONSTRAINT (verified):** the grab strip is `sm:hidden` (`ReviewModalShell.tsx:423`). Grab-tap and drag runs REQUIRE `SHEET` (`{width:390,height:844}`); X/Esc/scrim run at both `SHEET` and `POPUP` (`{width:1280,height:800}`). A desktop-only matrix silently skips two of the five affordances while appearing green. Reuse the existing `SHEET`/`POPUP` consts (`published-review-modal.interactions.spec.ts:64-65`) — do not invent viewports.
 
 - [ ] **Step 1: Flip the instant-unmount assertions**
@@ -794,16 +814,16 @@ Each case asserts: ≥2 distinct intermediate values, strict progression toward 
 
 The same enabled-first rule applies to Publish and Ignore wherever their disabled conditions can be reached (`isPublishRunActive`, `resolutionPending`).
 
-| Case | Spec | Viewport | Harness |
-|---|---|---|---|
-| (a) exit-animation flip | §7.5(a) | SHEET + POPUP | published |
-| (b) five-affordance suppression | §7.5(b) | Esc/X/scrim both; grab+drag SHEET only | step3 |
-| (c) focus continuity | §7.5(c) | POPUP | published |
-| (d) drag-held + Esc | §7.5(d) | SHEET | published |
-| (e) close during spring-back | §7.5(e) | SHEET | published |
-| (f) close during entrance | §7.5(f) | SHEET + POPUP | published |
-| (g) resolution during exit | §7.5(g) | SHEET | step3 |
-| (h) resolution after exit-end | §7.5(h) | SHEET | step3 |
+| Case | Spec | Viewport | Motion | Harness |
+|---|---|---|---|---|
+| (a) exit-animation flip | §7.5(a) | SHEET + POPUP | no-preference **+ separate `reduce` run** | published |
+| (b) five-affordance suppression | §7.5(b) | Esc/X/scrim both; grab+drag SHEET only | no-preference | step3 |
+| (c) focus continuity | §7.5(c) | POPUP | no-preference | published |
+| (d) drag-held + Esc | §7.5(d) | SHEET | no-preference | published |
+| (e) close during spring-back | §7.5(e) | SHEET | no-preference | published |
+| (f) close during entrance | §7.5(f) | SHEET + POPUP | no-preference | published |
+| (g) resolution during exit | §7.5(g) | SHEET | no-preference | step3 |
+| (h) resolution after exit-end | §7.5(h) | SHEET | no-preference | step3 |
 
 - [ ] **Step 3: Run**
 
