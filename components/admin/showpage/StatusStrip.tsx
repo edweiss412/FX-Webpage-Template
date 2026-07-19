@@ -89,7 +89,15 @@ export type StatusStripProps = {
    *  `"modal-header"` = layout only. ReviewModalShell's `<header>` already supplies the
    *  surface, the bottom border and `px-tile-pad` (ReviewModalShell.tsx:432) and the header's
    *  flex column supplies the row gap, so the page chrome would stack a doubled seam and
-   *  doubled padding; sticky/z are inert inside a non-scrolling header. */
+   *  doubled padding; sticky/z are inert inside a non-scrolling header.
+   *
+   *  PRECONDITION for `"modal-header"` — the parent MUST supply all four, because the
+   *  strip supplies none of them in this mode: (1) a `bg-surface` background (the strip's
+   *  children resolve `focus-visible:ring-offset-surface` against it), (2) horizontal
+   *  padding, (3) the bottom seam, and (4) vertical separation from whatever precedes the
+   *  strip — the strip has NO vertical padding here, so the parent's column gap is the
+   *  entire budget (pinned by the "header rhythm" assertion in
+   *  tests/e2e/published-review-modal.layout.spec.ts). */
   chrome?: "page" | "modal-header";
 };
 
