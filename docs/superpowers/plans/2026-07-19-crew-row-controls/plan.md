@@ -941,7 +941,7 @@ const cancelBtn = () => screen.getByTestId("picker-reset-cancel-button") as HTML
 describe("PickerResetControl (everyone-only)", () => {
   it("renders heading, description, and NO per-member surface", () => {
     render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
-    expect(screen.getByRole("heading", { name: "Reset everyone's pick" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Reset everyone[’']s pick/ })).toBeTruthy();
     expect(
       screen.getByText("Make everyone pick their name again on their next visit."),
     ).toBeTruthy();
@@ -959,9 +959,7 @@ describe("PickerResetControl (everyone-only)", () => {
     render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
     fireEvent.click(allBtn());
     expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
-    expect(
-      screen.getByText("Every device's picker re-prompts on next visit."),
-    ).toBeTruthy();
+    expect(screen.getByText(/Every device[’']s picker re-prompts on next visit\./)).toBeTruthy();
     await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
     fireEvent.click(cancelBtn());
     expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
@@ -1011,6 +1009,8 @@ describe("PickerResetControl (everyone-only)", () => {
       ),
     );
     expect(screen.getByTestId("picker-reset-error").getAttribute("role")).toBe("alert");
+    // Invariant 5: no raw picker code ever reaches the DOM.
+    expect(document.body.textContent).not.toMatch(/PICKER_[A-Z_]+/);
   });
 });
 ```
@@ -1538,6 +1538,7 @@ git add -A && git commit --no-verify -m "test(admin): crew-row menu e2e green �
   - `per-show-panel/page.mdx:9`: "The crew roster (each row has a **Preview as** link)" → "The crew roster (each row has a **⋮ menu** with **Preview as** and **Reset name picker**)".
   - `per-show-panel/page.mdx:57`: "Each crew member parsed from the sheet gets a row with a **Preview as** button; tapping a row drops you" → "Each crew member parsed from the sheet gets a row; **Preview as** lives in the row's **⋮ menu**, and tapping it drops you".
   - `per-show-panel/page.mdx:65`: "and a **Reset name picker** control (reset one crew member's pick, or everyone's)" → "and a **Reset everyone's pick** control (reset one crew member instead from that row's **⋮ menu** in the crew section)".
+  - `per-show-panel/page.mdx:67`: "To preview the page as a specific crew member, use the [Preview as a crew member](#preview-as-crew-member) section above." → "To preview the page as a specific crew member, open that row's **⋮ menu** and choose **Preview as** (see the [Preview as a crew member](#preview-as-crew-member) section above)."
   - `preview-as-crew/page.mdx:5`: "and the **Preview as** action drops you onto their crew page" → "and the **Preview as** action in the row's **⋮ menu** drops you onto their crew page".
 - [ ] **Step 2: Verify no stale references**: `rg -n "Preview as. link|Preview as. button" app/help` → no hits. Then run the help e2e explicitly (h1s unchanged, but the spec walks these pages): `pnpm exec playwright test --project=mobile-safari tests/e2e/help-pages.spec.ts` → PASS.
 - [ ] **Step 3: Commit**
