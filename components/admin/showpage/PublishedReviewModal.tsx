@@ -226,12 +226,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // Plain function (React Compiler memoizes; a manual useCallback over doneIds
   // trips react-hooks/preserve-manual-memoization). §9 compound handled here in
   // the event handler — no self-close effect: the LAST actionable item
-  // resolving closes an open menu.
+  // resolving closes an open menu. The ref mirrors doneIds so two resolves
+  // completing in the SAME render window compose — the state closure alone is
+  // stale for the second completion and would leave the menu open.
+  const doneIdsRef = useRef<ReadonlySet<string>>(doneIds);
   const onResolved = (id: string) => {
-    setDoneIds((prev) => new Set([...prev, id]));
-    const remaining = attentionItems.filter(
-      (i) => i.actionable && i.id !== id && !doneIds.has(i.id),
-    );
+    const next = new Set([...doneIdsRef.current, id]);
+    doneIdsRef.current = next;
+    setDoneIds(next);
+    const remaining = attentionItems.filter((i) => i.actionable && !next.has(i.id));
     if (remaining.length === 0) setMenuOpen(false);
   };
 

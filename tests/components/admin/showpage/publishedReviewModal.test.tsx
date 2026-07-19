@@ -579,6 +579,25 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(pillEl.textContent).toContain("In sync");
   });
 
+  it("resolve race: two completions in the same render window still close the menu (stale-closure guard)", async () => {
+    renderModal({
+      attentionItems: [alertItem({ id: "alert:r1" }), alertItem({ id: "alert:r2" })],
+    });
+    await screen.findByTestId(`${TB}-attention-menu`); // auto-open committed
+    // Rapid double-resolve: both fetches in flight together. Failure mode
+    // caught: the double lifecycle leaving the menu open or the pill counting
+    // wrong after the LAST resolve. (The same-microtask stale-closure variant
+    // is not reproducible under jsdom's act flush semantics — the component
+    // guards it structurally with the doneIdsRef mirror instead.)
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-r1"));
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-r2"));
+    await waitFor(() =>
+      expect(screen.getByTestId("attention-banner-confirmed-r2")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    expect(screen.getByTestId(`${TB}-alert-pill`).textContent).toContain("In sync");
+  });
+
   it("archived pin (spec §7): hold gate forms still render on an archived show (no client-side gating exists)", async () => {
     renderModal({
       archived: true,
