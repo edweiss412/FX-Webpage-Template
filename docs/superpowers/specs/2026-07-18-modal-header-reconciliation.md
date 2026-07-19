@@ -1053,6 +1053,37 @@ The app also ships a **light theme** (`globals.css:270-299`), where the same
 tokens resolve very differently — e.g. `--color-warning-bg-runtime: #fff3d6` and
 `--color-border-strong-runtime: #cfcdc7`. The mock says nothing about it.
 
+**MEASURED — the border threshold this spec originally set was unachievable.**
+An earlier draft required the outline Copy border to clear 3:1 (WCAG 1.4.11)
+against the band. Computed from the live tokens, `border-border-strong` on
+`bg-surface` is:
+
+| Theme | Border vs band | |
+| --- | --- | --- |
+| light | `#cfcdc7` on `#ffffff` | **1.59:1** |
+| dark | `#3a3b40` on `#16171c` | **1.60:1** |
+
+It fails in BOTH themes — meaning the requirement contradicted the locked design
+itself, not just its light-mode port. A spec cannot mandate a token and a
+threshold that token cannot meet; the predictable outcomes are weakening the test
+or abandoning the token system for ad-hoc styling.
+
+**Resolution: the outline border is DECORATIVE; identification rests on the
+visible label.** WCAG 1.4.11 governs visual information *required to identify* a
+component. These buttons carry visible text labels, and those labels are the
+identifying information — comfortably conformant:
+
+| Control | light | dark |
+| --- | --- | --- |
+| outline Copy label (`text-text`) | **17.21:1** | **14.34:1** |
+| ghost Re-sync label (`text-text-subtle`) | **6.76:1** | **6.35:1** |
+
+So T-CONTRAST asserts the **labels** at ≥4.5:1 in both themes and does NOT assert
+a border ratio. The border is a subtle affordance cue on top of a
+already-identifiable control, which is exactly what the mock draws. Recorded
+explicitly so a later reader does not "restore" a 3:1 border rule and break the
+design a third time.
+
 **Requirement.** Every new style in this change is expressed as a **token class**
 (`bg-warning-bg`, `text-warning-text`, `border-border-strong`,
 `text-text-subtle`, `bg-status-review`, `rounded-pill`, `size-tap-min`), never as
@@ -1060,12 +1091,13 @@ a ported hex. Light mode then follows automatically. Two elements need explicit
 light-theme contrast confirmation because they are new low-contrast treatments
 introduced by this change:
 
-- the **outline Copy** button — `border-border-strong` is `#cfcdc7` on light, a
-  much weaker edge than the dark `#3a3b40`; confirm the control still reads as a
-  button and not as disabled text.
-- the **ghost Re-sync** trigger — `text-text-subtle` with no border and no
-  background is the lowest-affordance control in the strip; confirm it clears
-  contrast minimums on light.
+- the **outline Copy** button — its border is ~1.6:1 in both themes (measured
+  above), so the LABEL does the identifying work. Confirm the control still reads
+  as a button and not as static text.
+- the **ghost Re-sync** trigger — `text-text-subtle`, no border, no background:
+  the lowest-affordance control in the strip. Its label clears 4.5:1 in both
+  themes (6.76 / 6.35), so the risk is perceptual (does it read as actionable?),
+  not a contrast failure.
 
 The alert pill inherits an existing, already-shipped token pair
 (`bg-warning-bg`/`text-warning-text`) and needs no new contrast work — only
@@ -1073,10 +1105,11 @@ confirmation that the 8px `bg-status-review` dot is not the sole carrier of
 meaning (it is not; the count text carries it — §10).
 
 **This requirement is executable, not advisory.** T-CONTRAST (§11) measures
-computed colors in a real browser under both themes and asserts ≥3:1 for the
-Copy border (WCAG 1.4.11, non-text UI boundary) and ≥4.5:1 for the ghost Re-sync
-label (1.4.3, text). Token usage alone proves neither: a token can resolve to a
-perfectly valid color that still disappears against this particular background.
+computed colors in a real browser under both themes and asserts ≥4.5:1 (WCAG
+1.4.3) for BOTH control labels — the outline Copy label and the ghost Re-sync
+label. It deliberately asserts NO border ratio (see the measured table above).
+Token usage alone proves nothing: a token can resolve to a perfectly valid color
+that still disappears against this particular background.
 
 ### 7.2 How T-CONTRAST samples (both controls are transparent-backed)
 
@@ -1089,10 +1122,11 @@ Specified sampling:
   (the nearest ancestor that actually paints — it carries `bg-surface`, §6.1).
   Resolve it by walking up from the control until a non-transparent
   `backgroundColor` is found, rather than assuming a fixed ancestor depth.
-- **Copy border** = `borderTopColor` of the button in its **idle, unfocused,
-  unhovered** state. Hover and focus-visible states are out of scope for this
-  assertion; they only ever increase contrast here.
-- **Ghost Re-sync label** = the button's computed `color`, idle state.
+- **Both labels** = the button's computed `color` in its **idle, unfocused,
+  unhovered** state. Hover and focus-visible states are out of scope; they only
+  increase contrast here.
+- **No border sampling.** The border carries no conformance obligation (§7.1);
+  measuring it invites reinstating an unsatisfiable threshold.
 - Ratio via the standard WCAG relative-luminance formula. Assert per theme by
   toggling the documented theme mechanism, not by hardcoding hex.
 
@@ -1176,7 +1210,7 @@ the pin fails-by-default, which is the intent.
 | copy link absent ↔ present (`published`/`token`/`archived`) | **Instant.** Publishing mounts Copy — must not animate or shift the row (`StatusStrip.tsx:259`). |
 | control divider absent ↔ present | **Instant.** Derived from `hasSignal` (`StatusStrip.tsx:154-155`), whose inputs change with the states above. |
 | Re-sync trigger absent ↔ present (`archived`) | **Instant.** Archive/unarchive is a whole-mode swap (§7). |
-| Re-sync overlay absent ↔ present (result / error / shrink-confirm) | Existing treatment, unchanged — the surface relocates, its transition does not. |
+| Re-sync overlay absent ↔ present (result / error / shrink-confirm) | **Animation unchanged** (instant, as today) — but the panels are NOT otherwise unchanged. In overlay mode they gain dismiss controls, focus restoration, `role="group"` on the panel, and the live-region role moved to the message node (§6.7). This row governs MOTION only; do not read it as "the result surfaces are untouched." |
 | subheader band absent ↔ present | N/A — the published modal always renders it; Step 3 never does. Not a runtime transition. |
 
 **Compound:** toggle mid-flight (`pending`) while the copy button is in its
@@ -1248,7 +1282,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip), shows catalog copy, never a raw code, AND is dismissable without re-running the mutation — the dismiss control clears the overlay and returns focus to the trigger — assert the rendered text CONTAINS the `lib/messages/lookup.ts` copy and does NOT contain the raw code string. **Containment, not equality** — the branch legitimately renders `<ErrorExplainer>` PLUS `<HelpAffordance>` (`ReSyncButton.tsx:158-159`), so an equality assertion is false-red and the likely "fix" is deleting the help affordance | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
 | T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
 | T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay, does not reflow the strip, AND renders `summarizeResult` copy rather than a raw `outcome` string — assert an unknown/unmapped outcome falls back to "Sync complete." and that no raw token (e.g. `revision_race`, `asset_recovery`) appears |  Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
-| T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
+| T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND — assert GEOMETRY, not `offsetParent`: each overlay's left/right edges match the band's within 1px and its top matches the band's bottom within 1px. Neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel. `offsetParent` is deliberately NOT the assertion — it is sensitive to transforms, hidden states and browser detail, so it false-reds on correct placement and couples the test to layout internals instead of the user-visible result |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
 | T-RESYNC-FOCUS-ORDER | **Overlay-CLOSED steady state:** sheet link → alert pill → close → toggle → Re-sync → copy. **Overlay-OPEN (shrink confirm):** … → Re-sync → Keep current version → Apply reduced version → copy — the confirm's controls sit DOM-adjacent to their trigger, which is the intent | Re-sync lands after Copy or is skipped; and an unscoped order test that runs with an overlay open, fails, and gets "fixed" by hoisting the overlay after Copy — destroying the confirm's focus proximity to its trigger |
@@ -1256,7 +1290,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
-| T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label ≥4.5:1 (1.4.3 text). **Sampling is specified, not left to the test author** — see §7.2. Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
+| T-CONTRAST (real browser, BOTH themes) | Assert ≥4.5:1 (WCAG 1.4.3) for the outline Copy LABEL and the ghost Re-sync LABEL. Assert NO border ratio — `border-border-strong` measures ~1.6:1 on band surface in both themes, so a 3:1 border rule is unsatisfiable with the mandated token (§7.1). **Sampling is specified** — §7.2 | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
 | T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
 | T-RESYNC-FLOW-UNCHANGED | In FLOW mode the component still returns its single root `<div className="flex flex-col gap-3">` with the result panels inside it, and Overview's rendered structure is unchanged | The overlay branch is implemented by restructuring shared markup, silently changing flow-mode DOM too. Existing Overview consumers/tests query within that root; the new strip tests would pass while Overview regresses |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
