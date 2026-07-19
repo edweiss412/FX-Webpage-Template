@@ -96,12 +96,19 @@ null` with `publishedAdapter.ts:64` populating it from `show.client_label`;
 derive the subline from `data`, exactly as Step 3 does. Zero prop-signature change
 to `PublishedReviewModal`, zero change to `app/admin/_showReviewModal.tsx`.
 
-**F3 — `ShareLinkCopyButton` is shared; its default arm cannot be restyled.**
-`CurrentShareLinkPanel` renders it on the default (accent) arm, and that panel is
-mounted *inside this very modal* as the Overview `shareSlot`
-(`PublishedReviewModal.tsx:212`). Restyling the default arm would silently restyle
-the share panel too. **Resolution:** add a third, explicit variant rather than
-mutating the default — see §6.4.
+**F3 — `ShareLinkCopyButton` is shared across THREE call sites; its default arm
+cannot be restyled.** Live inventory:
+
+| Call site | Arm |
+| --- | --- |
+| `app/admin/show/[slug]/ShareLinkBody.tsx:53` | default (accent) |
+| `app/admin/show/[slug]/ShareChip.tsx:44` | `compact` |
+| `components/admin/showpage/StatusStrip.tsx:261` | default (accent) — the one this change restyles |
+
+`ShareLinkBody` reaches this modal through the Overview `shareSlot`
+(`PublishedReviewModal.tsx:212`), so restyling the default arm would silently
+restyle the share panel mounted *inside this very modal*. **Resolution:** add a
+third, explicit variant rather than mutating the default — see §6.4.
 
 ## 4. Design deltas (locked)
 
@@ -209,12 +216,19 @@ Rendered directly after `</header>`, mirroring the existing `footer` idiom
 {subHeader != null ? (
   <div
     data-testid={`${testIdBase}-subheader`}
-    className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-tile-pad py-2 sm:flex-nowrap"
+    className="relative flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-tile-pad py-2 sm:flex-nowrap"
   >
     {subHeader}
   </div>
 ) : null}
 ```
+
+`relative` is **load-bearing, not decorative**: the band is the positioned
+ancestor for the publish toggle's popover AND the relocated Re-sync overlay
+(§6.7). The modal panel is itself `relative`, so omitting it does not fail
+loudly — `absolute inset-x-0 top-full` silently resolves against the whole panel
+and the overlay lands below the entire modal instead of below the strip. Pinned
+by T-OVERLAY (§11).
 
 **Why the band owns the chrome (not the strip):** every other band in this shell
 (`header`, `footer`) owns its own surface, seam, and `px-tile-pad`. Putting the
@@ -304,9 +318,19 @@ variant?: "accent" | "compact" | "outline";  // default "accent" — today's beh
   "Copy crew link", `min-h-tap-min`, hover `border-border-strong`/`bg-surface-sunken`,
   the same `focus-visible:ring-2 ring-focus-ring` as its siblings.
 
-The existing `compact` boolean is migrated at both call sites in the same commit;
-it is not kept as a deprecated alias (two spellings for one axis is the defect
-being fixed).
+The existing `compact` boolean is migrated at **all three** call sites (F3) in the
+same commit; it is not kept as a deprecated alias (two spellings for one axis is
+the defect being fixed). Migration map — every row must land or `pnpm typecheck`
+fails:
+
+| Call site | Today | After |
+| --- | --- | --- |
+| `ShareLinkBody.tsx:53` | `<ShareLinkCopyButton url={url} />` | `variant="accent"` (or omit — same default) |
+| `ShareChip.tsx:44` | `<ShareLinkCopyButton url={url} compact />` | `variant="compact"` |
+| `StatusStrip.tsx:261` | `<ShareLinkCopyButton url={copyUrl} />` | `variant="outline"` |
+
+`ShareChip` is the easy one to miss — it is the only `compact` consumer and it
+lives outside every surface this change is otherwise touching.
 
 **Accessible name.** The accent/compact arms use `aria-label={copied ? "URL copied
 to clipboard" : "Copy URL"}` (`:61`). The outline arm has a *visible* label, so it
@@ -395,12 +419,36 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   shrink-confirm — the one destructive-adjacent surface — must remain reachable
   and focus-managed while a toggle popover is open. Asserted (§11, T-OVERLAY).
 
-**Trigger styling.** Ghost per the mock: `inline-flex items-center gap-1.5
-rounded-sm px-2 text-[13px] font-semibold text-text-subtle`, hover
-`text-text`/`bg-surface-sunken`, standard focus ring. The mock's ~30px height is
-**below the 44px tap floor** — apply `min-h-tap-min`, or the `before:-inset-y-*`
-hit-area idiom if the visible height must stay at the mock's 30px. Assert the
-result (§11, T-TAP); do not assume.
+**Trigger styling — this is an accent→ghost DEMOTION, not a reskin.** Today the
+trigger is an `<AccentButton>` (`ReSyncButton.tsx:138-150`) — i.e. currently
+**orange**. Moving it into the strip unchanged would put a second orange beside
+the publish toggle and directly contradict delta 4 ("the toggle is the only
+orange"). The mock's ghost treatment is therefore load-bearing, not cosmetic.
+
+Ghost per the mock: `inline-flex items-center gap-1.5 rounded-sm px-2 text-[13px]
+font-semibold text-text-subtle`, hover `text-text`/`bg-surface-sunken`, standard
+focus ring. Note `AccentButton` already supplies `minWidthTap` (`:147`); the ghost
+replacement must carry its own `min-h-tap-min` — the mock's ~30px box is **below
+the 44px floor**. Use `min-h-tap-min`, or the `before:-inset-y-*` hit-area idiom
+if the visible height must stay at 30px. Assert it (§11, T-TAP); do not assume.
+
+**Label change + width stability.** Today's labels are `"Re-sync from Drive"` /
+`"Syncing…"` (`ReSyncButton.tsx:150`). In the strip the idle label shortens to
+the mock's `"Re-sync"`; the pending label stays `"Syncing…"`. Those two strings
+differ in width, and the trigger sits in a horizontal row between the status line
+and an `ml-auto` Copy — so a naive swap **reflows the strip mid-action**, moving
+Copy under the user's cursor.
+
+Requirement: the trigger reserves the width of its widest label (e.g. a
+`min-w-[…]` sized to `"Syncing…"` at the strip's font, or a fixed-width label
+slot) so the idle→pending swap cannot change its box. This is a dimensional
+invariant (§8) and gets its own real-browser assertion comparing the trigger's
+`getBoundingClientRect().width` idle vs pending (§11, T-RESYNC-WIDTH) — the
+idle-only fixture in T-LAYOUT cannot catch it.
+
+**Alignment.** `AccentButton` is invoked with `selfStart` (`:145`), correct for
+Overview's `flex-col`. In the horizontal strip the trigger must align to the row's
+center like its neighbours; `selfStart` must not be carried over verbatim.
 
 **What stays in Overview.** `CorrectionLoopCallout` (the "Fixed it in the sheet?
 Edit the cell, save, then re-sync." guidance, `CorrectionLoopCallout.tsx:26-27`)
@@ -438,7 +486,7 @@ states it does not draw and are the highest-risk part of this change.
 | `finalizeOwned` | `true` | Toggle disabled in both publish states (passthrough, unchanged). |
 | `archived` (Re-sync) | `true` | **No Re-sync trigger in the strip.** Re-sync mutates via `/api/admin/sync`, which an archived show must not reach (`OverviewSection.tsx:124-130`). Overview keeps the "Re-sync is paused while this show is archived." notice so the reason is still stated. |
 | `hasActionableWarnings` | `true` | `CorrectionLoopCallout` still renders in Overview as guidance, now with NO child button (§6.7). Its copy must not become a dead reference — it says "then re-sync", and the control it points at now lives in the strip, which is visible from Overview (the strip is a fixed band, not scrolled away). |
-| Re-sync | `pending` | Trigger shows its pending affordance in place; strip layout must not reflow (§8). |
+| Re-sync | `pending` | Label swaps `"Re-sync"` → `"Syncing…"`, `disabled` + `aria-busy` (`ReSyncButton.tsx:141-143`). Trigger width is RESERVED so the strip does not reflow (§6.7, §8, T-RESYNC-WIDTH). |
 | Re-sync | `errorCode` set | Coded result renders in the overlay (§6.7), never a raw code — routed through `lib/messages/lookup.ts` as today (invariant 5, unchanged). |
 | Re-sync | `heldShrink` set | Shrink-hold confirm renders in the overlay with focus moved to "Keep current version" (`ReSyncButton.tsx:83-85`). Focus management MUST survive the relocation — this is the destructive-adjacent path. |
 
@@ -507,6 +555,9 @@ explicitly and verified in a real browser (jsdom computes no layout).
 | subheader band | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` |
 | subheader band | copy button | Right-flushed | `ml-auto` on `strip-copy-link` |
 | status line | dot + text | Baseline-consistent single line | `inline-flex items-center` |
+| subheader band | Re-sync trigger | Width IDENTICAL idle vs pending — no reflow mid-action | reserved min-width sized to the widest label (§6.7) |
+| subheader band | Re-sync trigger | Vertically centered with its row neighbours | band's `items-center`; `selfStart` NOT carried over |
+| subheader band | Re-sync overlay | Anchors to the BAND, not the panel | `relative` on the band (§6.1) + `absolute inset-x-0 top-full` |
 
 **Explicitly asserted in the real browser:** header height, subheader height,
 their sum vs. the panel's pre-body offset, the alert pill's hit rect ≥44px, the
@@ -579,8 +630,15 @@ requirement is focus reachability, not motion. Asserted as T-OVERLAY (§11).
 - Decorative dots (`aria-hidden`): alert dot, subline bullet, status bullet,
   strip dividers.
 - Focus order through the header region: title's sheet link → alert pill → close
-  → publish toggle → copy link. Close retains initial focus
-  (`initialFocusRef={closeRef}`, `PublishedReviewModal.tsx:243`).
+  → publish toggle → **Re-sync** → copy link. Close retains initial focus
+  (`initialFocusRef={closeRef}`, `PublishedReviewModal.tsx:243`). Re-sync sits
+  between the toggle and copy, matching its DOM order in the strip (§4.6) — DOM
+  order IS tab order here; no `tabindex` juggling.
+- When the Re-sync overlay is open, its contents follow the trigger in tab order
+  (they are DOM-adjacent, rendered inside the band). The shrink-hold confirm
+  moves focus to "Keep current version" on open (`ReSyncButton.tsx:83-85`) and
+  restores to the trigger on cancel (`:78-82`) — both behaviors survive the
+  relocation unchanged.
 - Color is never the sole signal: the sync dot always pairs with its text label;
   the alert dot pairs with the count.
 
@@ -606,12 +664,15 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-NO-ORANGE | No `bg-accent` in the header region except the publish toggle | Delta 4's whole point silently reverting |
 | T-ARCHIVED-BAND | `archived` → band renders with archived badge, no toggle/copy/live | Empty or missing band in read-only mode |
 | T-NO-H1 | No `<h1>` in the dialog (existing, must still pass) | Dead `<h1>` branch resurrected |
-| T-COUNTS | `pageTransitions` counts updated to 6 / 3 | Undocumented new conditional mount |
+| T-COUNTS | `pageTransitions` counts: `StatusStrip` **7**, `PublishedReviewModal` **3**, `OverviewSection` **4 (unchanged)** — each verified by running the scan, not by reasoning (§9) | Undocumented new conditional mount; or a literal edited to green a red test |
 | T-RESYNC-MOVED | Strip renders a Re-sync trigger; `OverviewSection` renders NO Re-sync button | §4.2 half-done — duplicated control, the outcome explicitly rejected |
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
-| T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the band; neither traps focus behind the other | Two overlays sharing one positioned ancestor |
+| T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
+| T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
+| T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
+| T-RESYNC-FOCUS-ORDER | Tab order: sheet link → alert pill → close → toggle → Re-sync → copy | Re-sync lands after Copy or is skipped |
 | T-TAP (real browser) | Alert pill hit rect ≥44px; sheet link ≥44px; Re-sync trigger ≥44px | Controls styled from the mock's sub-44px boxes |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
