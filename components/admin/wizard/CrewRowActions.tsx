@@ -77,13 +77,18 @@ export function CrewRowActions({
     }
   }, [open]);
 
-  // Open focus: menu → first menuitem (APG); confirm → Cancel (C3).
+  // Open focus: menu → first menuitem (APG); confirm → Cancel (C3);
+  // resolving → the popover container itself: disabling both buttons would
+  // otherwise drop focus to <body>, and Escape/Tab would bypass
+  // onConfirmKeyDown and reach the shell's document listener mid-reset.
   useEffect(() => {
     if (!open) return;
     if (mode === "menu") {
       menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     } else if (mode === "confirm") {
       cancelRef.current?.focus();
+    } else {
+      confirmRef.current?.focus();
     }
   }, [open, mode]);
 
@@ -183,16 +188,22 @@ export function CrewRowActions({
     // error CODE is ever rendered (codes map to these sentences here). Mirrors
     // app/admin/show/[slug]/PickerResetControl.tsx:161-166; no new §12.4 codes.
     startTransition(async () => {
-      const r = await resetCrewMemberSelection({ showId, crewMemberId: crewId });
-      if (r.ok) {
-        onOutcome({ kind: "ok", message: `Reset ${name}. They'll pick again next visit.` });
-      } else if (r.code === "PICKER_CREW_MEMBER_NOT_FOUND") {
-        onOutcome({
-          kind: "error",
-          message:
-            "That crew member is no longer on the roster, so there's nothing to reset. Refresh to see the current roster.",
-        });
-      } else {
+      try {
+        const r = await resetCrewMemberSelection({ showId, crewMemberId: crewId });
+        if (r.ok) {
+          onOutcome({ kind: "ok", message: `Reset ${name}. They'll pick again next visit.` });
+        } else if (r.code === "PICKER_CREW_MEMBER_NOT_FOUND") {
+          onOutcome({
+            kind: "error",
+            message:
+              "That crew member is no longer on the roster, so there's nothing to reset. Refresh to see the current roster.",
+          });
+        } else {
+          onOutcome({ kind: "error", message: "Couldn't reset the picker. Please try again." });
+        }
+      } catch {
+        // A thrown action (network death, server error boundary) must not
+        // strand the popover in resolving — settle through the generic banner.
         onOutcome({ kind: "error", message: "Couldn't reset the picker. Please try again." });
       }
       onOpenChange(false);
@@ -279,6 +290,7 @@ export function CrewRowActions({
         <div
           ref={confirmRef}
           role="group"
+          tabIndex={-1}
           aria-label="Confirm resetting this crew member's picker selection"
           data-testid={`crew-row-reset-confirm-${crewId}`}
           onKeyDown={onConfirmKeyDown}

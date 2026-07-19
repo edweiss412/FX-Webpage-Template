@@ -269,11 +269,15 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(go.textContent).toContain("Resetting…");
     expect(go.getAttribute("aria-busy")).toBe("true");
     expect((screen.getByTestId("crew-row-reset-cancel") as HTMLButtonElement).disabled).toBe(true);
-    // Close paths inert while resolving — Esc (also never bubbling to the
-    // shell's document listener), backdrop click, auto-revert timer:
+    // Resolving focus lands on the popover CONTAINER (buttons are disabled;
+    // focus on <body> would let Escape bypass onConfirmKeyDown entirely).
+    await vi.waitFor(() => expect(confirm(ID_A)).toHaveFocus());
+    // Close paths inert while resolving — Esc fired from the REAL focused
+    // element (also never bubbling to the shell's document listener),
+    // backdrop click, auto-revert timer:
     const docSpy = vi.fn();
     document.addEventListener("keydown", docSpy);
-    fireEvent.keyDown(confirm(ID_A)!, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     document.removeEventListener("keydown", docSpy);
     expect(confirm(ID_A)).toBeTruthy();
     expect(docSpy).not.toHaveBeenCalled();
@@ -315,6 +319,33 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
         /Couldn't reset the picker/,
       ),
     );
+  });
+  it("a THROWN action settles to the generic error banner (no stranded resolving popover)", async () => {
+    resetMock.mockRejectedValue(new Error("network death"));
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+    await vi.waitFor(() => expect(confirm(ID_A)).toBeNull());
+    expect(screen.getByTestId("crew-row-reset-error").textContent).toMatch(
+      /Couldn't reset the picker/,
+    );
+  });
+  it("error banner persists past the 5s success-dismiss window", async () => {
+    resetMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    vi.useFakeTimers();
+    try {
+      renderCrew();
+      openConfirm();
+      fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("crew-row-reset-error")).toBeTruthy();
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.getByTestId("crew-row-reset-error")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("success banner auto-dismisses after 5s (fake timers)", async () => {
     // Fake timers from the START so the banner's setTimeout lands on the fake
