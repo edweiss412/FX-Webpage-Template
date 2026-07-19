@@ -301,6 +301,38 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(urlParts(page).pathname).toBe("/admin");
   });
 
+  test("row-click open leaves NO stranded optimistic skeleton after the close commit (critique P0)", async ({
+    page,
+  }) => {
+    // The optimistic client skeleton is keyed off ShowsTable's pendingSlug; a
+    // stale pendingSlug would re-satisfy `committedShow !== pendingSlug` the
+    // moment close strips ?show and remount a permanent "loading" overlay
+    // OVER the dashboard. Deterministic pin: assert emptiness AFTER the close
+    // navigation commits (the racy window is exactly when the bug fires).
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize(POPUP);
+    await page.goto("/admin");
+    const trigger = page.locator(`[data-testid="shows-table-row-${show.slug}"]`);
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    await page.waitForLoadState("networkidle");
+
+    await trigger.click();
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    // Client copy handed off — exactly one frame once the loaded modal is up.
+    await expect(page.locator(MODAL_ANY)).toHaveCount(1);
+
+    await page.locator(CLOSE).click();
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    // Post-commit: still zero frames — no skeleton resurrection.
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0);
+  });
+
   test("browser Back closes the modal (route change unmount)", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize(POPUP);

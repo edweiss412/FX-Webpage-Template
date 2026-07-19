@@ -99,6 +99,49 @@ describe("ShowsTable optimistic open skeleton", () => {
     }
   });
 
+  it("REGRESSION (critique P0): skeleton must NOT reappear after the modal later closes", () => {
+    // open commit (?show=rpas) then close commit (params back to empty). A
+    // never-reset pendingSlug makes `committedShow !== pendingSlug` true again
+    // on close — the loading skeleton would permanently cover the dashboard.
+    mockSearchParams = new URLSearchParams();
+    const rows = [row({ slug: "rpas" })];
+    const view = render(<ShowsTable rows={rows} now={now} activeCount={1} overflowCount={0} />);
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    mockSearchParams = new URLSearchParams("show=rpas");
+    view.rerender(<ShowsTable rows={rows} now={now} activeCount={1} overflowCount={0} />);
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    // Close commits: show param stripped.
+    mockSearchParams = new URLSearchParams();
+    view.rerender(<ShowsTable rows={rows} now={now} activeCount={1} overflowCount={0} />);
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+  });
+
+  it("REGRESSION (critique P1): failed open (redirect strips ?show) clears the overlay on that commit", () => {
+    // Unknown/blocked slug: the loader redirects to bare /admin — the ?show
+    // value never commits, but the redirect commit still changes the params
+    // object. The overlay must clear instead of stranding a fake "loading".
+    mockSearchParams = new URLSearchParams();
+    const rows = [row({ slug: "rpas" })];
+    const view = render(<ShowsTable rows={rows} now={now} activeCount={1} overflowCount={0} />);
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+    // Redirect commit: params identity changes, show still absent.
+    mockSearchParams = new URLSearchParams();
+    view.rerender(<ShowsTable rows={rows} now={now} activeCount={1} overflowCount={0} />);
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+  });
+
+  it("critique P1: the optimistic skeleton is cancelable — scrim tap dismisses it", () => {
+    mockSearchParams = new URLSearchParams();
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("published-show-review-backdrop"));
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+  });
+
   it("popstate (browser Back cancels the in-flight open) clears the skeleton — no stuck overlay", () => {
     mockSearchParams = new URLSearchParams();
     render(

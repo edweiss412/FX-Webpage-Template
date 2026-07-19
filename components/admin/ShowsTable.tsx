@@ -313,8 +313,23 @@ export function ShowsTable({
       return;
     setPendingSlug(slug);
   };
-  // Browser Back can cancel the in-flight open without the `?show` param ever
-  // committing — clear the overlay on popstate so it can never strand.
+  // RESET, not just hide (critique P0/P1): any committed navigation swaps the
+  // searchParams object — clear the pending state then. Open commit (?show
+  // present) hands off to the server fallback; a loader redirect back to
+  // /admin (missing/blocked show) clears the overlay instead of stranding a
+  // fake "loading"; and a later CLOSE (show stripped) can never re-satisfy
+  // `committedShow !== pendingSlug` with a stale slug and remount the skeleton
+  // over the dashboard. During the in-flight window the params object is
+  // untouched, so the overlay stays up exactly until a commit lands.
+  // Render-time derive-from-props reset (the React-endorsed alternative to a
+  // setState-in-effect, which react-hooks/set-state-in-effect forbids).
+  const [seenParams, setSeenParams] = useState(searchParams);
+  if (seenParams !== searchParams) {
+    setSeenParams(searchParams);
+    if (pendingSlug !== null) setPendingSlug(null);
+  }
+  // Browser Back can cancel the in-flight open without ANY commit landing —
+  // clear the overlay on popstate so it can never strand.
   useEffect(() => {
     if (pendingSlug === null) return;
     const cancel = () => setPendingSlug(null);
@@ -644,8 +659,13 @@ export function ShowsTable({
       {/* Optimistic open: the identical skeleton frame the server Suspense
           fallback renders, mounted client-side the instant a primary row click
           starts the navigation. Hidden the moment `?show` commits — the server
-          fallback replaces it within the same render pass. */}
-      {showPendingSkeleton ? <ShowReviewModalSkeleton /> : null}
+          fallback replaces it within the same render pass. Unlike the server
+          fallback (RSC — can't serialize an onClose), the CLIENT copy is
+          cancelable: scrim / Esc / grab dismiss the overlay (critique P1), so
+          a mis-tap never traps the user behind a non-interactive frame. */}
+      {showPendingSkeleton ? (
+        <ShowReviewModalSkeleton onClose={() => setPendingSlug(null)} />
+      ) : null}
     </div>
   );
 }
