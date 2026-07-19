@@ -1,0 +1,130 @@
+name: Published show-modal e2e (desktop-chromium)
+# Runs the `/admin?show=<slug>` published review modal's real-browser specs
+# against a prod-build server (CI=true → `pnpm build && pnpm start`) and a
+# seeded local Supabase:
+#   - tests/e2e/published-review-modal.interactions.spec.ts (focus/close/drag/§6.5 transitions)
+#   - tests/e2e/published-review-modal.deeplink.spec.ts     (URL-driven open contract)
+#   - tests/e2e/published-review-modal.layout.spec.ts       (§6.6 dimensional invariants — standalone harness)
+#
+# Why this job exists: NO workflow ran these specs. `desktop-chromium` is invoked
+# only by step3-live-bundle.yml (its own spec) and admin-layout-e2e.yml (bell/nav
+# specs), so the published-modal gates have been dark since admin-show-modal
+# Task 12 — the same class step3-live-bundle.yml (#479) and admin-layout-e2e.yml
+# were created to close: a spec in a project no workflow runs is a spec that
+# silently rots. The layout spec was WORSE than dark — it matched NO project's
+# testMatch at all (resurrected in the same PR as this workflow). The #492
+# entrance-suppression fix shipped with dev-server-green + CI-green while its
+# CSS was inert on the deployed build; this job at least pins the PROD-BUILD
+# behavior of the modal (the deployed-artifact freshness check lives in
+# `pnpm validation:smoke`, a separate gate).
+#
+# What it protects: the shell focus trap + initial focus, every close affordance
+# (Esc / scrim / X / drag) stripping `show`+`alert_id` while preserving other
+# params, the §6.5 transition inventory (skeleton-owned entrance, in-place
+# loaded swap, exit animation, reduced-motion collapse), the optimistic-skeleton
+# reset contract, deep-link opens, and the §6.6 panel-column equations.
+#
+# Shape mirrors admin-layout-e2e.yml (native runner + chromium; rect/behavior
+# assertions, NOT pixel bytes, so the amd64 Docker raster pin used by
+# screenshots-drift.yml is not needed). BASELINE_SERVER_ONLY=1 boots ONLY the
+# :3000 webServer (playwright.config.ts filter) so the :3001-:3004 build-gate
+# servers don't cold-build. workflow_dispatch so close-out can fire it via
+# `gh workflow run` — real-CI-green is its own gate (the local-passes-CI-fails class).
+on:
+  pull_request:
+    paths:
+      - "components/admin/showpage/**"
+      - "components/admin/review/**"
+      - "components/admin/ShowsTable.tsx"
+      - "components/admin/useShowModalNav.ts"
+      - "app/admin/_showReviewModal.tsx"
+      - "app/admin/page.tsx"
+      - "app/globals.css"
+      - "lib/a11y/**"
+      - "tests/e2e/published-review-modal.interactions.spec.ts"
+      - "tests/e2e/published-review-modal.deeplink.spec.ts"
+      - "tests/e2e/published-review-modal.layout.spec.ts"
+      - "tests/e2e/_publishedReviewModalHarness.tsx"
+      - "tests/e2e/helpers/**"
+      - "playwright.config.ts"
+      - ".github/workflows/published-modal-e2e.yml"
+  workflow_dispatch:
+
+# Cancel a superseded run when the PR branch is re-pushed — this job boots
+# Supabase + seeds + Playwright, so a stale run holds a heavy runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  published-modal-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # The admin app (lib/supabase/server.ts / browser.ts default to "" and THROW
+      # if unset) + the test runner (signInAs → supabaseAdmin, the admin_alerts
+      # seeding, settleDashboardAdminState) + db:seed all need the local Supabase
+      # env. The :3000 webServer command sets only
+      # JWT/ADMIN_DEV/ENABLE_TEST_AUTH/TEST_AUTH_SECRET inline, so the Supabase +
+      # build env must be on the runner here (inherited by db:seed, the Playwright
+      # workers, AND the spawned :3000 build/start). Demo local keys mirror the
+      # :3004 webServer env block in playwright.config.ts.
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+      GOOGLE_SERVICE_ACCOUNT_JSON: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'
+      ENABLE_TEST_AUTH: "true"
+      # MUST match the :3000 webServer's inline TEST_AUTH_SECRET — signInAs sends
+      # this as Authorization: Bearer and the server compares against its own.
+      TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+      # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
+      BASELINE_SERVER_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned (NOT `latest`): `latest` resolves the newest release via the
+          # GitHub API, which rate-limits on shared runners and fails setup before
+          # the build. 2.107.0 is the version supabase-local-bootstrap.sh is known
+          # CI-passing on (see crew-e2e.yml).
+          version: 2.107.0
+      - name: Install psql (signInAs admin client + bootstrap shell out to psql)
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Seed the corpus
+        # The spec seeds its OWN shows + alerts, but /admin's dashboard branch
+        # (and therefore the nav bell) needs a settled app_settings row; the spec's
+        # beforeAll pins that via settleDashboardAdminState, and db:seed supplies
+        # the surrounding fixture corpus the dashboard renders around it.
+        run: pnpm db:seed
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit.
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run published-modal e2e (desktop-chromium, :3000 only)
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-modal-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
