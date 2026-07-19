@@ -453,10 +453,18 @@ strip's own root supplies the row:
 StatusStrip root: "flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
 ```
 
-`w-full` is the invariant that makes right-flush reachable (§8). Asserted by
-comparing the Copy button's right edge to the band's content-box right edge
-(§11, T-COPY-FLUSH) — an overflow-only check cannot catch this, because a
-shrink-wrapped strip overflows nothing.
+`w-full` on the strip root is **defensive, not load-bearing** — corrected during
+implementation (Task 3, 2026-07-19). Measured: T-COPY-FLUSH passes with `w-full`
+removed, because the band is a block-level NON-flex container (§6.1) and a
+block-level flex row already fills its parent's content width. The class is kept
+as a guard against someone later making the band a flex container again, which
+WOULD make the strip shrink-wrap.
+
+The assertion itself is real and worth keeping: `w-fit` on the strip root fails
+it by ~470px at 1280. Its pre-change red came entirely from the band not existing
+yet, not from a width bug. Asserted by comparing the Copy button's right edge to
+the band's content-box right edge (§11, T-COPY-FLUSH) — an overflow-only check
+cannot catch a shrink-wrapped strip, which overflows nothing.
 
 `relative` is **load-bearing, not decorative**: the band is the positioned
 ancestor for the publish toggle's popover AND the relocated Re-sync overlay
@@ -1372,7 +1380,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-TAP (real browser) | Sheet link, Re-sync trigger, AND both overlay dismiss controls (error + success): `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-CONTRAST (real browser, BOTH themes) | Assert ≥4.5:1 (WCAG 1.4.3) for the outline Copy LABEL and the ghost Re-sync LABEL. Assert NO border ratio — `border-border-strong` measures ~1.6:1 on band surface in both themes, so a 3:1 border rule is unsatisfiable with the mandated token (§7.1). **Sampling is specified** — §7.2 | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
-| T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
+| T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile. **Only the COMPILE clause is genuinely red** — the runtime clause is vacuously green pre-change, since no band exists either way (verified Task 1) | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |

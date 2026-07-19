@@ -208,3 +208,25 @@ Pre-loading the reviewer per AGENTS.md's disagreement-loop preempt rule. Each ca
 | T-SKELETON-BANDS | 9 | **Yes** — skeleton renders no `-subheader` band |
 | T-TOKENS / T-TRANSITIONS | 10 | Source scans over the finished diff — declared as close-out verification, not TDD |
 | T-COUNTS | 2, 3, 4, 5, 7, 8; re-verified 10 | **Yes at each** — the pin fails-by-default |
+
+
+---
+
+## Implementation findings (appended during Stage 3)
+
+Mismatches between this plan / the spec and the live code, found while executing
+and reported rather than routed around.
+
+| # | Task | Finding | Disposition |
+| --- | --- | --- | --- |
+| M1 | 3 | The plan (00-overview:118, Task 3 Step 4) called `w-full` on the strip root "the invariant that makes right-flush reachable". It is not — T-COPY-FLUSH passes with `w-full` removed, because the band is a block-level non-flex container and a block-level flex row already fills it. | Kept `w-full` as a defensive guard (it matters if the band ever becomes flex again), corrected the source comment and spec §6.1. The assertion is still real: `w-fit` fails it by ~470px at 1280. |
+| M2 | 1 | T-SUBHEADER-FALSEY was marked "genuinely red". Its RUNTIME clause is vacuously green pre-change — no band exists either way. Only the compile clause is red. | Declared in the commit body and spec §11. Not a fake red phase; the test still earns its place via the type check. |
+| M3 | 3 | `_publishedReviewModalHarness.tsx` justified `initialToken: null` on the grounds that `resolveOrigin` "reads window". It does not — it is env-only. | Flipped the token; without it T-COPY-FLUSH would have been silently vacuous (no Copy button to flush). |
+
+**Environmental notes (not defects in this diff):**
+- `tests/db/advisory-lock.test.ts` intermittently fails with `deadlock detected`
+  when a sibling worktree shares the local Postgres. Passes in isolation; no DB
+  code in this diff.
+- `tests/e2e/step3-review-modal.layout.spec.ts` needs an ambient
+  `HASH_FOR_LOG_PEPPER` — pre-existing; unlike its sibling it never sets one for
+  the harness subprocess.
