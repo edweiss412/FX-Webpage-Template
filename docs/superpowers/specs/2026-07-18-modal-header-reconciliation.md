@@ -326,6 +326,29 @@ three rows are asserted:
 The archived row is the strongest of the three: it is the only state that proves
 the assertion is measuring rather than matching a hardcoded expectation.
 
+**How the test DISCOVERS accent-resolving elements (executable definition).** A
+class allowlist is what failed the first time — `bg-status-live` was invisible to
+a `bg-accent` scan despite resolving to the same hue. So discovery is by
+COMPUTED COLOR, not by class name:
+
+1. Resolve the accent reference once: `getComputedStyle(document.documentElement)
+   .getPropertyValue("--color-accent")`, normalized to `rgb()`.
+2. Walk every element within the header region (header band + subheader band).
+3. An element is "accent-resolving" if its computed `backgroundColor` **or**
+   `borderColor` equals that reference. Compare resolved `rgb()` values, never
+   class strings — that is what makes a future token alias fail the test instead
+   of slipping through.
+4. **Exclude transient state styles**: run the probe with nothing focused and no
+   pointer over the region, so `focus-visible` rings and `:hover` treatments —
+   which are legitimately accent-colored and not persistent orange — are out of
+   scope. `color` (text) is likewise out of scope; this rule is about orange
+   FILLS and BORDERS.
+5. Assert the resulting set matches the §4.2 table for the fixture's state.
+
+This is deliberately stricter than "grep the classes": it catches a new token
+alias, a raw hex, and an inline style equally, because it asks what the browser
+actually painted.
+
 ### 4.3 RATIFIED AMENDMENT — resync moves to the strip
 
 The consolidated-admin-show-page spec §4 (quoted verbatim in
@@ -543,13 +566,30 @@ gap-y-0.5 text-sm text-text-subtle`, `data-testid={`${TESTID_BASE}-subline`}`:
 This mirrors `Step3ReviewModal.tsx:388-403` exactly, including the
 "Dates not detected" fallback string.
 
-**Import placement.** `dateSummarySegments` currently lives in
-`components/admin/wizard/step3ReviewSections.tsx:261`. Importing wizard code from
-`components/admin/showpage/` crosses domains. **Resolution:** move the helper to
-`components/admin/review/` (the existing shared-between-both-modals directory,
-alongside `sectionData.ts` and `publishedAdapter.ts`) and re-export or update both
-call sites. Pure move, no behavior change; `Step3SheetCard.tsx:53` and
-`Step3ReviewModal.tsx:46` update their import paths.
+**Import placement — DO NOT move the helper.** An earlier draft instructed
+moving `dateSummarySegments` to `components/admin/review/` on the theory that
+importing wizard code from `components/admin/showpage/` crosses domains. **That
+premise is false and the move is cancelled.** Verified:
+
+- `PublishedReviewModal.tsx:41` **already** imports `RawUnrecognizedCallout` from
+  `@/components/admin/wizard/step3ReviewSections`. The cross-domain import is
+  established, not new.
+- `components/admin/review/ShowReviewSurface.tsx`, `review/sectionInclusion.ts`,
+  and `showpage/sectionWarningExtras.tsx` import from it too. This module is
+  already the shared review-helper home in practice.
+
+Moving it would also have been more invasive than the draft implied:
+`dateSummarySegments` depends on `arr` (local, used 10× by siblings in that same
+file, `step3ReviewSections.tsx:248`) and on `humanizeDate`/`humanizeDayRange`
+from `@/lib/dates/humanize` (`:109`). A partial move either drags `arr` away from
+its ten other callers or re-imports it backwards into `review/` — manufacturing
+the very cross-domain dependency the move was supposed to remove.
+
+**Therefore:** add `dateSummarySegments` to the existing import at
+`PublishedReviewModal.tsx:41`. Nothing moves, `Step3SheetCard` and
+`Step3ReviewModal` are untouched, and one helper has one definition. If the
+shared-helper location is ever worth rationalizing, that is its own change with
+its own blast radius — not a rider on a header reconciliation.
 
 ### 6.4 Copy button — third variant
 
@@ -1270,8 +1310,16 @@ requirement is focus reachability, not motion. Asserted as T-OVERLAY (§11).
   (`initialFocusRef={closeRef}`, `PublishedReviewModal.tsx:243`). Re-sync sits
   between the toggle and copy, matching its DOM order in the strip (§4.6) — DOM
   order IS tab order here; no `tabindex` juggling.
-- When the Re-sync overlay is open, its contents follow the trigger in tab order
-  — Re-sync → "Keep current version" → "Apply reduced version" → Copy. This is
+- When a Re-sync overlay is open, its contents follow the trigger in tab order.
+  All three branches, explicitly:
+  - **shrink confirm:** Re-sync → "Keep current version" → "Apply reduced version" → Copy
+  - **error:** Re-sync → "Dismiss sync error" → Copy
+  - **success:** Re-sync → "Dismiss sync result" → Copy
+
+  In every case the overlay's controls sit BETWEEN Re-sync and Copy — never after
+  Copy, and never portalled elsewhere. A dismiss button reachable by query but
+  sitting after Copy in tab order satisfies a click-based test while breaking the
+  proximity contract. This is
   intended, not incidental: the confirm's controls must stay adjacent to the
   trigger that produced them. The steady-state order above therefore describes
   the overlay-CLOSED case only, and T-RESYNC-FOCUS-ORDER asserts both states
@@ -1318,7 +1366,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND — assert GEOMETRY, not `offsetParent`: each overlay's left/right edges match the band's within 1px and its top matches the band's bottom within 1px. Neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel. `offsetParent` is deliberately NOT the assertion — it is sensitive to transforms, hidden states and browser detail, so it false-reds on correct placement and couples the test to layout internals instead of the user-visible result |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
-| T-RESYNC-FOCUS-ORDER | **Overlay-CLOSED steady state:** sheet link → alert pill → close → toggle → Re-sync → copy. **Overlay-OPEN (shrink confirm):** … → Re-sync → Keep current version → Apply reduced version → copy — the confirm's controls sit DOM-adjacent to their trigger, which is the intent | Re-sync lands after Copy or is skipped; and an unscoped order test that runs with an overlay open, fails, and gets "fixed" by hoisting the overlay after Copy — destroying the confirm's focus proximity to its trigger |
+| T-RESYNC-FOCUS-ORDER | **Overlay-CLOSED steady state:** sheet link → alert pill → close → toggle → Re-sync → copy. **Overlay-OPEN, all three branches:** shrink → Re-sync → Keep current version → Apply reduced version → copy; error → Re-sync → Dismiss sync error → copy; success → Re-sync → Dismiss sync result → copy. Overlay controls always sit BETWEEN Re-sync and Copy | Re-sync lands after Copy or is skipped; an unscoped order test that runs with an overlay open, fails, and gets "fixed" by hoisting the overlay after Copy — destroying focus proximity; and a success/error dismiss appended after Copy, which a click-by-query test would never notice |
 | T-COPY-FLUSH (real browser) | Copy button's right edge == band content-box right edge (±1px) | Strip shrink-wraps as a flex item, so `ml-auto` flushes to the strip's edge, not the band's — invisible to overflow-based checks |
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Sheet link, Re-sync trigger, AND both overlay dismiss controls (error + success): `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
@@ -1395,7 +1443,19 @@ the first step of the shell task:
 2. Commit it in the SAME task that adds the `subHeader` slot, so the PR diff
    shows the baseline arriving unmodified alongside the shell change.
 3. The test renders Step 3 from that same fixture and compares against the
-   committed file's contents.
+   committed file's contents — **after normalizing React-generated ids on BOTH
+   sides**.
+
+**Id normalization is mandatory.** The Step 3 header contains `useId()` output
+(`h2Id`, wired to `id` and the shell's `aria-labelledby`). `useId` values depend
+on render-tree position and React internals, so adding the shell's `subHeader`
+branch can perturb them while the header is visually identical. Without
+normalization the fixture false-reds for a reason unrelated to the contract, and
+the reflex is to weaken or delete the invariant — the exact outcome §11.2 exists
+to prevent. Replace React id patterns (e.g. `:r0:`-style tokens, and any
+`id`/`for`/`aria-labelledby`/`aria-describedby` values containing them) with a
+stable placeholder before comparing, in both the generator and the test, so the
+committed fixture is id-free.
 
 **How this satisfies TDD-per-task (AGENTS.md invariant 1).** A golden-master
 capture is not a failing test — captured from the current tree it passes the
