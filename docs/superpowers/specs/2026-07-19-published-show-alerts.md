@@ -29,7 +29,7 @@ No new mutation surfaces, no DB changes, no advisory-lock code paths. Resolve = 
 
 | Source | Where fetched today | Shape |
 | --- | --- | --- |
-| Per-show alerts | loader wave `app/admin/_showReviewModal.tsx:238` (`fetchPerShowAlerts(showId)`) | `AdminAlertRow[]` (`components/admin/PerShowAlertSection.tsx:51-71`): `id, code, context, raised_at, occurrence_count, identityText, messageParams` — identity already resolved server-side, HEALTH codes excluded (`:165-167`) | 
+| Per-show alerts | loader wave `app/admin/_showReviewModal.tsx:238` (`fetchPerShowAlerts(showId)`) | `AdminAlertRow[]` (`components/admin/PerShowAlertSection.tsx:51-71`): `id, code, context, raised_at, occurrence_count, identityText, messageParams` — identity already resolved server-side, HEALTH codes excluded (`:165-167`). Extended by this spec with `crewName` (§3.1a). | 
 | Pending MI-11 holds | loader wave `app/admin/_showReviewModal.tsx:234` (`readShowChangeFeed(showId)` → `feed` prop) | Feed entries with `status: "pending"`, `action: "approve_reject"`, a `gate` payload (holdId, disposition, baseModifiedTime) — `lib/sync/feed/readShowChangeFeed.ts:286-310`; pending summary copy from `mi11_pending_*` catalog codes (`:124-169`) |
 
 Alert actionability classification (same rules `PerShowAlertSection` renders today, `:423-446`):
@@ -58,6 +58,10 @@ export type AttentionAlertPayload = {
   occurrenceCount: number;
   /** Auto-clear note for non-actionable alerts (inbox-routed copy or autoResolveNote), null for actionable ones. */
   autoClearNote: string | null;
+  /** TILE_PROJECTION_FETCH_FAILED failed-sources detail (PerShowAlertSection.tsx:318-324 rule), else null. */
+  failedKeys: string[] | null;
+  /** SHOW_FIRST_PUBLISHED data-gaps digest (readDataGapsDigest rule, PerShowAlertSection.tsx:85-103,328-329), else null. */
+  dataGaps: DataGapsSummary | null;
 };
 
 export type AttentionItem = {
@@ -74,14 +78,23 @@ export type AttentionItem = {
 };
 
 export function deriveAttentionItems(args: {
-  alerts: AdminAlertRow[];             // fetchPerShowAlerts success value
+  alerts: AdminAlertRow[];             // fetchPerShowAlerts success value (extended with crewName, §3.1a)
   feed: ShowChangeFeed | null;         // loader's feed (null on degraded read)
+  slug: string;                        // resolveAlertAction requires { slug } (lib/adminAlerts/alertActions.ts:131-138); the loader has it (app/admin/_showReviewModal.tsx:85)
 }): AttentionItem[];
 ```
 
+### 3.1a `AdminAlertRow.crewName` (fetch extension)
+
+`fetchPerShowAlerts` today flattens the resolved identity to `identityText` and discards the structured segments (`components/admin/PerShowAlertSection.tsx:235-240` — the `identities` map is in scope and dropped). It gains one field: `crewName: string | null` — the single resolvable crew display name for this alert, else null. Population rule, applied where the map is already in hand:
+
+- `ROLE_FLAGS_NOTICE`: `context.role_change_crew_names` is a capped multi-name array (`lib/adminAlerts/alertIdentityMap.ts:142-153`) — `crewName` = the sole entry when the array has exactly one valid string, else null.
+- Any other code whose resolved identity yields exactly one crew-kind segment value (e.g. `OAUTH_IDENTITY_CLAIMED`'s `crewName` segment, `alertIdentityMap.ts:69-76`) → that value.
+- Everything else (no crew segment, multi-name, degraded resolve) → null. Definite field (exactOptionalPropertyTypes), never optional-undefined.
+
 Derivation rules:
 
-- **Alerts** → one item each. `tone`: `"critical"` iff the cataloged severity is `"error"` (via `isMessageCode`/`messageFor`, the `lib/admin/bellTriage.ts:21-25` idiom), else `"notice"`. `menuTitle` = catalog `title` (required for every admin-alert code per the 2026-07-18 alert-copy sweep) or the generic fallback line for uncataloged codes. `menuSubtitle` = `identityText` (nullable). `actionable` per §2. `sectionId`/`crewKey` per §4.
+- **Alerts** → one item each. `tone: "notice"` — always. (`MessageCatalogEntry.severity` is only `"info" | "warning"` (`lib/messages/catalog.ts:3`); there is no error tier to map, and the bell's `rowTone` reserves `critical` for degraded health codes (`lib/admin/bellTriage.ts:21-25`), which are excluded from the per-show fetch. The mock's red row is the hold, not an alert.) `menuTitle` = catalog `title` or the generic fallback line for uncataloged codes. `menuSubtitle` = `identityText` (nullable). `actionable` per §2. `sectionId`/`crewKey` per §4.
 - **Holds** → one item per pending `approve_reject` feed entry. `tone: "critical"`. `menuTitle` = the entry's already-rendered pending summary (the `mi11_pending_*` copy the feed fills at `readShowChangeFeed.ts:124-169`); `menuSubtitle: "Pick what happens in Changes"`. `sectionId: "changes"`, `crewKey: null` (holds render in Changes, not under crew rows — §1.1). `id` = `hold:<holdId>` from the entry's gate payload.
 - **Ordering**: actionable before auto-clearing; within each, `critical` before `notice` (`TIER_ORDER` idiom, `bellTriage.ts:28`); within a tier, alerts by `raised_at` DESC (already the fetch order), holds after alerts in feed order.
 - Pure function: no I/O, no Date.now (relative times render client-side from `raisedAt` + the loader's `now`).
@@ -99,12 +112,12 @@ Derivation runs **in the server loader** (`_showReviewModal.tsx`), after the exi
 
 | Route | Codes | Rationale |
 | --- | --- | --- |
-| `crew` + crewKey from resolved identity | `AMBIGUOUS_EMAIL_BINDING`, `ROLE_FLAGS_NOTICE`, `OAUTH_IDENTITY_CLAIMED` | crew-identity codes (`ALERT_IDENTITY_MAP`, `lib/adminAlerts/alertIdentityMap.ts:58`) |
+| `crew` (crewKey from `AdminAlertRow.crewName`, §3.1a — null → section-top) | `ROLE_FLAGS_NOTICE`, `AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED` | crew-domain codes. Note the identity shapes differ (`ALERT_IDENTITY_MAP`, `lib/adminAlerts/alertIdentityMap.ts:58`): `AMBIGUOUS_EMAIL_BINDING` has NO crew segment (Show · email · count, `:60-67`) → always section-top; `ROLE_FLAGS_NOTICE` is multi-name-capped (`:142-153`) → under-row only when exactly one name (§3.1a); `OAUTH_IDENTITY_CLAIMED` has a single crew segment (`:69-76`) → under-row when it resolves. |
 | `overview` | every other code in the union (share/publish/picker codes, sync/sheet codes, resync codes, asset/reel codes, snapshot/tile/watch/webhook codes, wizard-race code) | Overview owns the sheet/sync cluster, Re-sync, share & access, and lifecycle controls — the closest actionable home (`RESYNC_SHRINK_HELD` precedent: `alertActions.ts:106-117`) |
 
 Rows are per-code in the module (not a wildcard) so future codes route deliberately. Global codes (`show_id IS NULL` producers such as `BRANCH_PROTECTION_*`) never appear in a per-show fetch but still carry rows (harmless totality).
 
-`crewKey` = the resolved crew segment's display name from the alert's identity (the same resolution `fetchPerShowAlerts` already performs), canonicalized `trim().toLowerCase()`. Matching against roster rows uses the same canonicalization of `CrewMemberRow.name` (`CrewBreakdown`, `components/admin/wizard/step3ReviewSections.tsx:1233`). First match wins (duplicate names share the first row); no match → `crewKey` kept but banner falls back to section-top (§5.4 guard).
+`crewKey` = `crewName` canonicalized `trim().toLowerCase()`. Matching against roster rows uses the same canonicalization of `CrewMemberRow.name` (`CrewBreakdown`, `components/admin/wizard/step3ReviewSections.tsx:1233`). Under-row placement targets only the RENDERED rows — `CrewBreakdown` slices to `CREW_CAP` (30) (`step3ReviewSections.tsx:145,1245`); a match at index ≥ `CREW_CAP` behaves as no-match. First match wins (duplicate names share the first row); no match → banner falls back to section-top (§5.4 guard).
 
 ## 5. Surfaces
 
@@ -131,14 +144,14 @@ Count guard: derived from array length; the `Number.isInteger` guard is kept (ex
 - Row click: close menu → `jumpToAttention(item.id)` (§6.2).
 - Footer (only when `clearingCount > 0`): hollow teal ring dot + `"N more clearing on their own — no action needed"` (`text-xs text-text-subtle`). Not a button.
 - List scrolls internally past 8 rows: `max-h-96 overflow-y-auto` on the row list (cap behavior — the footer and header stay pinned).
-- A11y: disclosure pattern, NOT `role="menu"` (rows are plain buttons; no arrow-key contract). Panel labelled by the eyebrow. Esc closes and returns focus to the pill; click-outside closes; focus is not trapped. Tab order: pill → rows → footer text is skipped (non-interactive).
+- A11y: disclosure pattern, NOT `role="menu"` (rows are plain buttons; no arrow-key contract). Panel labelled by the eyebrow. Esc closes ONLY the menu (focus returns to the pill) — `ReviewModalShell` closes the whole dialog on a document-level bubble-phase Escape listener (`components/admin/review/ReviewModalShell.tsx:238-250`), so while the menu is open it registers its own document-level CAPTURE-phase keydown that handles Escape with `preventDefault()` + `stopPropagation()` (capture at `document` runs before the shell's bubble listener on the same node, and stopping propagation in the capture phase prevents the bubble-phase dispatch); a second Esc (menu now closed, listener removed) closes the modal. Tested explicitly (§12 real-browser: Esc-with-menu-open keeps the dialog mounted). Click-outside closes; focus is not trapped. Tab order: pill → rows; footer text is non-interactive.
 - Auto-open (user requirement): opens once per modal mount when `actionableCount > 0`, via a ref guard (the `refreshFiredRef` idiom, `PublishedReviewModal.tsx:144-149`). Suppressed when an `alertId` deep link is present (§6.4) — the deep link's scroll wins; the pill still shows the count.
 
 ### 5.3 Nav propagation
 
-- `attentionSections: ReadonlySet<string>` = sections (registry ids only) holding ≥1 **actionable** item. `ShowReviewSurface` accepts it as a new optional prop; `dotClass`/`dotStatusText` (`ShowReviewSurface.tsx:244-257`) OR it in: `review = flagged || hasAttention`. Absent prop → identical behavior (staged wizard untouched — mode boundary).
+- `attentionSections: ReadonlySet<string>` = sections (registry ids only) holding ≥1 **actionable** item. `ShowReviewSurface` accepts it as a new optional prop; `dotClass`/`dotStatusText` (`components/admin/review/ShowReviewSurface.tsx:244-257`) OR it in: `review = flagged || hasAttention`. Absent prop → identical behavior (staged wizard untouched — mode boundary).
 - Overview rail badge (`PublishedReviewModal.tsx:207-227`): count = actionable items routed to `overview` (replaces the old all-alerts `alertCount`); same badge DOM/token idiom, sr-only unit line preserved.
-- Changes rail badge: NEW `railBadge` on the Changes extra (`ExtraSection.railBadge`, `ShowReviewSurface.tsx:132`) with the pending-hold count, same idiom. Zero → no badge (existing conditional-spread pattern).
+- Changes rail badge: NEW `railBadge` on the Changes extra (`ExtraSection.railBadge`, `components/admin/review/ShowReviewSurface.tsx:132`) with the pending-hold count, same idiom. Zero → no badge (existing conditional-spread pattern).
 
 ### 5.4 Inline banners (new client component `components/admin/review/AttentionBanner.tsx`)
 
@@ -150,14 +163,14 @@ Placement:
 - `sectionId: "crew"` without a roster match: top of the Crew section panel (above the list).
 - `sectionId: "overview"` (and any other registry route): top of that section's panel. Overview banners mount inside `OverviewSection` above the archive row; other registry sections mount via the existing `renderSectionExtras` hook position semantics (plan decides exact slot per section — top-of-panel, before content).
 - Banner DOM: wrapper `data-attention-anchor="<item.id>"`; `aria-current="true"` when it is the deep-link target (§6.4). Left rail 3px tone stripe (bell severity-rail exception, DESIGN.md §323 precedent): `border-l-[3px]` amber (`status-review`) for notice / degraded-red for critical, `bg-warning-bg` wash, `rounded-sm`.
-- Banner content (alert payload): emphasis-rendered body — `renderCatalogEmphasis(template, params)` (`components/messages/renderEmphasis.tsx`) with the `template === null` fallback line "Something needs your attention on this show." (exact `PerShowAlertSection.tsx:341-345` behavior); then the per-code action link (`action`, external marker `↗`), the quiet "Learn more" help link (`helpHref`), identity sub-line (same suppression rule: hidden when `INLINE_IDENTITY_CODES.has(code) && template !== null`, `PerShowAlertSection.tsx:408-416` — and always hidden under a crew row, where the row IS the identity), relative "Raised …" timestamp, and:
+- Banner content (alert payload): emphasis-rendered body — `renderCatalogEmphasis(template, params)` (`components/messages/renderEmphasis.tsx:75`) with the `template === null` fallback line "Something needs your attention on this show." (exact `PerShowAlertSection.tsx:341-345` behavior); then the per-code action link (`action`, external marker `↗`), the quiet "Learn more" help link (`helpHref`), the `failedKeys` "Failed sources: …" detail line and the `dataGaps` "Data dropped while parsing: …" digest line (behavior parity with `PerShowAlertSection.tsx:378-397` — same formatters, same null-hides), identity sub-line (same suppression rule: hidden when `INLINE_IDENTITY_CODES.has(code) && template !== null`, `PerShowAlertSection.tsx:408-416` — and always hidden under a crew row, where the row IS the identity), relative "Raised …" timestamp, and:
   - actionable → the resolve button (§6.3);
   - auto-clearing → `autoClearNote` line, no button (`:423-443` parity).
 - Confirmed state: after a successful resolve the banner body swaps in place to a single `✓ Confirmed` line (teal, `status-positive`); the wrapper and anchor stay mounted until `router.refresh()` reconciles (§6.3).
 
 ### 5.5 Changes entries (holds)
 
-`ChangeFeedEntry` rows for pending holds gain `data-attention-anchor="hold:<holdId>"` (attribute only — no id, twin-nav rule `ShowReviewSurface.tsx:342`). Approve/reject controls unchanged.
+`ChangeFeedEntry` rows for pending holds gain `data-attention-anchor="hold:<holdId>"` (attribute only — no id, twin-nav rule `components/admin/review/ShowReviewSurface.tsx:342`). Approve/reject controls unchanged.
 
 ## 6. Interactions
 
@@ -200,7 +213,7 @@ Loader keeps passing `alertId` (`_showReviewModal.tsx:85,400`). The modal maps i
 | `feed` null | hold items absent; alerts unaffected (§3.2) |
 | alerts infra_error | `alertsDegraded` pill state + Overview notice card (§3.2) |
 | `alertId` with no matching item | `#overview` fallback scroll, no flash |
-| roster over `CREW_ROSTER_READ_CAP` | crew section still renders rows (`_showReviewModal.tsx:305-320`), so under-row placement is unaffected |
+| crew match beyond the rendered slice | `CrewBreakdown` renders `members.slice(0, CREW_CAP)` (30, `step3ReviewSections.tsx:145,1245`) — a matching member at index ≥ cap behaves as no-match → section-top banner. (`CREW_ROSTER_READ_CAP` blanking at `_showReviewModal.tsx:305-320` affects Preview-As/email affordances only, not row rendering.) |
 | archived show | banners render read-only reality: resolve route is not lifecycle-gated (alerts remain resolvable); holds already render read-only per ChangesSection's archived handling (plan verifies exact behavior and pins it) |
 
 ## 8. Mode boundaries
@@ -227,7 +240,7 @@ Compound transitions:
 | Compound | Behavior |
 | --- | --- |
 | Resolve while menu open | row vanishes instantly; last actionable row resolved → menu closes itself, pill flips A→B/C |
-| Menu row click during an in-flight glide | `beginSuppressedScroll` replaces the target (documented no-queue contract, `ShowReviewSurface.tsx:277-292`) |
+| Menu row click during an in-flight glide | `beginSuppressedScroll` replaces the target (documented no-queue contract, `components/admin/review/ShowReviewSurface.tsx:277-292`) |
 | Resolve while its banner is mid-flash | Confirmed swap keeps the wrapper (anchor + flash attribute holder) mounted; flash timer completes or is cleared by the next jump — no orphaned timer (existing `clearWarningHighlight` single-highlight rule) |
 | Deep link + auto-open on the same mount | auto-open suppressed; deep-link jump fires |
 | refresh reconcile while menu open | menu re-renders from fresh items; open state persists unless actionable count hits 0 (then closes) |
