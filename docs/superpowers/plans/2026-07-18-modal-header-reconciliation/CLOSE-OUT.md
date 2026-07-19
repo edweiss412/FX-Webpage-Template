@@ -99,3 +99,27 @@ The remaining ~15 standalone specs are dark for the same pre-existing reason and
 ## §10 Declared non-red assertions
 
 Per the plan's honest-declaration table (precedent: spec §11.2's baseline table): **T-STEP3-INVARIANT** (regression guard by construction), **T-TAP sheet-link clause** (already `size-tap-min`, ratified unchanged), **T-COPY-ACCENT-UNCHANGED** (invariance guard on the shared accent arm), and **T-STATUS-ERROR-BUCKET** (bucket behavior pre-exists; its red comes from the shared single-row structural clause).
+
+## §11 Stage 4 — cross-model adversarial review (Codex, round 1)
+
+**`VERDICT: APPROVE`** with two advisory findings. Both triaged below; advisory items are compatible with APPROVE, and no round 2 was required.
+
+### MEDIUM — "Re-sync overlay can stale-cover unrelated modal content" — PARTLY REFUTED, remainder is ratified design
+
+The finding has two halves.
+
+**Cross-show half — refuted with evidence.** Codex reasoned that navigating to another `show` while the shell stays mounted would leave a stale success overlay attached to the new control band. It cannot: `app/admin/_showReviewModal.tsx:368` puts `key={showId}` on the `ShareTokenProvider` that wraps `<PublishedReviewModal>`, so the entire subtree — `ReSyncButton` included — remounts on a show change and `successMessage` resets to `null`. This is exactly the class of claim that looks right from a diff alone and is wrong against the mount tree, which is why it was checked rather than accepted.
+
+**Within-show half — accurate, and intentional.** After a publish toggle or copy interaction the success overlay does persist. That is the ratified contract, not an oversight: nothing self-clears (`successMessage` is set on success and cleared only at the start of the next `post()`; there is no timer, and `router.refresh()` refreshes server data without touching local state), which is precisely *why* Task 7 Step 6 added explicit dismiss controls with branch-specific names. The overlay is height-capped (`max-h-[min(50vh,20rem)]` + `overflow-y-auto`) so it cannot grow to swallow the body, and `Esc` is deliberately not the mechanism because the shell binds it to closing the whole modal.
+
+**Disposition:** no change. Half refuted, half ratified.
+
+### LOW — "Alert pill accessible count is ambiguous past the cap" — ACCEPTED AS DESIGNED
+
+At `alertCount > 99` the accessible name is `"99+ alerts (1200 open alerts)"`. Codex reads the two counts as ambiguous. The pairing is deliberate: the visible pill stays capped so the header cannot be pushed around by a four-digit count, while assistive tech still gets the exact number, which is the actionable figure. The construction is also load-bearing in a subtler way — the separator is its OWN visible text node because a leading space *inside* the `sr-only` span is trimmed during accessible-name computation, which would yield `"99+ alerts(1200 open alerts)"`. That is a previously-shipped bug class on this project (memory `#470`), and the current shape is the fix for it.
+
+**Disposition:** no change. Recorded so a future reviewer does not re-derive it.
+
+### Review mechanics
+
+The companion app-server is blocked on this repo and a foreground `codex exec` is refused by a local guard, so the review ran backgrounded with the prompt passed as an argument and `< /dev/null` closing stdin (a documented hang otherwise). `~/.codex/models_cache.json` was cleared first to pre-empt the TTL wedge. Packet: 74KB of production-source diff with the test diff as `--stat` only, tools explicitly forbidden — past runs with tools enabled died mid-exploration returning zero findings.
