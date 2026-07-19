@@ -16,7 +16,7 @@
  * boundary cases are cheap to state.
  */
 import { describe, it, expect } from "vitest";
-import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
+import { computeFittedMaxHeight, MIN_FITTED_HEIGHT } from "@/lib/layout/fitWithinClip";
 
 describe("computeFittedMaxHeight", () => {
   const CAP = 320; // the CSS cap: min(50vh, 20rem) at a tall viewport
@@ -36,6 +36,17 @@ describe("computeFittedMaxHeight", () => {
   it("keeps a gutter so the overlay never sits flush against the clip edge", () => {
     expect(computeFittedMaxHeight({ elementTop: 0, clipBottom: 100, cap: CAP, gutter: 12 })).toBe(
       88,
+    );
+  });
+
+  it("documents that the floor OUTRANKS the available room", () => {
+    // Deliberate, and the one case where the returned height does not fit: at
+    // 20px of room the overlay overhangs the clip by 28px rather than
+    // collapsing to an unusable sliver. Pinned so the trade-off cannot be
+    // changed silently — if a surface ever lands here, the fix is to move the
+    // anchor, not to lower the floor.
+    expect(computeFittedMaxHeight({ elementTop: 647, clipBottom: 667, cap: CAP })).toBe(
+      MIN_FITTED_HEIGHT,
     );
   });
 

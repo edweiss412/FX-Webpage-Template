@@ -204,6 +204,12 @@ async function pixelAt(page: Page, [x, y]: [number, number]): Promise<[number, n
   return [data[0]!, data[1]!, data[2]!];
 }
 
+/** Parses a computed `rgb(r, g, b)` / `rgba(...)` string into `[r, g, b]`. */
+function parseRgb(value: string): [number, number, number] | null {
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value);
+  return m === null ? null : [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
 /** Exact-equal RGB. Every probe sits on flat fill, never on an antialiased edge. */
 function rgbEq(a: [number, number, number], b: [number, number, number]): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
@@ -390,9 +396,15 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     //
     // The probe offset is derived from the panel's own computed radius, never
     // hardcoded: a point at (left+d, top+d) lies outside a quarter-circle of
-    // radius r whenever d < r·(1 − 1/√2) ≈ 0.293r. `d = r/4` sits inside that
-    // bound for every radius the token scale can produce, and the assertion
-    // self-disables (fails loud) if the panel's radius is 0.
+    // radius r whenever d < r·(1 − 1/√2) ≈ 0.293r.
+    //
+    // `d = r/8`, NOT `r/4`. The sampled pixel's CENTRE is what gets rasterized,
+    // so the effective offset is d + 0.5, and at r = 12 `r/4` gives 3.5px
+    // against a 3.515px bound — a 0.015px margin that a fractional panel top
+    // (121.8125 at 375×812) pushes to the wrong side of the arc entirely. It
+    // passed only because Blink's antialiasing left that pixel at 227-229
+    // rather than the band's 255; a CI rasterizer that rounds it to full
+    // coverage would fail deterministically. `r/8` gives ~2.85px of margin.
     //
     // Sheet mode (<sm) clips only the TOP corners — the panel is flush to the
     // viewport bottom (`rounded-t-md`), so bottom probes are meaningless there.
@@ -405,7 +417,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         const panel = el as HTMLElement;
         const rect = panel.getBoundingClientRect();
         const radius = parseFloat(getComputedStyle(panel).borderTopLeftRadius);
-        const d = radius / 4;
+        const d = radius / 8;
         const corners: Record<string, [number, number]> = {
           "top-left": [rect.left + d, rect.top + d],
           "top-right": [rect.right - d - 1, rect.top + d],
@@ -418,11 +430,19 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           radius,
           d,
           corners,
-          // Reference A: a point deep inside the top band — whatever opaque
-          // colour the band paints. Reference B: a point outside the panel
-          // entirely — the scrim over the page background.
-          band: [rect.left + rect.width / 2, rect.top + radius * 2] as [number, number],
-          outside: [Math.max(0, rect.left - 8), rect.top + rect.height / 2] as [number, number],
+          // The band reference is the header's DECLARED fill, not a pixel
+          // sampled at a guessed coordinate. A positional sample is wrong two
+          // ways: in sheet mode `top + 2r` lands in the transparent grab strip
+          // rather than the header, and any future element at that coordinate
+          // would silently redirect every corner comparison below to some
+          // other colour.
+          bandDeclared: getComputedStyle(panel.querySelector('[data-testid$="-header"]')!)
+            .backgroundColor,
+          // ABOVE the panel, not beside it: in sheet mode the panel is
+          // full-bleed, so `rect.left - 8` clamps to x=0 — inside the panel —
+          // and the band-vs-scrim discriminating-power guard below goes
+          // vacuous at exactly the viewport it matters most.
+          outside: [rect.left + rect.width / 2, Math.max(0, rect.top - 8)] as [number, number],
         };
       }, isSheet);
 
@@ -430,12 +450,13 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // that is CORRECTLY painted, and the test would police nothing.
       expect(geom.radius, `panel has a real corner radius @ ${mode}`).toBeGreaterThan(0);
 
-      const band = await pixelAt(page, geom.band);
+      const band = parseRgb(geom.bandDeclared);
       const outside = await pixelAt(page, geom.outside);
+      expect(band, `header fill parses as opaque rgb @ ${mode}`).not.toBeNull();
       // Discriminating power: if the band and the scrim rendered the same
       // colour, every corner assertion below would be satisfiable by the bug.
       expect(
-        rgbEq(band, outside),
+        rgbEq(band!, outside),
         `band ${band} and scrim ${outside} are distinguishable colours @ ${mode}`,
       ).toBe(false);
 
@@ -449,7 +470,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         // `shadow-(--shadow-tile)`, which darkens the scrim in exactly this
         // ring, so a correct render reads scrim-plus-shadow (neither pure
         // colour). What can never be true is the band's own fill landing here.
-        if (rgbEq(px, band)) painted.push(corner);
+        if (rgbEq(px, band!)) painted.push(corner);
       }
       expect(
         painted,
@@ -457,6 +478,68 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           ` ${geom.radius}px arc, so the band fill ${band} must paint at NO corner` +
           ` (scrim reads ${outside})`,
       ).toEqual([]);
+    });
+
+    // T-NOSCROLLPORT. The panel clips so its opaque bands stop painting over
+    // its rounded corners — but the clip must NOT make the panel a scroll
+    // container. Nothing gives the user a way to scroll it back: it has no
+    // scrollbar, and the wheel/touch target is the surface's own inner
+    // scroller. `scrollIntoView`, however, walks every scrollable ancestor,
+    // and two live call sites reach this one — PublishedReviewModal.tsx (the
+    // bell-alert deep link, on mount) and ShowReviewSurface.tsx (hash restore).
+    // Under `overflow-hidden` the deep link left scrollTop at 154 with the
+    // header pushed 110px above the panel's top edge, permanently. Under
+    // `overflow-clip` (not a scroll container) it stays 0, matching the
+    // pre-clip `overflow: visible` baseline exactly.
+    //
+    // Asserted on BOTH axes: `overflow-x: hidden` alone would reintroduce it,
+    // since a scrollable box on either axis scrolls on both.
+    test(`T-NOSCROLLPORT @ ${width}: the corner clip did not make the panel a scroll port`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const probe = await page.locator(PANEL).evaluate((el) => {
+        const panel = el as HTMLElement;
+        const cs = getComputedStyle(panel);
+        const header = panel.querySelector('[data-testid$="-header"]')!;
+        // The real deep-link targets: an id inside the panel, chosen the same
+        // way the two live call sites choose theirs.
+        const ids = [...panel.querySelectorAll("[id]")].map((n) => n.id).filter(Boolean);
+        const pick =
+          ids.find((i) => /share|access/i.test(i)) ?? ids.find((i) => /overview/i.test(i));
+        const target = pick != null ? panel.querySelector(`#${CSS.escape(pick)}`) : null;
+        if (target instanceof HTMLElement) target.scrollIntoView({ block: "center" });
+        return {
+          target: pick ?? null,
+          overflowX: cs.overflowX,
+          overflowY: cs.overflowY,
+          scrollTop: panel.scrollTop,
+          scrollRange: panel.scrollHeight - panel.clientHeight,
+          headerPushedAboveTop: +(
+            panel.getBoundingClientRect().top - header.getBoundingClientRect().top
+          ).toFixed(1),
+        };
+      });
+
+      // Anti-vacuity: with no deep-link target the scroll never fires and the
+      // assertions below hold trivially.
+      expect(probe.target, `a deep-link target exists in the panel @ ${mode}`).not.toBeNull();
+
+      expect(
+        [probe.overflowX, probe.overflowY],
+        `panel clips without scrolling @ ${mode} — 'hidden' on either axis makes` +
+          ` it a scroll port that scrollIntoView can move and the user cannot move back`,
+      ).toEqual(["clip", "clip"]);
+      expect(
+        probe.scrollTop,
+        `deep-link to #${probe.target} left the panel unscrolled @ ${mode}` +
+          ` (scroll range ${probe.scrollRange})`,
+      ).toBe(0);
+      expect(
+        probe.headerPushedAboveTop,
+        `the header is not pushed above the panel's top edge @ ${mode}`,
+      ).toBeLessThanOrEqual(0);
     });
 
     // T-TAP (modal-header-reconciliation §11.1). A HIT-BEHAVIOR probe, NOT a

@@ -238,6 +238,12 @@ async function pixelAt(page: Page, [x, y]: [number, number]): Promise<[number, n
   return [data[0]!, data[1]!, data[2]!];
 }
 
+/** Parses a computed `rgb(r, g, b)` / `rgba(...)` string into `[r, g, b]`. */
+function parseRgb(value: string): [number, number, number] | null {
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value);
+  return m === null ? null : [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
 /** Exact-equal RGB. Every probe sits on flat fill, never on an antialiased edge. */
 function rgbEq(a: [number, number, number], b: [number, number, number]): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
@@ -300,8 +306,13 @@ for (const { mode, width, height, maxRatio } of MODES) {
   //
   // The probe offset is derived from the panel's own computed radius, never
   // hardcoded: (left+d, top+d) lies outside a quarter-circle of radius r
-  // whenever d < r*(1 - 1/sqrt(2)) ~= 0.293r, and d = r/4 is inside that bound
-  // for every radius the token scale can produce.
+  // whenever d < r*(1 - 1/sqrt(2)) ~= 0.293r.
+  //
+  // d = r/8, NOT r/4. The sampled pixel's CENTRE is rasterized, so the
+  // effective offset is d + 0.5, and at r = 12 that puts r/4 at 3.5px against
+  // a 3.515px bound — a margin a fractional panel top erases entirely. It
+  // survived only on Blink antialiasing; a CI rasterizer rounding that pixel
+  // to full coverage would fail deterministically. r/8 leaves ~2.85px.
   //
   // Sheet mode is full-bleed to the viewport bottom (`rounded-t-md`), so only
   // the TOP corners are probed there.
@@ -314,7 +325,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
       const panel = el as HTMLElement;
       const r = panel.getBoundingClientRect();
       const radius = parseFloat(getComputedStyle(panel).borderTopLeftRadius);
-      const d = radius / 4;
+      const d = radius / 8;
       const corners: Record<string, [number, number]> = {
         "top-left": [r.left + d, r.top + d],
         "top-right": [r.right - d - 1, r.top + d],
@@ -324,15 +335,21 @@ for (const { mode, width, height, maxRatio } of MODES) {
         corners["bottom-right"] = [r.right - d - 1, r.bottom - d - 1];
       }
       const footer = panel.querySelector('[data-testid$="-review-footer"]')!;
-      const fr = footer.getBoundingClientRect();
       return {
         radius,
         d,
         corners,
-        // Reference A: deep inside the footer band — its own opaque fill.
-        // Reference B: outside the panel entirely — the scrim over the page.
-        band: [fr.left + fr.width / 2, fr.top + fr.height / 2] as [number, number],
-        outside: [Math.max(0, r.left - 8), r.top + r.height / 2] as [number, number],
+        // The band reference is the footer's DECLARED fill, not a pixel
+        // sampled at a guessed coordinate: any future element at that
+        // coordinate would silently redirect every corner comparison below to
+        // some other colour. Reference B stays a real sample — the scrim
+        // outside the panel.
+        bandDeclared: getComputedStyle(footer).backgroundColor,
+        // ABOVE the panel, not beside it: in sheet mode the panel is full-bleed,
+        // so `r.left - 8` clamps to x=0 — inside the panel — and the
+        // band-vs-scrim discriminating-power guard goes vacuous at exactly the
+        // viewport it matters most.
+        outside: [r.left + r.width / 2, Math.max(0, r.top - 8)] as [number, number],
       };
     }, mode === "sheet");
 
@@ -340,12 +357,13 @@ for (const { mode, width, height, maxRatio } of MODES) {
     // CORRECTLY painted, and the test would police nothing.
     expect(geom.radius, `panel has a real corner radius @ ${mode}`).toBeGreaterThan(0);
 
-    const band = await pixelAt(page, geom.band);
+    const band = parseRgb(geom.bandDeclared);
     const outside = await pixelAt(page, geom.outside);
+    expect(band, `footer fill parses as opaque rgb @ ${mode}`).not.toBeNull();
     // Discriminating power: were the footer fill and the scrim the same colour,
     // every corner assertion below would be satisfiable by the bug.
     expect(
-      rgbEq(band, outside),
+      rgbEq(band!, outside),
       `footer fill ${band} and scrim ${outside} are distinguishable @ ${mode}`,
     ).toBe(false);
 
@@ -359,7 +377,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
       // `shadow-(--shadow-tile)`, which darkens the scrim in exactly this ring,
       // so a correct render reads scrim-plus-shadow (neither pure colour). What
       // can never be true is a band fill landing here.
-      if (rgbEq(px, band)) painted.push(corner);
+      if (rgbEq(px, band!)) painted.push(corner);
     }
     expect(
       painted,

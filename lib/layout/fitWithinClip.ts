@@ -24,6 +24,13 @@ export const DEFAULT_CLIP_GUTTER = 8;
  * Smallest box we will ever ask for. Below this the overlay is unusable
  * anyway, and returning 0 (or a negative) would collapse it and strand every
  * control inside instead of leaving an internal scroller the user can work.
+ *
+ * DELIBERATELY wins over the available room: when the anchor sits within
+ * `MIN_FITTED_HEIGHT` of the clip edge the overlay overhangs the clip rather
+ * than collapsing — the least-bad of two bad options, and unreachable on
+ * today's surfaces (measured room below the band: 209.75px at 375×667, the
+ * tightest real viewport, against a 320px CSS cap). Callers that must know
+ * they are in that regime can compare against {@link MIN_FITTED_HEIGHT}.
  */
 export const MIN_FITTED_HEIGHT = 48;
 
