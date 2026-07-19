@@ -73,7 +73,9 @@ Add a behavioral describe block (top-level in the file; the file's existing shel
 
 ```tsx
 describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
-  function renderShell(onDismissStart: () => void, onClose: () => void) {
+  // NOTE: the file already has a top-level `renderShell` helper (:85) — this one
+  // is deliberately named differently to avoid a duplicate declaration.
+  function renderDismissShell(onDismissStart: () => void, onClose: () => void) {
     const Host = () => {
       const focusRef = useRef<HTMLButtonElement | null>(null);
       return (
@@ -103,7 +105,7 @@ describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
     vi.useFakeTimers();
     const onDismissStart = vi.fn();
     const onClose = vi.fn();
-    renderShell(onDismissStart, onClose);
+    renderDismissShell(onDismissStart, onClose);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onDismissStart).toHaveBeenCalledTimes(1); // at commit …
     expect(onClose).not.toHaveBeenCalled(); //           … exit still in flight
@@ -116,7 +118,7 @@ describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
     vi.useFakeTimers();
     const onDismissStart = vi.fn();
     const onClose = vi.fn();
-    renderShell(onDismissStart, onClose);
+    renderDismissShell(onDismissStart, onClose);
     const grab = screen.getByTestId("odst-grab");
     const endY = 100 + DRAG_DISMISS_THRESHOLD_PX + 30;
     fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
@@ -132,7 +134,7 @@ describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
   it("does not double-fire when a second affordance lands mid-exit", () => {
     vi.useFakeTimers();
     const onDismissStart = vi.fn();
-    renderShell(onDismissStart, vi.fn());
+    renderDismissShell(onDismissStart, vi.fn());
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByTestId("odst-backdrop"));
     fireEvent.keyDown(document, { key: "Escape" });
@@ -141,7 +143,7 @@ describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
 
   it("does not fire on spring-back or tap-below-slop", () => {
     const onDismissStart = vi.fn();
-    renderShell(onDismissStart, vi.fn());
+    renderDismissShell(onDismissStart, vi.fn());
     const grab = screen.getByTestId("odst-grab");
     // spring-back: past slop, below threshold
     fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
@@ -224,7 +226,7 @@ const TB = "published-show-review";
 // useShowModalNav → useRouter/useSearchParams (unified mock, pattern:
 // publishedReviewModal.test.tsx:30). The skeleton's default close must push
 // the show-stripped URL with { scroll: false }.
-const routerPush = vi.fn();
+const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: routerPush }),
   usePathname: () => "/admin",
