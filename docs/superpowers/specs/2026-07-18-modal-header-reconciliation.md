@@ -555,7 +555,7 @@ fails:
 
 | Call site | Today | After |
 | --- | --- | --- |
-| `ShareLinkBody.tsx:53` | `<ShareLinkCopyButton url={url} />` | `variant="accent"` (or omit — same default) |
+| `ShareLinkBody.tsx:53` | `<ShareLinkCopyButton url={url} />` | `variant="accent"` — **write it explicitly, do not rely on the default**. The whole point is an inventoryable style axis: a later restyle greps `variant="accent"` and must find this call site, which is the shared default arm this spec exists to protect (F3) |
 | `ShareChip.tsx:44` | `<ShareLinkCopyButton url={url} compact />` | `variant="compact"` |
 | `StatusStrip.tsx:261` | `<ShareLinkCopyButton url={copyUrl} />` | `variant="outline"` |
 
@@ -1045,6 +1045,7 @@ explicitly and verified in a real browser (jsdom computes no layout).
 | strip root | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` on the strip root |
 | strip root | copy button | Right edge == band content-box right edge | `ml-auto` on `strip-copy-link`, **conditional on the `w-full` row above** |
 | status line | dot + text | Baseline-consistent single line | `inline-flex items-center` |
+| strip root | Copy button | Width IDENTICAL idle vs copied — left edge does not shift | reserved min-width sized to the wider of "Copy crew link" / "Copied" (§6.4) |
 | strip root | Re-sync trigger | Width IDENTICAL idle vs pending — no reflow mid-action | reserved min-width sized to the widest label (§6.7) |
 | strip root | Re-sync trigger | Vertically centered with its row neighbours | `items-center` on the STRIP ROOT (the band is not a flex container — §6.1); `selfStart` NOT carried over |
 | subheader band | Re-sync overlay | Anchors to the BAND, not the panel | `relative` on the band (§6.1) + `absolute inset-x-0 top-full` |
@@ -1184,6 +1185,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border vs band background ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label vs band background ≥4.5:1 (1.4.3 text). Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
 | T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
+| T-RESYNC-FLOW-UNCHANGED | In FLOW mode the component still returns its single root `<div className="flex flex-col gap-3">` with the result panels inside it, and Overview's rendered structure is unchanged | The overlay branch is implemented by restructuring shared markup, silently changing flow-mode DOM too. Existing Overview consumers/tests query within that root; the new strip tests would pass while Overview regresses |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |
@@ -1255,6 +1257,24 @@ the first step of the shell task:
    shows the baseline arriving unmodified alongside the shell change.
 3. The test renders Step 3 from that same fixture and compares against the
    committed file's contents.
+
+**How this satisfies TDD-per-task (AGENTS.md invariant 1).** A golden-master
+capture is not a failing test — captured from the current tree it passes the
+instant it is written, so it cannot supply the red phase. The task is therefore
+explicitly two artifacts with different statuses:
+
+| Artifact | Kind | Red phase? |
+| --- | --- | --- |
+| `step3-header-baseline.html` + the script that generates it | **Setup data**, not a test | No — and none is expected. Declared as such so a reviewer does not read a green-on-arrival file as a test written after the fact |
+| T-SUBHEADER-SLOT (shell renders a band when `subHeader` is passed) | Test | **YES — this is the task's red.** Fails before the slot exists |
+| T-STEP3-INVARIANT (Step 3 still matches the baseline) | Test | No — a regression guard riding along, green before and after by design |
+
+The task's red comes from the NEW capability, not from the invariant. Sequence:
+generate + commit the baseline on the pre-change tree → write T-SUBHEADER-SLOT
+(RED) → add the `subHeader` slot (GREEN) → T-STEP3-INVARIANT confirms Step 3 did
+not move. Generating the baseline via a committed script rather than by hand is
+what makes it reproducible and reviewable — anyone can re-run it against the
+merge-base and diff.
 
 The reviewer signal is then structural: if a later commit changes Step 3's
 header, the fixture must change too, and that shows up in the diff as an explicit
