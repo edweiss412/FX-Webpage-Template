@@ -49,6 +49,7 @@ import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
+import { useRouter } from "next/navigation";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -133,6 +134,19 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   } = props;
 
   const { close } = useShowModalNav();
+  // Revalidate-on-open (spec 2026-07-19-show-modal-prefetch §3.2): a prefetched
+  // open serves the router cache (possibly minutes old); one background
+  // router.refresh() streams fresh RSC and reconciles in place. Ref guard =
+  // exactly once per mounted instance (StrictMode double-effect dedupe); a
+  // REOPEN is a new instance (streams through the Suspense fallback), so it
+  // refreshes again — the intended per-open cadence.
+  const router = useRouter();
+  const refreshFiredRef = useRef(false);
+  useEffect(() => {
+    if (refreshFiredRef.current) return;
+    refreshFiredRef.current = true;
+    router.refresh();
+  }, [router]);
   // Instant close: the close nav is a full RSC round-trip of the dashboard
   // (the modal is server-rendered off `?show`), so the shell would otherwise
   // stay mounted until the new payload lands. Hide client-side FIRST (the
