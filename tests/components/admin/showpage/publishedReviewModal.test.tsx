@@ -294,6 +294,19 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
   });
 
+  it("MODAL-STRIP-CHROME-1: the strip wears modal-header chrome — no second seam, shadow, sticky pin or padding inside the shell header", () => {
+    // The shell's <header> already owns the surface, the bottom border and
+    // px-tile-pad; the page strip's own border-b + shadow-tile would stack a
+    // doubled seam right above it, and px-4/sm:px-6 a doubled inset. Failure
+    // mode: the modal drops the `chrome` prop and silently regains page chrome.
+    renderModal();
+    const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
+    const classes = within(panel).getByTestId("show-status-strip").className.split(/\s+/);
+    for (const token of ["sticky", "top-0", "z-30", "border-b", "shadow-tile", "px-4", "sm:px-6"]) {
+      expect(classes, `strip in the modal header must not carry \`${token}\``).not.toContain(token);
+    }
+  });
+
   it('passes layout="modal" + syncHash to ShowReviewSurface (source pin — the layout prop\'s only runtime effect is the hashSync default, so the DOM cannot discriminate it)', () => {
     const s = componentSrc();
     expect(s).toMatch(/layout="modal"/);

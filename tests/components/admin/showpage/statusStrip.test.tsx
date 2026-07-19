@@ -370,4 +370,58 @@ describe("StatusStrip", () => {
       expect(screen.getByTestId("strip-edited-age").textContent).toMatch(/edited/i);
     });
   });
+
+  // MODAL-STRIP-CHROME-1: the strip's page-context chrome (sticky pin, z-index, own
+  // bottom border, drop shadow, own horizontal padding, own vertical padding) is
+  // page-only. Inside ReviewModalShell's <header> (ReviewModalShell.tsx:432 —
+  // `border-b border-border bg-surface px-tile-pad py-3`) those classes are either
+  // inert (sticky/z inside a non-scrolling header) or actively wrong: a doubled seam
+  // (strip border-b + shadow-tile stacked on the header's own border-b) and doubled
+  // horizontal padding. Failure mode caught: someone renders the strip in a modal
+  // header without the variant, or the variant silently stops dropping a class.
+  describe("chrome variant", () => {
+    const PAGE_ONLY_CHROME = [
+      "sticky",
+      "top-0",
+      "z-30",
+      "border-b",
+      "border-border",
+      "shadow-tile",
+      "bg-surface",
+      "px-4",
+      "sm:px-6",
+      "py-2",
+    ];
+
+    it("defaults to page chrome (sticky pin, seam, shadow, own padding) when `chrome` is omitted", () => {
+      renderStrip();
+      const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
+      for (const token of PAGE_ONLY_CHROME) {
+        expect(classes, `page chrome must keep \`${token}\``).toContain(token);
+      }
+    });
+
+    it('chrome="modal-header" drops every page-context class (no doubled seam or padding)', () => {
+      renderStrip({ chrome: "modal-header" });
+      const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
+      for (const token of PAGE_ONLY_CHROME) {
+        expect(classes, `modal-header chrome must drop \`${token}\``).not.toContain(token);
+      }
+    });
+
+    it('chrome="modal-header" keeps the strip layout (wrapping flex row, gaps, alignment)', () => {
+      renderStrip({ chrome: "modal-header" });
+      const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
+      for (const token of [
+        "flex",
+        "flex-wrap",
+        "items-center",
+        "gap-x-4",
+        "gap-y-2",
+        "sm:flex-nowrap",
+      ]) {
+        expect(classes, `layout class \`${token}\` must survive the variant`).toContain(token);
+      }
+    });
+  });
 });

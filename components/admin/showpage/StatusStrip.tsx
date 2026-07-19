@@ -83,6 +83,14 @@ export type StatusStripProps = {
    *  at the publish toggle). The modal header owns the title as an `<h2>`, so the dialog
    *  contains exactly one title node and no `<h1>`. Default `true` (page behavior). */
   renderTitle?: boolean;
+  /** MODAL-STRIP-CHROME-1: which container chrome the strip wears.
+   *  `"page"` (default) = the pinned page strip — sticky/z under the admin nav, its own
+   *  bottom seam + shadow, its own horizontal/vertical padding.
+   *  `"modal-header"` = layout only. ReviewModalShell's `<header>` already supplies the
+   *  surface, the bottom border and `px-tile-pad` (ReviewModalShell.tsx:432) and the header's
+   *  flex column supplies the row gap, so the page chrome would stack a doubled seam and
+   *  doubled padding; sticky/z are inert inside a non-scrolling header. */
+  chrome?: "page" | "modal-header";
 };
 
 export function StatusStrip({
@@ -99,6 +107,7 @@ export function StatusStrip({
   now,
   alertCount,
   renderTitle = true,
+  chrome = "page",
 }: StatusStripProps) {
   const { token } = useShareToken();
 
@@ -137,11 +146,17 @@ export function StatusStrip({
   const hasSignal = isLive || (syncLabel != null && sync != null) || alertCount > 0;
   const showControlDivider = !archived && hasSignal;
 
+  // Container chrome (MODAL-STRIP-CHROME-1). Both arms are whole literals (not a
+  // template concat) so the Tailwind class-order lint still sorts them, and the
+  // ternary lives OUTSIDE the JSX so it is not a conditional MOUNT — the
+  // pageTransitions count pin (8) is unchanged by this variant.
+  const containerClass =
+    chrome === "modal-header"
+      ? "flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
+      : "sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6";
+
   return (
-    <div
-      data-testid="show-status-strip"
-      className="sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6"
-    >
+    <div data-testid="show-status-strip" className={containerClass}>
       {/* admin-show-modal spec §6.1: the title block (h1 + its adjacent divider) is one
           conditional — the modal passes renderTitle={false} so its <h2> header stays the
           dialog's only title node and the strip starts at the publish toggle. */}

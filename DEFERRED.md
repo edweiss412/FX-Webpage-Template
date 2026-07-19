@@ -17,10 +17,3 @@ From impeccable critique of the admin-show-modal branch (33/40): every non-drag 
 
 `ShowReviewModalSkeleton` mounts the shell with `onClose={() => {}}` and no live close control (spec §4 ratifies an "open, non-interactive modal frame"). On a slow load the user's only escape is browser-back; body scroll is locked and the background inert. Skeleton is a client component, so it COULD wire `useShowModalNav().close` without crossing the RSC boundary.
 **Un-defer trigger:** any report of a stuck loading modal, or the next ReviewModalShell/skeleton task — wire the skeleton's onClose to `useShowModalNav().close` and render a real close button in place of the placeholder block (spec amendment: relax "non-interactive" to "content-non-interactive").
-
-### MODAL-STRIP-CHROME-1 — [P2] StatusStrip keeps page-context chrome (`sticky top-0 z-30 border-b shadow-tile px-4`) inside the modal header
-
-Inside the shell's `<header>` (which carries its own `border-b border-border px-tile-pad`), the strip's sticky/z are inert and its border-b + shadow-tile stack a doubled seam above the header's own bottom border, plus doubled horizontal padding. Source-inferred (browser render skipped in critique); cosmetic. Fix needs a StatusStrip chrome variant prop, which bumps the pageTransitions conditional-count pin (`tests/components/admin/showpage/pageTransitions.test.tsx`) — deliberately not landed mid-close-out.
-**Un-defer trigger:** first visual QA pass on the shipped modal confirming the seam, or the next StatusStrip task — add a `chrome?: "page" | "modal-header"` prop dropping sticky/z/shadow/border/px in modal mode and update the count pin.
-
----
