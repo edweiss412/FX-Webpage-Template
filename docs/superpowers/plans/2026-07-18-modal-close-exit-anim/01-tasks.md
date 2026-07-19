@@ -207,7 +207,7 @@ describe("requestClose guards (spec §3.1)", () => {
 });
 ```
 
-If `renderShell` does not already exist in that file, define it alongside the existing tests using the same props the current suite uses — do not invent a new harness shape.
+If `renderShell` does not already exist in that file, define it alongside the existing tests using the same props the current suite uses — do not invent a new harness shape. Export the same prop bag as `baseShellProps` for the Task 5 provider-boundary test, which renders the shell directly rather than through `renderShell`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -572,6 +572,27 @@ describe("closeApiRef (spec §3.1a)", () => {
     expect(screen.getByRole("dialog").hasAttribute("inert")).toBe(true);
   });
 
+  // Failure mode (SILENT, and the whole reason closeApiRef exists): a future
+  // refactor "simplifies" the ref back to a context hook at the consumer's top
+  // level. That sits ABOVE the shell's provider, so it reads the default no-op
+  // and the modal never closes after a successful publish — while every other
+  // test here still passes. Spec §7.6 requires this pinned explicitly.
+  it("a consumer-level hook read resolves to the default no-op, not requestClose", () => {
+    const onClose = vi.fn();
+    const seen: Array<() => void> = [];
+    // Mimic the consumer shape: the hook is called in the component body,
+    // which renders the shell BELOW it — exactly where Step3's success
+    // handlers live.
+    function ConsumerAboveProvider() {
+      seen.push(useReviewModalClose()); // resolves against the DEFAULT context
+      return <ReviewModalShell open onClose={onClose} {...baseShellProps} />;
+    }
+    render(<ConsumerAboveProvider />);
+    expect(seen).toHaveLength(1);
+    seen[0]?.(); // the no-op
+    expect(onClose, "a consumer top-level hook must NOT reach the shell's requestClose").not.toHaveBeenCalled();
+  });
+
   // Failure mode: a late resolution after unmount calls a stale close.
   it("is cleared on unmount", () => {
     const ref = createRef<(() => void) | null>();
@@ -671,32 +692,52 @@ function bodyOf(src: string, decl: string): string {
   throw new Error(`unbalanced braces scanning ${decl}`);
 }
 
+/** Remove comments and string/template contents before scanning. Without this
+ *  a doc-comment mentioning `onClose()` fails the guard, and a testid inside a
+ *  string can be mistaken for JSX. */
+function stripCommentsAndStrings(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+}
+
 describe("structural guards (spec §7.6)", () => {
   // Failure mode: a new close site calls onClose() directly, creating a second
   // un-animated path that races the exit. Behavioral tests cannot cover a
   // FUTURE call site — only a static scan can.
   it("no consumer invokes the shell's onClose prop directly", () => {
     for (const path of CONSUMERS) {
-      const src = readFileSync(join(process.cwd(), path), "utf8");
-      // Literal call sites...
-      const direct = src.match(/\bonClose\(\)/g) ?? [];
+      const src = stripCommentsAndStrings(readFileSync(join(process.cwd(), path), "utf8"));
+      // INVOCATIONS only. An earlier draft counted raw `onClose` tokens and
+      // allowed just `onClose={onClose}` as a prop pass — which fails on
+      // correct code: PublishedReviewModal legitimately passes
+      // `onClose={handleClose}` (:239). Prop passes are not invocations, so
+      // scanning for call sites is both simpler and exact.
+      const direct = src.match(/\bonClose\s*\(\s*\)/g) ?? [];
       expect(direct, `${path} must route every close through requestClose/closeApiRef`).toHaveLength(0);
-      // ...and aliases/wrappers, which a lexical `onClose()` scan misses
-      // entirely (`const close = onClose; close();` violates the contract while
-      // reading clean). Passing onClose to the shell as a prop is the ONE
-      // legitimate use, so allow only that shape.
-      const aliased =
-        [...src.matchAll(/(?:const|let)\s+\w+\s*=\s*onClose\b/g)].map((m) => m[0]);
+      // Aliases: `const close = onClose; close();` violates the contract while
+      // reading clean, so a call-site scan alone would miss it.
+      const aliased = [...src.matchAll(/(?:const|let|var)\s+\w+\s*=\s*onClose\b(?!\s*[=(])/g)].map((m) => m[0]);
       expect(aliased, `${path} aliases onClose; route the alias through requestClose`).toHaveLength(0);
-      const referenced = [...src.matchAll(/\bonClose\b/g)].length;
-      const asProp = [...src.matchAll(/onClose=\{onClose\}/g)].length;
-      const inSignature = [...src.matchAll(/onClose[?]?\s*:/g)].length;
-      const destructured = [...src.matchAll(/\bonClose,|\{\s*onClose\s*\}/g)].length;
-      expect(
-        referenced - asProp - inSignature - destructured,
-        `${path} references onClose outside its signature and the shell prop — check for a wrapper close path`,
-      ).toBeLessThanOrEqual(0);
     }
+  });
+
+  // Failure mode: ONE affordance regresses to a bare onClose while the others
+  // still route correctly — a repo-wide substring check passes because some
+  // other affordance supplies the matching text. Each is anchored to its own
+  // element/handler body.
+  it("each affordance is anchored to requestClose at its own call site", () => {
+    const src = stripCommentsAndStrings(SHELL_SRC);
+    // Scrim: the backdrop button's own JSX, located by its testid attribute.
+    const scrim = src.slice(src.indexOf("-backdrop`"), src.indexOf("-backdrop`") + 400);
+    expect(scrim, "scrim onClick must be requestClose").toContain("onClick={requestClose}");
+    // Grab strip: its own JSX, located by its testid.
+    const grab = src.slice(src.indexOf("-grab`"), src.indexOf("-grab`") + 500);
+    expect(grab, "grab tap must call requestClose").toContain("requestClose()");
+    // Esc: inside the keydown handler body.
+    expect(bodyOf(src, "function onKeyDown"), "Escape must call requestClose").toContain("requestClose()");
+    // X: reaches requestClose only via the provider value.
+    expect(src).toContain("<ReviewModalCloseContext.Provider value={requestClose}>");
   });
 
   // Failure mode: a new motion state is added without a normalization row, so
