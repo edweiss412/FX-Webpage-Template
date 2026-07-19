@@ -29,6 +29,7 @@ import {
 } from "@/components/admin/wizard/Step3Review";
 import { EVENT_DETAIL_GROUPS, nightsBetween } from "@/components/admin/wizard/step3ReviewSections";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
+import { withReducedMotion } from "../../../helpers/reducedMotion";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -652,20 +653,25 @@ describe("Step3Review — per-card details dialog + uniform grid (no accordion)"
     expect(spansAfter).toHaveLength(0);
   });
 
+  // MODAL-CLOSE-EXIT-ANIM-1: Close now plays an exit first. What this test owns
+  // is modal OWNERSHIP (A opens only A), not motion — pinned under reduced
+  // motion so the dismissal stays synchronous.
   test("each card's 'More' opens ITS OWN review modal; the other stays closed; Close dismisses it", () => {
-    const { getByTestId, queryByTestId } = render(
-      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
-    );
-    // Both closed initially (modal mounted only on open).
-    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
-    expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
-    // Open A → only A's modal mounts.
-    fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
-    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).not.toBeNull();
-    expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
-    // Close A → dismissed.
-    fireEvent.click(getByTestId("wizard-step3-card-acc-A-review-close"));
-    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
+    withReducedMotion(() => {
+      const { getByTestId, queryByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
+      );
+      // Both closed initially (modal mounted only on open).
+      expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
+      expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
+      // Open A → only A's modal mounts.
+      fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
+      expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).not.toBeNull();
+      expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
+      // Close A → dismissed.
+      fireEvent.click(getByTestId("wizard-step3-card-acc-A-review-close"));
+      expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
+    });
   });
 });
 

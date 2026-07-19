@@ -61,6 +61,14 @@ export function useReviewModalClose(): () => void {
 }
 
 export type ReviewModalShellProps = {
+  /** When true every close affordance is dead — no inert, no exit, no onClose.
+   *  The Suspense-fallback skeleton has no real close (spec §3.4), and the
+   *  exit animation would otherwise slide the LOADING frame away into an inert,
+   *  scroll-locked state the user cannot leave. Gates `requestClose` step 0,
+   *  `handleGrabPointerDown`, AND `beginDismiss` — the drag branch reaches
+   *  `beginDismiss` without passing through `requestClose`. */
+  closeAffordancesDisabled?: boolean;
+
   /** §6.2 guard: `false` renders nothing (no effects run, no portal). */
   open: boolean;
   onClose: () => void;
@@ -89,6 +97,7 @@ export function ReviewModalShell(props: ReviewModalShellProps): ReactNode {
 
 function OpenReviewModalShell({
   onClose,
+  closeAffordancesDisabled = false,
   labelledBy,
   dataAttrPrefix,
   testIdBase,
@@ -238,14 +247,13 @@ function OpenReviewModalShell({
     panel.style.animation = "";
   }
 
-  // Task 4 turns this into a prop; until then every consumer's affordances are
-  // live, which is today's behavior.
-  const closeAffordancesDisabled = false;
-
   /** Commit the dismiss: no second exit may start, and the subtree stops taking
    *  input for the 120–220ms the exit now lasts (spec §3.1 step 3). Shared with
    *  the drag-past-threshold branch so every affordance inerts identically. */
   function beginDismiss() {
+    // The drag-past-threshold branch calls this directly, bypassing
+    // `requestClose` and its step-0 gate — so the gate is repeated here.
+    if (closeAffordancesDisabled) return;
     dismissingRef.current = true;
     // setAttribute, NOT `.inert = true`: jsdom does not reflect the property to
     // an attribute, so a property-only assignment is untestable in the unit
@@ -350,6 +358,7 @@ function OpenReviewModalShell({
   }
 
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (closeAffordancesDisabled) return; // no drag may start (spec §3.4)
     if (dismissingRef.current) return;
     // A new drag takes over from a still-settling spring-back.
     if (settleTimerRef.current !== null) {

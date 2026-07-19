@@ -71,6 +71,7 @@ import {
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { withReducedMotion } from "../../../helpers/reducedMotion";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const DFID = "drive-abc-123";
@@ -452,31 +453,58 @@ describe("Step3ReviewModal — focus management (spec §15)", () => {
 // ── Close paths (retired: close button / scrim / Escape) ────────────────────
 
 describe("Step3ReviewModal — close paths", () => {
+  // MODAL-CLOSE-EXIT-ANIM-1: under motion these close paths now play an exit
+  // before calling onClose. Wrapped in withReducedMotion so each keeps asserting
+  // the instant-close contract (spec §3.1 step 4) verbatim; the animated half is
+  // pinned separately below.
   test("the close button calls onClose", () => {
-    const { q, onClose } = renderModal();
-    fireEvent.click(q.getByTestId(tid("close")));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    withReducedMotion(() => {
+      const { q, onClose } = renderModal();
+      fireEvent.click(q.getByTestId(tid("close")));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("the scrim is pointer-only (tabIndex −1, NOT aria-hidden) and clicking it calls onClose", () => {
-    const { q, onClose } = renderModal();
-    const scrim = q.getByTestId(tid("backdrop"));
-    expect(scrim.getAttribute("tabindex")).toBe("-1");
-    expect(scrim.getAttribute("aria-hidden")).toBeNull();
-    fireEvent.click(scrim);
-    expect(onClose).toHaveBeenCalledTimes(1);
+    withReducedMotion(() => {
+      const { q, onClose } = renderModal();
+      const scrim = q.getByTestId(tid("backdrop"));
+      expect(scrim.getAttribute("tabindex")).toBe("-1");
+      expect(scrim.getAttribute("aria-hidden")).toBeNull();
+      fireEvent.click(scrim);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("pressing Escape calls onClose", () => {
-    const { onClose } = renderModal();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    withReducedMotion(() => {
+      const { onClose } = renderModal();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("a plain tap on the grab strip calls onClose", () => {
-    const { q, onClose } = renderModal();
-    fireEvent.click(q.getByTestId(tid("grab")));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    withReducedMotion(() => {
+      const { q, onClose } = renderModal();
+      fireEvent.click(q.getByTestId(tid("grab")));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // The animated half — without this the file would pin ONLY reduced motion and
+  // a missing exit would ship green here.
+  test("with motion enabled every close path plays the exit BEFORE onClose", () => {
+    vi.useFakeTimers();
+    try {
+      const { q, onClose } = renderModal();
+      fireEvent.click(q.getByTestId(tid("close")));
+      expect(onClose).not.toHaveBeenCalled(); // exit in flight
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2183,59 +2211,71 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
   });
 
   test("release below the threshold (T4): springs back at --duration-fast, suppresses the synthesized click, and settles to stylesheet control", () => {
-    vi.useFakeTimers();
-    const { q, onClose } = renderModal();
-    const { grab, panel } = grabWithCaptureStubs(q);
+    // MODAL-CLOSE-EXIT-ANIM-1: a grab TAP now closes via the exit animation.
+    // The drag mechanics under test (spring-back, slop boundary, click
+    // suppression) are motion-independent, so pin them under reduced motion and
+    // keep the tap-closes assertion synchronous.
+    withReducedMotion(() => {
+      vi.useFakeTimers();
+      const { q, onClose } = renderModal();
+      const { grab, panel } = grabWithCaptureStubs(q);
 
-    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
-    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
-    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
 
-    expect(panel.style.transform).toBe("translateY(0px)");
-    expect(panel.style.transition).toMatch(/var\(--duration-fast\)/);
-    expect(onClose).not.toHaveBeenCalled();
+      expect(panel.style.transform).toBe("translateY(0px)");
+      expect(panel.style.transition).toMatch(/var\(--duration-fast\)/);
+      expect(onClose).not.toHaveBeenCalled();
 
-    // Browsers synthesize a click after pointerup — the drag consumed it.
-    fireEvent.click(grab);
-    expect(onClose).not.toHaveBeenCalled();
+      // Browsers synthesize a click after pointerup — the drag consumed it.
+      fireEvent.click(grab);
+      expect(onClose).not.toHaveBeenCalled();
 
-    // Spring-back settles: inline styles cleared so the stylesheet governs again.
-    fireEvent.transitionEnd(panel, { propertyName: "transform" });
-    expect(panel.style.transform).toBe("");
-    expect(panel.style.transition).toBe("");
-    expect(panel.style.animation).toBe("");
+      // Spring-back settles: inline styles cleared so the stylesheet governs again.
+      fireEvent.transitionEnd(panel, { propertyName: "transform" });
+      expect(panel.style.transform).toBe("");
+      expect(panel.style.transition).toBe("");
+      expect(panel.style.animation).toBe("");
 
-    // The suppression is one-shot (cleared on the next tick): a LATER plain
-    // tap closes normally.
-    vi.advanceTimersByTime(0);
-    fireEvent.click(grab);
-    expect(onClose).toHaveBeenCalledTimes(1);
+      // The suppression is one-shot (cleared on the next tick): a LATER plain
+      // tap closes normally.
+      vi.advanceTimersByTime(0);
+      fireEvent.click(grab);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("slop boundary: dy = DRAG_SLOP_PX is a tap (click closes); dy = DRAG_SLOP_PX + 1 is a drag (click suppressed)", () => {
-    // Tap side of the boundary.
-    {
-      const { q, onClose } = renderModal();
-      const { grab, panel } = grabWithCaptureStubs(q);
-      fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
-      fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
-      fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
-      expect(onClose).not.toHaveBeenCalled(); // the CLICK closes, not pointerup
-      expect(panel.style.transform).toBe(""); // tap leaves no inline residue
-      fireEvent.click(grab);
-      expect(onClose).toHaveBeenCalledTimes(1);
-      cleanup();
-    }
-    // Drag side of the boundary.
-    {
-      const { q, onClose } = renderModal();
-      const { grab } = grabWithCaptureStubs(q);
-      fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
-      fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
-      fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
-      fireEvent.click(grab);
-      expect(onClose).not.toHaveBeenCalled();
-    }
+    // MODAL-CLOSE-EXIT-ANIM-1: a grab TAP now closes via the exit animation.
+    // The drag mechanics under test (spring-back, slop boundary, click
+    // suppression) are motion-independent, so pin them under reduced motion and
+    // keep the tap-closes assertion synchronous.
+    withReducedMotion(() => {
+      // Tap side of the boundary.
+      {
+        const { q, onClose } = renderModal();
+        const { grab, panel } = grabWithCaptureStubs(q);
+        fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+        fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
+        fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
+        expect(onClose).not.toHaveBeenCalled(); // the CLICK closes, not pointerup
+        expect(panel.style.transform).toBe(""); // tap leaves no inline residue
+        fireEvent.click(grab);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        cleanup();
+      }
+      // Drag side of the boundary.
+      {
+        const { q, onClose } = renderModal();
+        const { grab } = grabWithCaptureStubs(q);
+        fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+        fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
+        fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
+        fireEvent.click(grab);
+        expect(onClose).not.toHaveBeenCalled();
+      }
+    });
   });
 
   test("max-dy regression: an overshoot past slop that RETURNS near origin before release is still a drag (§10 — a `maxDy` regression to `Math.abs(finalDy)` would pass this as a tap)", () => {

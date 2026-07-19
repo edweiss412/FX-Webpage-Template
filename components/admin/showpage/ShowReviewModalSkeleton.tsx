@@ -37,6 +37,9 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
       // CLIENT optimistic copy (ShowsTable) passes a real cancel so scrim /
       // Esc / grab dismiss the overlay instead of trapping the user.
       onClose={onClose ?? (() => {})}
+      // Derived from the SAME branch as the no-op above, so the two cannot
+      // drift: no real close ⇒ no close affordances (spec §3.4).
+      closeAffordancesDisabled={onClose === undefined}
       labelledBy={headingId}
       dataAttrPrefix="review-modal"
       testIdBase="published-show-review"

@@ -13,7 +13,7 @@
  * | # | Transition | Treatment |
  * |---|---|---|
  * | T1 | closed → open | CSS keyframes (sheet-rise/pop-in) + scrim fade (app/globals.css), reduced-motion collapse. |
- * | T2 | open → closed (any path) | Instant unmount — deliberate, no exit animation. |
+ * | T2 | open → closed (any path) | Exit animation reversing the entrance, then unmount (MODAL-CLOSE-EXIT-ANIM-1); reduced motion collapses to instant. |
  * | T3 | open → drag | `transition: none` + `animation: none`; transform tracks pointer. |
  * | T4 | drag → open (release below threshold) | Transform to 0, `--duration-fast`, transform-only. |
  * | T5 | drag → closed (release past threshold) | Transform to 100%, `--duration-normal` + `--ease-out-quart`. |
@@ -80,6 +80,8 @@ import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { DURATION_NORMAL_FALLBACK_MS } from "@/components/admin/review/ReviewModalShell";
+import { withReducedMotion } from "../../../helpers/reducedMotion";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 
 // RescanSheetButton (mounted in the modal footer) calls useRouter().refresh().
@@ -226,21 +228,55 @@ function ToggleHost() {
   ) : null;
 }
 
-describe("§11 T2: open → closed — instant unmount, no exit animation", () => {
-  test("close button unmounts the dialog synchronously; the component declares no exit/leave animation", () => {
-    const q = render(<ToggleHost />);
-    expect(q.getByTestId(tid("modal"))).not.toBeNull();
-    fireEvent.click(q.getByTestId(tid("close")));
-    // No waitFor: unmount is synchronous — a lingering exit-animation delay
-    // would leave the node present here.
-    expect(q.queryByTestId(tid("modal"))).toBeNull();
-    expect(MODAL_SRC).not.toMatch(/AnimatePresence|framer-motion/);
+describe("§11 T2: open → closed — exit animation, then unmount (MODAL-CLOSE-EXIT-ANIM-1)", () => {
+  // AMENDED CONTRACT. §11 T2 previously ratified "instant unmount, no exit
+  // animation"; MODAL-CLOSE-EXIT-ANIM-1 replaces it with a mode-aware exit that
+  // reverses the entrance, then calls onClose at exit-end. Reduced motion still
+  // collapses to the old instant unmount, so BOTH halves are pinned here — an
+  // implementation that skipped the animation entirely would pass the
+  // reduced-motion half alone.
+  test("close button plays the exit before unmounting; still no AnimatePresence (JS-inline, not framer)", () => {
+    vi.useFakeTimers();
+    try {
+      const q = render(<ToggleHost />);
+      expect(q.getByTestId(tid("modal"))).not.toBeNull();
+      fireEvent.click(q.getByTestId(tid("close")));
+      // Exit in flight: the node is STILL PRESENT. Under the old contract it
+      // was already gone by this line — that flip is the feature.
+      expect(q.queryByTestId(tid("modal"))).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      });
+      expect(q.queryByTestId(tid("modal"))).toBeNull();
+      // The exit is driven by inline styles mirroring the drag path, NOT by a
+      // new animation library (spec §5) — this half of the pin is unchanged.
+      expect(MODAL_SRC).not.toMatch(/AnimatePresence|framer-motion/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  test("scrim tap-out also unmounts instantly (any close path — Esc/scrim/close/publish all converge on the same onClose)", () => {
-    const q = render(<ToggleHost />);
-    fireEvent.click(q.getByTestId(tid("backdrop")));
-    expect(q.queryByTestId(tid("modal"))).toBeNull();
+  test("scrim tap-out plays the same exit (all paths converge on requestClose)", () => {
+    vi.useFakeTimers();
+    try {
+      const q = render(<ToggleHost />);
+      fireEvent.click(q.getByTestId(tid("backdrop")));
+      expect(q.queryByTestId(tid("modal"))).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      });
+      expect(q.queryByTestId(tid("modal"))).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("reduced motion still unmounts synchronously (spec §3.1 step 4)", () => {
+    withReducedMotion(() => {
+      const q = render(<ToggleHost />);
+      fireEvent.click(q.getByTestId(tid("close")));
+      expect(q.queryByTestId(tid("modal"))).toBeNull();
+    });
   });
 });
 
