@@ -453,6 +453,8 @@ pins as real intended behavior.
 | --- | --- | --- |
 | `renderTitle` | **Delete.** Strip never renders a title. | Only call site passes `false` (`PublishedReviewModal.tsx:305`). The `<h1>` branch (`StatusStrip.tsx:171-192`) is dead in production — the modal's `<h2>` is the dialog's only title node. Removing it also removes `strip-title` and `strip-title-divider`. |
 | `chrome` | **Delete.** Band owns chrome now (§6.1). | Both arms (`StatusStrip.tsx:161-164`) collapse to the single flex-layout literal; the page arm's `sticky/z-30/border/px/py/shadow` is dead once the band supplies it. |
+| `title` | **Delete.** | Its ONLY consumer is `title ?? slug` inside the deleted `<h1>` branch (`StatusStrip.tsx:179`). `slug` stays (it feeds `copyUrl` and the toggle); `title` becomes dead API the moment `renderTitle` goes. |
+| `alertCount` | **Delete.** | Both consumers leave the strip: the alert badge itself (`:244`, relocated §6.6) and the `hasSignal` disjunct (`:154`), which §7 removes because an alert is no longer a strip signal. Leaving it lets harnesses keep constructing a prop no production render reads. |
 | `isLive` | **KEEP.** | Reachable: computed in `app/admin/_showReviewModal.tsx:336` and passed at `:382`. Renders `strip-live-badge`. See §7 for its placement. |
 | `archived` | **KEEP.** | Reachable: `_showReviewModal.tsx:253` → `:377`-adjacent. Drives the read-only mode (§7). |
 | `finalizeOwned` | **KEEP.** | Passed through to `PublishedToggle`; real behavior. |
@@ -505,6 +507,24 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
   during implementation; if the live token name differs, use the live name — do
   not port the mock's `#e0b84e` hex.
 - `alertCount === 0` → the whole anchor is omitted (matches `StatusStrip.tsx:244`).
+- **Count is capped at `99+`.** `alertCount` is unbounded, and the pill lives in
+  the header's `shrink-0` right group beside Close — an uncapped four-digit count
+  widens that group and squeezes the title/subline at 375px, breaking the Step 3
+  frame this change exists to adopt. Display `alertCount > 99 ? "99+" : alertCount`,
+  with the exact count preserved for assistive tech:
+
+  ```tsx
+  {alertCount > 99 ? "99+" : alertCount}{" "}
+  <span className="sr-only">
+    {alertCount > 99 ? `(${alertCount}) ` : ""}open {alertCount === 1 ? "alert" : "alerts"}
+  </span>
+  ```
+
+  The separator space is its OWN visible text node — a leading space inside the
+  `sr-only` span is trimmed during accessible-name computation, yielding
+  "99+open alerts". This repo has hit that exact bug before; the same idiom is
+  already used for the Overview rail badge (`PublishedReviewModal.tsx:194-195`).
+  Pinned by T-ALERT-CAP (§11).
 
 ### 6.7 Re-sync relocation — mechanism
 
@@ -775,6 +795,11 @@ the pin fails-by-default, which is the intent.
 | live badge absent ↔ present | **Instant.** |
 | archived ↔ not archived | **Instant.** Whole-mode swap; no cross-fade. |
 | Re-sync idle ↔ pending | Existing `ReSyncButton` treatment, unchanged by the move. |
+| sheet link absent ↔ present (`openSheetHref`) | **Instant.** Follows data (`PublishedReviewModal.tsx:263`). |
+| status line absent ↔ present (`lastSyncedAt === null`) | **Instant.** A never-synced show that syncs for the first time mounts the line with no animation (`StatusStrip.tsx:227`). |
+| copy link absent ↔ present (`published`/`token`/`archived`) | **Instant.** Publishing mounts Copy — must not animate or shift the row (`StatusStrip.tsx:259`). |
+| control divider absent ↔ present | **Instant.** Derived from `hasSignal` (`StatusStrip.tsx:154-155`), whose inputs change with the states above. |
+| Re-sync trigger absent ↔ present (`archived`) | **Instant.** Archive/unarchive is a whole-mode swap (§7). |
 | Re-sync overlay absent ↔ present (result / error / shrink-confirm) | Existing treatment, unchanged — the surface relocates, its transition does not. |
 | subheader band absent ↔ present | N/A — the published modal always renders it; Step 3 never does. Not a runtime transition. |
 
@@ -823,6 +848,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
 | T-ALERT-PILL-LINK | Pill is an anchor with `href="#overview"` and name "2 alerts" | Regression to the mock's inert span — jump affordance lost (F1) |
 | T-ALERT-PILL-ZERO | `alertCount: 0` → no pill | Empty pill / "0 alerts" |
+| T-ALERT-CAP | `alertCount: 1200` → visible text is `99+`; accessible name still contains `1200`; header right group width at 375px within a few px of the `2 alerts` case | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes |
 | T-ALERT-NOT-IN-STRIP | Strip contains no alert element | Alert rendered twice (moved but not removed) |
 | T-DIVIDER-ALERT-ONLY | `alertCount>0`, not live, no sync → strip renders NO control divider | §7's real bug: divider followed by nothing |
 | T-STATUS-INLINE-NO-EDITED | `editedRel` null → one line, no trailing bullet | Orphan separator after the collapse |
@@ -845,7 +871,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-FOCUS-ORDER | Tab order: sheet link → alert pill → close → toggle → Re-sync → copy | Re-sync lands after Copy or is skipped |
 | T-COPY-FLUSH (real browser) | Copy button's right edge == band content-box right edge (±1px) | Strip shrink-wraps as a flex item, so `ml-auto` flushes to the strip's edge, not the band's — invisible to overflow-based checks |
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
-| T-TAP (real browser) | Alert pill hit rect ≥44px; sheet link ≥44px; Re-sync trigger ≥44px | Controls styled from the mock's sub-44px boxes |
+| T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border vs band background ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label vs band background ≥4.5:1 (1.4.3 text). Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
 | T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element | `!= null` gate emits an empty bordered seam for `cond && <X/>` |
@@ -870,6 +896,31 @@ in-flow result surfaces (grep `ReSyncButton` + `admin-show-resync` across
 `components/admin/ReSyncButton.tsx` and `components/admin/showpage/OverviewSection.tsx`
 — neither is "header" code. The plan must treat the move as its own task cluster
 with its own tests, not as a rider on the header tasks.
+
+### 11.1 How T-TAP must measure the alert pill (methodology, not detail)
+
+The pill reaches 44px via a `::before` pseudo-element (`before:-inset-y-3`), and
+**`getBoundingClientRect()` on the anchor cannot see it** — it returns the visible
+anchor box (~24px). Asserting the rect would therefore FAIL a correct
+implementation, and the natural "fix" would be to inflate the visible pill,
+destroying the design.
+
+Measure the behavior instead: probe `document.elementFromPoint` at the vertical
+extremes of the intended target band and assert the anchor (or a descendant)
+is what's hit.
+
+```
+const box = pill.getBoundingClientRect();
+const cx  = box.left + box.width / 2;
+const top = box.top + box.height / 2 - 21;   // 21px above center
+const bot = box.top + box.height / 2 + 21;   // 21px below  → 42px spanned, inside 44
+// both probes must resolve to the pill anchor or a node it contains
+```
+
+Coordinates are viewport-relative. This is the same class of check T-OVERLAY uses
+and the only one that distinguishes "extends the hit area" from "looks big
+enough". Apply the identical treatment to any other control that reaches the
+floor via a pseudo-element rather than its own box.
 
 ## 12. Meta-test inventory
 
