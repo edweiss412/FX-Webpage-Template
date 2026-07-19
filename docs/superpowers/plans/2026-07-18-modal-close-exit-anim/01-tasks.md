@@ -1,0 +1,803 @@
+# Tasks — Review-modal close exit animation
+
+Read `00-overview.md` first: Global Constraints and the Anti-tautology rules apply to every task below.
+
+Run everything from `/Users/ericweiss/FX-worktrees/modal-close-exit-anim`.
+
+---
+
+## Task 1: `ModalCloseButton` + close context
+
+**Files:**
+
+- Create: `components/admin/review/ModalCloseButton.tsx`
+- Create: `tests/components/admin/review/modalCloseButton.test.tsx`
+- Modify: `components/admin/review/ReviewModalShell.tsx` (context + provider wrap)
+- Modify: `components/admin/showpage/PublishedReviewModal.tsx:276-285`
+- Modify: `components/admin/wizard/Step3ReviewModal.tsx:436-445`
+
+**Interfaces:**
+
+- Produces: `ReviewModalCloseContext` (React context, default `() => {}`), `useReviewModalClose(): () => void`, `ModalCloseButton` (`forwardRef<HTMLButtonElement, {testId: string}>`). Tasks 2–5 consume the context value; Task 6 asserts the default no-op.
+
+**Why the X cannot just call `requestClose` directly:** the X lives in each consumer's `header` slot, which the consumer passes as a prop. The shell renders that slot *inside* its provider, so a context read from the slot's JSX resolves — but a `useReviewModalClose()` call in the consumer's function body would not (see Task 5).
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/components/admin/review/modalCloseButton.test.tsx`:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
+import { ReviewModalCloseContext } from "@/components/admin/review/ReviewModalShell";
+
+describe("ModalCloseButton", () => {
+  // Failure mode: the button renders but is wired to the wrong close path,
+  // so the X snaps shut while every other affordance animates.
+  it("calls the context's requestClose on click", async () => {
+    const requestClose = vi.fn();
+    render(
+      <ReviewModalCloseContext.Provider value={requestClose}>
+        <ModalCloseButton testId="x-close" />
+      </ReviewModalCloseContext.Provider>,
+    );
+    await userEvent.click(screen.getByTestId("x-close"));
+    expect(requestClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Failure mode: initial focus breaks because the ref stops reaching the
+  // consumer's `closeRef` (both consumers pass it as `initialFocusRef`).
+  it("forwards its ref to the underlying button", () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<ModalCloseButton ref={ref} testId="x-close" />);
+    expect(ref.current).toBeInstanceOf(HTMLButtonElement);
+    expect(ref.current?.getAttribute("aria-label")).toBe("Close");
+  });
+
+  // Failure mode: a future refactor drops the provider wrap; without this the
+  // button would throw instead of degrading, masking the real bug.
+  it("no-ops outside a provider", async () => {
+    render(<ModalCloseButton testId="x-close" />);
+    await expect(userEvent.click(screen.getByTestId("x-close"))).resolves.not.toThrow();
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/review/modalCloseButton.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/admin/review/ModalCloseButton"`.
+
+- [ ] **Step 3: Create the component**
+
+`components/admin/review/ModalCloseButton.tsx`:
+
+```tsx
+"use client";
+
+import { X } from "lucide-react";
+import { forwardRef } from "react";
+import { useReviewModalClose } from "./ReviewModalShell";
+
+/** Shared modal X. Lives in each consumer's `header` slot, which the shell
+ *  renders INSIDE its close provider — so the context resolves here even
+ *  though a hook call in the consumer's own body would not (spec §3.1a). */
+export const ModalCloseButton = forwardRef<HTMLButtonElement, { testId: string }>(
+  function ModalCloseButton({ testId }, ref) {
+    const requestClose = useReviewModalClose();
+    return (
+      <button
+        ref={ref}
+        type="button"
+        data-testid={testId}
+        aria-label="Close"
+        onClick={requestClose}
+        className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        <X aria-hidden="true" className="size-5" />
+      </button>
+    );
+  },
+);
+```
+
+The `className` is lifted verbatim from the two existing buttons — verified byte-identical in the pre-draft pass. Do not "tidy" it; any change is a visual diff the impeccable gate will flag.
+
+- [ ] **Step 4: Add the context to the shell**
+
+In `components/admin/review/ReviewModalShell.tsx`, near the top-level exports:
+
+```tsx
+import { createContext, useContext } from "react";
+
+/** Close entry point for consumer-owned header slots (spec §3.3). Default is a
+ *  no-op so the button degrades rather than throwing outside a provider. */
+export const ReviewModalCloseContext = createContext<() => void>(() => {});
+export function useReviewModalClose(): () => void {
+  return useContext(ReviewModalCloseContext);
+}
+```
+
+Wrap the shell's returned tree in `<ReviewModalCloseContext.Provider value={requestClose}>`. Until Task 2 lands, pass `onClose` as the value — this task is a pure lift with no behavior change.
+
+- [ ] **Step 5: Swap both consumers**
+
+`PublishedReviewModal.tsx` — replace the `<button>` at `:276-285` with:
+
+```tsx
+<ModalCloseButton ref={closeRef} testId={`${TESTID_BASE}-close`} />
+```
+
+`Step3ReviewModal.tsx` — replace the `<button>` at `:436-445` with:
+
+```tsx
+<ModalCloseButton ref={closeRef} testId={`wizard-step3-card-${dfid}-review-close`} />
+```
+
+Add the import to both: `import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";`. Remove the now-unused `X` import from each consumer **only if** no other usage remains — grep first.
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+```bash
+pnpm vitest run tests/components/admin/review/modalCloseButton.test.tsx \
+  tests/components/admin/review/reviewModalShell.test.tsx \
+  tests/components/admin/showpage/pageTransitions.test.tsx
+```
+
+Expected: PASS. The twin-scan stays at `toBe(3)` (entrance untouched) and the `pageTransitions` count for `PublishedReviewModal.tsx` stays `1` (no JSX conditional added).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add components/admin/review/ModalCloseButton.tsx \
+  components/admin/review/ReviewModalShell.tsx \
+  components/admin/showpage/PublishedReviewModal.tsx \
+  components/admin/wizard/Step3ReviewModal.tsx \
+  tests/components/admin/review/modalCloseButton.test.tsx
+git commit --no-verify -m "feat(admin): shared ModalCloseButton via review-modal close context"
+```
+
+---
+
+## Task 2: `requestClose` guards + shared `beginDismiss`
+
+**Files:**
+
+- Modify: `components/admin/review/ReviewModalShell.tsx`
+- Modify: `tests/components/admin/review/reviewModalShell.test.tsx`
+
+**Interfaces:**
+
+- Consumes: `ReviewModalCloseContext` (Task 1).
+- Produces: `requestClose(): void`, `beginDismiss(): void` (module-internal). Task 3 adds the animation to `requestClose` step 5; Task 5 exposes it via `closeApiRef`.
+
+This task ships the guards WITHOUT the animation — in jsdom `matchMedia` is absent, so `requestClose` takes the immediate path (spec §3.1 step 4) and behavior is byte-identical to today. That keeps the unit suite meaningful before Task 3.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `tests/components/admin/review/reviewModalShell.test.tsx`:
+
+```tsx
+describe("requestClose guards (spec §3.1)", () => {
+  // Failure mode: two fast affordances (double-Esc, Esc-then-scrim) each fire
+  // onClose, producing a duplicate close — on Published, a duplicate router.push.
+  it("fires onClose exactly once for repeated affordances", async () => {
+    const onClose = vi.fn();
+    renderShell({ onClose });
+    await userEvent.keyboard("{Escape}");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("test-modal-backdrop"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Failure mode: the exit window (Task 3) leaves footer buttons live, so a
+  // fast click fires a mutation against an already-dismissed modal.
+  it("inerts the dialog subtree at dismiss-commit", async () => {
+    renderShell({ onClose: vi.fn() });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    await userEvent.keyboard("{Escape}");
+    expect(dialog.hasAttribute("inert")).toBe(true);
+  });
+});
+```
+
+If `renderShell` does not already exist in that file, define it alongside the existing tests using the same props the current suite uses — do not invent a new harness shape.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx -t "requestClose guards"`
+Expected: FAIL — `onClose` called 3 times; `inert` absent.
+
+- [ ] **Step 3: Implement the guards**
+
+In `ReviewModalShell.tsx`, add a `dialogRef` on the `role="dialog"` element (`:377`), then:
+
+```tsx
+/** Commit the dismiss: no second exit may start, and the subtree stops taking
+ *  input for the 120–220ms the exit now lasts (spec §3.1 step 3). Shared with
+ *  the drag-past-threshold branch so every affordance inerts identically. */
+function beginDismiss() {
+  dismissingRef.current = true;
+  if (dialogRef.current) dialogRef.current.inert = true;
+}
+
+function requestClose() {
+  if (closeAffordancesDisabled) return; // step 0 — Task 4 wires the prop
+  if (dismissingRef.current) return; // step 1 — one exit, one close
+  // step 2: cancel an active drag so its pointerup cannot spring back over the
+  // exiting panel. Do NOT clear the inline transform — it is the exit's start
+  // state (spec §3.2).
+  const drag = dragRef.current;
+  if (drag !== null) {
+    dragRef.current = null;
+    const grab = grabRef.current;
+    if (grab && typeof grab.releasePointerCapture === "function") {
+      try {
+        grab.releasePointerCapture(drag.pointerId);
+      } catch {
+        /* capture already released */
+      }
+    }
+  }
+  if (settleTimerRef.current !== null) {
+    clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = null;
+  }
+  beginDismiss();
+  // step 4: reduced motion / no panel / jsdom → immediate, byte-identical to today.
+  onClose();
+  // Task 3 replaces this line with the animated path.
+}
+```
+
+Add `const grabRef = useRef<HTMLButtonElement | null>(null);` and put `ref={grabRef}` on the grab button (`:410`). Point the scrim (`:393`), Esc (`:180`), and grab `onClick` (`:414-416`) at `requestClose`. In the drag-past-threshold branch (`:281`), replace the bare `dismissingRef.current = true` with `beginDismiss()`. Add `if (dismissingRef.current) return;` at the top of `handleGrabPointerEnd`.
+
+Declare `closeAffordancesDisabled = false` as a temporary local until Task 4 makes it a prop — do NOT leave a placeholder comment in shipped code.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx`
+Expected: PASS, including every pre-existing test — this task must not change jsdom behavior.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/admin/review/ReviewModalShell.tsx tests/components/admin/review/reviewModalShell.test.tsx
+git commit --no-verify -m "feat(admin): requestClose guards + shared beginDismiss inert"
+```
+
+---
+
+## Task 3: Start-state normalization + mode-aware exit + scrim fade
+
+**Files:**
+
+- Modify: `components/admin/review/ReviewModalShell.tsx`
+- Modify: `tests/components/admin/review/reviewModalShell.test.tsx`
+
+**Interfaces:**
+
+- Consumes: `requestClose`, `beginDismiss` (Task 2).
+- Produces: the animated exit. Task 7's real-browser matrix asserts its progression.
+
+This is the task the spec's S1–S4 inventory exists for. The normalization order is not stylistic — getting it wrong produces a silent instant jump that still closes (R1/R2 findings).
+
+- [ ] **Step 1: Write the failing test**
+
+The animation itself needs a real browser (jsdom computes no layout and has no `matchMedia`), so the *unit* test pins the chokepoint guard and the settle neutralization — the parts that are observable in jsdom:
+
+```tsx
+describe("exit start-state (spec §3.2)", () => {
+  // Failure mode: a pending spring-back's settle() fires during the exit and
+  // blanks transform/transition/animation, wiping the animation mid-flight.
+  // Its only guard is `dragRef === null`, which is TRUE during an exit.
+  it("clearPanelDragStyles is a no-op once dismissing", async () => {
+    renderShell({ onClose: vi.fn() });
+    const panel = screen.getByTestId("test-modal-panel");
+    panel.style.transform = "translateY(40px)";
+    await userEvent.keyboard("{Escape}");
+    // The exit committed; nothing may hand the panel back to stylesheet control.
+    expect(panel.style.transform).not.toBe("");
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx -t "exit start-state"`
+Expected: FAIL — transform cleared.
+
+- [ ] **Step 3: Implement normalization + exit**
+
+Guard the chokepoint first:
+
+```tsx
+function clearPanelDragStyles() {
+  // Never hand the panel back to stylesheet control while an exit is in flight
+  // — a pending settle() would otherwise blank the exit styles (spec §3.2).
+  if (dismissingRef.current) return;
+  const panel = panelRef.current;
+  if (!panel) return;
+  panel.style.transform = "";
+  panel.style.transition = "";
+  panel.style.animation = "";
+}
+```
+
+Then replace `requestClose`'s step-4/5 tail:
+
+```tsx
+  const panel = panelRef.current;
+  const reduced =
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (panel === null || reduced) {
+    onClose(); // step 4 — byte-identical to today
+    return;
+  }
+
+  // step 5 — snapshot FIRST, before neutralizing anything: an interrupted
+  // entrance must continue from where it reached, not snap to resting style.
+  const computed = window.getComputedStyle(panel);
+  const startTransform = computed.transform === "none" ? "" : computed.transform;
+  const startOpacity = computed.opacity;
+
+  const isSheet = !window.matchMedia("(min-width: 640px)").matches;
+  const durationVar = isSheet ? "--duration-normal" : "--duration-fast";
+  const fallbackMs = isSheet ? DURATION_NORMAL_FALLBACK_MS : DURATION_FAST_FALLBACK_MS;
+
+  panel.style.animation = "none";
+  panel.style.transition = "none";
+  if (startTransform) panel.style.transform = startTransform;
+  panel.style.opacity = startOpacity;
+  void panel.offsetHeight; // force a style flush so start and end resolve separately
+  panel.style.transition = `transform var(${durationVar}) var(--ease-out-quart), opacity var(${durationVar}) var(--ease-out-quart)`;
+  if (isSheet) {
+    panel.style.transform = "translateY(100%)";
+  } else {
+    panel.style.opacity = "0";
+    panel.style.transform = "translateY(8px) scale(0.98)";
+  }
+
+  const scrim = scrimRef.current;
+  if (scrim) {
+    scrim.style.animation = "none";
+    scrim.style.transition = `opacity var(${durationVar}) ease-out`;
+    scrim.style.opacity = "0";
+  }
+
+  let closed = false;
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    panel.removeEventListener("transitionend", onTransitionEnd);
+    if (dismissTimerRef.current !== null) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    onClose();
+  };
+  const onTransitionEnd = (ev: TransitionEvent) => {
+    if (ev.target === panel && ev.propertyName === "transform") finish();
+  };
+  panel.addEventListener("transitionend", onTransitionEnd);
+  dismissTimerRef.current = setTimeout(finish, fallbackMs);
+```
+
+Add `const scrimRef = useRef<HTMLButtonElement | null>(null);` and `ref={scrimRef}` on the scrim (`:387`). The `transitionend` predicate keys on `transform` in BOTH modes — desktop animates transform as well as opacity precisely so this one predicate works (spec §3.2).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx
+pnpm typecheck
+```
+
+Expected: PASS. jsdom still takes the immediate path (no `matchMedia`), so pre-existing assertions are unaffected.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/admin/review/ReviewModalShell.tsx tests/components/admin/review/reviewModalShell.test.tsx
+git commit --no-verify -m "feat(admin): mode-aware modal exit animation with snapshot-first normalization"
+```
+
+---
+
+## Task 4: `closeAffordancesDisabled` + skeleton dual-usage
+
+**Files:**
+
+- Modify: `components/admin/review/ReviewModalShell.tsx`
+- Modify: `components/admin/showpage/ShowReviewModalSkeleton.tsx:39`
+- Create: `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
+
+**Interfaces:**
+
+- Consumes: `requestClose` (Task 2), the exit (Task 3).
+- Produces: `closeAffordancesDisabled?: boolean` prop on `ReviewModalShell`.
+
+`ShowReviewModalSkeleton` has two usages: the server Suspense fallback (no `onClose` → no-op) and #485's client optimistic copy in `ShowsTable` (real cancel). Deriving the gate from that existing branch means the two cannot drift.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
+
+describe("ShowReviewModalSkeleton dual usage (spec §3.4)", () => {
+  // Failure mode: the shell-wide requestClose rewiring animates the LOADING
+  // frame off-screen into an inert, scroll-locked state with no close. A test
+  // asserting only "no X button" passes while exactly that ships.
+  it("server-fallback usage: every affordance is inert", async () => {
+    render(<ShowReviewModalSkeleton />);
+    const dialog = screen.getByRole("dialog");
+    const panel = screen.getByTestId("show-review-modal-panel");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByTestId("show-review-modal-backdrop"));
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    expect(panel.style.transform).toBe("");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  // Failure mode: the gate is derived too broadly and the client optimistic
+  // copy loses its cancel, stranding the user on a skeleton.
+  it("client optimistic usage: affordances dismiss", async () => {
+    const onClose = vi.fn();
+    render(<ShowReviewModalSkeleton onClose={onClose} />);
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+Confirm the `data-testid` values against the live component before running — use whatever `testIdBase` the skeleton passes, not the names above if they differ.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
+Expected: FAIL — the server-fallback case inerts and animates.
+
+- [ ] **Step 3: Implement**
+
+Add the prop to the shell's signature (`closeAffordancesDisabled = false`), replacing the Task 2 local. Gate three places: `requestClose` step 0 (already written), `handleGrabPointerDown` (early return — no drag may start), and `beginDismiss` (the drag branch bypasses `requestClose` entirely, so it needs its own gate).
+
+In `ShowReviewModalSkeleton.tsx`, alongside the existing `onClose ?? (() => {})` at `:39`:
+
+```tsx
+closeAffordancesDisabled={onClose === undefined}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pnpm vitest run tests/components/admin/showpage/showReviewModalSkeleton.test.tsx tests/components/admin/review/reviewModalShell.test.tsx`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/admin/review/ReviewModalShell.tsx \
+  components/admin/showpage/ShowReviewModalSkeleton.tsx \
+  tests/components/admin/showpage/showReviewModalSkeleton.test.tsx
+git commit --no-verify -m "feat(admin): gate skeleton close affordances by usage"
+```
+
+---
+
+## Task 5: `closeApiRef` + Step3 success closes
+
+**Files:**
+
+- Modify: `components/admin/review/ReviewModalShell.tsx`
+- Modify: `components/admin/wizard/Step3ReviewModal.tsx:236,245,299`
+- Modify: `tests/components/admin/review/reviewModalShell.test.tsx`
+
+**Interfaces:**
+
+- Produces: `closeApiRef?: RefObject<(() => void) | null>` on `ReviewModalShell`.
+
+Step3's success handlers are consumer-owned closures **above** the provider — `useReviewModalClose()` there returns the default no-op and the modal would never close after a publish. The ref is the only mechanism that reaches them (spec §3.1a).
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+describe("closeApiRef (spec §3.1a)", () => {
+  // Failure mode is SILENT: if the ref is unpopulated when an action resolves,
+  // the close does nothing and the modal hangs open after a successful publish.
+  it("is populated before any interaction and runs the full requestClose path", async () => {
+    const onClose = vi.fn();
+    const ref = createRef<(() => void) | null>();
+    renderShell({ onClose, closeApiRef: ref });
+    expect(typeof ref.current).toBe("function");
+    ref.current?.();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog").hasAttribute("inert")).toBe(true);
+  });
+
+  // Failure mode: a late resolution after unmount calls a stale close.
+  it("is cleared on unmount", () => {
+    const ref = createRef<(() => void) | null>();
+    const { unmount } = renderShell({ onClose: vi.fn(), closeApiRef: ref });
+    unmount();
+    expect(ref.current).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx -t "closeApiRef"`
+Expected: FAIL — `ref.current` is `null`.
+
+- [ ] **Step 3: Implement**
+
+In the shell, after `requestClose` is defined:
+
+```tsx
+// Populated pre-paint so it is ready before any user-triggered action, and
+// cleared on unmount so a late resolution closes nothing (spec §3.1a).
+useLayoutEffect(() => {
+  if (!closeApiRef) return;
+  closeApiRef.current = requestClose;
+  return () => {
+    closeApiRef.current = null;
+  };
+});
+```
+
+No dependency array: `requestClose` is redefined each render and the ref must always hold the current closure.
+
+In `Step3ReviewModal.tsx`, add `const closeApiRef = useRef<(() => void) | null>(null);`, pass `closeApiRef={closeApiRef}` to the shell, and at `:236`, `:245`, `:299` replace `onClose();` with:
+
+```tsx
+closeApiRef.current?.();
+```
+
+**No `?? onClose` fallback.** The ref is null only after unmount — i.e. a close already happened — so a fallback would fire a second close (spec §3.1a, Codex R5).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx
+pnpm typecheck
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/admin/review/ReviewModalShell.tsx \
+  components/admin/wizard/Step3ReviewModal.tsx \
+  tests/components/admin/review/reviewModalShell.test.tsx
+git commit --no-verify -m "feat(admin): route Step3 success closes through closeApiRef"
+```
+
+---
+
+## Task 6: Structural guards (spec §7.6)
+
+**Files:**
+
+- Modify: `tests/components/admin/review/reviewModalShell.test.tsx`
+
+Three source-scanning guards. Each must **fail by default** — a new file, state, or call site that violates the contract breaks CI rather than inheriting broken behavior.
+
+- [ ] **Step 1: Write the guards**
+
+```tsx
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const SHELL_SRC = readFileSync(join(process.cwd(), "components/admin/review/ReviewModalShell.tsx"), "utf8");
+const CONSUMERS = [
+  "components/admin/showpage/PublishedReviewModal.tsx",
+  "components/admin/wizard/Step3ReviewModal.tsx",
+];
+
+describe("structural guards (spec §7.6)", () => {
+  // Failure mode: a new close site calls onClose() directly, creating a second
+  // un-animated path that races the exit. Behavioral tests cannot cover a
+  // FUTURE call site — only a static scan can.
+  it("no consumer invokes the shell's onClose prop directly", () => {
+    for (const path of CONSUMERS) {
+      const src = readFileSync(join(process.cwd(), path), "utf8");
+      const direct = src.match(/(?<!closeApiRef\.current\?\.\(\)[\s\S]{0,0})\bonClose\(\)/g) ?? [];
+      expect(direct, `${path} must route every close through requestClose/closeApiRef`).toHaveLength(0);
+    }
+  });
+
+  // Failure mode: a new motion state is added without a normalization row, so
+  // exits from it silently jump instead of animating.
+  it("every motion-state source has an inventory row", () => {
+    const SOURCES = ["dragRef", "settleTimerRef", "dismissTimerRef", "dismissingRef"];
+    const spec = readFileSync(
+      join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
+      "utf8",
+    );
+    for (const source of SOURCES) {
+      expect(SHELL_SRC).toContain(source);
+      expect(spec, `${source} needs an S-row in the §3.2 motion-state inventory`).toContain(source);
+    }
+  });
+
+  // Failure mode: clearPanelDragStyles loses its guard and a pending settle
+  // blanks the exit styles mid-animation.
+  it("clearPanelDragStyles early-returns while dismissing", () => {
+    const body = SHELL_SRC.slice(SHELL_SRC.indexOf("function clearPanelDragStyles"));
+    expect(body.slice(0, 200)).toContain("if (dismissingRef.current) return;");
+  });
+
+  // Failure mode: an affordance is silently reverted to a bare onClose during a
+  // later refactor, so four affordances animate and one snaps — the exact
+  // asymmetry this feature exists to remove.
+  it("all four non-drag affordances resolve to requestClose", () => {
+    // scrim onClick, Esc keydown, grab onClick, and the context value the X reads
+    expect(SHELL_SRC).toContain("onClick={requestClose}"); // scrim
+    expect(SHELL_SRC).toMatch(/Escape[\s\S]{0,200}requestClose\(\)/); // Esc
+    expect(SHELL_SRC).toMatch(/dragConsumedClickRef[\s\S]{0,120}requestClose\(\)/); // grab tap
+    expect(SHELL_SRC).toContain("<ReviewModalCloseContext.Provider value={requestClose}>"); // X
+  });
+
+  // Failure mode: a guard is dropped and the failure is invisible until a user
+  // hits the compound case in production.
+  it("every §3.1 guard is present", () => {
+    const fn = SHELL_SRC.slice(SHELL_SRC.indexOf("function requestClose"));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    expect(body).toContain("closeAffordancesDisabled"); // step 0
+    expect(body).toContain("dismissingRef.current) return"); // step 1
+    expect(body).toContain("dragRef.current"); // step 2
+    expect(body).toContain("settleTimerRef"); // step 2 settle neutralization
+    expect(body).toContain("prefers-reduced-motion"); // step 4
+    expect(SHELL_SRC).toMatch(/handleGrabPointerEnd[\s\S]{0,160}dismissingRef\.current\) return/);
+  });
+});
+```
+
+Verify the `onClose()` regex against the real files before trusting it — if either consumer legitimately defines its own local `onClose` handler, narrow the scan to call sites rather than declarations, and say so in a comment.
+
+- [ ] **Step 2: Run to verify they pass (guards, not TDD-red)**
+
+Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx -t "structural guards"`
+Expected: PASS — Tasks 1–5 already satisfy them.
+
+- [ ] **Step 3: Verify each guard actually fails on a synthetic violation**
+
+A guard that never fires is worse than no guard. For each: temporarily break the contract (add a bare `onClose()` to a consumer; delete the `dismissingRef` early-return), confirm RED, then revert. Do not commit any of these edits.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/components/admin/review/reviewModalShell.test.tsx
+git commit --no-verify -m "test(admin): structural guards for close path, motion states, chokepoint"
+```
+
+---
+
+## Task 7: Real-browser matrix (a)–(h)
+
+**Files:**
+
+- Modify: `tests/e2e/published-review-modal.interactions.spec.ts:23`, `:254-292`
+- Modify: `tests/e2e/step3-review-modal.interactions.spec.ts`
+
+**VIEWPORT CONSTRAINT (verified):** the grab strip is `sm:hidden` (`ReviewModalShell.tsx:423`). Grab-tap and drag runs REQUIRE `SHEET` (`{width:390,height:844}`); X/Esc/scrim run at both `SHEET` and `POPUP` (`{width:1280,height:800}`). A desktop-only matrix silently skips two of the five affordances while appearing green. Reuse the existing `SHEET`/`POPUP` consts (`published-review-modal.interactions.spec.ts:64-65`) — do not invent viewports.
+
+- [ ] **Step 1: Flip the instant-unmount assertions**
+
+At `:23` (header doc comment) and `:254-292`, replace "open→closed is an instant unmount" with the exit-animated contract. **#485's URL-strip polling stays exactly as-is** — it asserts the URL catches up after the push, which this change does not affect. The `7555c0316` focus-continuity pin also stays green: focus lands on the trigger at exit-end.
+
+- [ ] **Step 2: Write (a)–(h)**
+
+Per spec §7.5. A shared helper keeps the progression assertions honest:
+
+```ts
+/** Sample the panel's computed transform across the exit. Endpoint-only
+ *  assertions ("eventually closed", "never snapped back") are BOTH satisfied
+ *  by an instant jump — the exact regression this catches (spec §7.5(d)). */
+async function sampleExit(page: Page, panel: string, samples = 4) {
+  const out: string[] = [];
+  for (let i = 0; i < samples; i++) {
+    out.push(
+      await page.locator(panel).evaluate((el) => getComputedStyle(el).transform).catch(() => "gone"),
+    );
+    await page.waitForTimeout(25);
+  }
+  return out;
+}
+```
+
+Each case asserts: ≥2 distinct intermediate values, strict progression toward the end state, and that exit-end arrived via `transitionend` rather than the fallback timer.
+
+| Case | Spec | Viewport | Harness |
+|---|---|---|---|
+| (a) exit-animation flip | §7.5(a) | SHEET + POPUP | published |
+| (b) five-affordance suppression | §7.5(b) | Esc/X/scrim both; grab+drag SHEET only | step3 |
+| (c) focus continuity | §7.5(c) | POPUP | published |
+| (d) drag-held + Esc | §7.5(d) | SHEET | published |
+| (e) close during spring-back | §7.5(e) | SHEET | published |
+| (f) close during entrance | §7.5(f) | SHEET + POPUP | published |
+| (g) resolution during exit | §7.5(g) | SHEET | step3 |
+| (h) resolution after exit-end | §7.5(h) | SHEET | step3 |
+
+- [ ] **Step 3: Run**
+
+```bash
+pnpm exec playwright test tests/e2e/published-review-modal.interactions.spec.ts \
+  tests/e2e/step3-review-modal.interactions.spec.ts
+```
+
+Expected: PASS. If a sibling dev server occupies :3000, `lsof` the cwd and use a scratch alt-port config rather than fighting the port.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts
+git commit --no-verify -m "test(admin): real-browser exit-animation matrix, five affordances at correct viewports"
+```
+
+---
+
+## Task 8: Spec §6.5 amendment + `DEFERRED.md`
+
+**Files:**
+
+- Modify: `docs/superpowers/specs/2026-07-18-admin-show-modal.md` §6.5
+- Modify: `DEFERRED.md:23`
+
+- [ ] **Step 1: Amend the ratified transition inventory**
+
+Replace the `open → closed | instant unmount` row with the mode-aware exit (sheet `translateY(100%)` over `--duration-normal`; desktop fade + `translateY(8px) scale(0.98)` over `--duration-fast`; reduced motion instant), citing this spec.
+
+- [ ] **Step 2: Resolve the deferral**
+
+Mark `MODAL-CLOSE-EXIT-ANIM-1` resolved at `DEFERRED.md:23` with the PR ref. **`MODAL-SKELETON-CLOSE-1` (`:28`) stays untouched** — user-directed as a fully separate task.
+
+If `DEFERRED.md` conflicts on rebase, resolve then re-run `npx prettier --write DEFERRED.md`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/superpowers/specs/2026-07-18-admin-show-modal.md DEFERRED.md
+git commit --no-verify -m "docs(admin): amend §6.5 transition inventory; resolve MODAL-CLOSE-EXIT-ANIM-1"
+```
+
+---
+
+## Task 9: Impeccable critique + audit pair (invariant 8)
+
+Every non-test file in this diff is a UI surface, so both commands are mandatory and run BEFORE the whole-diff Codex review.
+
+- [ ] **Step 1: Setup gates**
+
+Canonical v3 setup: `context.mjs` context load (PRODUCT.md + DESIGN.md) → register reference read (`brand.md` or `product.md`).
+
+- [ ] **Step 2: Run both**
+
+```
+/impeccable critique
+/impeccable audit
+```
+
+- [ ] **Step 3: Triage**
+
+P0/P1 fixed in-scope, or explicitly deferred with a `DEFERRED.md` entry. Findings + dispositions recorded in the PR body. P2/P3 at discretion.
+
+- [ ] **Step 4: Full pre-push gates**
+
+```bash
+pnpm test && pnpm typecheck && pnpm lint && pnpm format:check
+```
+
+All four. Scoped runs miss regressions; `--no-verify` skipped prettier on every commit above, so `format:check` is the first time formatting is verified.
+
+- [ ] **Step 5: Commit any fixes**
+
+```bash
+git commit --no-verify -m "fix(admin): impeccable dual-gate findings"
+```
