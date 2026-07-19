@@ -260,7 +260,7 @@ resolving is confirm's pending variant: same popover, both buttons `disabled`, C
 | resolving → closed (settle: success or error) | Instant unmount; banner renders (§4.5). |
 | resolving → confirm / menu / anything else | **Unreachable** — close paths and auto-revert are inert while resolving (functional guard); buttons disabled. |
 | confirm → menu | **Unreachable** — cancel closes fully (§4.3); no back-navigation. |
-| closed → confirm | Unreachable (confirm only via menu). |
+| closed → confirm, closed → resolving, menu → resolving | Unreachable (confirm only via menu; resolving only via confirm CTA). Full pair coverage: all 12 directed pairs of {closed, menu, confirm, resolving} are now enumerated above (6 reachable, 6 unreachable). |
 | banner show/hide | Instant mount/unmount (matches PCR banners). |
 
 Compound transitions:
@@ -391,6 +391,22 @@ unrelated wizard-step churn), and add the new spec file to the `playwright test`
 - No screenshot regeneration in this PR: help screenshots are byte-pinned to the x64 CI capture
   environment; copy edits here do not reference new imagery. If the screenshots-drift job flags
   affected shots, defer regeneration to the standard drift workflow (non-required check).
+
+## 9b. Ship gates (AGENTS.md invariants applied to this diff)
+
+- **Invariant 8 (UI quality gate):** the diff touches `components/admin/wizard/**` and help
+  `app/help/**` pages → BOTH `/impeccable critique` AND `/impeccable audit` run on the affected
+  diff with the canonical v3 setup gates, P0/P1 findings fixed or deferred via `DEFERRED.md`,
+  BEFORE cross-model whole-diff review and milestone close.
+- **Invariant 1 (TDD per task), 6 (commit per task), 11 (worktree)** — standard; work is in
+  `FX-worktrees/crew-row-controls`.
+- **Invariants 2/3/4 (advisory locks / email canonicalization / no global cursor):** no touched
+  surface — no lock-holding code path, no raw email handling (mailto uses parsed value as
+  today), no sync code.
+- **Invariant 5:** no raw codes rendered (§4.4 maps codes to admin copy inline).
+- **Invariant 10:** no new mutation surface; existing registry rows cover both actions
+  (`tests/log/_auditableMutations.ts:264-278`, behavior `tests/log/adminOutcomeBehavior.test.ts:1370-1389`).
+- **UI-is-Opus routing:** entire diff is UI + tests + docs → Opus/Claude Code owns it.
 
 ## 10. Deviations from the mock (ratified here)
 
