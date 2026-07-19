@@ -111,6 +111,98 @@ cannot be restyled.** Live inventory:
 restyle the share panel mounted *inside this very modal*. **Resolution:** add a
 third, explicit variant rather than mutating the default — see §6.4.
 
+### 3.2 Citation evidence appendix
+
+Every load-bearing `file:line` this spec cites, with its verbatim content at the
+base commit. Regenerate this table whenever the base moves (§3) — a rebase shifts
+line numbers, and a citation that silently drifts is how a spec starts directing
+edits at the wrong contract.
+
+**Why this lives in the spec rather than in a reviewer's packet.** Adversarial
+review flagged unverifiable citations twice (rounds 4 and 9), each time because
+the reviewer could not open the cited files. Answering that by pasting more
+excerpts into the review prompt fixes one round and nothing else. The appendix
+fixes it permanently and for everyone downstream: a reviewer, an implementer in a
+fresh session, or a subagent with no repo access can all check a claim against
+this table without tooling.
+
+| File | Line | Verbatim content |
+| --- | --- | --- |
+| `components/admin/review/ReviewModalShell.tsx` | 430 | `<header` |
+| `components/admin/review/ReviewModalShell.tsx` | 432 | `className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3…` |
+| `components/admin/review/ReviewModalShell.tsx` | 449 | `{footer != null ? (` |
+| `components/admin/review/ReviewModalShell.tsx` | 54 | `export type ReviewModalShellProps = {` |
+| `components/admin/review/ReviewModalShell.tsx` | 71 | `};` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 74 | `alertCount: number;` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 114 | `alertCount,` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 183 | `...(alertCount > 0` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 194 | `{alertCount}{" "}` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 212 | `shareSlot={shareSlot}` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 243 | `initialFocusRef={closeRef}` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 251 | `<div className="flex min-w-0 flex-1 flex-col gap-3">` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 263 | `{openSheetHref !== null ? (` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 270 | `className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text…` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 292 | `<StatusStrip` |
+| `components/admin/showpage/PublishedReviewModal.tsx` | 304 | `alertCount={alertCount}` |
+| `components/admin/showpage/StatusStrip.tsx` | 144 | `// Copy-link renders only for an active crew link: published, not archived, token present.` |
+| `components/admin/showpage/StatusStrip.tsx` | 154 | `const hasSignal = isLive \|\| (syncLabel != null && sync != null) \|\| alertCount > 0;` |
+| `components/admin/showpage/StatusStrip.tsx` | 161 | `const containerClass =` |
+| `components/admin/showpage/StatusStrip.tsx` | 167 | `<div data-testid="show-status-strip" className={containerClass}>` |
+| `components/admin/showpage/StatusStrip.tsx` | 179 | `{title ?? slug}` |
+| `components/admin/showpage/StatusStrip.tsx` | 194 | `{archived ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 202 | `<div data-testid="strip-publish-toggle" className="shrink-0">` |
+| `components/admin/showpage/StatusStrip.tsx` | 221 | `{!archived && isLive ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 227 | `{syncLabel != null && sync != null ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 237 | `{editedRel != null ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 244 | `{alertCount > 0 ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 248 | `// The visible pill stays slim (text-xs); before:-inset-y-3 extends the HIT AREA to the` |
+| `components/admin/showpage/StatusStrip.tsx` | 259 | `{copyUrl != null ? (` |
+| `components/admin/showpage/StatusStrip.tsx` | 261 | `<ShareLinkCopyButton url={copyUrl} />` |
+| `components/admin/wizard/Step3ReviewModal.tsx` | 289 | `const client = data.clientLabel;` |
+| `components/admin/wizard/Step3ReviewModal.tsx` | 290 | `const segs = dateSummarySegments(data.dates ?? undefined);` |
+| `components/admin/wizard/step3ReviewSections.tsx` | 261 | `export function dateSummarySegments(dates: ParseResult["show"]["dates"] \| undefined): string…` |
+| `components/admin/review/sectionData.ts` | 28 | `clientLabel: string \| null;` |
+| `components/admin/review/publishedAdapter.ts` | 64 | `clientLabel: str(show.client_label) \|\| null,` |
+| `components/admin/ReSyncButton.tsx` | 83 | `useEffect(() => {` |
+| `components/admin/ReSyncButton.tsx` | 136 | `return (` |
+| `components/admin/ReSyncButton.tsx` | 138 | `<AccentButton` |
+| `components/admin/ReSyncButton.tsx` | 150 | `{pending ? "Syncing…" : "Re-sync from Drive"}` |
+| `components/admin/ReSyncButton.tsx` | 152 | `{errorCode ? (` |
+| `components/admin/ReSyncButton.tsx` | 162 | `{heldShrink && !errorCode ? (` |
+| `components/admin/ReSyncButton.tsx` | 204 | `{successMessage && !errorCode ? (` |
+| `components/admin/PublishedToggle.tsx` | 59 | `"absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile";` |
+| `components/admin/CorrectionLoopCallout.tsx` | 43 | `{children ? <div className="shrink-0">{children}</div> : null}` |
+| `components/admin/StatusIndicator.tsx` | 27 | `live: "bg-status-live",` |
+| `components/admin/showpage/OverviewSection.tsx` | 126 | `<div data-testid="overview-sheet-sync" className="flex flex-col gap-3">` |
+| `components/admin/showpage/OverviewSection.tsx` | 127 | `{archived ? (` |
+| `components/admin/showpage/OverviewSection.tsx` | 133 | `<ReSyncButton slug={slug} />` |
+| `components/admin/showpage/OverviewSection.tsx` | 138 | `{openSheetHref ? (` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx` | 49 | `resetRef.current = setTimeout(() => setCopied(false), 2_000);` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx` | 61 | `aria-label={copied ? "URL copied to clipboard" : "Copy URL"}` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx` | 65 | `: "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent p…` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx` | 97 | `) : copied ? (` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx` | 106 | `className="sr-only"` |
+| `app/admin/show/[slug]/ShareChip.tsx` | 44 | `<ShareLinkCopyButton url={url} compact />` |
+| `app/admin/show/[slug]/ShareLinkBody.tsx` | 53 | `<ShareLinkCopyButton url={url} />` |
+| `app/admin/_showReviewModal.tsx` | 253 | `const { archived, published, dates, venue, driveFileId } = publishedData;` |
+| `app/admin/_showReviewModal.tsx` | 336 | `const isLive = published && isShowLiveOnDate(dates as never, todayIso);` |
+| `app/admin/_showReviewModal.tsx` | 382 | `isLive={isLive}` |
+| `app/globals.css` | 89 | `--color-status-live: var(--color-accent);` |
+| `app/globals.css` | 146 | `--tracking-eyebrow: 0.12em;` |
+| `app/globals.css` | 162 | `--spacing-tap-min: 44px;` |
+| `app/globals.css` | 211 | `--radius-pill: 999px;` |
+| `app/globals.css` | 285 | `--color-warning-bg-runtime: #fff3d6;` |
+| `app/globals.css` | 334 | `--color-warning-bg-runtime: #3a2e14;` |
+| `app/globals.css` | 349 | `--color-status-review-runtime: #e0b84e;` |
+| `tests/components/admin/showpage/pageTransitions.test.tsx` | 124 | `"components/admin/showpage/StatusStrip.tsx": 8, // renderTitle(+divider) / archived / control…` |
+| `tests/components/admin/showpage/statusStrip.test.tsx` | 400 | `expect(classes, `page chrome must keep \`${token}\``).toContain(token);` |
+| `tests/components/admin/showpage/statusStrip.test.tsx` | 408 | `expect(classes, `modal-header chrome must drop \`${token}\``).not.toContain(token);` |
+| `tests/components/admin/showpage/overviewSection.test.tsx` | 71 | `// Strip alert badge (StatusStrip) links to #overview — the anchor must exist here.` |
+| `tests/e2e/published-review-modal.layout.spec.ts` | 221 | `// page chrome inside the header until #480), the ONLY separation between` |
+
+Verification: all 71 rows resolved at the base commit; zero missing files, zero
+out-of-range lines.
+
 ## 4. Design deltas (locked)
 
 Numbered as in the mock's option `#1a`.
@@ -247,13 +339,13 @@ Add one optional prop:
 /** Optional band rendered BETWEEN the header and the body, with its own bottom
  *  seam. Omitted → no element at all (Step 3 renders no extra element).
  *
- *  Pass a rendered ELEMENT or fragment. The wrapper is gated on truthiness, so
- *  `cond && <X/>` correctly yields no band when `cond` is false — but that also
- *  means falsey primitives (`0`, `""`) render nothing rather than a band
- *  containing "0". That is deliberate: a bare number is not a meaningful
- *  control strip, and silently emitting an empty bordered seam is the worse
- *  failure for this shared shell. */
-subHeader?: ReactNode;
+ *  TYPE IS DELIBERATELY NARROWER THAN `ReactNode`. `ReactElement | false | null
+ *  | undefined` admits exactly the shapes a band can meaningfully be — an
+ *  element, or a `cond && <X/>` that collapsed — and makes `0` / `""` a COMPILE
+ *  ERROR rather than a silently-omitted band. Prose alone did not close this:
+ *  adversarial review raised the falsey-ReactNode hazard three times (rounds 5,
+ *  7, 9) against a documented-but-untyped contract. The type closes it. */
+subHeader?: ReactElement | false | null;
 ```
 
 Rendered directly after `</header>`, mirroring the existing `footer` idiom
@@ -538,11 +630,21 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
   with the exact count preserved for assistive tech:
 
   ```tsx
-  {alertCount > 99 ? "99+" : alertCount}{" "}
-  <span className="sr-only">
-    {alertCount > 99 ? `(${alertCount}) ` : ""}open {alertCount === 1 ? "alert" : "alerts"}
-  </span>
+  {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
+  {alertCount > 99 ? <span className="sr-only"> ({alertCount} total)</span> : null}
   ```
+
+  **The unit stays VISIBLE.** A bare `99+` in the header is not self-explanatory;
+  the word carries the meaning and the count qualifies it. Exact expected results:
+
+  | `alertCount` | Visible text | Accessible name |
+  | --- | --- | --- |
+  | 1 | `1 alert` | `1 alert` |
+  | 2 | `2 alerts` | `2 alerts` |
+  | 1200 | `99+ alerts` | `99+ alerts (1200 total)` |
+
+  The sr-only suffix renders ONLY past the cap — below it the visible text is
+  already exact, and a redundant "(2 total)" would just make the name noisier.
 
   The separator space is its OWN visible text node — a leading space inside the
   `sr-only` span is trimmed during accessible-name computation, yielding
@@ -592,10 +694,20 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
     error copy scrolls inside the panel instead of blanketing the rail.
   - `shadow-tile` + the band's `bg-surface`, so the panel reads as a layer above
     the body rather than merging with it.
-  - Dismissal is per-branch and unchanged: the shrink confirm is dismissed by its
-    own "Keep current version" (`ReSyncButton.tsx:78-82`); success self-clears;
-    an error clears on the next attempt. No new dismissal affordance is added —
-    but none of the three may render as a permanent, undismissable blanket.
+  - **Dismissal, per branch.** The shrink confirm dismisses via its own "Keep
+    current version" (`ReSyncButton.tsx:78-82`); success self-clears. The ERROR
+    branch, however, has no close path today other than re-running the mutation —
+    acceptable when it rendered in-flow inside Overview's column, NOT acceptable
+    now that it floats over the rail. **The error overlay therefore gains an
+    explicit dismiss control** (a labelled close button that clears `errorCode`,
+    returning focus to the Re-sync trigger).
+
+    This is a deliberate reversal of the earlier "no new dismissal affordance"
+    line: relocating a surface changed what that surface owes the user. Forcing
+    an admin to retry a failed mutation purely to clear an obstruction would be a
+    worse bug than the layout one this move fixes. Esc is NOT the mechanism — the
+    shell binds Esc to closing the whole modal, so overloading it here would
+    either dismiss the dialog or require fighting the shell's handler.
 
   A fragment generates no box, so the absolutely-positioned panels resolve their
   containing block to the nearest positioned ancestor — the band, which is
@@ -917,7 +1029,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
 | T-ALERT-PILL-LINK | Pill is an anchor with `href="#overview"` and name "2 alerts" | Regression to the mock's inert span — jump affordance lost (F1) |
 | T-ALERT-PILL-ZERO | `alertCount: 0` → no pill | Empty pill / "0 alerts" |
-| T-ALERT-CAP | `alertCount: 1200` → visible text is `99+`; accessible name still contains `1200`; header right group width at 375px within a few px of the `2 alerts` case | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes |
+| T-ALERT-CAP | Assert the full §6.6 table: 1 → `1 alert`; 2 → `2 alerts`; 1200 → visible `99+ alerts`, accessible name `99+ alerts (1200 total)`; header right group width at 375px within a few px of the `2 alerts` case | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes |
 | T-ALERT-NOT-IN-STRIP | Strip contains no alert element | Alert rendered twice (moved but not removed) |
 | T-DIVIDER-ALERT-ONLY | `alertCount>0`, not live, no sync → strip renders NO control divider | §7's real bug: divider followed by nothing |
 | T-STATUS-INLINE-NO-EDITED | `editedRel` null → one line, no trailing bullet | Orphan separator after the collapse |
@@ -932,7 +1044,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
-| T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip) and shows catalog copy, never a raw code — assert the rendered text is the `lib/messages/lookup.ts` copy AND that the raw code string is absent | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
+| T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip), shows catalog copy, never a raw code, AND is dismissable without re-running the mutation — the dismiss control clears the overlay and returns focus to the trigger — assert the rendered text is the `lib/messages/lookup.ts` copy AND that the raw code string is absent | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
 | T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
 | T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay and does not reflow the strip | Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
@@ -944,7 +1056,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border vs band background ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label vs band background ≥4.5:1 (1.4.3 text). Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
-| T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element | `!= null` gate emits an empty bordered seam for `cond && <X/>` |
+| T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |
