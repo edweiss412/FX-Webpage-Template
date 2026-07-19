@@ -1102,3 +1102,17 @@ describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
     expect(screen.queryByTestId("shows-auto-fixed-chip-z")).toBeNull();
   });
 });
+
+describe("row pressed feedback", () => {
+  // Failure mode: between pointerdown and the optimistic skeleton's first
+  // paint (~120ms measured) the row shows NO state change at all — on touch,
+  // hover: never fires pre-tap, so active: is the only instant cue.
+  it("row link carries an active: tint for instant press feedback", () => {
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    expect(screen.getByTestId("shows-table-row-rpas").className).toContain(
+      "active:bg-surface-sunken",
+    );
+  });
+});
