@@ -126,6 +126,7 @@ import {
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
+import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
@@ -1233,23 +1234,67 @@ export function OpsBreakdown({
 export function CrewBreakdown({
   dfid,
   members,
-  previewAs,
+  actions,
 }: {
   dfid: string | null;
   members: CrewMemberRow[];
-  /** §5.5 (published mode): the crew-scoped Preview-As affordance. `enabled` folds the
-   *  published && !archived gate; `crewIds` is index-aligned with `members` (adapter's single
-   *  crew sort). Absent in staged mode → no link, byte-identical to the pre-Phase-2 modal. */
-  previewAs?: { slug: string; enabled: boolean; crewIds: readonly string[] };
+  /** Published-mode row actions (crew-row-controls spec §3.2): folds the
+   *  published && !archived gate (`enabled`); `crewIds` is index-aligned with
+   *  `members` (adapter's single crew sort). Absent in staged mode →
+   *  byte-identical to the pre-change render. */
+  actions?: { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] };
 }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
+  // Single-open menu + panel-top outcome banner (spec §4.2/§4.5). State exists
+  // in every mode but banners/menus only MOUNT when actions?.enabled.
+  const [openCrewId, setOpenCrewId] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CrewRowOutcome | null>(null);
+  // Success auto-dismiss (5s — mirrors PickerResetControl SUCCESS_DISMISS_MS);
+  // errors persist until replaced or unmount.
+  useEffect(() => {
+    if (outcome?.kind !== "ok") return;
+    const t = setTimeout(() => setOutcome(null), 5_000);
+    return () => clearTimeout(t);
+  }, [outcome]);
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
       label="Crew"
       count={members.length}
     >
+      {actions?.enabled && members.length > 0 ? (
+        <>
+          {/* PCR-1 banner pair (PickerResetControl.tsx): persistent sr-only
+              polite region announces success; visible banners are decorative/alert.
+              Gated on non-empty crew too — an empty section renders ONLY
+              "No crew parsed." with no banner state (spec §5). */}
+          <div className="sr-only" role="status" aria-live="polite">
+            {outcome?.kind === "ok" ? outcome.message : ""}
+          </div>
+          {outcome?.kind === "ok" && (
+            <p
+              data-testid="crew-row-reset-ok"
+              aria-hidden="true"
+              className="rounded-sm bg-surface-raised px-2 py-1 text-sm wrap-break-word text-text-strong"
+            >
+              <span aria-hidden="true" className="mr-1 font-semibold text-accent-on-bg">
+                ✓
+              </span>
+              {outcome.message}
+            </p>
+          )}
+          {outcome?.kind === "error" && (
+            <p
+              data-testid="crew-row-reset-error"
+              role="alert"
+              className="rounded-sm bg-warning-bg px-2 py-1 text-sm wrap-break-word text-warning-text"
+            >
+              {outcome.message}
+            </p>
+          )}
+        </>
+      ) : null}
       {members.length === 0 ? (
         <p className="text-sm text-text-subtle">No crew parsed.</p>
       ) : (
@@ -1258,9 +1303,9 @@ export function CrewBreakdown({
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
-            // §5.5: crew-scoped Preview-As link, only when published && !archived AND this row
-            // has a persisted crew id (index-aligned with `members`).
-            const previewCrewId = previewAs?.enabled ? (previewAs.crewIds[i] ?? "") : "";
+            // Spec §4.1: the row-actions trigger mounts only when published &&
+            // !archived AND this row has a persisted crew id (index-aligned).
+            const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
             return (
               <Fragment key={`${m.name}-${i}`}>
                 <li className="flex items-center gap-3 py-1">
@@ -1304,14 +1349,16 @@ export function CrewBreakdown({
                       </a>
                     ) : null}
                   </span>
-                  {previewCrewId ? (
-                    <Link
-                      data-testid={`admin-show-preview-as-link-${previewCrewId}`}
-                      href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
-                      className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                    >
-                      Preview as<span className="sr-only"> {name}</span>
-                    </Link>
+                  {crewId ? (
+                    <CrewRowActions
+                      crewId={crewId}
+                      name={name}
+                      showId={actions!.showId}
+                      slug={actions!.slug}
+                      open={openCrewId === crewId}
+                      onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
+                      onOutcome={setOutcome}
+                    />
                   ) : null}
                 </li>
               </Fragment>
@@ -3503,14 +3550,16 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      // Mode fork (spec §5.5): published rows gain the crew-scoped Preview-As link (gated on
-      // published && !archived); staged renders byte-identically (no previewAs prop).
+      // Mode fork (crew-row-controls spec §3): published rows gain the ⋮ row-action
+      // menu (Preview as + Reset name picker, gated on published && !archived);
+      // staged renders byte-identically (no actions prop).
       render: (s) =>
         isPublished(s) ? (
           <CrewBreakdown
             dfid={s.driveFileId}
             members={s.crewMembers}
-            previewAs={{
+            actions={{
+              showId: s.showId,
               slug: s.slug,
               enabled: s.published && !s.archived,
               crewIds: (s.previewRoster ?? []).map((r) => r.id),

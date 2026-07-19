@@ -25,7 +25,7 @@
  */
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -335,12 +335,17 @@ describe("Preview-As crew-row gate (§5.5)", () => {
     return render(<>{crewDef.render(d)}</>);
   }
 
-  it("renders a Preview-As link per crew row when published && !archived", () => {
+  it("renders a Preview-As link per crew row when published && !archived (inside the row ⋮ menu)", () => {
     const d = buildData({ published: true, archived: false });
     renderCrewSection(d);
+    // Preview-As now lives in the row's ⋮ menu (crew-row-controls) — open it first.
+    fireEvent.click(screen.getByTestId(`crew-row-menu-button-${CREW_ID_1}`));
     // hrefs derived from the fixture crew ids the adapter carries.
     const link1 = screen.getByTestId(`admin-show-preview-as-link-${CREW_ID_1}`);
     expect(link1.getAttribute("href")).toBe(`/admin/show/${SLUG}/preview/${CREW_ID_1}`);
+    // Single-open contract: row 2's link requires opening row 2's menu.
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${CREW_ID_1}`));
+    fireEvent.click(screen.getByTestId(`crew-row-menu-button-${CREW_ID_2}`));
     expect(screen.getByTestId(`admin-show-preview-as-link-${CREW_ID_2}`)).toBeTruthy();
   });
 
@@ -348,12 +353,14 @@ describe("Preview-As crew-row gate (§5.5)", () => {
     const d = buildData({ published: true, archived: true });
     renderCrewSection(d);
     expect(screen.queryByTestId(`admin-show-preview-as-link-${CREW_ID_1}`)).toBeNull();
+    expect(screen.queryByTestId(`crew-row-menu-button-${CREW_ID_1}`)).toBeNull();
   });
 
   it("renders no Preview-As link when the show is unpublished", () => {
     const d = buildData({ published: false, archived: false });
     renderCrewSection(d);
     expect(screen.queryByTestId(`admin-show-preview-as-link-${CREW_ID_1}`)).toBeNull();
+    expect(screen.queryByTestId(`crew-row-menu-button-${CREW_ID_1}`)).toBeNull();
   });
 });
 

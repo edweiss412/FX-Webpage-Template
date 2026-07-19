@@ -96,6 +96,7 @@ const REGISTRY: Row[] = [
     "admin-reset-picker-epoch-confirm-button",
   ),
   R("app/admin/show/[slug]/PickerResetControl.tsx", 0, "panel", "picker-reset-confirm-button"),
+  R("components/admin/wizard/CrewRowActions.tsx", 0, "panel", "crew-row-reset-confirm-go"),
   R(
     "app/admin/settings/admins/RevokeRowButton.tsx",
     0,
