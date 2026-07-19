@@ -156,6 +156,10 @@ export function Step3ReviewModal({
   ).offers;
   const hasPendingArchivedOffer = archivedOffers.length > 0;
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  /** The shell writes `requestClose` here (spec §3.1a). These success handlers
+   *  are consumer-owned closures ABOVE the shell's close provider, so a
+   *  `useReviewModalClose()` call in this body would read the default no-op. */
+  const closeApiRef = useRef<(() => void) | null>(null);
   const h2Id = useId();
   const [publishState, setPublishState] = useState<PublishState>("idle");
 
@@ -236,7 +240,10 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      // No `?? onClose` fallback: a null ref means the shell already unmounted,
+      // i.e. a close already happened, so a fallback would fire a SECOND close
+      // (spec §3.1a).
+      closeApiRef.current?.();
       return; // parent unmounts us
     }
     setResolutionPending(false);
@@ -254,7 +261,7 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      closeApiRef.current?.();
       return;
     }
     setResolutionPending(false);
@@ -307,7 +314,10 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      // No `?? onClose` fallback: a null ref means the shell already unmounted,
+      // i.e. a close already happened, so a fallback would fire a SECOND close
+      // (spec §3.1a).
+      closeApiRef.current?.();
       return; // parent unmounts us — no state write after close
     }
     setPublishState("error");
@@ -350,6 +360,7 @@ export function Step3ReviewModal({
       labelledBy={h2Id}
       dataAttrPrefix="step3-review"
       testIdBase={`wizard-step3-card-${dfid}-review`}
+      closeApiRef={closeApiRef}
       initialFocusRef={closeRef}
       header={
         <>

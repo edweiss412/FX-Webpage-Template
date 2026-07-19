@@ -18,11 +18,12 @@
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { useRef } from "react";
+import { createRef, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
   DRAG_SLOP_PX,
+  useReviewModalClose,
   DURATION_FAST_FALLBACK_MS,
   DURATION_NORMAL_FALLBACK_MS,
   ReviewModalShell,
@@ -37,6 +38,7 @@ type HostProps = {
   testIdBase?: string;
   onClose?: () => void;
   footer?: React.ReactNode;
+  closeApiRef?: ReviewModalShellProps["closeApiRef"];
 };
 
 /** Consumer stand-in: owns its close button + ref inside the header slot,
@@ -47,12 +49,14 @@ function Host({
   testIdBase = "shell-under-test",
   onClose = () => {},
   footer,
+  closeApiRef,
 }: HostProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   return (
     <ReviewModalShell
       open={open}
       onClose={onClose}
+      {...(closeApiRef ? { closeApiRef } : {})}
       labelledBy="host-title-id"
       dataAttrPrefix={dataAttrPrefix}
       testIdBase={testIdBase}
@@ -335,4 +339,48 @@ describe("globals.css — review-modal entrance twins mirror step3-review in eve
       expect(animationContexts(css, `data-review-modal-${part}`)).toEqual(step3);
     });
   }
+});
+
+describe("closeApiRef (spec §3.1a)", () => {
+  // Failure mode is SILENT: if the ref is unpopulated when a Step3 action
+  // resolves, the close does nothing and the modal hangs open after a
+  // successful publish.
+  it("is populated before any interaction and runs the full requestClose path", () => {
+    const onClose = vi.fn();
+    const ref = createRef<(() => void) | null>();
+    withReducedMotion(() => {
+      renderShell({ onClose, closeApiRef: ref });
+      expect(typeof ref.current).toBe("function");
+      ref.current?.();
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog")).toHaveAttribute("inert");
+    });
+  });
+
+  // Failure mode: a late resolution after unmount calls a stale close — the
+  // exact case the withdrawn `?? onClose` fallback would have broken.
+  it("is cleared on unmount", () => {
+    const ref = createRef<(() => void) | null>();
+    const { unmount } = renderShell({ onClose: vi.fn(), closeApiRef: ref });
+    expect(typeof ref.current).toBe("function");
+    unmount();
+    expect(ref.current).toBeNull();
+  });
+
+  // Failure mode (SILENT, and the whole reason closeApiRef exists): a refactor
+  // moves Step3's success closes back to a top-level context hook. That sits
+  // ABOVE the shell's provider, reads the default no-op, and the modal never
+  // closes after publish — while every other test here still passes.
+  it("a consumer-level hook read resolves to the default no-op, not requestClose", () => {
+    const onClose = vi.fn();
+    const seen: Array<() => void> = [];
+    function ConsumerAboveProvider() {
+      seen.push(useReviewModalClose()); // resolves against the DEFAULT context
+      return <Host onClose={onClose} />;
+    }
+    render(<ConsumerAboveProvider />);
+    expect(seen).toHaveLength(1);
+    seen[0]?.(); // the default no-op
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

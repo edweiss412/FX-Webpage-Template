@@ -24,6 +24,7 @@
  */
 import {
   createContext,
+  useLayoutEffect,
   useContext,
   useEffect,
   useRef,
@@ -61,6 +62,16 @@ export function useReviewModalClose(): () => void {
 }
 
 export type ReviewModalShellProps = {
+  /** Populated with `requestClose` in a layout effect (pre-paint) and cleared on
+   *  unmount. Step3's action-success handlers are consumer-owned closures that
+   *  sit ABOVE this shell's close provider, so a `useReviewModalClose()` call in
+   *  their component body would read the default no-op and the modal would never
+   *  close after a successful publish (spec §3.1a). This ref is how they reach
+   *  the real `requestClose`. Call it as `closeApiRef.current?.()` — there is NO
+   *  `?? onClose` fallback: the ref is null only after unmount, i.e. a close
+   *  already happened, so a fallback would fire a SECOND close. */
+  closeApiRef?: RefObject<(() => void) | null>;
+
   /** When true every close affordance is dead — no inert, no exit, no onClose.
    *  The Suspense-fallback skeleton has no real close (spec §3.4), and the
    *  exit animation would otherwise slide the LOADING frame away into an inert,
@@ -98,6 +109,7 @@ export function ReviewModalShell(props: ReviewModalShellProps): ReactNode {
 function OpenReviewModalShell({
   onClose,
   closeAffordancesDisabled = false,
+  closeApiRef,
   labelledBy,
   dataAttrPrefix,
   testIdBase,
@@ -234,6 +246,18 @@ function OpenReviewModalShell({
   const dismissingRef = useRef(false);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Populated pre-paint so it is ready before any user-triggered action can
+  // resolve, and cleared on unmount so a late resolution closes nothing
+  // (spec §3.1a). No dependency array: `requestClose` is redefined every render
+  // and the ref must always hold the current closure.
+  useLayoutEffect(() => {
+    if (!closeApiRef) return;
+    closeApiRef.current = requestClose;
+    return () => {
+      closeApiRef.current = null;
+    };
+  });
 
   /** Return the panel to stylesheet control (entrance keyframes, mode classes). */
   function clearPanelDragStyles() {
