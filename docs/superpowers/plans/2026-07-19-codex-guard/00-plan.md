@@ -1,135 +1,526 @@
-# codex-guard Implementation Plan
+# codex-guard Implementation Plan (R1 revision)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `scripts/codex-guard.mjs` — the watchdog wrapper for `codex exec` dispatches per the APPROVED spec `docs/superpowers/specs/2026-07-19-codex-guard.md` — with the spec's 19 test scenarios green under vitest.
 
-**Architecture:** One plain-Node ESM script (no repo runtime deps, runs under bare `node`) implementing: arg parsing/validation → prompt composition → attempt loop (spawn codex, poll-based stall/timeout kills, stream capture) → failure classification → recovery ladder (cache-TTL rung with advisory lock, truncation-resume rung, generic retry) → verdict parsing → `result.json` emission. Tests never spawn real codex: `CODEX_GUARD_BIN` points at a scenario-driven fake; all timing knobs come from `CODEX_GUARD_*` env decimals.
+**Architecture:** One plain-Node ESM script (no repo runtime deps): arg parsing/validation → prompt composition → attempt loop (spawn codex, poll-based stall/timeout kills, stream capture) → failure classification → recovery ladder (cache-TTL rung with advisory lock, truncation-resume rung, generic retry) → verdict parsing → `result.json`. Function bodies GROW across tasks — each task's tests land FIRST, then the minimal code for that task's scenarios. Tests never spawn real codex: `CODEX_GUARD_BIN` (+ `CODEX_GUARD_BIN_ARGS`) points at a scenario-driven fake; all timing from `CODEX_GUARD_*` env decimals.
 
-**Tech Stack:** Node 20 (`node:child_process`, `node:fs`, `node:path`, `node:os`), vitest (`tests/**/*.test.ts` auto-included per `vitest.projects.ts` BASE_INCLUDE), TypeScript for tests only.
+**Tech Stack:** Node 20 (`node:child_process`, `node:fs`, `node:path`, `node:os`), vitest, TypeScript for tests only (repo strict + `noUncheckedIndexedAccess` — index reads use `!` after length assertions, and harness returns TYPED shapes).
 
 ## Global Constraints (from spec — exact values)
 
-- Spec is canonical: `docs/superpowers/specs/2026-07-19-codex-guard.md`. §11 is the single source for every numeric default: MAX_ATTEMPTS 3, ATTEMPT_MAX_SECS 1200 (validation max 1380), TOTAL_MAX_SECS 1500, STALL_SECS 420, FIRST_OUTPUT_SECS 120, POLL_INTERVAL_SECS 10 (max 30), KILL_GRACE_SECS 5 (max 30), MIN_ADMISSION_SECS 120, CACHE_LOCK_STALE_SECS 600, REAP_AFTER_KILL_SECS 10 (max 10), PROMPT_MAX_BYTES 2000000 (no env override).
-- Env overrides `CODEX_GUARD_<NAME>`: positive decimals for timing constants; `CODEX_GUARD_MAX_ATTEMPTS` positive integer only; `PROMPT_MAX_BYTES` fixed. Flags win over env. Same validation bounds both sources.
-- Exit codes: 0 = `result.json` written (outcome in `status`); 2 = usage error, never writes result.json; 3 = wrapper internal error, best-effort result.json.
-- Fresh-attempt argv exactly: `exec --skip-git-repo-check -s read-only -C <cwd> -c model_reasoning_effort=high -o <out>/attempt-<n>.last-message.txt`. Resume argv exactly: `exec resume <sid> -c model_reasoning_effort=high -o <out>/attempt-<n>.last-message.txt` (child cwd = `--cwd`). Prompt ALWAYS via stdin (write + end). No `-m` ever.
-- Kill precedence: total_timeout > attempt_timeout > stall > no_output. Kill = SIGTERM → grace → SIGKILL to the detached process group → wait ≤ reap.
-- Signature matching: stderr of the just-failed attempt ONLY, regex `/codex_models_manager::manager: failed to renew cache TTL/`.
-- Session-id regex: `/session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i` against the just-failed attempt's transcript only.
-- Verdict parse: strip fenced blocks → collect `/^\s*VERDICT:\s*(.+)$/` lines → drop lines with ≥2 known outcomes or literal " or " → last survivor → fixpoint-normalize {trim; strip trailing `.,;:!`; strip one emphasis layer `*`/`_`/backtick} → uppercase → APPROVE | NEEDS-ATTENTION | BLOCKING recognized; other → attempt fails `unrecognized_verdict`.
-- Commits: conventional commits, one task per commit, `--no-verify` (worktree rule).
-- Meta-test inventory: none apply (declared spec §9). No UI, no DB, no pg_advisory locks.
-- Every task runs from `/Users/ericweiss/FX-worktrees/codex-guard`.
+- Spec canonical: `docs/superpowers/specs/2026-07-19-codex-guard.md`; §11 numeric authority: MAX_ATTEMPTS 3, ATTEMPT_MAX_SECS 1200 (max 1380), TOTAL_MAX_SECS 1500, STALL_SECS 420, FIRST_OUTPUT_SECS 120, POLL_INTERVAL_SECS 10 (max 30), KILL_GRACE_SECS 5 (max 30), MIN_ADMISSION_SECS 120, CACHE_LOCK_STALE_SECS 600, REAP_AFTER_KILL_SECS 10 (max 10), PROMPT_MAX_BYTES 2000000 (no env override).
+- **Numeric domains:** CLI flags = positive INTEGERS only. Env `CODEX_GUARD_<NAME>` = positive decimals for timing constants, positive integer for MAX_ATTEMPTS, nothing for PROMPT_MAX_BYTES. Flags win. Same bounds both sources.
+- Exit codes: 0 = result.json written; 2 = usage error (incl. unreadable inputs, unwritable out — probed at validation), no result.json; 3 = wrapper internal error, best-effort result.json PRESERVING all prior attempts.
+- Fresh argv exactly: `exec --skip-git-repo-check -s read-only -C <cwd> -c model_reasoning_effort=high -o <out>/attempt-<n>.last-message.txt`. Resume argv exactly: `exec resume <sid> -c model_reasoning_effort=high -o <out>/attempt-<n>.last-message.txt`, child cwd = `--cwd`. Prompt always via stdin. No `-m`.
+- Kill precedence total > attempt > stall > no_output; kill = group SIGTERM → grace → group SIGKILL (unconditional sweep — helpers may outlive the leader) → reap ≤ REAP_AFTER_KILL_SECS. Wrapper-signal path: immediate group TERM + KILL sweep (no grace — emergency exit), release held lock, best-effort result, exit 3.
+- Stream integrity: classification/rung-matching reads files only after child `close` (stdio flushed) AND both write-streams `finish`.
+- `CODEX_GUARD_BIN` = executable path ONLY; `CODEX_GUARD_BIN_ARGS` = JSON array of leading args. No string splitting.
+- Verdict: strip fenced blocks → `/^\s*VERDICT:\s*\S/` lines → discard lines with ≥2 known-outcome OCCURRENCES (same outcome twice counts) or literal " or " → LAST survivor → `verdictLine` = RAW untrimmed line → payload fixpoint {trim; strip trailing `.,;:!`; strip one `*`/`_`/backtick layer} → uppercase → APPROVE|NEEDS-ATTENTION|BLOCKING else `unrecognized_verdict` failure.
+- Commits: conventional, one task per commit, `--no-verify`. Worktree `/Users/ericweiss/FX-worktrees/codex-guard`.
+- Meta-test inventory: none apply (spec §9). No UI/DB/pg_advisory.
+- Hygiene: every test file calls the harness `afterAll` cleanup; intervals/killers cleared in `finally`; fixture cache-recreation is a deterministic fixture ACTION, never a test-side watcher.
 
 ## File Structure
 
-- `scripts/codex-guard.mjs` — the wrapper (single file; internal sections: constants+env, arg parse/validate, paths, prompt, verdict parser, attempt runner, ladder, lock, result writer, signal handlers, main).
-- `tests/codexGuard/fixtures/fake-codex.mjs` — scenario-driven fake codex binary.
-- `tests/codexGuard/harness.ts` — shared test harness (temp dirs, scenario writer, runGuard spawner, readResult).
-- `tests/codexGuard/usage.test.ts` — validation/usage-error scenarios (spec scenario 8).
-- `tests/codexGuard/happyPath.test.ts` — scenarios 1–2.
-- `tests/codexGuard/timeouts.test.ts` — scenarios 5, 6, 9, 12, 17.
-- `tests/codexGuard/ladder.test.ts` — scenarios 3, 4, 7, 10, 11, 15.
-- `tests/codexGuard/lock.test.ts` — scenarios 18(a–c), 19.
-- `tests/codexGuard/signals.test.ts` — scenarios 13, 14, 16.
-- `AGENTS.md` — new "Codex dispatch guard (`codex-guard`)" subsection.
+- `scripts/codex-guard.mjs` — the wrapper.
+- `tests/codexGuard/fixtures/fake-codex.mjs` — scenario-driven fake codex.
+- `tests/codexGuard/harness.ts` — temp-run factory, typed result readers, guard spawner, cleanup.
+- `tests/codexGuard/fixture.test.ts`, `usage.test.ts`, `happyPath.test.ts`, `timeouts.test.ts`, `ladder.test.ts`, `lock.test.ts`, `signals.test.ts`.
+- `AGENTS.md` — "Codex dispatch guard (`codex-guard`)" subsection.
 
-Scenario protocol (fixture contract, used by every test): the fake reads env `FAKE_CODEX_SCENARIO` = path to a JSON file: `{ "steps": [ {"onCall": 1, "actions": [...]}, ... ] }` where actions are `{type:"stdout"|"stderr", text}`, `{type:"lastMessage", text}` (writes the `-o` arg), `{type:"sleepMs", ms}`, `{type:"exit", code}`, `{type:"hang"}` (sleep forever), `{type:"emitEvery", ms, times, text}`. The fake also always records per call N: `call-<N>.json` (argv, cwd, env subset, stdin bytes) into `FAKE_CODEX_RECORD_DIR`, and writes `pid-<N>.txt` (own pid) plus spawns a detached `sleep`-style grandchild writing `grandchild-pid-<N>.txt` when `{type:"grandchild"}` action present. Call counter = files already in record dir (call independence without shared state).
+**Fixture scenario protocol:** env `FAKE_CODEX_SCENARIO` = JSON `{steps:[{onCall:N, actions:[...]}]}`. Actions: `{type:"stdout"|"stderr",text}`, `{type:"lastMessage",text}` (writes `-o` arg), `{type:"sleepMs",ms}`, `{type:"hang"}`, `{type:"emitEvery",ms,times,text}`, `{type:"exit",code}`, `{type:"grandchild"}` (spawns non-detached SIGTERM-IGNORING helper, records `grandchild-pid-<N>.txt`), `{type:"writeFile",path,text}` (path supports `$CODEX_HOME` substitution — deterministic cache recreation). Always records `call-<N>.json` {argv, cwd, stdinBytes, stdin, codexHome} + `pid-<N>.txt` to `FAKE_CODEX_RECORD_DIR`. Call N = count of existing call files + 1.
 
 ---
 
-### Task 1: Fake codex fixture + test harness
+### Task 1: Fake codex fixture + typed test harness
 
 **Files:**
 - Create: `tests/codexGuard/fixtures/fake-codex.mjs`
 - Create: `tests/codexGuard/harness.ts`
 - Test: `tests/codexGuard/fixture.test.ts`
 
-**Interfaces:**
-- Produces (harness): `mkRun(): Promise<Run>` where `Run = { dir, outDir, recordDir, home, codexHome, scenarioPath, briefPath }` (all under a fresh temp dir; brief pre-written "Review this. End with VERDICT: ..."), `writeScenario(run, steps: unknown[])`, `runGuard(run, extraArgs?: string[], envOverrides?: Record<string,string>): Promise<{ code: number|null, stdout: string, stderr: string }>` (spawns `node scripts/codex-guard.mjs review --brief ... --cwd ... --out ...` with `CODEX_GUARD_BIN` → fixture, fast default timings: poll 0.05, grace 0.2, reap 0.5, first-output 2, stall 2, attempt-max 10, total-max 20, admission 0.1, stale 600 — each overridable), `readResult(run)`, `readCalls(run): Call[]`.
-- Produces (fixture): behavior per scenario protocol above.
-
-- [ ] **Step 1: Write the failing fixture self-test**
+**Interfaces (produced — consumed by every later task):**
 
 ```ts
-// tests/codexGuard/fixture.test.ts
-import { describe, expect, it } from "vitest";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdtempSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+// harness.ts exports
+export const GUARD: string; export const FIXTURE: string;
+export interface Run { dir; outDir; recordDir; home; codexHome; scenarioPath; briefPath; cwdDir; } // all string
+export interface AttemptRecord {
+  n: number; kind: "exec" | "resume"; pid: number | null; exitCode: number | null;
+  signal: string | null;
+  killedReason: "no_output" | "stall" | "attempt_timeout" | "total_timeout" | "external_signal" | null;
+  failureShape: "no_o_file" | "empty_o_file" | "no_marker" | "unrecognized_verdict" | "nonzero_exit" | "killed" | "spawn_error" | null;
+  recovery: "cache_ttl" | "cache_ttl_skipped" | "resume" | "retry" | null;
+  transcriptPath: string; stderrPath: string; lastMessagePath: string; durationSecs: number;
+}
+export interface GuardResult {
+  guardVersion: number; label: string | null; status: "verdict" | "no_verdict";
+  verdict: "APPROVE" | "NEEDS-ATTENTION" | "BLOCKING" | null; verdictLine: string | null;
+  lastMessagePath: string | null; attempts: AttemptRecord[];
+  failureReason: "attempts_exhausted" | "total_timeout" | "wrapper_error" | "interrupted" | null;
+  error: string | null; startedAt: string | null; endedAt: string;
+}
+export interface CallRecord { argv: string[]; cwd: string; stdinBytes: number; stdin: string; codexHome: string | null; }
+export interface GuardExit { code: number | null; stdout: string; stderr: string; }
+export function mkRun(): Run;                       // registers dir for cleanup
+export function cleanupRuns(): void;                // rm -rf every registered dir — call in afterAll
+export function writeScenario(run: Run, steps: unknown[]): void;
+export const FAST_ENV: Record<string, string>;      // poll .05, grace .2, reap .5, first-output 2, stall 2, attempt 10, total 20, admission .1
+export function guardEnv(run: Run, envOverrides?: Record<string, string>): NodeJS.ProcessEnv; // full env incl. BIN/BIN_ARGS/HOME/CODEX_HOME/scenario/record
+export function runGuard(run: Run, extraArgs?: string[], envOverrides?: Record<string, string>): Promise<GuardExit>;
+export function readResult(run: Run): GuardResult;
+export function readCalls(run: Run): CallRecord[];
+```
 
-const pExecFile = promisify(execFile);
-const FIXTURE = join(process.cwd(), "tests/codexGuard/fixtures/fake-codex.mjs");
+`guardEnv` sets `CODEX_GUARD_BIN: process.execPath` and `CODEX_GUARD_BIN_ARGS: JSON.stringify([FIXTURE])` — no space-joined strings, space-safe on any path. `mkRun` seeds brief ("Review this artifact. End with VERDICT: APPROVE or VERDICT: NEEDS-ATTENTION.\n") and `models_cache.json` (`{"stub":true}`) under a fresh `mkdtempSync` tree, and pushes the tree onto a module-level list consumed by `cleanupRuns()`.
 
-describe("fake-codex fixture", () => {
-  it("plays a scenario: stdout, lastMessage via -o, exit code, records argv+stdin", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "fake-codex-"));
-    const scenario = join(dir, "s.json");
-    const oFile = join(dir, "last.txt");
-    writeFileSync(
-      scenario,
-      JSON.stringify({
-        steps: [
-          {
-            onCall: 1,
-            actions: [
-              { type: "stdout", text: "thinking...\nsession id: 01234567-89ab-cdef-0123-456789abcdef\n" },
-              { type: "stderr", text: "warn: x\n" },
-              { type: "lastMessage", text: "VERDICT: APPROVE\n" },
-              { type: "exit", code: 0 },
-            ],
-          },
-        ],
-      }),
-    );
-    const { stdout } = await pExecFile(
-      process.execPath,
-      [FIXTURE, "exec", "--skip-git-repo-check", "-o", oFile, "extra"],
-      { env: { ...process.env, FAKE_CODEX_SCENARIO: scenario, FAKE_CODEX_RECORD_DIR: dir } },
-    );
-    expect(stdout).toContain("session id:");
-    expect(readFileSync(oFile, "utf8")).toBe("VERDICT: APPROVE\n");
-    const call = JSON.parse(readFileSync(join(dir, "call-1.json"), "utf8"));
-    expect(call.argv).toEqual(["exec", "--skip-git-repo-check", "-o", oFile, "extra"]);
-    expect(call.stdinBytes).toBe(0);
-    expect(readdirSync(dir)).toContain("pid-1.txt");
-  });
+- [ ] **Step 1: Write failing fixture self-test** — same two tests as the protocol demands: (a) scenario playback records argv/stdin/pid, honors `-o`, exit code; (b) independent call counting across two invocations; PLUS (c) `writeFile` action with `$CODEX_HOME` substitution writes the file; (d) `grandchild` action records a pid that survives SIGTERM (send SIGTERM to it, assert still alive after 200ms, then SIGKILL it in `finally`). Test code mirrors Task 1 of Appendix A with the two extra cases:
 
-  it("counts calls independently and consumes stdin", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "fake-codex-"));
-    const scenario = join(dir, "s.json");
-    writeFileSync(
-      scenario,
-      JSON.stringify({
-        steps: [
-          { onCall: 1, actions: [{ type: "exit", code: 1 }] },
-          { onCall: 2, actions: [{ type: "exit", code: 0 }] },
-        ],
-      }),
-    );
-    const env = { ...process.env, FAKE_CODEX_SCENARIO: scenario, FAKE_CODEX_RECORD_DIR: dir };
-    await pExecFile(process.execPath, [FIXTURE, "exec"], { env }).catch((e) => e);
-    const r2 = await pExecFile(process.execPath, [FIXTURE, "exec"], { env });
-    expect(r2).toBeDefined();
-    const call2 = JSON.parse(readFileSync(join(dir, "call-2.json"), "utf8"));
-    expect(call2.argv).toEqual(["exec"]);
-  });
+```ts
+it("writeFile action substitutes $CODEX_HOME", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fake-codex-"));
+  const ch = join(dir, "codexhome"); mkdirSync(ch);
+  const scenario = join(dir, "s.json");
+  writeFileSync(scenario, JSON.stringify({ steps: [{ onCall: 1, actions: [
+    { type: "writeFile", path: "$CODEX_HOME/models_cache.json", text: "{\"recreated\":true}" },
+    { type: "exit", code: 0 },
+  ]}]}));
+  await pExecFile(process.execPath, [FIXTURE, "exec"], { env: { ...process.env, FAKE_CODEX_SCENARIO: scenario, FAKE_CODEX_RECORD_DIR: dir, CODEX_HOME: ch } });
+  expect(JSON.parse(readFileSync(join(ch, "models_cache.json"), "utf8"))).toEqual({ recreated: true });
+});
+
+it("grandchild ignores SIGTERM (pin for scenario 16's KILL-fallback proof)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fake-codex-"));
+  const scenario = join(dir, "s.json");
+  writeFileSync(scenario, JSON.stringify({ steps: [{ onCall: 1, actions: [{ type: "grandchild" }, { type: "exit", code: 0 }] }] }));
+  await pExecFile(process.execPath, [FIXTURE, "exec"], { env: { ...process.env, FAKE_CODEX_SCENARIO: scenario, FAKE_CODEX_RECORD_DIR: dir } });
+  const gcPid = Number(readFileSync(join(dir, "grandchild-pid-1.txt"), "utf8"));
+  try {
+    process.kill(gcPid, "SIGTERM");
+    await new Promise((r) => setTimeout(r, 200));
+    let alive = true; try { process.kill(gcPid, 0); } catch { alive = false; }
+    expect(alive).toBe(true);
+  } finally { try { process.kill(gcPid, "SIGKILL"); } catch { /* done */ } }
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+All fixture tests end the file with `afterAll(() => { /* rm the mkdtemp dirs made locally */ });` (fixture tests manage their own dirs; guard tests use `cleanupRuns`).
 
-Run: `pnpm vitest run tests/codexGuard/fixture.test.ts`
-Expected: FAIL — fixture file does not exist (ENOENT).
+- [ ] **Step 2: Run — expect FAIL (fixture missing)**: `pnpm vitest run tests/codexGuard/fixture.test.ts`
 
-- [ ] **Step 3: Implement the fixture**
+- [ ] **Step 3: Implement fixture** — Appendix A's `fake-codex.mjs` PLUS: `writeFile` action (`writeFileSync(a.path.replace("$CODEX_HOME", process.env.CODEX_HOME ?? ""), a.text)`), and the grandchild spawns `process.execPath ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e6)"]` with `detached: false, stdio: "ignore"`.
+
+- [ ] **Step 4: Implement harness** — Appendix A's `harness.ts` reshaped to the typed interface block above: `guardEnv()` extracted (signals test spawns the guard itself and needs the env without `runGuard`'s execFile), `CODEX_GUARD_BIN`/`CODEX_GUARD_BIN_ARGS` split, `readResult(run): GuardResult` typed cast, module-level `const RUNS: string[] = []` + `cleanupRuns()` doing `rmSync(dir, { recursive: true, force: true })`.
+
+- [ ] **Step 5: Run — expect PASS**: `pnpm vitest run tests/codexGuard/fixture.test.ts`
+
+- [ ] **Step 6: Commit**: `git add tests/codexGuard && git commit --no-verify -m "test(infra): fake-codex fixture + typed codex-guard harness"`
+
+---
+
+### Task 2: CLI parsing, validation, usage errors (spec §3, §7; scenario 8)
+
+**Files:** Create `scripts/codex-guard.mjs`; Test `tests/codexGuard/usage.test.ts`.
+
+**Interfaces:** exit 2 + `codex-guard: <msg>` stderr on §7 violations; valid input → exit 3 `not implemented` (replaced in Task 3). Internal `CFG` as in Appendix A plus `bin: { cmd: string, leadingArgs: string[] }` from `CODEX_GUARD_BIN`/`CODEX_GUARD_BIN_ARGS` (JSON-parsed; parse failure = usage error).
+
+- [ ] **Step 1: Failing tests** — Appendix A's table PLUS these rows/cases, all expecting exit 2 and no result.json:
+  - `--stall-secs 0.5` (decimal CLI flag — flags are integer-only),
+  - `--attempt-max-secs 0.5` (same),
+  - unreadable brief: `writeFileSync(run.briefPath, "x"); chmodSync(run.briefPath, 0o000)` (restore perms in `finally`),
+  - unreadable artifact with `--fallback`,
+  - unwritable `--out`: pre-create `run.outDir` then `chmodSync(run.outDir, 0o500)` (restore in `finally`),
+  - `CODEX_GUARD_BIN_ARGS` invalid JSON (`"not-json"`).
+  Each test uses `afterAll(cleanupRuns)` (file-level).
+
+- [ ] **Step 2: Run — expect FAIL** (script missing).
+
+- [ ] **Step 3: Implement** — Appendix A's skeleton with these corrections:
+  - `num()` used for ALL CLI numeric flags with `integer: true`; env timing values keep decimals (`readEnvNum` unchanged).
+  - Readability probes: `readFileSync(cfg.brief, "utf8")` inside try/catch → usage error (covers perms, not just existence); same per artifact (content cached for Task 3's composePrompt — store on `cfg.briefText` / `cfg.artifactTexts` so validation read = the read).
+  - Out-dir writability probe: after `mkdirSync`, `writeFileSync(join(cfg.out, ".codex-guard-write-probe"), "")` + `unlinkSync` in try/catch → usage error.
+  - Bin: `const cmd = process.env.CODEX_GUARD_BIN || "codex"; let leadingArgs = []; if (process.env.CODEX_GUARD_BIN_ARGS) { try { leadingArgs = JSON.parse(...); if (!Array.isArray(leadingArgs) || !leadingArgs.every(s => typeof s === "string")) throw 0; } catch { usageError("CODEX_GUARD_BIN_ARGS must be a JSON string array"); } }`
+  - `CODEX_HOME` empty-string treated as unset: `process.env.CODEX_HOME || join(homedir(), ".codex")` before `expandPath`.
+
+- [ ] **Step 4: Run — expect PASS**: `pnpm vitest run tests/codexGuard/usage.test.ts`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard/usage.test.ts && git commit --no-verify -m "feat(infra): codex-guard CLI parsing + §7 validation"`
+
+---
+
+### Task 3: Single-attempt runner + verdict parser + happy path (spec §4, §6-parse; scenarios 1, 2)
+
+**Files:** Modify `scripts/codex-guard.mjs`; Test `tests/codexGuard/happyPath.test.ts`.
+
+No timers yet (Task 4). This task: spawn with exact argv, stdin prompt, stream capture with FLUSH-SAFE completion, spawn-`error`-event handling, verdict parse, single-attempt main, result writer, wrapper_error catch preserving attempt history.
+
+- [ ] **Step 1: Failing tests** — Appendix A's two tests with these strengthenings:
+  - scenario 1 additionally asserts `calls[0]!.cwd === run.cwdDir` (child cwd pin, not just `-C` argv) and uses typed access: `const calls = readCalls(run); expect(calls).toHaveLength(1); const c0 = calls[0]!;`
+  - scenario 2's last message keeps the fence + emphasis cases and ADDS a duplicate-outcome exclusion line and raw-verdictLine pin:
+
+```ts
+const lastMessage = [
+  "The brief says: end with `VERDICT: APPROVE or VERDICT: NEEDS-ATTENTION`",
+  "VERDICT: APPROVE APPROVE",             // two occurrences of one outcome → excluded
+  "```",
+  "VERDICT: APPROVE",
+  "```",
+  "Findings: one HIGH.",
+  "  VERDICT: **NEEDS-ATTENTION**.  ",    // survivor; verdictLine must be THIS raw line
+  "",
+].join("\n");
+// ...
+expect(result.verdict).toBe("NEEDS-ATTENTION");
+expect(result.verdictLine).toBe("  VERDICT: **NEEDS-ATTENTION**.  ");
+```
+
+- [ ] **Step 2: Run — expect FAIL** (exit 3 not-implemented).
+
+- [ ] **Step 3: Implement** — Appendix A's Task 3 code with these corrections (full replacement bodies):
+
+`parseVerdict` — occurrence counting + raw line:
 
 ```js
-// tests/codexGuard/fixtures/fake-codex.mjs
-// Scenario-driven stand-in for the codex CLI. See plan "Scenario protocol".
+function parseVerdict(text) {
+  const noFences = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
+  const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
+  const survivors = lines.filter((l) => {
+    const upper = l.toUpperCase();
+    let occurrences = 0;
+    for (const o of KNOWN_OUTCOMES) occurrences += upper.split(o).length - 1;
+    // NEEDS-ATTENTION does not contain APPROVE/BLOCKING as substrings; counts are exact
+    return occurrences < 2 && !/ or /i.test(l);
+  });
+  if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
+  const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
+  let payload = raw.replace(/^\s*VERDICT:\s*/, "");
+  for (;;) {
+    const before = payload;
+    payload = payload.trim().replace(/[.,;:!]+$/, "");
+    payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
+    if (payload === before) break;
+  }
+  payload = payload.trim().toUpperCase();
+  if (KNOWN_OUTCOMES.includes(payload)) return { verdict: payload, verdictLine: raw, shape: "ok" };
+  return { verdict: null, verdictLine: raw, shape: "unrecognized_verdict" };
+}
+```
+
+`runAttempt` — spawn-error event + flush-safe completion (no timers in this task; the poll loop arrives in Task 4):
+
+```js
+async function runAttempt(cfg, n, kind, argvAfterExec, state) {
+  const transcriptPath = join(cfg.out, `attempt-${n}.transcript.txt`);
+  const stderrPath = join(cfg.out, `attempt-${n}.stderr.txt`);
+  const lastMessagePath = join(cfg.out, `attempt-${n}.last-message.txt`);
+  const attempt = { n, kind, pid: null, exitCode: null, signal: null,
+    killedReason: null, failureShape: null, recovery: null,
+    transcriptPath, stderrPath, lastMessagePath, durationSecs: 0 };
+  const t0 = nowSecs();
+  const fail = (msg) => Object.assign(new Error(msg), { attempt });
+
+  const child = spawn(cfg.bin.cmd, [...cfg.bin.leadingArgs, ...argvAfterExec], {
+    cwd: cfg.cwd, detached: true, stdio: ["pipe", "pipe", "pipe"],
+  });
+  // spawn failures surface via the async "error" event, NOT try/catch
+  const spawnError = new Promise((res) => child.on("error", (e) => res(e)));
+  const exited = new Promise((res) => child.on("exit", (code, signal) => res({ code, signal })));
+  const closed = new Promise((res) => child.on("close", res)); // stdio fully flushed
+
+  const first = await Promise.race([
+    spawnError.then((e) => ({ kind: "error", e })),
+    new Promise((res) => child.on("spawn", () => res({ kind: "spawned" }))),
+  ]);
+  if (first.kind === "error") {
+    attempt.failureShape = "spawn_error";
+    attempt.durationSecs = nowSecs() - t0;
+    throw fail(`spawn failed: ${first.e.message}`);
+  }
+  attempt.pid = child.pid ?? null;
+  state.liveChild = child;
+
+  const tOut = createWriteStream(transcriptPath);
+  const tErr = createWriteStream(stderrPath);
+  const streamErr = new Promise((_, rej) => {
+    tOut.on("error", (e) => rej(fail(`transcript write failed: ${e.message}`)));
+    tErr.on("error", (e) => rej(fail(`stderr write failed: ${e.message}`)));
+  });
+  child.stdout.pipe(tOut);
+  child.stderr.pipe(tErr);
+  const finished = Promise.all([
+    new Promise((res) => tOut.on("finish", res)),
+    new Promise((res) => tErr.on("finish", res)),
+  ]);
+
+  const prompt = kind === "resume"
+    ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
+    : composePrompt(cfg);
+  child.stdin.on("error", () => {});
+  child.stdin.end(prompt);
+
+  const exitInfo = await Promise.race([exited, streamErr]);
+  await closed;      // stdio flushed
+  await finished;    // files durable
+  state.liveChild = null;
+  attempt.exitCode = exitInfo.code;
+  attempt.signal = exitInfo.signal;
+  if (exitInfo.signal !== null) attempt.killedReason = "external_signal";
+  attempt.durationSecs = nowSecs() - t0;
+  classifyAttempt(attempt);
+  return attempt;
+}
+
+function classifyAttempt(attempt) {
+  if (attempt.killedReason !== null) { attempt.failureShape = "killed"; return; }
+  if (attempt.exitCode !== 0) { attempt.failureShape = "nonzero_exit"; return; }
+  if (!existsSync(attempt.lastMessagePath)) { attempt.failureShape = "no_o_file"; return; }
+  const msg = readFileSync(attempt.lastMessagePath, "utf8");
+  if (msg.trim() === "") { attempt.failureShape = "empty_o_file"; return; }
+  const parsed = parseVerdict(msg);
+  attempt.parsed = parsed;
+  if (parsed.shape !== "ok") attempt.failureShape = parsed.shape;
+}
+```
+
+`composePrompt` uses `cfg.briefText`/`cfg.artifactTexts` from Task 2 validation (no second read). `writeResult` as Appendix A. Single-attempt `main()` as Appendix A. Top-level catch preserves history:
+
+```js
+main().catch((e) => {
+  const state = globalThis.__guardState;
+  const attempts = [
+    ...(state?.attempts ?? []).map(({ parsed, ...a }) => a),
+    ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt) ? [(({ parsed, ...a }) => a)(e.attempt)] : []),
+  ];
+  try {
+    writeFileSync(join(cfg.out, "result.json"), JSON.stringify({
+      guardVersion: GUARD_VERSION, label: cfg.label, status: "no_verdict",
+      verdict: null, verdictLine: null, lastMessagePath: null,
+      attempts, failureReason: "wrapper_error", error: String(e?.message ?? e),
+      startedAt: state?.startedAtIso ?? null, endedAt: new Date().toISOString(),
+    }, null, 2) + "\n");
+  } catch { /* stderr only */ }
+  process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
+  process.exit(3);
+});
+```
+
+(`main()` sets `globalThis.__guardState = state` FIRST — required by this catch and Task 7's handlers.)
+
+- [ ] **Step 4: Run — expect PASS**: `pnpm vitest run tests/codexGuard/happyPath.test.ts tests/codexGuard/usage.test.ts`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard/happyPath.test.ts && git commit --no-verify -m "feat(infra): codex-guard attempt runner + verdict parser + happy path"`
+
+---
+
+### Task 4: Timers + kills + precedence (spec §5; scenarios 5, 6, 12, 17; scenario 9 armed)
+
+**Files:** Modify `scripts/codex-guard.mjs` (ADD the poll loop to `runAttempt`); Test `tests/codexGuard/timeouts.test.ts`.
+
+- [ ] **Step 1: Failing tests** — Appendix A's five tests with typed access (`(readResult(run).attempts[0]!)`), file-level `afterAll(cleanupRuns)`, and scenario 9 written as `it.fails` (multi-attempt — armed for real in Task 5; comment says so). Timer-less Task 3 code makes 5/6/12/17a/17b FAIL (hang until vitest timeout on 5/6; no kills on 17) — that is the red state.
+
+- [ ] **Step 2: Run — expect FAIL** on 5, 6, 17a, 17b (12 may pass trivially — acceptable: it pins the non-kill).
+
+- [ ] **Step 3: Implement the poll loop inside `runAttempt`** — replace `const exitInfo = await Promise.race([exited, streamErr]);` with byte-counting listeners (`child.stdout.on("data", c => { bytesOut += c.length; })` alongside the pipes — pipes keep writing files; counters drive timers) and the §5 loop:
+
+```js
+  let exitInfo = null;
+  exited.then((v) => { exitInfo = v; });
+  let streamFailure = null;
+  streamErr.catch((e) => { streamFailure = e; });
+
+  let firstByteAt = null, lastGrowthAt = t0, lastBytes = 0;
+  while (exitInfo === null) {
+    if (streamFailure) throw streamFailure;
+    await sleep(cfg.pollIntervalSecs * 1000);
+    if (exitInfo !== null) break;
+    const now = nowSecs();
+    if (bytesOut > lastBytes) {
+      lastBytes = bytesOut; lastGrowthAt = now;
+      if (firstByteAt === null) firstByteAt = now;
+    }
+    let reason = null;                                     // §5 precedence
+    if (now - state.startedAt > cfg.totalMaxSecs) reason = "total_timeout";
+    else if (now - t0 > cfg.attemptMaxSecs) reason = "attempt_timeout";
+    else if (firstByteAt !== null && now - lastGrowthAt > cfg.stallSecs) reason = "stall";
+    else if (firstByteAt === null && now - t0 > cfg.firstOutputSecs) reason = "no_output";
+    if (reason) {
+      attempt.killedReason = reason;
+      killGroup(child.pid, "SIGTERM");
+      const graceEnd = nowSecs() + cfg.killGraceSecs;
+      while (exitInfo === null && nowSecs() < graceEnd) await sleep(50);
+      killGroup(child.pid, "SIGKILL");                     // UNCONDITIONAL group sweep (§ helpers may survive leader)
+      const reapEnd = nowSecs() + cfg.reapAfterKillSecs;
+      while (exitInfo === null && nowSecs() < reapEnd) await sleep(50);
+      if (exitInfo === null) throw fail("unkillable child");
+      break;
+    }
+  }
+```
+
+(`classifyAttempt` unchanged: killedReason set → `killed`; external `exitInfo.signal` with killedReason null → `external_signal` — set that in the post-loop block from Task 3, but only when `attempt.killedReason === null`.)
+
+- [ ] **Step 4: Run — expect PASS** (scenario 9 still `it.fails`): `pnpm vitest run tests/codexGuard/timeouts.test.ts tests/codexGuard/happyPath.test.ts`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard/timeouts.test.ts && git commit --no-verify -m "feat(infra): codex-guard §5 timers, kill precedence, group sweep"`
+
+---
+
+### Task 5: Ladder loop — generic retry, exhaustion, admission (spec §6 loop; scenarios 7, 15, 9-enable)
+
+**Files:** Modify `scripts/codex-guard.mjs` (multi-attempt `main`, `selectRung` with ONLY the generic branch); Test `tests/codexGuard/ladder.test.ts` (scenarios 7 + 15), flip scenario 9 to `it`.
+
+- [ ] **Step 1: Failing tests:** scenario 7 (Appendix A, typed access, `afterAll(cleanupRuns)`); scenario 15 DETERMINISTIC — no sleeps, no watcher:
+
+```ts
+const TTL_LINE = "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
+
+it("scenario 15: admission gate blocks rung side effects — cache intact, no backup", async () => {
+  const run = mkRun();
+  // attempt 1 fails FAST with the TTL signature on stderr; remaining budget (≈ total 20? no—)
+  writeScenario(run, [{ onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 1 }] }]);
+  // admission demands more seconds than can remain after ANY attempt: minAdmission > total
+  const res = await runGuard(run, [], { CODEX_GUARD_MIN_ADMISSION_SECS: "30", CODEX_GUARD_TOTAL_MAX_SECS: "20" });
+  expect(res.code).toBe(0);
+  const r = readResult(run);
+  expect(r.failureReason).toBe("total_timeout");
+  expect(r.attempts).toHaveLength(1);
+  expect(r.attempts[0]!.recovery).toBeNull();            // rung never selected
+  expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
+  expect(existsSync(join(run.outDir, "models_cache.bak.json"))).toBe(false);
+});
+```
+
+(minAdmission 30 > total 20 makes the gate close deterministically after attempt 1 regardless of speed — no timing race; TTL signature present proves the gate blocked a WOULD-fire rung. Note: minAdmission has no upper-bound validation — spec bounds only poll/grace/reap/attempt-max.)
+
+- [ ] **Step 2: Run — expect FAIL** (single-attempt main).
+
+- [ ] **Step 3: Implement** multi-attempt `main()` exactly as Appendix A's loop, except `selectRung` contains ONLY:
+
+```js
+function selectRung(cfg, attempt, state) {
+  attempt.recovery = "retry";
+  return "retry";
+}
+```
+
+(the cache/resume branches are ADDED test-first in Tasks 6/7 — the loop's `nextKind = rung === "resume" ? "resume" : "exec"` and admission/exhaustion ordering land now, fully final).
+
+- [ ] **Step 4: Run — expect PASS incl. scenario 9 now real**: `pnpm vitest run tests/codexGuard/`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "feat(infra): codex-guard ladder loop, admission gate, exhaustion"`
+
+---
+
+### Task 6: Cache-TTL rung + lock lifecycle + homedir (scenarios 3, 11, 18a-c, 19)
+
+**Files:** Modify `scripts/codex-guard.mjs` (add cache branch + `tryCacheRung` + `releaseOwnLock`); Modify `tests/codexGuard/ladder.test.ts` (3, 3b, 11); Create `tests/codexGuard/lock.test.ts` (18a–c, 19a/b).
+
+- [ ] **Step 1: Failing tests.** Scenario 3 — deterministic recreation via fixture `writeFile` (NO test-side watcher):
+
+```ts
+it("scenario 3: TTL stderr fires rung once; cap holds even with cache recreated", async () => {
+  const run = mkRun();
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },     // no -o → failed
+    { onCall: 2, actions: [
+      { type: "writeFile", path: "$CODEX_HOME/models_cache.json", text: "{\"recreated\":true}" }, // deterministic
+      { type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 },
+    ]},
+    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+  ]);
+  const res = await runGuard(run);
+  expect(res.code).toBe(0);
+  const r = readResult(run);
+  expect(r.status).toBe("verdict");
+  expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl", "retry", null]);   // cap: 2nd TTL → retry
+  expect(readFileSync(join(run.outDir, "models_cache.bak.json"), "utf8")).toContain("stub");
+  expect(JSON.parse(readFileSync(join(run.codexHome, "models_cache.json"), "utf8"))).toEqual({ recreated: true }); // recreated file NOT deleted again
+});
+```
+
+Scenario 3b (stdout-only signature → retry, no backup) and 11 (cache absent → `cache_ttl_skipped` consumes cap; TTL again next failure would NOT shadow resume — exercised in Task 7's scenario 10/11 combo; here assert skip + cap via recoveries `["cache_ttl_skipped","retry",null]` with two TTL failures then success). `lock.test.ts` — Appendix A's 18a (chmod-000 unreadable cache → backup fails → skip → lock released; perms restored in `finally`), 18b (stale lock broken AND cleaned, rung skipped), 18c (fresh foreign lock survives wrapper exit), 19a (literal-tilde CODEX_HOME), 19b (`CODEX_HOME: ""` → HOME/.codex) — all with typed access + `afterAll(cleanupRuns)`.
+
+- [ ] **Step 2: Run — expect FAIL** (`selectRung` knows only retry).
+
+- [ ] **Step 3: Implement** — add to `selectRung` (before the generic branch):
+
+```js
+  let stderrText = "";
+  try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error */ }
+  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);
+```
+
+plus `tryCacheRung`/`releaseOwnLock` verbatim from Appendix A (already advisory + break-then-defer + tombstone cleanup + finally release). Init `state.cacheRungUsed = false`, `state.heldLockDir = null` in `main`.
+
+- [ ] **Step 4: Run — expect PASS**: `pnpm vitest run tests/codexGuard/`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "feat(infra): codex-guard cache-TTL rung + advisory lock lifecycle"`
+
+---
+
+### Task 7: Resume rung + wrapper signals + spawn-error history (scenarios 4, 10, 13, 14 + 14b, 16)
+
+**Files:** Modify `scripts/codex-guard.mjs` (resume branch, signal handlers); Modify `tests/codexGuard/ladder.test.ts` (4, 10); Create `tests/codexGuard/signals.test.ts` (13, 14, 14b, 16).
+
+- [ ] **Step 1: Failing tests.** Scenarios 4 and 10 from Appendix A (typed access; scenario 4 keeps decoy-sid-in-earlier-attempt + decoy sessions dir + exact resume argv + `calls[2]!.cwd === run.cwdDir`). Signals file — Appendix A's 13 and 16 with two changes, plus 14 and NEW 14b:
+  - 16: grandchild now IGNORES SIGTERM (fixture pin from Task 1) — the group-KILL fallback is what the dead-grandchild assertion proves; imports `guardEnv` instead of hand-building env; killer/cleanup in `finally`.
+  - 14: `CODEX_GUARD_BIN: "/nonexistent/codex-binary"` → exit 3, `failureReason:"wrapper_error"`, `attempts[0]!.failureShape === "spawn_error"`.
+  - 14b (history preservation): attempt 1 fails normally (exit 1), then bin swap impossible mid-run — instead scenario: `CODEX_GUARD_MAX_ATTEMPTS: "2"` with call-2 reached but the FIXTURE deleted between calls? Non-deterministic. Deterministic approach: fixture action `{type:"exit",code:1}` for call 1 and the harness passes `CODEX_GUARD_BIN_ARGS` pointing at a fixture path that the SCENARIO for call 2 cannot serve (fake exits 96 on missing step — a normal nonzero). That doesn't produce spawn_error. INSTEAD: pin history via the interrupted path — scenario 16 ALREADY asserts `result.json` written on signal with `attempts` non-empty; extend 16's assertions: `expect(r.attempts.length).toBeGreaterThanOrEqual(1)` and `expect(r.attempts[0]!.n).toBe(1)`. That pins history preservation on the exit-3 path (finding 9's interface break) without an artificial mid-run spawn failure. 14b is therefore folded into 16's assertions; note this in the test comment.
+
+- [ ] **Step 2: Run — expect FAIL** (no resume branch, no handlers).
+
+- [ ] **Step 3: Implement.** Resume branch in `selectRung` (after cache branch, before generic) verbatim from Appendix A. Signal handlers — emergency TERM+KILL sweep (no grace), lock release, result, exit:
+
+```js
+function onSignal(sig) {
+  const state = globalThis.__guardState;
+  try {
+    const pid = state?.liveChild?.pid;
+    if (pid) { killGroup(pid, "SIGTERM"); killGroup(pid, "SIGKILL"); }  // emergency: no grace window
+    if (state?.heldLockDir) releaseOwnLock(state, state.heldLockDir);
+    if (state) writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
+  } catch { /* best-effort */ }
+  process.exit(3);
+}
+process.on("SIGINT", () => onSignal("SIGINT"));
+process.on("SIGTERM", () => onSignal("SIGTERM"));
+```
+
+- [ ] **Step 4: Run FULL guard suite — expect ALL 19 scenarios PASS**: `pnpm vitest run tests/codexGuard/`
+
+- [ ] **Step 5: Commit**: `git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "feat(infra): codex-guard resume rung + signal cleanup + history preservation"`
+
+---
+
+### Task 8: AGENTS.md docs + full repo gates
+
+Same as Appendix A: add the §10 subsection verbatim to the end of "## Codex-specific notes"; then the pre-push gate battery — `pnpm vitest run tests/codexGuard/`, `pnpm test` (full), `pnpm typecheck`, `pnpm lint`, `pnpm format:check` (run `pnpm format` on failure). Commit: `docs: codex-guard dispatch contract in AGENTS.md`.
+
+---
+
+### Task 9: Close-out (ship pipeline Stage 4 — reference)
+
+Whole-diff Codex review (fresh-eyes, REVIEWER ONLY) → push → PR → real CI green → `gh pr merge --merge` → ff-sync main → post-merge machine shim install (§10 one-liner against the MAIN checkout) + sanity: `~/.claude/bin/codex-guard review --brief /dev/null` exits 2.
+
+## Self-Review
+
+1. **Spec coverage:** §3 (T2), §4 (T3, T7), §5 (T4), §6 (T3 parse; T5 loop; T6 cache; T7 resume), §7 (T2), §9 scenarios: 1→T3, 2→T3, 3/3b→T6, 4→T7, 5→T4, 6→T4, 7→T5, 8→T2, 9→T4(armed)/T5(real), 10→T7, 11→T6, 12→T4, 13→T7, 14(+14b-folded-into-16)→T7, 15→T5, 16→T7, 17→T4, 18→T6, 19→T6, §10 (T8). No gaps.
+2. **TDD ordering:** every task = tests (Step 1) → red run (Step 2) → minimal implementation for THOSE tests (Step 3) → green (Step 4) → commit. No task implements behavior another task's tests own (timers wait for T4, rungs wait for T6/T7).
+3. **Placeholder scan:** all function bodies complete; "Appendix A" references resolve within this document's own code blocks (parseVerdict, runAttempt, poll loop, tryCacheRung/releaseOwnLock in T6 verbatim-inline requirement, loop in T5, handlers in T7) — the executing engineer works from THIS file top-to-bottom; each referenced block appears in full at its first-use task.
+4. **Type consistency:** harness interfaces (Task 1) are the single source for test-side types; attempt keys match spec §6 verbatim; `guardEnv` shared by runGuard and scenario 16.
+
+---
+
+## Appendix A — carried-forward code blocks (authoritative, R1-corrected)
+
+Every task reference to "Appendix A" resolves here. These blocks are the single source; where a task body shows a corrected fragment (parseVerdict, poll loop, selectRung branches, onSignal), the task body wins for that fragment.
+
+### A1 — `tests/codexGuard/fixtures/fake-codex.mjs` (complete)
+
+```js
+// Scenario-driven stand-in for the codex CLI. See plan "Fixture scenario protocol".
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -141,44 +532,29 @@ if (!recordDir || !scenarioPath) {
   process.exit(97);
 }
 mkdirSync(recordDir, { recursive: true });
-const callN =
-  readdirSync(recordDir).filter((f) => /^call-\d+\.json$/.test(f)).length + 1;
+const callN = readdirSync(recordDir).filter((f) => /^call-\d+\.json$/.test(f)).length + 1;
 
 const stdinChunks = [];
 let stdinBytes = 0;
-process.stdin.on("data", (c) => {
-  stdinChunks.push(c);
-  stdinBytes += c.length;
-});
-const stdinDone = new Promise((res) => {
-  process.stdin.on("end", res);
-  process.stdin.on("error", res);
-});
+process.stdin.on("data", (c) => { stdinChunks.push(c); stdinBytes += c.length; });
+const stdinDone = new Promise((res) => { process.stdin.on("end", res); process.stdin.on("error", res); });
 
 const argv = process.argv.slice(2);
 const oIdx = argv.findIndex((a) => a === "-o");
 const oFile = oIdx >= 0 ? argv[oIdx + 1] : null;
 
 const scenario = JSON.parse(readFileSync(scenarioPath, "utf8"));
-const step = scenario.steps.find((s) => s.onCall === callN) ?? {
-  actions: [{ type: "exit", code: 96 }],
-};
-
+const step = scenario.steps.find((s) => s.onCall === callN) ?? { actions: [{ type: "exit", code: 96 }] };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   await stdinDone; // wrapper always closes stdin; a hang here IS a wrapper bug surfacing
   writeFileSync(join(recordDir, `pid-${callN}.txt`), String(process.pid));
-  writeFileSync(
-    join(recordDir, `call-${callN}.json`),
-    JSON.stringify({
-      argv,
-      cwd: process.cwd(),
-      stdinBytes,
-      stdin: Buffer.concat(stdinChunks).toString("utf8").slice(0, 20000),
-      codexHome: process.env.CODEX_HOME ?? null,
-    }),
-  );
+  writeFileSync(join(recordDir, `call-${callN}.json`), JSON.stringify({
+    argv, cwd: process.cwd(), stdinBytes,
+    stdin: Buffer.concat(stdinChunks).toString("utf8").slice(0, 20000),
+    codexHome: process.env.CODEX_HOME ?? null,
+  }));
   for (const a of step.actions) {
     if (a.type === "stdout") process.stdout.write(a.text);
     else if (a.type === "stderr") process.stderr.write(a.text);
@@ -186,14 +562,12 @@ async function main() {
     else if (a.type === "sleepMs") await sleep(a.ms);
     else if (a.type === "hang") await sleep(2 ** 31 - 1);
     else if (a.type === "emitEvery") {
-      for (let i = 0; i < a.times; i++) {
-        process.stdout.write(a.text);
-        await sleep(a.ms);
-      }
+      for (let i = 0; i < a.times; i++) { process.stdout.write(a.text); await sleep(a.ms); }
+    } else if (a.type === "writeFile") {
+      writeFileSync(a.path.replace("$CODEX_HOME", process.env.CODEX_HOME ?? ""), a.text);
     } else if (a.type === "grandchild") {
-      const gc = spawn(process.execPath, ["-e", "setInterval(()=>{},1e6)"], {
-        detached: false,
-        stdio: "ignore",
+      const gc = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e6)"], {
+        detached: false, stdio: "ignore",
       });
       writeFileSync(join(recordDir, `grandchild-pid-${callN}.txt`), String(gc.pid));
     } else if (a.type === "exit") process.exit(a.code);
@@ -203,12 +577,11 @@ async function main() {
 main();
 ```
 
-- [ ] **Step 4: Implement the harness**
+### A2 — `tests/codexGuard/harness.ts` (complete)
 
 ```ts
-// tests/codexGuard/harness.ts
 import { execFile } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -216,32 +589,39 @@ export const GUARD = join(process.cwd(), "scripts/codex-guard.mjs");
 export const FIXTURE = join(process.cwd(), "tests/codexGuard/fixtures/fake-codex.mjs");
 
 export interface Run {
-  dir: string;
-  outDir: string;
-  recordDir: string;
-  home: string;
-  codexHome: string;
-  scenarioPath: string;
-  briefPath: string;
-  cwdDir: string;
+  dir: string; outDir: string; recordDir: string; home: string; codexHome: string;
+  scenarioPath: string; briefPath: string; cwdDir: string;
 }
+export interface AttemptRecord {
+  n: number; kind: "exec" | "resume"; pid: number | null; exitCode: number | null;
+  signal: string | null;
+  killedReason: "no_output" | "stall" | "attempt_timeout" | "total_timeout" | "external_signal" | null;
+  failureShape: "no_o_file" | "empty_o_file" | "no_marker" | "unrecognized_verdict" | "nonzero_exit" | "killed" | "spawn_error" | null;
+  recovery: "cache_ttl" | "cache_ttl_skipped" | "resume" | "retry" | null;
+  transcriptPath: string; stderrPath: string; lastMessagePath: string; durationSecs: number;
+}
+export interface GuardResult {
+  guardVersion: number; label: string | null; status: "verdict" | "no_verdict";
+  verdict: "APPROVE" | "NEEDS-ATTENTION" | "BLOCKING" | null; verdictLine: string | null;
+  lastMessagePath: string | null; attempts: AttemptRecord[];
+  failureReason: "attempts_exhausted" | "total_timeout" | "wrapper_error" | "interrupted" | null;
+  error: string | null; startedAt: string | null; endedAt: string;
+}
+export interface CallRecord { argv: string[]; cwd: string; stdinBytes: number; stdin: string; codexHome: string | null; }
+export interface GuardExit { code: number | null; stdout: string; stderr: string; }
 
-export interface GuardExit {
-  code: number | null;
-  stdout: string;
-  stderr: string;
+const RUNS: string[] = [];
+export function cleanupRuns(): void {
+  for (const d of RUNS.splice(0)) rmSync(d, { recursive: true, force: true });
 }
 
 export function mkRun(): Run {
   const dir = mkdtempSync(join(tmpdir(), "codex-guard-test-"));
+  RUNS.push(dir);
   const run: Run = {
-    dir,
-    outDir: join(dir, "out"),
-    recordDir: join(dir, "record"),
-    home: join(dir, "home"),
-    codexHome: join(dir, "home", ".codex"),
-    scenarioPath: join(dir, "scenario.json"),
-    briefPath: join(dir, "brief.md"),
+    dir, outDir: join(dir, "out"), recordDir: join(dir, "record"),
+    home: join(dir, "home"), codexHome: join(dir, "home", ".codex"),
+    scenarioPath: join(dir, "scenario.json"), briefPath: join(dir, "brief.md"),
     cwdDir: join(dir, "work"),
   };
   mkdirSync(run.recordDir, { recursive: true });
@@ -256,7 +636,6 @@ export function writeScenario(run: Run, steps: unknown[]): void {
   writeFileSync(run.scenarioPath, JSON.stringify({ steps }));
 }
 
-// Fast defaults; every value overridable per test.
 export const FAST_ENV: Record<string, string> = {
   CODEX_GUARD_POLL_INTERVAL_SECS: "0.05",
   CODEX_GUARD_KILL_GRACE_SECS: "0.2",
@@ -268,174 +647,70 @@ export const FAST_ENV: Record<string, string> = {
   CODEX_GUARD_MIN_ADMISSION_SECS: "0.1",
 };
 
+export function guardEnv(run: Run, envOverrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: run.home,
+    CODEX_HOME: run.codexHome,
+    CODEX_GUARD_BIN: process.execPath,
+    CODEX_GUARD_BIN_ARGS: JSON.stringify([FIXTURE]),
+    FAKE_CODEX_SCENARIO: run.scenarioPath,
+    FAKE_CODEX_RECORD_DIR: run.recordDir,
+    ...FAST_ENV,
+    ...envOverrides,
+  };
+}
+
 export function runGuard(
-  run: Run,
-  extraArgs: string[] = [],
-  envOverrides: Record<string, string> = {},
+  run: Run, extraArgs: string[] = [], envOverrides: Record<string, string> = {},
 ): Promise<GuardExit> {
   return new Promise((resolve) => {
-    const child = execFile(
+    execFile(
       process.execPath,
-      [
-        GUARD, "review",
-        "--brief", run.briefPath,
-        "--cwd", run.cwdDir,
-        "--out", run.outDir,
-        ...extraArgs,
-      ],
-      {
-        env: {
-          ...process.env,
-          HOME: run.home,
-          CODEX_HOME: run.codexHome,
-          CODEX_GUARD_BIN: `${process.execPath} ${FIXTURE}`,
-          FAKE_CODEX_SCENARIO: run.scenarioPath,
-          FAKE_CODEX_RECORD_DIR: run.recordDir,
-          ...FAST_ENV,
-          ...envOverrides,
-        },
-        maxBuffer: 16 * 1024 * 1024,
-      },
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir, ...extraArgs],
+      { env: guardEnv(run, envOverrides), maxBuffer: 16 * 1024 * 1024 },
       (err, stdout, stderr) => {
-        const code = err && typeof (err as { code?: unknown }).code === "number"
-          ? ((err as { code?: number }).code ?? null)
-          : err ? null : 0;
+        const code = err
+          ? (typeof (err as { code?: unknown }).code === "number" ? ((err as { code?: number }).code ?? null) : null)
+          : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) });
       },
     );
-    void child;
   });
 }
 
-export function readResult(run: Run): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(run.outDir, "result.json"), "utf8"));
+export function readResult(run: Run): GuardResult {
+  return JSON.parse(readFileSync(join(run.outDir, "result.json"), "utf8")) as GuardResult;
 }
 
-export function readCalls(run: Run): Array<Record<string, unknown>> {
+export function readCalls(run: Run): CallRecord[] {
   return readdirSync(run.recordDir)
     .filter((f) => /^call-\d+\.json$/.test(f))
     .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]))
-    .map((f) => JSON.parse(readFileSync(join(run.recordDir, f), "utf8")));
+    .map((f) => JSON.parse(readFileSync(join(run.recordDir, f), "utf8")) as CallRecord);
 }
 ```
 
-Note: `CODEX_GUARD_BIN` carries "node-binary space fixture-path"; the wrapper must split on the first space into command + leading args (documented in Task 3's spawn step). This keeps the fixture runnable without a shebang/chmod.
-
-- [ ] **Step 5: Run to verify pass**
-
-Run: `pnpm vitest run tests/codexGuard/fixture.test.ts`
-Expected: PASS (2 tests).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add tests/codexGuard && git commit --no-verify -m "test(infra): fake-codex fixture + codex-guard test harness"
-```
-
----
-
-### Task 2: CLI parsing, validation, usage errors (spec §3, §7; scenario 8)
-
-**Files:**
-- Create: `scripts/codex-guard.mjs`
-- Test: `tests/codexGuard/usage.test.ts`
-
-**Interfaces:**
-- Produces: `codex-guard review` CLI accepting the §3 flag set; exit 2 + stderr line `codex-guard: <message>` on any §7 violation; on valid input (this task only) exits 3 with `codex-guard: not implemented` (later tasks replace).
-- Produces (internal, later tasks consume): `const CFG` object `{ brief, cwd, out, artifacts, fallback, label, maxAttempts, attemptMaxSecs, totalMaxSecs, stallSecs, firstOutputSecs, pollIntervalSecs, killGraceSecs, reapAfterKillSecs, minAdmissionSecs, cacheLockStaleSecs, promptMaxBytes, codexHome, bin: {cmd, leadingArgs} }` — all paths absolute, all times numbers (seconds).
-
-- [ ] **Step 1: Write the failing usage tests**
-
-```ts
-// tests/codexGuard/usage.test.ts
-import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { mkRun, runGuard, writeScenario } from "./harness";
-
-describe("codex-guard usage errors (exit 2, no result.json)", () => {
-  const cases: Array<{ name: string; args?: string[]; env?: Record<string, string>; prep?: (r: ReturnType<typeof mkRun>) => void }> = [
-    { name: "missing --brief", args: ["--brief", "/nonexistent/brief.md"] },
-    { name: "artifact without --fallback", prep: (r) => writeFileSync(join(r.dir, "a.md"), "x"), args: [] }, // args filled in test body
-    { name: "bad label", args: ["--label", "has space"] },
-    { name: "attempt-max above 1380", args: ["--attempt-max-secs", "1381"] },
-    { name: "poll override above 30", env: { CODEX_GUARD_POLL_INTERVAL_SECS: "31" } },
-    { name: "stall >= attempt-max", args: ["--stall-secs", "50", "--attempt-max-secs", "50"] },
-    { name: "decimal CODEX_GUARD_MAX_ATTEMPTS", env: { CODEX_GUARD_MAX_ATTEMPTS: "2.5" } },
-    { name: "non-integer flag", args: ["--max-attempts", "two"] },
-  ];
-
-  for (const c of cases) {
-    it(c.name, async () => {
-      const run = mkRun();
-      writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
-      c.prep?.(run);
-      const args =
-        c.name === "artifact without --fallback"
-          ? ["--artifact", join(run.dir, "a.md")]
-          : (c.args ?? []);
-      const res = await runGuard(run, args, c.env ?? {});
-      expect(res.code).toBe(2);
-      expect(res.stderr).toMatch(/^codex-guard: /m);
-      expect(existsSync(join(run.outDir, "result.json"))).toBe(false);
-    });
-  }
-
-  it("pre-existing result.json in --out (zero-byte) refused", async () => {
-    const run = mkRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
-    mkdirSync(run.outDir, { recursive: true });
-    writeFileSync(join(run.outDir, "result.json"), "");
-    const res = await runGuard(run);
-    expect(res.code).toBe(2);
-  });
-
-  it("empty brief refused", async () => {
-    const run = mkRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
-    writeFileSync(run.briefPath, "");
-    const res = await runGuard(run);
-    expect(res.code).toBe(2);
-  });
-});
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm vitest run tests/codexGuard/usage.test.ts`
-Expected: FAIL — `scripts/codex-guard.mjs` missing.
-
-- [ ] **Step 3: Implement CLI skeleton — constants, env, parse, validate**
+### A3 — Task 2 CLI skeleton (`scripts/codex-guard.mjs` at end of Task 2; complete)
 
 ```js
 #!/usr/bin/env node
-// scripts/codex-guard.mjs — watchdog wrapper for codex exec dispatches.
+// scripts/codex-guard.mjs — watchdog wrapper for direct Codex CLI dispatches.
 // Spec: docs/superpowers/specs/2026-07-19-codex-guard.md (canonical; §11 = numeric authority).
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 const GUARD_VERSION = 1;
 
-// §11 defaults. Env override CODEX_GUARD_<NAME>: timing = positive decimal,
-// MAX_ATTEMPTS = positive integer, PROMPT_MAX_BYTES = no override.
 const DEFAULTS = {
-  MAX_ATTEMPTS: 3,
-  ATTEMPT_MAX_SECS: 1200,
-  TOTAL_MAX_SECS: 1500,
-  STALL_SECS: 420,
-  FIRST_OUTPUT_SECS: 120,
-  POLL_INTERVAL_SECS: 10,
-  KILL_GRACE_SECS: 5,
-  MIN_ADMISSION_SECS: 120,
-  CACHE_LOCK_STALE_SECS: 600,
+  MAX_ATTEMPTS: 3, ATTEMPT_MAX_SECS: 1200, TOTAL_MAX_SECS: 1500,
+  STALL_SECS: 420, FIRST_OUTPUT_SECS: 120, POLL_INTERVAL_SECS: 10,
+  KILL_GRACE_SECS: 5, MIN_ADMISSION_SECS: 120, CACHE_LOCK_STALE_SECS: 600,
   REAP_AFTER_KILL_SECS: 10,
 };
 const BOUNDS = {
-  ATTEMPT_MAX_SECS: 1380, // §8: 1380+30+30+10=1450 < watchdog 1500
-  POLL_INTERVAL_SECS: 30,
-  KILL_GRACE_SECS: 30,
-  REAP_AFTER_KILL_SECS: 10,
+  ATTEMPT_MAX_SECS: 1380, POLL_INTERVAL_SECS: 30, KILL_GRACE_SECS: 30, REAP_AFTER_KILL_SECS: 10,
 };
 const PROMPT_MAX_BYTES = 2000000;
 const KNOWN_OUTCOMES = ["APPROVE", "NEEDS-ATTENTION", "BLOCKING"];
@@ -458,12 +733,10 @@ function num(name, raw, { integer = false } = {}) {
   return v;
 }
 
-function readEnvNum(name, { integer = false, decimalOk = true } = {}) {
+function readEnvNum(name, { integer = false } = {}) {
   const raw = process.env[`CODEX_GUARD_${name}`];
   if (raw === undefined || raw === "") return undefined;
-  const v = num(`CODEX_GUARD_${name}`, raw, { integer });
-  if (!decimalOk && !Number.isInteger(v)) usageError(`CODEX_GUARD_${name} must be an integer`);
-  return v;
+  return num(`CODEX_GUARD_${name}`, raw, { integer });
 }
 
 function parseArgs(argv) {
@@ -487,18 +760,18 @@ function parseArgs(argv) {
 }
 
 function buildConfig(flags) {
-  // numbers: flag > env > default; validated identically (§7)
-  const pick = (flagVal, envName, integer = false) =>
+  // CLI flags: positive INTEGERS. Env timing: positive decimals. Flags win. (§3/§11)
+  const pick = (flagVal, envName, flagName) =>
     flagVal !== undefined
-      ? num(`--${envName.toLowerCase().replace(/_/g, "-")}`, flagVal, { integer })
-      : (readEnvNum(envName, { integer }) ?? DEFAULTS[envName]);
+      ? num(flagName, flagVal, { integer: true })
+      : (readEnvNum(envName, { integer: envName === "MAX_ATTEMPTS" }) ?? DEFAULTS[envName]);
 
   const cfg = {
-    maxAttempts: pick(flags.maxAttempts, "MAX_ATTEMPTS", true),
-    attemptMaxSecs: pick(flags.attemptMaxSecs, "ATTEMPT_MAX_SECS"),
-    totalMaxSecs: pick(flags.totalMaxSecs, "TOTAL_MAX_SECS"),
-    stallSecs: pick(flags.stallSecs, "STALL_SECS"),
-    firstOutputSecs: pick(flags.firstOutputSecs, "FIRST_OUTPUT_SECS"),
+    maxAttempts: pick(flags.maxAttempts, "MAX_ATTEMPTS", "--max-attempts"),
+    attemptMaxSecs: pick(flags.attemptMaxSecs, "ATTEMPT_MAX_SECS", "--attempt-max-secs"),
+    totalMaxSecs: pick(flags.totalMaxSecs, "TOTAL_MAX_SECS", "--total-max-secs"),
+    stallSecs: pick(flags.stallSecs, "STALL_SECS", "--stall-secs"),
+    firstOutputSecs: pick(flags.firstOutputSecs, "FIRST_OUTPUT_SECS", "--first-output-secs"),
     pollIntervalSecs: readEnvNum("POLL_INTERVAL_SECS") ?? DEFAULTS.POLL_INTERVAL_SECS,
     killGraceSecs: readEnvNum("KILL_GRACE_SECS") ?? DEFAULTS.KILL_GRACE_SECS,
     reapAfterKillSecs: readEnvNum("REAP_AFTER_KILL_SECS") ?? DEFAULTS.REAP_AFTER_KILL_SECS,
@@ -524,24 +797,38 @@ function buildConfig(flags) {
   cfg.cwd = expandPath(flags.cwd);
   cfg.out = expandPath(flags.out);
   cfg.artifacts = flags.artifacts.map(expandPath);
-  cfg.codexHome = expandPath(process.env.CODEX_HOME ?? join(homedir(), ".codex"));
+  cfg.codexHome = expandPath(process.env.CODEX_HOME || join(homedir(), ".codex"));
 
-  if (!existsSync(cfg.brief) || !statSync(cfg.brief).isFile()) usageError(`--brief unreadable: ${cfg.brief}`);
-  if (readFileSync(cfg.brief, "utf8").length === 0) usageError(`--brief is empty`);
+  try { cfg.briefText = readFileSync(cfg.brief, "utf8"); }
+  catch (e) { usageError(`--brief unreadable: ${e.message}`); }
+  if (cfg.briefText.length === 0) usageError(`--brief is empty`);
   if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory()) usageError(`--cwd is not a directory: ${cfg.cwd}`);
   if (cfg.artifacts.length > 0 && !cfg.fallback) usageError("--artifact requires --fallback");
+  cfg.artifactTexts = [];
   for (const a of cfg.artifacts) {
-    if (!existsSync(a) || !statSync(a).isFile()) usageError(`--artifact unreadable: ${a}`);
+    try { cfg.artifactTexts.push(readFileSync(a, "utf8")); }
+    catch (e) { usageError(`--artifact unreadable: ${e.message}`); }
   }
   try {
     mkdirSync(cfg.out, { recursive: true });
+    const probe = join(cfg.out, ".codex-guard-write-probe");
+    writeFileSync(probe, "");
+    unlinkSync(probe);
   } catch (e) {
-    usageError(`cannot create --out: ${e.message}`);
+    usageError(`--out not writable: ${e.message}`);
   }
   if (existsSync(join(cfg.out, "result.json"))) usageError(`--out already contains result.json (any size): refuse reuse`);
 
-  const binRaw = process.env.CODEX_GUARD_BIN ?? "codex";
-  const [cmd, ...leadingArgs] = binRaw.split(" ");
+  const cmd = process.env.CODEX_GUARD_BIN || "codex";
+  let leadingArgs = [];
+  if (process.env.CODEX_GUARD_BIN_ARGS) {
+    try {
+      leadingArgs = JSON.parse(process.env.CODEX_GUARD_BIN_ARGS);
+      if (!Array.isArray(leadingArgs) || !leadingArgs.every((s) => typeof s === "string")) throw new Error("not a string array");
+    } catch (e) {
+      usageError(`CODEX_GUARD_BIN_ARGS must be a JSON string array: ${e.message}`);
+    }
+  }
   cfg.bin = { cmd, leadingArgs };
   return cfg;
 }
@@ -552,65 +839,41 @@ process.stderr.write("codex-guard: not implemented\n");
 process.exit(3);
 ```
 
-- [ ] **Step 4: Run to verify pass**
-
-Run: `pnpm vitest run tests/codexGuard/usage.test.ts`
-Expected: PASS (10 tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/codex-guard.mjs tests/codexGuard/usage.test.ts && git commit --no-verify -m "feat(infra): codex-guard CLI parsing + §7 validation"
-```
-
----
-
-### Task 3: Attempt runner + happy path + verdict parser (spec §4, §6 parsing; scenarios 1, 2)
-
-**Files:**
-- Modify: `scripts/codex-guard.mjs` (replace the trailing `not implemented` block; add functions)
-- Test: `tests/codexGuard/happyPath.test.ts`
-
-**Interfaces:**
-- Produces (internal): `composePrompt(cfg): string`; `parseVerdict(text): { verdict: string|null, verdictLine: string|null, shape: "ok"|"no_marker"|"unrecognized_verdict" }`; `runAttempt(cfg, n, kind, extraArgv, state): Promise<Attempt>` (spawn per §4, capture streams to files, poll timers, classify); `writeResult(cfg, state, patch): void`; `main()` loop (this task: single attempt, success path only; ladder in Task 5).
-- Attempt record fields exactly per spec §6 result schema.
-
-- [ ] **Step 1: Write failing happy-path tests**
+### A4 — `tests/codexGuard/happyPath.test.ts` (complete)
 
 ```ts
-// tests/codexGuard/happyPath.test.ts
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
+import { cleanupRuns, mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
+
+afterAll(cleanupRuns);
 
 describe("codex-guard happy path", () => {
-  it("scenario 1: exact argv, stdin prompt, result.json contract", async () => {
+  it("scenario 1: exact argv, stdin prompt, child cwd, result.json contract", async () => {
     const run = mkRun();
     writeScenario(run, [
-      {
-        onCall: 1,
-        actions: [
-          { type: "stdout", text: "working\n" },
-          { type: "lastMessage", text: "All good.\n\nVERDICT: APPROVE\n" },
-          { type: "exit", code: 0 },
-        ],
-      },
+      { onCall: 1, actions: [
+        { type: "stdout", text: "working\n" },
+        { type: "lastMessage", text: "All good.\n\nVERDICT: APPROVE\n" },
+        { type: "exit", code: 0 },
+      ]},
     ]);
     const res = await runGuard(run, ["--label", "spec-r1"]);
     expect(res.code).toBe(0);
 
     const calls = readCalls(run);
     expect(calls).toHaveLength(1);
-    // §4 fresh-attempt argv, exactly — independent reconstruction, not echo
-    expect(calls[0].argv).toEqual([
+    const c0 = calls[0]!;
+    expect(c0.argv).toEqual([
       "exec", "--skip-git-repo-check", "-s", "read-only", "-C", run.cwdDir,
       "-c", "model_reasoning_effort=high",
       "-o", join(run.outDir, "attempt-1.last-message.txt"),
     ]);
+    expect(c0.cwd).toBe(run.cwdDir);
     const briefText = readFileSync(run.briefPath, "utf8");
-    expect(calls[0].stdinBytes).toBe(Buffer.byteLength(briefText));
-    expect(calls[0].stdin).toBe(briefText);
+    expect(c0.stdinBytes).toBe(Buffer.byteLength(briefText));
+    expect(c0.stdin).toBe(briefText);
 
     const result = readResult(run);
     expect(result.status).toBe("verdict");
@@ -621,7 +884,7 @@ describe("codex-guard happy path", () => {
     expect(result.lastMessagePath).toBe(join(run.outDir, "attempt-1.last-message.txt"));
     expect(result.failureReason).toBeNull();
     expect(result.attempts).toHaveLength(1);
-    const a = result.attempts[0] as Record<string, unknown>;
+    const a = result.attempts[0]!;
     expect(a).toMatchObject({
       n: 1, kind: "exec", exitCode: 0, signal: null,
       killedReason: null, failureShape: null, recovery: null,
@@ -631,15 +894,16 @@ describe("codex-guard happy path", () => {
     expect(readFileSync(join(run.outDir, "attempt-1.transcript.txt"), "utf8")).toContain("working");
   });
 
-  it("scenario 2: echoed instruction + fenced verdict + emphasis/punctuation normalization", async () => {
+  it("scenario 2: echo/fence/duplicate-outcome exclusions + normalization + raw verdictLine", async () => {
     const run = mkRun();
     const lastMessage = [
       "The brief says: end with `VERDICT: APPROVE or VERDICT: NEEDS-ATTENTION`",
+      "VERDICT: APPROVE APPROVE",
       "```",
       "VERDICT: APPROVE",
       "```",
       "Findings: one HIGH.",
-      "VERDICT: **NEEDS-ATTENTION**.",
+      "  VERDICT: **NEEDS-ATTENTION**.  ",
       "",
     ].join("\n");
     writeScenario(run, [
@@ -650,265 +914,20 @@ describe("codex-guard happy path", () => {
     const result = readResult(run);
     expect(result.status).toBe("verdict");
     expect(result.verdict).toBe("NEEDS-ATTENTION");
+    expect(result.verdictLine).toBe("  VERDICT: **NEEDS-ATTENTION**.  ");
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm vitest run tests/codexGuard/happyPath.test.ts`
-Expected: FAIL — exit 3 "not implemented".
-
-- [ ] **Step 3: Implement prompt composition, verdict parser, attempt runner, single-attempt main**
-
-Replace the trailing block of `scripts/codex-guard.mjs` (everything after `buildConfig`) with:
-
-```js
-import { appendFileSync, createWriteStream, openSync, closeSync, writeFileSync, rmSync, renameSync, readdirSync, unlinkSync } from "node:fs";
-import { basename } from "node:path";
-import { spawn } from "node:child_process";
-
-function composePrompt(cfg) {
-  let prompt = readFileSync(cfg.brief, "utf8");
-  if (cfg.fallback) {
-    for (const a of cfg.artifacts) {
-      prompt += `\n===== ARTIFACT: ${basename(a)} =====\n`;
-      prompt += readFileSync(a, "utf8");
-      prompt += `\n===== END ARTIFACT =====\n`;
-    }
-    prompt +=
-      "\nCitations were pre-verified — do not re-read files needlessly. " +
-      "REACH A VERDICT — budget your reading.\n";
-  }
-  if (Buffer.byteLength(prompt) > cfg.promptMaxBytes)
-    usageError(`prompt exceeds PROMPT_MAX_BYTES (${cfg.promptMaxBytes})`);
-  return prompt;
-}
-
-// §6 verdict parsing. Returns shape "ok" | "no_marker" | "unrecognized_verdict".
-function parseVerdict(text) {
-  const noFences = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
-  const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
-  const survivors = lines.filter((l) => {
-    const hits = KNOWN_OUTCOMES.filter((o) => l.toUpperCase().includes(o)).length;
-    // NEEDS-ATTENTION contains no other outcome as substring; count distinct outcomes
-    return hits < 2 && !/ or /i.test(l);
-  });
-  if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
-  const line = survivors[survivors.length - 1].trim();
-  let payload = line.replace(/^\s*VERDICT:\s*/, "");
-  // fixpoint: trim; strip trailing punctuation; strip ONE emphasis layer; repeat
-  for (;;) {
-    const before = payload;
-    payload = payload.trim().replace(/[.,;:!]+$/, "");
-    payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
-    if (payload === before) break;
-  }
-  payload = payload.toUpperCase();
-  if (KNOWN_OUTCOMES.includes(payload)) return { verdict: payload, verdictLine: line, shape: "ok" };
-  return { verdict: null, verdictLine: line, shape: "unrecognized_verdict" };
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const nowSecs = () => Date.now() / 1000;
-
-function killGroup(pid, signal) {
-  try { process.kill(-pid, signal); } catch { /* group gone */ }
-}
-
-// Poll-based attempt runner (§4, §5). state = { startedAt } for the total budget.
-async function runAttempt(cfg, n, kind, argvAfterExec, state) {
-  const transcriptPath = join(cfg.out, `attempt-${n}.transcript.txt`);
-  const stderrPath = join(cfg.out, `attempt-${n}.stderr.txt`);
-  const lastMessagePath = join(cfg.out, `attempt-${n}.last-message.txt`);
-  const attempt = {
-    n, kind, pid: null, exitCode: null, signal: null,
-    killedReason: null, failureShape: null, recovery: null,
-    transcriptPath, stderrPath, lastMessagePath, durationSecs: 0,
-  };
-  const t0 = nowSecs();
-  let child;
-  try {
-    child = spawn(cfg.bin.cmd, [...cfg.bin.leadingArgs, ...argvAfterExec], {
-      cwd: cfg.cwd,
-      detached: true, // own process group; kills target -pid
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-  } catch (e) {
-    attempt.failureShape = "spawn_error";
-    attempt.durationSecs = nowSecs() - t0;
-    throw Object.assign(new Error(`spawn failed: ${e.message}`), { attempt });
-  }
-  attempt.pid = child.pid ?? null;
-  if (child.pid === undefined) {
-    attempt.failureShape = "spawn_error";
-    throw Object.assign(new Error("spawn failed: no pid"), { attempt });
-  }
-  state.liveChild = child;
-
-  const tOut = createWriteStream(transcriptPath);
-  const tErr = createWriteStream(stderrPath);
-  let bytesOut = 0;
-  child.stdout.on("data", (c) => { bytesOut += c.length; tOut.write(c); });
-  child.stderr.on("data", (c) => { bytesOut += c.length; tErr.write(c); });
-
-  const prompt = kind === "resume"
-    ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
-    : composePrompt(cfg);
-  child.stdin.on("error", () => {});
-  child.stdin.end(prompt);
-
-  const exited = new Promise((res) => child.on("exit", (code, signal) => res({ code, signal })));
-  let exitInfo = null;
-  exited.then((v) => { exitInfo = v; });
-
-  let firstByteAt = null;
-  let lastGrowthAt = t0;
-  let lastBytes = 0;
-
-  while (exitInfo === null) {
-    await sleep(cfg.pollIntervalSecs * 1000);
-    if (exitInfo !== null) break;
-    const now = nowSecs();
-    if (bytesOut > lastBytes) {
-      lastBytes = bytesOut;
-      lastGrowthAt = now;
-      if (firstByteAt === null) firstByteAt = now;
-    }
-    // §5 precedence: total > attempt > stall > no_output
-    let reason = null;
-    if (now - state.startedAt > cfg.totalMaxSecs) reason = "total_timeout";
-    else if (now - t0 > cfg.attemptMaxSecs) reason = "attempt_timeout";
-    else if (firstByteAt !== null && now - lastGrowthAt > cfg.stallSecs) reason = "stall";
-    else if (firstByteAt === null && now - t0 > cfg.firstOutputSecs) reason = "no_output";
-    if (reason) {
-      attempt.killedReason = reason;
-      killGroup(child.pid, "SIGTERM");
-      const deadline = nowSecs() + cfg.killGraceSecs;
-      while (exitInfo === null && nowSecs() < deadline) await sleep(Math.min(cfg.pollIntervalSecs, 0.05) * 1000);
-      if (exitInfo === null) killGroup(child.pid, "SIGKILL");
-      const reapDeadline = nowSecs() + cfg.reapAfterKillSecs;
-      while (exitInfo === null && nowSecs() < reapDeadline) await sleep(0.05 * 1000);
-      if (exitInfo === null) throw Object.assign(new Error("unkillable child"), { attempt });
-      break;
-    }
-  }
-  state.liveChild = null;
-  tOut.end(); tErr.end();
-  attempt.exitCode = exitInfo.code;
-  attempt.signal = exitInfo.signal;
-  if (attempt.killedReason === null && exitInfo.signal !== null) attempt.killedReason = "external_signal";
-  attempt.durationSecs = nowSecs() - t0;
-
-  // classify (§6)
-  if (attempt.killedReason !== null) {
-    attempt.failureShape = "killed";
-    return attempt;
-  }
-  if (attempt.exitCode !== 0) {
-    attempt.failureShape = "nonzero_exit";
-    return attempt;
-  }
-  if (!existsSync(lastMessagePath)) { attempt.failureShape = "no_o_file"; return attempt; }
-  const msg = readFileSync(lastMessagePath, "utf8");
-  if (msg.trim() === "") { attempt.failureShape = "empty_o_file"; return attempt; }
-  const parsed = parseVerdict(msg);
-  if (parsed.shape !== "ok") { attempt.failureShape = parsed.shape; attempt.parsed = parsed; return attempt; }
-  attempt.parsed = parsed;
-  return attempt; // failureShape null = success
-}
-
-function freshArgv(cfg, n) {
-  return [
-    "exec", "--skip-git-repo-check", "-s", "read-only", "-C", cfg.cwd,
-    "-c", "model_reasoning_effort=high",
-    "-o", join(cfg.out, `attempt-${n}.last-message.txt`),
-  ];
-}
-
-function writeResult(cfg, state, patch) {
-  const attempts = state.attempts.map(({ parsed, ...a }) => a);
-  const body = {
-    guardVersion: GUARD_VERSION,
-    label: cfg.label,
-    status: "no_verdict", verdict: null, verdictLine: null, lastMessagePath: null,
-    attempts, failureReason: null, error: null,
-    startedAt: state.startedAtIso, endedAt: new Date().toISOString(),
-    ...patch,
-  };
-  writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
-}
-
-async function main() {
-  const state = {
-    startedAt: nowSecs(),
-    startedAtIso: new Date().toISOString(),
-    attempts: [],
-    liveChild: null,
-  };
-  const attempt = await runAttempt(cfg, 1, "exec", freshArgv(cfg, 1), state);
-  state.attempts.push(attempt);
-  if (attempt.failureShape === null) {
-    writeResult(cfg, state, {
-      status: "verdict",
-      verdict: attempt.parsed.verdict,
-      verdictLine: attempt.parsed.verdictLine,
-      lastMessagePath: attempt.lastMessagePath,
-    });
-    process.exit(0);
-  }
-  writeResult(cfg, state, { failureReason: "attempts_exhausted" });
-  process.exit(0);
-}
-
-main().catch((e) => {
-  try {
-    const attempts = e?.attempt ? [e.attempt] : [];
-    writeFileSync(join(cfg.out, "result.json"), JSON.stringify({
-      guardVersion: GUARD_VERSION, label: cfg.label, status: "no_verdict",
-      verdict: null, verdictLine: null, lastMessagePath: null,
-      attempts, failureReason: "wrapper_error", error: String(e?.message ?? e),
-      startedAt: null, endedAt: new Date().toISOString(),
-    }, null, 2) + "\n");
-  } catch { /* stderr only */ }
-  process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
-  process.exit(3);
-});
-```
-
-(Note: `main()`'s ladder is single-attempt here; Task 5 replaces the body with the full loop. `state.attempts` and the `catch` wrapper are already final-shaped. Unused imports added here — `appendFileSync`, `openSync`, `closeSync`, `rmSync`, `renameSync`, `readdirSync`, `unlinkSync` — are consumed by Tasks 5–7; keep them.)
-
-- [ ] **Step 4: Run to verify pass**
-
-Run: `pnpm vitest run tests/codexGuard/happyPath.test.ts tests/codexGuard/usage.test.ts`
-Expected: PASS (12 tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/codex-guard.mjs tests/codexGuard/happyPath.test.ts && git commit --no-verify -m "feat(infra): codex-guard attempt runner, verdict parser, happy path"
-```
-
----
-
-### Task 4: Timeout kills + precedence (spec §5; scenarios 5, 6, 9, 12, 17)
-
-**Files:**
-- Modify: `scripts/codex-guard.mjs` (no new code expected — this task PINS Task 3's timer logic; fix any failures inline)
-- Test: `tests/codexGuard/timeouts.test.ts`
-
-**Interfaces:**
-- Consumes: harness FAST_ENV timing overrides; fixture `hang`/`emitEvery` actions; result.json attempt records.
-
-- [ ] **Step 1: Write failing timeout tests**
+### A5 — `tests/codexGuard/timeouts.test.ts` (complete)
 
 ```ts
-// tests/codexGuard/timeouts.test.ts
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mkRun, readResult, runGuard, writeScenario } from "./harness";
+import { cleanupRuns, mkRun, readResult, runGuard, writeScenario } from "./harness";
 
+afterAll(cleanupRuns);
 const ONE_ATTEMPT = { CODEX_GUARD_MAX_ATTEMPTS: "1" };
 
 function assertDead(pidFile: string): void {
@@ -926,41 +945,40 @@ describe("codex-guard timeouts (§5)", () => {
     expect(res.code).toBe(0);
     const r = readResult(run);
     expect(r.status).toBe("no_verdict");
-    expect((r.attempts as any[])[0]).toMatchObject({ killedReason: "stall", failureShape: "killed" });
-  });
+    expect(r.attempts[0]!).toMatchObject({ killedReason: "stall", failureShape: "killed" });
+  }, 30000);
 
   it("scenario 6: no first byte → no_output kill", async () => {
     const run = mkRun();
     writeScenario(run, [{ onCall: 1, actions: [{ type: "hang" }] }]);
     const res = await runGuard(run, [], ONE_ATTEMPT);
     expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].killedReason).toBe("no_output");
-  });
+    expect(readResult(run).attempts[0]!.killedReason).toBe("no_output");
+  }, 30000);
 
   it("scenario 12: periodic output resets the stall clock — no kill", async () => {
     const run = mkRun();
     writeScenario(run, [
-      {
-        onCall: 1,
-        actions: [
-          { type: "emitEvery", ms: 400, times: 20, text: "tick\n" }, // 8s of ticks > 4 stall windows of 2s
-          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
-          { type: "exit", code: 0 },
-        ],
-      },
+      { onCall: 1, actions: [
+        { type: "emitEvery", ms: 400, times: 20, text: "tick\n" },
+        { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+        { type: "exit", code: 0 },
+      ]},
     ]);
-    const res = await runGuard(run, [], { ...ONE_ATTEMPT, CODEX_GUARD_ATTEMPT_MAX_SECS: "15", CODEX_GUARD_TOTAL_MAX_SECS: "18" });
+    const res = await runGuard(run, [], {
+      ...ONE_ATTEMPT, CODEX_GUARD_ATTEMPT_MAX_SECS: "15", CODEX_GUARD_TOTAL_MAX_SECS: "18",
+    });
     expect(res.code).toBe(0);
     expect(readResult(run).status).toBe("verdict");
   }, 30000);
 
-  it("scenario 9: total timeout mid-attempt actively kills (pidfile dead)", async () => {
+  // Multi-attempt: armed as a real `it` by Task 5 (ladder loop); it.fails until then.
+  it.fails("scenario 9: total timeout mid-attempt actively kills (pidfile dead)", async () => {
     const run = mkRun();
     writeScenario(run, [
       { onCall: 1, actions: [{ type: "stdout", text: "a" }, { type: "exit", code: 1 }] },
       { onCall: 2, actions: [{ type: "emitEvery", ms: 200, times: 100, text: "t" }] },
     ]);
-    // total 3s: attempt 1 fails fast, attempt 2 runs into the total budget while still emitting
     const res = await runGuard(run, [], {
       CODEX_GUARD_TOTAL_MAX_SECS: "3", CODEX_GUARD_ATTEMPT_MAX_SECS: "10",
       CODEX_GUARD_STALL_SECS: "8", CODEX_GUARD_FIRST_OUTPUT_SECS: "8",
@@ -968,8 +986,7 @@ describe("codex-guard timeouts (§5)", () => {
     expect(res.code).toBe(0);
     const r = readResult(run);
     expect(r.failureReason).toBe("total_timeout");
-    const a2 = (r.attempts as any[])[1];
-    expect(a2.killedReason).toBe("total_timeout");
+    expect(r.attempts[1]!.killedReason).toBe("total_timeout");
     assertDead(join(run.recordDir, "pid-2.txt"));
   }, 30000);
 
@@ -982,7 +999,7 @@ describe("codex-guard timeouts (§5)", () => {
       CODEX_GUARD_TOTAL_MAX_SECS: "30",
     });
     expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].killedReason).toBe("attempt_timeout");
+    expect(readResult(run).attempts[0]!.killedReason).toBe("attempt_timeout");
   }, 30000);
 
   it("scenario 17b: attempt-max and total-max expire together → total_timeout wins", async () => {
@@ -993,76 +1010,282 @@ describe("codex-guard timeouts (§5)", () => {
       CODEX_GUARD_STALL_SECS: "1.5", CODEX_GUARD_FIRST_OUTPUT_SECS: "1.5",
     });
     expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].killedReason).toBe("total_timeout");
+    expect(readResult(run).attempts[0]!.killedReason).toBe("total_timeout");
   }, 30000);
 });
 ```
 
-- [ ] **Step 2: Run**
-
-Run: `pnpm vitest run tests/codexGuard/timeouts.test.ts`
-Expected: scenarios 5/6/12/17a/17b PASS against Task 3's loop if the precedence chain is correct; scenario 9 FAILS until Task 5's multi-attempt loop exists (attempt 2 never spawns). Any OTHER failure = timer-logic bug: fix inline in `runAttempt` until only the scenario-9 failure remains.
-
-- [ ] **Step 3: Commit (with scenario 9 marked `it.todo` → converted in Task 5)**
-
-Mark scenario 9's `it` as `it.fails` with a comment `// enabled fully in ladder task`, OR keep it failing-red only if executing tasks sequentially in one session. Preferred: `it.fails` + revert to `it` in Task 5 Step 1.
-
-```bash
-git add tests/codexGuard/timeouts.test.ts scripts/codex-guard.mjs && git commit --no-verify -m "test(infra): codex-guard §5 timeout/precedence pins"
-```
-
----
-
-### Task 5: Recovery ladder — generic retry, exhaustion, admission (spec §6 loop; scenarios 7, 15-partial, 9-enable)
-
-**Files:**
-- Modify: `scripts/codex-guard.mjs` — replace `main()` single-attempt body with the ladder loop; add rung selection skeleton (generic retry only; cache/resume rungs land Tasks 6–7 inside the pre-built structure).
-- Test: `tests/codexGuard/ladder.test.ts` (scenario 7 now; file grows in Tasks 6–7)
-
-**Interfaces:**
-- Produces (internal): `selectRung(cfg, attempt, state): Promise<"retry"|"cache_ttl"|"cache_ttl_skipped"|"resume"|null>` — Task 5 implements only the generic branch returning `"retry"`; cache/resume branches return via TODO-free structure: Task 5 ships them as unreachable guards (`state.cacheRungUsed = true; state.resumeRungUsed = true` initialized FALSE but branch conditions test signatures that Task 5's tests never produce — the branches are IMPLEMENTED in 6/7, and Task 5 codes them as explicit `throw` if reached? NO — spec forbids placeholders. Resolution: Task 5 implements the FULL rung-selection control flow including cache and resume calls, and Tasks 6–7 only ADD the `cacheRung()`/`resumeArgv()` function bodies' tests. All three rung functions are written COMPLETE in this task's Step 3; Tasks 6–7 are test-first pinning of behavior already present.)
-
-- [ ] **Step 1: Write failing ladder tests (scenario 7) and re-enable scenario 9**
+### A6 — scenario 7 test (in `tests/codexGuard/ladder.test.ts`; file has `afterAll(cleanupRuns)`)
 
 ```ts
-// tests/codexGuard/ladder.test.ts
-import { describe, expect, it } from "vitest";
-import { mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
+it("scenario 7: three transient failures → attempts_exhausted, recovery retry/retry/null", async () => {
+  const run = mkRun();
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "stderr", text: "boom1\n" }, { type: "exit", code: 1 }] },
+    { onCall: 2, actions: [{ type: "stderr", text: "boom2\n" }, { type: "exit", code: 1 }] },
+    { onCall: 3, actions: [{ type: "stderr", text: "boom3\n" }, { type: "exit", code: 1 }] },
+  ]);
+  const res = await runGuard(run);
+  expect(res.code).toBe(0);
+  const r = readResult(run);
+  expect(r.status).toBe("no_verdict");
+  expect(r.failureReason).toBe("attempts_exhausted");
+  expect(r.attempts.map((a) => a.recovery)).toEqual(["retry", "retry", null]);
+  expect(readCalls(run)).toHaveLength(3);
+  for (const a of r.attempts) expect(a.failureShape).toBe("nonzero_exit");
+});
+```
 
-describe("codex-guard recovery ladder", () => {
-  it("scenario 7: three transient failures → attempts_exhausted, recovery retry/retry/null", async () => {
+### A7 — `tests/codexGuard/lock.test.ts` (complete; scenarios 18a-c, 19a/b)
+
+```ts
+import { afterAll, describe, expect, it } from "vitest";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { cleanupRuns, mkRun, readResult, runGuard, writeScenario } from "./harness";
+
+afterAll(cleanupRuns);
+
+const TTL_LINE = "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
+const TTL_FAIL = { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] };
+const THEN_OK = { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] };
+
+describe("codex-guard cache lock lifecycle (§6)", () => {
+  it("18a: unreadable cache → backup fails → skipped, cache intact, lock released", async () => {
     const run = mkRun();
-    writeScenario(run, [
-      { onCall: 1, actions: [{ type: "stderr", text: "boom1\n" }, { type: "exit", code: 1 }] },
-      { onCall: 2, actions: [{ type: "stderr", text: "boom2\n" }, { type: "exit", code: 1 }] },
-      { onCall: 3, actions: [{ type: "stderr", text: "boom3\n" }, { type: "exit", code: 1 }] },
-    ]);
+    const cache = join(run.codexHome, "models_cache.json");
+    chmodSync(cache, 0o000);
+    try {
+      writeScenario(run, [TTL_FAIL, THEN_OK]);
+      const res = await runGuard(run);
+      expect(res.code).toBe(0);
+      const r = readResult(run);
+      expect(r.attempts[0]!.recovery).toBe("cache_ttl_skipped");
+      expect(existsSync(cache)).toBe(true);
+      expect(existsSync(join(run.codexHome, ".codex-guard-cache-lock"))).toBe(false);
+    } finally {
+      chmodSync(cache, 0o644);
+    }
+  });
+
+  it("18b: stale lock → broken AND cleaned, rung skipped this run", async () => {
+    const run = mkRun();
+    const lock = join(run.codexHome, ".codex-guard-cache-lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "99999");
+    const old = (Date.now() - 3600 * 1000) / 1000;
+    utimesSync(lock, old, old);
+    writeScenario(run, [TTL_FAIL, THEN_OK]);
     const res = await runGuard(run);
     expect(res.code).toBe(0);
-    const r = readResult(run);
-    expect(r.status).toBe("no_verdict");
-    expect(r.failureReason).toBe("attempts_exhausted");
-    const recs = (r.attempts as any[]).map((a) => a.recovery);
-    expect(recs).toEqual(["retry", "retry", null]);
-    expect(readCalls(run)).toHaveLength(3);
-    (r.attempts as any[]).forEach((a) => expect(a.failureShape).toBe("nonzero_exit"));
+    expect(readResult(run).attempts[0]!.recovery).toBe("cache_ttl_skipped");
+    expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(run.codexHome).filter((f) => f.startsWith(".codex-guard-cache-lock.stale-"))).toEqual([]);
+  });
+
+  it("18c: fresh foreign lock → skipped, cap consumed, lock survives wrapper exit", async () => {
+    const run = mkRun();
+    const lock = join(run.codexHome, ".codex-guard-cache-lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "99999");
+    writeScenario(run, [TTL_FAIL, THEN_OK]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    expect(readResult(run).attempts[0]!.recovery).toBe("cache_ttl_skipped");
+    expect(existsSync(lock)).toBe(true);
+    expect(readFileSync(join(lock, "owner"), "utf8")).toBe("99999");
+    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
+  });
+
+  it("scenario 19a: literal-tilde CODEX_HOME expands against HOME", async () => {
+    const run = mkRun();
+    const customHome = join(run.home, "custom-codex");
+    mkdirSync(customHome, { recursive: true });
+    writeFileSync(join(customHome, "models_cache.json"), JSON.stringify({ custom: true }));
+    writeScenario(run, [TTL_FAIL, THEN_OK]);
+    const res = await runGuard(run, [], { CODEX_HOME: "~/custom-codex" });
+    expect(res.code).toBe(0);
+    expect(readResult(run).attempts[0]!.recovery).toBe("cache_ttl");
+    expect(existsSync(join(customHome, "models_cache.json"))).toBe(false);
+    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
+  });
+
+  it("scenario 19b: unset CODEX_HOME falls back to HOME/.codex", async () => {
+    const run = mkRun();
+    writeScenario(run, [TTL_FAIL, THEN_OK]);
+    const res = await runGuard(run, [], { CODEX_HOME: "" });
+    expect(res.code).toBe(0);
+    expect(readResult(run).attempts[0]!.recovery).toBe("cache_ttl");
+    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(false);
   });
 });
 ```
 
-Also in `tests/codexGuard/timeouts.test.ts`: revert scenario 9 from `it.fails` to `it`.
+(19a/b note: `guardEnv` sets `HOME: run.home`; Node's `os.homedir()` reads `process.env.HOME` on POSIX, so the wrapper's tilde-expansion and default both follow the test HOME.)
 
-- [ ] **Step 2: Run to verify failure**
+### A8 — scenarios 4, 10 (ladder.test.ts) + 13, 14, 16 (`tests/codexGuard/signals.test.ts` complete)
 
-Run: `pnpm vitest run tests/codexGuard/ladder.test.ts`
-Expected: FAIL — only one attempt runs.
+```ts
+// ladder.test.ts additions
+it("scenario 4: resume argv exact, cwd=--cwd, decoy sid in EARLIER attempt ignored", async () => {
+  const run = mkRun();
+  const decoySid = "00000000-0000-4000-8000-000000000000";
+  const realSid = "12345678-90ab-4cde-8f01-234567890abc";
+  mkdirSync(join(run.codexHome, "sessions", "zzz"), { recursive: true });
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "stdout", text: `session id: ${decoySid}\n` }, { type: "stderr", text: "transient\n" }, { type: "exit", code: 1 }] },
+    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${realSid}\n` }, { type: "exit", code: 0 }] },
+    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+  ]);
+  const res = await runGuard(run);
+  expect(res.code).toBe(0);
+  const calls = readCalls(run);
+  expect(calls).toHaveLength(3);
+  const c2 = calls[2]!;
+  expect(c2.argv).toEqual([
+    "exec", "resume", realSid, "-c", "model_reasoning_effort=high",
+    "-o", join(run.outDir, "attempt-3.last-message.txt"),
+  ]);
+  expect(c2.cwd).toBe(run.cwdDir);
+  expect(c2.stdin).toContain("mandatory final line");
+});
 
-- [ ] **Step 3: Implement the full ladder loop + all three rungs**
+it("scenario 10: ordered ladder cache_ttl → resume in one run; kinds exec,exec,resume", async () => {
+  const run = mkRun();
+  const sid = "deadbeef-dead-4bee-8f00-deadbeef0001";
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },
+    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] },
+    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+  ]);
+  const res = await runGuard(run);
+  expect(res.code).toBe(0);
+  const r = readResult(run);
+  expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl", "resume", null]);
+  expect(r.attempts.map((a) => a.kind)).toEqual(["exec", "exec", "resume"]);
+});
+```
 
-Replace `main()` in `scripts/codex-guard.mjs`:
+```ts
+// tests/codexGuard/signals.test.ts (complete)
+import { afterAll, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { GUARD, cleanupRuns, guardEnv, mkRun, readResult, runGuard, writeScenario } from "./harness";
+
+afterAll(cleanupRuns);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function isDead(pid: number): boolean {
+  try { process.kill(pid, 0); return false; } catch { return true; }
+}
+
+describe("codex-guard signals + spawn errors", () => {
+  it("scenario 13: child killed externally → external_signal, ladder continues", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: "x" }, { type: "hang" }] },
+      { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const killer = setInterval(() => {
+      const f = join(run.recordDir, "pid-1.txt");
+      if (existsSync(f)) {
+        try { process.kill(Number(readFileSync(f, "utf8")), "SIGKILL"); } catch { /* raced */ }
+        clearInterval(killer);
+      }
+    }, 50);
+    try {
+      const res = await runGuard(run);
+      expect(res.code).toBe(0);
+      const r = readResult(run);
+      const a1 = r.attempts[0]!;
+      expect(a1.killedReason).toBe("external_signal");
+      expect(a1.signal).toBe("SIGKILL");
+      expect(r.status).toBe("verdict");
+    } finally {
+      clearInterval(killer);
+    }
+  }, 30000);
+
+  it("scenario 14: nonexistent CODEX_GUARD_BIN → exit 3, wrapper_error, spawn_error attempt", async () => {
+    const run = mkRun();
+    writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
+    const res = await runGuard(run, [], { CODEX_GUARD_BIN: "/nonexistent/codex-binary", CODEX_GUARD_BIN_ARGS: "[]" });
+    expect(res.code).toBe(3);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("wrapper_error");
+    expect(r.attempts).toHaveLength(1);
+    expect(r.attempts[0]!.failureShape).toBe("spawn_error");
+  });
+
+  it("scenario 16 (+14b history pin): SIGTERM to wrapper → exit 3, interrupted, group dead incl. TERM-ignoring grandchild, attempts preserved", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "grandchild" }, { type: "stdout", text: "x" }, { type: "hang" }] },
+    ]);
+    const child = spawn(
+      process.execPath,
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir],
+      { env: guardEnv(run, { CODEX_GUARD_STALL_SECS: "30", CODEX_GUARD_ATTEMPT_MAX_SECS: "60", CODEX_GUARD_TOTAL_MAX_SECS: "90" }) },
+    );
+    const exit = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    try {
+      for (let i = 0; i < 100 && !existsSync(join(run.recordDir, "pid-1.txt")); i++) await sleep(50);
+      expect(existsSync(join(run.recordDir, "pid-1.txt"))).toBe(true);
+      await sleep(200); // let the grandchild spawn
+      child.kill("SIGTERM");
+      const code = await exit;
+      expect(code).toBe(3);
+      const r = readResult(run);
+      expect(r.failureReason).toBe("interrupted");
+      // 14b folded here: history preserved on the exit-3 path
+      expect(r.attempts.length).toBeGreaterThanOrEqual(1);
+      expect(r.attempts[0]!.n).toBe(1);
+      await sleep(700); // reap window
+      expect(isDead(Number(readFileSync(join(run.recordDir, "pid-1.txt"), "utf8")))).toBe(true);
+      expect(isDead(Number(readFileSync(join(run.recordDir, "grandchild-pid-1.txt"), "utf8")))).toBe(true);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  }, 30000);
+});
+```
+
+(scenario 16 note: the signal handler snapshots `state.currentAttempt` — the live, not-yet-returned attempt — into the written attempts. Task 3's `runAttempt` sets `state.currentAttempt = attempt` after constructing it and clears it before returning; `onSignal` (Task 7) appends it when set. That is what makes `attempts.length >= 1` pass while attempt 1 is still live.)
+
+### A9 — ladder internals (final shapes; Task 5 installs loop + retry, Task 6 installs cache, Task 7 installs resume)
 
 ```js
-// §6 rung 1. Advisory lock in $CODEX_HOME; matched-or-skipped consumes the cap.
+const TTL_SIGNATURE = /codex_models_manager::manager: failed to renew cache TTL/;
+const SESSION_ID_RE = /session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+function freshArgv(cfg, n) {
+  return [
+    "exec", "--skip-git-repo-check", "-s", "read-only", "-C", cfg.cwd,
+    "-c", "model_reasoning_effort=high",
+    "-o", join(cfg.out, `attempt-${n}.last-message.txt`),
+  ];
+}
+
+function resumeArgv(cfg, sid, n) {
+  return ["exec", "resume", sid, "-c", "model_reasoning_effort=high",
+    "-o", join(cfg.out, `attempt-${n}.last-message.txt`)];
+}
+
+function writeResult(cfg, state, patch) {
+  const attempts = state.attempts.map(({ parsed, ...a }) => a);
+  const body = {
+    guardVersion: GUARD_VERSION, label: cfg.label,
+    status: "no_verdict", verdict: null, verdictLine: null, lastMessagePath: null,
+    attempts, failureReason: null, error: null,
+    startedAt: state.startedAtIso, endedAt: new Date().toISOString(),
+    ...patch,
+  };
+  writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
+}
+
+// §6 rung 1 (Task 6). Advisory lock; matched-or-skipped consumes the cap.
 function tryCacheRung(cfg, attempt, state) {
   state.cacheRungUsed = true;
   const lockDir = join(cfg.codexHome, ".codex-guard-cache-lock");
@@ -1071,23 +1294,21 @@ function tryCacheRung(cfg, attempt, state) {
 
   if (!existsSync(cfg.codexHome) || !existsSync(cachePath)) return skip();
 
-  // stale-break: rename to tombstone, delete tombstone, DEFER acquisition to next run
   if (existsSync(lockDir)) {
     let ageSecs = 0;
     try { ageSecs = (Date.now() - statSync(lockDir).mtimeMs) / 1000; } catch { return skip(); }
     if (ageSecs > cfg.cacheLockStaleSecs) {
       const tomb = join(cfg.codexHome, `.codex-guard-cache-lock.stale-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
       try { renameSync(lockDir, tomb); rmSync(tomb, { recursive: true, force: true }); } catch { /* sibling broke it */ }
-      return skip(); // break-then-defer (spec §6): never acquire in the same pass
+      return skip(); // break-then-defer (§6)
     }
     return skip(); // fresh lock = live sibling
   }
 
   try { mkdirSync(lockDir); } catch { return skip(); }
-  state.heldLockDir = lockDir; // signal handler + finally release
+  state.heldLockDir = lockDir;
   try {
     writeFileSync(join(lockDir, "owner"), String(process.pid));
-    // backup then delete; failure of either → skipped (lock still released in finally)
     const backup = readFileSync(cachePath);
     writeFileSync(join(cfg.out, "models_cache.bak.json"), backup);
     unlinkSync(cachePath);
@@ -1108,17 +1329,14 @@ function releaseOwnLock(state, lockDir) {
   if (state.heldLockDir === lockDir) state.heldLockDir = null;
 }
 
-const TTL_SIGNATURE = /codex_models_manager::manager: failed to renew cache TTL/;
-const SESSION_ID_RE = /session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-
+// Final selectRung (after Tasks 6+7; Task 5 ships only the last two lines):
 function selectRung(cfg, attempt, state) {
-  // stderr of the JUST-FAILED attempt only (§6)
   let stderrText = "";
-  try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error has no file */ }
-  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);
+  try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error */ }
+  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);   // Task 6
 
   if (!state.resumeRungUsed && attempt.exitCode === 0 &&
-      ["no_o_file", "empty_o_file", "no_marker", "unrecognized_verdict"].includes(attempt.failureShape)) {
+      ["no_o_file", "empty_o_file", "no_marker", "unrecognized_verdict"].includes(attempt.failureShape)) { // Task 7
     let transcript = "";
     try { transcript = readFileSync(attempt.transcriptPath, "utf8"); } catch { /* none */ }
     const m = SESSION_ID_RE.exec(transcript);
@@ -1129,22 +1347,18 @@ function selectRung(cfg, attempt, state) {
       return "resume";
     }
   }
-  attempt.recovery = "retry";
+  attempt.recovery = "retry";                                                                             // Task 5
   return "retry";
 }
 
-function resumeArgv(cfg, sid, n) {
-  return ["exec", "resume", sid, "-c", "model_reasoning_effort=high",
-    "-o", join(cfg.out, `attempt-${n}.last-message.txt`)];
-}
-
+// Multi-attempt main (Task 5; final shape)
 async function main() {
   const state = {
     startedAt: nowSecs(), startedAtIso: new Date().toISOString(),
-    attempts: [], liveChild: null,
+    attempts: [], liveChild: null, currentAttempt: null,
     cacheRungUsed: false, resumeRungUsed: false, resumeSid: null, heldLockDir: null,
   };
-  globalThis.__guardState = state; // signal handlers (Task 7)
+  globalThis.__guardState = state;
 
   let nextKind = "exec";
   for (let n = 1; ; n++) {
@@ -1163,14 +1377,12 @@ async function main() {
       writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
       process.exit(0);
     }
-    // attempts_exhausted checked BEFORE admission (§6 precedence)
-    if (state.attempts.length >= cfg.maxAttempts) {
+    if (state.attempts.length >= cfg.maxAttempts) {  // exhaustion BEFORE admission (§6)
       writeResult(cfg, state, { failureReason: "attempts_exhausted", verdictLine: attempt.parsed?.verdictLine ?? null });
       process.exit(0);
     }
-    // admission gate: rung side effects only run if a successor is admitted (§6)
     const remaining = cfg.totalMaxSecs - (nowSecs() - state.startedAt);
-    if (remaining < cfg.minAdmissionSecs) {
+    if (remaining < cfg.minAdmissionSecs) {          // admission gates rung side effects (§6)
       writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
       process.exit(0);
     }
@@ -1180,426 +1392,4 @@ async function main() {
 }
 ```
 
-Also extend `writeResult` patch handling: `verdictLine` may carry an unrecognized raw line (spec: "verdictLine preserves the raw line" for `unrecognized_verdict`) — the `patch` spread already allows this; ensure the `no_verdict` default passes `verdictLine` from the LAST attempt with a `parsed` (already done via patch in the loop above).
-
-- [ ] **Step 4: Run full suite so far**
-
-Run: `pnpm vitest run tests/codexGuard/`
-Expected: PASS — fixture 2, usage 10, happy 2, timeouts 6 (scenario 9 now real), ladder 1.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "feat(infra): codex-guard recovery ladder, admission gate, exhaustion"
-```
-
----
-
-### Task 6: Cache-TTL rung + lock lifecycle + homedir pins (scenarios 3, 11, 15, 18a-c, 19)
-
-**Files:**
-- Modify: `tests/codexGuard/ladder.test.ts` (scenarios 3, 11, 15)
-- Create: `tests/codexGuard/lock.test.ts` (scenarios 18a–c, 19)
-- Modify: `scripts/codex-guard.mjs` only if a test exposes a bug (behavior shipped in Task 5)
-
-**Interfaces:**
-- Consumes: fixture stderr action for the TTL signature line `ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'`.
-
-- [ ] **Step 1: Write failing scenario tests — append to ladder.test.ts:**
-
-```ts
-const TTL_LINE = "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
-
-it("scenario 3: TTL on stderr fires rung once; stdout-only signature does NOT fire; cap holds", async () => {
-  const run = mkRun();
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] }, // no -o → failed
-    { onCall: 2, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] }, // TTL again: cap consumed → retry
-    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-  ]);
-  // recreate the cache between failures so once-only can't pass by cache-absence
-  const cachePath = join(run.codexHome, "models_cache.json");
-  const watcher = setInterval(() => {
-    if (!existsSync(cachePath)) writeFileSync(cachePath, JSON.stringify({ recreated: true }));
-  }, 30);
-  const res = await runGuard(run);
-  clearInterval(watcher);
-  expect(res.code).toBe(0);
-  const r = readResult(run);
-  expect(r.status).toBe("verdict");
-  const recs = (r.attempts as any[]).map((a) => a.recovery);
-  expect(recs).toEqual(["cache_ttl", "retry", null]);
-  expect(readFileSync(join(run.outDir, "models_cache.bak.json"), "utf8")).toContain("stub");
-});
-
-it("scenario 3b: TTL signature on STDOUT only → rung NOT fired", async () => {
-  const run = mkRun();
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "stdout", text: TTL_LINE }, { type: "exit", code: 1 }] },
-    { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-  ]);
-  const res = await runGuard(run);
-  expect(res.code).toBe(0);
-  const r = readResult(run);
-  expect((r.attempts as any[])[0].recovery).toBe("retry");
-  expect(existsSync(join(run.outDir, "models_cache.bak.json"))).toBe(false);
-});
-
-it("scenario 11: CODEX_HOME cache absent → cache_ttl_skipped consumes cap, resume still reachable", async () => {
-  const run = mkRun();
-  rmSync(join(run.codexHome, "models_cache.json"));
-  const sid = "aaaabbbb-cccc-4ddd-8eee-ffff00001111";
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },
-    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] }, // truncation
-    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-  ]);
-  const res = await runGuard(run);
-  expect(res.code).toBe(0);
-  const r = readResult(run);
-  const recs = (r.attempts as any[]).map((a) => a.recovery);
-  expect(recs).toEqual(["cache_ttl_skipped", "resume", null]);
-  expect((r.attempts as any[])[2].kind).toBe("resume");
-});
-
-it("scenario 15: admission gate blocks rung side effect — cache NOT deleted", async () => {
-  const run = mkRun();
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "sleepMs", ms: 1200 }, { type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },
-  ]);
-  const res = await runGuard(run, [], {
-    CODEX_GUARD_TOTAL_MAX_SECS: "1", CODEX_GUARD_MIN_ADMISSION_SECS: "5",
-    CODEX_GUARD_ATTEMPT_MAX_SECS: "0.9", CODEX_GUARD_STALL_SECS: "0.8", CODEX_GUARD_FIRST_OUTPUT_SECS: "0.8",
-  });
-  expect(res.code).toBe(0);
-  const r = readResult(run);
-  expect(r.failureReason).toBe("total_timeout");
-  expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
-  expect(existsSync(join(run.outDir, "models_cache.bak.json"))).toBe(false);
-});
-```
-
-New `tests/codexGuard/lock.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { mkRun, readResult, runGuard, writeScenario } from "./harness";
-
-const TTL_LINE = "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
-const TTL_FAIL = { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] };
-const THEN_OK = { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] };
-
-describe("codex-guard cache lock lifecycle (§6)", () => {
-  it("18a: unreadable cache → backup fails → skipped, cache intact, lock released", async () => {
-    const run = mkRun();
-    chmodSync(join(run.codexHome, "models_cache.json"), 0o000);
-    writeScenario(run, [TTL_FAIL, THEN_OK]);
-    const res = await runGuard(run);
-    chmodSync(join(run.codexHome, "models_cache.json"), 0o644);
-    expect(res.code).toBe(0);
-    const r = readResult(run);
-    expect((r.attempts as any[])[0].recovery).toBe("cache_ttl_skipped");
-    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
-    expect(existsSync(join(run.codexHome, ".codex-guard-cache-lock"))).toBe(false);
-  });
-
-  it("18b: stale lock → broken AND cleaned, rung skipped this run", async () => {
-    const run = mkRun();
-    const lock = join(run.codexHome, ".codex-guard-cache-lock");
-    mkdirSync(lock);
-    writeFileSync(join(lock, "owner"), "99999");
-    const old = (Date.now() - 3600 * 1000) / 1000;
-    utimesSync(lock, old, old);
-    writeScenario(run, [TTL_FAIL, THEN_OK]);
-    const res = await runGuard(run); // FAST_ENV stale threshold 600 default; lock is 3600s old
-    expect(res.code).toBe(0);
-    const r = readResult(run);
-    expect((r.attempts as any[])[0].recovery).toBe("cache_ttl_skipped");
-    expect(existsSync(lock)).toBe(false);
-    expect(readdirSync(run.codexHome).filter((f) => f.startsWith(".codex-guard-cache-lock.stale-"))).toEqual([]);
-  });
-
-  it("18c: fresh foreign lock → skipped, cap consumed, lock survives wrapper exit", async () => {
-    const run = mkRun();
-    const lock = join(run.codexHome, ".codex-guard-cache-lock");
-    mkdirSync(lock);
-    writeFileSync(join(lock, "owner"), "99999");
-    writeScenario(run, [TTL_FAIL, THEN_OK]);
-    const res = await runGuard(run);
-    expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].recovery).toBe("cache_ttl_skipped");
-    expect(existsSync(lock)).toBe(true);
-    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
-  });
-
-  it("scenario 19a: literal-tilde CODEX_HOME expands against HOME", async () => {
-    const run = mkRun();
-    const customHome = join(run.home, "custom-codex");
-    mkdirSync(customHome, { recursive: true });
-    writeFileSync(join(customHome, "models_cache.json"), JSON.stringify({ custom: true }));
-    writeScenario(run, [TTL_FAIL, THEN_OK]);
-    const res = await runGuard(run, [], { CODEX_HOME: "~/custom-codex" });
-    expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].recovery).toBe("cache_ttl");
-    expect(existsSync(join(customHome, "models_cache.json"))).toBe(false); // deleted there
-    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true); // untouched default
-  });
-
-  it("scenario 19b: unset CODEX_HOME falls back to HOME/.codex", async () => {
-    const run = mkRun();
-    writeScenario(run, [TTL_FAIL, THEN_OK]);
-    const res = await runGuard(run, [], { CODEX_HOME: "" });
-    expect(res.code).toBe(0);
-    expect((readResult(run).attempts as any[])[0].recovery).toBe("cache_ttl");
-    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(false);
-  });
-});
-```
-
-(Harness note: `CODEX_HOME: ""` must be treated as unset by `buildConfig` — the `?? join(homedir(),".codex")` needs `|| undefined` normalization: `process.env.CODEX_HOME || join(homedir(), ".codex")`. HOME override in tests redirects `homedir()`.)
-
-- [ ] **Step 2: Run**
-
-Run: `pnpm vitest run tests/codexGuard/ladder.test.ts tests/codexGuard/lock.test.ts`
-Expected: most pass against Task 5 code; 19a/19b likely FAIL until the `CODEX_HOME || default` normalization + `expandPath` tilde handling verified. Fix inline in `buildConfig`.
-
-- [ ] **Step 3: Run full suite, commit**
-
-```bash
-pnpm vitest run tests/codexGuard/
-git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "test(infra): codex-guard cache rung, lock lifecycle, homedir pins"
-```
-
----
-
-### Task 7: Resume rung + wrapper signals + spawn error (scenarios 4, 10, 13, 14, 16)
-
-**Files:**
-- Modify: `scripts/codex-guard.mjs` (add SIGINT/SIGTERM handlers)
-- Modify: `tests/codexGuard/ladder.test.ts` (scenarios 4, 10)
-- Create: `tests/codexGuard/signals.test.ts` (scenarios 13, 14, 16)
-
-**Interfaces:**
-- Produces: signal handlers — on SIGINT/SIGTERM: kill live child group (TERM), release held lock, best-effort result.json `{failureReason:"interrupted"}`, exit 3.
-
-- [ ] **Step 1: Write failing tests — append to ladder.test.ts:**
-
-```ts
-it("scenario 4: resume argv exact, cwd=--cwd, decoy sid in EARLIER attempt ignored", async () => {
-  const run = mkRun();
-  const decoySid = "00000000-0000-4000-8000-000000000000";
-  const realSid = "12345678-90ab-4cde-8f01-234567890abc";
-  // decoy sessions dir in CODEX_HOME (wrong source)
-  mkdirSync(join(run.codexHome, "sessions", "zzz"), { recursive: true });
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "stdout", text: `session id: ${decoySid}\n` }, { type: "stderr", text: "transient\n" }, { type: "exit", code: 1 }] }, // nonzero → generic retry (sid must NOT be captured)
-    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${realSid}\n` }, { type: "exit", code: 0 }] },   // truncation → resume
-    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-  ]);
-  const res = await runGuard(run);
-  expect(res.code).toBe(0);
-  const calls = readCalls(run);
-  expect(calls[2].argv).toEqual([
-    "exec", "resume", realSid, "-c", "model_reasoning_effort=high",
-    "-o", join(run.outDir, "attempt-3.last-message.txt"),
-  ]);
-  expect(calls[2].cwd).toBe(run.cwdDir);
-  const stdin3 = String(calls[2].stdin);
-  expect(stdin3).toContain("mandatory final line");
-});
-
-it("scenario 10: ordered ladder cache_ttl → resume in one run; kinds exec,exec,resume", async () => {
-  const run = mkRun();
-  const sid = "deadbeef-dead-4bee-8f00-deadbeef0001";
-  writeScenario(run, [
-    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },
-    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] },
-    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-  ]);
-  const res = await runGuard(run);
-  expect(res.code).toBe(0);
-  const r = readResult(run);
-  expect((r.attempts as any[]).map((a) => a.recovery)).toEqual(["cache_ttl", "resume", null]);
-  expect((r.attempts as any[]).map((a) => a.kind)).toEqual(["exec", "exec", "resume"]);
-});
-```
-
-New `tests/codexGuard/signals.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { FAST_ENV, FIXTURE, GUARD, mkRun, readResult, writeScenario } from "./harness";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function isDead(pid: number): boolean {
-  try { process.kill(pid, 0); return false; } catch { return true; }
-}
-
-describe("codex-guard signals + spawn errors", () => {
-  it("scenario 13: child killed externally → external_signal, ladder continues", async () => {
-    const run = mkRun();
-    writeScenario(run, [
-      { onCall: 1, actions: [{ type: "stdout", text: "x" }, { type: "hang" }] },
-      { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
-    ]);
-    // external killer: watch for pid-1, SIGKILL it before the stall window (2s) expires
-    const killer = setInterval(() => {
-      const f = join(run.recordDir, "pid-1.txt");
-      if (existsSync(f)) {
-        try { process.kill(Number(readFileSync(f, "utf8")), "SIGKILL"); } catch { /* raced */ }
-        clearInterval(killer);
-      }
-    }, 50);
-    const { runGuard } = await import("./harness");
-    const res = await runGuard(run);
-    clearInterval(killer);
-    expect(res.code).toBe(0);
-    const r = readResult(run);
-    const a1 = (r.attempts as any[])[0];
-    expect(a1.killedReason).toBe("external_signal");
-    expect(a1.signal).toBe("SIGKILL");
-    expect(r.status).toBe("verdict");
-  });
-
-  it("scenario 14: CODEX_GUARD_BIN nonexistent → exit 3, wrapper_error, spawn_error attempt", async () => {
-    const run = mkRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
-    const { runGuard } = await import("./harness");
-    const res = await runGuard(run, [], { CODEX_GUARD_BIN: "/nonexistent/codex-binary" });
-    expect(res.code).toBe(3);
-    const r = readResult(run);
-    expect(r.failureReason).toBe("wrapper_error");
-    expect(((r.attempts as any[])[0] ?? {}).failureShape).toBe("spawn_error");
-  });
-
-  it("scenario 16: SIGTERM to wrapper mid-attempt → exit 3, interrupted, group dead", async () => {
-    const run = mkRun();
-    writeScenario(run, [
-      { onCall: 1, actions: [{ type: "grandchild" }, { type: "stdout", text: "x" }, { type: "hang" }] },
-    ]);
-    const child = spawn(
-      process.execPath,
-      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir],
-      {
-        env: {
-          ...process.env, HOME: run.home, CODEX_HOME: run.codexHome,
-          CODEX_GUARD_BIN: `${process.execPath} ${FIXTURE}`,
-          FAKE_CODEX_SCENARIO: run.scenarioPath, FAKE_CODEX_RECORD_DIR: run.recordDir,
-          ...FAST_ENV, CODEX_GUARD_STALL_SECS: "30", CODEX_GUARD_ATTEMPT_MAX_SECS: "60", CODEX_GUARD_TOTAL_MAX_SECS: "90",
-        },
-      },
-    );
-    const exit = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
-    // wait for the fake to be live, then TERM the wrapper
-    for (let i = 0; i < 100 && !existsSync(join(run.recordDir, "pid-1.txt")); i++) await sleep(50);
-    child.kill("SIGTERM");
-    const code = await exit;
-    expect(code).toBe(3);
-    const r = readResult(run);
-    expect(r.failureReason).toBe("interrupted");
-    await sleep(500); // reap window
-    expect(isDead(Number(readFileSync(join(run.recordDir, "pid-1.txt"), "utf8")))).toBe(true);
-    expect(isDead(Number(readFileSync(join(run.recordDir, "grandchild-pid-1.txt"), "utf8")))).toBe(true);
-  }, 30000);
-});
-```
-
-- [ ] **Step 2: Run to verify failures**
-
-Run: `pnpm vitest run tests/codexGuard/signals.test.ts tests/codexGuard/ladder.test.ts`
-Expected: scenario 16 FAILS (no signal handlers yet); 4/10/13/14 pass or expose inline-fixable bugs.
-
-- [ ] **Step 3: Implement signal handlers**
-
-Add to `scripts/codex-guard.mjs` immediately before `main()`:
-
-```js
-function onSignal(sig) {
-  const state = globalThis.__guardState;
-  try {
-    if (state?.liveChild?.pid) {
-      killGroup(state.liveChild.pid, "SIGTERM");
-      setTimeout(() => { try { killGroup(state.liveChild.pid, "SIGKILL"); } catch {} }, 200).unref();
-    }
-    if (state?.heldLockDir) releaseOwnLock(state, state.heldLockDir);
-    if (state) {
-      writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
-    }
-  } catch { /* best-effort */ }
-  process.exit(3);
-}
-process.on("SIGINT", () => onSignal("SIGINT"));
-process.on("SIGTERM", () => onSignal("SIGTERM"));
-```
-
-Note: the fixture's grandchild is spawned with `detached: false` so it shares the fake's process GROUP (the wrapper's `detached: true` spawn made the fake a group leader) — `killGroup` reaches it. This is what scenario 16's grandchild assertion pins.
-
-- [ ] **Step 4: Full suite**
-
-Run: `pnpm vitest run tests/codexGuard/`
-Expected: ALL scenarios 1–19 PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/codex-guard.mjs tests/codexGuard && git commit --no-verify -m "feat(infra): codex-guard resume rung, signal cleanup, spawn-error contract"
-```
-
----
-
-### Task 8: AGENTS.md docs + repo gates
-
-**Files:**
-- Modify: `AGENTS.md` — add subsection at the end of "## Codex-specific notes"
-- Test: full repo gates (no new test file; docs task folded per right-sizing into the gate run)
-
-- [ ] **Step 1: Add the AGENTS.md subsection (exact §10 content):**
-
-```markdown
-### Codex dispatch guard (`codex-guard`)
-
-`scripts/codex-guard.mjs` wraps direct `codex exec` review/task dispatches with the banked-correct flags, stall detection, and the automated recovery ladder (models-cache clear, truncation resume, transient retry). Spec: `docs/superpowers/specs/2026-07-19-codex-guard.md`.
-
-- All direct `codex exec` review/task dispatches SHOULD go through `node scripts/codex-guard.mjs review --brief <file> --cwd <dir> --out <dir>` — launched as a BACKGROUND Bash task (its exit notification is the completion signal).
-- Companion app-server wedge rescue = `node scripts/codex-guard.mjs review --fallback --artifact <spec-or-plan> ...` (replaces the manual multi-step fallback procedure).
-- Read `<out>/result.json`: `status:"verdict"` carries a recognized outcome (APPROVE / NEEDS-ATTENTION / BLOCKING); `status:"no_verdict"` → apply the existing skip/self-review escalation ladder — the wrapper bounds retry burn, it does not change escalation policy. Exit 3 = wrapper infra failure, not a Codex outcome.
-- Brief authoring: the brief MUST instruct the reviewer to end with a final `VERDICT: <outcome>` line using APPROVE / NEEDS-ATTENTION / BLOCKING (the wrapper detects verdicts, it does not inject the instruction).
-- Fresh `--out` per dispatch (timestamped dir); the wrapper refuses a dir already holding a `result.json`.
-- Per-machine shim (optional): `mkdir -p ~/.claude/bin && printf '#!/bin/sh\nexec node "$HOME/FX-Webpage-Template/scripts/codex-guard.mjs" "$@"\n' > ~/.claude/bin/codex-guard && chmod +x ~/.claude/bin/codex-guard`
-```
-
-- [ ] **Step 2: Full gates (pre-push discipline)**
-
-Run, each must be green:
-```bash
-pnpm vitest run tests/codexGuard/   # feature suite
-pnpm test                            # FULL suite (scoped gates miss regressions)
-pnpm typecheck
-pnpm lint
-pnpm format:check                    # prettier on new files (tests + docs; .mjs included)
-```
-Expected: all pass. `pnpm format:check` failures → `pnpm format` and re-stage.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add AGENTS.md && git commit --no-verify -m "docs: codex-guard dispatch contract in AGENTS.md"
-```
-
----
-
-### Task 9: Close-out (ship pipeline Stage 4 — reference)
-
-Not a plan task proper; executed by the ship pipeline: whole-diff Codex review (fresh-eyes, REVIEWER ONLY) → push → PR → real CI green → `gh pr merge --merge` → ff-sync main → post-merge shim install on this machine (the §10 one-liner, pointing at the MAIN checkout path) + verify `~/.claude/bin/codex-guard` runs `--brief /dev/null` to a usage error (exit 2 sanity).
-
-## Self-Review (run after drafting)
-
-1. **Spec coverage:** §3 CLI (Task 2), §4 launch+prompt (Tasks 3, 7), §5 timers+precedence (Tasks 3, 4), §6 ladder+lock+parse+result (Tasks 3, 5, 6, 7), §7 validation (Task 2), §9 all 19 scenarios (1→T3, 2→T3, 3→T6, 4→T7, 5→T4, 6→T4, 7→T5, 8→T2, 9→T4/T5, 10→T7, 11→T6, 12→T4, 13→T7, 14→T7, 15→T6, 16→T7, 17→T4, 18→T6, 19→T6), §10 docs (Task 8). No gaps.
-2. **Placeholder scan:** none — every rung/function body appears in full in Task 3/5/7 code blocks.
-3. **Type consistency:** attempt-record keys match spec §6 schema verbatim; harness `Run`/`GuardExit` fields consistent across tasks; `CODEX_GUARD_BIN` split contract stated in Tasks 1 and 2.
+(`runAttempt` — Task 3 body + Task 4 poll loop — additionally sets `state.currentAttempt = attempt` immediately after constructing `attempt` and clears it (`state.currentAttempt = null`) just before returning; `onSignal` (Task 7) includes `state.currentAttempt` in the written attempts when set. Imports consumed by A9's lock code: add `renameSync`, `rmSync`, `createWriteStream` (runner), `spawn` (`node:child_process`) as the owning tasks land.)
