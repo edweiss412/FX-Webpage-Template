@@ -41,7 +41,7 @@ node scripts/codex-guard.mjs review \
   [--fallback]              # companion-wedge rescue mode: inline artifacts + budget directives
   [--label <name>]          # optional tag recorded in result.json ([A-Za-z0-9_-]{1,64})
   [--max-attempts <n>]      # default 3
-  [--attempt-max-secs <n>]  # default 1200, max 1440 (see §8)
+  [--attempt-max-secs <n>]  # default 1200, max 1380 (see §8)
   [--total-max-secs <n>]    # default 1500
   [--stall-secs <n>]        # default 420
   [--first-output-secs <n>] # default 120
@@ -49,7 +49,7 @@ node scripts/codex-guard.mjs review \
 
 One subcommand (`review`). No config file. Numeric flags accept positive integers. Every timing constant in §11 (including `POLL_INTERVAL_SECS` and `KILL_GRACE_SECS`, which have no flags) also has an env override `CODEX_GUARD_<NAME>` accepting positive **decimals** — the test seam for sub-second timing. Flags win over env; both are validated by the same rules (§7).
 
-**Path resolution:** `--brief`, `--cwd`, `--out`, every `--artifact`, and `CODEX_HOME` are resolved to absolute paths against the wrapper's launch cwd at startup, before any spawn. All child argv paths (`-o`, `-C`) are absolute thereafter — a resume attempt spawned with a different child cwd cannot re-anchor them.
+**Path resolution:** `--brief`, `--cwd`, `--out`, every `--artifact`, and `CODEX_HOME` are resolved to absolute paths at startup, before any spawn: a leading `~` or `~/` expands to `os.homedir()` FIRST, then relative paths resolve against the wrapper's launch cwd. `CODEX_HOME` unset → `os.homedir() + '/.codex'` (never a literal `~` join). All child argv paths (`-o`, `-C`) are absolute thereafter — a resume attempt spawned with a different child cwd cannot re-anchor them.
 
 **Outputs (all under `--out`):**
 
@@ -64,7 +64,7 @@ One subcommand (`review`). No config file. Numeric flags accept positive integer
 | Code | Meaning | result.json |
 | --- | --- | --- |
 | 0 | Wrapper ran to a defined outcome | written; outcome in `status` |
-| 2 | Usage error (bad/missing flags, unreadable brief, non-empty prior `result.json`) | never written |
+| 2 | Usage error (bad/missing flags, unreadable brief, pre-existing `result.json` of ANY size in `--out`) | never written |
 | 3 | Wrapper internal error (spawn ENOENT, unwritable transcript, kill failure, signal-interrupted wrapper, result-write failure) | best-effort write with `status:"no_verdict"`, `failureReason:"wrapper_error"` (or `"interrupted"`), `error` string; if even that write fails, stderr carries the error and exit is still 3 |
 
 Rationale (do not relitigate): the caller launches the wrapper as a background Bash task and reads `result.json` on the exit notification; encoding review outcome in the exit code would make "codex said NEEDS-ATTENTION" look like an infra failure. Exit 3 exists precisely so infra failure IS distinguishable.
@@ -122,7 +122,7 @@ An attempt **fails** when any of: killed by §5; exited non-zero; **terminated b
 After a failed attempt, choose the FIRST matching rung. **Rung matching reads ONLY the stderr file of the attempt that just failed** — never earlier attempts (a historical match must not shadow later rungs), never stdout (reviewer prose discussing these very signatures must not trigger a destructive recovery; codex's own infra errors log to stderr).
 
 1. **Cache-TTL wedge** — stderr matches `/codex_models_manager::manager: failed to renew cache TTL/`:
-   acquire the cross-process lock `$CODEX_HOME/.codex-guard-cache-lock` (atomic `mkdir`); on success, back up `$CODEX_HOME/models_cache.json` to `--out`, delete it, release the lock, retry fresh. Lock held by a sibling, or backup/delete fails, or `CODEX_HOME`/cache file absent → the rung is **skipped** but records itself in the attempt (`recovery:"cache_ttl_skipped"`). **Matched-or-skipped, the rung consumes its once-per-run cap** — a stale signature can never shadow rung 2 on later failures. (`feedback_codex_models_cache_ttl_wedge_fix`; deleting the cache is safe for sibling codex processes by design of the fix — absence forces a fresh full fetch; the lock exists to serialize the backup+delete pair itself.)
+   acquire the cross-process lock `$CODEX_HOME/.codex-guard-cache-lock` (atomic `mkdir`; the dir contains a `pid` file). On success, back up `$CODEX_HOME/models_cache.json` to `--out`, delete it, retry fresh. **The lock is released in a `finally` — on success, on backup/delete failure, and on every wrapper exit path (including the §3 signal handler)**; a lock can therefore outlive its creator only via wrapper SIGKILL, and any lock older than `CACHE_LOCK_STALE_SECS` (§11) is broken and re-acquired. Lock held by a live sibling, or backup/delete fails, or `CODEX_HOME`/cache file absent → the rung is **skipped** but records itself in the attempt (`recovery:"cache_ttl_skipped"`). **Matched-or-skipped, the rung consumes its once-per-run cap** — a stale signature can never shadow rung 2 on later failures. (`feedback_codex_models_cache_ttl_wedge_fix`; deleting the cache is safe for sibling codex processes by design of the fix — absence forces a fresh full fetch; the lock exists to serialize the backup+delete pair itself.)
 2. **Truncation resume** — process exited zero, `-o` invalid, and THIS attempt's transcript contains a session id (`/session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i` — never `ls ~/.codex/sessions`, which races with parallel sessions): spawn the resume attempt (§4). Once per run.
 3. **Generic transient** — anything else: plain retry. No per-run cap of its own (bounded by the budgets).
 
@@ -132,7 +132,7 @@ After a failed attempt, choose the FIRST matching rung. **Rung matching reads ON
 
 1. Strip fenced code blocks (``` … ```) — a verdict line quoted in a fence is never the operative verdict.
 2. Collect lines matching `/^\s*VERDICT:\s*(.+)$/m`; discard any containing two or more known outcomes or the literal " or " (echoed-format-instruction false positive, `feedback_codex_exec_review_verdict_marker`).
-3. Take the LAST survivor. Normalize the payload: trim; strip surrounding markdown emphasis (`*`, `_`, backticks) and trailing punctuation (`.,;:!`); uppercase.
+3. Take the LAST survivor. Normalize the payload to fixpoint: repeat { trim whitespace; strip trailing punctuation (`.,;:!`); strip one layer of surrounding markdown emphasis (`*`, `_`, backticks) } until the string stops changing; then uppercase. (Order-sensitive counter-example that mandates the loop: `**NEEDS-ATTENTION**.` — punctuation blocks "surrounding" emphasis on a single pass.)
 4. Known outcomes: `APPROVE`, `NEEDS-ATTENTION`, `BLOCKING` → `status:"verdict"`, `verdict:<outcome>`. Any other survivor → the attempt FAILS with `failureShape:"unrecognized_verdict"`; `verdictLine` preserves the raw line. No survivors → `no_marker`.
 
 `status:"verdict"` therefore ALWAYS means a recognized outcome; consumers may branch on `status` alone.
@@ -175,10 +175,11 @@ Semantics: `recovery` on attempt N = the rung selected AFTER N failed (null on s
 | --- | --- | --- | --- |
 | `--brief` | exit 2 | unreadable/empty file → exit 2 | required; resolved absolute |
 | `--cwd` | exit 2 | not a directory → exit 2 | required; resolved absolute |
-| `--out` | exit 2 | created recursively; unwritable → exit 2; **already contains `result.json` → exit 2** (reuse refusal — prevents stale-result misreads and same-dir sibling collisions at startup) | required; resolved absolute |
+| `--out` | exit 2 | created recursively; unwritable → exit 2; **already contains a `result.json` file of ANY size (zero-byte included) → exit 2** (reuse refusal — prevents stale-result misreads and same-dir sibling collisions at startup) | required; resolved absolute |
 | `--artifact` | n/a | unreadable → exit 2; **present without `--fallback` → exit 2** | resolved absolute |
 | `--label` | `null` in result.json | chars outside `[A-Za-z0-9_-]` or len>64 → exit 2 | |
-| numeric flags | defaults §11 | non-positive/non-integer → exit 2; `--attempt-max-secs` > 1440 → exit 2 (§8 watchdog bound); `--stall-secs` or `--first-output-secs` ≥ `--attempt-max-secs` → exit 2 | env overrides: positive decimals allowed, same bounds |
+| numeric flags | defaults §11 | non-positive/non-integer → exit 2; `--attempt-max-secs` > 1380 → exit 2 (§8 watchdog bound); `--stall-secs` or `--first-output-secs` ≥ `--attempt-max-secs` → exit 2 | env overrides per §11 domain column, same bounds |
+| env-only timing overrides | defaults §11 | `POLL_INTERVAL_SECS` > 30 or `KILL_GRACE_SECS` > 30 → exit 2 (§8: 1380 + 30 + 30 = 1440 < watchdog 1500) | decimals allowed on timing constants only |
 | `CODEX_HOME` | defaults `~/.codex` | resolved absolute; dir/cache absent → rung 1 skips (still consumes cap, §6) | |
 
 ## 8. Non-interference contract (existing infra)
@@ -187,7 +188,7 @@ Semantics: `recovery` on attempt N = the rung selected AFTER N failed (null on s
 | --- | --- |
 | `~/.claude/hooks/codex-launch-guard.sh` (PreToolUse: denies foreground `codex exec` Bash calls) | Wrapper invocations (`node scripts/codex-guard.mjs …`) contain no `codex exec` token → not denied. Convention (documented in AGENTS.md): still launch the wrapper with `run_in_background: true`; its exit notification is the caller's completion signal. The wrapper's own internal spawns are invisible to PreToolUse hooks. |
 | Per-machine `.claude/hooks/bash-guard.sh` in the checkout (gitignored, not a tracked file; blocks `codex exec` without `< /dev/null`) | Same: no `codex exec` substring in the caller's command line. Internal spawn closes stdin by construction (§4). |
-| `codex-wedge-watchdog.sh` (`EXEC_MAX=1500` notify, `EXEC_KILL=3000`) | Watchdog sees the wrapper's codex children in `ps`. `--attempt-max-secs` is capped at 1440 by validation (§7) so a wrapper-managed attempt can never reach even the notify tier. If an external kill lands anyway, the child dies by signal → `external_signal` failed attempt → ladder proceeds normally (§6). |
+| `codex-wedge-watchdog.sh` (`EXEC_MAX=1500` notify, `EXEC_KILL=3000`) | Watchdog sees the wrapper's codex children in `ps`. Validation (§7) caps `--attempt-max-secs` at 1380 AND poll/grace overrides at 30 each, so worst-case child lifetime is 1380 + 30 + 30 = 1440 < 1500 — a wrapper-managed attempt can never reach even the notify tier, including under maximal overrides. If an external kill lands anyway, the child dies by signal → `external_signal` failed attempt → ladder proceeds normally (§6). |
 | `codex-review-retry.mjs` + companion | Untouched. Companion wedge → the caller runs `codex-guard review --fallback` as the rescue (replaces the manual multi-step procedure). |
 
 Double-retry audit: the wrapper retries only its OWN child processes; no path routes a companion call through the wrapper, so retry multiplication is structurally impossible.
@@ -205,7 +206,7 @@ Scenarios (each names the broken implementation it catches):
 5. **Stall kill** — one byte then silence; assert kill, `killedReason:"stall"` (dead-detector synthetic positive).
 6. **No-output kill** — silence from spawn.
 7. **Exhaustion** — 3 transient failures; assert `attempts_exhausted`, exit 0, 3 attempt records with `recovery:"retry"`, `"retry"`, `null`.
-8. **Usage errors** — table-driven: missing brief, artifact-without-fallback, bad label, attempt-max > 1440, stall ≥ attempt-max, non-empty `result.json` in `--out`.
+8. **Usage errors** — table-driven: missing brief, artifact-without-fallback, bad label, attempt-max > 1380, poll override > 30, stall ≥ attempt-max, pre-existing `result.json` in `--out` (zero-byte variant included), decimal `CODEX_GUARD_MAX_ATTEMPTS`.
 9. **Total-timeout mid-attempt** — budgets tuned so total expires while attempt 2 is live; assert `killedReason:"total_timeout"` on attempt 2, AND the fake's pidfile process is actually dead (kill really happened, not just bookkeeping).
 10. **Ordered ladder in one run** — attempt 1 TTL (stderr) → attempt 2 truncation+sid → attempt 3 resume succeeds; assert rung order cache_ttl → resume and `kind` sequence exec, exec, resume.
 11. **Cache-skip consumes cap** — `CODEX_HOME` absent; TTL signature fires → `recovery:"cache_ttl_skipped"`; NEXT failure is truncation → assert resume STILL reachable (shadowing catch).
@@ -213,6 +214,8 @@ Scenarios (each names the broken implementation it catches):
 13. **External signal** — test SIGKILLs the fake mid-run; assert `signal` recorded, `killedReason:"external_signal"`, ladder proceeds.
 14. **Wrapper internal error** — `CODEX_GUARD_BIN` pointing at a nonexistent path; assert exit 3, best-effort result.json with `failureReason:"wrapper_error"`, `attempts[0].failureShape:"spawn_error"`.
 15. **Admission gate** — remaining budget < MIN_ADMISSION_SECS after attempt 1 fails with TTL signature; assert run ends `total_timeout` AND the cache file was NOT deleted (side-effect-without-successor catch).
+16. **Wrapper signal cleanup** — test sends SIGTERM to the WRAPPER mid-attempt (fake spawns a helper grandchild, both write pidfiles); assert exit 3, `failureReason:"interrupted"`, best-effort result.json written, AND both pidfile processes dead (process-GROUP kill pin, not just direct child) AND the cache lock dir absent (finally-release pin).
+17. **attempt_timeout + precedence** — (a) fake emits output continuously (no stall) past attempt-max → `killedReason:"attempt_timeout"` (independent attempt-timeout pin); (b) budgets tuned so attempt-max and total-max expire in the SAME poll window → `killedReason:"total_timeout"` (same-poll precedence pin).
 
 Anti-tautology: expected values derive from fixture scenario definitions (random session ids asserted end-to-end; fake-recorded argv compared against §4 strings built independently in the test); no assertion merely checks "spawn was called"; kill assertions check real process liveness via the fake's pidfile.
 
@@ -232,21 +235,22 @@ New subsection under "Codex-specific notes": **"Codex dispatch guard (`codex-gua
 
 ## 11. Defaults (single source of truth)
 
-| Constant | Default | Bound / note |
-| --- | --- | --- |
-| `MAX_ATTEMPTS` | 3 | ≥1 |
-| `ATTEMPT_MAX_SECS` | 1200 | validation max 1440 (< watchdog notify 1500) |
-| `TOTAL_MAX_SECS` | 1500 | |
-| `STALL_SECS` | 420 | > upstream 300s recoverable stall; < attempt max |
-| `FIRST_OUTPUT_SECS` | 120 | < attempt max |
-| `POLL_INTERVAL_SECS` | 10 | env-only override |
-| `KILL_GRACE_SECS` | 5 | env-only override |
-| `MIN_ADMISSION_SECS` | 120 | env-only override |
-| `PROMPT_MAX_BYTES` | 2000000 | |
-| Cache-TTL rung | once per run | matched-or-skipped both consume |
-| Resume rung | once per run | |
+| Constant | Default | Env override (`CODEX_GUARD_<NAME>`) | Bound / note |
+| --- | --- | --- | --- |
+| `MAX_ATTEMPTS` | 3 | positive INTEGER only | ≥1 |
+| `ATTEMPT_MAX_SECS` | 1200 | positive decimal | validation max 1380 (§8: 1380+30+30=1440 < watchdog 1500) |
+| `TOTAL_MAX_SECS` | 1500 | positive decimal | |
+| `STALL_SECS` | 420 | positive decimal | > upstream 300s recoverable stall; < attempt max |
+| `FIRST_OUTPUT_SECS` | 120 | positive decimal | < attempt max |
+| `POLL_INTERVAL_SECS` | 10 | positive decimal | env-only; max 30 |
+| `KILL_GRACE_SECS` | 5 | positive decimal | env-only; max 30 |
+| `MIN_ADMISSION_SECS` | 120 | positive decimal | env-only |
+| `CACHE_LOCK_STALE_SECS` | 600 | positive decimal | env-only; stale-lock break threshold (§6) |
+| `PROMPT_MAX_BYTES` | 2000000 | NO env override (constant) | |
+| Cache-TTL rung | once per run | — | matched-or-skipped both consume |
+| Resume rung | once per run | — | |
 
-Every other section referencing a number refers here. Env override names: `CODEX_GUARD_` + constant name.
+Every other section referencing a number refers here. The env-override DOMAIN is exactly this table's third column — timing constants accept positive decimals (test seam), `MAX_ATTEMPTS` integer-only, `PROMPT_MAX_BYTES` fixed; §3's "timing constants" phrasing and §12's "argv/env" row both defer to this column.
 
 ## 12. Flag lifecycle (per AGENTS.md flag table rule)
 
