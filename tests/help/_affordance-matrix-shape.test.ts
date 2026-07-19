@@ -50,7 +50,10 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--first-seen-review-card--tooltip",
         "help-affordance--ignored-sheets-page--tooltip",
         "help-affordance--needs-attention-page--tooltip",
-        "help-affordance--per-show-alerts--tooltip",
+        // per-show-alerts RETIRED by published-show-alerts (2026-07-19): the
+        // "Alerts for this show" section dissolved into per-item attention
+        // banners, each carrying the catalog's per-code "Learn more" helpHref —
+        // richer than the single section-level tooltip it replaces.
         // per-show-crew / per-show-data-quality / per-show-sync-footer RETIRED by Task 16
         // (impeccable) — the consolidated-admin-show-page rebuild dissolved their host
         // sections; their "?" tooltips are not re-homed (crew: preview-as help is served by
@@ -92,7 +95,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 19 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
+  it("pins the 18 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
     // 20 base + 2 step-3 redesign views (Unpublished / Ignored sheets) − 1 removed
     // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed)
@@ -101,7 +104,9 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     // − 3 per-show Crew / Sync-footer / Data-quality tooltips RETIRED by Task 16
     //   (impeccable) when the consolidated-show-page rebuild dissolved their sections.
     // + 1 recently-auto-applied strip header help (2026-07-17 header parity).
-    expect(concrete).toHaveLength(19);
+    // − 1 per-show-alerts tooltip RETIRED by published-show-alerts (2026-07-19):
+    //   the section dissolved into per-alert banners with per-code helpHref links.
+    expect(concrete).toHaveLength(18);
     const ids = concrete.map((r) => r.testid);
     expect(ids).not.toContain("help-affordance--per-show-data-quality--tooltip");
     expect(ids).not.toContain("help-affordance--per-show-crew--tooltip");

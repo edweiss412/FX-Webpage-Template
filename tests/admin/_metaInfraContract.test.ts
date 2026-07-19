@@ -208,7 +208,7 @@ const infraRegistry = [
   },
   {
     helper: "fetchPerShowAlerts",
-    path: "components/admin/PerShowAlertSection.tsx",
+    path: "lib/adminAlerts/fetchPerShowAlerts.ts",
     contract: "admin_alerts await throws → infra_error",
   },
   {
@@ -985,14 +985,14 @@ describe("META §B Supabase call-boundary contract", () => {
   describe("fetchPerShowAlerts", () => {
     test("server-client construction throw → typed infra_error", async () => {
       infraMock.throwOnConstruct = true;
-      const { fetchPerShowAlerts } = await import("@/components/admin/PerShowAlertSection");
+      const { fetchPerShowAlerts } = await import("@/lib/adminAlerts/fetchPerShowAlerts");
       const result = await fetchPerShowAlerts("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
     });
 
     test("from() throw → typed infra_error", async () => {
       infraMock.throwOnFrom = true;
-      const { fetchPerShowAlerts } = await import("@/components/admin/PerShowAlertSection");
+      const { fetchPerShowAlerts } = await import("@/lib/adminAlerts/fetchPerShowAlerts");
       const result = await fetchPerShowAlerts("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(/threw/);

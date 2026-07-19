@@ -7,7 +7,7 @@
  * Resolves a per-show admin_alerts row. POSTs to the SHOW-SCOPED
  * resolve route /api/admin/show/[slug]/alerts/[id]/resolve per Pin-2
  * AdminAlertResolveResponse. Cross-show forgery hardening: this
- * component is ONLY mounted from <PerShowAlertSection /> which has the
+ * component is ONLY mounted from the attention surface (AttentionBanner) which has the
  * slug + alert id from the same `shows` row + `admin_alerts.show_id`
  * server-side join, so the route's server-side show_id check is a
  * defensive backstop rather than the only guard. On success refreshes
@@ -19,7 +19,17 @@ import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
-type Props = { alertId: string; slug: string };
+type Props = {
+  alertId: string;
+  slug: string;
+  /**
+   * Success-path hook (published-show-alerts §6.3): fired AFTER the route
+   * confirms the resolve, BEFORE router.refresh(). Drives the attention
+   * surface's optimistic count decrement. Optional — absent callers keep the
+   * refresh-only behavior.
+   */
+  onResolved?: () => void;
+};
 
 type State =
   | { kind: "idle" }
@@ -35,7 +45,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR = "We could not mark this alert resolved. Refresh and try again.";
 
-export function PerShowAlertResolveButton({ alertId, slug }: Props) {
+export function PerShowAlertResolveButton({ alertId, slug, onResolved }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -59,6 +69,7 @@ export function PerShowAlertResolveButton({ alertId, slug }: Props) {
         return;
       }
       setState({ kind: "idle" });
+      onResolved?.();
       router.refresh();
     } catch {
       setState({ kind: "error", copy: GENERIC_ERROR, code: null });

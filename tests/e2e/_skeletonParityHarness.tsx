@@ -160,7 +160,8 @@ function loadedElement(): React.ReactElement {
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
-    alertCount: 0,
+    attentionItems: [],
+    alertsDegraded: false,
     // Non-null: the sheet-link anchor is 44px and is what sets the loaded title
     // row's height, so the skeleton must mirror a row of that height. Omitting
     // it here would make the skeleton look wrong against a header that no real
@@ -169,7 +170,6 @@ function loadedElement(): React.ReactElement {
     hasActionableWarnings: false,
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
-    alertSlot: React.createElement("div", { "data-testid": "harness-alert-slot" }, "alert slot"),
     shareSlot: React.createElement("div", { "data-testid": "harness-share-slot" }, "share slot"),
     feed: null,
     undoAction: NOOP_OK as ChangesSectionProps["undoAction"],

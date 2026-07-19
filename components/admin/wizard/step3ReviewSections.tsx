@@ -90,6 +90,9 @@ import Link from "next/link";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
+// Type-only (runtime cycle unchanged): the crew chrome value's banner payload.
+import type { CrewAttention } from "@/components/admin/review/ShowReviewSurface";
+import { canonicalCrewKey } from "@/lib/admin/attentionItems";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
@@ -481,6 +484,13 @@ export type Step3SectionChrome = {
    * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
+  /**
+   * published-show-alerts §5.4: pre-rendered crew attention banners, provided
+   * ONLY on the crew section's chrome value in published-modal mode (type-only
+   * import — the runtime cycle surface↔sections is unchanged). ABSENT in
+   * staged mode and on every other section (exactOptionalPropertyTypes).
+   */
+  crewAttention?: CrewAttention;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -1257,6 +1267,12 @@ export function CrewBreakdown({
     const t = setTimeout(() => setOutcome(null), 5_000);
     return () => clearTimeout(t);
   }, [outcome]);
+  // published-show-alerts §5.4: pre-rendered attention banners from the crew
+  // chrome context (published modal only; ABSENT in staged mode → the map
+  // below renders the original row markup byte-identically). Only the FIRST
+  // row matching a canonical name hosts its banners (duplicate names).
+  const crewAttention = useContext(Step3SectionChromeContext)?.crewAttention;
+  const consumedAttentionKeys = new Set<string>();
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
@@ -1295,6 +1311,9 @@ export function CrewBreakdown({
           )}
         </>
       ) : null}
+      {crewAttention && crewAttention.sectionTop.length > 0 ? (
+        <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
+      ) : null}
       {members.length === 0 ? (
         <p className="text-sm text-text-subtle">No crew parsed.</p>
       ) : (
@@ -1306,61 +1325,85 @@ export function CrewBreakdown({
             // Spec §4.1: the row-actions trigger mounts only when published &&
             // !archived AND this row has a persisted crew id (index-aligned).
             const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
-            return (
-              <Fragment key={`${m.name}-${i}`}>
-                <li className="flex items-center gap-3 py-1">
-                  <Avatar name={m.name || null} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                      {name}
-                    </span>
-                    {subline ? (
-                      <span className="block wrap-break-word text-xs text-text-subtle">
-                        {subline}
-                      </span>
-                    ) : null}
+            const attentionKey = canonicalCrewKey(m.name || "");
+            const rowBanners =
+              crewAttention && !consumedAttentionKeys.has(attentionKey)
+                ? crewAttention.byCrewKey.get(attentionKey)
+                : undefined;
+            if (rowBanners) consumedAttentionKeys.add(attentionKey);
+            // Row content is built ONCE (crew-row-controls #499 reconcile):
+            // both branches below render these exact children, so the
+            // non-hosting <li> stays byte-identical to the pre-attention render
+            // and the hosting branch can never drift from the live row markup.
+            const rowInner = (
+              <>
+                <Avatar name={m.name || null} />
+                <span className="min-w-0 flex-1">
+                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                    {name}
                   </span>
-                  {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
+                  {subline ? (
+                    <span className="block wrap-break-word text-xs text-text-subtle">
+                      {subline}
+                    </span>
+                  ) : null}
+                </span>
+                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
                     border box (`size-tap-min`); the bordered 32px square is a
                     nested NON-interactive visual. Adjacent anchors sit flush
                     (no gap, no negative margins) so hit areas never overlap;
                     the centered visuals leave a natural 12px gutter. */}
-                  <span className="flex shrink-0 items-center">
-                    {hasContent(m.phone) ? (
-                      <a
-                        href={`tel:${m.phone}`}
-                        aria-label={`Call ${name}`}
-                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                      >
-                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                          <Phone aria-hidden="true" className="size-4" />
-                        </span>
-                      </a>
-                    ) : null}
-                    {hasContent(m.email) ? (
-                      <a
-                        href={`mailto:${m.email}`}
-                        aria-label={`Email ${name}`}
-                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                      >
-                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                          <Mail aria-hidden="true" className="size-4" />
-                        </span>
-                      </a>
-                    ) : null}
-                  </span>
-                  {crewId ? (
-                    <CrewRowActions
-                      crewId={crewId}
-                      name={name}
-                      showId={actions!.showId}
-                      slug={actions!.slug}
-                      open={openCrewId === crewId}
-                      onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
-                      onOutcome={setOutcome}
-                    />
+                <span className="flex shrink-0 items-center">
+                  {hasContent(m.phone) ? (
+                    <a
+                      href={`tel:${m.phone}`}
+                      aria-label={`Call ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Phone aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
                   ) : null}
-                </li>
+                  {hasContent(m.email) ? (
+                    <a
+                      href={`mailto:${m.email}`}
+                      aria-label={`Email ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Mail aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
+                  ) : null}
+                </span>
+                {crewId ? (
+                  <CrewRowActions
+                    crewId={crewId}
+                    name={name}
+                    showId={actions!.showId}
+                    slug={actions!.slug}
+                    open={openCrewId === crewId}
+                    onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
+                    onOutcome={setOutcome}
+                  />
+                ) : null}
+              </>
+            );
+            return (
+              <Fragment key={`${m.name}-${i}`}>
+                {rowBanners && rowBanners.length > 0 ? (
+                  /* Attention-hosting row (published-show-alerts §5.4): the
+                     original flex row nests inside a column <li> so the banner
+                     block sits under it (mock's card-with-attached-banner
+                     shape). */
+                  <li className="py-1">
+                    <div className="flex items-center gap-3">{rowInner}</div>
+                    <div className="mt-2 flex flex-col gap-2">{rowBanners}</div>
+                  </li>
+                ) : (
+                  <li className="flex items-center gap-3 py-1">{rowInner}</li>
+                )}
               </Fragment>
             );
           })}

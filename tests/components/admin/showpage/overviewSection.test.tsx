@@ -57,7 +57,7 @@ function baseProps(overrides: Partial<OverviewSectionProps> = {}): OverviewSecti
     hasActionableWarnings: false,
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
     unarchiveAction: vi.fn(async () => {}),
-    alertSlot: <div data-testid="mock-alert-slot">alert</div>,
+    attentionSlot: <div data-testid="mock-attention-slot">alert</div>,
     shareSlot: <div data-testid="mock-share-slot">share panel</div>,
     ...overrides,
   };
@@ -120,7 +120,7 @@ describe("OverviewSection", () => {
 
   it("published + active: relocates alert, share panel, Archive, and open-sheet link", () => {
     render(<OverviewSection {...baseProps()} />);
-    expect(screen.getByTestId("mock-alert-slot")).toBeTruthy();
+    expect(screen.getByTestId("mock-attention-slot")).toBeTruthy();
     expect(screen.getByTestId("mock-share-slot")).toBeTruthy();
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     const openSheet = screen.getByTestId("overview-open-sheet");

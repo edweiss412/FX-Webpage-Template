@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<!--
+  Committed snapshot of the Claude Design mock this spec implements.
+  Source: claude.ai/design project 37c93072-6ae5-4c2d-9340-31163318c932
+  ("Crew controls menu reorganization"), file "Published Show Alerts - 2b.dc.html".
+  Fetched 2026-07-19 via the claude_design MCP (DesignSync get_file).
+  Mock colors/px are ILLUSTRATIVE — implementation uses live DESIGN.md tokens.
+-->
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #08090c; color: #e8e6e0; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #ffa047; }
+  a:hover { color: #ffb877; }
+  #pv-scroll > div { flex-shrink: 0; }
+  #pv-scroll::-webkit-scrollbar { width: 10px; }
+  #pv-scroll::-webkit-scrollbar-thumb { background: #2a2b30; border-radius: 999px; border: 2px solid #0f1014; }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 40px 24px 64px;">
+
+  <div style="width: 1040px; max-width: 100%; display: flex; flex-direction: column; gap: 6px;">
+    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #74736d;">Interactive · 2b refined</span>
+    <p style="margin: 0; font-size: 14px; color: #9c9a93; line-height: 1.55;">The <span style="color: #e8e6e0;">2 to confirm</span> menu is open on arrival. Click a row — it scrolls the body to that alert on the Crew row and flashes it. Click the pill to toggle the menu.</p>
+  </div>
+
+  <!-- ===== MODAL FRAME ===== -->
+  <div style="width: 1040px; max-width: 100%; background: #0f1014; border: 1px solid #2a2b30; border-radius: 16px; overflow: hidden; box-shadow: 0 30px 70px -24px rgba(0,0,0,0.8);">
+
+    <!-- header -->
+    <div style="padding: 20px 26px 18px; border-bottom: 1px solid #1c1d23; display: flex; flex-direction: column; gap: 12px; position: relative; z-index: 5;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+          <span style="font-size: 19px; font-weight: 700; color: #f5f3ee; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">AII/III — Consultants Roundtable 2025</span>
+          <span style="color: #5a5b62; font-size: 15px;">↗</span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 14px; flex-shrink: 0;">
+          <!-- pill + menu -->
+          <div id="pv-alertmenu" style="position: relative;">
+            <sc-if value="{{ anyOpen }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ toggle }}" style="all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; background: #2a2212; border: 1px solid #4a3c1c; border-radius: 999px; padding: 7px 14px;">
+                <span style="width: 7px; height: 7px; border-radius: 999px; background: #e0b84e;"></span>
+                <span style="font-size: 13px; color: #ffd68a; font-weight: 600;">{{ countLabel }}</span>
+                <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}"><span style="font-size: 11px; color: #b89a5a;">⌃</span></sc-if>
+                <sc-if value="{{ closed }}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; color: #b89a5a;">⌄</span></sc-if>
+              </button>
+            </sc-if>
+            <sc-if value="{{ allClear }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; background: #10201d; border: 1px solid #244a45; border-radius: 999px; padding: 7px 14px;">
+                <span style="width: 7px; height: 7px; border-radius: 999px; background: #4fc9be;"></span>
+                <span style="font-size: 13px; color: #7fe0d5; font-weight: 600;">In sync</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ menuVisible }}" hint-placeholder-val="{{ true }}">
+              <div style="position: absolute; top: calc(100% + 10px); right: 0; width: 400px; background: #16171c; border: 1px solid #3a3b40; border-radius: 12px; box-shadow: 0 18px 44px -8px rgba(0,0,0,0.75); overflow: hidden; z-index: 20;">
+                <div style="padding: 12px 16px 10px; border-bottom: 1px solid #22232a; display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9c9a93;">Needs your confirmation</span>
+                </div>
+                <sc-if value="{{ leadOpen }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ goLead }}" style="all: unset; cursor: pointer; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 1px solid #1c1d23;" onmouseover="this.style.background='#1c1d23'" onmouseout="this.style.background='transparent'">
+                    <span style="width: 7px; height: 7px; border-radius: 999px; background: #e0b84e; flex-shrink: 0;"></span>
+                    <span style="flex: 1; min-width: 0; text-align: left;">
+                      <span style="display: block; font-size: 13px; color: #f5f3ee; font-weight: 500;">John Redcorn added as LEAD</span>
+                      <span style="display: block; font-size: 12px; color: #74736d;">Crew · Lighting · confirmed here, not on the sheet</span>
+                    </span>
+                    <span style="font-size: 13px; color: #b89a5a; flex-shrink: 0;">→</span>
+                  </button>
+                </sc-if>
+                <sc-if value="{{ conflictOpen }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ goConflict }}" style="all: unset; cursor: pointer; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 16px;" onmouseover="this.style.background='#1c1d23'" onmouseout="this.style.background='transparent'">
+                    <span style="width: 7px; height: 7px; border-radius: 999px; background: #e5534b; flex-shrink: 0;"></span>
+                    <span style="flex: 1; min-width: 0; text-align: left;">
+                      <span style="display: block; font-size: 13px; color: #f5f3ee; font-weight: 500;">Edit conflict — Priya Shah</span>
+                      <span style="display: block; font-size: 12px; color: #74736d;">Crew · Video · pick which version wins</span>
+                    </span>
+                    <span style="font-size: 13px; color: #b89a5a; flex-shrink: 0;">→</span>
+                  </button>
+                </sc-if>
+                <div style="padding: 10px 16px; background: #121318; border-top: 1px solid #22232a; display: flex; align-items: center; gap: 9px;">
+                  <span style="width: 7px; height: 7px; border-radius: 999px; border: 1.5px solid #4fc9be; flex-shrink: 0;"></span>
+                  <span style="font-size: 12px; color: #9c9a93;">2 more clearing on their own — no action needed</span>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+
+          <span style="color: #5a5b62; font-size: 18px; cursor: pointer;">✕</span>
+        </div>
+      </div>
+      <span style="font-size: 13px; color: #74736d;">Institutional Investor · Travel in Oct 7 · Show Oct 8–9 · Travel out Oct 10</span>
+    </div>
+
+    <div style="display: flex; position: relative; z-index: 1;">
+      <!-- nav -->
+      <div style="width: 210px; border-right: 1px solid #1c1d23; padding: 16px 12px; display: flex; flex-direction: column; gap: 3px; flex-shrink: 0;">
+        <div style="padding: 9px 12px; font-size: 14px; color: #9c9a93;">Overview</div>
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: #5a5b62; padding: 14px 12px 6px;">THE SHOW</span>
+        <div style="padding: 9px 12px; font-size: 14px; color: #9c9a93;">Venue</div>
+        <div style="padding: 9px 12px; font-size: 14px; color: #9c9a93;">Event details</div>
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: #5a5b62; padding: 14px 12px 6px;">PEOPLE</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 8px; background: #1c1d23;">
+          <span style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Crew</span>
+          <span style="display: flex; align-items: center; gap: 6px;"><span style="color: #74736d; font-size: 13px;">7</span><sc-if value="{{ anyOpen }}" hint-placeholder-val="{{ true }}"><span style="width: 7px; height: 7px; border-radius: 999px; background: #e0b84e;"></span></sc-if></span>
+        </div>
+        <div style="padding: 9px 12px; font-size: 14px; color: #9c9a93;">Contacts</div>
+      </div>
+
+      <!-- content -->
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+        <div style="padding: 20px 26px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #14151a;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #f5f3ee; letter-spacing: -0.01em;">Crew <span style="color: #5a5b62; font-weight: 500;">7</span></h2>
+          <div style="display: flex; align-items: center; gap: 7px; background: #121318; border: 1px solid #1c1d23; border-radius: 999px; padding: 4px 11px;">
+            <span style="width: 6px; height: 6px; border-radius: 999px; border: 1.5px solid #4fc9be;"></span>
+            <span style="font-size: 12px; color: #9c9a93;">Last good sync · 20m ago</span>
+          </div>
+        </div>
+
+        <!-- scroll body -->
+        <div id="pv-scroll" style="position: relative; height: 460px; overflow-y: auto; padding: 16px 26px 26px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
+
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Marcus Webb</div><div style="font-size: 12px; color: #74736d;">Audio · A1</div></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Elena Ruiz</div><div style="font-size: 12px; color: #74736d;">Audio · A2</div></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Tomas Berg</div><div style="font-size: 12px; color: #74736d;">Rigging · Hand</div></div>
+          </div>
+
+          <!-- LEAD alert row (scroll target) -->
+          <div id="pv-lead" style="background: #16171c; border: 1px solid #1c1d23; border-radius: 10px; overflow: hidden;">
+            <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px;">
+              <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+              <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">John Redcorn</div><div style="font-size: 12px; color: #ffd68a;">Lighting · LEAD</div></div>
+              <sc-if value="{{ leadDone }}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; color: #4fc9be; flex-shrink: 0;">✓ Confirmed</span></sc-if>
+            </div>
+            <sc-if value="{{ leadOpen }}" hint-placeholder-val="{{ true }}">
+              <div style="border-top: 1px solid #2a2b30; border-left: 3px solid #e0b84e; background: #1a160e; padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; color: #ffd68a; font-weight: 500;">Added as LEAD — needs confirming</div>
+                  <div style="font-size: 12px; color: #9c9a93;">Lead changes are confirmed here, not on the sheet.</div>
+                </div>
+                <span onClick="{{ confirmLead }}" style="font-size: 13px; font-weight: 600; color: #0f1014; background: #ffa047; border-radius: 8px; padding: 9px 16px; flex-shrink: 0; cursor: pointer;">Confirm</span>
+                <span style="font-size: 13px; color: #9c9a93; flex-shrink: 0; cursor: pointer;">Open in Sheet ↗</span>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Dana Cole</div><div style="font-size: 12px; color: #74736d;">Stage · Hand</div></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Sam Okafor</div><div style="font-size: 12px; color: #74736d;">Video · V2</div></div>
+          </div>
+
+          <!-- CONFLICT alert row (scroll target) -->
+          <div id="pv-conflict" style="background: #16171c; border: 1px solid #1c1d23; border-radius: 10px; overflow: hidden;">
+            <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px;">
+              <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+              <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Priya Shah</div><div style="font-size: 12px; color: #74736d;">Video · V1</div></div>
+              <sc-if value="{{ conflictDone }}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; color: #4fc9be; flex-shrink: 0;">✓ Resolved</span></sc-if>
+            </div>
+            <sc-if value="{{ conflictOpen }}" hint-placeholder-val="{{ true }}">
+              <div style="border-top: 1px solid #2a2b30; border-left: 3px solid #e5534b; background: #1a1210; padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; color: #f0a89f; font-weight: 500;">Two edits landed at once</div>
+                  <div style="font-size: 12px; color: #9c9a93;">Pick which version wins so the sheet and show page agree.</div>
+                </div>
+                <span onClick="{{ confirmConflict }}" style="font-size: 13px; font-weight: 600; color: #f5f3ee; background: #1c1d23; border: 1px solid #3a3b40; border-radius: 8px; padding: 9px 16px; flex-shrink: 0; cursor: pointer;">Review</span>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; background: #16171c; border: 1px solid #1c1d23; border-radius: 10px;">
+            <span style="width: 34px; height: 34px; border-radius: 999px; background: #24252c; flex-shrink: 0;"></span>
+            <div style="flex: 1;"><div style="font-size: 14px; color: #f5f3ee; font-weight: 500;">Nadia Farouk</div><div style="font-size: 12px; color: #74736d;">Lighting · L2</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { open: true, lead: false, conflict: false };
+
+  flash(el) {
+    const prev = el.style.boxShadow;
+    el.style.transition = "box-shadow 180ms ease";
+    el.style.boxShadow = "0 0 0 2px #ffa047, 0 0 0 7px rgba(255,140,26,0.16)";
+    setTimeout(() => { el.style.boxShadow = prev; }, 1500);
+  }
+
+  scrollTo(id) {
+    this.setState({ open: false });
+    requestAnimationFrame(() => {
+      const c = document.getElementById("pv-scroll");
+      const t = document.getElementById(id);
+      if (c && t) {
+        c.scrollTo({ top: Math.max(0, t.offsetTop - 16), behavior: "smooth" });
+        this.flash(t);
+      }
+    });
+  }
+
+  renderVals() {
+    const count = (this.state.lead ? 0 : 1) + (this.state.conflict ? 0 : 1);
+    return {
+      open: this.state.open,
+      closed: !this.state.open,
+      count,
+      countLabel: count === 1 ? "1 to confirm" : count + " to confirm",
+      anyOpen: count > 0,
+      allClear: count === 0,
+      menuVisible: this.state.open && count > 0,
+      leadOpen: !this.state.lead,
+      conflictOpen: !this.state.conflict,
+      leadDone: this.state.lead,
+      conflictDone: this.state.conflict,
+      toggle: () => this.setState((s) => ({ open: !s.open })),
+      goLead: () => this.scrollTo("pv-lead"),
+      goConflict: () => this.scrollTo("pv-conflict"),
+      confirmLead: () => this.setState({ lead: true }),
+      confirmConflict: () => this.setState({ conflict: true }),
+    };
+  }
+}
+</script>
+</body>
+</html>

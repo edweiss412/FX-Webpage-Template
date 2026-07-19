@@ -133,6 +133,22 @@ export type ExtraSection = {
   render: () => ReactNode;
 };
 
+/**
+ * Pre-rendered crew attention banners (published-show-alerts spec §5.4): the
+ * MODAL builds the nodes (it owns items/doneIds/slug); the surface only
+ * threads them into the crew section's chrome context so `CrewBreakdown` can
+ * host them. Keys in `byCrewKey` are canonicalCrewKey(name); unmatched keys
+ * are the modal's responsibility (folded into sectionTop before passing).
+ */
+export type CrewAttention = {
+  byCrewKey: ReadonlyMap<string, ReactNode[]>;
+  sectionTop: ReactNode[];
+};
+
+/** One jump request (spec §6.2): scroll to the item's anchor with the one-shot
+ *  flash; a new nonce fires a new jump, an unchanged nonce never re-fires. */
+export type AttentionJump = { itemId: string; sectionId: string; nonce: number };
+
 export function ShowReviewSurface({
   data,
   scrollerRef,
@@ -144,6 +160,9 @@ export function ShowReviewSurface({
   bottomSlot,
   children,
   isPublishRunActive = false,
+  attentionSections,
+  attentionJump,
+  crewAttention,
 }: {
   data: SectionData;
   isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
@@ -158,6 +177,11 @@ export function ShowReviewSurface({
   bottomSlot?: ReactNode; // Phase 2 hook: RawUnrecognizedCallout — renders AFTER the registry sections
   // (incl. warnings) and BEFORE extraSectionsAfter. Not a rail item.
   children?: ReactNode; // shell-owned content-pane TOP slot (the modal's re-apply resolution body)
+  // ── published-show-alerts attention plumbing (spec §5.3/§5.4/§6.2). All
+  // optional; ABSENT → byte-identical rendering (the staged wizard passes none).
+  attentionSections?: ReadonlySet<string>; // registry section ids holding ≥1 actionable item → amber dot
+  attentionJump?: AttentionJump | null; // scroll+flash request (menu row click / deep link)
+  crewAttention?: CrewAttention; // pre-rendered crew banners, threaded via the crew chrome context
 }): JSX.Element {
   // Staged-only identifiers (spec §3.2): `dfid` fills the section/rail testids;
   // in staged mode it is the drive file id (byte-identical to the modal), in
@@ -241,9 +265,17 @@ export function ShowReviewSurface({
    *  BOTH hue and fill/shape so "needs review" is never signalled by color
    *  alone: flagged = filled amber disc (higher salience); clean = hollow teal
    *  ring. Both occupy an identical 8px box (border-box) — no layout shift. */
+  /** Attention OR-term (published-show-alerts §5.3): a section with ≥1
+   *  actionable attention item reads as needs-review even with zero parse
+   *  warnings. Absent prop → identical to the pre-attention rule. */
+  function needsReview(id: SectionId): boolean {
+    return (
+      (id === "warnings" ? hasWarnRow : flagged.has(id)) || (attentionSections?.has(id) ?? false)
+    );
+  }
+
   function dotClass(id: SectionId): string {
-    const review = id === "warnings" ? hasWarnRow : flagged.has(id);
-    return review
+    return needsReview(id)
       ? "size-2 shrink-0 rounded-pill bg-status-review"
       : "size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent";
   }
@@ -252,8 +284,7 @@ export function ShowReviewSurface({
    *  the nav control's accessible name so review state is conveyed to AT and to
    *  sighted users who don't perceive the hue. Rendered only where a dot is. */
   function dotStatusText(id: SectionId): string {
-    const review = id === "warnings" ? hasWarnRow : flagged.has(id);
-    return review ? " — needs review" : " — no issues";
+    return needsReview(id) ? " — needs review" : " — no issues";
   }
 
   // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
@@ -373,6 +404,38 @@ export function ShowReviewSurface({
   // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
   // timer cleared in effect teardown).
   useEffect(() => clearWarningHighlight, []);
+
+  // ── Attention jump (published-show-alerts §6.2) ────────────────────────────
+  // Menu-row click / deep link: activate the section, scroll to the item's
+  // anchor with the SAME §A2 suppression + one-shot flash machinery as
+  // jumpToWarning; a missing anchor degrades to plain section nav (no flash).
+  // Nonce-keyed so an unchanged request never re-fires.
+  const lastJumpNonceRef = useRef(0);
+  useEffect(() => {
+    const jump = attentionJump;
+    if (!jump || jump.nonce === lastJumpNonceRef.current) return;
+    lastJumpNonceRef.current = jump.nonce;
+    const scroller = scrollerRef.current;
+    // Quoted attribute selector: only backslash/quote need escaping (ids are
+    // "alert:<uuid>" / "hold:<id>"). CSS.escape is absent in some jsdom envs.
+    const selectorId = jump.itemId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const target = scroller?.querySelector<HTMLElement>(`[data-attention-anchor="${selectorId}"]`);
+    if (!scroller || !target || typeof scroller.scrollTo !== "function") {
+      handleNavClick(jump.sectionId); // anchor missing → section-top, no flash
+      return;
+    }
+    setActive(jump.sectionId);
+    if (hashSync && typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${jump.sectionId}`);
+    }
+    const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+    scroller.scrollTo({ top });
+    clearWarningHighlight(); // one highlight at a time
+    target.setAttribute("data-step3-warning-flash", "");
+    highlightedElRef.current = target;
+    highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nonce-keyed one-shot; handlers are render-stable by construction
+  }, [attentionJump]);
 
   // Deterministic scroll-spy (§6.3a): a rAF-throttled PASSIVE `scroll`
   // listener on the content pane recomputes every rendered section's
@@ -850,6 +913,10 @@ export function ShowReviewSurface({
                   // it mounts no use-raw/recognize-role controls, so no staged
                   // decisions/session need thread here; WarningsBreakdown reads
                   // them from SectionData as the sole actionable site.)
+                  // published-show-alerts §5.4: pre-rendered crew banners thread
+                  // through the crew section's chrome value only (ABSENT
+                  // elsewhere and in staged mode — exactOptional discipline).
+                  ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? {
                         // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with

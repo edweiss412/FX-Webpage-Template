@@ -59,9 +59,9 @@ const FIRST_SEEN_STAGED_ID = "11111111-1111-4111-8111-111111111111";
 // navigate (tests/e2e/deep-link-walker.spec.ts:21).
 const RPAS_SLUG = "2026-03-retirement-plan-advisor-institute-central-2026";
 
-// Catalog code PerShowAlertSection actually renders: DRIVE_FETCH_FAILED has a
+// Catalog code the attention surface actually renders: DRIVE_FETCH_FAILED has a
 // non-null dougFacing with NO <…> placeholders (lib/messages/catalog.ts:57-69),
-// so safeDougFacing() in components/admin/PerShowAlertSection.tsx returns real
+// so safeDougFacingTemplate() in lib/admin/attentionItems.ts returns real
 // copy and the alerts section (and its help affordance) materializes.
 const WALKER_ALERT_CODE = "DRIVE_FETCH_FAILED";
 

@@ -106,16 +106,12 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     visibleAt: "both",
     owningMilestone: "M9",
   },
-  {
-    kind: "concrete",
-    sourceSurface: "Per-show - Alerts section header",
-    sourceRoute: "/admin?show=rpas-central-2026",
-    affordance: "? tooltip",
-    testid: "help-affordance--per-show-alerts--tooltip",
-    target: "/help/admin/parse-warnings",
-    visibleAt: "both",
-    owningMilestone: "M12.12",
-  },
+  // published-show-alerts (2026-07-19): the "Alerts for this show" section —
+  // and its header "?" tooltip — retired with PerShowAlertSection. Alert
+  // education is now per-alert: every attention banner renders the catalog's
+  // "Learn more" helpHref link (AttentionBanner), so the /help target pages
+  // stay reachable per code. Row removed per the Task-16 retirement precedent
+  // below (no re-homing needed).
   {
     kind: "concrete",
     sourceSurface: "First-seen staged review card (/admin/show/staged/<stagedId>)",

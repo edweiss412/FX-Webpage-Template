@@ -27,7 +27,7 @@ function src(rel: string): string {
 
 // No-motion admin surfaces: no client motion library, no AnimatePresence, no
 // mount/route-enter animation. Most are server-rendered; the M12.13 undo
-// islands (PublishedToggle, PerShowAlertSection) are client components
+// islands (PublishedToggle) and the attention surfaces (AttentionBanner, AttentionMenu) are client components
 // but are deliberately motion-free — pinned here so future framer drift on
 // them surfaces as a clean test failure (spec §9 / T12 reviewer note).
 const SERVER_RENDERED = [
@@ -38,7 +38,8 @@ const SERVER_RENDERED = [
   "components/admin/Dashboard.tsx",
   "app/admin/show/[slug]/page.tsx",
   "components/admin/PublishedToggle.tsx",
-  "components/admin/PerShowAlertSection.tsx",
+  "components/admin/review/AttentionBanner.tsx",
+  "components/admin/showpage/AttentionMenu.tsx",
   // admin-show-modal Task 7: the published review modal surface. All three are
   // client components but deliberately motion-free in SOURCE — the modal's
   // entrance/exit animation lives in app/globals.css keyframes hooked via

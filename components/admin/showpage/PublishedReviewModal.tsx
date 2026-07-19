@@ -32,15 +32,24 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, History, LayoutDashboard } from "lucide-react";
+import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
-import { ShowReviewSurface, type ExtraSection } from "@/components/admin/review/ShowReviewSurface";
+import {
+  ShowReviewSurface,
+  type AttentionJump,
+  type CrewAttention,
+  type ExtraSection,
+} from "@/components/admin/review/ShowReviewSurface";
+import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
+import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
+import { canonicalCrewKey, type AttentionItem } from "@/lib/admin/attentionItems";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
 import {
+  CREW_CAP,
   RawUnrecognizedCallout,
   dateSummarySegments,
 } from "@/components/admin/wizard/step3ReviewSections";
@@ -77,15 +86,18 @@ export type PublishedReviewModalProps = {
   lastCheckedAt: string | null;
   lastSyncStatus: string | null;
   now: Date;
-  alertCount: number;
+  /** Server-derived unified attention list (published-show-alerts §3.1) — the
+   *  ONE source for the pill, menu, nav badges/dots, and inline banners. */
+  attentionItems: AttentionItem[];
+  /** fetchPerShowAlerts returned infra_error (§3.2): degraded pill state +
+   *  Overview notice; hold-derived items still render. */
+  alertsDegraded: boolean;
 
   // ── Overview ──
   openSheetHref: string | null;
   hasActionableWarnings: boolean;
   archiveAction: () => Promise<LifecycleResult>;
   unarchiveAction: (showId: string) => Promise<void>;
-  /** Server-rendered `<PerShowAlertSection/>`. */
-  alertSlot: ReactNode;
   /** Server-rendered share-&-access cluster (`<CurrentShareLinkPanel/>`). */
   shareSlot: ReactNode;
 
@@ -117,12 +129,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     lastCheckedAt,
     lastSyncStatus,
     now,
-    alertCount,
+    attentionItems,
+    alertsDegraded,
     openSheetHref,
     hasActionableWarnings,
     archiveAction,
     unarchiveAction,
-    alertSlot,
     shareSlot,
     feed,
     undoAction,
@@ -182,33 +194,168 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // server-derived model. Memoized on the record identity (stable per render).
   const renderSectionExtras = useMemo(() => buildSectionWarningExtras({ bySection }), [bySection]);
 
-  // §3 one-shot alert_id scroll: on mount with an alertId, scroll the
-  // highlighted alert row (li[aria-current="true"], the PerShowAlertSection
-  // highlight) into center view; no match → the #overview rail target. The
-  // ref guard makes it one-shot — a rerender (even a changed alertId) never
-  // re-fires. Precedence over the surface's syncHash hash-restore is
-  // structural: child effects run before parent effects, so this scroll
-  // lands last when both fire on mount.
+  // ── Attention surface state (published-show-alerts §5/§6) ──────────────────
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(new Set());
+  const [jump, setJump] = useState<AttentionJump | null>(null);
+  const jumpNonceRef = useRef(0);
+  const pillRef = useRef<HTMLButtonElement | null>(null);
+  const menuId = useId();
+
+  const live = useMemo(
+    () => attentionItems.filter((i) => !doneIds.has(i.id)),
+    [attentionItems, doneIds],
+  );
+  const actionable = useMemo(() => live.filter((i) => i.actionable), [live]);
+  const clearingCount = live.length - actionable.length;
+  // Registry-section amber dots (§5.3): overview/changes are extras with their
+  // own badges, so they are excluded here.
+  const attentionSections = useMemo(
+    () =>
+      new Set<string>(
+        actionable.map((i) => i.sectionId).filter((s) => s !== "overview" && s !== "changes"),
+      ),
+    [actionable],
+  );
+
+  const navigateTo = useCallback((item: AttentionItem) => {
+    jumpNonceRef.current += 1;
+    setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
+  }, []);
+
+  // Plain function (React Compiler memoizes; a manual useCallback over doneIds
+  // trips react-hooks/preserve-manual-memoization). §9 compound handled here in
+  // the event handler — no self-close effect: the LAST actionable item
+  // resolving closes an open menu. The ref mirrors doneIds so two resolves
+  // completing in the SAME render window compose — the state closure alone is
+  // stale for the second completion and would leave the menu open.
+  const doneIdsRef = useRef<ReadonlySet<string>>(doneIds);
+  const onResolved = (id: string) => {
+    const next = new Set([...doneIdsRef.current, id]);
+    doneIdsRef.current = next;
+    setDoneIds(next);
+    const remaining = attentionItems.filter((i) => i.actionable && !next.has(i.id));
+    if (remaining.length === 0) setMenuOpen(false);
+  };
+
+  // Auto-open once per mount (§5.2); the guard consumes only when it DECIDES
+  // (opens, or deep-link suppression) — NOT on first render, because the
+  // revalidate-on-open router.refresh() above can stream actionable items
+  // AFTER a prefetched empty first paint. Once fired it never re-fires, so a
+  // user who closed the menu is not re-opened by later refreshes.
+  const autoOpenFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenFiredRef.current) return;
+    if (alertId != null) {
+      autoOpenFiredRef.current = true; // deep link wins for the whole mount (§6.4)
+      return;
+    }
+    if (actionable.length === 0) return;
+    // rAF wrapper: the open is a paint-time reveal, and the lint contract
+    // (react-hooks/set-state-in-effect) forbids the sync form. The guard is
+    // consumed INSIDE the callback: a cancelled frame (dep change before
+    // paint, or a StrictMode setup→cleanup→setup cycle) must leave the
+    // one-shot unconsumed so the re-run can reschedule the open.
+    const raf = requestAnimationFrame(() => {
+      autoOpenFiredRef.current = true;
+      setMenuOpen(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [alertId, actionable.length]);
+
+  // §6.4 one-shot alert_id deep link: a matching item jumps to its banner
+  // anchor (aria-current + flash via the surface's attentionJump machinery);
+  // no match → the legacy #overview center-scroll fallback. Ref guard =
+  // one-shot; a rerender (even a changed alertId) never re-fires.
   const alertScrollFiredRef = useRef(false);
   useEffect(() => {
     if (alertId == null || alertScrollFiredRef.current) return;
     alertScrollFiredRef.current = true;
+    const targetId = `alert:${alertId}`;
+    const item = attentionItems.find((i) => i.id === targetId);
+    if (item) {
+      jumpNonceRef.current += 1;
+      setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
+      return;
+    }
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const target =
-      scroller.querySelector('li[aria-current="true"]') ?? scroller.querySelector("#overview");
+    const target = scroller.querySelector("#overview");
     if (target instanceof HTMLElement && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "center" });
     }
-  }, [alertId]);
+  }, [alertId, attentionItems]);
 
-  // §5.1 Overview — the FIRST rail item; alert-count chip when > 0,
-  // rendered with the StatusStrip alert-badge token idiom.
+  // ── Banner placement buckets (§5.4) ────────────────────────────────────────
+  const highlightedItemId = alertId != null ? `alert:${alertId}` : null;
+  // Plain per-render derivation (React Compiler memoizes; manual useMemo over
+  // the unstable onResolved identity only fought the lint contract).
+  const bannerFor = (item: AttentionItem, underCrewRow: boolean) => (
+    <AttentionBanner
+      key={item.id}
+      item={item}
+      slug={slug}
+      now={now}
+      underCrewRow={underCrewRow}
+      highlighted={item.id === highlightedItemId}
+      onResolved={onResolved}
+    />
+  );
+  const { crewAttention, overviewBanners } = (() => {
+    const byCrewKey = new Map<string, ReactNode[]>();
+    const sectionTop: ReactNode[] = [];
+    const overview: ReactNode[] = [];
+    // Under-row placement targets only the RENDERED rows (CREW_CAP slice, §4).
+    const renderedKeys = new Set(
+      data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
+    );
+    // Buckets iterate the FULL list, not the doneIds-filtered one: a resolved
+    // banner swaps to "✓ Confirmed" IN PLACE and stays mounted until
+    // router.refresh() reconciles (spec §6.3) — only counts/menu/dots shrink.
+    for (const item of attentionItems) {
+      if (item.kind !== "alert") continue;
+      if (item.sectionId === "crew") {
+        if (item.crewKey && renderedKeys.has(item.crewKey)) {
+          const list = byCrewKey.get(item.crewKey) ?? [];
+          list.push(bannerFor(item, true));
+          byCrewKey.set(item.crewKey, list);
+        } else {
+          sectionTop.push(bannerFor(item, false));
+        }
+      } else if (item.sectionId === "overview") {
+        overview.push(bannerFor(item, false));
+      } else {
+        // Defensive: unknown-routed alerts land in Overview (spec §4 fallback).
+        overview.push(bannerFor(item, false));
+      }
+    }
+    const crew: CrewAttention = { byCrewKey, sectionTop };
+    return { crewAttention: crew, overviewBanners: overview };
+  })();
+
+  const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
+  const holdCount = actionable.filter((i) => i.kind === "hold").length;
+
+  // §3.2 degraded notice (copy parity with the retired PerShowAlertSection
+  // infra card) — rendered in Overview's attention slot when the alert read
+  // faulted; never silently hidden.
+  const degradedNotice = alertsDegraded ? (
+    <div
+      data-testid="attention-degraded-notice"
+      className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+    >
+      <p className="text-base font-semibold">Could not load alerts</p>
+      <p>This is usually temporary. Refresh in a moment.</p>
+    </div>
+  ) : null;
+
+  // §5.1 Overview — the FIRST rail item; badge = overview-routed ACTIONABLE
+  // attention count, rendered with the StatusStrip alert-badge token idiom.
   const overviewExtra: ExtraSection = {
     id: "overview",
     label: "Overview",
     Icon: LayoutDashboard,
-    ...(alertCount > 0
+    ...(overviewActionableCount > 0
       ? {
           railBadge: (
             <span
@@ -219,8 +366,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   the unit. The separator space is its OWN visible text node — a
                   leading space inside the sr-only span is trimmed during
                   accessible-name computation ("3open alerts", memory-#470 class). */}
-              {alertCount}{" "}
-              <span className="sr-only">open {alertCount === 1 ? "alert" : "alerts"}</span>
+              {overviewActionableCount}{" "}
+              <span className="sr-only">
+                open {overviewActionableCount === 1 ? "alert" : "alerts"}
+              </span>
             </span>
           ),
         }
@@ -235,17 +384,37 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         hasActionableWarnings={hasActionableWarnings}
         archiveAction={archiveAction}
         unarchiveAction={unarchiveAction}
-        alertSlot={alertSlot}
+        attentionSlot={
+          degradedNotice || overviewBanners.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {degradedNotice}
+              {overviewBanners}
+            </div>
+          ) : null
+        }
         shareSlot={shareSlot}
       />
     ),
   };
 
-  // §5.4 Changes — the LAST rail item.
+  // §5.4 Changes — the LAST rail item; badge = pending-hold count (§5.3).
   const changesExtra: ExtraSection = {
     id: "changes",
     label: "Changes",
     Icon: History,
+    ...(holdCount > 0
+      ? {
+          railBadge: (
+            <span
+              data-testid="changes-rail-badge"
+              className="ml-auto inline-flex shrink-0 items-center rounded-pill bg-warning-bg px-1.5 text-xs font-semibold tabular-nums text-warning-text"
+            >
+              {holdCount}{" "}
+              <span className="sr-only">pending {holdCount === 1 ? "change" : "changes"}</span>
+            </span>
+          ),
+        }
+      : {}),
     render: () => (
       <ChangesSection
         feed={feed}
@@ -328,54 +497,94 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* §6.6 alert pill — RELOCATED from the control strip. It stays an
-                <a href="#overview"> (§F1, Watchpoint 4): the mock draws an
-                inert <span>, but that is a static-canvas artifact, and a span
-                would delete the only affordance connecting this count to the
-                alert list. `overviewSection.test.tsx` pins the jump target.
-
-                `before:-inset-y-3` is COPIED from the old strip badge, not
-                chosen fresh: text-xs (~16px line box) + py-1 (8px) ≈ a 24px
-                visible pill, and -inset-y-3 (12px per side) ≈ 48px ≥ the 44px
-                tap floor. `-inset-y-2` would yield ~40px and MISS it. T-TAP
-                probes the resolved hit band rather than trusting this
-                arithmetic (§11.1).
-
-                Guard (§7): the count is server-derived (an array length), so
-                the Number.isInteger gate is defensive-only — but an unguarded
-                render puts a literal "NaN alerts" in the header. */}
-            {Number.isInteger(alertCount) && alertCount > 0 ? (
-              <a
-                href="#overview"
+            {/* Attention pill (published-show-alerts §5.1) — four states from
+                the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
+                COPIED from the prior pill: text-xs (~16px line box) + py-1
+                (8px) ≈ a 24px visible pill; -inset-y-3 (12px per side) ≈ 48px
+                ≥ the 44px tap floor. T-TAP probes the resolved band (§10). */}
+            {actionable.length > 0 ? (
+              <div className="relative">
+                <button
+                  ref={pillRef}
+                  type="button"
+                  data-testid={`${TESTID_BASE}-alert-pill`}
+                  aria-expanded={menuOpen}
+                  aria-controls={menuId}
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  {/* Decorative dot — the count text carries the meaning; live
+                      token (--color-status-review), never the mock hex. */}
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 rounded-pill bg-status-review"
+                  />
+                  {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
+                      beside Close squeezes the title at 375px. The UNIT stays
+                      VISIBLE; the exact count is preserved for assistive tech
+                      past the cap only. */}
+                  {actionable.length > 99 ? "99+" : actionable.length} to confirm
+                  {actionable.length > 99 ? (
+                    <>
+                      {/* Separator is its OWN visible text node (accName trim
+                          class, memory #470). */}{" "}
+                      <span className="sr-only">({actionable.length} to confirm)</span>
+                    </>
+                  ) : null}
+                  {/* Lucide chevron (codebase icon idiom), not the ⌃/⌄ text
+                      glyphs — ⌃ is the macOS Control symbol and its baseline
+                      drifts across platform fonts. */}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`size-3 shrink-0 text-warning-text transition-transform duration-fast ease-out-quart motion-reduce:transition-none ${
+                      menuOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                <div id={menuId}>
+                  <AttentionMenu
+                    items={live}
+                    open={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    onNavigate={navigateTo}
+                    pillRef={pillRef}
+                  />
+                </div>
+              </div>
+            ) : alertsDegraded && clearingCount === 0 ? (
+              /* §5.1 degraded row: only when no hold carried the pill into the
+                 To-confirm state; the Overview notice card is the detail. */
+              <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
               >
-                {/* Decorative: the count text carries the meaning. Replaces the
-                    strip badge's TriangleAlert glyph per the mock. The token is
-                    live (globals.css `--color-status-review`) — never the mock hex. */}
+                Alerts unavailable
+              </span>
+            ) : clearingCount > 0 ? (
+              /* §5.1 clearing state: auto-recovering items visible, never dark. */
+              <span
+                data-testid={`${TESTID_BASE}-alert-pill`}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
+              >
                 <span
                   aria-hidden="true"
-                  className="size-2 shrink-0 rounded-pill bg-status-review"
+                  className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                 />
-                {/* Capped at 99+ (§6.6): `alertCount` is unbounded and this group
-                    is shrink-0 beside Close, so four digits squeeze the title at
-                    375px. The UNIT stays VISIBLE — a bare "99+" is not
-                    self-explanatory — and the exact count is preserved for
-                    assistive tech past the cap only (below it the visible text
-                    is already exact). */}
-                {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
-                {alertCount > 99 ? (
-                  <>
-                    {/* The separator is its OWN visible text node. A leading
-                        space INSIDE the sr-only span is trimmed during
-                        accessible-name computation, yielding
-                        "99+ alerts(1200 open alerts)" — the same bug class as
-                        the Overview rail badge above. */}{" "}
-                    <span className="sr-only">({alertCount} open alerts)</span>
-                  </>
-                ) : null}
-              </a>
-            ) : null}
+                {clearingCount} clearing
+              </span>
+            ) : (
+              /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */
+              <span
+                data-testid={`${TESTID_BASE}-alert-pill`}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                />
+                In sync
+              </span>
+            )}
             <ModalCloseButton ref={closeRef} testId={`${TESTID_BASE}-close`} />
           </div>
         </>
@@ -410,6 +619,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         extraSectionsAfter={[changesExtra]}
         renderSectionExtras={renderSectionExtras}
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
+        attentionSections={attentionSections}
+        attentionJump={jump}
+        crewAttention={crewAttention}
       />
     </ReviewModalShell>
   );

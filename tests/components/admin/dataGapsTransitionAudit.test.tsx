@@ -59,7 +59,7 @@ function src(rel: string): string {
 const DATA_GAP_SOURCE_FILES = [
   "components/admin/ShowsTable.tsx",
   "components/admin/wizard/Step3SheetCard.tsx",
-  "components/admin/PerShowAlertSection.tsx",
+  "components/admin/review/AttentionBanner.tsx",
   "app/admin/show/[slug]/page.tsx",
   // Task 13: the per-show Data-quality panel moved into the per-section warning
   // render factory — the data-gap warning surface now lives here.
@@ -144,7 +144,7 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
       /if \(!model \|\| \(model\.active\.length === 0 && model\.ignored\.length === 0\)\) return null;/,
     );
     expect(extras).toMatch(/ignoredWarnings\.length > 0 \? \(/);
-    expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
+    expect(src("components/admin/review/AttentionBanner.tsx")).toMatch(/\{a\.dataGaps \? \(/);
   });
 
   // Data-quality badge + degraded notice (this feature). Failure mode: the

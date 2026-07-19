@@ -43,6 +43,35 @@ import { buildPublishedSectionData } from "@/components/admin/review/publishedAd
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+
+/** N overview-routed actionable items — the pill renders "N to confirm"
+ *  (published-show-alerts §5.1); the count param keeps its harness semantics. */
+export function harnessAttentionItems(count: number): AttentionItem[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `alert:harness-${i}`,
+    kind: "alert" as const,
+    tone: "notice" as const,
+    sectionId: "overview" as const,
+    crewKey: null,
+    actionable: true,
+    menuTitle: `Harness attention item ${i + 1}`,
+    menuSubtitle: null,
+    alert: {
+      alertId: `harness-${i}`,
+      code: "HARNESS_FAKE_CODE",
+      template: null,
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-05-02T10:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+    },
+  }));
+}
 
 /** Testid prefix for every surface node (`wizard-step3-card-<dfid>-review-*`). */
 export const MODAL_DFID = "drive-pubmodal-1";
@@ -234,12 +263,12 @@ export function modalElement(
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
-    alertCount,
+    attentionItems: harnessAttentionItems(alertCount),
+    alertsDegraded: false,
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
     hasActionableWarnings: false,
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
-    alertSlot: React.createElement("div", { "data-testid": "harness-alert-slot" }, "alert slot"),
     shareSlot: React.createElement("div", { "data-testid": "harness-share-slot" }, "share slot"),
     // feed: null → ChangesSection renders its calm infra notice and never
     // invokes these actions; inert stubs cast to the exact prop shapes.

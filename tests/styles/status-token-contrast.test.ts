@@ -146,6 +146,21 @@ describe("status-token contrast floors (DESIGN.md §1.3)", () => {
     });
   }
 
+  // Published-show attention banner (2026-07-19): body copy sits on the
+  // `--color-warning-bg` wash, not bg/surface — a pairing the rows above never
+  // audit. Pin every text token the banner draws on that fill: the title
+  // (text-strong), body (text), detail/identity/raised-at lines (text-subtle),
+  // and the "✓ Confirmed" swap (status-positive-text). All AA body >=4.5:1.
+  for (const mode of MODES) {
+    const warningBg = tokenIn(mode.src, "--color-warning-bg-runtime");
+    for (const token of ["text", "text-strong", "text-subtle", "status-positive-text"] as const) {
+      it(`${mode.name}: ${token} clears >=4.5:1 AA on warning-bg (attention banner)`, () => {
+        const fg = tokenIn(mode.src, `--color-${token}-runtime`);
+        expect(contrast(fg, warningBg)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      });
+    }
+  }
+
   it("positive hue is NOT green (color-blind floor §1) — it is a teal (blue ≈ green)", () => {
     // A green (e.g. the prototype's #2F7D4F) has blue well below green
     // (b/g ≈ 0.63). The calm teal we ship has blue nearly level with green

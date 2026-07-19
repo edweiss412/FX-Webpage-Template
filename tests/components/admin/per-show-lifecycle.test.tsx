@@ -30,8 +30,7 @@ const state = vi.hoisted(() => ({
   finalizeOwned: false as boolean,
 }));
 
-vi.mock("@/components/admin/PerShowAlertSection", () => ({
-  PerShowAlertSection: () => null,
+vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => [],
 }));
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
