@@ -118,21 +118,28 @@ test.beforeAll(async () => {
     dfid: string;
     normal: string;
     capped: string;
+    notLive: string;
+    archived: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
 
   writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", pages.normal));
   // §6.6 cap page: the same tree with an over-cap alert count (T-ALERT-CAP).
   writeFileSync(join(workDir, "capped.html"), pageHtml("out.css", pages.capped));
+  // §4.2 orange-budget pages (T-NO-ORANGE) — the other two rows of the table.
+  writeFileSync(join(workDir, "notlive.html"), pageHtml("out.css", pages.notLive));
+  writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  // BOTH pages are Tailwind sources — a class that only the capped page uses
-  // (or a width that only its longer label triggers) must still generate, or
-  // T-ALERT-CAP would measure an unstyled pill.
+  // EVERY page is a Tailwind source — a class that only one page uses (the
+  // capped pill's longer label, the archived badge) must still generate, or
+  // that page's assertion would measure unstyled markup.
   writeFileSync(
     entryCss,
-    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "capped.html")}";\n${globals}`,
+    ["harness.html", "capped.html", "notlive.html", "archived.html"]
+      .map((f) => `@source "${join(workDir, f)}";\n`)
+      .join("") + globals,
   );
   execFileSync(
     "pnpm",
@@ -543,6 +550,208 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           .join(
             ",",
           )}) (${sample.depth} level(s) up, testid ${sample.backdropTestId}) = ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+
+  // ── modal-header-reconciliation §4.2 / §6.7 (Task 7) ─────────────────────
+
+  // T-NO-ORANGE. ENUMERATES the accent-resolving set; it does NOT assert the
+  // absence of `bg-accent`. That absence check is doubly wrong: it MISSES the
+  // live dot (`bg-status-live`, a different class resolving to the same hue via
+  // globals.css:89) and it cannot catch a future third orange — a new token
+  // alias, a raw hex, or an inline style.
+  //
+  // Discovery is therefore BY COMPUTED COLOR (§4.2 step 3): resolve
+  // --color-accent once, normalize it to rgb(), walk the header + subheader
+  // bands, and flag any element whose computed backgroundColor OR borderColor
+  // equals it. Elements are grouped by their nearest ancestor-or-self testid so
+  // the assertion reads as the spec's table does ({publish toggle, live dot}) —
+  // the live dot legitimately paints twice (dot + ping halo).
+  //
+  // Transient state styles are OUT of scope (§4.2 step 4): focus-visible rings
+  // and :hover are legitimately accent, so the probe runs with nothing focused
+  // and no pointer over the region. `color` is out of scope too — this rule is
+  // about FILLS and BORDERS.
+  //
+  // DECLARED NOT RED on the pre-change tree, in the plan's own
+  // honest-declaration idiom (00-overview.md §Rule 2). The plan predicted red
+  // on the theory that the accent trigger would be a third element in the
+  // region — but pre-change the trigger is in OVERVIEW, outside the header
+  // region entirely, so all three rows report their post-change sets already.
+  // VERIFIED by running it, not reasoned: the two non-archived rows initially
+  // failed only because the expected LABELS were wrong (the walk resolves the
+  // innermost testid, `published-toggle` / `status-dot-live`, not the strip
+  // wrappers). Its value is undiminished and immediate: it fails the moment
+  // the trigger lands in the band as an AccentButton, which is precisely the
+  // "treat the demotion as style-only" failure this task guards against.
+  const ORANGE_STATES = [
+    {
+      name: "!archived, isLive: true",
+      page: "",
+      expected: ["published-toggle", "status-dot-live"],
+    },
+    { name: "!archived, isLive: false", page: "notlive.html", expected: ["published-toggle"] },
+    // The STRONGEST row: the only state that proves the probe is measuring
+    // rather than matching a hardcoded expectation.
+    { name: "archived: true", page: "archived.html", expected: [] as string[] },
+  ] as const;
+
+  for (const { name, page: htmlPath, expected } of ORANGE_STATES) {
+    test(`T-NO-ORANGE [${name}]: the accent-resolving set in the header region is EXACTLY ${
+      expected.length === 0 ? "{}" : `{${expected.join(", ")}}`
+    }`, async ({ page }) => {
+      await openHarness(page, { width: 1280, height: 900 }, htmlPath);
+
+      // No focus ring, no hover: both are legitimately accent and excluded.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.mouse.move(0, 0);
+
+      const found = await page.evaluate(
+        ({ modalSel, headerSel, subSel }) => {
+          // Normalize the token through the browser rather than parsing hex
+          // ourselves — that is what makes an aliased token still compare equal.
+          const probe = document.createElement("span");
+          probe.style.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue(
+            "--color-accent",
+          );
+          document.body.appendChild(probe);
+          const accent = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+
+          const modal = document.querySelector(modalSel)!;
+          const regions = [modal.querySelector(headerSel), modal.querySelector(subSel)].filter(
+            (n): n is Element => n !== null,
+          );
+
+          const labels = new Set<string>();
+          let rawCount = 0;
+          for (const region of regions) {
+            for (const el of [region, ...Array.from(region.querySelectorAll("*"))]) {
+              // Only what the browser actually PAINTS: a display:none node
+              // (e.g. the live ping under reduced motion) is not orange on screen.
+              if ((el as HTMLElement).getClientRects().length === 0) continue;
+              const cs = getComputedStyle(el);
+              const hit =
+                cs.backgroundColor === accent ||
+                [
+                  cs.borderTopColor,
+                  cs.borderRightColor,
+                  cs.borderBottomColor,
+                  cs.borderLeftColor,
+                ].some((c) => c === accent && parseFloat(cs.borderTopWidth) >= 0);
+              if (!hit) continue;
+              rawCount += 1;
+              let node: Element | null = el;
+              let label: string | null = null;
+              while (node !== null && node !== region.parentElement) {
+                const id = node.getAttribute("data-testid");
+                if (id !== null) {
+                  label = id;
+                  break;
+                }
+                node = node.parentElement;
+              }
+              labels.add(label ?? `<untestid'd ${el.tagName.toLowerCase()}>`);
+            }
+          }
+          return { accent, labels: Array.from(labels).sort(), rawCount };
+        },
+        { modalSel: MODAL, headerSel: `[data-testid="${BASE}-header"]`, subSel: SUBHEADER },
+      );
+
+      // Non-vacuity: if --color-accent failed to resolve, `accent` would be
+      // transparent and every state would trivially report an empty set —
+      // including the two that must NOT be empty.
+      expect(found.accent, "--color-accent resolved to a real painted color").not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+      expect(found.labels, `accent-resolving set @ ${name}`).toEqual([...expected].sort());
+      if (expected.length === 0) {
+        // Belt-and-braces on the strongest row: not merely "no labelled group",
+        // but no accent-painting ELEMENT at all.
+        expect(found.rawCount, "archived paints zero accent elements").toBe(0);
+      }
+    });
+  }
+
+  // T-TAP (ghost Re-sync trigger). Unlike the alert pill, the trigger reaches
+  // the 44px floor with a REAL box (`min-h-tap-min`/`min-w-tap-min`), because
+  // `AccentButton` used to supply `minWidthTap` and a raw <button> drops it.
+  // So this one IS a rect measurement — the mock's ~30px box is below the floor.
+  test("T-TAP @1280: the ghost Re-sync trigger's own box clears 44px", async ({ page }) => {
+    await openHarness(page, { width: 1280, height: 900 });
+    const box = await page
+      .locator(`${SUBHEADER} [data-testid="admin-resync-button"]`)
+      .evaluate((el) => el.getBoundingClientRect());
+    expect(box.height, "ghost trigger height").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    expect(box.width, "ghost trigger width").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+  });
+
+  // T-CONTRAST (ghost Re-sync label), §7.1 / §7.2. Same sampling method as the
+  // Copy label above and for the same reason: the ghost trigger has no
+  // background at all, so a same-element sample is meaningless and the "fix" it
+  // invites is giving the lowest-affordance control in the strip a fill.
+  // LABEL ONLY — no border ratio (the ghost has no border to measure).
+  for (const theme of ["light", "dark"] as const) {
+    test(`T-CONTRAST ${theme}: the ghost Re-sync label clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width: 1280, height: 900 });
+      await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+      // MUST settle: the trigger carries `transition-colors`, so an immediate
+      // read after the theme flip returns a MID-TRANSITION color. (Task 6 hit
+      // exactly this and measured a ~1.04:1 ratio.) getAnimations() is exact;
+      // a fixed sleep would be a guess.
+      await page.evaluate(async () => {
+        await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
+      });
+
+      const sample = await page
+        .locator(`${SUBHEADER} [data-testid="admin-resync-button"]`)
+        .evaluate((btn) => {
+          const parse = (c: string): [number, number, number, number] => {
+            const n = c.match(/[\d.]+/g)!.map(Number);
+            return [n[0]!, n[1]!, n[2]!, n[3] ?? 1];
+          };
+          const self = getComputedStyle(btn);
+          let node: HTMLElement | null = btn.parentElement;
+          let backdrop: [number, number, number, number] | null = null;
+          while (node !== null) {
+            const bg = parse(getComputedStyle(node).backgroundColor);
+            if (bg[3] > 0) {
+              backdrop = bg;
+              break;
+            }
+            node = node.parentElement;
+          }
+          return {
+            ownBg: parse(self.backgroundColor),
+            label: parse(self.color),
+            backdrop,
+            backdropTestId: node?.getAttribute("data-testid") ?? null,
+          };
+        });
+
+      expect(sample.ownBg[3], "the ghost trigger is transparent-backed (§7.2 premise)").toBe(0);
+      expect(sample.backdrop, "a painting ancestor was found by walking up").not.toBeNull();
+
+      const luminance = (c: number[]): number => {
+        const lin = (v: number) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * lin(c[0]!) + 0.7152 * lin(c[1]!) + 0.0722 * lin(c[2]!);
+      };
+      const l1 = luminance(sample.label);
+      const l2 = luminance(sample.backdrop!);
+      const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+
+      expect(
+        ratio,
+        `${theme}: ghost label rgb(${sample.label.slice(0, 3).join(",")}) on backdrop rgb(${sample
+          .backdrop!.slice(0, 3)
+          .join(",")}) (testid ${sample.backdropTestId}) = ${ratio.toFixed(2)}:1`,
       ).toBeGreaterThanOrEqual(4.5);
     });
   }

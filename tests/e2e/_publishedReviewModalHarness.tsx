@@ -199,7 +199,23 @@ export const HARNESS_ALERT_COUNT = 2;
  *  squeezing the title at 375px, which is exactly what T-ALERT-CAP measures. */
 export const HARNESS_CAPPED_ALERT_COUNT = 1200;
 
-export function modalElement(alertCount: number = HARNESS_ALERT_COUNT): React.ReactElement {
+/** §4.2 state overrides. T-NO-ORANGE enumerates the accent-resolving set for
+ *  THREE states, and the archived row (expected set: EMPTY) is the only one
+ *  that proves the probe is measuring rather than matching a hardcoded
+ *  expectation — so the harness must be able to render it. */
+export type HarnessStateOverrides = {
+  archived?: boolean;
+  isLive?: boolean;
+  published?: boolean;
+};
+
+export function modalElement(
+  alertCount: number = HARNESS_ALERT_COUNT,
+  state: HarnessStateOverrides = {},
+): React.ReactElement {
+  const archived = state.archived ?? false;
+  const published = state.published ?? true;
+  const isLive = state.isLive ?? true;
   const data = buildPublishedSectionData(snapshot(), { slug: MODAL_SLUG });
   const bySection: SectionWarningRecord = {};
   const modal = React.createElement(PublishedReviewModal, {
@@ -209,11 +225,11 @@ export function modalElement(alertCount: number = HARNESS_ALERT_COUNT): React.Re
     slug: MODAL_SLUG,
     showId: SHOW_ID,
     title: MODAL_TITLE,
-    archived: false,
-    published: true,
+    archived,
+    published,
     finalizeOwned: false,
     setPublished: NOOP_OK,
-    isLive: true,
+    isLive,
     lastSyncedAt: "2026-05-02T12:00:00.000Z",
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
@@ -247,8 +263,11 @@ export function modalElement(alertCount: number = HARNESS_ALERT_COUNT): React.Re
 }
 
 /** The open modal rendered to static markup (fixed overlay — no page shell). */
-export function renderModalHtml(alertCount: number = HARNESS_ALERT_COUNT): string {
-  return renderToStaticMarkup(modalElement(alertCount));
+export function renderModalHtml(
+  alertCount: number = HARNESS_ALERT_COUNT,
+  state: HarnessStateOverrides = {},
+): string {
+  return renderToStaticMarkup(modalElement(alertCount, state));
 }
 
 /* Direct-execution entry: `tsx` runs THIS file (real JSX transform, `@/` paths)
@@ -266,6 +285,17 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       normal: renderModalHtml(),
       // §6.6 cap page — same tree, an over-cap alert count (T-ALERT-CAP).
       capped: renderModalHtml(HARNESS_CAPPED_ALERT_COUNT),
+      // §4.2 orange-budget pages (T-NO-ORANGE). `normal` already covers the
+      // {publish toggle, live dot} row; these two cover the other two rows.
+      notLive: renderModalHtml(HARNESS_ALERT_COUNT, { isLive: false }),
+      // Archived is the STRONGEST row — expected set is EMPTY (no toggle, no
+      // live dot, no Re-sync trigger), so it is the only state that proves the
+      // probe measures rather than matches a hardcoded expectation.
+      archived: renderModalHtml(HARNESS_ALERT_COUNT, {
+        archived: true,
+        isLive: false,
+        published: false,
+      }),
     }),
   );
 }

@@ -174,14 +174,19 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   // ─── app/help/admin/per-show-panel/page.mdx ───
   // Per Phase I R13 + user direction: the previous "Action required" card
   // title was a phantom (shipped StagedReviewCard has no such literal
-  // heading; eyebrow is the source-kind label). "Re-sync now" was the
-  // wrong literal — shipped ReSyncButton.tsx:99 renders "Re-sync from Drive".
-  // MDX rewritten to describe shipped behaviour; exemption entries for the
-  // phantoms removed.
+  // heading; eyebrow is the source-kind label). MDX rewritten to describe
+  // shipped behaviour; exemption entries for the phantoms removed.
+  //
+  // The literal was "Re-sync from Drive" until modal-header-reconciliation
+  // §6.7 moved the control into the horizontal status strip and shortened the
+  // idle label to "Re-sync" (the pending label stays "Syncing…"). The old note
+  // cited ReSyncButton.tsx:99, which was already stale — the literal lived at
+  // :150. It is now the IDLE_LABEL constant, so this row is pinned to a named
+  // constant rather than a line number that drifts on every edit.
   {
-    label: "Re-sync from Drive",
+    label: "Re-sync",
     file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Per-show manual-sync button — components/admin/ReSyncButton.tsx:99.",
+    note: "Per-show manual-sync button — components/admin/ReSyncButton.tsx IDLE_LABEL.",
   },
   // (The "Auto sync / Drive push / Manual sync / Onboarding scan" source-kind
   // eyebrow labels were declared here when the per-show panel documented a

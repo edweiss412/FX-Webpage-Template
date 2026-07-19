@@ -238,6 +238,48 @@ describe("StatusStrip", () => {
     });
   });
 
+  // T-RESYNC-MOVED / T-RESYNC-ARCHIVED, strip half (modal-header-reconciliation
+  // §4.3 ratified amendment — the strip's action budget becomes 3). The Overview
+  // half (no duplicate there) lives in overviewSection.test.tsx; both halves are
+  // required, because "exactly one Re-sync" is what the amendment actually says.
+  describe("Re-sync moved into the strip (§4.3 / §6.7)", () => {
+    it("T-RESYNC-MOVED: the strip renders the Re-sync trigger, mounted with NO wrapper element", () => {
+      renderStrip();
+      const strip = screen.getByTestId("show-status-strip");
+      const trigger = screen.getByTestId("admin-resync-button");
+      // Failure mode: a `<div data-testid="strip-resync">` wrapper becomes the
+      // flex item, so the row gap and `items-center` apply to the wrapper and
+      // the absolute panels lose the band's full width — while every focus and
+      // order test still passes. The trigger must be a DIRECT strip child.
+      expect(trigger.parentElement, "Re-sync is a bare strip row item").toBe(strip);
+      expect(screen.getAllByTestId("admin-resync-button")).toHaveLength(1);
+    });
+
+    it("DOM order is normative: Re-sync precedes the copy-link (§10 confirm-proximity)", () => {
+      // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
+      // still LOOKS correct while producing the tab order toggle → Copy →
+      // Re-sync → confirm controls. This is an a11y contract, not a visual one.
+      renderStrip();
+      const kids = Array.from(screen.getByTestId("show-status-strip").children);
+      const resyncIdx = kids.indexOf(screen.getByTestId("admin-resync-button"));
+      const copyIdx = kids.indexOf(screen.getByTestId("strip-copy-link"));
+      expect(resyncIdx).toBeGreaterThanOrEqual(0);
+      expect(copyIdx).toBeGreaterThan(resyncIdx);
+    });
+
+    it("T-RESYNC-ARCHIVED: an archived show gets NO Re-sync trigger (it mutates via /api/admin/sync)", () => {
+      renderStrip({ archived: true });
+      expect(screen.queryByTestId("admin-resync-button")).toBeNull();
+    });
+
+    it("an unpublished (held) show keeps Re-sync — only `archived` gates it", () => {
+      // Anti-tautology: gating on `published` instead of `archived` would pass
+      // the archived case above for the wrong reason.
+      renderStrip({ published: false });
+      expect(screen.getByTestId("admin-resync-button")).toBeTruthy();
+    });
+  });
+
   describe("archived (read-only)", () => {
     it("shows the archived badge and hides the toggle, copy-link, and live badge", () => {
       renderStrip({ archived: true, published: false, isLive: true }, { token: "TOK" });

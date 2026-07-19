@@ -46,10 +46,19 @@ const ATOM_FILE = "components/shared/AccentButton.tsx";
 // The call sites migrated by M5-D7. ResolveAlertButton carries TWO accent
 // buttons (idle Resolve + confirm) — one file, both swapped. (ResumeFinalizeButton
 // was in this list until the Step-3 consolidation retired it — spec §4.5.)
+//
+// DE-MIGRATED: "ReSyncButton.tsx". modal-header-reconciliation §6.7 moved the
+// Re-sync trigger into the control strip and DEMOTED it from accent to ghost —
+// a deliberate design decision, not re-inlined chrome: §4.2's orange budget
+// makes the publish toggle the only orange CONTROL, so a second accent button
+// beside it in the same band is the defect. The file no longer imports
+// AccentButton, so sub-scan 2 would hard-fail on a stale row. Sub-scan 1 (no
+// hand-rolled accent composition) is NOT weakened by this removal — the ghost
+// trigger pairs no accent fill with any accent foreground, and the repo-wide
+// bg-accent inventory still covers the file.
 const MIGRATED_FILES = [
   "ResolveAlertButton.tsx",
   "PendingPanelRetryButton.tsx",
-  "ReSyncButton.tsx",
   "RunFinalCASButton.tsx",
   "FinalizeButton.tsx",
   "StagedReviewCard.tsx",

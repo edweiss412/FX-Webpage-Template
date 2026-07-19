@@ -17,15 +17,61 @@
  * successful sync ends with router.refresh() so the parse panel reads
  * fresh `pending_syncs` rows on the next render.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { AccentButton } from "@/components/shared/AccentButton";
 
 export type ReSyncButtonProps = {
   slug: string;
 };
+
+// ── modal-header-reconciliation §6.7: the strip is this component's ONLY
+// consumer ───────────────────────────────────────────────────────────────────
+//
+// There is deliberately no `surface` mode prop. The two former render sites
+// (OverviewSection) are both removed by §4.3's ratified amendment, so a "flow"
+// arm would be dead on arrival — unreachable API, untestable branch. Everything
+// below (fragment root, absolute panels, dismiss controls) is simply what this
+// component IS now, not one mode of two.
+
+/** Labels (§6.7). The idle label shortened from "Re-sync from Drive" when the
+ *  control moved into the horizontal strip; the help-label registry row moved
+ *  with it (tests/help/_uiLabelExceptions.ts). */
+const IDLE_LABEL = "Re-sync";
+const PENDING_LABEL = "Syncing…";
+
+/**
+ * All THREE result surfaces anchor to the BAND, not the strip: the component's
+ * root is a fragment, so it generates no box and these resolve their containing
+ * block to the nearest positioned ancestor — the subheader band (`relative`,
+ * ReviewModalShell.tsx), which is what gives them full-band width. The strip
+ * root deliberately has no `relative` for exactly this reason.
+ *
+ * `z-50` vs the publish popover's `z-40` (PublishedToggle.tsx) is a RULE, not a
+ * default: both anchor to the same band and are independently triggerable, and
+ * an unspecified z-index can leave the shrink confirm rendered UNDERNEATH the
+ * popover while focus sits on "Keep current version" — reachable but obscured,
+ * defeating the WCAG 2.4.3 intent the focus management exists for.
+ *
+ * The panels reserve no layout space by design (an in-flow panel would reflow
+ * the band and shove the body down mid-action). The height cap + internal
+ * scroll are what keep that from becoming an obscured-content bug.
+ *
+ * NO `mt-*`: the panel ABUTS the band's bottom edge, so it reads as attached to
+ * the strip rather than floating free over the rail. (PublishedToggle's popover
+ * carries `mt-1`; that gap is wrong here, and T-OVERLAY pins the abut to within
+ * 1px.)
+ */
+const OVERLAY_PANEL =
+  "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile";
+
+/** A real interactive control, not a glyph: 44px floor + a visible focus ring.
+ *  Its accessible name is always branch-specific ("Dismiss sync error" /
+ *  "Dismiss sync result") — a bare "Dismiss" is ambiguous once two overlay
+ *  types exist. */
+const DISMISS_BUTTON =
+  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg";
 
 // Friendly summary of `runManualSyncForShow`'s ProcessOneFileResult shapes
 // (handoff §0 Pin-stop 2 contract). Plain-language so Doug doesn't read
@@ -80,6 +126,10 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   // handler focuses the still-mounted re-sync trigger FIRST, then dismisses.
   // No auto-revert exists (persistent panel), so no two-phase guard is needed.
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Names for the two dismissable panels' role="group" wrappers, pointing at
+  // the message node that also carries the live-region role.
+  const errorMsgId = useId();
+  const successMsgId = useId();
   useEffect(() => {
     if (heldShrink && !errorCode) keepCurrentRef.current?.focus();
   }, [heldShrink, errorCode]);
@@ -134,36 +184,86 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <AccentButton
+    <>
+      {/* Ghost, NOT accent (§6.7). This is a DEMOTION, not a reskin: moving the
+          old <AccentButton> into the strip unchanged would put a second orange
+          beside the publish toggle and contradict delta 4's orange budget
+          (§4.2). AccentButton supplied `ref` / `disabled` / `aria-busy` /
+          `data-testid` through props — each is restated here, because a raw
+          <button> drops them silently and a trigger that merely LOOKS right is
+          still clickable mid-flight and able to double-POST.
+          `minWidthTap` → explicit min-h/min-w-tap-min (the mock's ~30px box is
+          below the 44px floor); `ringOffset="bg"` → the band's surface;
+          `selfStart` is DROPPED — correct for Overview's flex-col, wrong in a
+          centered row. */}
+      <button
         ref={triggerRef}
+        type="button"
         onClick={() => post()}
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
-        fontWeight="medium"
-        inline
-        selfStart
-        minWidthTap
-        ringOffset="bg"
+        className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? "Syncing…" : "Re-sync from Drive"}
-      </AccentButton>
+        {/* Width reservation (§8, T-RESYNC-WIDTH). The trigger sits between the
+            status line and an `ml-auto` Copy, so a naive label swap reflows the
+            strip mid-action and slides Copy under the user's cursor. Both
+            labels occupy the SAME grid cell, so the cell is always as wide as
+            the wider of the two — no hardcoded min-w to drift when copy
+            changes. The inactive label is aria-hidden AND `invisible`, so it
+            contributes width but never reaches the accessible name. */}
+        <span className="grid place-items-center">
+          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap">
+            {pending ? IDLE_LABEL : PENDING_LABEL}
+          </span>
+          <span className="col-start-1 row-start-1 whitespace-nowrap">
+            {pending ? PENDING_LABEL : IDLE_LABEL}
+          </span>
+        </span>
+      </button>
       {errorCode ? (
+        // role="alert" MOVED from this container to the message node below.
+        // Adding the dismiss button puts a focusable control inside what used
+        // to be the live region, which would announce the control as part of
+        // the alert. role="group" is REQUIRED, not optional: aria-labelledby on
+        // a bare <div> names it but gives assistive tech no role to attach the
+        // name to, so it is not obliged to announce a named region.
         <div
-          role="alert"
+          role="group"
+          aria-labelledby={errorMsgId}
           data-testid="admin-resync-error"
-          className="rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
+          className={`${OVERLAY_PANEL} flex items-start gap-2 border-border-strong bg-warning-bg text-warning-text`}
         >
-          <ErrorExplainer code={errorCode} surface="admin" />
-          <HelpAffordance code={errorCode} />
+          <div id={errorMsgId} role="alert" className="min-w-0 grow">
+            <ErrorExplainer code={errorCode} surface="admin" />
+            <HelpAffordance code={errorCode} />
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss sync error"
+            data-testid="admin-resync-error-dismiss"
+            onClick={() => {
+              // Focus the still-mounted trigger BEFORE unmounting the panel
+              // that holds the focused control (the C5 idiom, as on cancel).
+              triggerRef.current?.focus();
+              setErrorCode(null);
+            }}
+            className={DISMISS_BUTTON}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
       ) : null}
       {heldShrink && !errorCode ? (
         <div
           role="status"
           data-testid="admin-resync-shrink-confirm"
-          className="flex flex-col gap-2 rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
+          // Watchpoint 9: NO neutral dismiss and NO outside-click-to-close.
+          // This is not a notification, it is a pending decision about the
+          // show's data; a neutral X would create a third, ambiguous outcome
+          // ("I closed it — did it apply?"). "Keep current version" IS the safe
+          // exit, which is why focus lands there on open.
+          className={`${OVERLAY_PANEL} flex flex-col gap-2 border-border-strong bg-warning-bg text-warning-text`}
         >
           <p className="text-sm">
             This re-sync would reduce the show: {heldShrink.detail}. The last confirmed version is
@@ -202,14 +302,36 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         </div>
       ) : null}
       {successMessage && !errorCode ? (
-        <p
-          role="status"
+        // Success does NOT self-clear — `successMessage` is set above and
+        // cleared only at the start of the NEXT post(); there is no timer, and
+        // router.refresh() refreshes server data without touching local state.
+        // In flow inside Overview that was tolerable; floating over the rail it
+        // is not, so this branch gains an explicit dismiss. Same role split as
+        // the error branch: the live region is the message node, never the
+        // container that also holds the focusable control.
+        <div
+          role="group"
+          aria-labelledby={successMsgId}
           data-testid="admin-resync-success"
-          className="rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong"
+          className={`${OVERLAY_PANEL} flex items-start gap-2 border-border bg-info-bg text-text-strong`}
         >
-          {successMessage}
-        </p>
+          <p id={successMsgId} role="status" className="min-w-0 grow text-sm">
+            {successMessage}
+          </p>
+          <button
+            type="button"
+            aria-label="Dismiss sync result"
+            data-testid="admin-resync-success-dismiss"
+            onClick={() => {
+              triggerRef.current?.focus();
+              setSuccessMessage(null);
+            }}
+            className={DISMISS_BUTTON}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }

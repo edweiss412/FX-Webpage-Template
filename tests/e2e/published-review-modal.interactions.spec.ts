@@ -517,6 +517,289 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     );
   });
 
+  // ── Re-sync overlay (modal-header-reconciliation §6.7 / §10, Task 7) ───────
+  //
+  // These live HERE, not in published-review-modal.layout.spec.ts, because that
+  // spec's harness is `renderToStaticMarkup` — inert markup with no React state,
+  // so a pending trigger, an open overlay, and a focus-managed confirm cannot
+  // exist in it at all. Everything below needs the live component; the static
+  // spec keeps the assertions that are true of the idle tree (T-NO-ORANGE,
+  // T-CONTRAST, T-TAP on the trigger).
+  //
+  // /api/admin/sync is intercepted rather than exercised: the three result
+  // branches (shrink-hold, error, success) are server states this seed cannot
+  // reach on demand, and the subject under test is the OVERLAY, not the route.
+
+  const RESYNC = '[data-testid="admin-resync-button"]';
+  const SUBHEADER = `[data-testid="${BASE}-subheader"]`;
+  /** Deliberately long so the shrink panel genuinely overflows its cap — a
+   *  short payload makes "internal scroll" vacuous. Sized generously on
+   *  purpose: the panel spans the FULL BAND WIDTH (~1200px at the popup
+   *  viewport), so a few hundred characters wrap into only two or three lines
+   *  and fit inside the cap. 40 rows measured 279px against a 320px cap. */
+  const LONG_DETAIL = Array.from(
+    { length: 300 },
+    (_, i) => `crew row ${i + 1} would be dropped from the roster`,
+  ).join("; ");
+
+  type SyncBody = { ok: boolean; error?: string; result?: unknown };
+
+  async function stubSync(page: Page, body: SyncBody, opts: { delayMs?: number } = {}) {
+    await page.route("**/api/admin/sync/**", async (route) => {
+      if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    });
+  }
+
+  const SHRINK_BODY: SyncBody = {
+    ok: true,
+    result: { outcome: "shrink_held", detail: LONG_DETAIL, heldModifiedTime: "T1" },
+  };
+
+  /** Rect of every element the overlay must not disturb (§6.7: the panels
+   *  reserve NO layout space, which is the entire point of the relocation). */
+  async function bandAndBodyRects(page: Page) {
+    return page.evaluate((subSel) => {
+      const band = document.querySelector(subSel)!;
+      const body = band.nextElementSibling!;
+      const r = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return { top: b.top, height: b.height };
+      };
+      return { band: r(band), body: r(body) };
+    }, SUBHEADER);
+  }
+
+  test("T-OVERLAY: the shrink confirm anchors to the BAND and its focused control is genuinely topmost", async ({
+    page,
+  }) => {
+    await stubSync(page, SHRINK_BODY);
+    await openModal(page, POPUP);
+    await page.locator(RESYNC).click();
+
+    const confirm = page.locator('[data-testid="admin-resync-shrink-confirm"]');
+    await expect(confirm).toBeVisible();
+    const keep = page.locator('[data-testid="admin-resync-keep-current"]');
+    await expect(keep).toBeFocused();
+
+    // Geometry, NOT offsetParent (§6.7): offsetParent is sensitive to
+    // transforms and hidden states, so it false-reds on correct placement and
+    // couples the assertion to layout internals. Edges are what the user sees.
+    const geom = await page.evaluate((subSel) => {
+      const band = document.querySelector(subSel)!.getBoundingClientRect();
+      const panel = document
+        .querySelector('[data-testid="admin-resync-shrink-confirm"]')!
+        .getBoundingClientRect();
+      return { band, panel: { left: panel.left, right: panel.right, top: panel.top } };
+    }, SUBHEADER);
+    expect(
+      Math.abs(geom.panel.left - geom.band.left),
+      "panel left edge == band left",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(geom.panel.right - geom.band.right),
+      "panel right edge == band right",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(geom.panel.top - geom.band.bottom),
+      "panel top sits at the band's bottom (top-full)",
+    ).toBeLessThanOrEqual(1);
+
+    // TOPMOST, not merely focused. A test asserting only toHaveFocus() passes
+    // while the control is completely covered — which is exactly the WCAG 2.4.3
+    // failure the focus management exists to prevent.
+    const topmost = async () =>
+      keep.evaluate((el) => {
+        const b = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return hit !== null && (hit === el || el.contains(hit));
+      });
+    expect(await topmost(), "focused safe control is the topmost element at its center").toBe(true);
+
+    // The publish popover (z-40, PublishedToggle.tsx) is ERROR-ONLY and a
+    // healthy seeded show cannot open it on demand — so a DECOY carrying the
+    // popover's exact anchoring + z-index stands in for it. This pins the
+    // stacking RULE (§6.7: the Re-sync overlay renders ABOVE the popover),
+    // which is what an unspecified `z-*` would silently break.
+    await page.evaluate((subSel) => {
+      const decoy = document.createElement("div");
+      decoy.id = "popover-decoy";
+      decoy.className = "absolute inset-x-0 top-full z-40";
+      decoy.style.height = "400px";
+      decoy.style.background = "red";
+      document.querySelector(subSel)!.appendChild(decoy);
+    }, SUBHEADER);
+    await expect(keep, "focus is unchanged by the decoy").toBeFocused();
+    expect(
+      await topmost(),
+      "the confirm still wins over a z-40 band-anchored overlay (the publish popover's layer)",
+    ).toBe(true);
+  });
+
+  for (const branch of ["shrink", "error", "success"] as const) {
+    test(`T-OVERLAY-BOUNDS [${branch}]: the panel caps its height and scrolls internally; the band and body never reflow`, async ({
+      page,
+    }) => {
+      const bodies: Record<typeof branch, SyncBody> = {
+        shrink: SHRINK_BODY,
+        // The ERROR branch is likeliest to overflow — it renders ErrorExplainer
+        // PLUS HelpAffordance.
+        error: { ok: false, error: "SYNC_INFRA_ERROR" },
+        success: { ok: true, result: { outcome: "stage" } },
+      };
+      const testids: Record<typeof branch, string> = {
+        shrink: "admin-resync-shrink-confirm",
+        error: "admin-resync-error",
+        success: "admin-resync-success",
+      };
+      await stubSync(page, bodies[branch]);
+      await openModal(page, POPUP);
+
+      const before = await bandAndBodyRects(page);
+      await page.locator(RESYNC).click();
+      const panel = page.locator(`[data-testid="${testids[branch]}"]`);
+      await expect(panel).toBeVisible();
+
+      const box = await panel.evaluate((el) => ({
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        overflowY: getComputedStyle(el).overflowY,
+        position: getComputedStyle(el).position,
+      }));
+      const cap = Math.min(page.viewportSize()!.height * 0.5, 320);
+      expect(box.position, "panel is out of flow").toBe("absolute");
+      expect(box.overflowY, "long copy scrolls inside the panel, not over the rail").toBe("auto");
+      expect(
+        box.clientHeight,
+        `panel height ${box.clientHeight} <= cap ${cap}`,
+      ).toBeLessThanOrEqual(cap + TOL);
+
+      const after = await bandAndBodyRects(page);
+      expect(after.band, "band does not reflow when the overlay opens").toEqual(before.band);
+      expect(after.body, "body does not reflow when the overlay opens").toEqual(before.body);
+
+      if (branch === "shrink") {
+        // Non-vacuity for the cap: the 40-row detail genuinely exceeds it, so
+        // "capped + scrollable" is measured rather than assumed.
+        expect(
+          box.scrollHeight,
+          "the long-detail fixture genuinely overflows the cap",
+        ).toBeGreaterThan(box.clientHeight);
+      }
+    });
+  }
+
+  test("T-RESYNC-WIDTH: the trigger's box is identical idle and pending (the label swap cannot reflow the strip)", async ({
+    page,
+  }) => {
+    // Failure mode: "Re-sync" → "Syncing…" widens the trigger mid-action and
+    // slides the ml-auto Copy button under the user's cursor.
+    await stubSync(page, { ok: true, result: { outcome: "skipped" } }, { delayMs: 3000 });
+    await openModal(page, POPUP);
+
+    const trigger = page.locator(RESYNC);
+    const idle = await trigger.evaluate((el) => el.getBoundingClientRect().width);
+    await trigger.click();
+    await expect(trigger).toBeDisabled();
+    const pending = await trigger.evaluate((el) => el.getBoundingClientRect().width);
+
+    // Non-vacuity: if the labels never swapped, the widths would match for the
+    // wrong reason.
+    await expect(trigger).toHaveAccessibleName("Syncing…");
+    expect(Math.abs(pending - idle), `idle ${idle} === pending ${pending}`).toBeLessThanOrEqual(
+      TOL,
+    );
+  });
+
+  test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → copy, in DOM order", async ({ page }) => {
+    await openModal(page, POPUP);
+    // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
+    // still LOOKS correct while producing toggle → Copy → Re-sync. §10 makes
+    // DOM order the contract precisely because tab order follows it.
+    const order = await page.evaluate((subSel) => {
+      const band = document.querySelector(subSel)!;
+      const focusables = Array.from(
+        band.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
+      );
+      return focusables.map((el) => el.getAttribute("data-testid"));
+    }, SUBHEADER);
+    const resync = order.indexOf("admin-resync-button");
+    const copy = order.indexOf("admin-current-share-link-copy-button");
+    const toggle = order.findIndex((t) => t !== null && t.startsWith("published-toggle"));
+    expect(resync, "Re-sync is focusable in the band").toBeGreaterThanOrEqual(0);
+    expect(copy, "copy is focusable in the band").toBeGreaterThan(resync);
+    expect(toggle, "the publish toggle precedes Re-sync").toBeGreaterThanOrEqual(0);
+    expect(resync).toBeGreaterThan(toggle);
+  });
+
+  for (const branch of ["shrink", "error", "success"] as const) {
+    test(`T-RESYNC-FOCUS-ORDER (open, ${branch}): the overlay's controls sit BETWEEN Re-sync and Copy`, async ({
+      page,
+    }) => {
+      // A dismiss button reachable by query but sitting AFTER Copy satisfies a
+      // click-based test while breaking the confirm-proximity contract (§10).
+      // Never satisfy the closed-state order by hoisting the overlay past Copy.
+      const bodies: Record<typeof branch, SyncBody> = {
+        shrink: SHRINK_BODY,
+        error: { ok: false, error: "SYNC_INFRA_ERROR" },
+        success: { ok: true, result: { outcome: "stage" } },
+      };
+      const expected: Record<typeof branch, string[]> = {
+        shrink: ["admin-resync-keep-current", "admin-resync-accept"],
+        error: ["admin-resync-error-dismiss"],
+        success: ["admin-resync-success-dismiss"],
+      };
+      await stubSync(page, bodies[branch]);
+      await openModal(page, POPUP);
+      await page.locator(RESYNC).click();
+      await expect(page.locator(`[data-testid="${expected[branch][0]}"]`)).toBeVisible();
+
+      const order = await page.evaluate((subSel) => {
+        const band = document.querySelector(subSel)!;
+        return Array.from(band.querySelectorAll<HTMLElement>("a[href], button"))
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => el.getAttribute("data-testid"));
+      }, SUBHEADER);
+
+      const resync = order.indexOf("admin-resync-button");
+      const copy = order.indexOf("admin-current-share-link-copy-button");
+      expect(resync, "Re-sync present").toBeGreaterThanOrEqual(0);
+      expect(copy, "Copy present").toBeGreaterThanOrEqual(0);
+      for (const id of expected[branch]) {
+        const idx = order.indexOf(id);
+        expect(idx, `${id} present in the band`).toBeGreaterThanOrEqual(0);
+        expect(idx, `${id} follows Re-sync`).toBeGreaterThan(resync);
+        expect(idx, `${id} precedes Copy`).toBeLessThan(copy);
+      }
+    });
+  }
+
+  for (const branch of ["error", "success"] as const) {
+    test(`T-TAP (${branch} dismiss): the dismiss control's own box clears 44px`, async ({
+      page,
+    }) => {
+      // Unlike the alert pill, these are real boxes — no ::before hit-area
+      // idiom — so a rect measurement is the correct probe.
+      await stubSync(
+        page,
+        branch === "error"
+          ? { ok: false, error: "SYNC_INFRA_ERROR" }
+          : { ok: true, result: { outcome: "stage" } },
+      );
+      await openModal(page, POPUP);
+      await page.locator(RESYNC).click();
+      const dismiss = page.locator(`[data-testid="admin-resync-${branch}-dismiss"]`);
+      await expect(dismiss).toBeVisible();
+      const box = await dismiss.evaluate((el) => el.getBoundingClientRect());
+      expect(box.height, `${branch} dismiss height`).toBeGreaterThanOrEqual(44 - TOL);
+      expect(box.width, `${branch} dismiss width`).toBeGreaterThanOrEqual(44 - TOL);
+    });
+  }
+
   // TOL is referenced by the panel-geometry sanity below; keep the constant
   // local to this file's measurement idiom.
   test("sheet mode sanity: full-bleed sheet panel at 390 (drag surface is real)", async ({

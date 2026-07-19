@@ -131,7 +131,7 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7
   // brings it back to 7 when the Re-sync slot lands. Verified by RUNNING the
   // scanner, not by reasoning.
-  "components/admin/showpage/StatusStrip.tsx": 6, // archived / control-divider / live / sync / edited / copy-link
+  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / re-sync / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure

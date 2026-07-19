@@ -4,9 +4,14 @@
  * components/admin/showpage/StatusStrip.tsx (consolidated-admin-show-page spec §4/§6/§11)
  *
  * The slim, pinned status strip that stays under the admin nav while the rail sections
- * scroll. DISPLAY + 2 actions max — the publish toggle and the copy-link; everything else
- * (share panel, resync, archive/unarchive, alert detail) lives in the Overview rail section
- * (spec §4 last line; mock README delta 5 — Unarchive is NOT a strip control).
+ * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the copy-link.
+ *
+ * The budget was 2 (toggle + copy-link, "everything else lives in Overview") until
+ * modal-header-reconciliation §4.3, a RATIFIED amendment: Re-sync moves here, and
+ * duplicating the control across the strip and Overview was explicitly rejected —
+ * there is exactly ONE Re-sync. Share panel, archive/unarchive and alert detail
+ * still live in the Overview rail section (mock README delta 5 — Unarchive is NOT
+ * a strip control).
  *
  * All data arrives as plain props (the page shell wires it); this component fetches nothing
  * and defines no server actions. The publish toggle carries its own bound action through
@@ -16,10 +21,11 @@
  * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
  *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · copy-link (published + token only). The alert badge
- *                               MOVED to the modal header (modal-header-reconciliation §6.6).
+ *                               · Re-sync · copy-link (published + token only). The alert
+ *                               badge MOVED to the modal header (§6.6).
  *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
- *                               no copy-link, no live badge — zero mutating affordances.
+ *                               no copy-link, no live badge, no Re-sync — zero mutating
+ *                               affordances.
  *
  * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
  * (last successful Drive reach) for `ok`; the muted "Edited {rel}" shows the last-EDITED
@@ -49,6 +55,7 @@
  */
 
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
+import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { syncStatusBucket, showsEditedClause } from "@/lib/admin/syncStatus";
@@ -214,6 +221,39 @@ export function StatusStrip({
           it to the modal header as `published-show-review-alert-pill`. Do not
           re-add it: rendered in both places, the count reads as two different
           numbers the moment one of them lags. */}
+
+      {/* Re-sync (modal-header-reconciliation §4.3 — a RATIFIED amendment to
+          the "2 actions max" rule quoted at the top of this file; the budget is
+          now 3). Mounted as a BARE element: a wrapper <div> would become the
+          flex item, so `items-center` and the row gap would apply to the
+          wrapper rather than the button, and the component's absolute result
+          panels would lose the band's full width — while every focus and order
+          test still passed. The trigger carries its own
+          `data-testid="admin-resync-button"`; query that.
+
+          DOM order is normative, not merely visual: Copy is right-flushed by
+          `ml-auto`, so Copy-then-Re-sync would still LOOK right while producing
+          the tab order toggle → Copy → Re-sync → confirm controls, breaking
+          §10's confirm-proximity contract.
+
+          Archived shows get NO trigger — Re-sync mutates via /api/admin/sync,
+          which an archived show must not reach. Overview keeps the "paused
+          while archived" notice so the reason is still stated (§6.7).
+
+          Counted form: the MULTI-LINE `{!archived ? (` head is what §9's lexical
+          scanner sees. Both `{archived ? null : …}` AND the one-line
+          `{!archived ? <ReSyncButton …/>}` render identically but are INVISIBLE
+          to the pin — the one-line regex requires a LETTER immediately after
+          `{`, which `!archived` does not supply. Verified by running the scan:
+          the one-line form left the count at 6. This mount keeps its
+          fails-by-default protection only in the form below — and Prettier
+          collapses the parenthesized form back to one line unless something
+          inside it forces a break, which is what the inner comment is for. */}
+      {!archived ? (
+        // Gated on `archived` ALONE: an unpublished (held) show is still
+        // syncable — only archived is read-only.
+        <ReSyncButton slug={slug} />
+      ) : null}
 
       {copyUrl != null ? (
         <div data-testid="strip-copy-link" className="ml-auto shrink-0">

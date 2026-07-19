@@ -212,7 +212,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       : {}),
     render: () => (
       <OverviewSection
-        slug={slug}
         showId={showId}
         archived={archived}
         published={published}
