@@ -141,7 +141,23 @@ export function StatusStrip({
   return (
     <div
       data-testid="show-status-strip"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
+      // Full band width is what makes right-flush reachable (§8): `ml-auto` on
+      // the copy button only reaches the band's content edge if this row spans
+      // it. VERIFIED by measurement — swapping `w-full` for `w-fit` fails
+      // T-COPY-FLUSH by ~470px at 1280 (published-review-modal.layout.spec.ts).
+      //
+      // Honest note: `w-full` is DEFENSIVE, not load-bearing today. The band is
+      // a block-level, non-flex container, so this block-level flex row already
+      // fills it; T-COPY-FLUSH passes with `w-full` removed. It is kept because
+      // the guarantee would evaporate the moment the band became a flex
+      // container — the strip would then shrink-wrap as a flex item (this
+      // repo's Tailwind v4 does not default `.flex` to align-items: stretch)
+      // and `ml-auto` would flush to the strip's own edge instead.
+      //
+      // Deliberately NO `relative` here — that would re-anchor the Task 7
+      // Re-sync overlay to the strip and break its `inset-x-0` full-band width.
+      // The band owns the positioned ancestor.
+      className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
     >
       {archived ? (
         <span

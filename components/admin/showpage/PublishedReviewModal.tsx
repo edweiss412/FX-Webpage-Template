@@ -7,11 +7,12 @@
  * chrome: the dashboard's `/admin?show=<slug>` modal. Header slot owns the
  * heading-safe `<h2>` title (the dialog's aria-labelledby target — ONLY the
  * title text; the sheet deep link is a separate adjacent 44px icon anchor, the
- * Step3ReviewModal pattern) plus the close button and, below the title row,
- * `<StatusStrip>` — which renders no title of its own and no container chrome
- * at all (modal-header-reconciliation §6.5), so the panel contains exactly one
- * title node and no h1, and the shell's own surface, seam and `px-tile-pad`
- * are never doubled. Body =
+ * Step3ReviewModal pattern) plus the close button. The control strip is NOT in
+ * the header: it mounts in the shell's `subHeader` band, its own seamed row
+ * below the header (modal-header-reconciliation §6.1) — identity above, live
+ * controls below. `<StatusStrip>` renders no title of its own and no container
+ * chrome at all (§6.5), so the panel contains exactly one title node and no h1,
+ * and the band's surface, seam and `px-tile-pad` are never doubled. Body =
  * `<ShowReviewSurface layout="modal" syncHash>` with the EXACT extras
  * composition `PublishedReviewPage` builds today (Overview first, Changes
  * last, per-section warning controls, raw-unrecognized bottom slot). NO
@@ -242,18 +243,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       testIdBase={TESTID_BASE}
       initialFocusRef={closeRef}
       header={
-        // gap-3 (not gap-2): since #480 the strip carries no vertical padding of
-        // its own inside this header, so this gap is the WHOLE separation budget
-        // between the title row and the control row. It has to step above the
-        // strip's own 8px wrapped-row gap or the two groups read as one stack
-        // (DESIGN.md §3.1 — vary spacing for rhythm). Pinned by the "header
-        // rhythm" assertion in published-review-modal.layout.spec.ts.
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex items-start gap-3">
+        // TWO children, no outer flex-column wrapper (modal-header-reconciliation
+        // §6.2): the control strip has moved out to the `subHeader` band, so
+        // there is no second row left inside the header for a column to space.
+        // The shell's <header> is `flex items-start gap-3`, so these sit side by
+        // side — the text block flexes, the actions cluster stays shrink-0.
+        <>
+          <div className="min-w-0 flex-1">
             {/* Heading-safe title split (Step3 pattern): the h2 holds ONLY the
                 plain title (the dialog's accessible name); the deep link is a
                 separate adjacent 44px icon anchor. */}
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
               <h2 id={h2Id} data-testid={`${TESTID_BASE}-title`} className="min-w-0">
                 <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong">
                   {displayTitle}
@@ -273,6 +273,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 </a>
               ) : null}
             </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <button
               ref={closeRef}
               type="button"
@@ -284,24 +286,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               <X aria-hidden="true" className="size-5" />
             </button>
           </div>
-          {/* Below the title row: the strip — publish toggle, live badge, sync
-              age, alert badge, copy-link. It renders no title and no container
-              chrome of its own (modal-header-reconciliation §6.5): this header
-              supplies the surface, the seam and px-tile-pad. */}
-          <StatusStrip
-            slug={slug}
-            archived={archived}
-            published={published}
-            finalizeOwned={finalizeOwned}
-            setPublished={setPublished}
-            isLive={isLive}
-            lastSyncedAt={lastSyncedAt}
-            lastCheckedAt={lastCheckedAt}
-            lastSyncStatus={lastSyncStatus}
-            now={now}
-            alertCount={alertCount}
-          />
-        </div>
+        </>
+      }
+      // The control strip is its OWN band below the header seam
+      // (modal-header-reconciliation §6.1): identity above, live controls below.
+      subHeader={
+        <StatusStrip
+          slug={slug}
+          archived={archived}
+          published={published}
+          finalizeOwned={finalizeOwned}
+          setPublished={setPublished}
+          isLive={isLive}
+          lastSyncedAt={lastSyncedAt}
+          lastCheckedAt={lastCheckedAt}
+          lastSyncStatus={lastSyncStatus}
+          now={now}
+          alertCount={alertCount}
+        />
       }
     >
       {/* Body: the surface mounts DIRECTLY in the panel flex column (shell

@@ -19,20 +19,25 @@
  *      with `@source` pointing at the rendered modal so every class generates.
  *   3. serve harness.html over node:http; measure `getBoundingClientRect()`.
  *
- * Spec §6.6 equations asserted VERBATIM (±0.5px), at 375×812 (sheet) and
+ * T-LAYOUT — modal-header-reconciliation §6.1/§8 rewrites the §6.6 equations
+ * from TWO bands to THREE: the status strip has moved out of the header and
+ * into the shell's `subHeader` band, so the panel column is
+ * header + subheader + main. Asserted (±0.5px) at 375×812 (sheet) and
  * 1280×900 (popup/two-pane):
- *   - sheet (<sm):  grab.height + header.height + main.height === panel.clientHeight
- *   - ≥sm:          header.height + main.height === panel.clientHeight
+ *   - sheet (<sm):  grab + header + subheader + main === panel.clientHeight
+ *   - ≥sm:          header + subheader + main === panel.clientHeight
  *                   (grab hidden, and NO footer element exists — the published
  *                   modal omits the shell `footer` prop entirely)
  *   - "main" = ShowReviewSurface's root node
  *     (`wizard-step3-card-<dfid>-review-main`), scoped INSIDE the
  *     `published-show-review` modal container — it fills to the panel bottom.
  *
- * Concrete failure modes: a non-shrink-0 header (or a body without min-h-0
- * flex-1) breaks the sum (children overflow or leave slack in the panel); a
- * resurrected footer element breaks the no-footer term; a grab strip that
- * leaks into ≥sm breaks the popup equation.
+ * Concrete failure modes: a non-shrink-0 header or band (or a body without
+ * min-h-0 flex-1) breaks the sum (children overflow or leave slack in the
+ * panel); a resurrected footer element breaks the no-footer term; a grab strip
+ * that leaks into ≥sm breaks the popup equation; and a strip that was restyled
+ * IN PLACE rather than moved leaves the band absent, so the three-term sum
+ * cannot resolve at all.
  *
  * Measurements run under `prefers-reduced-motion: reduce` emulation:
  * app/globals.css collapses the [data-review-modal-panel] entrance animation
@@ -70,8 +75,8 @@ const PANEL = "[data-review-modal-panel]";
 const GRAB = `[data-testid="${BASE}-grab"]`;
 const HEADER = `[data-testid="${BASE}-header"]`;
 const FOOTER = `[data-testid="${BASE}-footer"]`;
-/** The StatusStrip's control row, scoped INSIDE the published modal. */
-const STRIP = `${MODAL} [data-testid="show-status-strip"]`;
+/** The subHeader band (modal-header-reconciliation §6.1) — the strip's new home. */
+const SUBHEADER = `[data-testid="${BASE}-subheader"]`;
 /** ShowReviewSurface root ("main" in the §6.6 equations), scoped INSIDE the
  *  published modal container — never a page-wide match. */
 const MAIN = `${MODAL} [data-testid="wizard-step3-card-${HARNESS_DFID}-review-main"]`;
@@ -165,8 +170,8 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   for (const { mode, width, height: vh } of MODES) {
     const isSheet = mode === "sheet";
 
-    test(`§6.6 ${mode} @ ${width}×${vh}: ${
-      isSheet ? "grab + header + main" : "header + main"
+    test(`T-LAYOUT ${mode} @ ${width}×${vh}: ${
+      isSheet ? "grab + header + subheader + main" : "header + subheader + main"
     } === panel.clientHeight (±0.5px)`, async ({ page }) => {
       await openHarness(page, { width, height: vh });
 
@@ -174,8 +179,14 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         .locator(PANEL)
         .evaluate((el) => (el as HTMLElement).clientHeight);
       const headerH = await heightOf(page, HEADER);
+      const subHeaderH = await heightOf(page, SUBHEADER);
       const mainH = await heightOf(page, MAIN);
       const grabH = await heightOf(page, GRAB);
+
+      // The band is a REAL term, not a 0px placeholder that would let the
+      // two-band equation keep passing under a three-band name.
+      expect(subHeaderH, `subheader band has real height @ ${mode}`).toBeGreaterThan(0);
+      await expect(page.locator(SUBHEADER), `exactly one band @ ${mode}`).toHaveCount(1);
 
       // Non-vacuity: the fixture's content pane genuinely overflows the capped
       // panel, so "main fills to the panel bottom" is a min-h-0/flex-1 pin —
@@ -192,12 +203,19 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         `content pane overflows its viewport @ ${mode} (equation is non-vacuous)`,
       ).toBeGreaterThan(mainScroll!.clientHeight);
 
-      const sum = headerH + mainH + (isSheet ? grabH : 0);
+      const sum = headerH + subHeaderH + mainH + (isSheet ? grabH : 0);
       expect(
         Math.abs(sum - panelClientHeight),
-        `${isSheet ? `grab ${grabH} + ` : ""}header ${headerH} + main ${mainH}` +
-          ` === panel.clientHeight ${panelClientHeight} @ ${mode}`,
+        `${isSheet ? `grab ${grabH} + ` : ""}header ${headerH} + subheader ${subHeaderH}` +
+          ` + main ${mainH} === panel.clientHeight ${panelClientHeight} @ ${mode}`,
       ).toBeLessThanOrEqual(TOL);
+
+      // No horizontal overflow at this viewport (§8): the band's row must wrap,
+      // never widen the panel.
+      const hOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      expect(hOverflow, `no document h-scroll @ ${mode}`).toBe(false);
 
       if (isSheet) {
         // The grab strip is real in sheet mode (visible, tap-sized) — its
@@ -217,43 +235,104 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
     });
 
-    // MODAL-STRIP-CHROME-1 follow-up: with the strip's own `py-2` gone (it wore
-    // page chrome inside the header until #480), the ONLY separation between
-    // the header's title row and the strip's control row is the header
-    // wrapper's flex-column gap. DESIGN.md §3.1 ("vary spacing for rhythm")
-    // wants the outer group gap to step ABOVE the inner row gap — with both at
-    // 8px the title block and the control rows read as one undifferentiated
-    // stack, worst at 375 where the strip itself wraps.
+    // T-COPY-FLUSH (modal-header-reconciliation §8). The copy button carries
+    // `ml-auto shrink-0` and ALWAYS did (StatusStrip.tsx) — this does NOT test
+    // that `ml-auto` is present. It tests that `ml-auto` resolves against a
+    // FULL-BAND-WIDTH row: the band is deliberately not a flex container, so
+    // without `w-full` on the strip root the strip shrink-wraps its content and
+    // the button flushes to the strip's own right edge, well short of the band.
     //
-    // Concrete failure modes caught: the wrapper reverts to `gap-2` (cascade
-    // flattens); or someone re-adds vertical chrome to the strip's modal arm
-    // (the gap would then double-count and the strip would grow its own inset
-    // back).
-    test(`header rhythm @ ${width}: title→strip gap steps above the strip's own row gap`, async ({
+    // Measured against the BAND'S CONTENT BOX, never the panel's: the band
+    // carries `px-tile-pad`, so a panel-relative assertion would be off by
+    // exactly that padding — and the tempting "fix" would be to delete the
+    // padding, which is the wrong repair.
+    test(`T-COPY-FLUSH @ ${width}: Copy's right edge sits at the band's content-box right edge`, async ({
       page,
     }) => {
       await openHarness(page, { width, height: vh });
 
-      const rhythm = await page.locator(STRIP).evaluate((strip) => {
-        const wrapper = strip.parentElement!;
-        const titleRow = wrapper.firstElementChild!;
-        const stripStyle = getComputedStyle(strip);
+      const flush = await page.locator(SUBHEADER).evaluate((band) => {
+        const copy = band.querySelector('[data-testid="strip-copy-link"]');
+        if (copy === null) return null;
+        const bandRect = band.getBoundingClientRect();
+        const padRight = parseFloat(getComputedStyle(band).paddingRight);
         return {
-          outerGap: strip.getBoundingClientRect().top - titleRow.getBoundingClientRect().bottom,
-          innerRowGap: parseFloat(stripStyle.rowGap),
-          stripPaddingTop: parseFloat(stripStyle.paddingTop),
-          stripPaddingBottom: parseFloat(stripStyle.paddingBottom),
+          contentRight: bandRect.right - padRight,
+          copyRight: copy.getBoundingClientRect().right,
+          padRight,
         };
       });
 
-      // The strip owns no vertical padding in the modal (#480) — so the gap is
-      // the whole separation budget, and this assertion is non-vacuous.
-      expect(rhythm.stripPaddingTop, `strip has no own top padding @ ${mode}`).toBe(0);
-      expect(rhythm.stripPaddingBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
+      // Anti-vacuity: a null here would silently skip the whole assertion, and
+      // the harness fixture is published + tokened precisely so the button exists.
       expect(
-        rhythm.outerGap,
-        `title→strip gap ${rhythm.outerGap} steps above the strip's own ${rhythm.innerRowGap}px row gap @ ${mode}`,
-      ).toBeGreaterThan(rhythm.innerRowGap);
+        flush,
+        "copy-link present in the band (fixture is published + tokened)",
+      ).not.toBeNull();
+      expect(
+        flush!.padRight,
+        "band carries px-tile-pad (assertion is not panel-relative)",
+      ).toBeGreaterThan(0);
+      expect(
+        Math.abs(flush!.copyRight - flush!.contentRight),
+        `copy right ${flush!.copyRight} === band content-box right ${flush!.contentRight} @ ${width}`,
+      ).toBeLessThanOrEqual(1);
+    });
+
+    // REWRITTEN, not deleted and not retuned (modal-header-reconciliation
+    // §6.1/§14.1). The old "header rhythm" test policed the gap between the
+    // title row and the strip INSIDE the header wrapper. That premise
+    // DISSOLVES with this change: they are now separate bands, so there is no
+    // intra-header gap between them to measure and no number to retune. The
+    // replacement pins what actually governs the seam now — that the header and
+    // the band are two distinct bordered bands stacked in the panel column, and
+    // that the strip's own row gap lives entirely inside the band.
+    //
+    // Concrete failure modes caught: the strip is restyled in place and the
+    // band never lands (band absent, or not a sibling directly below the
+    // header); the band loses its bottom seam so the panel reads as one
+    // undifferentiated block; the strip re-acquires vertical padding of its own
+    // and double-counts against the band's `py-2`.
+    test(`band composition @ ${width}: header and subheader are distinct stacked seams`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const comp = await page.locator(SUBHEADER).evaluate((band) => {
+        const panel = band.parentElement!;
+        const header = panel.querySelector('[data-testid$="-header"]')!;
+        const bandStyle = getComputedStyle(band);
+        const headerStyle = getComputedStyle(header);
+        const strip = band.querySelector('[data-testid="show-status-strip"]')!;
+        const stripStyle = getComputedStyle(strip);
+        const kids = Array.from(panel.children);
+        return {
+          bandFollowsHeader: kids.indexOf(band) === kids.indexOf(header) + 1,
+          headerBorderBottom: parseFloat(headerStyle.borderBottomWidth),
+          bandBorderBottom: parseFloat(bandStyle.borderBottomWidth),
+          gapBetween: band.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
+          bandPadTop: parseFloat(bandStyle.paddingTop),
+          bandPadBottom: parseFloat(bandStyle.paddingBottom),
+          stripPadTop: parseFloat(stripStyle.paddingTop),
+          stripPadBottom: parseFloat(stripStyle.paddingBottom),
+        };
+      });
+
+      expect(
+        comp.bandFollowsHeader,
+        `band is the panel child right after the header @ ${mode}`,
+      ).toBe(true);
+      expect(comp.headerBorderBottom, `header keeps its own seam @ ${mode}`).toBeGreaterThan(0);
+      expect(comp.bandBorderBottom, `band carries its own seam @ ${mode}`).toBeGreaterThan(0);
+      // Stacked, not spaced: the seams abut. A gap here would mean the band is
+      // not actually in the panel's flex column.
+      expect(Math.abs(comp.gapBetween), `header and band abut @ ${mode}`).toBeLessThanOrEqual(TOL);
+      // The band owns the vertical inset; the strip owns none, so the two can
+      // never double-count.
+      expect(comp.bandPadTop, `band supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
+      expect(comp.bandPadBottom, `band supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
+      expect(comp.stripPadTop, `strip has no own top padding @ ${mode}`).toBe(0);
+      expect(comp.stripPadBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
     });
   }
 });

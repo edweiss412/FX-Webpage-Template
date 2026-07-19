@@ -321,23 +321,52 @@ describe("PublishedReviewModal instant close (client hide before nav commit)", (
 // ── §6.1 body ─────────────────────────────────────────────────────────────────
 
 describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
-  it("StatusStrip renders inside the panel with the publish toggle present", () => {
+  // REWRITTEN, not retired (modal-header-reconciliation §6.1/§6.2, Task 3).
+  // "inside the panel" was satisfiable by the pre-change layout too — the strip
+  // lived in the shell's <header>. The intent (the strip is mounted and carries
+  // the toggle) survives; the location assertion is now specific enough to fail
+  // for the reason this task exists.
+  it("StatusStrip renders in the subHeader BAND — not in the header wrapper — with the toggle present", () => {
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const strip = within(panel).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
+
+    const band = screen.getByTestId(`${TB}-subheader`);
+    const header = screen.getByTestId(`${TB}-header`);
+    // BOTH directions. The positive alone passes for a COPY of the strip left
+    // behind in the header; the negative is what proves this was a MOVE.
+    expect(band.contains(strip)).toBe(true);
+    expect(header.contains(strip)).toBe(false);
   });
 
-  it("MODAL-STRIP-CHROME-1: the strip wears modal-header chrome — no second seam, shadow, sticky pin or padding inside the shell header", () => {
-    // The shell's <header> already owns the surface, the bottom border and
-    // px-tile-pad; the page strip's own border-b + shadow-tile would stack a
-    // doubled seam right above it, and px-4/sm:px-6 a doubled inset. Failure
-    // mode: the modal drops the `chrome` prop and silently regains page chrome.
+  // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
+  // bordered seam. `archived` removes the toggle, the copy-link and the live
+  // badge (StatusStrip.tsx), so the band's content is at its thinnest here — if
+  // the archived strip ever rendered nothing, the band would still paint its
+  // border and the panel would grow a hairline for no reason.
+  it("archived: the band still renders non-empty (archived badge), with no toggle, copy-link or live badge", () => {
+    renderModal({ archived: true, published: false, isLive: true });
+    const band = screen.getByTestId(`${TB}-subheader`);
+    const strip = within(band).getByTestId("show-status-strip");
+    expect(within(strip).getByTestId("strip-archived-badge").textContent).toMatch(/read-only/i);
+    expect(band.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+    expect(within(band).queryByTestId("strip-publish-toggle")).toBeNull();
+    expect(within(band).queryByTestId("strip-copy-link")).toBeNull();
+    expect(within(band).queryByTestId("strip-live-badge")).toBeNull();
+  });
+
+  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding inside the band", () => {
+    // The subHeader band already owns the surface, the bottom border and
+    // px-tile-pad (ReviewModalShell.tsx); a strip-level border-b + shadow-tile
+    // would stack a doubled seam right above it, and px-4/sm:px-6 a doubled
+    // inset. Failure mode: page chrome is re-added to the strip's single
+    // layout literal (modal-header-reconciliation §6.5).
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const classes = within(panel).getByTestId("show-status-strip").className.split(/\s+/);
     for (const token of ["sticky", "top-0", "z-30", "border-b", "shadow-tile", "px-4", "sm:px-6"]) {
-      expect(classes, `strip in the modal header must not carry \`${token}\``).not.toContain(token);
+      expect(classes, `strip in the band must not carry \`${token}\``).not.toContain(token);
     }
   });
 
