@@ -176,6 +176,8 @@ git commit --no-verify -m "feat(admin): shared ModalCloseButton via review-modal
 
 This task ships the guards WITHOUT the animation — in jsdom `matchMedia` is absent, so `requestClose` takes the immediate path (spec §3.1 step 4) and behavior is byte-identical to today. That keeps the unit suite meaningful before Task 3.
 
+**Deferred to Task 3 on purpose:** the `settleTimerRef` cancellation and the `clearPanelDragStyles` chokepoint guard. Both protect the exit's *start state*, which is Task 3's subject — and if this task cancelled the settle timer, Task 3's spring-back test could never go red (the pending settle it needs to fire would already be gone). Keeping them together makes Task 3's red step genuine rather than decorative.
+
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/components/admin/review/reviewModalShell.test.tsx`:
@@ -222,7 +224,11 @@ In `ReviewModalShell.tsx`, add a `dialogRef` on the `role="dialog"` element (`:3
  *  the drag-past-threshold branch so every affordance inerts identically. */
 function beginDismiss() {
   dismissingRef.current = true;
-  if (dialogRef.current) dialogRef.current.inert = true;
+  // setAttribute, NOT `.inert = true`: jsdom does not reflect the property to
+  // an attribute, so a property-only assignment is untestable in the unit
+  // suite (and `hasAttribute("inert")` would read false). Every target browser
+  // honours the attribute form identically.
+  dialogRef.current?.setAttribute("inert", "");
 }
 
 function requestClose() {
@@ -242,10 +248,6 @@ function requestClose() {
         /* capture already released */
       }
     }
-  }
-  if (settleTimerRef.current !== null) {
-    clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = null;
   }
   beginDismiss();
   // step 4: reduced motion / no panel / jsdom → immediate, byte-identical to today.
@@ -333,11 +335,22 @@ Import `fireEvent` from `@testing-library/react` if the file does not already. C
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx -t "exit start-state"`
-Expected: FAIL — transform cleared.
+Expected: FAIL — the pending settle fires (Task 2 deliberately left `settleTimerRef` uncancelled), `settle()` calls `clearPanelDragStyles()`, whose only guard is `dragRef.current === null` — true during an exit — so it blanks the panel and `panel.style.transform` reads `""`. If this test passes here, STOP: the task split has drifted and the guard is being written against a test that cannot see it.
 
 - [ ] **Step 3: Implement normalization + exit**
 
-Guard the chokepoint first:
+Two things move here from Task 2's `requestClose`, both part of the start-state contract.
+
+First, cancel the pending settle inside `requestClose`'s step 2 (after the drag-cancel block):
+
+```tsx
+if (settleTimerRef.current !== null) {
+  clearTimeout(settleTimerRef.current);
+  settleTimerRef.current = null;
+}
+```
+
+Then guard the chokepoint:
 
 ```tsx
 function clearPanelDragStyles() {
@@ -652,14 +665,26 @@ describe("structural guards (spec §7.6)", () => {
   // Failure mode: a new motion state is added without a normalization row, so
   // exits from it silently jump instead of animating.
   it("every motion-state source has an inventory row", () => {
-    const SOURCES = ["dragRef", "settleTimerRef", "dismissTimerRef", "dismissingRef"];
+    // Spec §7.6 requires the entrance animation as a motion-state source too:
+    // S2 (close-during-entrance) is the state the snapshot-first order exists
+    // for, so leaving it to E2E alone drops the fail-by-default guard.
+    // Source token and spec token differ (the spec's S2 row says "`animation`
+    // running", the shell says `style.animation`), so pair them explicitly
+    // rather than assuming one string appears in both.
+    const SOURCES: Array<{ src: string; row: string }> = [
+      { src: "dragRef", row: "| S3 |" },
+      { src: "settleTimerRef", row: "| S4 |" },
+      { src: "dismissTimerRef", row: "| S5 |" },
+      { src: "dismissingRef", row: "| S5 |" },
+      { src: "style.animation", row: "| S2 |" },
+    ];
     const spec = readFileSync(
       join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
       "utf8",
     );
-    for (const source of SOURCES) {
-      expect(SHELL_SRC).toContain(source);
-      expect(spec, `${source} needs an S-row in the §3.2 motion-state inventory`).toContain(source);
+    for (const { src, row } of SOURCES) {
+      expect(SHELL_SRC, `${src} is no longer a shell motion-state source`).toContain(src);
+      expect(spec, `${src} needs its ${row} row in the §3.2 motion-state inventory`).toContain(row);
     }
   });
 
@@ -760,6 +785,14 @@ async function sampleExit(page: Page, panel: string, samples = 4) {
 ```
 
 Each case asserts: ≥2 distinct intermediate values, strict progression toward the end state, and that exit-end arrived via `transitionend` rather than the fallback timer.
+
+**Mandatory precondition for every "Approve & apply" case — (b), (g), (h).** `harnessResolution()` includes a tier-3 radio item, and Step3 disables *Approve & apply* until every resolution item has a choice. A test that clicks a **disabled** button during the exit window observes "handler not invoked" and passes — even if `inert` and the whole suppression contract were broken. So before any close/timing sequence:
+
+1. Select every required resolution choice.
+2. Assert the button is **enabled** (`await expect(approve).toBeEnabled()`).
+3. Add a **positive control in the same spec**: with no dismissal in flight, click the same button and assert the deferred handler IS invoked. Without that control, an always-disabled button makes the whole suppression matrix vacuous.
+
+The same enabled-first rule applies to Publish and Ignore wherever their disabled conditions can be reached (`isPublishRunActive`, `resolutionPending`).
 
 | Case | Spec | Viewport | Harness |
 |---|---|---|---|
