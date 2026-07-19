@@ -10,13 +10,13 @@
  * §7 inventory (verbatim, spec lines 214–222):
  *   - UserMenu closed↔open: popover fade/scale-in (`route-enter`); backdrop
  *     click closes. Compound: route change while menu open → menu closes
- *     instantly on navigation; AND resize crossing 720px while open →
+ *     instantly on navigation; AND resize crossing 840px while open →
  *     re-anchors (avatar present in both modes), not stuck-open.
  *   - Dark↔light toggle: instant (existing ThemeToggle).
  *   - Route change (Dashboard↔Settings↔show): content `route-enter` fade;
  *     nav active-state moves instantly (showdetail keeps Dashboard active).
- *   - Responsive desktop↔mobile (cross 720px): instant layout swap, no JS
- *     animation (class-driven `min-[720px]:`).
+ *   - Responsive desktop↔mobile (cross 840px): instant layout swap, no JS
+ *     animation (class-driven `min-[840px]:`).
  *   - Add-admin row reveal/collapse: `route-enter`.
  *   - Revoke confirm→resolving→(ok removes row / inline error / conservative
  *     couldnt_confirm on hang): confirm animation; error + couldnt_confirm
@@ -89,11 +89,11 @@ describe("§7 source-level transition audit — every conditional has its declar
     expect(NOTIF_BELL_SRC).not.toMatch(/animate-/);
   });
 
-  it("AdminNav desktop↔mobile swap is CLASS-DRIVEN (min-[720px]:), no JS animation", () => {
-    // Bottom tabs hidden ≥720; desktop inline links hidden <720. Pure CSS
+  it("AdminNav desktop↔mobile swap is CLASS-DRIVEN (min-[840px]:), no JS animation", () => {
+    // Bottom tabs hidden ≥840; desktop inline links hidden <840. Pure CSS
     // breakpoint swap — no AnimatePresence, no resize listener driving motion.
-    expect(ADMIN_NAV_SRC).toMatch(/min-\[720px\]:hidden/); // bottom tabs
-    expect(ADMIN_NAV_SRC).toMatch(/hidden\s+items-center[^"]*min-\[720px\]:flex/); // desktop links
+    expect(ADMIN_NAV_SRC).toMatch(/min-\[840px\]:hidden/); // bottom tabs
+    expect(ADMIN_NAV_SRC).toMatch(/hidden\s+items-center[^"]*min-\[840px\]:flex/); // desktop links
     expect(ADMIN_NAV_SRC).not.toMatch(/AnimatePresence/);
   });
 
@@ -142,12 +142,12 @@ describe("UserMenu — open/close behavior + compound transitions", () => {
     expect(queryByTestId("admin-user-menu")).toBeNull();
   });
 
-  it("COMPOUND: resize crossing 720px while menu open → re-anchors (avatar present, not stuck-open, no crash)", () => {
+  it("COMPOUND: resize crossing 840px while menu open → re-anchors (avatar present, not stuck-open, no crash)", () => {
     const { getByTestId } = render(<UserMenu email="doug@example.com" />);
     fireEvent.click(getByTestId("admin-user-avatar"));
     expect(getByTestId("admin-user-menu")).toBeInTheDocument();
 
-    // Cross the 720 boundary downward (desktop → mobile) and fire resize.
+    // Cross the 840 boundary downward (desktop → mobile) and fire resize.
     act(() => {
       Object.defineProperty(window, "innerWidth", {
         configurable: true,

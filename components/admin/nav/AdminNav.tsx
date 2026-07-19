@@ -8,10 +8,21 @@
  * mobile. Active state is derived from the live pathname via
  * isNavItemActive (navConfig), so this is a client island.
  *
- * Responsive strategy uses `min-[720px]:` arbitrary variants ONLY — no
+ * Responsive strategy uses `min-[840px]:` arbitrary variants ONLY — no
  * global `md` breakpoint (Phase A blast-radius lesson). The inline desktop
- * nav links are `hidden min-[720px]:flex`; the bottom tab bar is
- * `min-[720px]:hidden`.
+ * nav links are `hidden min-[840px]:flex`; the bottom tab bar is
+ * `min-[840px]:hidden`.
+ *
+ * WHY 840 and not the 720 this shipped with: this row never wraps, and it is
+ * NOT free — measured on the live page it needs 686px of content (brand 143 +
+ * links 343 + actions 200) plus 64px of page padding = 750px minimum, and a CI
+ * runner's font metrics render the same labels ~17% wider, pushing the
+ * requirement to ~810px. A 720px breakpoint therefore turned the links on in a
+ * window too narrow to hold them: every viewport from 720 to ~810 overflowed
+ * horizontally (8px at 768px on Linux). 840 clears the widest measured
+ * requirement with ~30px of slack. The band went unnoticed because the nav
+ * dimension spec sampled 719, 720, then jumped to 860 — it stepped over its own
+ * broken range; 768 is now in the sweep.
  *
  * The "More" overflow tab is reserved only when shouldRenderOverflow(NAV
  * .length) is true (false at 2 destinations → not rendered).
@@ -107,7 +118,7 @@ export function AdminNav({
         {/* Inline desktop nav links (hidden on mobile). mobileOnly items
             (the Needs-attention tab) are excluded — spec D-2: desktop nav
             unchanged. */}
-        <div className="hidden items-center gap-1 min-[720px]:flex">
+        <div className="hidden items-center gap-1 min-[840px]:flex">
           {visibleNav
             .filter((item) => !item.mobileOnly)
             .map((item) => {
@@ -158,7 +169,7 @@ export function AdminNav({
       <nav
         data-testid="admin-bottom-tabs"
         aria-label="Admin (mobile)"
-        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface min-[720px]:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface min-[840px]:hidden"
       >
         {mobileItems.map((item) => {
           const active = isNavItemActive(item.id, pathname);

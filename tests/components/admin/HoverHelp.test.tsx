@@ -209,6 +209,34 @@ describe("HoverHelp", () => {
     expect(screen.getByTestId("x-help-trigger")).toHaveAttribute("aria-describedby", body.id);
   });
 
+  // BELL-HELP-POPOVER-OVERFLOW-1 — a CLOSED body must generate NO layout box.
+  // `invisible` (visibility:hidden) still generates one, so every closed 288px
+  // popover on /admin contributed its full width to document scrollWidth,
+  // pushing the page 104-143px past the viewport at 390px/1280px. jsdom computes
+  // no layout, so this asserts the MECHANISM (the closed class list removes the
+  // box; the open one restores it) — the pixel proof lives in the real-browser
+  // spec tests/e2e/bell-panel-layout.spec.ts.
+  it("closed body is display:none (no layout box); opening restores it", () => {
+    render(
+      <HoverHelp label="Help: X" testId="x-help">
+        <p>Body.</p>
+      </HoverHelp>,
+    );
+    const body = screen.getByTestId("x-help-body");
+    // Closed: display removed, NOT merely visibility-hidden.
+    expect(body.className).toContain("hidden");
+    expect(body.className).not.toContain("invisible");
+    // Still in the DOM so aria-describedby resolves (the ratified M12.5
+    // contract) — a hidden node referenced BY an aria relationship is included
+    // in the description per the accname spec, display:none included.
+    expect(screen.getByTestId("x-help-trigger")).toHaveAttribute("aria-describedby", body.id);
+    expect(body).toHaveTextContent("Body.");
+
+    fireEvent.click(screen.getByTestId("x-help-trigger"));
+    expect(body.className).not.toContain("hidden");
+    expect(body.className).toContain("opacity-100");
+  });
+
   // M12.12 spec §4.1 R6 — <span> cannot legally contain a div body; both the
   // body and the root wrapper must be divs so block children are valid HTML.
   it("body AND root wrapper are divs (block children are valid HTML at every level)", () => {
