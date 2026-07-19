@@ -969,13 +969,19 @@ Then assert **both**: `__exitEnd` is non-null (a real post-dismiss transform tra
 
 For the **Step3** cases, counters alone cannot order close against `__exitEnd` — add `window.__closeAt = performance.now()` inside the live entry's `onClose` alongside `__closeCount`, and assert against that. Counters answer how many; the ordering assertion needs when.
 
-**Mandatory precondition for every "Approve & apply" case — (b), (g), (h).** `harnessResolution()` includes a tier-3 radio item, and Step3 disables *Approve & apply* until every resolution item has a choice. A test that clicks a **disabled** button during the exit window observes "handler not invoked" and passes — even if `inert` and the whole suppression contract were broken. So before any close/timing sequence:
+**Mandatory per-action positive control — (b), (g), (h).** The suppression matrix asserts "the handler was NOT invoked during the exit window." That assertion is satisfied by a button that was **absent, disabled, or unwired** — none of which prove `inert` did anything. And the three actions do not coexist: **Publish** exists in the non-resolution variant (`buildSectionData()`), while **Approve & apply** and **Ignore** exist in the resolution variant (`harnessResolution()`). Approve is disabled until every resolution item has a choice; Ignore can be disabled by `resolutionPending` / `isPublishRunActive`.
 
-1. Select every required resolution choice.
-2. Assert the button is **enabled** (`await expect(approve).toBeEnabled()`).
-3. Add a **positive control in the same spec**: with no dismissal in flight, click the same button and assert the deferred handler IS invoked. Without that control, an always-disabled button makes the whole suppression matrix vacuous.
+So before any suppression run, each action must be proven **live in the exact variant that run uses**:
 
-The same enabled-first rule applies to Publish and Ignore wherever their disabled conditions can be reached (`isPublishRunActive`, `resolutionPending`).
+| Action | Variant | Positive control (no dismissal in flight) |
+|---|---|---|
+| Publish | non-resolution `buildSectionData()` | click → deferred publish handler invoked; `__actionCount` increments |
+| Approve & apply | resolution `harnessResolution()` | select **all** required choices → assert enabled → click → handler invoked |
+| Ignore | resolution `harnessResolution()` | assert enabled (not `resolutionPending`, no active publish run) → click → handler invoked |
+
+Only after its control passes may that action's exit-window suppression be asserted, and only in the same variant. A suppression run whose action has no passing control in that variant is vacuous and must not be written.
+
+Sequence per action: **control run** (prove live) → **suppression run** (dismiss, click inside the exit window, assert not invoked, assert modal still closes exactly once).
 
 | Case | Spec | Viewport | Motion | Harness |
 |---|---|---|---|---|
