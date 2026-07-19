@@ -382,7 +382,7 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     expect(
       records.some(
         (r) =>
-          r.source === "admin.perShowAlertSection" && /identity resolve degraded/.test(r.message),
+          r.source === "admin.fetchPerShowAlerts" && /identity resolve degraded/.test(r.message),
       ),
     ).toBe(true);
   });
