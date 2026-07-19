@@ -8,8 +8,10 @@
  * heading-safe `<h2>` title (the dialog's aria-labelledby target — ONLY the
  * title text; the sheet deep link is a separate adjacent 44px icon anchor, the
  * Step3ReviewModal pattern) plus the close button and, below the title row,
- * `<StatusStrip renderTitle={false}>` (its internal `<h1>` + divider are
- * suppressed so the panel contains exactly one title node and no h1). Body =
+ * `<StatusStrip renderTitle={false} chrome="modal-header">` (its internal
+ * `<h1>` + divider are suppressed so the panel contains exactly one title node
+ * and no h1; its page chrome is dropped so the shell header's own surface,
+ * seam and `px-tile-pad` are not doubled). Body =
  * `<ShowReviewSurface layout="modal" syncHash>` with the EXACT extras
  * composition `PublishedReviewPage` builds today (Overview first, Changes
  * last, per-section warning controls, raw-unrecognized bottom slot). NO
@@ -262,8 +264,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             </button>
           </div>
           {/* Below the title row: the strip minus its h1 title/divider
-              (renderTitle={false}) — publish toggle, live badge, sync age,
-              alert badge, copy-link unchanged. */}
+              (renderTitle={false}) and minus its page chrome
+              (chrome="modal-header" — the shell header owns the surface, seam
+              and px-tile-pad; MODAL-STRIP-CHROME-1) — publish toggle, live
+              badge, sync age, alert badge, copy-link unchanged. */}
           <StatusStrip
             slug={slug}
             title={title}
@@ -278,6 +282,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             now={now}
             alertCount={alertCount}
             renderTitle={false}
+            chrome="modal-header"
           />
         </div>
       }
