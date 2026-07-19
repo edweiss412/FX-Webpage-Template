@@ -76,13 +76,15 @@ export type ReviewModalShellProps = {
    *  already happened, so a fallback would fire a SECOND close. */
   closeApiRef?: RefObject<(() => void) | null>;
 
-  /** When true every close affordance is dead — no inert, no exit, no onClose.
-   *  The Suspense-fallback skeleton has no real close (spec §3.4), and the
-   *  exit animation would otherwise slide the LOADING frame away into an inert,
-   *  scroll-locked state the user cannot leave. Gates `requestClose` step 0,
-   *  `handleGrabPointerDown`, AND `beginDismiss` — the drag branch reaches
-   *  `beginDismiss` without passing through `requestClose`. */
-  closeAffordancesDisabled?: boolean;
+  /** Fires exactly once per open shell instance, at the moment a dismiss
+   *  COMMITS (`beginDismiss`) — after the subtree is inerted, before exit
+   *  styles are applied, and before any exit-end `onClose`. Both close paths
+   *  (`requestClose` and the drag-past-threshold branch) reach it through
+   *  `beginDismiss`; its idempotence guard makes this one-shot. The skeleton's
+   *  server-fallback usage issues its close NAVIGATION here so a Suspense swap
+   *  unmounting the frame mid-exit cannot lose the close (spec
+   *  2026-07-19-modal-skeleton-close.md §2.1). */
+  onDismissStart?: () => void;
 
   /** §6.2 guard: `false` renders nothing (no effects run, no portal). */
   open: boolean;
@@ -120,7 +122,7 @@ export function ReviewModalShell(props: ReviewModalShellProps): ReactNode {
 
 function OpenReviewModalShell({
   onClose,
-  closeAffordancesDisabled = false,
+  onDismissStart,
   closeApiRef,
   labelledBy,
   dataAttrPrefix,
@@ -291,27 +293,28 @@ function OpenReviewModalShell({
    *  input for the 120–220ms the exit now lasts (spec §3.1 step 3). Shared with
    *  the drag-past-threshold branch so every affordance inerts identically. */
   function beginDismiss() {
-    // The drag-past-threshold branch calls this directly, bypassing
-    // `requestClose` and its step-0 gate — so the gate is repeated here.
-    if (closeAffordancesDisabled) return;
+    // Idempotence: requestClose and the drag branch both guard on
+    // dismissingRef before calling, but the guard HERE is what makes
+    // onDismissStart one-shot by construction rather than by caller courtesy.
+    if (dismissingRef.current) return;
     dismissingRef.current = true;
     // setAttribute, NOT `.inert = true`: jsdom does not reflect the property to
     // an attribute, so a property-only assignment is untestable in the unit
     // suite (and `hasAttribute("inert")` would read false). Every target browser
     // honours the attribute form identically.
     dialogRef.current?.setAttribute("inert", "");
+    onDismissStart?.();
   }
 
   /** The single close entry point for every non-drag affordance (spec §3.1).
    *  Task 3 replaces the immediate `onClose()` tail with the animated exit.
    *
    *  Deliberately NOT `useCallback`: it must be redefined every render so the
-   *  Esc listener and (Task 5) `closeApiRef` always hold the current closure —
-   *  a memoized one would capture a stale `closeAffordancesDisabled` once that
-   *  becomes a prop in Task 4. Re-subscribing one document listener per render
+   *  Esc listener and `closeApiRef` always hold the current closure — a
+   *  memoized one would capture stale drag refs and the current
+   *  `onDismissStart` closure. Re-subscribing one document listener per render
    *  is the cheaper side of that trade. */
   function requestClose() {
-    if (closeAffordancesDisabled) return; // step 0
     if (dismissingRef.current) return; // step 1 — one exit, one close
     // step 2: cancel an active drag so its pointerup cannot spring back over the
     // exiting panel. Do NOT clear the inline transform — it is the exit's start
@@ -404,7 +407,6 @@ function OpenReviewModalShell({
   }
 
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (closeAffordancesDisabled) return; // no drag may start (spec §3.4)
     if (dismissingRef.current) return;
     // A new drag takes over from a still-settling spring-back.
     if (settleTimerRef.current !== null) {
