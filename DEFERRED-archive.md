@@ -2,7 +2,6 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
-
 ## Review-modal close (2026-07-19)
 
 Source: MODAL-SKELETON-CLOSE-1 ship (`fix/modal-skeleton-close`, spec `docs/superpowers/specs/2026-07-19-modal-skeleton-close.md`, plan `docs/superpowers/plans/2026-07-19-modal-skeleton-close.md`). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved here from the working queue in the same pass (queue policy: resolved entries live in the archive).

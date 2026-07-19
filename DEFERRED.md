@@ -8,4 +8,4 @@ Last reconciled: 2026-07-19 (MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-moda
 
 ---
 
-*(Queue empty — nothing currently deferred.)*
+_(Queue empty — nothing currently deferred.)_
