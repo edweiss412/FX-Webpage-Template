@@ -10,7 +10,7 @@ Direct `codex exec` dispatches (adversarial reviews, task briefs) fail in recurr
 
 - `~/.claude/hooks/codex-wedge-watchdog.log` shows 8+ companion WEDGE events in the 48h before this spec, two escalating to KILL (~16 min each). After each kill, the launching session must perform the manual `codex exec` fallback dance.
 - Failure classes and their fixes are banked in memory files (`feedback_codex_*`), but memory files are invisible to Codex sessions and applied inconsistently even by Claude sessions (documented in `feedback_codex_exec_killed_fallback_selfreview_ci`: six wedge/kill cycles burned before a known one-line fix was applied).
-- Upstream root causes are open and unfixable locally: openai/codex#23807 (300s stalls, stream disconnected) and openai/codex#14470 (macOS MCP-init hang) — both verified OPEN 2026-07-19. Installed codex-cli 0.144.5 (current is 0.144.6).
+- Upstream root causes are open and unfixable locally, all verified OPEN 2026-07-19: openai/codex#23807 (300s recoverable stall, stream disconnected — why `STALL_SECS` sits above 300), openai/codex#31376 (indefinite mid-run hang on a dead pooled connection; codex's own `stream_idle_timeout_ms` never fires — why an external stall-kill must exist), openai/codex#14470 (macOS hang before first output — why the no-output kill exists). Installed codex-cli 0.144.5 (current is 0.144.6).
 
 Goal: one command that launches `codex exec` with every banked-correct flag, watches for stalls, walks the known recovery ladder automatically, and always terminates with a machine-readable outcome — so the calling session never hangs, never misapplies the ladder, and fails fast to its documented fallback when Codex is truly dead.
 
