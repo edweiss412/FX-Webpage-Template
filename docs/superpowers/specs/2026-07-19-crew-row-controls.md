@@ -301,7 +301,12 @@ No zombie flags introduced.
 
 Unit (RTL, jsdom — behavior only, no layout claims):
 
-- `tests/components/admin/wizard/crewRowActions.test.tsx` (new): menu open/close paths (trigger
+- `tests/components/admin/wizard/crewRowActions.test.tsx` (new) — **the render subject is
+  `CrewBreakdown`** (the parent that owns single-open state, outcome banners, and mounts
+  `CrewRowActions`); every assertion below operates through that parent render, so
+  parent-owned behaviors (single-open, banners, sr-only region, clear-outcome, staged/no-trigger
+  DOM) and child-owned behaviors (menu/confirm mechanics) are exercised against one integrated
+  tree: menu open/close paths (trigger
   toggle, outside click, Esc, item activation); single-open across rows; confirm flow happy path
   (mock `resetCrewMemberSelection` module) asserting the **action was called with
   `{showId, crewMemberId}` from fixture-derived ids** (anti-tautology: expected id comes from the
@@ -343,7 +348,12 @@ Real-browser — ALL of the following run in a LIVE spec (new sibling
 `published-review-modal.interactions.spec.ts`: dev server + `ADMIN_FIXTURE` auth +
 `seedShowWithCrew` + `settleDashboardAdminState`). The static
 `_publishedReviewModalHarness.tsx` is renderToStaticMarkup and cannot open popovers
-(client-only mounts hidden — known lesson), so NO new assertion lands there:
+(client-only mounts hidden — known lesson), so NO new assertion lands there. **CI wiring is
+part of the deliverable** (testMatch ≠ CI, the #479 lesson): (a) add
+`published-review-modal\.crew-actions` to the `desktop-chromium` testMatch regex
+(`playwright.config.ts:70`), and (b) add the new spec file to BOTH the `paths:` trigger list
+and the `playwright test` run command of `.github/workflows/published-modal-e2e.yml`
+(`:45,:126`) in the same PR:
 
 - Menu popover opens inside the modal without being clipped: `getBoundingClientRect()` of
   `crew-row-menu-*` fully within viewport and intersecting the modal scroll container's visible
