@@ -429,6 +429,23 @@ Deleting `renderTitle`/`chrome` requires updating the e2e harnesses that constru
 strip props (`tests/e2e/_statusStripToggleHarness.tsx:62-127`) — those harnesses
 exercise the *page* chrome that no longer exists. See §9 (T-HARNESS).
 
+**Named unit tests that assert the deleted props directly** (these fail loudly,
+by design — they must be retired or rewritten, never merely deleted to get green):
+
+- `tests/components/admin/showpage/statusStrip.test.tsx:400` — asserts the `page`
+  chrome KEEPS a set of class tokens (`sticky`, `z-30`, seam, padding, shadow).
+  The `page` arm ceases to exist; this assertion has no subject after the change.
+- `:408` — asserts the `modal-header` chrome DROPS those same tokens. Its intent
+  (the strip must not carry container chrome inside the band) survives the prop
+  deletion and should be REWRITTEN against the single remaining layout literal,
+  not dropped. It is the only guard against someone re-adding page chrome to the
+  strip and double-seaming the band.
+- `:197` and peers — construct props with `renderTitle: false`; the prop
+  disappears, so these need their call shape updated.
+
+The distinction matters: `:400` loses its subject (retire), `:408` keeps its
+intent (rewrite). Retiring both would silently remove the double-seam guard.
+
 ### 6.6 Alert pill (header)
 
 ```tsx
