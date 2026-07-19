@@ -90,6 +90,9 @@ import Link from "next/link";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
+// Type-only (runtime cycle unchanged): the crew chrome value's banner payload.
+import type { CrewAttention } from "@/components/admin/review/ShowReviewSurface";
+import { canonicalCrewKey } from "@/lib/admin/attentionItems";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
@@ -480,6 +483,13 @@ export type Step3SectionChrome = {
    * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
+  /**
+   * published-show-alerts §5.4: pre-rendered crew attention banners, provided
+   * ONLY on the crew section's chrome value in published-modal mode (type-only
+   * import — the runtime cycle surface↔sections is unchanged). ABSENT in
+   * staged mode and on every other section (exactOptionalPropertyTypes).
+   */
+  crewAttention?: CrewAttention;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -1244,12 +1254,21 @@ export function CrewBreakdown({
 }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
+  // published-show-alerts §5.4: pre-rendered attention banners from the crew
+  // chrome context (published modal only; ABSENT in staged mode → the map
+  // below renders the original row markup byte-identically). Only the FIRST
+  // row matching a canonical name hosts its banners (duplicate names).
+  const crewAttention = useContext(Step3SectionChromeContext)?.crewAttention;
+  const consumedAttentionKeys = new Set<string>();
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
       label="Crew"
       count={members.length}
     >
+      {crewAttention && crewAttention.sectionTop.length > 0 ? (
+        <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
+      ) : null}
       {members.length === 0 ? (
         <p className="text-sm text-text-subtle">No crew parsed.</p>
       ) : (
@@ -1261,6 +1280,72 @@ export function CrewBreakdown({
             // §5.5: crew-scoped Preview-As link, only when published && !archived AND this row
             // has a persisted crew id (index-aligned with `members`).
             const previewCrewId = previewAs?.enabled ? (previewAs.crewIds[i] ?? "") : "";
+            const attentionKey = canonicalCrewKey(m.name || "");
+            const rowBanners =
+              crewAttention && !consumedAttentionKeys.has(attentionKey)
+                ? crewAttention.byCrewKey.get(attentionKey)
+                : undefined;
+            if (rowBanners) consumedAttentionKeys.add(attentionKey);
+            if (rowBanners && rowBanners.length > 0) {
+              // Attention-hosting row: the original flex row nests inside a
+              // column <li> so the banner block sits under it (mock's
+              // card-with-attached-banner shape). Non-hosting rows below keep
+              // the original <li> markup byte-identically.
+              return (
+                <Fragment key={`${m.name}-${i}`}>
+                  <li className="py-1">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={m.name || null} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                          {name}
+                        </span>
+                        {subline ? (
+                          <span className="block wrap-break-word text-xs text-text-subtle">
+                            {subline}
+                          </span>
+                        ) : null}
+                      </span>
+                      {/* §8 exact anchor DOM — same affordances as the non-hosting row below. */}
+                      <span className="flex shrink-0 items-center">
+                        {hasContent(m.phone) ? (
+                          <a
+                            href={`tel:${m.phone}`}
+                            aria-label={`Call ${name}`}
+                            className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                          >
+                            <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                              <Phone aria-hidden="true" className="size-4" />
+                            </span>
+                          </a>
+                        ) : null}
+                        {hasContent(m.email) ? (
+                          <a
+                            href={`mailto:${m.email}`}
+                            aria-label={`Email ${name}`}
+                            className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                          >
+                            <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                              <Mail aria-hidden="true" className="size-4" />
+                            </span>
+                          </a>
+                        ) : null}
+                      </span>
+                      {previewCrewId ? (
+                        <Link
+                          data-testid={`admin-show-preview-as-link-${previewCrewId}`}
+                          href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
+                          className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                        >
+                          Preview as<span className="sr-only"> {name}</span>
+                        </Link>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex flex-col gap-2">{rowBanners}</div>
+                  </li>
+                </Fragment>
+              );
+            }
             return (
               <Fragment key={`${m.name}-${i}`}>
                 <li className="flex items-center gap-3 py-1">

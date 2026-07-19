@@ -94,6 +94,9 @@ export function ChangeFeedEntry({
   return (
     <li
       data-testid={`change-feed-entry-${entry.id}`}
+      // published-show-alerts §5.5: pending-hold rows are attention-jump scroll
+      // targets (attribute, never an id — twin-nav DOM-identity rule).
+      {...(canGate ? { "data-attention-anchor": `hold:${entry.gate!.holdId}` } : {})}
       className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad sm:flex-row sm:items-start sm:justify-between"
     >
       <div className="flex min-w-0 flex-col gap-1">
