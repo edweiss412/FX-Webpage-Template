@@ -23,11 +23,18 @@
 
 Under the #493 CI prod server these three specs will run WITH prefetch active. Audit result (test-by-test mechanics verified against source this session):
 
-| Spec | Open mechanics | Verdict |
+Open-mechanics classes: **[G]oto** = direct `page.goto("/admin?show=…")`, a hard navigation — Link prefetch never participates; immune by construction (the mount refresh adds one background RSC request post-open; no test asserts network quiet). **[GATED]** = `openGated` (`interactions.spec.ts:492-509`) installs a `?show=<slug>`-matched route BEFORE `page.goto`, so viewport prefetch requests are held by the same gate → cache never populates → the click is the cold path the test assumes. **[ROW]** = dashboard row click, where a cache hit changes timing but the test's oracle does not require a cold open (argued per test). **[HARNESS]** = self-hosted node:http server (`layout.spec.ts:42,141`), :3000 never contacted.
+
+Every test, enumerated:
+
+| Test (file:line) | Class | Immunity argument |
 | --- | --- | --- |
-| `published-review-modal.layout.spec.ts` | Standalone node:http harness, never touches :3000 | Immune — no app server. |
-| `published-review-modal.deeplink.spec.ts` | Every test opens via direct `page.goto(...)` (lines 120-288) — hard navigations, Link prefetch not involved | Immune. Mount refresh adds one background RSC request per open; no test asserts network quiet. |
-| `published-review-modal.interactions.spec.ts` | Three open classes: (a) `openModal` direct goto (`:102`) — immune like deeplink; (b) `openGated` (`:492-509`) installs a `?show=<slug>`-matched route BEFORE `page.goto`, so viewport prefetch requests are HELD by the same gate → cache never populates → the click is the cold path the test assumes — premise preserved; (c) row-click tests (`:337`, `:223`) assert skeleton ABSENCE/handoff and focus restore, never skeleton PRESENCE — a cache-served instant commit satisfies them (the P0 pin "no stranded skeleton after close" is about the pending-reset contract, which still runs). | Immune, with the (c) caveat that a cache-hit open makes those assertions weaker but not vacuous (pending state is still set at click and must still reset). |
+| layout: both tests (2 total, self-hosted) | HARNESS | Immune — no app server. |
+| deeplink `:160` cold open · `:180` alert_id highlight · `:199` #share-access · `:207` legacy 307 · `:225` combined legacy · `:266` unknown slug D8 · `:282` signed-out D10 | G | Immune — all hard navigations. |
+| interactions `:172` focus trap · `:278` Esc strips params · `:306` scrim · `:322` X close · `:382` browser Back · `:400` drag dismiss · `:429` spring-back · `:461` slop tap · `:554` reduced-motion entrance · `:562` compound viewport-cross · `:607` sheet sanity · `:714` §7.5(a) Esc exit · `:750` §7.5(a) desktop exit · `:786` §7.5(c) focus after exit · `:801` §7.5(d) drag+Esc · `:825` §7.5(e) spring-back close · `:860` §7.5(f) entrance close | G | Immune — every one opens via `openModal` (direct goto `:102`); close/exit oracles are about the shell, not the open path. |
+| interactions `:511` §6.5 entrance <sm · `:538` §6.5 entrance ≥sm | GATED | Premise (cold open, skeleton frozen) preserved: the pre-goto gate holds prefetch requests too, so the cache never fills and the click blocks on the held navigation exactly as today. |
+| interactions `:223` focus continuity (row click) | ROW | Oracle = focus restored to trigger after Esc-close; open speed is irrelevant. Uses `waitForRowHydration` (`:137`), so the click is always a client nav — cache-hit or cold both exercise the shell mount/unmount pair it pins. |
+| interactions `:337` no stranded skeleton (row click, critique P0) | ROW | Oracle = pending-reset contract: skeleton ABSENCE after close commit + focus restore + zero frames post-commit. `pending` state is still set at click and must still reset on the (now faster) commit — non-vacuous under cache hits; never asserts skeleton PRESENCE. |
 
 Residual risk pinned by the new spec's close-safety tests: a refresh response landing around close. Existing close tests would only catch a resurrection flakily; Task 3's tests pin it deterministically. Final verification is the real `published-modal-e2e.yml` CI run on this PR (it path-triggers on `ShowsTable.tsx` + `showpage/**`).
 
@@ -446,7 +453,33 @@ git commit --no-verify -m "test(admin): prod-server e2e for show-modal prefetch 
 **Files:**
 - Modify: `.github/workflows/published-modal-e2e.yml` — three edits:
 
-- [ ] **Step 1: Edit the workflow.**
+- [ ] **Step 1: Write the failing check** (the red half — a structural assertion the workflow carries all three prefetch-gate entries; parses the YAML, no string matching on comments):
+
+```bash
+cat > /tmp/check-prefetch-gate.py <<'PY'
+import sys, yaml
+wf = yaml.safe_load(open(".github/workflows/published-modal-e2e.yml"))
+paths = wf[True]["pull_request"]["paths"] if True in wf else wf["on"]["pull_request"]["paths"]
+job = wf["jobs"]["published-modal-e2e"]
+run = next(s["run"] for s in job["steps"] if "playwright test" in s.get("run", ""))
+ok = True
+for want, where in [
+    ("components/admin/ArchivedShowRow.tsx", paths),
+    ("tests/e2e/published-review-modal.prefetch.spec.ts", paths),
+]:
+    if want not in where: print(f"MISSING path filter: {want}"); ok = False
+if job.get("env", {}).get("MODAL_PREFETCH_E2E") != "1":
+    print("MISSING env MODAL_PREFETCH_E2E=1"); ok = False
+if "tests/e2e/published-review-modal.prefetch.spec.ts" not in run:
+    print("MISSING prefetch spec in run line"); ok = False
+sys.exit(0 if ok else 1)
+PY
+python3 /tmp/check-prefetch-gate.py
+```
+
+- [ ] **Step 2: Run to verify it fails** — Expected: the three `MISSING …` lines, exit 1.
+
+- [ ] **Step 3: Edit the workflow.**
   1. `on.pull_request.paths`: add two entries alongside the existing ones:
      ```yaml
      - "components/admin/ArchivedShowRow.tsx"
@@ -455,12 +488,12 @@ git commit --no-verify -m "test(admin): prod-server e2e for show-modal prefetch 
   2. `jobs.published-modal-e2e.env`: add `MODAL_PREFETCH_E2E: "1"` (with a comment: `# :3000 here IS a prod build (CI=true → pnpm build && pnpm start) — the prefetch spec's gate`).
   3. The run step: append ` tests/e2e/published-review-modal.prefetch.spec.ts` to the existing `pnpm exec playwright test --project=desktop-chromium …` file list.
 
-- [ ] **Step 2: Validate YAML**
+- [ ] **Step 4: Run the check green + format**
 
-Run: `pnpm exec prettier --check .github/workflows/published-modal-e2e.yml` (write+re-check if it fails) then `python3 -c "import yaml;yaml.safe_load(open('.github/workflows/published-modal-e2e.yml'));print('yaml ok')"`
-Expected: `yaml ok`.
+Run: `python3 /tmp/check-prefetch-gate.py && pnpm exec prettier --check .github/workflows/published-modal-e2e.yml`
+Expected: exit 0, prettier clean (write+re-check if not).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/published-modal-e2e.yml
