@@ -220,8 +220,20 @@ this table without tooling.
 | `components/admin/ReSyncButton.tsx` | 121 | `setSuccessMessage(summarizeResult(json.result));` |
 | `components/admin/ReSyncButton.tsx` | 122 | `router.refresh();` |
 
-Verification: all 90 rows resolved at the base commit; zero missing files, zero
-out-of-range lines. The test-file rows were added in round 10 — adversarial review
+| `app/globals.css` | 270 | `--color-surface-sunken-runtime: #f4f3f1;` |
+| `app/globals.css` | 276 | `--color-border-strong-runtime: #cfcdc7;` |
+| `app/globals.css` | 285 | `--color-warning-bg-runtime: #fff3d6;` |
+| `app/globals.css` | 286 | `--color-warning-text-runtime: #5c3f00;` |
+| `app/globals.css` | 298 | `--color-status-review-runtime: #a87716;` |
+| `app/globals.css` | 299 | `--color-status-review-text-runtime: #6e4e00;` |
+| `app/globals.css` | 320 | `--color-surface-sunken-runtime: #0b0c10;` |
+| `app/globals.css` | 326 | `--color-border-strong-runtime: #3a3b40;` |
+| `app/globals.css` | 334 | `--color-warning-bg-runtime: #3a2e14;` |
+| `app/globals.css` | 335 | `--color-warning-text-runtime: #ffd68a;` |
+| `app/globals.css` | 349 | `--color-status-review-runtime: #e0b84e;` |
+| `app/globals.css` | 350 | `--color-status-review-text-runtime: #f0c860;` |
+Verification: all 102 rows resolved at the base commit; zero missing files, zero
+out-of-range lines. The test-file rows were added in round 10 and the light/dark theme-token rows in round 16 — adversarial review
 correctly applied the rule stated above: a claim citing a line absent from this
 table IS a finding, because it means the appendix is incomplete.
 
@@ -899,9 +911,25 @@ invariant (§8) and gets its own real-browser assertion comparing the trigger's
 `getBoundingClientRect().width` idle vs pending (§11, T-RESYNC-WIDTH) — the
 idle-only fixture in T-LAYOUT cannot catch it.
 
-**Alignment.** `AccentButton` is invoked with `selfStart` (`:145`), correct for
-Overview's `flex-col`. In the horizontal strip the trigger must align to the row's
-center like its neighbours; `selfStart` must not be carried over verbatim.
+**The demotion is a STYLE change only — every behavior survives.** `AccentButton`
+supplies semantics through props (`ReSyncButton.tsx:138-150`); replacing it with a
+raw `<button>` silently drops them unless each is restated. Required on the ghost
+trigger:
+
+| Today (via `AccentButton`) | On the ghost trigger |
+| --- | --- |
+| `ref={triggerRef}` (`:139`) | **Keep** — focus restoration on confirm-cancel depends on it (`:78-82`) |
+| `disabled={pending}` (`:141`) | **Keep** — otherwise a pending Re-sync stays keyboard-activatable and can double-POST |
+| `aria-busy={pending}` (`:142`) | **Keep** — the only in-place signal that work is running |
+| `data-testid="admin-resync-button"` (`:140`) | **Keep** — existing tests query it |
+| `minWidthTap` (`:147`) | **Replace** with explicit `min-h-tap-min`/`min-w-tap-min` (§6.7 tap floor) |
+| `ringOffset="bg"` (`:148`) | **Replace** with a focus ring resolved against the BAND surface, matching its strip neighbours |
+| `fontWeight="medium"` (`:143`) | Superseded by the ghost type scale |
+| `inline` (`:144`) | Superseded by the strip row layout |
+| `selfStart` (`:145`) | **Drop** — correct for Overview's `flex-col`, wrong in a centered row |
+
+Treating this as a style-only swap is the failure mode: the trigger looks right,
+passes T-RESYNC-GHOST and T-NO-ORANGE, and is still clickable mid-flight.
 
 **What stays in Overview — exact post-move shape.** `CorrectionLoopCallout` (the
 "Fixed it in the sheet? Edit the cell, save, then re-sync." guidance,
@@ -1026,6 +1054,28 @@ computed colors in a real browser under both themes and asserts ≥3:1 for the
 Copy border (WCAG 1.4.11, non-text UI boundary) and ≥4.5:1 for the ghost Re-sync
 label (1.4.3, text). Token usage alone proves neither: a token can resolve to a
 perfectly valid color that still disappears against this particular background.
+
+### 7.2 How T-CONTRAST samples (both controls are transparent-backed)
+
+Both new controls have `background: transparent`, so reading `backgroundColor`
+off the element itself yields `rgba(0, 0, 0, 0)` and any ratio computed against
+it is meaningless — a correct implementation fails, or a broken one passes.
+Specified sampling:
+
+- **Backdrop** = the computed `backgroundColor` of the **subheader band**
+  (the nearest ancestor that actually paints — it carries `bg-surface`, §6.1).
+  Resolve it by walking up from the control until a non-transparent
+  `backgroundColor` is found, rather than assuming a fixed ancestor depth.
+- **Copy border** = `borderTopColor` of the button in its **idle, unfocused,
+  unhovered** state. Hover and focus-visible states are out of scope for this
+  assertion; they only ever increase contrast here.
+- **Ghost Re-sync label** = the button's computed `color`, idle state.
+- Ratio via the standard WCAG relative-luminance formula. Assert per theme by
+  toggling the documented theme mechanism, not by hardcoding hex.
+
+The failure this prevents: a test that samples the button's own transparent
+background, computes a nonsense ratio, and then gets "fixed" by giving the
+outline button a solid fill — undoing the neutral treatment delta 4 requires.
 
 ## 8. Dimensional invariants
 
@@ -1183,7 +1233,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
-| T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border vs band background ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label vs band background ≥4.5:1 (1.4.3 text). Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
+| T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label ≥4.5:1 (1.4.3 text). **Sampling is specified, not left to the test author** — see §7.2. Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
 | T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
 | T-RESYNC-FLOW-UNCHANGED | In FLOW mode the component still returns its single root `<div className="flex flex-col gap-3">` with the result panels inside it, and Overview's rendered structure is unchanged | The overlay branch is implemented by restructuring shared markup, silently changing flow-mode DOM too. Existing Overview consumers/tests query within that root; the new strip tests would pass while Overview regresses |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
@@ -1270,9 +1320,14 @@ explicitly two artifacts with different statuses:
 | T-STEP3-INVARIANT (Step 3 still matches the baseline) | Test | No — a regression guard riding along, green before and after by design |
 
 The task's red comes from the NEW capability, not from the invariant. Sequence:
-generate + commit the baseline on the pre-change tree → write T-SUBHEADER-SLOT
-(RED) → add the `subHeader` slot (GREEN) → T-STEP3-INVARIANT confirms Step 3 did
-not move. Generating the baseline via a committed script rather than by hand is
+generate the baseline on the pre-change tree → write T-SUBHEADER-SLOT (RED) → add
+the `subHeader` slot (GREEN) → T-STEP3-INVARIANT confirms Step 3 did not move.
+
+**The baseline fixture and the failing test land in the SAME commit.** Committing
+the fixture alone first would produce a green, test-free commit — a task with no
+red phase, which is precisely what invariant 1 forbids and what a reviewer
+scanning the history would (correctly) flag. Generate it, but do not commit it
+until the red test is written alongside it. Generating the baseline via a committed script rather than by hand is
 what makes it reproducible and reviewable — anyone can re-run it against the
 merge-base and diff.
 
