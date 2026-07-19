@@ -871,7 +871,7 @@ CAUTION: the existing `<li>` is `flex items-center gap-3` (`step3ReviewSections.
 ### Task 6: modal integration + loader wiring
 
 **Files:**
-- Modify: `components/admin/showpage/PublishedReviewModal.tsx` — replace `alertCount`/`alertSlot`/`alertId` internals with `attentionItems: AttentionItem[]`, `alertsDegraded: boolean`, keep `alertId` prop (deep link); pill states; menu mount; auto-open; `doneIds`; jump state; overview banners via the existing `alertSlot` slot of `OverviewSection`; Changes railBadge; `attentionSections` + `attentionJump` pass-down.
+- Modify: `components/admin/showpage/PublishedReviewModal.tsx` — replace `alertCount`/`alertSlot`/`alertId` internals with `attentionItems: AttentionItem[]`, `alertsDegraded: boolean`, keep `alertId` prop (deep link); pill states; menu mount; auto-open; `doneIds`; jump state; overview banners via `OverviewSection`'s slot prop (renamed `alertSlot` → `attentionSlot`, see Step 3); Changes railBadge; `attentionSections` + `attentionJump` pass-down.
 - Modify: `app/admin/_showReviewModal.tsx` — derive items post-wave, pass new props, drop `PerShowAlertSection` import/slot (`:52`, `:342`, `:392`) and `alertCount` (`:270`, `:387`).
 - Tests: extend `tests/components/admin/showpage/publishedReviewModal.test.tsx`; update `tests/app/admin/showReviewModalLoader.test.tsx`.
 
@@ -887,7 +887,7 @@ CAUTION: the existing `<li>` is `flex items-center gap-3` (`step3ReviewSections.
   - resolve flow: simulate `AttentionBanner` onResolved (fire the callback via the rendered banner's button with mocked fetch) → pill count decrements; last actionable resolved → menu closes + pill flips.
   - Overview railBadge = overview-routed actionable count (fixture: 1 overview alert + 1 crew alert → badge "1"); Changes railBadge = holds count.
   - deep-link: `alertId` matching an item → surface receives mount jump for `alert:<id>` and that banner `aria-current`; `alertId` with no item → fallback `#overview` scroll (existing `:192-203` effect replaced — port its test).
-  - loader test (`showReviewModalLoader.test.tsx`): asserts `attentionItems` prop derived from mocked fetch+feed (counts from fixture composition), `alertsDegraded` true on `{kind:"infra_error"}`, and Overview infra notice rendered (the §3.2 card — new small server-rendered block passed via `OverviewSection`'s `alertSlot` when degraded).
+  - loader test (`showReviewModalLoader.test.tsx`): asserts `attentionItems` prop derived from mocked fetch+feed (counts from fixture composition), `alertsDegraded` true on `{kind:"infra_error"}`, and Overview infra notice rendered (the §3.2 card — passed via `OverviewSection`'s renamed `attentionSlot` when degraded).
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement.** Modal core additions:
 
@@ -957,7 +957,7 @@ const overviewBanners = live.filter((i) => i.kind === "alert" && i.sectionId ===
   .map((i) => bannerFor(i, false));
 ```
 
-`overviewExtra.railBadge` count = `actionable.filter(i => i.sectionId === "overview").length`; `changesExtra` gains the same badge idiom with `actionable.filter(i => i.kind === "hold").length`. `OverviewSection` receives `alertSlot={<>{alertsDegraded ? <AlertsDegradedNotice /> : null}{overviewBanners}</>}` (`AlertsDegradedNotice` = the §3.2 copy-parity card, a tiny local component in the modal file). Crew banners thread via the SINGLE mechanism Task 5 built: the modal passes `crewAttention={{ byCrewKey: crewByKey, sectionTop: crewSectionTop }}` to `ShowReviewSurface`, which injects it into the crew section's `Step3SectionChromeContext`; `CrewBreakdown` reads the context (Task 5 interface — no direct prop, no `SectionData` change). Staged wizard passes nothing → byte-identical.
+`overviewExtra.railBadge` count = `actionable.filter(i => i.sectionId === "overview").length`; `changesExtra` gains the same badge idiom with `actionable.filter(i => i.kind === "hold").length`. `OverviewSection`'s `alertSlot: ReactNode` prop (`components/admin/showpage/OverviewSection.tsx:72,102`) is RENAMED `attentionSlot: ReactNode` (same render position `:102`; rename keeps the Task 9 zero-`alertSlot` grep gate honest — add `components/admin/showpage/OverviewSection.tsx` + `tests/components/admin/showpage/overviewSection.test.tsx` to this task's Files list). The modal passes `attentionSlot={<>{alertsDegraded ? <AlertsDegradedNotice /> : null}{overviewBanners}</>}` (`AlertsDegradedNotice` = the §3.2 copy-parity card, a tiny local component in the modal file). Crew banners thread via the SINGLE mechanism Task 5 built: the modal passes `crewAttention={{ byCrewKey: crewByKey, sectionTop: crewSectionTop }}` to `ShowReviewSurface`, which injects it into the crew section's `Step3SectionChromeContext`; `CrewBreakdown` reads the context (Task 5 interface — no direct prop, no `SectionData` change). Staged wizard passes nothing → byte-identical.
 
 Loader (`_showReviewModal.tsx`): after the wave —
 
