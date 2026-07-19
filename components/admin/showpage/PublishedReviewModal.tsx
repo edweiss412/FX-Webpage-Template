@@ -25,10 +25,12 @@
  * shell only invokes the crypto-free `buildSectionWarningExtras` factory.
  *
  * Close: every affordance (X, scrim, Esc, drag-dismiss) funnels through
- * `useShowModalNav().close` — the current URL minus `show`/`alert_id`.
+ * `handleClose` — an instant client-side hide (local `closing` state) plus
+ * `useShowModalNav().close` (the current URL minus `show`/`alert_id`) catching
+ * the URL up in the background.
  */
 
-import { useEffect, useId, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, History, LayoutDashboard, X } from "lucide-react";
 
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
@@ -126,6 +128,19 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   } = props;
 
   const { close } = useShowModalNav();
+  // Instant close: the close nav is a full RSC round-trip of the dashboard
+  // (the modal is server-rendered off `?show`), so the shell would otherwise
+  // stay mounted until the new payload lands. Hide client-side FIRST (the
+  // shell's unmount cleanups restore focus/inert/scroll immediately), then let
+  // `close()` catch the URL up in the background. No reset path needed: a
+  // reopen streams through the Suspense fallback (ShowReviewModalSkeleton — a
+  // different element type), which unmounts this instance, so a fresh open
+  // never inherits `closing`.
+  const [closing, setClosing] = useState(false);
+  const handleClose = useCallback(() => {
+    setClosing(true);
+    close();
+  }, [close]);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The consumer owns the scroll container the surface hands its scroll-spy
   // (shell contract: no body wrapper — the surface root IS the body element).
@@ -220,8 +235,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   return (
     <ReviewModalShell
-      open
-      onClose={close}
+      open={!closing}
+      onClose={handleClose}
       labelledBy={h2Id}
       dataAttrPrefix="review-modal"
       testIdBase={TESTID_BASE}
@@ -263,7 +278,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               type="button"
               data-testid={`${TESTID_BASE}-close`}
               aria-label="Close"
-              onClick={close}
+              onClick={handleClose}
               className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               <X aria-hidden="true" className="size-5" />

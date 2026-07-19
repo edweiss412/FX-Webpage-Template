@@ -46,6 +46,19 @@ const state = vi.hoisted(() => ({
   ignoredFingerprints: [] as string[],
   ignoredInfraError: false as boolean,
   alerts: [] as Array<Record<string, unknown>>,
+  // Perceived-latency tier 3 (parallel wave): when set, the snapshot mock
+  // blocks on this gate; the `started` flags record which reads have been
+  // ENTERED, so a test can assert the whole post-lookup wave launched before
+  // the snapshot resolved.
+  snapshotGate: null as Promise<void> | null,
+  started: {
+    snapshot: false,
+    finalize: false,
+    feed: false,
+    token: false,
+    ignored: false,
+    alerts: false,
+  },
 }));
 
 const logSpy = vi.hoisted(() => ({
@@ -84,6 +97,7 @@ vi.mock("@/lib/supabase/server", () => ({
     },
     rpc: async (fn: string) => {
       if (fn === "readfinalizeowned_b2") {
+        state.started.finalize = true;
         if (state.finalizeThrows) throw new Error("META: finalize rpc await fault");
         return { data: state.finalizeOwned, error: state.finalizeError };
       }
@@ -94,6 +108,8 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
   readShowReviewSnapshot: async () => {
+    state.started.snapshot = true;
+    if (state.snapshotGate) await state.snapshotGate;
     if (state.snapshotKind === "not_admin_or_missing") return { kind: "not_admin_or_missing" };
     if (state.snapshotKind === "infra_error") return { kind: "infra_error", message: "boom" };
     return { kind: "ok", snapshot: state.snapshot };
@@ -102,6 +118,7 @@ vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
 
 vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => {
+    state.started.token = true;
     if (state.tokenThrows) throw new Error("META: token read fault");
     return { token: state.token, epoch: 7 };
   },
@@ -111,6 +128,7 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
   const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
   return {
     readShowChangeFeed: async () => {
+      state.started.feed = true;
       if (state.feedThrows)
         throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
       return state.feed;
@@ -119,17 +137,22 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
 });
 
 vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
-  loadIgnoredWarnings: async () =>
-    state.ignoredInfraError
+  loadIgnoredWarnings: async () => {
+    state.started.ignored = true;
+    return state.ignoredInfraError
       ? { kind: "infra_error", message: "boom" }
-      : { kind: "ok", fingerprints: new Set(state.ignoredFingerprints) },
+      : { kind: "ok", fingerprints: new Set(state.ignoredFingerprints) };
+  },
 }));
 
 // Server child components: PerShowAlertSection is an async Server Component (stub
 // to null); fetchPerShowAlerts is the count source (returns the seeded rows).
 vi.mock("@/components/admin/PerShowAlertSection", () => ({
   PerShowAlertSection: () => null,
-  fetchPerShowAlerts: async () => state.alerts,
+  fetchPerShowAlerts: async () => {
+    state.started.alerts = true;
+    return state.alerts;
+  },
 }));
 
 // CurrentShareLinkPanel is an async Server shell — stub it, exposing the wired
@@ -242,10 +265,62 @@ beforeEach(() => {
   state.ignoredFingerprints = [];
   state.ignoredInfraError = false;
   state.alerts = [];
+  state.snapshotGate = null;
+  state.started = {
+    snapshot: false,
+    finalize: false,
+    feed: false,
+    token: false,
+    ignored: false,
+    alerts: false,
+  };
 });
 afterEach(() => {
   cleanup();
   vi.resetModules();
+});
+
+// ── Post-lookup parallel wave (perceived-latency tier 3) ─────────────────────
+// The loader used to serialize snapshot → finalize RPC → {feed, token, now,
+// ignored, alerts}: three DB round-trip waves stacked behind the skeleton.
+// Failure mode caught: any post-lookup read waiting on the snapshot (or on the
+// finalize RPC) re-serializes the waves and the open latency regresses.
+
+describe("show review modal loader — post-lookup parallel wave", () => {
+  it("snapshot, finalize, feed, token, ignored and alerts ALL start before the snapshot resolves", async () => {
+    let release!: () => void;
+    state.snapshotGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const mod = await import("@/app/admin/_showReviewModal");
+    const pending = mod.ShowReviewModal({ slug: "rpas", alertId: null });
+    // Bounded macrotask flushes while the gate holds the snapshot open — if
+    // any read is serialized behind it, its flag can never flip here.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.started).toEqual({
+      snapshot: true,
+      finalize: true,
+      feed: true,
+      token: true,
+      ignored: true,
+      alerts: true,
+    });
+    release();
+    render((await pending) as ReactElement);
+    // getByRole throws when absent — truthiness is the render-completed pin.
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("archived show: an unconditionally-fired finalize RPC can never mark it finalize-owned", async () => {
+    // The wave fires the finalize read before `archived` is known — the
+    // APPLICATION stays archived-gated. A stray `true` for an archived show
+    // must not leak into the client props.
+    state.snapshot = baseSnapshot({ archived: true, published: false });
+    state.finalizeOwned = true;
+    const ui = await buildLoaderElement();
+    expect(modalProps(ui).finalizeOwned).toBe(false);
+  });
 });
 
 describe("show review modal loader — lookup + snapshot gates (§4, D8)", () => {

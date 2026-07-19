@@ -19,8 +19,9 @@
 // sub-line under the title; the Live/Publishing pill stays with the title.
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown, Search } from "lucide-react";
 import {
   formatDateRange,
@@ -34,6 +35,7 @@ import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
+import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -294,6 +296,53 @@ export function ShowsTable({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState>(null);
 
+  // Optimistic open skeleton (perceived-latency tier 2): a row open is a full
+  // RSC navigation, and the server's Suspense fallback only paints after the
+  // first streamed chunk — so a primary click gets ZERO feedback for the whole
+  // first round-trip. Mount the same ShowReviewModalSkeleton client-side on
+  // click; visibility is RENDER-TIME derived against the committed `?show`
+  // param so the hand-off to the server fallback happens in one render pass
+  // (no double-overlay frame). Modified/non-primary clicks are new-tab
+  // intents — never covered with an overlay.
+  const searchParams = useSearchParams();
+  // `pending` carries BOTH the clicked slug AND the params object that was
+  // committed at click time — the anchor for the reset below.
+  const [pending, setPending] = useState<{
+    slug: string;
+    paramsAtClick: ReturnType<typeof useSearchParams>;
+  } | null>(null);
+  const committedShow = searchParams.get("show");
+  // RESET, not just hide (critique P0/P1): any committed navigation swaps the
+  // searchParams object — clear the pending state then. Open commit (?show
+  // present) hands off to the server fallback; a loader redirect back to
+  // /admin (missing/blocked show) clears the overlay instead of stranding a
+  // fake "loading" (identity compare, NOT value — that redirect can land on
+  // the exact URL the click started from); and a later CLOSE (show stripped)
+  // can never re-satisfy `committedShow !== slug` with a stale slug and
+  // remount the skeleton over the dashboard. Guarded setState-in-render is
+  // the React-endorsed derive-from-props pattern
+  // (react-hooks/set-state-in-effect forbids the effect form; react-hooks/refs
+  // forbids a render-read ref anchor — hence the anchor lives IN the state).
+  // Idle renders (pending === null) never call setState, so a test mock
+  // returning a fresh params instance per call cannot start a render loop.
+  if (pending !== null && searchParams !== pending.paramsAtClick) {
+    setPending(null);
+  }
+  const showPendingSkeleton = pending !== null && committedShow !== pending.slug;
+  const handleRowClick = (slug: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+      return;
+    setPending({ slug, paramsAtClick: searchParams });
+  };
+  // Browser Back can cancel the in-flight open without ANY commit landing —
+  // clear the overlay on popstate so it can never strand.
+  useEffect(() => {
+    if (pending === null) return;
+    const cancel = () => setPending(null);
+    window.addEventListener("popstate", cancel);
+    return () => window.removeEventListener("popstate", cancel);
+  }, [pending]);
+
   const trimmed = query.trim().toLowerCase();
   const filtered = useMemo(
     () =>
@@ -480,6 +529,7 @@ export function ShowsTable({
                   <Link
                     href={openHref(row.slug)}
                     scroll={false}
+                    onClick={handleRowClick(row.slug)}
                     data-testid={`shows-table-row-${row.slug}`}
                     className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
                   >
@@ -611,6 +661,15 @@ export function ShowsTable({
           </Link>
         </p>
       ) : null}
+
+      {/* Optimistic open: the identical skeleton frame the server Suspense
+          fallback renders, mounted client-side the instant a primary row click
+          starts the navigation. Hidden the moment `?show` commits — the server
+          fallback replaces it within the same render pass. Unlike the server
+          fallback (RSC — can't serialize an onClose), the CLIENT copy is
+          cancelable: scrim / Esc / grab dismiss the overlay (critique P1), so
+          a mis-tap never traps the user behind a non-interactive frame. */}
+      {showPendingSkeleton ? <ShowReviewModalSkeleton onClose={() => setPending(null)} /> : null}
     </div>
   );
 }

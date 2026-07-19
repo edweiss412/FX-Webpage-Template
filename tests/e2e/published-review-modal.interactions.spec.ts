@@ -251,15 +251,17 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     });
 
     await page.keyboard.press("Escape");
-    // §6.5: open→closed is an INSTANT unmount — no exit animation to wait out.
-    // The unmount itself rides the close NAVIGATION (router.push minus the
-    // show param → an RSC roundtrip), so the bound is the dev server's
-    // response time (first archived-bucket compile here), not an animation.
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
+    // §6.5 + perceived-latency tier 1: open→closed is an INSTANT client-side
+    // unmount (local closing state) — it does NOT wait for the close
+    // navigation. The URL catches up when the router.push RSC roundtrip
+    // commits, so the unmount bound is tight and the URL assertions POLL with
+    // a nav-sized budget (first archived-bucket compile here).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
 
     await expect
       .poll(() => new URL(page.url()).searchParams.has("show"), {
         message: "close strips the show param",
+        timeout: 15_000,
       })
       .toBe(false);
     const { pathname, params } = urlParts(page);
@@ -272,21 +274,74 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await openModal(page, POPUP);
     // The centered ≥sm panel leaves the viewport corner to the scrim.
     await page.locator(BACKDROP).click({ position: { x: 10, y: 10 } });
-    // Instant unmount, bounded by the close navigation (see the Esc test note).
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
-    const { pathname, params } = urlParts(page);
-    expect(pathname).toBe("/admin");
-    expect(params.has("show")).toBe(false);
+    // Instant client-side unmount; the URL catches up on the close nav commit
+    // (see the Esc test note).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    expect(urlParts(page).pathname).toBe("/admin");
   });
 
   test("X button closes and strips the show param", async ({ page }) => {
     await openModal(page, POPUP);
     await page.locator(CLOSE).click();
-    // Instant unmount, bounded by the close navigation (see the Esc test note).
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
-    const { pathname, params } = urlParts(page);
-    expect(pathname).toBe("/admin");
-    expect(params.has("show")).toBe(false);
+    // Instant client-side unmount; the URL catches up on the close nav commit
+    // (see the Esc test note).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    expect(urlParts(page).pathname).toBe("/admin");
+  });
+
+  test("row-click open leaves NO stranded optimistic skeleton after the close commit (critique P0)", async ({
+    page,
+  }) => {
+    // The optimistic client skeleton is keyed off ShowsTable's pendingSlug; a
+    // stale pendingSlug would re-satisfy `committedShow !== pendingSlug` the
+    // moment close strips ?show and remount a permanent "loading" overlay
+    // OVER the dashboard. Deterministic pin: assert emptiness AFTER the close
+    // navigation commits (the racy window is exactly when the bug fires).
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize(POPUP);
+    await page.goto("/admin");
+    const trigger = page.locator(`[data-testid="shows-table-row-${show.slug}"]`);
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    await page.waitForLoadState("networkidle");
+
+    await trigger.click();
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    // Client copy handed off — exactly one frame once the loaded modal is up.
+    await expect(page.locator(MODAL_ANY)).toHaveCount(1);
+
+    await page.locator(CLOSE).click();
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    // Audit P2 (WCAG 2.4.3): the optimistic path stacks a THIRD transient
+    // shell mount (client skeleton → server skeleton → loaded modal), each
+    // owning an inert save/restore pair — after close, focus must still land
+    // back on the row trigger, not <body> (real-browser-only; jsdom doesn't
+    // enforce inert).
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "focus restored to the dashboard row after the optimistic-path close" },
+      )
+      .toBe(`shows-table-row-${show.slug}`);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    // Post-commit: still zero frames — no skeleton resurrection.
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0);
   });
 
   test("browser Back closes the modal (route change unmount)", async ({ page }) => {

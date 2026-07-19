@@ -23,7 +23,7 @@ import { useId, useRef } from "react";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { Skeleton } from "@/components/layout/Skeleton";
 
-export function ShowReviewModalSkeleton() {
+export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = {}) {
   const headingId = useId();
   // Deliberately never attached: the skeleton renders no interactive control,
   // so initial focus falls back to the panel (useDialogFocus contract).
@@ -32,7 +32,11 @@ export function ShowReviewModalSkeleton() {
   return (
     <ReviewModalShell
       open
-      onClose={() => {}}
+      // Server (Suspense-fallback) usage passes NO props — the RSC boundary
+      // can't serialize a function, so there the affordances stay no-ops. The
+      // CLIENT optimistic copy (ShowsTable) passes a real cancel so scrim /
+      // Esc / grab dismiss the overlay instead of trapping the user.
+      onClose={onClose ?? (() => {})}
       labelledBy={headingId}
       dataAttrPrefix="review-modal"
       testIdBase="published-show-review"

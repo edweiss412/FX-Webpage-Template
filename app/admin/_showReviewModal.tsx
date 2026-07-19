@@ -133,43 +133,22 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   if (!showIdRow) redirect("/admin");
   const showId = showIdRow.id;
 
-  // Statement-consistent published-review snapshot (§3.3a). not_admin_or_missing
-  // → redirect("/admin") (D8 — requireAdmin already ran on the dashboard page;
-  // this is the show-missing/RLS gate, and a dead modal closes to the dashboard);
-  // infra_error → throw to the error boundary (no raw code in UI, invariant 5).
-  const snapResult = await readShowReviewSnapshot(supabase, showId);
-  if (snapResult.kind === "not_admin_or_missing") redirect("/admin");
-  if (snapResult.kind === "infra_error") {
-    throw new Error("show_review_snapshot_failed");
-  }
-  const snapshot = snapResult.snapshot;
-  const show = snapshot.show;
-
-  const publishedData = buildPublishedSectionData(snapshot, { slug });
-  const { archived, published, dates, venue, driveFileId } = publishedData;
-  const title = publishedData.title || null;
-  const lastSyncedAt = str(show.last_synced_at);
-  // shows.last_checked_at — last time the cron SUCCESSFULLY reached Drive and
-  // evaluated this show (distinct from last_synced_at, the last content apply /
-  // error stamp). Drives the StatusStrip sync-age badge time (2026-07-17
-  // sync-cell). `show` is `to_jsonb(shows)` so the column is present.
-  const lastCheckedAt = str(show.last_checked_at);
-  const lastSyncStatus = str(show.last_sync_status);
-  const pickerEpoch = typeof show.picker_epoch === "number" ? show.picker_epoch : 1;
-  const isShowEligibleForCrewLink = published && !archived;
-
   // §3.2 finalize-owned ("Publishing…") — same SECURITY DEFINER predicate the
-  // dashboard uses. Queried for every non-archived show. Invariant 9: the RPC
-  // boundary destructures { data, error } and BOTH the returned-error and the
-  // thrown-error paths are surfaced (distinct log.error emits) — never a silent
-  // finalize=false. Posture preserved from the prior page (§6): fail toward
-  // NOT-finalize-owned on ANY fault (returned error, non-true value, or throw).
-  // A transiently enabled toggle is safe — the mutation server actions
-  // independently refuse during finalize (the RPC's hard FINALIZE_OWNED_SHOW
-  // refusal is the backstop) — so a read fault degrades to a logged cosmetic
-  // exposure, never an admin lockout on a transient blip.
-  let finalizeOwned = false;
-  if (!archived) {
+  // dashboard uses. Invariant 9: the RPC boundary destructures { data, error }
+  // and BOTH the returned-error and the thrown-error paths are surfaced
+  // (distinct log.error emits) — never a silent finalize=false. Posture
+  // preserved from the prior page (§6): fail toward NOT-finalize-owned on ANY
+  // fault (returned error, non-true value, or throw). A transiently enabled
+  // toggle is safe — the mutation server actions independently refuse during
+  // finalize (the RPC's hard FINALIZE_OWNED_SHOW refusal is the backstop) — so
+  // a read fault degrades to a logged cosmetic exposure, never an admin
+  // lockout on a transient blip.
+  //
+  // Perceived-latency tier 3: the read fires in the parallel wave below —
+  // BEFORE `archived` is known — so it runs unconditionally (one cheap extra
+  // RPC on the rare archived open). The APPLICATION stays archived-gated:
+  // `finalizeOwned` below is forced false for archived shows.
+  const readFinalizeOwned = async (): Promise<boolean> => {
     try {
       const { data, error } = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
       if (error) {
@@ -180,9 +159,9 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
           showId,
           error: error.message,
         });
-      } else if (data === true) {
-        finalizeOwned = true;
+        return false;
       }
+      return data === true;
     } catch (err) {
       void log.error("readfinalizeowned_b2 rpc threw:", {
         source: "admin.show",
@@ -191,11 +170,16 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         showId,
         error: err,
       });
+      return false;
     }
-  }
+  };
 
-  // Independent post-snapshot reads fan out in one wave (each resolves to a
-  // typed local result and never rejects, so Promise.all never short-circuits).
+  // Independent post-lookup reads fan out in ONE wave (each helper resolves to
+  // a typed local result and never rejects, so Promise.all never
+  // short-circuits). Perceived-latency tier 3: the snapshot RPC is IN the wave
+  // — everything here keys off `showId` alone, so nothing needs to wait for
+  // the snapshot (the loader used to stack snapshot → finalize → the rest as
+  // three serial round-trip waves behind the skeleton).
   const readFeed = async (): Promise<{
     feed: Awaited<ReturnType<typeof readShowChangeFeed>> | null;
   }> => {
@@ -219,7 +203,9 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
     }
   };
 
-  const readToken = async (): Promise<{ token: string | null; epoch: number }> => {
+  // Fault fallback epoch is null here (the snapshot's picker_epoch isn't
+  // known until the wave settles); resolved to `pickerEpoch` post-wave.
+  const readToken = async (): Promise<{ token: string | null; epoch: number | null }> => {
     try {
       return await loadShowShareToken(showId);
     } catch (err) {
@@ -230,18 +216,54 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         showId,
         error: err,
       });
-      return { token: null, epoch: pickerEpoch };
+      return { token: null, epoch: null };
     }
   };
 
-  const [{ feed }, { token, epoch: tokenEpoch }, now, ignoredResult, alertsForCount] =
-    await Promise.all([
-      readFeed(),
-      readToken(),
-      nowDate(),
-      loadIgnoredWarnings(showId),
-      fetchPerShowAlerts(showId),
-    ]);
+  const [
+    snapResult,
+    finalizeOwnedRead,
+    { feed },
+    { token, epoch: tokenEpochRead },
+    now,
+    ignoredResult,
+    alertsForCount,
+  ] = await Promise.all([
+    readShowReviewSnapshot(supabase, showId),
+    readFinalizeOwned(),
+    readFeed(),
+    readToken(),
+    nowDate(),
+    loadIgnoredWarnings(showId),
+    fetchPerShowAlerts(showId),
+  ]);
+
+  // Statement-consistent published-review snapshot (§3.3a). not_admin_or_missing
+  // → redirect("/admin") (D8 — requireAdmin already ran on the dashboard page;
+  // this is the show-missing/RLS gate, and a dead modal closes to the dashboard);
+  // infra_error → throw to the error boundary (no raw code in UI, invariant 5).
+  if (snapResult.kind === "not_admin_or_missing") redirect("/admin");
+  if (snapResult.kind === "infra_error") {
+    throw new Error("show_review_snapshot_failed");
+  }
+  const snapshot = snapResult.snapshot;
+  const show = snapshot.show;
+
+  const publishedData = buildPublishedSectionData(snapshot, { slug });
+  const { archived, published, dates, venue, driveFileId } = publishedData;
+  const title = publishedData.title || null;
+  const lastSyncedAt = str(show.last_synced_at);
+  // shows.last_checked_at — last time the cron SUCCESSFULLY reached Drive and
+  // evaluated this show (distinct from last_synced_at, the last content apply /
+  // error stamp). Drives the StatusStrip sync-age badge time (2026-07-17
+  // sync-cell). `show` is `to_jsonb(shows)` so the column is present.
+  const lastCheckedAt = str(show.last_checked_at);
+  const lastSyncStatus = str(show.last_sync_status);
+  const pickerEpoch = typeof show.picker_epoch === "number" ? show.picker_epoch : 1;
+  const isShowEligibleForCrewLink = published && !archived;
+  // Archived gate applied HERE (the wave fired the read unconditionally).
+  const finalizeOwned = !archived && finalizeOwnedRead;
+  const tokenEpoch = tokenEpochRead ?? pickerEpoch;
 
   // §5.1 alert-count badge: open non-health alerts for this show (the
   // PerShowAlertSection count query). Any fault → 0 (badge hidden — safe degrade).
