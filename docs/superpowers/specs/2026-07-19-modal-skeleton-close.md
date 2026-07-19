@@ -27,7 +27,7 @@ onDismissStart?: () => void;
 
 invoked inside `beginDismiss()` (`ReviewModalShell.tsx:293`), which is the single chokepoint both close paths already share (`requestClose` step 3 and the drag-past-threshold branch). `beginDismiss` gains an idempotence guard `if (dismissingRef.current) return;` — structurally replacing the removed `closeAffordancesDisabled` gate at the same site and making `onDismissStart` one-shot by construction. In the reduced-motion path the order inside `requestClose` is unchanged: `beginDismiss()` (→ `onDismissStart`) then immediate `onClose` (`ReviewModalShell.tsx:338-348`).
 
-`ShowReviewModalSkeleton` keeps its optional `onClose?: () => void` prop (ShowsTable path byte-identical in behavior). Internally:
+`ShowReviewModalSkeleton` keeps its optional `onClose?: () => void` prop. **Scope of "unchanged" for the ShowsTable path (R2 F4):** unchanged means the close-callback semantics — `setPending(null)` at exit-end, no nav. The visual/focus changes in §2.2 (real X replacing the placeholder, initial focus moving from the panel to the X) apply to BOTH usages, including the optimistic copy. Internally:
 
 ```tsx
 const { close } = useShowModalNav();
@@ -75,6 +75,7 @@ Also updated (R1 F5): the skeleton's file-header contract comment (`ShowReviewMo
 ### 3.1 `docs/superpowers/specs/2026-07-18-admin-show-modal.md`
 
 - §4 (`:73`): "…inside an open, non-interactive modal frame…" → "…inside an open, **content-non-interactive** modal frame — close affordances (X / scrim / Esc / grab / drag) are live and navigate back via `useShowModalNav().close` (MODAL-SKELETON-CLOSE-1 amendment, `2026-07-19-modal-skeleton-close.md`); the loading blocks themselves stay non-interactive."
+- §5 shell API contract (`2026-07-18-admin-show-modal.md:79-90`, R2 F2): the prop list gains `onDismissStart?: () => void` — "fires exactly once, at dismiss-commit (`beginDismiss`), before exit styles and before any exit-end `onClose`" — since AGENTS.md rule 7 makes the spec canonical, the callback must live in the governing API contract, not only in this follow-up.
 - §6.5 transition inventory: add row `| skeleton open → closed (X/scrim/Esc/grab/drag) | same shell exit animation as the loaded modal (requestClose); server fallback: nav issued at dismiss-commit (onDismissStart), instant hide at exit-end; ShowsTable: the passed cancel at exit-end |`.
 
 ### 3.2 `docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md`
@@ -87,14 +88,14 @@ Also updated (R1 F5): the skeleton's file-header contract comment (`ShowReviewMo
 
 ### 3.3 `DEFERRED.md` (R1 F4 — archive policy, `DEFERRED.md:5`)
 
-MODAL-SKELETON-CLOSE-1's full entry MOVES to `DEFERRED-archive.md` with a Resolved provenance note (un-defer trigger fired — this task; what shipped; spec link). The working queue drops the entry; the "Last reconciled" line and the stale cross-reference in the MODAL-CLOSE-EXIT-ANIM resolved note (`DEFERRED.md:14`: "**`MODAL-SKELETON-CLOSE-1` below stays deferred**") are updated to point at the archive.
+MODAL-SKELETON-CLOSE-1's full entry MOVES to `DEFERRED-archive.md` with a Resolved provenance note (un-defer trigger fired — this task; what shipped; spec link). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block still sitting in the working queue (`DEFERRED.md:11-14`) moves to the archive in the same edit (R2 F3 — `DEFERRED.md:5` policy: resolved entries live in the archive; its "MODAL-SKELETON-CLOSE-1 below stays deferred" cross-reference is rewritten as resolved-by-this-spec in the archived copy). The "Last reconciled" line is updated.
 
 ## 4. Guard conditions
 
 | Input / state | Behavior |
 |---|---|
 | `onClose` undefined (server fallback) | shell gets `onDismissStart={close}` + `onClose={() => setClosing(true)}` |
-| `onClose` provided (ShowsTable) | shell gets `onClose={onClose}`, NO `onDismissStart`; `closing` never set; identical to today |
+| `onClose` provided (ShowsTable) | shell gets `onClose={onClose}`, NO `onDismissStart`; `closing` never set; close semantics identical to today (visual X + focus change per §2.1/§2.2 apply) |
 | Esc/scrim/X/grab-tap while streaming | dismiss commits → `onDismissStart` fires the nav → shell exit animation → `onClose` at exit-end hides |
 | drag past threshold while streaming | `beginDismiss` → `onDismissStart` (same chokepoint) → transition → `onClose` |
 | reduced motion | `beginDismiss` (→ `onDismissStart` nav) then immediate `onClose` (shell `:338-348`) |
@@ -110,6 +111,7 @@ Unit (jsdom, vitest):
 - `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx` — rewrite. Needs a `next/navigation` mock (pattern: `tests/components/admin/showpage/publishedReviewModal.test.tsx:30`). The **propless render IS the server usage** — the component is identical client code in both mounts, so jsdom covers the server-fallback contract directly (R1 F2).
   - Server-fallback usage, reduced motion: Esc (and scrim click) hides the dialog AND pushes the show-stripped URL (`routerPush` called with `/admin`-shaped href, `{ scroll: false }`). Drag-past-threshold path also closes (the branch that bypasses `requestClose`).
   - Server-fallback usage, **motion enabled + fake timers** (R1 F3 — the race window itself): Esc → assert `routerPush` was called **immediately** (at dismiss-commit, before any exit-end), while the dialog is still mounted mid-exit; then advance timers past `DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS` → dialog gone. Then the swap-mid-exit case: Esc, assert `routerPush` already called, **unmount the skeleton before the exit completes** (rerender without it — what a Suspense swap does), run all timers → no late `onClose` errors, no double push.
+  - Same motion-enabled immediate-push + swap-mid-exit proof for the **drag-past-threshold** path (R2 F1): pointer sequence past `DRAG_DISMISS_THRESHOLD_PX` → `routerPush` already called at release (dismiss-commit, before the `DURATION_NORMAL_FALLBACK_MS` timer), then unmount mid-transition, run timers → no double push. This pins that the drag branch (`ReviewModalShell.tsx:467-490`), which bypasses `requestClose`, reaches `onDismissStart` through `beginDismiss` at commit time — an implementation calling it from the branch's exit-end `finish()` would fail this test.
   - Client usage: unchanged assertions — Esc calls the passed `onClose` once; `routerPush` NOT called (prop path must not leak into nav).
   - X button: rendered with `data-testid="published-show-review-close"`, `aria-label="Close"`, receives initial focus (useDialogFocus contract), and is NOT inside any `aria-hidden` subtree (closest `[aria-hidden]` is null).
   - Entrance-suppression test (`:73-79`) unchanged.
