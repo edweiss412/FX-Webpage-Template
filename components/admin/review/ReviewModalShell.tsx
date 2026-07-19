@@ -600,12 +600,22 @@ function OpenReviewModalShell({
 
         {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
           does NOT default `.flex` to align-items:stretch (DESIGN.md §7).
-          Header/footer/grab are shrink-0; the body region is min-h-0 flex-1. */}
+          Header/footer/grab are shrink-0; the body region is min-h-0 flex-1.
+
+          `overflow-hidden` is LOAD-BEARING, not a scroll guard: the header,
+          the sub-header band and the two-pane side rail all paint an opaque
+          `bg-surface` with square corners of their own, so without a clip they
+          cover the panel's `rounded-md` and the modal renders square-edged
+          while `getComputedStyle(panel).borderRadius` still reads 12px. It also
+          does NOT clip the band's popover / the Re-sync overlay: both are
+          positioned inside the panel box by construction (see the band comment
+          below). Pinned by T-CORNER in
+          tests/e2e/published-review-modal.layout.spec.ts. */}
         <div
           ref={panelRef}
           {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
           {...entranceAttr}
-          className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
           {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤

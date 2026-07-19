@@ -450,4 +450,88 @@ describe("ReSyncButton", () => {
       expect(re.test(stripped), `raw code '${code}' must not appear in DOM`).toBe(false);
     }
   });
+  // ── Clip-fit cap (ReviewModalShell's `overflow-clip`) ──────────────────────
+  //
+  // The modal panel clips its children so its opaque bands stop painting over
+  // its rounded corners. Every Re-sync overlay anchors `top-full` to the band
+  // INSIDE that panel, so the CSS `max-h-[min(50vh,20rem)]` alone can leave the
+  // box cut at the panel's edge — and because each overlay has its own
+  // `overflow-y-auto`, the cut lands on the TAIL OF THE SCROLL RANGE, which is
+  // where the shrink confirm's decision buttons sit.
+  //
+  // jsdom computes no layout, so the rects are stubbed: the numbers are the
+  // ones measured on the real published harness at 375x812 (band bottom 456,
+  // panel bottom 667), and the assertion is that the component wires the
+  // measurement up at all — the arithmetic itself is pinned in
+  // tests/lib/fitWithinClip.test.ts.
+  function renderInsideClippingPanel(overlayTop: number, panelBottom: number) {
+    const host = document.createElement("div");
+    // Longhands, and `hidden` rather than `clip`: jsdom does not expand the
+    // `overflow` shorthand into computed longhands and does not recognize
+    // `clip`. The contract under test is "any non-visible overflow clips", so
+    // `hidden` exercises the same branch the real panel's `overflow-clip` does.
+    host.style.overflowX = "hidden";
+    host.style.overflowY = "hidden";
+    host.getBoundingClientRect = () =>
+      ({
+        top: 0,
+        bottom: panelBottom,
+        left: 0,
+        right: 375,
+        width: 375,
+        height: panelBottom,
+      }) as DOMRect;
+    document.body.appendChild(host);
+
+    const proto = HTMLElement.prototype as unknown as { getBoundingClientRect: () => DOMRect };
+    const originalRect = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function stub(this: HTMLElement) {
+      if (this === host) return originalRect.call(this);
+      return {
+        top: overlayTop,
+        bottom: overlayTop,
+        left: 0,
+        right: 375,
+        width: 375,
+        height: 0,
+      } as DOMRect;
+    };
+    const restore = () => {
+      proto.getBoundingClientRect = originalRect;
+      host.remove();
+    };
+    return { host, restore };
+  }
+
+  test("overlay is capped to the room left inside a clipping ancestor", async () => {
+    const { host, restore } = renderInsideClippingPanel(456, 667);
+    try {
+      fetchMock.mockResolvedValue({
+        json: async () => ({ ok: false, error: "SHOW_BUSY_RETRY" }),
+      } as unknown as Response);
+      const { getByTestId, findByTestId } = render(<ReSyncButton slug="my-show" />, {
+        container: host,
+      });
+      fireEvent.click(getByTestId("admin-resync-button"));
+      const panel = await findByTestId("admin-resync-error");
+      // 667 − 456 − 8 (gutter). Without the wiring this is "" (CSS cap only),
+      // which is exactly the 109px-cut bug at 375x667.
+      await waitFor(() => expect(panel.style.maxHeight).toBe("203px"));
+    } finally {
+      restore();
+    }
+  });
+
+  test("overlay keeps the CSS cap when nothing clips it", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: false, error: "SHOW_BUSY_RETRY" }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="my-show" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-error");
+    // No clipping ancestor: the inline cap must stay unset so the stylesheet's
+    // min(50vh,20rem) governs, rather than a measured value that would shrink
+    // the overlay on a surface that never needed it.
+    expect(panel.style.maxHeight).toBe("");
+  });
 });
