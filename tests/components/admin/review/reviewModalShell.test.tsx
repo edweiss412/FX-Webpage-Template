@@ -22,6 +22,9 @@ import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
+  DRAG_SLOP_PX,
+  DURATION_FAST_FALLBACK_MS,
+  DURATION_NORMAL_FALLBACK_MS,
   ReviewModalShell,
   type ReviewModalShellProps,
 } from "@/components/admin/review/ReviewModalShell";
@@ -138,19 +141,82 @@ describe("ReviewModalShell — chrome topology (both dataAttrPrefix values inter
   });
 });
 
+/** Force the reduced-motion branch (spec §3.1 step 4 — instant, byte-identical
+ *  to pre-animation behavior). `tests/setup.ts:70` stubs matchMedia with
+ *  `matches: false`, i.e. MOTION ENABLED, so without this override every close
+ *  here takes the animated path and resolves only on the fallback timer. */
+function withReducedMotion(run: () => void) {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  try {
+    run();
+  } finally {
+    window.matchMedia = original;
+  }
+}
+
 describe("ReviewModalShell — close paths + initial focus", () => {
-  it("Escape calls onClose", () => {
-    const onClose = vi.fn();
-    render(<Host onClose={onClose} />);
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+  // Both halves of the §3.1 contract are pinned per affordance. Asserting only
+  // the reduced-motion half would delete all unit coverage of the animated
+  // path; asserting only the animated half would drop the guarantee that
+  // reduced motion stays byte-identical to today.
+  it("Escape closes instantly under reduced motion", () => {
+    withReducedMotion(() => {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("scrim click calls onClose", () => {
-    const onClose = vi.fn();
-    render(<Host onClose={onClose} />);
-    fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("Escape plays the exit BEFORE closing when motion is enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.keyDown(document, { key: "Escape" });
+      // The exit is playing: onClose must NOT have fired yet. If it has, the
+      // animation was skipped and the close snapped — the regression this
+      // whole feature exists to remove.
+      expect(onClose).not.toHaveBeenCalled();
+      // jsdom never fires transitionend, so exit-end arrives via the fallback.
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("scrim click closes instantly under reduced motion", () => {
+    withReducedMotion(() => {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("scrim click plays the exit BEFORE closing when motion is enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
+      expect(onClose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 20);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("initial focus lands on the element initialFocusRef points at (consumer close button)", () => {
@@ -168,11 +234,13 @@ describe("requestClose guards (spec §3.1)", () => {
   // onClose, producing a duplicate close — on Published, a duplicate router.push.
   it("fires onClose exactly once for repeated affordances", () => {
     const onClose = vi.fn();
-    renderShell({ onClose });
-    fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.click(screen.getByTestId(`${SHELL_BASE}-backdrop`));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    withReducedMotion(() => {
+      renderShell({ onClose });
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.click(screen.getByTestId(`${SHELL_BASE}-backdrop`));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
   // Failure mode: the exit window (Task 3) leaves footer buttons live, so a
@@ -183,6 +251,43 @@ describe("requestClose guards (spec §3.1)", () => {
     expect(dialog.hasAttribute("inert")).toBe(false);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(dialog.hasAttribute("inert")).toBe(true);
+  });
+});
+
+describe("exit start-state (spec §3.2)", () => {
+  // Failure mode: a pending spring-back's settle() fires DURING the exit and
+  // calls clearPanelDragStyles(), blanking transform/transition/animation and
+  // wiping the animation mid-flight. settle()'s only guard is
+  // `dragRef.current === null` — which is TRUE during an exit, so it fires.
+  //
+  // The drag is driven for real (not by assigning panel.style.transform and
+  // pressing Esc): only a genuine sub-threshold release arms settleTimerRef,
+  // and only a pending settle can demonstrate the chokepoint guard.
+  it("a pending settle cannot blank the exit styles", () => {
+    vi.useFakeTimers();
+    try {
+      renderShell({ onClose: vi.fn() });
+      const grab = screen.getByTestId(`${SHELL_BASE}-grab`);
+      // The panel carries no testid — the suite locates it by its entrance hook.
+      const panel = document.querySelector<HTMLElement>("[data-step3-review-panel]")!;
+
+      // Sub-threshold drag: past slop (so `wasDrag`), under the dismiss
+      // threshold (so release takes the spring-back branch, arming settleTimer).
+      const endY = 100 + DRAG_SLOP_PX + 10;
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: endY });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: endY });
+      expect(panel.style.transform).not.toBe(""); // spring-back is animating
+
+      // Close INSIDE the settle window, then let the pending settle fire.
+      fireEvent.keyDown(document, { key: "Escape" });
+      vi.advanceTimersByTime(DURATION_FAST_FALLBACK_MS + 20);
+
+      // The exit committed; nothing may hand the panel back to stylesheet control.
+      expect(panel.style.transform).not.toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

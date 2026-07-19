@@ -58,8 +58,20 @@ Every symbol, path, and line this plan names was grepped against the live worktr
 | e2e instant-unmount assertions | `published-review-modal.interactions.spec.ts:23`, `:254-292` | flip in Task 7 |
 | `SHEET = {390,844}` / `POPUP = {1280,800}` | same file `:64-65` | reuse; don't invent viewports |
 | focus-continuity pin | commit `7555c0316` | must stay green |
+| **`matchMedia` in jsdom** | `tests/setup.ts:70-81` | **CORRECTION (found at Task 3 implementation).** The pre-draft pass asserted "jsdom has no `matchMedia`, so `requestClose` takes the immediate path" — that is WRONG. `tests/setup.ts` stubs it with `matches: false`, so jsdom takes the **animated** path, and since jsdom never fires `transitionend`, `onClose` arrives only via the fallback timer. Consequence: unit tests asserting a *synchronous* close (`reviewModalShell.test.tsx` Escape/scrim/once, `publishedReviewModal.test.tsx` X/Escape/scrim) fail against a correct implementation. They pin pre-animation behavior and must be flipped in Task 3 — the same flip Task 7 makes for e2e. See "Unit-test flip" below. |
 
 **Constraint this surfaced (spec §7.5(b)):** the grab strip is `sm:hidden`. The five-affordance suppression matrix therefore CANNOT run all five at one viewport — grab-tap and drag runs require `SHEET`; X/Esc/scrim run at both. Task 7 pins this explicitly. A desktop-only run would silently skip two affordances while appearing to pass.
+
+---
+
+## Unit-test flip (Task 3) — consequence of the `matchMedia` correction
+
+Six jsdom tests assert a synchronous close. Under the animation they must assert the contract's **two halves**, which is stronger coverage than before, not weaker:
+
+1. **Reduced motion → still instant.** Override `window.matchMedia` so `(prefers-reduced-motion: reduce)` matches, then assert the existing synchronous behavior verbatim. This keeps the spec §3.1-step-4 "byte-identical to today" guarantee pinned.
+2. **Motion enabled → exit first, close after.** With the default stub (`matches: false`), assert the dialog is **still present** immediately after the affordance fires (the exit is playing and `onClose` has NOT run), then advance fake timers by the mode's `DURATION_*_FALLBACK_MS` and assert `onClose` fired exactly once.
+
+Do NOT "fix" these by forcing reduced motion everywhere — that would delete all unit coverage of the animated path and let a broken exit ship green. Both halves are required.
 
 ---
 

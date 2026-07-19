@@ -103,6 +103,8 @@ function OpenReviewModalShell({
   /** The grab strip — `requestClose` releases its pointer capture when it
    *  cancels an in-flight drag. */
   const grabRef = useRef<HTMLButtonElement | null>(null);
+  /** The scrim — the exit fades it out alongside the panel (spec §3.2). */
+  const scrimRef = useRef<HTMLButtonElement | null>(null);
   // §S3C-2: portal the fixed-overlay dialog to document.body on the client so
   // the background admin shell can be inerted (below) and the modal escapes any
   // transformed ancestor (PageTransition) that would confine `position: fixed`.
@@ -226,6 +228,9 @@ function OpenReviewModalShell({
 
   /** Return the panel to stylesheet control (entrance keyframes, mode classes). */
   function clearPanelDragStyles() {
+    // Never hand the panel back to stylesheet control while an exit is in flight
+    // — a pending settle() would otherwise blank the exit styles (spec §3.2).
+    if (dismissingRef.current) return;
     const panel = panelRef.current;
     if (!panel) return;
     panel.style.transform = "";
@@ -275,10 +280,73 @@ function OpenReviewModalShell({
         }
       }
     }
+    // step 2 (cont.): a pending spring-back settle would call
+    // clearPanelDragStyles() mid-exit. The chokepoint guard above already
+    // refuses it, but cancelling the timer keeps the exit free of dead work.
+    if (settleTimerRef.current !== null) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
     beginDismiss();
-    // step 4: reduced motion / no panel / jsdom → immediate, byte-identical to
-    // today. Task 3 adds the animated path ahead of this line.
-    onClose();
+
+    const panel = panelRef.current;
+    const reduced =
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (panel === null || reduced) {
+      onClose(); // step 4 — byte-identical to today
+      return;
+    }
+
+    // step 5 — snapshot FIRST, before neutralizing anything: an interrupted
+    // entrance must continue from where it reached, not snap to resting style.
+    const computed = window.getComputedStyle(panel);
+    const startTransform = computed.transform === "none" ? "" : computed.transform;
+    const startOpacity = computed.opacity;
+
+    const isSheet = !window.matchMedia("(min-width: 640px)").matches;
+    const durationVar = isSheet ? "--duration-normal" : "--duration-fast";
+    const fallbackMs = isSheet ? DURATION_NORMAL_FALLBACK_MS : DURATION_FAST_FALLBACK_MS;
+
+    panel.style.animation = "none";
+    panel.style.transition = "none";
+    if (startTransform) panel.style.transform = startTransform;
+    panel.style.opacity = startOpacity;
+    void panel.offsetHeight; // force a style flush so start and end resolve separately
+    panel.style.transition = `transform var(${durationVar}) var(--ease-out-quart), opacity var(${durationVar}) var(--ease-out-quart)`;
+    if (isSheet) {
+      panel.style.transform = "translateY(100%)";
+    } else {
+      panel.style.opacity = "0";
+      panel.style.transform = "translateY(8px) scale(0.98)";
+    }
+
+    const scrim = scrimRef.current;
+    if (scrim) {
+      scrim.style.animation = "none";
+      scrim.style.transition = `opacity var(${durationVar}) ease-out`;
+      scrim.style.opacity = "0";
+    }
+
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      panel.removeEventListener("transitionend", onTransitionEnd);
+      if (dismissTimerRef.current !== null) {
+        clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
+      }
+      onClose();
+    };
+    // Keys on `transform` in BOTH modes — desktop animates transform as well as
+    // opacity precisely so this one predicate works (spec §3.2).
+    const onTransitionEnd = (ev: TransitionEvent) => {
+      if (ev.target === panel && ev.propertyName === "transform") finish();
+    };
+    panel.addEventListener("transitionend", onTransitionEnd);
+    dismissTimerRef.current = setTimeout(finish, fallbackMs);
   }
 
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -455,6 +523,7 @@ function OpenReviewModalShell({
           aria-hidden — aria-hidden on an interactive control is an a11y
           footgun. (Pattern carried from Step3DetailsDialog / ReportModal.) */}
         <button
+          ref={scrimRef}
           type="button"
           data-testid={`${testIdBase}-backdrop`}
           {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
