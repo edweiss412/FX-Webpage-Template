@@ -1,7 +1,8 @@
-name: Bell panel layout e2e (desktop-chromium)
-# Runs tests/e2e/bell-panel-layout.spec.ts — the alert bell's real-browser
-# dimensional-invariant + transition-audit gate — against a real browser and a
-# seeded local Supabase.
+name: Admin layout e2e (desktop-chromium)
+# Runs the admin shell's real-browser dimensional-invariant specs against a real
+# browser and a seeded local Supabase:
+#   - tests/e2e/bell-panel-layout.spec.ts          (alert bell geometry + transitions)
+#   - tests/e2e/admin-nav-layout-dimensions.spec.ts (nav chrome across the breakpoint)
 #
 # Why this job exists: the spec ran in NO workflow. `desktop-chromium` is invoked
 # only by step3-live-bundle.yml, and only for its own spec, so this gate has been
@@ -14,8 +15,9 @@ name: Bell panel layout e2e (desktop-chromium)
 #
 # What it protects: panel geometry across the 420px cap + 640px sm breakpoint, the
 # unread-dot no-layout-shift invariant, severity grouping, the shared timestamp /
-# Dismiss right edge and the 28px chevron gutter's bled 44px tap target, and
-# document-level horizontal overflow on /admin.
+# Dismiss right edge and the 28px chevron gutter's bled 44px tap target, the nav
+# chrome sweep across the 840px breakpoint band (including 768, inside the range
+# that used to overflow), and document-level horizontal overflow on /admin.
 #
 # Shape mirrors crew-e2e.yml (native runner + chromium; this spec asserts rects and
 # behavior, NOT pixel bytes, so the amd64 Docker raster pin used by
@@ -27,15 +29,18 @@ on:
   pull_request:
     paths:
       - "components/admin/BellPanel.tsx"
+      - "components/admin/nav/**"
+      - "app/admin/layout.tsx"
       - "components/admin/nav/NotifBell.tsx"
       - "components/admin/HoverHelp.tsx"
       - "lib/admin/bellTriage.ts"
       - "lib/admin/bellFeed.ts"
       - "app/api/admin/alerts/bell/**"
       - "tests/e2e/bell-panel-layout.spec.ts"
+      - "tests/e2e/admin-nav-layout-dimensions.spec.ts"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
-      - ".github/workflows/bell-panel-e2e.yml"
+      - ".github/workflows/admin-layout-e2e.yml"
   workflow_dispatch:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots
@@ -45,7 +50,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  bell-panel-e2e:
+  admin-layout-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -104,13 +109,13 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
-      - name: Run bell panel layout e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts
+      - name: Run admin layout e2e (desktop-chromium, :3000 only)
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: bell-panel-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          name: admin-layout-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           path: |
             playwright-report/

@@ -6,12 +6,12 @@
  * project's Tailwind v4 does NOT default `.flex` to `align-items: stretch`
  * (DESIGN §7), so the nav/settings components ship from those phases
  * dimensionally UNVERIFIED. This is the red→green home for layout collapse:
- * the sweep crosses the 720px boundary band (not just one desktop + one
+ * the sweep crosses the 840px boundary band (not just one desktop + one
  * mobile — the Phase A title-collapse lesson: height-equality assertions miss
  * horizontal collapse, so sweep the band).
  *
  * Spec §6 dimensional invariants (verbatim):
- *   - Mobile bottom tab bar (<720px) fixed to viewport bottom; content scroll
+ *   - Mobile bottom tab bar (<840px) fixed to viewport bottom; content scroll
  *     region bottom padding ≥ tab-bar height so the last row is never occluded.
  *     Assert tab bar bottom === viewport bottom; content + tab bar fit the frame.
  *   - Top bar (desktop & mobile): fixed-height flex row; brand/nav/spacer/actions
@@ -52,10 +52,19 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { admin } from "./helpers/supabaseAdmin";
 
 const TOL = 0.5;
-const NAV_BREAKPOINT = 720;
+const NAV_BREAKPOINT = 840;
+// The dashboard's own mobile/desktop switch (summary card ⟷ desktop inbox) is
+// keyed to min-[720px] in Dashboard.tsx and did NOT move with the nav. The two
+// are independent concerns — the nav breakpoint is "does one un-wrapping row of
+// chrome fit", the content one is "is there room for two columns" — so between
+// 720 and 840 the page renders the MOBILE nav with the DESKTOP dashboard body.
+// That is intended, and the assertions below are gated on the breakpoint that
+// actually governs each surface rather than assuming one switch rules both.
+const CONTENT_BREAKPOINT = 720;
 // Tap-target floor (min-h-tap-min token) for the summary card, spec §4.8 inv 3.
 const TAP_MIN = 44;
 // The two-col dashboard split activates at min-[1240px] (Dashboard.tsx
@@ -65,12 +74,20 @@ const TAP_MIN = 44;
 // left column (shows table in row 1 + Ignored-sheets disclosure in row 2).
 const SPLIT_BREAKPOINT = 1240;
 
-// Sweep the 720px boundary band: two below (600, 719), the breakpoint itself
-// (720), and the desktop range (860, 1024, 1280). 1080 added by Task 8: the
+// Sweep the 840px boundary band: below (600, 768, 839), the breakpoint itself
+// (840), and the desktop range (1024, 1280). 1080 added by Task 8: the
 // dashboard two-col split (and invariant 4's equal-height contract) activates
 // at min-[1080px], so the sweep must cross THAT boundary too. NOT one desktop
 // + one mobile.
-const WIDTHS = [600, 719, 720, 860, 1024, 1080, 1280];
+//
+// 768 is deliberate. The breakpoint moved 720 → 840 because the nav row needs
+// ~810px (686px content + 64px padding, and a CI runner's fonts render the
+// labels ~17% wider than a dev Mac's) — so at 720 the links turned on in a
+// window too narrow to hold them and the page scrolled sideways for the whole
+// 720-810 band. The OLD sweep hopped 719 → 720 → 860, stepping straight over
+// its own broken range. 768 sits inside the former band and is the regression
+// guard: it must render the MOBILE nav and must not overflow.
+const WIDTHS = [600, 768, 839, 840, 1024, 1080, 1280];
 
 type Rect = {
   top: number;
@@ -186,6 +203,20 @@ async function seedBadgeFixture(): Promise<void> {
 }
 
 test.describe("admin nav + settings layout dimensions (real browser, §6)", () => {
+  // The admin chrome under test (`admin-nav-topbar`, `admin-bottom-tabs`) only
+  // renders on the SETTLED dashboard branch: with app_settings.watched_folder_id
+  // NULL, /admin renders the slim OnboardingTopBar, which has neither. Without
+  // this the whole file fails with "element(s) not found" at every width — which
+  // is exactly how it was found when the nav breakpoint moved, since the spec
+  // runs in no CI workflow and nothing had exercised it against a fresh DB.
+  let restoreDashboardState: (() => Promise<void>) | null = null;
+  test.beforeAll(async () => {
+    restoreDashboardState = await settleDashboardAdminState();
+  });
+  test.afterAll(async () => {
+    await restoreDashboardState?.();
+  });
+
   test.beforeEach(async ({ page }) => {
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
@@ -213,7 +244,7 @@ test.describe("admin nav + settings layout dimensions (real browser, §6)", () =
       // children top-align and diverge from the tallest cluster.) ──
       const centers = await topbar.evaluate((el) => {
         // Exclude display:none children (the desktop-only inline nav div is
-        // `hidden min-[720px]:flex` → zero-area on mobile; a hidden element's
+        // `hidden min-[840px]:flex` → zero-area on mobile; a hidden element's
         // getBoundingClientRect is all-zeros, which is not a layout signal).
         const children = Array.from(el.children)
           .map((c) => c.getBoundingClientRect())
@@ -264,7 +295,7 @@ test.describe("admin nav + settings layout dimensions (real browser, §6)", () =
 
         // ── Content NOT occluded by the fixed bar: the last content row's
         // bottom ≤ the tab bar's top. The layout reserves space via
-        // `pb-20 min-[720px]:pb-0`; if that padding is missing/insufficient
+        // `pb-20 min-[840px]:pb-0`; if that padding is missing/insufficient
         // the content scrolls under the bar. The admin-settings page is the
         // tallest content; assert against the layout wrapper's last rendered
         // child after scrolling to the bottom. ──
@@ -358,46 +389,50 @@ test.describe("admin nav + settings layout dimensions (real browser, §6)", () =
           `dashboard tab icon horizontally centered @ ${width}px`,
         ).toBeLessThanOrEqual(TOL + 0.5);
 
-        // ── §4.8 inv 3: summary card visible on mobile, ≥44px tall
-        // (min-h-tap-min), chevron vertically centered within the card ±1px. ──
-        const summaryCard = page.getByTestId("needs-attention-summary-card");
-        await expect(summaryCard).toBeVisible();
-        const cardRect = await rect(page, "needs-attention-summary-card");
-        expect(
-          cardRect.height,
-          `summary card height ≥ ${TAP_MIN}px (min-h-tap-min) @ ${width}px`,
-        ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-        const chevronCenterOffset = await summaryCard.evaluate((el) => {
-          const card = el.getBoundingClientRect();
-          // The chevron is the card's direct-child svg (ChevronRight).
-          const chevron = el.querySelector(":scope > svg");
-          if (!chevron) return Number.POSITIVE_INFINITY;
-          const c = chevron.getBoundingClientRect();
-          return Math.abs(c.top + c.height / 2 - (card.top + card.height / 2));
-        });
-        expect(
-          chevronCenterOffset,
-          `summary card chevron vertically centered @ ${width}px`,
-        ).toBeLessThanOrEqual(1);
+        // ── §4.8 inv 3: summary card visible below the CONTENT breakpoint,
+        // ≥44px tall (min-h-tap-min), chevron vertically centered ±1px. Skipped
+        // in the 720-840 band, where the nav is mobile but the dashboard body is
+        // already desktop and renders the inbox column instead. ──
+        if (width < CONTENT_BREAKPOINT) {
+          const summaryCard = page.getByTestId("needs-attention-summary-card");
+          await expect(summaryCard).toBeVisible();
+          const cardRect = await rect(page, "needs-attention-summary-card");
+          expect(
+            cardRect.height,
+            `summary card height ≥ ${TAP_MIN}px (min-h-tap-min) @ ${width}px`,
+          ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+          const chevronCenterOffset = await summaryCard.evaluate((el) => {
+            const card = el.getBoundingClientRect();
+            // The chevron is the card's direct-child svg (ChevronRight).
+            const chevron = el.querySelector(":scope > svg");
+            if (!chevron) return Number.POSITIVE_INFINITY;
+            const c = chevron.getBoundingClientRect();
+            return Math.abs(c.top + c.height / 2 - (card.top + card.height / 2));
+          });
+          expect(
+            chevronCenterOffset,
+            `summary card chevron vertically centered @ ${width}px`,
+          ).toBeLessThanOrEqual(1);
 
-        // ── Mobile replaces the desktop inbox: the wrapper is display:none
-        // (zero-rect), with exactly one inbox-state node inside it. ──
-        const desktopInboxRect = await rect(page, "dashboard-inbox-desktop");
-        expect(
-          desktopInboxRect.width,
-          `dashboard-inbox-desktop zero-rect width (display:none) @ ${width}px`,
-        ).toBe(0);
-        expect(
-          desktopInboxRect.height,
-          `dashboard-inbox-desktop zero-rect height (display:none) @ ${width}px`,
-        ).toBe(0);
-        await inboxContentNode(page, width);
+          // ── Mobile replaces the desktop inbox: the wrapper is display:none
+          // (zero-rect), with exactly one inbox-state node inside it. ──
+          const desktopInboxRect = await rect(page, "dashboard-inbox-desktop");
+          expect(
+            desktopInboxRect.width,
+            `dashboard-inbox-desktop zero-rect width (display:none) @ ${width}px`,
+          ).toBe(0);
+          expect(
+            desktopInboxRect.height,
+            `dashboard-inbox-desktop zero-rect height (display:none) @ ${width}px`,
+          ).toBe(0);
+          await inboxContentNode(page, width);
+        }
       } else {
-        // At ≥720px the bottom tabs are hidden (min-[720px]:hidden).
+        // At ≥840px the bottom tabs are hidden (min-[840px]:hidden).
         await expect(bottomTabs).toBeHidden();
 
-        // ── §4.8: summary card is mobile-only (min-[720px]:hidden) — zero-rect
-        // on desktop. ──
+        // ── §4.8: summary card is below-720 only (min-[720px]:hidden) —
+        // zero-rect here. Note this is the CONTENT breakpoint, not the nav's. ──
         const cardRect = await rect(page, "needs-attention-summary-card");
         expect(
           cardRect.width,
