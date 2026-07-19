@@ -284,6 +284,39 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
   });
 });
 
+// ── Instant close (perceived-latency tier 1) ─────────────────────────────────
+// The close nav (`router.push` minus `show`/`alert_id`) is a full RSC
+// round-trip of the dashboard; the modal is server-rendered off searchParams,
+// so without a client-side hide it stays mounted until the new payload lands
+// (~1s perceived close lag). Failure mode caught: close only funnels into
+// router.push and the dialog persists in the DOM while navigation is pending.
+
+describe("PublishedReviewModal instant close (client hide before nav commit)", () => {
+  it("X click removes the dialog synchronously while router.push is still pending", () => {
+    renderModal();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`${TB}-close`));
+    // The push mock never resolves a navigation in jsdom — the dialog must be
+    // gone anyway, purely from client state.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  });
+
+  it("Escape removes the dialog synchronously and fires the close nav", () => {
+    renderModal();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  });
+
+  it("scrim click removes the dialog synchronously and fires the close nav", () => {
+    renderModal();
+    fireEvent.click(screen.getByTestId(`${TB}-backdrop`));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  });
+});
+
 // ── §6.1 body ─────────────────────────────────────────────────────────────────
 
 describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
