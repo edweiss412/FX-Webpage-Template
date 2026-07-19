@@ -350,20 +350,26 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
     await page.waitForTimeout(PREFETCH_SETTLE_MS);
     const openSlugRequests: number[] = [];
     const t0 = Date.now();
-    let openAt = Number.POSITIVE_INFINITY;
     page.on("request", (r) => {
       if (isShowReq(new URL(r.url()), show.slug)) openSlugRequests.push(Date.now() - t0);
     });
+    // Window anchored at CLICK time, not modal-visible time: the mount refresh
+    // is only guaranteed to fire after React mount, which can precede the
+    // Playwright visibility assertion resolving — an openAt anchor would race
+    // a correct implementation into a false failure. A cache-served open
+    // issues NO navigation request, so any post-click ?show=<slug> traffic is
+    // revalidate/re-warm by construction (a silent prefetch downgrade instead
+    // surfaces in the §6.2 cache proof, not here).
+    const clickAt = Date.now() - t0;
     await page.getByTestId(`shows-table-row-${show.slug}`).click();
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 10_000 });
-    openAt = Date.now() - t0;
     await page.waitForTimeout(POST_OPEN_WINDOW_MS);
-    const postOpen = openSlugRequests.filter((t) => t >= openAt);
+    const postClick = openSlugRequests.filter((t) => t >= clickAt);
     // (a) presence: the mount refresh reaches the network (dead-revalidate
     // detector — with a broken effect this array is empty);
-    expect(postOpen.length, "at least one post-open request (the refresh)").toBeGreaterThan(0);
+    expect(postClick.length, "at least one post-click request (the refresh)").toBeGreaterThan(0);
     // (b) boundedness: a per-render refresh storm fires dozens in the window.
-    expect(postOpen.length, "no refresh storm").toBeLessThanOrEqual(OPEN_SLUG_REQUEST_BOUND);
+    expect(postClick.length, "no refresh storm").toBeLessThanOrEqual(OPEN_SLUG_REQUEST_BOUND);
   });
 
   /** Shared §6.4 scaffold: open with every post-settle ?show request HELD, then
@@ -552,11 +558,19 @@ pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-
 ```
 Expected: all pass (same counts as pre-change `origin/main` run; if a failure appears, verify it at the merge base first — pre-existing-failure discipline).
 
-- [ ] **Step 2:** Prod-mode spot-check of the two premise-sensitive gated-entrance tests against the Task 3 prod server (prefetch ACTIVE — the audit's held-prefetch argument verified live):
+- [ ] **Step 2:** Prod-mode spot-check of the two premise-sensitive gated-entrance tests (prefetch ACTIVE — the audit's held-prefetch argument verified live). The Task 3 server was killed at the end of Task 3, so boot a fresh one FIRST and gate on readiness — without a ready :3000, Playwright silently boots `pnpm dev` (playwright.config.ts:233,237) and the "prefetch active" claim is void:
 
 ```bash
+JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true \
+ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
+NEXT_DIST_DIR=.next-prefetch-probe pnpm build
+JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true \
+ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
+NEXT_DIST_DIR=.next-prefetch-probe pnpm exec next start -H 127.0.0.1 --port 3000 &
+until curl -sf -o /dev/null http://127.0.0.1:3000/auth/sign-in; do sleep 1; done
 MODAL_PREFETCH_E2E=1 ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts -g "closed→open entrance"
+# then kill the server and `git checkout tsconfig.json`
 ```
 Expected: pass. Record both outcomes in the Task 5 commit-message body (empty commit):
 
