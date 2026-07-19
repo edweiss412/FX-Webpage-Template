@@ -262,6 +262,31 @@ async function seedGlobal(code: string, ageMs = 5 * 3600_000): Promise<string> {
   return data.id as string;
 }
 
+/**
+ * A RESOLVED global alert — lands in the panel's history band (`HistoryRow`),
+ * which shares the active list's scroll container and therefore must share its
+ * timestamp column. `resolved_at` inside the history window; the partial unique
+ * index only constrains UNRESOLVED rows, so a resolved row never collides.
+ */
+async function seedResolved(code: string, ageMs = 3 * 24 * 3600_000): Promise<string> {
+  const raised = new Date(Date.now() - ageMs);
+  const { data, error } = await admin
+    .from("admin_alerts")
+    .insert({
+      show_id: null,
+      code,
+      context: {},
+      raised_at: raised.toISOString(),
+      resolved_at: new Date(raised.getTime() + 3600_000).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(`seedResolved(${code}) failed: ${error?.message ?? "no row returned"}`);
+  }
+  return data.id as string;
+}
+
 /** Click the bell, wait for the overlay. Returns the sized panel container. */
 async function openPanel(page: Page): Promise<Locator> {
   await page.getByTestId("admin-notif-bell").click();
@@ -646,18 +671,34 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         "DI-4: timestamp right edge ≥ title button right edge",
       ).toBeGreaterThanOrEqual(toggleR.right - TOL);
 
-      // ── chevron-ABSENT row (DI-1 content-edge flush) ──
+      // ── chevron-ABSENT row (DI-1 absent: reserved chevron slot) ──
+      // A chevron-less row reserves the chevron's box (`bell-caret-slot`), so its
+      // meta group lands on the SAME right edge as a chevron-present row's. Without
+      // the reservation the two timestamps sit ~52px apart (chevron width + gap) and
+      // the panel reads as two ragged columns.
       expect(
         await page.getByTestId(`bell-caret-${globalId}`).count(),
         "global row (slug null) has no chevron",
       ).toBe(0);
+      const gSlotR = await rectOf(page.getByTestId(`bell-caret-slot-${globalId}`));
       const gContentRight = await contentRightOf(page.getByTestId(`bell-header-${globalId}`));
       const gMetaR = await rectOf(page.getByTestId(`bell-meta-${globalId}`));
       const gToggleR = await rectOf(page.getByTestId(`bell-entry-toggle-${globalId}`));
       const gTimeR = await rectOf(page.getByTestId(`bell-time-${globalId}`));
+      // The reserved slot occupies the chevron's box, flush to the content edge.
       expect(
-        Math.abs(gContentRight - gMetaR.right),
-        "DI-1 absent: meta group flush to the row content right edge",
+        Math.abs(gSlotR.right - gContentRight),
+        "DI-1 absent: reserved slot flush to the row content right edge",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(gSlotR.width - caretR.width),
+        "DI-1 absent: reserved slot matches the chevron's width",
+      ).toBeLessThanOrEqual(TOL);
+      // Column alignment: both rows' meta groups (and timestamps) share one right
+      // edge regardless of chevron presence.
+      expect(
+        Math.abs(gMetaR.right - metaR.right),
+        "DI-1 absent: meta right edge aligns with the chevron-present row's",
       ).toBeLessThanOrEqual(TOL);
       expect(
         gTimeR.right,
@@ -673,16 +714,23 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     }
   });
 
-  // ── WI-5 chevron-hint banner geometry (spec §6/§7): with a chevron row present
-  // and a fresh (undismissed) localStorage, the one-time in-flow hint renders at
-  // the top of the active list. Assert (real browser, mobile ≤420px + desktop):
-  // no horizontal overflow, banner + dismiss rects within the panel, dismiss is a
-  // ≥44px tap target whose click unmounts the banner, and the banner sits ABOVE
-  // the first active row (in-flow, non-overlapping). ──
+  // ── Timestamp column alignment across chevron presence, at both breakpoints.
+  // The DI-1..DI-4 test above pins the desktop geometry in detail; this one pins
+  // the property the reader actually perceives — every row's timestamp shares one
+  // right edge whether or not the row carries a chevron — and pins it on mobile
+  // too, where the panel is a bottom sheet with different padding. The screenshot
+  // bug this replaces: "1 day ago" (chevron row) sat ~52px left of "2 hours ago"
+  // (global row). Derived from the two rows' measured rects, never a hardcoded px.
+  //
+  // The WI-5 chevron-hint banner formerly asserted here was REMOVED (a
+  // self-referential "the chevron now opens its show page" onboarding note goes
+  // stale on ship); its absence is pinned in the jsdom transition audit. ──
   for (const width of [390, 1280]) {
-    test(`chevron-hint geometry @ ${width}px (${width <= PANEL_MAX ? "mobile" : "desktop"})`, async ({
+    test(`timestamp column aligns across chevron presence @ ${width}px (${width <= PANEL_MAX ? "mobile" : "desktop"})`, async ({
       page,
     }) => {
+      const globalId = await seedGlobal(SEED_CODE);
+      const resolvedId = await seedResolved(SEED_CODE_3);
       let seededDrive: string | null = null;
       try {
         const show = await seedShowWithCrew();
@@ -690,53 +738,73 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         const showAlertId = await seedShowScoped(SEED_CODE_2, show.showId);
 
         await page.setViewportSize({ width, height: VP_HEIGHT });
-        // Fresh profile: clear the hint key so the banner is not pre-dismissed.
-        await page.addInitScript(() => {
-          try {
-            window.localStorage.removeItem("fxav:bell-chevron-hint:v1");
-          } catch {
-            /* ignore */
-          }
-        });
         await gotoAdmin(page);
         const panel = await openPanel(page);
+        await expect(page.getByTestId(`bell-entry-${showAlertId}`)).toBeVisible();
+        await expect(page.getByTestId(`bell-entry-${globalId}`)).toBeVisible();
+        await expect(page.getByTestId(`bell-entry-${resolvedId}`)).toBeVisible();
         await settleAnimations(panel);
 
-        const hint = page.getByTestId("bell-chevron-hint");
-        const dismiss = page.getByTestId("bell-chevron-hint-dismiss");
-        await expect(hint).toBeVisible();
-        await expect(dismiss).toBeVisible();
+        // Chevron-present row vs chevron-absent row.
+        await expect(page.getByTestId(`bell-caret-${showAlertId}`)).toBeVisible();
+        expect(
+          await page.getByTestId(`bell-caret-${globalId}`).count(),
+          "global row (slug null) has no chevron",
+        ).toBe(0);
 
-        const panelR = await rectOf(panel);
-        const hintR = await rectOf(hint);
-        const dismissR = await rectOf(dismiss);
-        const firstRowR = await rectOf(page.getByTestId(`bell-entry-${showAlertId}`));
+        const withCaret = await rectOf(page.getByTestId(`bell-time-${showAlertId}`));
+        const withoutCaret = await rectOf(page.getByTestId(`bell-time-${globalId}`));
+        expect(
+          Math.abs(withCaret.right - withoutCaret.right),
+          `timestamps share one right edge @ ${width}px`,
+        ).toBeLessThanOrEqual(TOL);
 
-        // (a) no horizontal overflow inside the panel scroll container.
+        // The history band lives in the SAME scroll container, so its "Resolved
+        // …" timestamp is part of the same column. Aligning only within the
+        // active list would trade one ragged edge for another (impeccable
+        // critique P1: the active/history delta widened from ~6px to ~58px when
+        // the slot was added to ActiveRow alone).
+        const historyTime = await rectOf(page.getByTestId(`bell-time-${resolvedId}`));
+        expect(
+          Math.abs(historyTime.right - withCaret.right),
+          `history timestamp shares the active column's right edge @ ${width}px`,
+        ).toBeLessThanOrEqual(TOL);
+
+        // …and the reservation buys that alignment WITHOUT imposing a height.
+        // The history slot is width-only (`w-tap-min`); a square `size-tap-min`
+        // would floor this row at 44px and make the quieter resolved tier taller
+        // per row than its content warrants, cutting how many rows fit inside
+        // max-h-panel-max. The claim is about the SLOT, not the row: a history
+        // row is legitimately taller than 44px when its title wraps (56.6px at
+        // 390px), so asserting on row height would fail for the wrong reason.
+        const historySlot = await rectOf(page.getByTestId(`bell-caret-slot-${resolvedId}`));
+        expect(
+          historySlot.width,
+          `history slot reserves the chevron's full width @ ${width}px`,
+        ).toBeGreaterThanOrEqual(44 - TOL);
+        expect(
+          historySlot.height,
+          `history slot imposes no height floor (w-tap-min, not size-tap-min) @ ${width}px`,
+        ).toBeLessThan(44);
+        // The active row's slot IS square by design — its header already floors
+        // at 44px via the toggle's min-h-tap-min, so the box costs nothing there.
+        const activeSlot = await rectOf(page.getByTestId(`bell-caret-slot-${globalId}`));
+        expect(
+          activeSlot.height,
+          `active slot keeps the full 44px tap box @ ${width}px`,
+        ).toBeGreaterThanOrEqual(44 - TOL);
+
+        // The reservation must not cost horizontal room: still no PANEL overflow.
+        // Deliberately panel-scoped, not document-scoped: the /admin dashboard
+        // ships a pre-existing document overflow of 104-143px from its `absolute
+        // w-72` help popovers (`shows-help-body`, `recent-auto-applied-help-body`
+        // et al) rendering past the viewport's right edge. No bell element is in
+        // the offender list, so a document-level assert here would fail for a
+        // reason this surface does not own. Tracked as BELL-HELP-POPOVER-OVERFLOW-1
+        // in DEFERRED.md; the older DI-1..DI-4 test above still carries the
+        // document-level assert and fails on it at merge-base for the same reason.
         const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(overflow, `panel no horizontal overflow @ ${width}px`).toBeLessThanOrEqual(TOL);
-        // (b) banner + dismiss rects fully within the panel rect.
-        expect(hintR.left, "hint left within panel").toBeGreaterThanOrEqual(panelR.left - TOL);
-        expect(hintR.right, "hint right within panel").toBeLessThanOrEqual(panelR.right + TOL);
-        expect(dismissR.left, "dismiss left within panel").toBeGreaterThanOrEqual(
-          panelR.left - TOL,
-        );
-        expect(dismissR.right, "dismiss right within panel").toBeLessThanOrEqual(
-          panelR.right + TOL,
-        );
-        expect(dismissR.top, "dismiss top within panel").toBeGreaterThanOrEqual(panelR.top - TOL);
-        expect(dismissR.bottom, "dismiss bottom within panel").toBeLessThanOrEqual(
-          panelR.bottom + TOL,
-        );
-        // (c) dismiss is a ≥44px tap target and clicking it unmounts the banner.
-        expect(dismissR.height, "dismiss ≥ 44px tap target").toBeGreaterThanOrEqual(44 - TOL);
-        // (d) banner bottom ≤ first active row top (in-flow, non-overlapping).
-        expect(hintR.bottom, "banner bottom ≤ first row top (in-flow)").toBeLessThanOrEqual(
-          firstRowR.top + TOL,
-        );
-
-        await dismiss.click();
-        await expect(page.getByTestId("bell-chevron-hint")).toHaveCount(0);
       } finally {
         if (seededDrive) await deleteSeededShow(seededDrive);
       }

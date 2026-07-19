@@ -36,7 +36,9 @@
  *   - Show-page chevron (spec §4.1): a row whose alert carries a slug renders
  *     a `ChevronRight` nav link to `/admin?show=<slug>` (the review modal), a DOM SIBLING of the
  *     toggle button (never nested inside it — nested-interactive a11y). Hidden
- *     exactly when `entry.slug` is null (global alerts, health rows).
+ *     exactly when `entry.slug` is null (global alerts, health rows) — those rows
+ *     render an aria-hidden spacer of the same width instead, so the timestamp
+ *     column stays aligned across chevron-present and chevron-absent rows.
  *   - Dev footer (`viewerIsDeveloper` only): the live window/cap plus an inline
  *     two-input edit that POSTs `/bell/config`; a 400 renders the response's
  *     bounds (no silent clamp), a success refetches the feed.
@@ -80,7 +82,6 @@ import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
-import { useDismissibleOnce } from "@/components/admin/useDismissibleOnce";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
 import {
@@ -96,10 +97,6 @@ const READ_ENDPOINT = "/api/admin/alerts/bell/read";
 const CONFIG_ENDPOINT = "/api/admin/alerts/bell/config";
 
 const WATCH_CODE = "WATCH_CHANNEL_ORPHANED";
-
-// WI-5: one-time dismissible hint flagging the chevron behavior change
-// (expand → navigate, PR #472). Persisted per browser profile in localStorage.
-const CHEVRON_HINT_KEY = "fxav:bell-chevron-hint:v1";
 
 // The wire shape the feed route returns (kind stripped — feed/route.ts).
 type BellFeedBody = Omit<Extract<BellFeedResult, { kind: "ok" }>, "kind">;
@@ -450,8 +447,9 @@ function ActiveRow({
             violation, and the message/`<ul>`/`<a>` below are illegal inside a
             <button> per the HTML content model). `items-start` keeps the
             right-group top-aligned with the title's first line; the meta group's
-            `shrink-0` sits it flush against the chevron / row content right edge
-            (DI-1/DI-2). */}
+            `shrink-0` sits it flush against the chevron — or, on a chevron-less
+            row, against the reserved slot that stands in for it, so both cases
+            land on one right edge (DI-1/DI-2). */}
         <div data-testid={`bell-header-${entry.alertId}`} className="flex items-start gap-2">
           {/* min-h-tap-min: this is the primary per-row gesture (mark-read). A
               title-only row would otherwise render the affordance well under the
@@ -509,11 +507,28 @@ function ActiveRow({
               href={`/admin?show=${encodeURIComponent(entry.slug)}`}
               data-testid={`bell-caret-${entry.alertId}`}
               aria-label="Open show page"
+              // Permanent desktop cue for where the chevron goes. The WI-5 banner
+              // used to say this once; a native tooltip says it every time, for
+              // free, and never goes stale. Touch has no hover — there the
+              // disclosure chevron itself is the convention.
+              title="Open show page"
               className={SHOW_PAGE_LINK}
             >
               <ChevronRight aria-hidden="true" className="size-4" />
             </a>
-          ) : null}
+          ) : (
+            // Reserved chevron slot (DI-1 absent): a chevron-less row still spends
+            // the chevron's box so its meta group lands on the SAME right edge as a
+            // chevron-present row's. Without it the timestamps sit a chevron-width +
+            // gap apart and the list reads as two ragged columns. `size-tap-min`
+            // mirrors SHOW_PAGE_LINK exactly; aria-hidden + no content keeps it out
+            // of the a11y tree and the tab order.
+            <span
+              aria-hidden="true"
+              data-testid={`bell-caret-slot-${entry.alertId}`}
+              className="size-tap-min shrink-0"
+            />
+          )}
         </div>
         {/* Message block (WI-1/WI-2): a real sibling BELOW the header so the
             inline Learn-more <a> (and the WI-4 multi-change <ul>) are legal
@@ -554,13 +569,36 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
+      // px-4 (not px-2.5) + the same reserved chevron slot the active rows carry:
+      // history sits in the SAME scroll container as the active list, so a history
+      // timestamp on a different right edge reads as a bug, not as a quieter tier.
+      // History rows never navigate (no chevron ever), so the slot here is purely
+      // the column reservation.
+      // gap-2 (not gap-2.5) so the time→slot gap equals the active header's gap-2
+      // and the two bands' timestamps land on the SAME right edge, not 2px apart.
+      className="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
     >
       <CircleCheck aria-hidden="true" className="size-[15px] shrink-0 text-status-positive" />
       <span className="min-w-0 flex-1 wrap-break-word text-sm text-text-subtle">{title}</span>
       {resolved ? (
-        <span className="shrink-0 text-xs tabular-nums text-text-faint">{resolved}</span>
+        <span
+          data-testid={`bell-time-${entry.alertId}`}
+          className="shrink-0 text-xs tabular-nums text-text-faint"
+        >
+          {resolved}
+        </span>
       ) : null}
+      {/* WIDTH only (`w-tap-min`, not `size-tap-min`): this row has no other
+          44px-tall child, so reserving a square here would stretch a ~20px
+          text line box to 44px and make the quieter history tier TALLER per row
+          than the active tier. The active header can afford the square — its
+          toggle already floors at min-h-tap-min. Only the column reservation is
+          wanted here. */}
+      <span
+        aria-hidden="true"
+        data-testid={`bell-caret-slot-${entry.alertId}`}
+        className="w-tap-min shrink-0"
+      />
     </div>
   );
 }
@@ -681,16 +719,6 @@ export function BellPanel({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   useDialogFocus(containerRef, closeRef);
-
-  // WI-5 chevron hint: mount-gated + throwing-safe. Banner renders ONLY when the
-  // storage probe succeeded (status "available") and it has not been dismissed;
-  // "checking" (pre-effect, avoids a hydration flash) and "unavailable" (storage
-  // blocked/throwing) both suppress it (fail-safe cosmetic hint).
-  const {
-    status: hintStatus,
-    dismissed: hintDismissed,
-    dismiss: dismissHint,
-  } = useDismissibleOnce(CHEVRON_HINT_KEY);
 
   const [state, setState] = useState<PanelState>({ status: "loading" });
   // BELL-3: text for the persistent sr-only live region. Empty at mount (nothing
@@ -927,40 +955,6 @@ export function BellPanel({
               >
                 Active · {active.length}
               </h3>
-              {/* WI-5 chevron hint (spec §4.5): a single panel-level in-flow note
-                  at the top of the active list, shown once until dismissed, only
-                  when at least one active row has a chevron (slug non-null). In-flow
-                  (not absolute) so it never clips in the scroll container and its
-                  dismiss button is always within the panel. The dismiss button is a
-                  top-level control, never nested inside the chevron <a>. */}
-              {hintStatus === "available" &&
-              !hintDismissed &&
-              active.some((e) => e.slug !== null) ? (
-                <div
-                  role="note"
-                  data-testid="bell-chevron-hint"
-                  className="mx-4 mt-2 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-subtle"
-                >
-                  <span>
-                    The{" "}
-                    <ChevronRight
-                      aria-hidden="true"
-                      className="inline size-4 align-text-bottom text-accent-on-bg"
-                    />{" "}
-                    on each alert now opens its show page
-                  </span>
-                  <span className="flex-1" />
-                  <button
-                    type="button"
-                    data-testid="bell-chevron-hint-dismiss"
-                    aria-label="Dismiss hint"
-                    onClick={dismissHint}
-                    className={GHOST_DISMISS}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              ) : null}
               {active.length >= GROUP_THRESHOLD && feed.activeTruncated === false
                 ? // Grouped mode (spec §1.2/§1.3): static severity dividers, one
                   // per non-empty tier in Critical→Warning→Notice order. Fail-closed
@@ -1019,9 +1013,14 @@ export function BellPanel({
             <section
               data-testid="bell-section-history"
               aria-label="History"
-              className="mt-3 border-t border-border pt-3 text-text-subtle"
+              // Full-bleed on the SAME `-mx` as the active section: the scroll
+              // container's px-2/px-2.5 would otherwise inset this band by 8/10px,
+              // putting its timestamps on a different column than the active
+              // rows' and its divider on a shorter line. Both bands now share one
+              // content box, so one right edge serves the whole panel.
+              className="-mx-2 mt-3 border-t border-border pt-3 text-text-subtle sm:-mx-2.5"
             >
-              <h3 className="mb-1.5 px-1 text-xs font-bold uppercase tracking-wider text-text-faint">
+              <h3 className="mb-1.5 px-4 text-xs font-bold uppercase tracking-wider text-text-faint">
                 Earlier · last {feed.historyDays} days
               </h3>
               {history.map((entry) => (
