@@ -251,15 +251,17 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     });
 
     await page.keyboard.press("Escape");
-    // §6.5: open→closed is an INSTANT unmount — no exit animation to wait out.
-    // The unmount itself rides the close NAVIGATION (router.push minus the
-    // show param → an RSC roundtrip), so the bound is the dev server's
-    // response time (first archived-bucket compile here), not an animation.
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
+    // §6.5 + perceived-latency tier 1: open→closed is an INSTANT client-side
+    // unmount (local closing state) — it does NOT wait for the close
+    // navigation. The URL catches up when the router.push RSC roundtrip
+    // commits, so the unmount bound is tight and the URL assertions POLL with
+    // a nav-sized budget (first archived-bucket compile here).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
 
     await expect
       .poll(() => new URL(page.url()).searchParams.has("show"), {
         message: "close strips the show param",
+        timeout: 15_000,
       })
       .toBe(false);
     const { pathname, params } = urlParts(page);
@@ -272,21 +274,31 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await openModal(page, POPUP);
     // The centered ≥sm panel leaves the viewport corner to the scrim.
     await page.locator(BACKDROP).click({ position: { x: 10, y: 10 } });
-    // Instant unmount, bounded by the close navigation (see the Esc test note).
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
-    const { pathname, params } = urlParts(page);
-    expect(pathname).toBe("/admin");
-    expect(params.has("show")).toBe(false);
+    // Instant client-side unmount; the URL catches up on the close nav commit
+    // (see the Esc test note).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    expect(urlParts(page).pathname).toBe("/admin");
   });
 
   test("X button closes and strips the show param", async ({ page }) => {
     await openModal(page, POPUP);
     await page.locator(CLOSE).click();
-    // Instant unmount, bounded by the close navigation (see the Esc test note).
-    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 15_000 });
-    const { pathname, params } = urlParts(page);
-    expect(pathname).toBe("/admin");
-    expect(params.has("show")).toBe(false);
+    // Instant client-side unmount; the URL catches up on the close nav commit
+    // (see the Esc test note).
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), {
+        message: "close strips the show param",
+        timeout: 15_000,
+      })
+      .toBe(false);
+    expect(urlParts(page).pathname).toBe("/admin");
   });
 
   test("browser Back closes the modal (route change unmount)", async ({ page }) => {
