@@ -6,6 +6,15 @@ Historical ledger of resolved / stale / N/A / accepted deferrals — full proven
 
 Source: ARC-2 of the alert-surface ship (`feat/alert-surface-ui`, spec + plan `docs/superpowers/{specs,plans}/2026-07-18-alert-surface-ui{,.md}`), branched off the merged EMDASH-1 (ARC-1). Six work items (WI-1..WI-6) closed these four deferrals. Invariant-8 impeccable dual-gate on the diff: **critique 38/40 (AI-slop CLEAN, zero P0/P1), audit 19/20 Excellent (zero P0/P1)**; three P2s fixed in-branch (hint glyph↔affordance match, "+N more" overflow contrast text-faint→text-subtle, mark-read action-name aria-label), remaining P3s acceptable at the AA floor.
 
+### BELL-HELP-POPOVER-OVERFLOW-1 — [P2] `/admin` help popovers rendered past the viewport — ✅ RESOLVED
+
+`HoverHelp`'s body stays in the DOM so `aria-describedby` always resolves, and was hidden with `invisible` (visibility:hidden) — which STILL generates a layout box. Every closed 288px (`w-72`) popover therefore contributed its full width to the document's scrollWidth: 139px over at 390px, 143px at 1280px, with nothing hovered. Fixed at the source: the closed state is now `hidden` (display:none), which generates no box, with the fade preserved via `transition-discrete` + `starting:opacity-0`. The SR contract is unchanged — the node is still in the DOM, and a hidden node reached THROUGH an aria-describedby reference is included in the description per the accname spec (display:none included), the same rule that made the visibility:hidden version work.
+Also closed the reason it went unnoticed: `tests/e2e/bell-panel-layout.spec.ts` ran in NO workflow. `.github/workflows/bell-panel-e2e.yml` now runs it on every change to the bell surfaces, HoverHelp, or the spec itself, and the document-level overflow assertions it had lost are restored.
+
+### BELL-SLOT-WIDTH-1 — [P1] The reserved chevron slot spent a 44px box on a 16px glyph — ✅ RESOLVED
+
+Superseded rather than measured: the counterfactual this entry asked for became moot when the chevron moved out of the header line entirely. It is now a 28px-wide gutter spanning the full row height, with a transparent `before:inset-y-0 before:-inset-x-2` overlay bleeding the tap target back to 44px (the technique HoverHelp's 20px "?" dot already used). The reservation on chevron-less rows dropped 44px → 28px, and because the header and the action row both sit inside the row body, the timestamp and Dismiss now share ONE right edge instead of ending 52px apart — the visible defect that prompted the original alignment work.
+
 ### ALERT-COPY-IDENTITY-BOLD-1 — [P3] Woven identity names render plain mid-sentence in stacked alert lists — ✅ RESOLVED
 
 - **What:** condensed inline-context copy put the show/sheet name in plain text inside the sentence; scanning a stacked bell list, Doug couldn't quickly spot WHICH show. Spec-ratified bare tokens (PR #469) meant emphasis couldn't ride the template.

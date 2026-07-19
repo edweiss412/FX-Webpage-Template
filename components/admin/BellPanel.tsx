@@ -226,8 +226,25 @@ const GHOST_DISMISS =
 // vocabulary, but sized as an icon-only affordance (`size-tap-min`, the same
 // square-tap-target pattern the `bell-panel-close` button uses) rather than
 // LINK_CTA's text-link padding.
+// Show-page chevron: a 28px-wide gutter spanning the FULL row height, sitting
+// after the row body so the header's timestamp and the action row's Dismiss end
+// on one shared right edge (they previously ended 52px apart — the chevron was a
+// conditional child of the header line only).
+//
+// 28px is the VISIBLE width; the tap target is not. `relative` + the transparent
+// `before:-inset-x-2` overlay bleeds the hit area 8px each side to 44px without
+// occupying any layout — the same technique HoverHelp's 20px "?" dot already uses
+// (`before:-inset-3`). `inset-y-0` is load-bearing: `-inset-x-2` alone leaves
+// top/bottom auto, which makes the overlay zero-height and the bleed a no-op.
+// The bleed lands inside the row's own px-4 padding, so it
+// never reaches into the text column. Vertically `self-stretch` makes the target
+// the row's full height (60px+), well past the 44px floor.
 const SHOW_PAGE_LINK =
-  "inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "relative inline-flex w-7 shrink-0 self-stretch items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast before:absolute before:inset-y-0 before:-inset-x-2 before:content-[''] hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+// Chevron-less rows (global alerts, health rows, every history row) reserve the
+// same 28px so the shared right edge holds. WIDTH ONLY — a square would floor a
+// short row's height at 28px+ for nothing.
+const SHOW_PAGE_SLOT = "w-7 shrink-0";
 // Low-emphasis wayfinding link (impeccable critique P1 — alert-copy full-sweep):
 // routes to the code's longform /help/errors education. Quiet by default
 // (text-subtle, underline only on hover/focus) so it never competes with
@@ -497,38 +514,6 @@ function ActiveRow({
               {raisedAtSuffix(entry.activityAt, now)}
             </span>
           </span>
-          {/* Show-page nav chevron (spec §4.1): a SLUG predicate, not an
-              identity-map-kind predicate — e.g. BRANCH_PROTECTION_* codes carry
-              repo-segment identity but upsert with null show → null slug → no
-              chevron. Plain nav, no toggle behavior of its own. Last flex child,
-              flush to the row content right edge (DI-2). */}
-          {entry.slug !== null ? (
-            <a
-              href={`/admin?show=${encodeURIComponent(entry.slug)}`}
-              data-testid={`bell-caret-${entry.alertId}`}
-              aria-label="Open show page"
-              // Permanent desktop cue for where the chevron goes. The WI-5 banner
-              // used to say this once; a native tooltip says it every time, for
-              // free, and never goes stale. Touch has no hover — there the
-              // disclosure chevron itself is the convention.
-              title="Open show page"
-              className={SHOW_PAGE_LINK}
-            >
-              <ChevronRight aria-hidden="true" className="size-4" />
-            </a>
-          ) : (
-            // Reserved chevron slot (DI-1 absent): a chevron-less row still spends
-            // the chevron's box so its meta group lands on the SAME right edge as a
-            // chevron-present row's. Without it the timestamps sit a chevron-width +
-            // gap apart and the list reads as two ragged columns. `size-tap-min`
-            // mirrors SHOW_PAGE_LINK exactly; aria-hidden + no content keeps it out
-            // of the a11y tree and the tab order.
-            <span
-              aria-hidden="true"
-              data-testid={`bell-caret-slot-${entry.alertId}`}
-              className="size-tap-min shrink-0"
-            />
-          )}
         </div>
         {/* Message block (WI-1/WI-2): a real sibling BELOW the header so the
             inline Learn-more <a> (and the WI-4 multi-change <ul>) are legal
@@ -559,6 +544,34 @@ function ActiveRow({
         {suppressChip ? null : <IdentityChip entry={entry} />}
         <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
+      {/* Show-page nav gutter (spec §4.1): a SLUG predicate, not an
+          identity-map-kind predicate — e.g. BRANCH_PROTECTION_* codes carry
+          repo-segment identity but upsert with null show → null slug → no
+          chevron. Plain nav, no toggle behavior of its own, and a DOM SIBLING of
+          the body (never nested inside the mark-read button). Vertically centered
+          on the row it navigates, which reads as "this row goes somewhere" far
+          better than a 16px glyph sharing the title's line did. */}
+      {entry.slug !== null ? (
+        <a
+          href={`/admin?show=${encodeURIComponent(entry.slug)}`}
+          data-testid={`bell-caret-${entry.alertId}`}
+          aria-label="Open show page"
+          // Permanent desktop cue for where the chevron goes. The removed WI-5
+          // banner said this once; a native tooltip says it every time, for free,
+          // and never goes stale. Touch has no hover — there the disclosure
+          // chevron itself is the convention.
+          title="Open show page"
+          className={SHOW_PAGE_LINK}
+        >
+          <ChevronRight aria-hidden="true" className="size-4" />
+        </a>
+      ) : (
+        <span
+          aria-hidden="true"
+          data-testid={`bell-caret-slot-${entry.alertId}`}
+          className={SHOW_PAGE_SLOT}
+        />
+      )}
     </div>
   );
 }
@@ -569,14 +582,15 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      // px-4 (not px-2.5) + the same reserved chevron slot the active rows carry:
+      // px-4 (not px-2.5) + the same 28px chevron gutter the active rows carry:
       // history sits in the SAME scroll container as the active list, so a history
       // timestamp on a different right edge reads as a bug, not as a quieter tier.
-      // History rows never navigate (no chevron ever), so the slot here is purely
-      // the column reservation.
-      // gap-2 (not gap-2.5) so the time→slot gap equals the active header's gap-2
-      // and the two bands' timestamps land on the SAME right edge, not 2px apart.
-      className="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
+      // History rows never navigate (no chevron ever), so the reservation here is
+      // purely the column.
+      // gap-3 matches the ACTIVE row's body→gutter gap, so the resolved timestamp
+      // lands on the same right edge as an active row's. gap-2.5 (the old value)
+      // or gap-2 leaves it 2-4px off — close enough to look like a mistake.
+      className="flex items-center gap-3 rounded-lg px-4 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
     >
       <CircleCheck aria-hidden="true" className="size-[15px] shrink-0 text-status-positive" />
       <span className="min-w-0 flex-1 wrap-break-word text-sm text-text-subtle">{title}</span>
@@ -588,16 +602,10 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
           {resolved}
         </span>
       ) : null}
-      {/* WIDTH only (`w-tap-min`, not `size-tap-min`): this row has no other
-          44px-tall child, so reserving a square here would stretch a ~20px
-          text line box to 44px and make the quieter history tier TALLER per row
-          than the active tier. The active header can afford the square — its
-          toggle already floors at min-h-tap-min. Only the column reservation is
-          wanted here. */}
       <span
         aria-hidden="true"
         data-testid={`bell-caret-slot-${entry.alertId}`}
-        className="w-tap-min shrink-0"
+        className={SHOW_PAGE_SLOT}
       />
     </div>
   );

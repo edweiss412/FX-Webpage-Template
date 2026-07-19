@@ -273,8 +273,17 @@ describe("BellPanel redesign — message never clamped (R4) / chevron is a slug 
 
     const toggle = within(panel).getByTestId("bell-entry-toggle-sib");
     const chevron = within(panel).getByTestId("bell-caret-sib");
+    const row = within(panel).getByTestId("bell-entry-sib");
+    // The invariant is NESTING, not sibling-depth: a link inside a button is the
+    // a11y violation. The chevron is now the row's full-height right gutter (a
+    // direct child of the row, after the body) rather than a child of the header
+    // line, so it is no longer the toggle's immediate sibling — assert what
+    // actually matters instead of the old parent-equality shortcut.
     expect(toggle.contains(chevron)).toBe(false);
-    expect(chevron.parentElement).toBe(toggle.parentElement);
+    expect(chevron.contains(toggle)).toBe(false);
+    expect(chevron.closest("button")).toBeNull();
+    expect(chevron.parentElement).toBe(row);
+    expect(row.contains(toggle)).toBe(true);
   });
 
   it("mark-read button's accessible name conveys the action AND contains the visible title (WCAG 2.5.3, impeccable P2)", async () => {
