@@ -306,13 +306,32 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
       expect(screen.getByTestId("crew-row-reset-error").textContent).toMatch(/Couldn't reset the picker/),
     );
   });
-  it("success banner auto-dismisses after 5s; arming a new confirm clears a prior outcome", async () => {
+  it("success banner auto-dismisses after 5s (fake timers)", async () => {
+    // Fake timers from the START so the banner's setTimeout lands on the fake
+    // clock (switching after scheduling would leave a real 5s timer untouched).
+    resetMock.mockResolvedValue({ ok: true });
+    vi.useFakeTimers();
+    try {
+      renderCrew();
+      openConfirm();
+      fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+      // Flush the resolved action promise (microtasks) on the fake clock.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("crew-row-reset-ok")).toBeTruthy();
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByTestId("crew-row-reset-ok")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("arming a new confirm clears a prior outcome immediately", async () => {
     resetMock.mockResolvedValue({ ok: true });
     renderCrew();
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
     await vi.waitFor(() => expect(screen.getByTestId("crew-row-reset-ok")).toBeTruthy());
-    // new confirm clears it immediately (before any timer)
     openConfirm(CREW_IDS[1]);
     expect(screen.queryByTestId("crew-row-reset-ok")).toBeNull();
   });
@@ -800,7 +819,24 @@ Imports to add at the top of `step3ReviewSections.tsx`: `import { CrewRowActions
     ```ts
     R("components/admin/wizard/CrewRowActions.tsx", 0, "panel", "crew-row-reset-confirm-go"),
     ```
-  - `tests/app/admin/showReviewModalLoader.test.tsx` + `tests/components/admin/showpage/sectionWarningControls.test.tsx`: locate each `admin-show-preview-as-link-*` assertion. Where the test asserts PRESENCE + href: first `fireEvent.click(screen.getByTestId("crew-row-menu-button-<id>"))`, then assert the link (same testid, same href). Where the test asserts ABSENCE (ineligible modes): additionally assert `crew-row-menu-button-<id>` is absent (the menu can't even be opened). Keep every other assertion identical.
+  - `tests/app/admin/showReviewModalLoader.test.tsx` + `tests/components/admin/showpage/sectionWarningControls.test.tsx`: mechanical transform, one shape. Every PRESENCE assertion
+    ```tsx
+    const link1 = screen.getByTestId(`admin-show-preview-as-link-${CREW_ID_1}`);
+    ```
+    becomes
+    ```tsx
+    fireEvent.click(screen.getByTestId(`crew-row-menu-button-${CREW_ID_1}`));
+    const link1 = screen.getByTestId(`admin-show-preview-as-link-${CREW_ID_1}`);
+    ```
+    (import `fireEvent` from RTL if absent; close the menu afterwards with `fireEvent.keyDown(link1, { key: "Escape" })` only if a later assertion in the same test opens a DIFFERENT row's menu). Every ABSENCE assertion
+    ```tsx
+    expect(screen.queryByTestId(`admin-show-preview-as-link-${CREW_ID_1}`)).toBeNull();
+    ```
+    gains a sibling line
+    ```tsx
+    expect(screen.queryByTestId(`crew-row-menu-button-${CREW_ID_1}`)).toBeNull();
+    ```
+    All other assertions stay byte-identical.
 
 - [ ] **Step 6: Transition audit (spec §6, mandatory).** Enumerate every conditional render in `CrewRowActions.tsx` + banner block in `CrewBreakdown` and check each against the spec §6 12-pair table: `open && mode==="menu"` (route-enter in / instant out), `open && (confirm||resolving)` (route-enter in / instant out; confirm→resolving is an in-place prop change — same mount, no re-animation because the conditional does not remount between those modes), backdrop (instant), banners (instant). No `AnimatePresence` anywhere. Record the audit as a comment block in the test file header.
 
@@ -827,7 +863,118 @@ git add -A && git commit --no-verify -m "feat(admin): per-row crew action menu �
 - Consumes: `resetPickerEpoch({ showId })` (`lib/auth/picker/resetPickerEpoch.ts`).
 - Produces: `PickerResetControl({ showId, crew }: { showId: string; crew: PickerResetCrewRow[] })` — signature UNCHANGED (`app/admin/_showReviewModal.tsx:362` call site untouched); `PickerResetCrewRow` export retained.
 
-- [ ] **Step 1: Rewrite the test file** to the everyone-only surface. Keep/adapt the existing suite's mock pattern (`vi.mock` of both action modules is already present — drop the member-action mock usage). The rewritten suite asserts: heading is "Reset everyone's pick"; description "Make everyone pick their name again on their next visit." (or "No crew to reset yet." when `crew=[]` with `picker-reset-all-button` disabled); NO `picker-reset-member-select` / `picker-reset-member-button` testids anywhere; `picker-reset-all-button` → confirm row (`picker-reset-confirm-row` with warning "Every device's picker re-prompts on next visit.", `picker-reset-confirm-button`, `picker-reset-cancel-button`); confirm calls `resetPickerEpoch({ showId })` and success shows `picker-reset-ok` "Everyone will pick again on their next visit." (sr-only region announce, 5s auto-dismiss via fake timers); failure shows persistent `picker-reset-error`; 4s auto-revert closes the confirm (fake timers) and a stale confirm click cannot fire; C3 (cancel focused on open, `vi.waitFor`) and C5 (trigger refocused after cancel); `resetCrewMemberSelection` is NEVER called by this control (assert the imported mock has zero calls across the suite).
+- [ ] **Step 1: Rewrite the test file** to the everyone-only surface. Full replacement for `tests/admin/pickerResetControl.test.tsx`:
+
+```tsx
+/**
+ * tests/admin/pickerResetControl.test.tsx — everyone-only surface
+ * (crew-row-controls spec §4.6; per-member reset moved to the crew row menu).
+ */
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { PickerResetControl } from "@/app/admin/show/[slug]/PickerResetControl";
+
+const epochMock = vi.hoisted(() => vi.fn());
+const memberMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: epochMock }));
+vi.mock("@/lib/auth/picker/resetCrewMemberSelection", () => ({
+  resetCrewMemberSelection: memberMock,
+}));
+
+const SHOW_ID = "11111111-2222-4333-8444-555555555555";
+const CREW = [
+  { id: "c1111111-1111-4111-8111-111111111111", name: "Alice", role: "A1" },
+  { id: "c2222222-2222-4222-8222-222222222222", name: "Bob", role: "BO" },
+];
+
+beforeEach(() => {
+  epochMock.mockReset();
+  memberMock.mockReset();
+});
+afterEach(cleanup);
+
+const allBtn = () => screen.getByTestId("picker-reset-all-button") as HTMLButtonElement;
+const confirmGo = () => screen.getByTestId("picker-reset-confirm-button") as HTMLButtonElement;
+const cancelBtn = () => screen.getByTestId("picker-reset-cancel-button") as HTMLButtonElement;
+
+describe("PickerResetControl (everyone-only)", () => {
+  it("renders heading, description, and NO per-member surface", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    expect(screen.getByRole("heading", { name: "Reset everyone's pick" })).toBeTruthy();
+    expect(
+      screen.getByText("Make everyone pick their name again on their next visit."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("picker-reset-member-select")).toBeNull();
+    expect(screen.queryByTestId("picker-reset-member-button")).toBeNull();
+  });
+
+  it("empty roster: description swaps and the trigger is disabled", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={[]} />);
+    expect(screen.getByText("No crew to reset yet.")).toBeTruthy();
+    expect(allBtn().disabled).toBe(true);
+  });
+
+  it("trigger arms the confirm row with the everyone warning; Cancel focused (C3); C5 restores trigger focus", async () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
+    expect(
+      screen.getByText("Every device's picker re-prompts on next visit."),
+    ).toBeTruthy();
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    fireEvent.click(cancelBtn());
+    expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+    await vi.waitFor(() => expect(allBtn()).toHaveFocus());
+  });
+
+  it("4s auto-revert closes the confirm; stale Confirm cannot fire; member action NEVER called", () => {
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      const go = confirmGo();
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+      fireEvent.click(go);
+      expect(epochMock).not.toHaveBeenCalled();
+      expect(memberMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("confirm calls resetPickerEpoch({showId}); success banner + sr-only announce", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    expect(epochMock).toHaveBeenCalledWith({ showId: SHOW_ID });
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("picker-reset-ok").textContent).toContain(
+        "Everyone will pick again on their next visit.",
+      ),
+    );
+    const region = document.querySelector('[role="status"][aria-live="polite"]')!;
+    expect(region.textContent).toContain("Everyone will pick again on their next visit.");
+    expect(memberMock).not.toHaveBeenCalled();
+  });
+
+  it("failure shows the persistent error banner", async () => {
+    epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
+        /Couldn't reset the picker/,
+      ),
+    );
+    expect(screen.getByTestId("picker-reset-error").getAttribute("role")).toBe("alert");
+  });
+});
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -934,6 +1081,21 @@ test("dimensional invariants: trigger 44×44 with 32×32 centered visual; menu f
   const cluster = (await trigger.locator("xpath=..").boundingBox())!; // relative wrapper
   expect(Math.abs(mb.x + mb.width - (cluster.x + cluster.width))).toBeLessThanOrEqual(TOL);
   expect(Math.abs(mb.y - (cluster.y + cluster.height + 6))).toBeLessThanOrEqual(TOL);
+  // Containment: menu fully inside the modal scroller's visible box AND the viewport.
+  const scroller = page.locator('[data-testid$="-review-content"]').first();
+  const sb = (await scroller.boundingBox())!;
+  expect(mb.y).toBeGreaterThanOrEqual(sb.y - TOL);
+  expect(mb.y + mb.height).toBeLessThanOrEqual(sb.y + sb.height + TOL);
+  const vp = page.viewportSize()!;
+  expect(mb.x).toBeGreaterThanOrEqual(-TOL);
+  expect(mb.x + mb.width).toBeLessThanOrEqual(vp.width + TOL);
+  // Z-order: elementFromPoint at the menu's center resolves inside the menu
+  // (viewport coords — reference_playwright_elementfrompoint_viewport_coords).
+  const centerHit = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid^="crew-row-menu-"]') !== null,
+    [mb.x + mb.width / 2, mb.y + mb.height / 2] as const,
+  );
+  expect(centerHit).toBe(true);
 });
 
 test("stacking contract: open-trigger click hits the backdrop and closes; second click reopens; other-row trigger also closes only", async ({ page }) => {
@@ -970,6 +1132,18 @@ test("Esc closes and restores focus to the trigger; backdrop click does not rest
   await page.keyboard.press("Escape");
   await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toHaveCount(0);
   await expect(rowTrigger(page, crewId)).toBeFocused();
+  // Backdrop-click branch: closes WITHOUT restoring trigger focus (spec §4.2).
+  await rowTrigger(page, crewId).click();
+  await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toBeVisible();
+  const panel = page.locator("[data-review-modal-panel]");
+  const pb = (await panel.boundingBox())!;
+  await page.mouse.click(pb.x + 8, pb.y + 8); // far corner — lands on the backdrop
+  await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toHaveCount(0);
+  const focusedIsTrigger = await page.evaluate(
+    (sel) => document.activeElement === document.querySelector(sel),
+    `[data-testid="crew-row-menu-button-${crewId}"]`,
+  );
+  expect(focusedIsTrigger).toBe(false);
 });
 
 test("scroll-edge: popover forced to open past the scrollport bottom is scrolled into view (scrollTop increases) and confirm is clickable", async ({ page }) => {
