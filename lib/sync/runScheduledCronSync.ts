@@ -3476,7 +3476,8 @@ export async function processOneFile_unlocked(
   // Task 2.9: derive the notable changes (renames, section shrink, field changes, asset drift) for
   // the auto-apply show_change_log feed rows. Only an EXISTING show (phase1 'pass' or
   // 'auto_apply_with_holds') has a prior to diff against; a first-seen show ('auto_publish_ready')
-  // has no prior, so notableItems stays empty and no extra read happens.
+  // has no prior, so notableItems stays empty and no extra read happens. NOTE: empty is NOT what
+  // suppresses the feed — the runPhase2 call site omits the key entirely for first-seen (see there).
   const notableItems: TriggeredReviewItem[] =
     phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
       ? await (async () => {
@@ -3570,8 +3571,17 @@ export async function processOneFile_unlocked(
       // Phase 2 decision rule: an MI-11 parse routes to auto_apply_with_holds — write the holds +
       // run the hold-aware apply inside the same locked txn.
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
-      // Task 2.9: drive the auto-apply changes feed.
-      notableItems,
+      // Task 2.9: drive the auto-apply changes feed. Forwarded ONLY for an existing show — the
+      // phase2 writer gate is `args.notableItems !== undefined` (phase2.ts:527), so an EMPTY array
+      // still runs the writer (applyStagedCore.ts:600-604 relies on exactly that for choice_aware).
+      // A first-seen show ('auto_publish_ready') therefore must OMIT the key, not pass []: with an
+      // empty prior roster the writer's additions loop would emit a phantom `crew_added` row per
+      // crew member into the admin "Recently auto-applied" strip. Mirrors the wizard first-seen
+      // path's feedPolicy {kind:"none"} (applyStagedCore.ts:423-425) — the feed documents changes
+      // to LIVE shows, and a first publish is not a change.
+      ...(phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
+        ? { notableItems }
+        : {}),
       ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
       // Task 6: thread the prior show's stored "use raw" decisions into the runPhase2 overlay.
       // Only an EXISTING show (pass / auto_apply_with_holds) has a priorShow; first-seen → [].
