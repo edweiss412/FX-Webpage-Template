@@ -675,6 +675,58 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     });
   }
 
+  // T-STATUS-INLINE (modal-header-reconciliation §4.5 / §8, Task 8). The
+  // headline delta: the stacked two-line synced/edited block collapses to ONE
+  // row — dot · "Synced {rel}" · 3px bullet · "Edited {rel}".
+  //
+  // GENUINELY RED pre-change: the two text nodes lived in a `flex flex-col`
+  // column (StatusStrip.tsx:211 before this task), so their
+  // getBoundingClientRect().top values differed by a full line-height (~14px at
+  // text-xs/tight) — an order of magnitude past the 2px tolerance. This is the
+  // ONLY assertion in the suite that catches an implementer who restyles the
+  // colors and order but leaves the column in place; every other status
+  // assertion (null-edited, error-bucket, dot color, time source) passes
+  // against the stacked layout.
+  //
+  // The harness fixture is `ok` with both stamps present, so editedRel is
+  // non-null and both nodes render (a vacuous pass is impossible — both
+  // locators are asserted visible first).
+  test("T-STATUS-INLINE @1280: Synced and Edited share one row, separated by a 3px bullet", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 1280, height: 900 });
+    const synced = page.locator(`${SUBHEADER} [data-testid="strip-synced-line"]`);
+    const edited = page.locator(`${SUBHEADER} [data-testid="strip-edited-age"]`);
+    const bullet = page.locator(`${SUBHEADER} [data-testid="strip-status-bullet"]`);
+    await expect(synced).toBeVisible();
+    await expect(edited).toBeVisible();
+
+    // PRIMARY CLAUSE FIRST, deliberately: the shared-row measurement is the
+    // delta, and ordering it ahead of the bullet's existence check is what
+    // proves the red phase came from the LAYOUT, not merely from a new testid
+    // that does not exist yet. Verified pre-implementation: this failed with a
+    // 14px top delta.
+    const syncedBox = await synced.evaluate((el) => el.getBoundingClientRect());
+    const editedBox = await edited.evaluate((el) => el.getBoundingClientRect());
+    expect(
+      Math.abs(syncedBox.top - editedBox.top),
+      `Synced top ${syncedBox.top} vs Edited top ${editedBox.top} — one row (2px)`,
+    ).toBeLessThanOrEqual(2);
+
+    await expect(bullet).toBeVisible();
+    const bulletBox = await bullet.evaluate((el) => el.getBoundingClientRect());
+    // The separator is BETWEEN them horizontally, and is the 3px pill (§7's
+    // separator size — not an inherited text glyph).
+    expect(bulletBox.left, "bullet sits right of the Synced text").toBeGreaterThanOrEqual(
+      syncedBox.right - TOL,
+    );
+    expect(bulletBox.right, "bullet sits left of the Edited text").toBeLessThanOrEqual(
+      editedBox.left + TOL,
+    );
+    expect(bulletBox.height, "3px separator height").toBeLessThanOrEqual(3 + TOL);
+    expect(bulletBox.height, "3px separator is painted, not collapsed").toBeGreaterThan(0);
+  });
+
   // T-TAP (ghost Re-sync trigger). Unlike the alert pill, the trigger reaches
   // the 44px floor with a REAL box (`min-h-tap-min`/`min-w-tap-min`), because
   // `AccentButton` used to supply `minWidthTap` and a raw <button> drops it.

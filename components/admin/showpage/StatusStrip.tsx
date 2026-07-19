@@ -206,12 +206,41 @@ export function StatusStrip({
               edit time. It pairs with both text lines (the color-blind floor). */}
           {/* pulse: subtle heartbeat on the healthy/synced dot (no-op on non-positive). */}
           <StatusDot status={sync.bucket} pulse />
-          {/* Synced (last-checked) over Edited (last-synced), stacked and equally weighted
-              — same size/color, neither is the "primary" of the pair. */}
-          <span className="flex flex-col text-xs/tight text-text-subtle tabular-nums">
+          {/* ONE row (modal-header-reconciliation §4.5): dot · "Synced {rel}" ·
+              3px bullet · "Edited {rel}". Equally weighted — same size/color,
+              neither is the "primary" of the pair, so both inherit this row's
+              type rather than setting their own.
+
+              `inline-flex items-center` is the §8 dimensional invariant that
+              guarantees the baseline-consistent single row. It replaces a
+              `flex flex-col` column: restyling this element's colors or order
+              while leaving `flex-col` in place passes EVERY other status
+              assertion, so the single-row structure is pinned explicitly —
+              in jsdom by statusStrip.test.tsx's expectSingleRowStatus() and in
+              the browser by T-STATUS-INLINE.
+
+              NOT "Synced" hardcoded: `syncLabel` is the ok-bucket phrasing for
+              ONE bucket of several; every non-ok bucket renders its health
+              label here instead (syncStatus.ts:20). */}
+          <span
+            data-testid="strip-status-line"
+            className="inline-flex items-center gap-2 text-xs/tight text-text-subtle tabular-nums"
+          >
             <span data-testid="strip-synced-line">{syncLabel}</span>
+            {/* The bullet is the collapse's ONLY new orphan risk: with the
+                column gone, nothing else separates the two texts, so it must
+                mount and unmount WITH the Edited clause — never on its own.
+                Same 3px decorative atom as the header subline
+                (PublishedReviewModal.tsx:299-303). */}
             {editedRel != null ? (
-              <span data-testid="strip-edited-age">Edited {editedRel}</span>
+              <>
+                <span
+                  aria-hidden="true"
+                  data-testid="strip-status-bullet"
+                  className="size-[3px] shrink-0 rounded-pill bg-border-strong"
+                />
+                <span data-testid="strip-edited-age">Edited {editedRel}</span>
+              </>
             ) : null}
           </span>
         </span>

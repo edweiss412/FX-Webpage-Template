@@ -25,7 +25,9 @@
  *       the strip carries no container padding and no title. The card baseline is
  *       re-derived from a sibling render that mirrors the CURRENT strip container
  *       exactly, keeping the comparison apples-to-apples — the delta is still the
- *       toggle's own weight, and the threshold is unchanged.
+ *       toggle's own weight, and the threshold is unchanged. MEASURED AT >=sm
+ *       (800px) since §4.5's single-line status (Task 8) makes the real strip
+ *       wrap at 390px while the hand-rolled card row cannot — see the test body.
  *   (c) compact chip: the finalize chip is an in-viewport pill (left ≥ 0, right ≤ 390, no
  *       document h-scroll) sitting right of the switch, width < 200px — NOT a full-strip
  *       banner. The overlay residual (BL-CASP2-STRIP-POLISH) is gone: an in-flow chip
@@ -190,10 +192,38 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
   test("(b) the inline strip is materially shorter than the pre-CASP-2 card strip", async ({
     page,
   }) => {
-    const inline = await rectOf(page, "idleShort", "show-status-strip");
-    const card = await rectOf(page, "cardShort", "show-status-strip");
+    // MEASURED AT >=sm, NOT 390px (modal-header-reconciliation §4.5, Task 8).
+    //
+    // This invariant's claim is about the TOGGLE's own weight — card box vs
+    // inline row — and `cardShort` is a hand-rolled row holding ONLY the card
+    // toggle, with no status line, Re-sync or copy button. That comparison is
+    // apples-to-apples only while the real strip is a SINGLE row, which is
+    // exactly what `sm:flex-nowrap` guarantees at >=sm and deliberately does
+    // NOT guarantee at 390px.
+    //
+    // §4.5 collapsed the status stack to one line, which is TALLER-per-row but
+    // WIDER, and at 390px that extra width pushes the strip onto a second
+    // wrapped row: the idle strip measures 44px -> 80px while `cardShort`
+    // (which has nothing to wrap) stays at 91px. The old 390px delta therefore
+    // fell to ~11px — not because compaction regressed, but because the
+    // measurement had become a wrap-count comparison rather than a toggle-weight
+    // one. Widening the threshold would have preserved a green test that no
+    // longer measured its own invariant.
+    //
+    // Precedent for measuring >=sm inside this 390px describe: invariant (a)'s
+    // CI-1b clause already does it, for the same reason.
+    const DESKTOP = { width: 800, height: 900 };
+    const heightAt = async (stateKey: string): Promise<number> => {
+      await page.setViewportSize(DESKTOP);
+      await page.goto(`${baseUrl}${stateKey}.html`);
+      const el = page.getByTestId("show-status-strip");
+      await expect(el).toBeVisible();
+      return el.evaluate((n) => n.getBoundingClientRect().height);
+    };
+    const inlineH = await heightAt("idleShort");
+    const cardH = await heightAt("cardShort");
     // Baseline derived from the card render — not a hardcoded pixel count.
-    expect(card.height - inline.height).toBeGreaterThan(20);
+    expect(cardH - inlineH, `card ${cardH} vs inline ${inlineH}`).toBeGreaterThan(20);
   });
 
   test("(c) the finalize chip is a compact in-viewport pill right of the switch (not a full-strip banner)", async ({

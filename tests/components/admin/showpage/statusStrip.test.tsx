@@ -385,16 +385,81 @@ describe("StatusStrip", () => {
       ).toBeTruthy();
     });
 
-    it("stacks Synced over Edited as two equally-weighted lines (same class, neither primary)", () => {
+    // REWRITTEN from "stacks Synced over Edited as two equally-weighted lines"
+    // (modal-header-reconciliation §4.5, Task 8). The two-line column collapses
+    // to ONE row: dot · "Synced {rel}" · 3px bullet · "Edited {rel}".
+    //
+    // The class clause below is the SHARED STRUCTURAL CLAUSE this describe's
+    // three §4.5 cases all carry. It is what makes them genuinely red: an
+    // implementer who restyles colors/order but leaves `flex-col` in place
+    // passes every other status assertion (null-edited, error-bucket, dot
+    // color, time source) while the headline delta is silently unimplemented.
+    // jsdom computes no layout, so the real single-row geometry is asserted in
+    // the browser by T-STATUS-INLINE (published-review-modal.layout.spec.ts);
+    // this is its cheap, always-run structural counterpart.
+    function expectSingleRowStatus(): HTMLElement {
+      const line = screen.getByTestId("strip-status-line");
+      expect(line.className).toMatch(/inline-flex/);
+      expect(line.className).toMatch(/items-center/);
+      expect(line.className).not.toMatch(/flex-col/);
+      return line;
+    }
+
+    it("renders Synced and Edited on ONE row, equally weighted, separated by a 3px bullet", () => {
       renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
+      const line = expectSingleRowStatus();
       const synced = screen.getByTestId("strip-synced-line");
       const edited = screen.getByTestId("strip-edited-age");
-      // Equal weight = same typography; they share the parent column's class, not per-line
-      // size/weight overrides. Assert neither line sets its own font-size/weight.
+      // Equal weight = same typography; they inherit the row's class rather than
+      // setting per-line size/weight overrides.
       expect(synced.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
       expect(edited.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
-      // Both lines share one parent (the stacked column) → same rendered weight.
-      expect(synced.parentElement).toBe(edited.parentElement);
+      expect(synced.parentElement).toBe(line);
+      expect(edited.parentElement).toBe(line);
+      // The separator: 3px, pill, aria-hidden — the same atom as the header
+      // subline's bullet (PublishedReviewModal.tsx:299-303), and decorative
+      // (§9's decorative-dot rule), so it must never reach the a11y tree.
+      const bullet = screen.getByTestId("strip-status-bullet");
+      expect(bullet.getAttribute("aria-hidden")).toBe("true");
+      expect(bullet.className).toMatch(/size-\[3px\]/);
+      expect(bullet.className).toMatch(/rounded-pill/);
+      // Bullet sits BETWEEN the two texts, not before or after both.
+      const order = Array.from(line.children);
+      expect(order.indexOf(synced)).toBeLessThan(order.indexOf(bullet));
+      expect(order.indexOf(bullet)).toBeLessThan(order.indexOf(edited));
+    });
+
+    // T-STATUS-INLINE-NO-EDITED (§4.5's main NEW failure mode): the collapse
+    // turns the stacked column's implicit separation into an explicit
+    // separator, so the null-edited case can now strand it.
+    it("renders ONE row with NO trailing bullet and no 'Edited' when editedRel is null", () => {
+      // parse_error is in the showsEditedClause deny-set → editedRel === null
+      // while the status element itself still renders.
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: "parse_error" });
+      const line = expectSingleRowStatus();
+      expect(screen.queryByTestId("strip-edited-age")).toBeNull();
+      expect(screen.queryByTestId("strip-status-bullet")).toBeNull();
+      expect(line.textContent).not.toMatch(/edited/i);
+    });
+
+    // T-STATUS-ERROR-BUCKET — DECLARED PARTLY-RED (plan 03-resync.md:148).
+    // The bucket behavior already exists (`syncLabel` resolves to the health
+    // label for non-ok, `StatusDot` is keyed on the bucket), so this half is a
+    // KEEP-GREEN guard against the collapse hardcoding the mock's green
+    // "Synced just now" — one bucket of several. Its red comes from the shared
+    // single-row structural clause above.
+    it("shows the health label + bucket-colored dot (never 'Synced …') on one row for a non-ok bucket", () => {
+      renderStrip({
+        lastSyncedAt: SYNCED_12M,
+        lastCheckedAt: CHECKED_2M,
+        lastSyncStatus: "drive_error",
+      });
+      const line = expectSingleRowStatus();
+      expect(line.textContent).not.toMatch(/synced/i);
+      expect(screen.getByTestId("strip-synced-line").textContent).toMatch(/couldn.t reach/i);
+      expect(
+        within(screen.getByTestId("strip-sync-age")).getByTestId("status-dot-warn"),
+      ).toBeTruthy();
     });
   });
 
