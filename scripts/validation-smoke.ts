@@ -32,7 +32,10 @@
 import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { loadValidationEnv } from "./lib/validation-env";
-import { assertSupabaseTargetMatchesProjectRef } from "./lib/validation-target";
+import {
+  assertProdEquivalentTarget,
+  assertSupabaseTargetMatchesProjectRef,
+} from "./lib/validation-target";
 import { assertValidationSmokeBaseUrl } from "./lib/validation-smoke-target";
 
 const AGENT_EMAIL = "agent@fxav.test";
@@ -87,6 +90,10 @@ async function main(): Promise<void> {
   const supabaseUrl = requireEnv("VALIDATION_SUPABASE_URL");
   const secretKey = requireEnv("VALIDATION_SUPABASE_SECRET_KEY");
   const projectRef = requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+  // Codex R2-F1: both established guards, same as the other validation CLIs —
+  // assertProdEquivalentTarget rejects localhost AND plaintext http (the
+  // service key travels on every call); the ref binding alone does neither.
+  assertProdEquivalentTarget(supabaseUrl, false);
   assertSupabaseTargetMatchesProjectRef(supabaseUrl, projectRef, false);
   const testAuthSecret = requireEnv("VALIDATION_TEST_AUTH_SECRET");
   const baseURL = process.env.VALIDATION_SMOKE_BASE_URL || DEFAULT_BASE_URL;
