@@ -770,6 +770,30 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
           `history timestamp shares the active column's right edge @ ${width}px`,
         ).toBeLessThanOrEqual(TOL);
 
+        // …and the reservation buys that alignment WITHOUT imposing a height.
+        // The history slot is width-only (`w-tap-min`); a square `size-tap-min`
+        // would floor this row at 44px and make the quieter resolved tier taller
+        // per row than its content warrants, cutting how many rows fit inside
+        // max-h-panel-max. The claim is about the SLOT, not the row: a history
+        // row is legitimately taller than 44px when its title wraps (56.6px at
+        // 390px), so asserting on row height would fail for the wrong reason.
+        const historySlot = await rectOf(page.getByTestId(`bell-caret-slot-${resolvedId}`));
+        expect(
+          historySlot.width,
+          `history slot reserves the chevron's full width @ ${width}px`,
+        ).toBeGreaterThanOrEqual(44 - TOL);
+        expect(
+          historySlot.height,
+          `history slot imposes no height floor (w-tap-min, not size-tap-min) @ ${width}px`,
+        ).toBeLessThan(44);
+        // The active row's slot IS square by design — its header already floors
+        // at 44px via the toggle's min-h-tap-min, so the box costs nothing there.
+        const activeSlot = await rectOf(page.getByTestId(`bell-caret-slot-${globalId}`));
+        expect(
+          activeSlot.height,
+          `active slot keeps the full 44px tap box @ ${width}px`,
+        ).toBeGreaterThanOrEqual(44 - TOL);
+
         // The reservation must not cost horizontal room: still no PANEL overflow.
         // Deliberately panel-scoped, not document-scoped: the /admin dashboard
         // ships a pre-existing document overflow of 104-143px from its `absolute

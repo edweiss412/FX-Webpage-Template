@@ -588,10 +588,16 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
           {resolved}
         </span>
       ) : null}
+      {/* WIDTH only (`w-tap-min`, not `size-tap-min`): this row has no other
+          44px-tall child, so reserving a square here would stretch a ~20px
+          text line box to 44px and make the quieter history tier TALLER per row
+          than the active tier. The active header can afford the square — its
+          toggle already floors at min-h-tap-min. Only the column reservation is
+          wanted here. */}
       <span
         aria-hidden="true"
         data-testid={`bell-caret-slot-${entry.alertId}`}
-        className="size-tap-min shrink-0"
+        className="w-tap-min shrink-0"
       />
     </div>
   );
