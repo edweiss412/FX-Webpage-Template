@@ -92,6 +92,19 @@ describe("PickerResetControl (everyone-only)", () => {
     expect(memberMock).not.toHaveBeenCalled();
   });
 
+  it("a THROWN resetPickerEpoch settles to the generic error banner (no stranded resolving)", async () => {
+    epochMock.mockRejectedValue(new Error("network death"));
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
+        /Couldn't reset the picker/,
+      ),
+    );
+    expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+  });
+
   it("failure shows the persistent error banner", async () => {
     epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
     render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);

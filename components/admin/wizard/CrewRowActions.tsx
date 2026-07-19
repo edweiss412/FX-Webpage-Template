@@ -206,7 +206,11 @@ export function CrewRowActions({
         // strand the popover in resolving — settle through the generic banner.
         onOutcome({ kind: "error", message: "Couldn't reset the picker. Please try again." });
       }
-      onOpenChange(false);
+      // Settle closes the popover WITH trigger-focus restore: resolving parked
+      // focus on the popover container, and unmounting a focused node drops
+      // keyboard focus to <body> (review R2). The banner still announces via
+      // the live region.
+      closeFully(true);
     });
   };
 

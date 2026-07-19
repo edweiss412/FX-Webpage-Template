@@ -129,13 +129,19 @@ export function PickerResetControl({
     // admin reset on this surface. No new §12.4 codes; no raw error CODE is ever rendered (codes
     // are mapped to these sentences here).
     startTransition(async () => {
-      const r = await resetPickerEpoch({ showId });
-      // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
-      setOutcome(
-        r.ok
-          ? { kind: "ok", message: "Everyone will pick again on their next visit." }
-          : { kind: "error", message: "Couldn't reset the picker. Please try again." },
-      );
+      try {
+        const r = await resetPickerEpoch({ showId });
+        // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
+        setOutcome(
+          r.ok
+            ? { kind: "ok", message: "Everyone will pick again on their next visit." }
+            : { kind: "error", message: "Couldn't reset the picker. Please try again." },
+        );
+      } catch {
+        // A thrown action must not strand the control in resolving (review R2
+        // class-sweep of the CrewRowActions thrown-action fix).
+        setOutcome({ kind: "error", message: "Couldn't reset the picker. Please try again." });
+      }
     });
   };
 

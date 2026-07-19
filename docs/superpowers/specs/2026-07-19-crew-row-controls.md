@@ -168,8 +168,11 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
   `data-testid="crew-row-reset-confirm-go"`; requires a new
   `_metaDestructiveConfirm` registry row for `CrewRowActions.tsx`).
 - Focus: opens with **Cancel** focused (C3); Cancel/auto-revert restores focus to the row trigger
-  (C5). Confirm-resolve path does not restore (outcome banner announces; matches
-  PickerResetControl's restore-only-on-cancel semantics, `PickerResetControl.tsx:81-108`).
+  (C5). While `resolving`, focus parks on the popover CONTAINER (`tabIndex={-1}`) — both buttons
+  disable, and focus dropping to `<body>` would let Escape bypass the popover handler and reach
+  the shell's document listener. Settlement (success or error) therefore ALSO restores trigger
+  focus (amended from restore-only-on-cancel during whole-diff review R1/R2 — unmounting the
+  focused container would strand keyboard focus on `<body>`).
 - **Tab containment:** while the confirm popover is open, `Tab`/`Shift+Tab` cycle between its
   only two tabbables (Cancel ⇄ Confirm; 2-stop trap on the popover's keydown) — focus can never
   land behind the backdrop. (Menu Tab behavior differs deliberately: §4.2 closes on Tab per APG;
@@ -190,6 +193,8 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
 admin-authored inline (same `not-subject:M5-D8` rationale + comment as
 `PickerResetControl.tsx:161-166`; **no new §12.4 codes**):
 
+- thrown action (transport death) → caught; generic error banner (never a stranded resolving
+  popover). Same guard added to `PickerResetControl`'s epoch call (class-sweep).
 - ok → `` `Reset ${name}. They'll pick again next visit.` ``
 - `PICKER_CREW_MEMBER_NOT_FOUND` → "That crew member is no longer on the roster, so there's
   nothing to reset. Refresh to see the current roster."

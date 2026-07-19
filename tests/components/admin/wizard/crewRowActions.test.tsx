@@ -293,6 +293,9 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     }
     resolve({ ok: true });
     await vi.waitFor(() => expect(confirm(ID_A)).toBeNull());
+    // Settlement restores trigger focus (container was focused while resolving;
+    // unmount would otherwise drop focus to <body> — review R2).
+    await vi.waitFor(() => expect(trigger(ID_A)).toHaveFocus());
     expect(screen.getByTestId("crew-row-reset-ok").textContent).toContain(
       "Reset Alex Rodrigues. They'll pick again next visit.",
     );
