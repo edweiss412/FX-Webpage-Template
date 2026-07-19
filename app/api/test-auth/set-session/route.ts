@@ -80,6 +80,12 @@ const FIXTURE_ALLOWLIST: Readonly<Record<string, { isAdmin: boolean; isDeveloper
     // is_developer=true (a developer, NOT a normal admin).
     "fxav-admin@example.com": { isAdmin: true },
     "fxav-developer@example.com": { isAdmin: true, isDeveloper: true },
+    // Validation-smoke agent identity (`pnpm validation:smoke`): plain admin
+    // via the JWT-role arm of public.is_admin() — deliberately NEVER a
+    // developer (narrowest tier that can see the dashboard), and distinct
+    // from every human fixture so the smoke script's delete-then-create
+    // cycle can never touch a real person's auth row.
+    "agent@fxav.test": { isAdmin: true },
   });
 
 /**
@@ -128,9 +134,15 @@ function runGates(request: Request): Response | null {
     return reject(401, "unauthorized");
   }
 
-  // Gate 3: Host header must match the localhost allowlist.
+  // Gate 3: Host header must match the localhost allowlist, OR the single
+  // env-configured extra host (validation-smoke: the deployed validation
+  // domain sets TEST_AUTH_ALLOWED_EXTRA_HOST=<its own host>). Exact string
+  // match — no port, no suffix, and an unset/empty env var allows nothing
+  // beyond localhost (fail-closed; production never sets it).
   const host = request.headers.get("host") ?? "";
-  if (!ALLOWED_HOST_RE.test(host)) {
+  const extraHost = process.env.TEST_AUTH_ALLOWED_EXTRA_HOST;
+  const extraHostAllowed = typeof extraHost === "string" && extraHost !== "" && host === extraHost;
+  if (!ALLOWED_HOST_RE.test(host) && !extraHostAllowed) {
     return reject(403, "host_not_allowed");
   }
 
