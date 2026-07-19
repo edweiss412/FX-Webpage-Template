@@ -63,6 +63,7 @@
  * Spec: docs/superpowers/specs/2026-07-19-crew-row-controls.md §4, §5, §6, §8.
  * Subject is CrewBreakdown (owns single-open state + banners, mounts CrewRowActions).
  */
+import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -189,6 +190,21 @@ describe("menu open/close + keyboard (spec §4.2)", () => {
     fireEvent.click(trigger(CREW_IDS[1]));
     expect(menu(CREW_IDS[1])).toBeTruthy();
     expect(menu(CREW_IDS[0])).toBeNull();
+  });
+  it("Space activates the focused menuitem (Preview-as Link closes the menu); Enter opens the confirm from Reset", async () => {
+    renderCrew();
+    fireEvent.click(trigger(CREW_IDS[0]));
+    const m = menu(CREW_IDS[0])!;
+    const items = Array.from(m.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    await vi.waitFor(() => expect(items[0]).toHaveFocus());
+    fireEvent.keyDown(m, { key: " " }); // Space on the Link — no native activation, handler clicks
+    expect(menu(CREW_IDS[0])).toBeNull();
+    fireEvent.click(trigger(CREW_IDS[0]));
+    const m2 = menu(CREW_IDS[0])!;
+    const items2 = Array.from(m2.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    items2[1]!.focus();
+    fireEvent.keyDown(m2, { key: "Enter" });
+    expect(confirm(CREW_IDS[0])).toBeTruthy();
   });
   it("aria-expanded tracks open state", () => {
     renderCrew();
@@ -440,6 +456,11 @@ export function CrewRowActions({
     } else if (e.key === "End") {
       e.preventDefault();
       items[items.length - 1]?.focus();
+    } else if (e.key === "Enter" || e.key === " ") {
+      // Space does not natively activate an <a>; route both through click so
+      // Preview-as (Link) and Reset (button) behave identically (spec §4.2).
+      e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.click();
     }
   };
 
@@ -858,8 +879,12 @@ const TOL = 0.5;
 const LONG_NAME = "X".repeat(120);
 
 let show: SeededShow;
+let restoreDashboardState: (() => Promise<void>) | null = null;
 
 test.beforeAll(async () => {
+  // Modal mounts only on the SETTLED dashboard branch — same pattern as
+  // published-review-modal.deeplink.spec.ts:71-75.
+  restoreDashboardState = await settleDashboardAdminState();
   show = await seedShowWithCrew({
     crew: [
       { name: "Alex Rodrigues", role: "V1" },
@@ -869,12 +894,12 @@ test.beforeAll(async () => {
   });
 });
 test.afterAll(async () => {
-  await deleteSeededShow(show);
+  if (show) await deleteSeededShow(show.driveFileId);
+  if (restoreDashboardState) await restoreDashboardState();
 });
 
 async function openModal(page: Page) {
   await signInAs(page, ADMIN_FIXTURE);
-  await settleDashboardAdminState(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/admin?show=${show.slug}`);
@@ -947,14 +972,33 @@ test("Esc closes and restores focus to the trigger; backdrop click does not rest
   await expect(rowTrigger(page, crewId)).toBeFocused();
 });
 
-test("last-row popovers stay visible inside the modal scroller (scrollIntoView contract) and confirm is clickable", async ({ page }) => {
+test("scroll-edge: popover forced to open past the scrollport bottom is scrolled into view (scrollTop increases) and confirm is clickable", async ({ page }) => {
   await openModal(page);
   const lastId = show.crew[show.crew.length - 1].id;
+  const scroller = page.locator('[data-testid$="-review-content"]').first();
+  const triggerSel = `[data-testid="crew-row-menu-button-${lastId}"]`;
   await rowTrigger(page, lastId).scrollIntoViewIfNeeded();
+  // PRECONDITION (anti-tautology): position the trigger ~20px above the
+  // scroller's bottom edge so a downward popover CANNOT fit without the
+  // mount-time scrollIntoView. Assert the forced geometry before opening.
+  await scroller.evaluate((s, tSel) => {
+    const t = document.querySelector(tSel)!;
+    const sr = s.getBoundingClientRect();
+    const tr = t.getBoundingClientRect();
+    s.scrollTop += tr.bottom - sr.top - s.clientHeight + 20;
+  }, triggerSel);
+  const preTb = (await rowTrigger(page, lastId).boundingBox())!;
+  const preSb = (await scroller.boundingBox())!;
+  const spaceBelow = preSb.y + preSb.height - (preTb.y + preTb.height);
+  expect(spaceBelow).toBeLessThanOrEqual(60); // menu needs ~110px — must overflow
+  const scrollTop0 = await scroller.evaluate((s) => s.scrollTop);
   await rowTrigger(page, lastId).click();
   const menu = page.getByTestId(`crew-row-menu-${lastId}`);
   await expect(menu).toBeVisible();
-  const scroller = page.locator('[data-testid$="-review-content"]').first();
+  // scrollIntoView(block:nearest) must have scrolled the scroller down…
+  const scrollTop1 = await scroller.evaluate((s) => s.scrollTop);
+  expect(scrollTop1).toBeGreaterThan(scrollTop0);
+  // …and the popover must now be fully inside the scrollport.
   const sb = (await scroller.boundingBox())!;
   const mb = (await menu.boundingBox())!;
   expect(mb.y).toBeGreaterThanOrEqual(sb.y - TOL);
