@@ -245,7 +245,7 @@ Add one optional prop:
 
 ```ts
 /** Optional band rendered BETWEEN the header and the body, with its own bottom
- *  seam. Omitted → no element at all (Step 3's DOM is byte-identical to today).
+ *  seam. Omitted → no element at all (Step 3 renders no extra element).
  *
  *  Pass a rendered ELEMENT or fragment. The wrapper is gated on truthiness, so
  *  `cond && <X/>` correctly yields no band when `cond` is false — but that also
@@ -308,8 +308,13 @@ its own container differently depending on where it is mounted — which is exac
 the `chrome` prop this change deletes (§6.5).
 
 **Step 3 invariance:** `Step3ReviewModal` does not pass `subHeader`, so the
-conditional yields `null` and its rendered output is unchanged. Pinned by a test
-(§9, T-STEP3-INVARIANT).
+conditional yields `null` and Step 3 **renders no additional element; its header
+subtree is unchanged**. Deliberately NOT phrased as "byte-identical output" —
+the shell's source does change (new optional prop, new conditional branch), so a
+test serializing whole React output can pick up noise from that change and get
+weakened in response. The invariant is scoped to what actually matters: no
+`-subheader` element, and an unchanged header subtree. Pinned by
+T-STEP3-INVARIANT (§11), which defines the exact comparison boundary.
 
 ### 6.1.1 `ReviewModalShell` has THREE consumers, not two
 
@@ -438,10 +443,22 @@ lives outside every surface this change is otherwise touching.
 
 **Accessible name.** The accent/compact arms use `aria-label={copied ? "URL copied
 to clipboard" : "Copy URL"}` (`:61`). The outline arm has a *visible* label, so it
-must NOT carry a redundant `aria-label` that contradicts it — the visible text
-"Copy crew link" is the accessible name, and the copied state is announced through
-the existing sr-only live region (`:106`). Guard: do not let the outline arm's
-visible label and an `aria-label` disagree.
+must NOT carry a redundant `aria-label` that contradicts it — the visible text is
+the accessible name, and the copied state is also announced through the existing
+sr-only live region (`:106`). Guard: do not let the outline arm's visible label
+and an `aria-label` disagree.
+
+**Copied state — visible, not just announced.** The accent arm visibly swaps
+"Copy" → "Copied" (`ShareLinkCopyButton.tsx:97-100`). The outline arm follows the
+same contract: label swaps **"Copy crew link" → "Copied"** and the glyph swaps to
+the check icon, on the existing 2s timer (`:49`). Announcing success only through
+the live region would leave sighted users with no feedback at all — the button
+would appear inert on click. T-COPY-OUTLINE asserts BOTH states; an idle-only
+assertion is the failure mode here (§11).
+
+Because the two labels differ in width and the button sits at the row's
+`ml-auto` end, reserve the wider label's width so the swap does not shift the
+button's left edge — same discipline as the Re-sync trigger (§6.7).
 
 **Duplicate testid.** `data-testid="admin-current-share-link-copy-button"` (`:60`)
 would then appear twice inside the open modal (strip + Overview share panel). That
@@ -567,6 +584,19 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   </>
   ```
 
+  **Overlay-over-body policy.** The body starts immediately below the band, so
+  these panels float over rail content by design — they reserve no layout space
+  (that is the point: an in-flow panel would reflow the band and shove the body
+  down mid-action). To keep that from becoming an obscured-content bug:
+  - `max-h-[min(50vh,20rem)]` with `overflow-y-auto` — long shrink detail or
+    error copy scrolls inside the panel instead of blanketing the rail.
+  - `shadow-tile` + the band's `bg-surface`, so the panel reads as a layer above
+    the body rather than merging with it.
+  - Dismissal is per-branch and unchanged: the shrink confirm is dismissed by its
+    own "Keep current version" (`ReSyncButton.tsx:78-82`); success self-clears;
+    an error clears on the next attempt. No new dismissal affordance is added —
+    but none of the three may render as a permanent, undismissable blanket.
+
   A fragment generates no box, so the absolutely-positioned panels resolve their
   containing block to the nearest positioned ancestor — the band, which is
   `relative` (§6.1) while the strip root is not. That is exactly the intent, and
@@ -637,12 +667,39 @@ idle-only fixture in T-LAYOUT cannot catch it.
 Overview's `flex-col`. In the horizontal strip the trigger must align to the row's
 center like its neighbours; `selfStart` must not be carried over verbatim.
 
-**What stays in Overview.** `CorrectionLoopCallout` (the "Fixed it in the sheet?
-Edit the cell, save, then re-sync." guidance, `CorrectionLoopCallout.tsx:26-27`)
-is **guidance, not an affordance** — its `children` slot is already optional
-(`:43`, `children ? … : null`). It stays in Overview, rendered without a child
-button. The guidance keeps its home; only the button moves. Losing that copy
-would strand users who came to Overview after a warning.
+**What stays in Overview — exact post-move shape.** `CorrectionLoopCallout` (the
+"Fixed it in the sheet? Edit the cell, save, then re-sync." guidance,
+`CorrectionLoopCallout.tsx:26-27`) is **guidance, not an affordance** — its
+`children` slot is already optional (`:43`, `children ? … : null`). It stays,
+rendered without a child button.
+
+Today's three-arm ternary (`OverviewSection.tsx:127-137`) becomes:
+
+```tsx
+<div data-testid="overview-sheet-sync" className="flex flex-col gap-3">
+  {archived ? (
+    <span data-testid="admin-show-resync-archived" …>
+      Re-sync is paused while this show is archived.
+    </span>
+  ) : hasActionableWarnings ? (
+    <CorrectionLoopCallout mode="resync" />   {/* no child button */}
+  ) : null}                                    {/* ← third arm empties */}
+  {openSheetHref ? (/* unchanged "Open sheet" link — OverviewSection.tsx:138 */) : null}
+</div>
+```
+
+Three things this pins, each a way the move can go wrong:
+
+1. **The third arm becomes `null`**, not an empty element. A non-archived show
+   with no actionable warnings simply has no first child.
+2. **The `overview-sheet-sync` wrapper STAYS.** It is not emptied — it still
+   hosts the "Open sheet" link (`:138`). Deleting the wrapper because its first
+   child can now be `null` would silently drop `openSheetHref`.
+3. **No Re-sync button remains in any arm.** Keeping one to avoid an empty branch
+   violates the §4.3 "exactly one Re-sync" amendment.
+
+The lexical conditional count is unaffected: the `{archived ? (` head at `:127`
+survives, which is why `OverviewSection` stays at 4 (§9).
 
 **Archived.** Overview's archived arm today replaces the button with a paused
 notice (`OverviewSection.tsx:127-130`: "Re-sync is paused while this show is
@@ -865,7 +922,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-DIVIDER-ALERT-ONLY | `alertCount>0`, not live, no sync → strip renders NO control divider | §7's real bug: divider followed by nothing |
 | T-STATUS-INLINE-NO-EDITED | `editedRel` null → one line, no trailing bullet | Orphan separator after the collapse |
 | T-STATUS-ERROR-BUCKET | non-`ok` status → health label + bucket-colored dot, NOT "Synced …" | Hardcoding the mock's happy-path "Synced just now" |
-| T-COPY-OUTLINE | Strip copy button has the outline classes, visible "Copy crew link", no conflicting `aria-label`; scoped to `strip-copy-link` | Restyling the shared accent arm (F3); asserting the share-panel button by mistake |
+| T-COPY-OUTLINE | BOTH states: idle shows "Copy crew link", post-click shows "Copied" + check glyph, no conflicting `aria-label`, button left edge unmoved across the swap; scoped to `strip-copy-link` | Restyling the shared accent arm (F3); asserting the share-panel button by mistake |
 | T-COPY-ACCENT-UNCHANGED | `CurrentShareLinkPanel`'s button keeps the accent arm | F3 regression |
 | T-NO-ORANGE | Accent-resolving elements in the header region match the EXACT expected set **for each of the three states in §4.2's table** — enumerated, not a `bg-accent` absence check | Delta 4 silently reverting; a `bg-accent`-only assertion that misses `bg-status-live` (same hue, different class); and a single-fixture test that pins only the live happy path |
 | T-ARCHIVED-BAND | `archived` → band renders with archived badge, no toggle/copy/live | Empty or missing band in read-only mode |
@@ -876,6 +933,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
 | T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip) and shows catalog copy, never a raw code — assert the rendered text is the `lib/messages/lookup.ts` copy AND that the raw code string is absent | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
+| T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
 | T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay and does not reflow the strip | Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
