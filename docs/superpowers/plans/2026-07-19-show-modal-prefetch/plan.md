@@ -431,7 +431,11 @@ NEXT_DIST_DIR=.next-prefetch-probe pnpm build
 JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true \
 ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
 NEXT_DIST_DIR=.next-prefetch-probe pnpm exec next start -H 127.0.0.1 --port 3000 &
-# (c) run gated (reuseExistingServer attaches to the prod server):
+# (b2) READINESS GATE — without this, Playwright may find :3000 unreachable and
+# boot its own `pnpm dev` webServer (playwright.config.ts:233), silently running
+# the prod-only spec against a dev server and voiding the proof:
+until curl -sf -o /dev/null http://127.0.0.1:3000/auth/sign-in; do sleep 1; done
+# (c) run gated (reuseExistingServer now attaches to the READY prod server):
 MODAL_PREFETCH_E2E=1 ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.prefetch.spec.ts
 # Expected: 6 passed. Then kill the server and `git checkout tsconfig.json`.
