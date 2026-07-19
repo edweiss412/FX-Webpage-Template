@@ -41,6 +41,23 @@ This gate hooks `superpowers:brainstorming` and OVERRIDES its default flow (per 
 
 This pipeline is the authoritative definition (it lives here in the tracked repo so it is cross-CLI durable). A local convenience command `/ship-feature <description>` runs the same pipeline triggered explicitly, but `.claude/` is gitignored on this repo, so that command is per-machine and may be absent in a fresh checkout — never rely on it existing; rely on this section.
 
+### Never end your turn mid-pipeline (the dominant failure mode)
+
+An autonomous run's expensive failure is not a bad diff — it is a **turn that ends while the pipeline is live**. Nobody is babysitting, so the session simply sits dead until a human notices. Two audited runs on 2026-07-19 each burned **~6.4h of idle wall clock**: one stopped after Task 3 of 9 to file a status report at a task boundary; the other's final words were "Starting Stage 2 now." with no tool call after them. Neither hit an error, a usage limit, a wedge, or a genuine ambiguity. Separately, PR #482 sat `CLEAN` with green CI, unmerged, for 5 hours. Combined productive work across both runs: ~2.5h.
+
+Binding rules for any autonomous run, under any harness:
+
+- **Never announce an action instead of emitting it.** If you write that you are about to do something, the next thing in that turn is the tool call that does it.
+- **Never end a turn to report progress.** Report inline, while continuing. Reporting is never the terminal act of a turn.
+- **Never re-ask for authorization.** Approval at the gate (or `/ship-feature`) is the consent. When woken mid-pipeline by anything — a notification, a `status?` — resume the next action immediately; do not offer "proceed, or pause here?"
+- **Never dispatch a background subagent and end the turn.** Run subagents synchronously or work inline. One run dispatched three implementation tasks to background agents, ended its turn each time, and survived only on notification luck until the last notification was consumed.
+- **Context pressure is not a reason to stop.** One run reasoned "the remaining pipeline won't fit in this context," adopted a handoff posture, and handed off to nobody. Continue and let the harness compact; if a handoff is genuinely required, dispatch it in the same turn.
+- **Green CI is not a stopping point.** `gh pr merge --merge` follows CI-green in the same turn.
+
+The run is complete only when `git rev-list --left-right --count main...origin/main` reports `0  0`. Ending a turn before that is a pipeline failure regardless of how much work got done.
+
+**Pipeline marker (Claude Code harness).** Because no prompt-side rule can catch "announced the dispatch, emitted nothing," Claude Code backs these rules with a `Stop` hook. The run writes `<worktree>/.claude/ship-state.json` (`{branch, stage, tasksRemaining, next}`) at Stage 0, updates it at every stage and task boundary, and sets `stage: "done"` only after the `0  0` check. The hook refuses to let the session stop while the marker is live. Two deliberate safety valves keep the gate from wedging a session: it never re-blocks when `stop_hook_active` is set, and it stands down after 6 consecutive stop attempts with an unchanged `stage|tasksRemaining` fingerprint. That second valve means **a marker you forget to update silently disarms the protection** — update it in the same beat as each task commit. The hook itself lives in the per-machine `~/.claude/` tree, so a fresh checkout or a non-Claude harness will not have it; the rules above are what actually bind, and the hook is only their enforcement on one harness.
+
 ---
 
 ## Spec self-review additions (mirrors global guidance, project-scoped)
