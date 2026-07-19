@@ -1493,6 +1493,21 @@ Declared per AGENTS.md writing-plans rules.
 - **Creates:** none.
 - **Extends:** `tests/components/admin/showpage/pageTransitions.test.tsx` (count
   literals — §9).
+- **Extends (found during the plan's code-verification pass, 2026-07-19 — this
+  section was INCOMPLETE through 22 rounds of spec review):**
+
+  | Registry | Why this change touches it | Disposition |
+  | --- | --- | --- |
+  | `tests/styles/accent-button-atom.test.ts:49-56` | `MIGRATED_FILES` lists `ReSyncButton.tsx`; a sub-scan asserts it **imports `AccentButton`**. §6.7's ghost demotion removes that import, so this meta-test **hard-fails**. | **Blocking.** Deliberate de-migration: remove the entry, with a comment recording that the strip trigger is intentionally non-accent per §4.2's orange budget. Not a silent deletion. |
+  | `tests/help/_uiLabelExceptions.ts:180-184` | Pins the literal `"Re-sync from Drive"` against `app/help/admin/per-show-panel/page.mdx`. §6.7 shortens the label to `"Re-sync"`. | Update the literal AND the help MDX in the same commit. (Its note cites `ReSyncButton.tsx:99`; the literal is actually at `:150` — the note is already stale, fix it while there.) |
+  | `tests/auth/_metaDestructiveConfirm.test.ts:79` | Registers `ReSyncButton` as a `panel`-shaped destructive confirm. The shrink-hold confirm relocates to an overlay. | Re-verify the registered shape still matches after the restructure; update if the scan classifies the overlay differently. |
+  | `tests/e2e/admin-parse-panel.spec.ts:269-274` | Clicks `admin-resync-button` **scoped inside `overview-sheet-sync`**. §4.3 removes the button from that container. | **REWRITE** (not retire): the assertion's intent — a failing Re-sync surfaces `admin-resync-error` — survives; only the locator moves to the strip. |
+
+  **Why 22 rounds missed these.** Every adversarial round reviewed an inlined
+  packet, and no packet contained these registries. A reviewer cannot find what
+  it was never shown. The plan's pre-draft pass greps the live repo, which is a
+  structurally different check — this is the argument for keeping BOTH gates
+  rather than treating plan verification as a formality after an approved spec.
 - **Not applicable, with reason:**
   - Supabase call-boundary (`_metaInfraContract`) — no Supabase call added.
   - Mutation-surface observability — no mutating route or action added or moved.
