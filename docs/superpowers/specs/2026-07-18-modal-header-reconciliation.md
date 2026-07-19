@@ -32,8 +32,9 @@ as one family.
 **Goal.** Rebuild the published modal's header region in Step 3's frame: a header
 band that carries identity (title, sheet link, client/date subline, alert pill)
 and a separate, quieter control strip below the seam that carries live controls
-(publish toggle, sync status, copy link). After the change the publish toggle is
-the only orange element in the header region.
+(publish toggle, sync status, Re-sync, copy link). After the change the publish
+toggle is the only orange **control** in the header region, with exactly one
+ratified non-control exception — the Live-now indicator (§4.2).
 
 **Non-goals.**
 
@@ -41,7 +42,7 @@ the only orange element in the header region.
 - The modal body, rail, sections, footer, scrim, focus behavior, and drag-dismiss
   are untouched.
 - No data-model, RPC, migration, or telemetry change. No mutation surface is
-  added, removed, or re-gated: Re-sync's relocation (§4.2) moves a client trigger
+  added, removed, or re-gated: Re-sync's relocation (§4.3) moves a client trigger
   between two render sites and leaves `/api/admin/sync` and its auth untouched.
 - The alert *destination* does not change (`#overview` stays the target).
 - Re-sync's own behavior (shrink-hold protocol, coded results, retry semantics)
@@ -127,8 +128,9 @@ Numbered as in the mock's option `#1a`.
    nested row.
 4. **Copy goes neutral.** The filled orange Copy becomes an outline button
    (`border-border-strong`, transparent background, `text-text`) with a copy glyph
-   and the label "Copy crew link". The publish toggle is then the only orange in
-   the region.
+   and the label "Copy crew link". The publish toggle is then the only orange
+   **control** in the region — see §4.2 for the one deliberate non-control
+   exception.
 5. **Status goes inline.** The stacked two-line synced/edited block collapses to
    one line: positive-toned dot · `Synced {rel}` · 3px bullet · `Edited {rel}`.
 6. **Strip order.** `[Published label + toggle]` | 1px divider | `[status line]` |
@@ -138,7 +140,7 @@ Numbered as in the mock's option `#1a`.
    "Re-sync" — sits after the status line, left of the auto-margin. It is
    **moved**, not duplicated: the Overview rail's Re-sync affordance is removed
    in the same change so exactly one Re-sync control exists in the modal. See
-   §4.2 (amendment) and §6.7 (mechanism).
+   §4.3 (amendment) and §6.7 (mechanism).
 
 ### 4.1 Ratified decisions — do NOT relitigate
 
@@ -152,7 +154,32 @@ Numbered as in the mock's option `#1a`.
 - **The two "Today" panels in `mock.html` are reference, not targets.** They
   document the before-state deliberately.
 
-### 4.2 RATIFIED AMENDMENT — resync moves to the strip
+### 4.2 RATIFIED — the orange budget, precisely
+
+Delta 4's plain reading ("the toggle is the only orange") is violated by a
+control the mock never draws: the **Live-now badge**. `StatusIndicator`'s live
+dot is `bg-status-live` (`StatusIndicator.tsx:27`) and `--color-status-live` is
+defined as `var(--color-accent)` (`app/globals.css:89`) — i.e. the SAME hue as
+the publish toggle. It renders in the strip whenever `isLive`
+(`StatusStrip.tsx:221-225`).
+
+**Ratified (user decision, 2026-07-18): the Live-now dot keeps its accent hue as
+a deliberate exception.** It is a distinct semantic — "this show is happening
+right now" — and the highest-urgency signal the strip carries. The rule is
+therefore stated precisely:
+
+> The publish toggle is the only orange **control**. Exactly one non-control
+> element may be orange: the Live-now indicator.
+
+**Consequence for T-NO-ORANGE (§11).** A test asserting "no `bg-accent` in the
+header region" is doubly wrong: it would MISS the live dot (which is
+`bg-status-live`, a different class resolving to the same color) and it would
+have no way to catch a future third orange. The test must instead enumerate the
+accent-resolving elements in the region and assert the set is EXACTLY
+{publish toggle, live dot} — so a third one fails, and so removing the exception
+later is a deliberate edit rather than a silent drift.
+
+### 4.3 RATIFIED AMENDMENT — resync moves to the strip
 
 The consolidated-admin-show-page spec §4 (quoted verbatim in
 `StatusStrip.tsx:7-9`) reads:
@@ -191,7 +218,7 @@ BEFORE                                  AFTER
 │ └──────────────────────────┘ │        │             [Copy crew link]│
 └──────────────────────────────┘        └─────────────────────────────┘
                                         (body unchanged, EXCEPT Overview
-                                         loses its Re-sync button — §4.2)
+                                         loses its Re-sync button — §4.3)
 ```
 
 The panel gains a **third band**. Any assertion modeling the panel as
@@ -545,9 +572,10 @@ states it does not draw and are the highest-risk part of this change.
 **`isLive` placement.** The mock does not draw the live badge. It is real and
 reachable (`_showReviewModal.tsx:336`). It stays in the control strip, in its
 existing position between the toggle-divider and the status line
-(`StatusStrip.tsx:221-225`). Rationale: it is a live *state* signal, matching the
-strip's remit, and the header's right slot is now the alert pill's. Moving it
-would be an undesigned change.
+(`StatusStrip.tsx:221-225`), and keeps its accent hue per the §4.2 ratified
+exception. Rationale: it is a live *state* signal, matching the strip's remit,
+and the header's right slot is now the alert pill's. Moving it or restyling it
+would be an undesigned change to a shipped signal.
 
 **Control-divider condition changes.** `showControlDivider` today is
 `!archived && (isLive || sync || alertCount > 0)` (`StatusStrip.tsx:154-155`).
@@ -624,7 +652,7 @@ sheet-link anchor ≥44px, and no horizontal overflow of the panel at 375/390/76
 
 After this change the strip's conditionals are: `archived` / `control-divider` /
 `live` / `sync` / `edited` / `re-sync` / `copy-link` = **7**. (`renderTitle`
-deleted §6.5; `alert` relocated §6.6; `re-sync` added §4.2 — it is conditional on
+deleted §6.5; `alert` relocated §6.6; `re-sync` added §4.3 — it is conditional on
 `!archived`.) `PublishedReviewModal.tsx`'s count moves from **1** (sheet-link) to
 **3** (sheet-link, subline client entry, alert pill).
 
@@ -714,11 +742,11 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-STATUS-ERROR-BUCKET | non-`ok` status → health label + bucket-colored dot, NOT "Synced …" | Hardcoding the mock's happy-path "Synced just now" |
 | T-COPY-OUTLINE | Strip copy button has the outline classes, visible "Copy crew link", no conflicting `aria-label`; scoped to `strip-copy-link` | Restyling the shared accent arm (F3); asserting the share-panel button by mistake |
 | T-COPY-ACCENT-UNCHANGED | `CurrentShareLinkPanel`'s button keeps the accent arm | F3 regression |
-| T-NO-ORANGE | No `bg-accent` in the header region except the publish toggle | Delta 4's whole point silently reverting |
+| T-NO-ORANGE | Accent-resolving elements in the header region are EXACTLY {publish toggle, live dot} — enumerated, not a `bg-accent` absence check (§4.2) | Delta 4 silently reverting; and a `bg-accent`-only assertion that misses `bg-status-live`, which resolves to the same hue |
 | T-ARCHIVED-BAND | `archived` → band renders with archived badge, no toggle/copy/live | Empty or missing band in read-only mode |
 | T-NO-H1 | No `<h1>` in the dialog (existing, must still pass) | Dead `<h1>` branch resurrected |
 | T-COUNTS | `pageTransitions` counts: `StatusStrip` **7**, `PublishedReviewModal` **3**, `OverviewSection` **4 (unchanged)** — each verified by running the scan, not by reasoning (§9) | Undocumented new conditional mount; or a literal edited to green a red test |
-| T-RESYNC-MOVED | Strip renders a Re-sync trigger; `OverviewSection` renders NO Re-sync button | §4.2 half-done — duplicated control, the outcome explicitly rejected |
+| T-RESYNC-MOVED | Strip renders a Re-sync trigger; `OverviewSection` renders NO Re-sync button | §4.3 half-done — duplicated control, the outcome explicitly rejected |
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
@@ -746,7 +774,7 @@ assertion, not merely retuned), `statusStripToggleLayout.spec.ts`,
 in-flow result surfaces (grep `ReSyncButton` + `admin-show-resync` across
 `tests/`).
 
-**Scope note.** §4.2's Re-sync move means this change also touches
+**Scope note.** §4.3's Re-sync move means this change also touches
 `components/admin/ReSyncButton.tsx` and `components/admin/showpage/OverviewSection.tsx`
 — neither is "header" code. The plan must treat the move as its own task cluster
 with its own tests, not as a rider on the header tasks.
@@ -775,7 +803,7 @@ Declared per AGENTS.md writing-plans rules.
 | 8 → 7 | `StatusStrip.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 1 → 3 | `PublishedReviewModal.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 4 → 4 (unchanged) | `OverviewSection.tsx` conditional-mount pin | §9, §11 T-COUNTS |
-| 2 → 3 | strip action budget (amended ceiling) | §4.2 |
+| 2 → 3 | strip action budget (amended ceiling) | §4.3 |
 | 3px | subline + status bullet separators | §6.3, §7, §8 |
 | 8px (`size-2`) | alert pill dot | §6.6 |
 | 375/390/768/1280 | responsive assertion widths | §8, §11 T-LAYOUT |
@@ -798,7 +826,7 @@ Declared per AGENTS.md writing-plans rules.
    pending/error/shrink-hold state, and inert anchors. §7 is the authority for
    those; the mock is the authority for the happy path's visual language only.
 5. **Re-sync relocation is the riskiest item and expands the blast radius well
-   beyond "header polish"** (§4.2, §6.7). It touches a stateful component with
+   beyond "header polish"** (§4.3, §6.7). It touches a stateful component with
    destructive-adjacent confirm flow and WCAG-motivated focus management, and it
    edits `OverviewSection`. If the pipeline needs to shed scope, this is the
    separable piece — the header reconciliation (deltas 1-6) stands alone without
