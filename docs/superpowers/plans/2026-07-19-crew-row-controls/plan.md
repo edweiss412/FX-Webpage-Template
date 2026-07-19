@@ -44,11 +44,7 @@
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
 Expected: FAIL — every test times out on `crew-row-menu-button-*` (no trigger rendered yet).
 
-- [ ] **Step 3: Commit**
-
-```bash
-git add -A && git commit --no-verify -m "test(admin): RED crew-row menu e2e — dimensions, stacking, scroll-edge, reset round-trip + CI wiring"
-```
+- [ ] **Step 3: NO commit here.** Invariant 1 (AGENTS.md) requires commits to land green: the spec + CI wiring files stay staged in the working tree and are committed as part of Task 1 Step 8 (whose unit tests are green; the e2e goes green at Task 3 before push). The RED run above is the recorded failing-test evidence for the TDD cycle.
 
 ---
 
@@ -115,14 +111,15 @@ const CREW_IDS = [
   "c2222222-2222-4222-8222-222222222222",
 ] as const;
 const [ID_A, ID_B] = CREW_IDS;
-const ACTIONS = {
+type CrewActions = { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] };
+const ACTIONS: CrewActions = {
   showId: "11111111-2222-4333-8444-555555555555",
   slug: "test-show",
   enabled: true,
   crewIds: CREW_IDS,
 };
 
-function renderCrew(actions: typeof ACTIONS | undefined = ACTIONS, members = MEMBERS) {
+function renderCrew(actions: CrewActions | undefined = ACTIONS, members = MEMBERS) {
   return render(<CrewBreakdown dfid="df-1" members={members} {...(actions ? { actions } : {})} />);
 }
 const trigger = (id: string) => screen.getByTestId(`crew-row-menu-button-${id}`);
@@ -283,6 +280,19 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     fireEvent.keyDown(c, { key: "Tab", shiftKey: true });
     expect(cancel).toHaveFocus();
   });
+  it("active-confirm Escape closes fully and never reaches document listeners", async () => {
+    const docSpy = vi.fn();
+    document.addEventListener("keydown", docSpy);
+    try {
+      renderCrew();
+      openConfirm();
+      fireEvent.keyDown(confirm(ID_A)!, { key: "Escape" });
+      expect(confirm(ID_A)).toBeNull();
+      expect(docSpy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", docSpy);
+    }
+  });
   it("Cancel closes fully (not back to menu) and restores trigger focus (C5)", async () => {
     renderCrew();
     openConfirm();
@@ -318,9 +328,14 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(go.textContent).toContain("Resetting…");
     expect(go.getAttribute("aria-busy")).toBe("true");
     expect((screen.getByTestId("crew-row-reset-cancel") as HTMLButtonElement).disabled).toBe(true);
-    // Close paths inert while resolving — Esc, backdrop click, auto-revert timer:
+    // Close paths inert while resolving — Esc (also never bubbling to the
+    // shell's document listener), backdrop click, auto-revert timer:
+    const docSpy = vi.fn();
+    document.addEventListener("keydown", docSpy);
     fireEvent.keyDown(confirm(ID_A)!, { key: "Escape" });
+    document.removeEventListener("keydown", docSpy);
     expect(confirm(ID_A)).toBeTruthy();
+    expect(docSpy).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId(`crew-row-backdrop-${ID_A}`));
     expect(confirm(ID_A)).toBeTruthy();
     // (Auto-revert timer was cleared on Confirm — advancing time must not close.)
@@ -912,6 +927,7 @@ Expected: PASS (noOverrideRows unchanged — staged render byte-identical).
 - [ ] **Step 8: Commit**
 
 ```bash
+# Includes the Task-0 e2e spec + CI wiring files (kept uncommitted until now per invariant 1).
 git add -A && git commit --no-verify -m "feat(admin): per-row crew action menu — Preview as + Reset name picker with confirm popover"
 ```
 
@@ -1520,9 +1536,10 @@ test("scroll-edge: popover forced to open past the scrollport bottom is scrolled
     [goBox.x + goBox.width / 2, goBox.y + goBox.height / 2] as const,
   );
   expect(onTop).toBe("confirm");
-  // Cancel (do not actually reset in this test)
-  await page.getByTestId("crew-row-reset-cancel").click();
+  // Active-confirm Escape: popover closes, review modal STAYS open.
+  await page.keyboard.press("Escape");
   await expect(confirm).toHaveCount(0);
+  await expect(page.locator(MODAL)).toBeVisible();
 });
 
 test("Preview as navigates to the impersonated preview route", async ({ page }) => {
