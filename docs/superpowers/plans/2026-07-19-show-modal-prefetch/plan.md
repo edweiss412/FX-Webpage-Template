@@ -274,6 +274,28 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
   /** URL predicate: any RSC request addressing this slug's modal. */
   const isShowReq = (u: URL, slug: string) => u.searchParams.get("show") === slug;
 
+  /** Copied from interactions.spec.ts:137-152 (file-local there): a
+   *  pre-hydration row click is a full document navigation — no client nav, no
+   *  router cache, no optimistic path — which would make every click-driven
+   *  assertion here measure hydration timing instead of prefetch behavior. */
+  async function waitForRowHydration(page: Page, slug: string): Promise<void> {
+    await expect
+      .poll(
+        () =>
+          page.evaluate((tid) => {
+            const el = document.querySelector(`[data-testid="${tid}"]`) as
+              | (Element & Record<string, { onClick?: unknown }>)
+              | null;
+            if (!el) return false;
+            return Object.keys(el).some(
+              (k) => k.startsWith("__reactProps$") && typeof el[k]?.onClick === "function",
+            );
+          }, `shows-table-row-${slug}`),
+        { message: "row link hydrated (React onClick attached)", timeout: 30_000 },
+      )
+      .toBe(true);
+  }
+
   async function loadDashboard(page: Page) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize(POPUP);
@@ -282,6 +304,7 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
     await expect(page.getByTestId(`shows-table-row-${show.slug}`)).toBeVisible({
       timeout: 30_000,
     });
+    await waitForRowHydration(page, show.slug);
   }
 
   test("§6.1 dashboard load emits a viewport prefetch for a visible row before any click", async ({
@@ -491,7 +514,7 @@ PY
 python3 /tmp/check-prefetch-gate.py
 ```
 
-- [ ] **Step 2: Run to verify it fails** — Expected: the three `MISSING …` lines, exit 1.
+- [ ] **Step 2: Run to verify it fails** — Expected: all four `MISSING …` lines (two path filters, the env var, the run-line entry), exit 1.
 
 - [ ] **Step 3: Edit the workflow.**
   1. `on.pull_request.paths`: add two entries alongside the existing ones:
