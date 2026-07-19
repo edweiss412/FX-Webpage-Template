@@ -39,7 +39,10 @@ import { ShowReviewSurface, type ExtraSection } from "@/components/admin/review/
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
-import { RawUnrecognizedCallout } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  RawUnrecognizedCallout,
+  dateSummarySegments,
+} from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
@@ -150,6 +153,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // §6.2 guard: the published adapter can yield an empty title — never an
   // empty accessible name.
   const displayTitle = title || slug;
+
+  // §6.3 subline: identity's second line, derived ENTIRELY from `data` — no new
+  // props (§F2). `dateSummarySegments` is imported from the wizard module in
+  // place; the helper does NOT move (§6.3, Watchpoint 6) — `PublishedReviewModal`
+  // already imports `RawUnrecognizedCallout` from that same module, so the
+  // cross-domain import is established, and moving the helper would drag its
+  // ten-caller `arr` dependency with it.
+  const client = data.clientLabel;
+  const segs = dateSummarySegments(data.dates ?? undefined);
 
   // §5.3 per-section warning controls: the crypto-free render factory over the
   // server-derived model. Memoized on the record identity (stable per render).
@@ -272,6 +284,29 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   <ExternalLink aria-hidden="true" className="size-4" />
                 </a>
               ) : null}
+            </div>
+            {/* §6.3 subline: client entry (omitted WITH its bullet when null —
+                a leading separator with nothing before it is the defect) plus
+                the dates entry, which ALWAYS renders so the line never
+                disappears. Mirrors Step3ReviewModal.tsx's subline exactly,
+                including the "Dates not detected" fallback. */}
+            <div
+              data-testid={`${TESTID_BASE}-subline`}
+              className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle"
+            >
+              {/* §9: instant — deliberate (client presence follows data, not a state transition) */}
+              {client !== null ? (
+                <>
+                  <span className="min-w-0 wrap-break-word">{client}</span>
+                  <span
+                    aria-hidden="true"
+                    className="size-[3px] shrink-0 rounded-pill bg-border-strong"
+                  />
+                </>
+              ) : null}
+              <span className="min-w-0 wrap-break-word">
+                {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
+              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">

@@ -40,7 +40,7 @@ import {
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
-import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { dateSummarySegments, step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -282,6 +282,61 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     renderModal();
     const close = screen.getByTestId(`${TB}-close`);
     await waitFor(() => expect(document.activeElement).toBe(close));
+  });
+});
+
+// ── §6.3 header subline (modal-header-reconciliation Task 4) ─────────────────
+// The header's second line: the client label (omitted when null, WITH its
+// trailing bullet) followed by the humanized date segments — or the
+// "Dates not detected" fallback, which never lets the line disappear entirely.
+// Every expected string is DERIVED from the fixture through the same helper the
+// component uses; a hardcoded date literal could not prove the helper was called.
+
+describe("PublishedReviewModal header subline (modal-header-reconciliation §6.3)", () => {
+  /** Build the published contract off the shared snapshot, then override fields. */
+  const dataWith = (overrides: Partial<PublishedSectionData>): PublishedSectionData => ({
+    ...buildPublishedSectionData(snapshot(), { slug: SLUG }),
+    ...overrides,
+  });
+
+  it("renders client → bullet → the helper-derived date segments", () => {
+    const { props } = renderModal();
+    const subline = screen.getByTestId(`${TB}-subline`);
+    const expectedDates = dateSummarySegments(props.data.dates ?? undefined).join(" · ");
+    // Non-vacuity: the fixture must actually produce segments, or the assertion
+    // below would collapse into the empty-dates case.
+    expect(expectedDates.length).toBeGreaterThan(0);
+    expect(props.data.clientLabel).not.toBeNull();
+    expect(subline).toHaveTextContent(props.data.clientLabel!);
+    expect(subline).toHaveTextContent(expectedDates);
+    // The separator between the two entries is the aria-hidden bullet.
+    expect(subline.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  // T-SUBLINE-CLIENT-NULL — the defect is the ORPHAN SEPARATOR, not just the
+  // missing text: a bullet with nothing before it reads as a rendering bug.
+  it("clientLabel=null omits the client entry AND its bullet (no orphan separator)", () => {
+    renderModal({ data: dataWith({ clientLabel: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline.querySelector('[aria-hidden="true"]')).toBeNull();
+    const expectedDates = dateSummarySegments(
+      buildPublishedSectionData(snapshot(), { slug: SLUG }).dates ?? undefined,
+    ).join(" · ");
+    expect(subline.textContent).toBe(expectedDates);
+  });
+
+  // T-SUBLINE-DATES-EMPTY — the subline NEVER vanishes.
+  it("dates=null still renders the subline, with the 'Dates not detected' fallback", () => {
+    renderModal({ data: dataWith({ dates: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline).toHaveTextContent("Dates not detected");
+  });
+
+  it("clientLabel=null AND dates=null still renders the subline with only the fallback", () => {
+    renderModal({ data: dataWith({ clientLabel: null, dates: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline.textContent).toBe("Dates not detected");
+    expect(subline.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 });
 

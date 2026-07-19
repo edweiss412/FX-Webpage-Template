@@ -120,7 +120,11 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // consumer. Its ONE JSX-mount conditional is the header sheet deep-link
   // (`openSheetHref !== null` — §6.2 guard, instant omit/mount); the Overview
   // railBadge stays an object-spread conditional (asserted separately).
-  "components/admin/showpage/PublishedReviewModal.tsx": 1,
+  // modal-header-reconciliation §9 (Task 4): 1 → 2. The §6.3 subline's client
+  // entry (`{client !== null ? (`) is the new mount; both it and the sheet
+  // deep-link are instant omit/mounts that follow data. Verified by RUNNING the
+  // scanner over the source, not by reasoning.
+  "components/admin/showpage/PublishedReviewModal.tsx": 2,
   // modal-header-reconciliation §6.5 (Task 2): 8 → 7. The `renderTitle` head site
   // (which covered the h1 AND its adjacent title divider) is deleted with the prop.
   // Verified by RUNNING the scanner, not by reasoning.
