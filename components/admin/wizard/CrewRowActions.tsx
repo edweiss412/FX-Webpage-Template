@@ -200,7 +200,7 @@ export function CrewRowActions({
   };
 
   const menuItemClass =
-    "flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none";
+    "flex min-h-tap-min w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none";
 
   return (
     <span className="relative flex shrink-0 items-center">
@@ -301,7 +301,7 @@ export function CrewRowActions({
               disabled={resolving}
               data-testid="crew-row-reset-cancel"
               onClick={() => closeFully(true)}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -313,7 +313,7 @@ export function CrewRowActions({
               aria-describedby={warningId}
               data-testid="crew-row-reset-confirm-go"
               onClick={onConfirm}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               {resolving ? "Resetting…" : "Confirm reset"}
             </button>
