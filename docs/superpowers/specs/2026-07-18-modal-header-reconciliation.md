@@ -200,8 +200,30 @@ this table without tooling.
 | `tests/components/admin/showpage/overviewSection.test.tsx` | 71 | `// Strip alert badge (StatusStrip) links to #overview — the anchor must exist here.` |
 | `tests/e2e/published-review-modal.layout.spec.ts` | 221 | `// page chrome inside the header until #480), the ONLY separation between` |
 
-Verification: all 71 rows resolved at the base commit; zero missing files, zero
-out-of-range lines.
+| `tests/e2e/_statusStripToggleHarness.tsx` | 62 | `function stripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {` |
+| `tests/e2e/_statusStripToggleHarness.tsx` | 111 | `return shell(wrap(React.createElement(StatusStrip, stripProps({ title }))));` |
+| `tests/e2e/_statusStripToggleHarness.tsx` | 115 | `return shell(wrap(React.createElement(StatusStrip, stripProps({ title, finalizeOwned: true })…` |
+| `tests/e2e/_statusStripToggleHarness.tsx` | 122 | `return shell(wrap(React.createElement(StatusStrip, stripProps({ title, isLive: true }))));` |
+| `tests/e2e/_statusStripToggleHarness.tsx` | 127 | `*  classes + title <h1> as StatusStrip so the only height difference is the` |
+| `tests/components/admin/showpage/statusStrip.test.tsx` | 197 | `renderStrip({ renderTitle: false, isLive: true, published: true }, { token: "TOK" });` |
+| `tests/components/admin/showpage/publishedReviewModal.test.tsx` | 270 | `it("NO h1 inside the modal panel — the h2 is the only title node (StatusStrip title suppresse…` |
+| `tests/components/admin/showpage/publishedReviewModal.test.tsx` | 323 | `it("StatusStrip renders inside the panel with the publish toggle present", () => {` |
+| `tests/e2e/published-review-modal.layout.spec.ts` | 73 | `/** The StatusStrip's control row, scoped INSIDE the published modal. */` |
+| `tests/e2e/published-review-modal.layout.spec.ts` | 169 | `isSheet ? "grab + header + main" : "header + main"` |
+| `tests/e2e/published-review-modal.layout.spec.ts` | 198 | ``${isSheet ? `grab ${grabH} + ` : ""}header ${headerH} + main ${mainH}` +` |
+| `tests/e2e/step3-review-modal.layout.spec.ts` | 222 | `test(`§5.1.1/§5.1.4: panel = header + main + footer${` |
+| `tests/e2e/statusStripToggleLayout.spec.ts` | 5 | `* StatusStrip at a 390px phone. jsdom computes NO layout, so the strip-height +` |
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | 23 | `import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";` |
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | 44 | `header={` |
+| `components/admin/showpage/ShowReviewModalSkeleton.tsx` | 64 | `</div>` |
+| `components/admin/ReSyncButton.tsx` | 93 | `setSuccessMessage(null);` |
+| `components/admin/ReSyncButton.tsx` | 121 | `setSuccessMessage(summarizeResult(json.result));` |
+| `components/admin/ReSyncButton.tsx` | 122 | `router.refresh();` |
+
+Verification: all 120 rows resolved at the base commit; zero missing files, zero
+out-of-range lines. The test-file rows were added in round 10 — adversarial review
+correctly applied the rule stated above: a claim citing a line absent from this
+table IS a finding, because it means the appendix is incomplete.
 
 ## 4. Design deltas (locked)
 
@@ -695,19 +717,31 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   - `shadow-tile` + the band's `bg-surface`, so the panel reads as a layer above
     the body rather than merging with it.
   - **Dismissal, per branch.** The shrink confirm dismisses via its own "Keep
-    current version" (`ReSyncButton.tsx:78-82`); success self-clears. The ERROR
-    branch, however, has no close path today other than re-running the mutation —
-    acceptable when it rendered in-flow inside Overview's column, NOT acceptable
-    now that it floats over the rail. **The error overlay therefore gains an
-    explicit dismiss control** (a labelled close button that clears `errorCode`,
-    returning focus to the Re-sync trigger).
+    current version" (`ReSyncButton.tsx:78-82`). **Neither the error NOR the
+    success branch self-clears** — verified: `successMessage` is set at
+    `ReSyncButton.tsx:121` and cleared only at `:93`, the start of the *next*
+    POST; there is no timer, and `router.refresh()` (`:122`) refreshes server data
+    without touching local state. An earlier draft of this spec asserted "success
+    self-clears"; that was wrong, and the correction matters because it was the
+    justification for giving success no close path.
+
+    Both non-confirm branches therefore **gain an explicit dismiss control** — a
+    labelled close button that clears `errorCode` / `successMessage` and returns
+    focus to the Re-sync trigger. Tolerable in-flow inside Overview's column;
+    not tolerable floating over the rail.
 
     This is a deliberate reversal of the earlier "no new dismissal affordance"
     line: relocating a surface changed what that surface owes the user. Forcing
-    an admin to retry a failed mutation purely to clear an obstruction would be a
-    worse bug than the layout one this move fixes. Esc is NOT the mechanism — the
-    shell binds Esc to closing the whole modal, so overloading it here would
-    either dismiss the dialog or require fighting the shell's handler.
+    an admin to re-run a mutation purely to clear an obstruction would be a worse
+    bug than the layout one this move fixes. Esc is NOT the mechanism — the shell
+    binds Esc to closing the whole modal, so overloading it here would either
+    dismiss the dialog or require fighting the shell's handler.
+
+    **The dismiss control is a real interactive control** and inherits every
+    contract that implies: `min-h-tap-min`/`min-w-tap-min` (44px floor), a
+    visible `focus-visible` ring matching its siblings, and a discernible
+    accessible name ("Dismiss"). It joins the overlay-open focus order after the
+    panel's own content. Pinned by T-TAP and T-RESYNC-FOCUS-ORDER (§11).
 
   A fragment generates no box, so the absolutely-positioned panels resolve their
   containing block to the nearest positioned ancestor — the band, which is
@@ -1029,9 +1063,10 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
 | T-ALERT-PILL-LINK | Pill is an anchor with `href="#overview"` and name "2 alerts" | Regression to the mock's inert span — jump affordance lost (F1) |
 | T-ALERT-PILL-ZERO | `alertCount: 0` → no pill | Empty pill / "0 alerts" |
-| T-ALERT-CAP | Assert the full §6.6 table: 1 → `1 alert`; 2 → `2 alerts`; 1200 → visible `99+ alerts`, accessible name `99+ alerts (1200 total)`; header right group width at 375px within a few px of the `2 alerts` case | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes |
+| T-ALERT-CAP | Assert the full §6.6 table: 1 → `1 alert`; 2 → `2 alerts`; 1200 → visible `99+ alerts`, accessible name `99+ alerts (1200 total)`; at 375px the header right group stays ≤50% of the header's width and the title element keeps a non-zero width with no horizontal overflow | Unbounded count widens the `shrink-0` right group and crowds the title at 375px, while every happy-path fixture passes. NB: the assertion is deliberately NOT "same width as the 2-alert case" — `99+ alerts` is legitimately wider than `2 alerts`, so an equal-width assertion would be false-red and the tempting fix would be dropping the visible unit §6.6 requires |
 | T-ALERT-NOT-IN-STRIP | Strip contains no alert element | Alert rendered twice (moved but not removed) |
 | T-DIVIDER-ALERT-ONLY | `alertCount>0`, not live, no sync → strip renders NO control divider | §7's real bug: divider followed by nothing |
+| T-STATUS-INLINE | `editedRel` PRESENT → Synced and Edited sit on ONE line: assert both text nodes share a row (equal `getBoundingClientRect().top` within 2px, real browser) and a 3px separator renders between them | The headline delta of §4.5 silently not implemented — an implementer restyles colors/order but leaves the `flex-col` stack (`StatusStrip.tsx:235`). Every other status test (null-edited, error-bucket) passes against the stacked layout |
 | T-STATUS-INLINE-NO-EDITED | `editedRel` null → one line, no trailing bullet | Orphan separator after the collapse |
 | T-STATUS-ERROR-BUCKET | non-`ok` status → health label + bucket-colored dot, NOT "Synced …" | Hardcoding the mock's happy-path "Synced just now" |
 | T-COPY-OUTLINE | BOTH states: idle shows "Copy crew link", post-click shows "Copied" + check glyph, no conflicting `aria-label`, button left edge unmoved across the swap; scoped to `strip-copy-link` | Restyling the shared accent arm (F3); asserting the share-panel button by mistake |
