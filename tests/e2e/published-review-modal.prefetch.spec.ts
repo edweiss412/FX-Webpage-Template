@@ -197,9 +197,7 @@ test.describe("published review modal â€” prefetch + revalidate (prefetch spec Â
     // payload for the OPEN URL lands mid-exit. Failure mode: the refresh
     // remounts/reshows the shell (resurrection) or restarts the exit.
     const held = await openHeldThenClose(page, "no-preference");
-    expect(new URL(page.url()).searchParams.get("show"), "URL still open mid-exit").toBe(
-      show.slug,
-    );
+    expect(new URL(page.url()).searchParams.get("show"), "URL still open mid-exit").toBe(show.slug);
     for (const release of held) release();
     await assertClosedForGood(page);
   });
