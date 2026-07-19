@@ -144,7 +144,7 @@ Restore-target resolution under `syncHash` (D7): (1) if the fragment is a rail i
 | Transition | Treatment |
 |------------|-----------|
 | closed → open | shell entrance animation (scrim fade + panel rise / scale via `app/globals.css:768-784`) |
-| open → closed (X/scrim/Esc/back) | instant unmount — pattern identical to Step3 today (no exit animation); back-button unmount is a route change |
+| open → closed (X/scrim/Esc/back) | **AMENDED by MODAL-CLOSE-EXIT-ANIM-1** (`docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md`): the exit reverses the entrance, then `onClose` fires at exit-end — sheet (<sm) `translateY(100%)` over `--duration-normal`, desktop (≥sm) `opacity → 0` + `translateY(8px) scale(0.98)` over `--duration-fast`; the scrim fades with it. Applies to BOTH consumers, so Step3 chrome parity holds. Reduced motion collapses to the original instant unmount. Back-button unmount is still a route change (no exit). |
 | open → closed (sheet drag past threshold) | translateY transition + transitionend/fallback timer (shell, `Step3ReviewModal.tsx:388-497`) |
 | reduced motion | `animation: none` (`app/globals.css:785-790`) |
 | skeleton → loaded modal | in-place swap when Suspense resolves; instant — no animation needed |
