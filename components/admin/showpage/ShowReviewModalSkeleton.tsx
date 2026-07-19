@@ -51,7 +51,9 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
       testIdBase="published-show-review"
       initialFocusRef={closeRef}
       header={
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {/* gap-3 matches the loaded modal's header column (PublishedReviewModal)
+              so the §6.5 in-place swap doesn't jump the strip row (critique P3). */}
           {/* The dialog's accessible name while content streams (the loaded
               modal's h2 show title replaces it). */}
           <h2 id={headingId} className="sr-only">
