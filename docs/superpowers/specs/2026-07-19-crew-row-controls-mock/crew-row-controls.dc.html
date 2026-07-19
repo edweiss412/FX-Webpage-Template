@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+      background: #0f1014;
+      color: #e8e6e0;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #9c9a93; text-decoration: none; }
+    a:hover { color: #e8e6e0; }
+    button { font-family: inherit; }
+    @keyframes crewMenuPop {
+      from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; background: #0f1014; padding: 44px 24px;">
+  <div style="max-width: 900px; margin: 0 auto;">
+
+    <!-- Section header -->
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+      <span aria-hidden="true" style="display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: #3a2e14; color: #ffd68a; flex-shrink: 0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
+          <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20"></path>
+          <circle cx="9" cy="7.5" r="3.2"></circle>
+          <path d="M22 20v-1.5a4 4 0 0 0-3-3.86M15.5 4.36a3.2 3.2 0 0 1 0 6.28"></path>
+        </svg>
+      </span>
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #f5f3ee; letter-spacing: -0.005em;">Crew</h3>
+      <span style="font-size: 14px; color: #9c9a93; font-variant-numeric: tabular-nums;">(7)</span>
+      <span style="flex: 1;"></span>
+      <span style="border-radius: 999px; border: 1px solid #3a3b40; background: #3a2e14; padding: 2px 8px; font-size: 12px; font-weight: 600; color: #ffd68a; white-space: nowrap;">Needs a look</span>
+      <a href="#" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: #9c9a93; white-space: nowrap;">
+        In sheet
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;">
+          <path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path>
+        </svg>
+      </a>
+    </div>
+
+    <!-- Panel card -->
+    <div style="border-radius: 12px; border: 1px solid #3a3b40; background: #16171c; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.45);">
+
+      <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 8px; border-radius: 6px; background: #1c1d23; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; color: #f5f3ee;">
+          <span aria-hidden="true" style="color: #ffa047; font-weight: 700;">✓</span>
+          <span>{{ toast }}</span>
+        </div>
+      </sc-if>
+
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;">
+        <sc-for list="{{ rows }}" as="row" hint-placeholder-count="7">
+          <li style="display: flex; align-items: center; gap: 12px; padding: 11px 0;">
+            <span aria-hidden="true" style="{{ row.avatarStyle }}">{{ row.initials }}</span>
+
+            <span style="min-width: 0; flex: 1;">
+              <span style="display: block; font-size: 14px; font-weight: 500; color: #f5f3ee; overflow-wrap: break-word;">{{ row.name }}</span>
+              <sc-if value="{{ row.hasSub }}" hint-placeholder-val="{{ true }}">
+                <span style="display: block; font-size: 12px; color: #9c9a93; overflow-wrap: break-word; margin-top: 2px;">{{ row.subline }}</span>
+              </sc-if>
+            </span>
+
+            <!-- Right-side action cluster -->
+            <div style="position: relative; display: flex; align-items: center; flex-shrink: 0;">
+
+              <sc-if value="{{ row.showQuickCall }}" hint-placeholder-val="{{ true }}">
+                <sc-if value="{{ row.hasPhone }}" hint-placeholder-val="{{ true }}">
+                  <a href="{{ row.telHref }}" aria-label="Call {{ row.name }}" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px;">
+                    <span style="display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; border: 1px solid #2a2b30; color: #9c9a93;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                      </svg>
+                    </span>
+                  </a>
+                </sc-if>
+              </sc-if>
+
+              <button type="button" onClick="{{ row.onToggle }}" aria-label="More actions for {{ row.name }}" aria-haspopup="menu" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: none; border: none; padding: 0; cursor: pointer;">
+                <span style="{{ row.moreSpanStyle }}">
+                  <svg viewBox="0 0 24 24" fill="currentColor" style="{{ row.dotsStyle }}">
+                    <circle cx="5" cy="12" r="1.7"></circle>
+                    <circle cx="12" cy="12" r="1.7"></circle>
+                    <circle cx="19" cy="12" r="1.7"></circle>
+                  </svg>
+                </span>
+              </button>
+
+              <!-- Menu popover -->
+              <sc-if value="{{ row.showMenu }}" hint-placeholder-val="{{ false }}">
+                <div role="menu" style="position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 208px; background: #1c1d23; border: 1px solid #2a2b30; border-radius: 12px; box-shadow: 0 10px 28px -6px rgba(0,0,0,0.6); padding: 6px; animation: crewMenuPop 120ms cubic-bezier(0.25,1,0.5,1);">
+                  <button type="button" role="menuitem" onClick="{{ row.onPreview }}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; background: none; border: none; cursor: pointer; font-size: 13px; font-weight: 500; color: #e8e6e0; text-align: left;" style-hover="background: #0b0c10;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; flex-shrink: 0; color: #9c9a93;">
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <span>Preview as</span>
+                  </button>
+
+                  <sc-if value="{{ row.showCallItem }}" hint-placeholder-val="{{ false }}">
+                    <a href="{{ row.telHref }}" role="menuitem" onClick="{{ closeMenu }}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 500; color: #e8e6e0; text-align: left;" style-hover="background: #0b0c10;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; flex-shrink: 0; color: #9c9a93;">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                      </svg>
+                      <span>Call {{ row.name }}</span>
+                    </a>
+                  </sc-if>
+
+                  <div style="height: 1px; background: #2a2b30; margin: 4px 6px;"></div>
+
+                  <button type="button" role="menuitem" onClick="{{ startReset }}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; background: none; border: none; cursor: pointer; font-size: 13px; font-weight: 500; color: #e8e6e0; text-align: left;" style-hover="background: #0b0c10;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; flex-shrink: 0; color: #9c9a93;">
+                      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M3 21v-5h5"></path>
+                    </svg>
+                    <span>Reset name picker</span>
+                  </button>
+                </div>
+              </sc-if>
+
+              <!-- Confirm popover -->
+              <sc-if value="{{ row.showConfirm }}" hint-placeholder-val="{{ false }}">
+                <div style="position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 268px; background: #1c1d23; border: 1px solid #3a3b40; border-radius: 12px; box-shadow: 0 10px 28px -6px rgba(0,0,0,0.6); padding: 14px; animation: crewMenuPop 120ms cubic-bezier(0.25,1,0.5,1);">
+                  <p style="margin: 0 0 3px; font-size: 13px; font-weight: 600; color: #f5f3ee;">Reset name picker</p>
+                  <p style="margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: #9c9a93;">{{ row.confirmWarning }}</p>
+                  <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                    <button type="button" onClick="{{ cancelReset }}" style="display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 14px; border-radius: 6px; border: 1px solid #2a2b30; background: #16171c; color: #e8e6e0; font-size: 13px; cursor: pointer;">Cancel</button>
+                    <button type="button" onClick="{{ row.onConfirm }}" style="display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px 14px; border-radius: 6px; border: none; background: #ffd68a; color: #3a2e14; font-size: 13px; font-weight: 600; cursor: pointer;">Confirm reset</button>
+                  </div>
+                </div>
+              </sc-if>
+
+            </div>
+          </li>
+        </sc-for>
+      </ul>
+    </div>
+  </div>
+
+  <sc-if value="{{ anyOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeMenu }}" style="position: fixed; inset: 0; z-index: 20;"></div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1000, &quot;height&quot;: 720 },
+  &quot;dotsOrientation&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;horizontal&quot;, &quot;vertical&quot;], &quot;default&quot;: &quot;vertical&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Row controls&quot; },
+  &quot;showQuickCall&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Row controls&quot; }
+}">
+class Component extends DCLogic {
+  state = { openId: null, mode: "menu", toast: null };
+  _toastTimer = null;
+
+  showToast(msg) {
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this.setState({ toast: msg });
+    this._toastTimer = setTimeout(() => this.setState({ toast: null }), 5000);
+  }
+  componentWillUnmount() {
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+  }
+
+  renderVals() {
+    const dotsVertical = (this.props.dotsOrientation ?? "horizontal") === "vertical";
+    const showQuickCall = this.props.showQuickCall ?? true;
+
+    const members = [
+      { id: "alex",  name: "Alex Rodrigues", subline: "Load In / Set / Strike / Load Out - V1",                initials: "AR", color: "#1b6b43", phone: "5125550101" },
+      { id: "calvin",name: "Calvin Saller",  subline: "Load In / Set / Strike / Load Out - BO · 10/7, 10/9 only", initials: "CS", color: "#515763", phone: "5125550102" },
+      { id: "doug",  name: "Doug Larson",    subline: "Load In / Set / Strike / Load Out - LEAD",              initials: "DL", color: "#1b6b43", phone: "5125550103" },
+      { id: "eric",  name: "Eric Weiss",     subline: "Load In / Set / Strike / Load Out - BO",                initials: "EW", color: "#515763", phone: "5125550104" },
+      { id: "jclark",name: "John Clark",     subline: "Load In / Set / Strike / Load Out - A1",                initials: "JC", color: "#136b6b", phone: "5125550105" },
+      { id: "jred",  name: "John Redcorn",   subline: "Load In / Set / Strike / Load Out - LEAD",              initials: "JR", color: "#1b6b43", phone: null },
+      { id: "kari",  name: "Kari Rose",      subline: "Load In / Set / Strike / Load Out - BO · 10/7 only",     initials: "KR", color: "#515763", phone: "5125550107" },
+    ];
+
+    const openId = this.state.openId;
+    const mode = this.state.mode;
+
+    const avatarBase = {
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: "40px", height: "40px", borderRadius: "999px",
+      fontSize: "14px", fontWeight: 600, color: "#fff", flexShrink: 0,
+    };
+
+    const rows = members.map((m) => {
+      const menuOpen = openId === m.id;
+      return {
+        id: m.id,
+        name: m.name,
+        subline: m.subline,
+        hasSub: Boolean(m.subline),
+        initials: m.initials,
+        hasPhone: Boolean(m.phone),
+        telHref: m.phone ? "tel:" + m.phone : "#",
+        showQuickCall,
+        showCallItem: !showQuickCall && Boolean(m.phone),
+        menuOpen,
+        showMenu: menuOpen && mode === "menu",
+        showConfirm: menuOpen && mode === "confirm",
+        confirmWarning: m.name + " will choose their name again on their next visit.",
+        avatarStyle: { ...avatarBase, background: m.color },
+        moreSpanStyle: {
+          display: "grid", placeItems: "center", width: "32px", height: "32px",
+          borderRadius: "6px",
+          border: "1px solid " + (menuOpen ? "#3a3b40" : "#2a2b30"),
+          background: menuOpen ? "#0b0c10" : "transparent",
+          color: menuOpen ? "#f5f3ee" : "#9c9a93",
+          transition: "color 120ms, background 120ms, border-color 120ms",
+        },
+        dotsStyle: {
+          width: "18px", height: "18px",
+          transform: dotsVertical ? "rotate(90deg)" : "none",
+        },
+        onToggle: () =>
+          this.setState((s) => ({ openId: s.openId === m.id ? null : m.id, mode: "menu" })),
+        onPreview: () => {
+          this.setState({ openId: null, mode: "menu" });
+          this.showToast("Opening the crew page as " + m.name + "…");
+        },
+        onConfirm: () => {
+          this.setState({ openId: null, mode: "menu" });
+          this.showToast("Reset " + m.name + ". They'll pick again next visit.");
+        },
+      };
+    });
+
+    return {
+      rows,
+      anyOpen: openId !== null,
+      toast: this.state.toast,
+      hasToast: Boolean(this.state.toast),
+      startReset: () => this.setState({ mode: "confirm" }),
+      cancelReset: () => this.setState({ mode: "menu" }),
+      closeMenu: () => this.setState({ openId: null, mode: "menu" }),
+    };
+  }
+}
+</script>
+</body>
+</html>

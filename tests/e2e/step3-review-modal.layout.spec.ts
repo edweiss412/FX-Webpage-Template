@@ -70,6 +70,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import sharp from "sharp";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (mirrors the
 // step3-card-dimensions.spec.ts template; do NOT use import.meta.url here).
@@ -216,6 +217,38 @@ async function rect(page: Page, selector: string) {
   });
 }
 
+/**
+ * The rendered colour of a single viewport pixel, as `[r, g, b]`.
+ *
+ * T-CORNER (below) needs PAINT, not hit-testing: Blink's `elementFromPoint`
+ * ignores a rounded `overflow: hidden` clip entirely — it still returns the
+ * clipped child at a corner the child no longer paints — so a DOM probe cannot
+ * tell a square-cornered modal from a rounded one. A 1x1 screenshot can.
+ * `sharp` is already a project dependency (scripts/help-screenshots.ts).
+ *
+ * Not a baseline/byte gate: nothing is compared against a committed image, only
+ * against other pixels sampled in the same run, so this carries none of the
+ * pinned-capture-environment obligations of a screenshot-diff gate (AGENTS.md).
+ */
+async function pixelAt(page: Page, [x, y]: [number, number]): Promise<[number, number, number]> {
+  const png = await page.screenshot({
+    clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 },
+  });
+  const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  return [data[0]!, data[1]!, data[2]!];
+}
+
+/** Parses a computed `rgb(r, g, b)` / `rgba(...)` string into `[r, g, b]`. */
+function parseRgb(value: string): [number, number, number] | null {
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value);
+  return m === null ? null : [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+/** Exact-equal RGB. Every probe sits on flat fill, never on an antialiased edge. */
+function rgbEq(a: [number, number, number], b: [number, number, number]): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
 const PANEL = "[data-step3-review-panel]";
 
 for (const { mode, width, height, maxRatio } of MODES) {
@@ -259,6 +292,99 @@ for (const { mode, width, height, maxRatio } of MODES) {
     } else {
       expect(grab.height, `grab strip hidden (display:none) @ ${mode}`).toBe(0);
     }
+  });
+
+  // T-CORNER. The shell panel declares `rounded-t-md` / `sm:rounded-md`, but
+  // the FOOTER it renders here paints an opaque `bg-surface` with square
+  // corners of its own — without a clip on the panel it covers the panel's
+  // bottom corners and the modal reads square-edged, while
+  // `getComputedStyle(panel).borderRadius` keeps computing 12px the whole time.
+  // Sibling coverage: the published modal has NO footer, so its
+  // T-CORNER (tests/e2e/published-review-modal.layout.spec.ts) pins the header
+  // and side-rail occupants instead; between them every opaque corner occupant
+  // of the shared shell is covered.
+  //
+  // The probe offset is derived from the panel's own computed radius, never
+  // hardcoded: (left+d, top+d) lies outside a quarter-circle of radius r
+  // whenever d < r*(1 - 1/sqrt(2)) ~= 0.293r.
+  //
+  // d = r/8, NOT r/4. The sampled pixel's CENTRE is rasterized, so the
+  // effective offset is d + 0.5, and at r = 12 that puts r/4 at 3.5px against
+  // a 3.515px bound — a margin a fractional panel top erases entirely. It
+  // survived only on Blink antialiasing; a CI rasterizer rounding that pixel
+  // to full coverage would fail deterministically. r/8 leaves ~2.85px.
+  //
+  // Sheet mode is full-bleed to the viewport bottom (`rounded-t-md`), so only
+  // the TOP corners are probed there.
+  test(`T-CORNER: the footer does not paint over the panel's rounded corners @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    await openHarness(page, { width, height });
+
+    const geom = await page.locator(PANEL).evaluate((el, sheet: boolean) => {
+      const panel = el as HTMLElement;
+      const r = panel.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(panel).borderTopLeftRadius);
+      const d = radius / 8;
+      const corners: Record<string, [number, number]> = {
+        "top-left": [r.left + d, r.top + d],
+        "top-right": [r.right - d - 1, r.top + d],
+      };
+      if (!sheet) {
+        corners["bottom-left"] = [r.left + d, r.bottom - d - 1];
+        corners["bottom-right"] = [r.right - d - 1, r.bottom - d - 1];
+      }
+      const footer = panel.querySelector('[data-testid$="-review-footer"]')!;
+      return {
+        radius,
+        d,
+        corners,
+        // The band reference is the footer's DECLARED fill, not a pixel
+        // sampled at a guessed coordinate: any future element at that
+        // coordinate would silently redirect every corner comparison below to
+        // some other colour. Reference B stays a real sample — the scrim
+        // outside the panel.
+        bandDeclared: getComputedStyle(footer).backgroundColor,
+        // ABOVE the panel, not beside it: in sheet mode the panel is full-bleed,
+        // so `r.left - 8` clamps to x=0 — inside the panel — and the
+        // band-vs-scrim discriminating-power guard goes vacuous at exactly the
+        // viewport it matters most.
+        outside: [r.left + r.width / 2, Math.max(0, r.top - 8)] as [number, number],
+      };
+    }, mode === "sheet");
+
+    // Non-vacuity: at radius 0 every probe would sit on a square corner that is
+    // CORRECTLY painted, and the test would police nothing.
+    expect(geom.radius, `panel has a real corner radius @ ${mode}`).toBeGreaterThan(0);
+
+    const band = parseRgb(geom.bandDeclared);
+    const outside = await pixelAt(page, geom.outside);
+    expect(band, `footer fill parses as opaque rgb @ ${mode}`).not.toBeNull();
+    // Discriminating power: were the footer fill and the scrim the same colour,
+    // every corner assertion below would be satisfiable by the bug.
+    expect(
+      rgbEq(band!, outside),
+      `footer fill ${band} and scrim ${outside} are distinguishable @ ${mode}`,
+    ).toBe(false);
+
+    // EVERY corner is probed before asserting: a per-corner assert would abort
+    // on the first offender and hide the others, so a repair that fixed only
+    // the top corners would read as fully green.
+    const painted: string[] = [];
+    for (const [corner, point] of Object.entries(geom.corners)) {
+      const px = await pixelAt(page, point as [number, number]);
+      // Compared against the BAND, not against the scrim: the panel casts
+      // `shadow-(--shadow-tile)`, which darkens the scrim in exactly this ring,
+      // so a correct render reads scrim-plus-shadow (neither pure colour). What
+      // can never be true is a band fill landing here.
+      if (rgbEq(px, band!)) painted.push(corner);
+    }
+    expect(
+      painted,
+      `@ ${mode}: ${geom.d.toFixed(2)}px inside the panel's bounding box is OUTSIDE its` +
+        ` ${geom.radius}px arc, so the band fill ${band} must paint at NO corner` +
+        ` (scrim reads ${outside})`,
+    ).toEqual([]);
   });
 
   test(`§5.1.2/§5.1.3: body-region geometry @ ${mode} ${width}px`, async ({ page }) => {

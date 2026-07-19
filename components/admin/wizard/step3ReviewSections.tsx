@@ -129,6 +129,7 @@ import {
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
+import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
@@ -1243,17 +1244,29 @@ export function OpsBreakdown({
 export function CrewBreakdown({
   dfid,
   members,
-  previewAs,
+  actions,
 }: {
   dfid: string | null;
   members: CrewMemberRow[];
-  /** §5.5 (published mode): the crew-scoped Preview-As affordance. `enabled` folds the
-   *  published && !archived gate; `crewIds` is index-aligned with `members` (adapter's single
-   *  crew sort). Absent in staged mode → no link, byte-identical to the pre-Phase-2 modal. */
-  previewAs?: { slug: string; enabled: boolean; crewIds: readonly string[] };
+  /** Published-mode row actions (crew-row-controls spec §3.2): folds the
+   *  published && !archived gate (`enabled`); `crewIds` is index-aligned with
+   *  `members` (adapter's single crew sort). Absent in staged mode →
+   *  byte-identical to the pre-change render. */
+  actions?: { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] };
 }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
+  // Single-open menu + panel-top outcome banner (spec §4.2/§4.5). State exists
+  // in every mode but banners/menus only MOUNT when actions?.enabled.
+  const [openCrewId, setOpenCrewId] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CrewRowOutcome | null>(null);
+  // Success auto-dismiss (5s — mirrors PickerResetControl SUCCESS_DISMISS_MS);
+  // errors persist until replaced or unmount.
+  useEffect(() => {
+    if (outcome?.kind !== "ok") return;
+    const t = setTimeout(() => setOutcome(null), 5_000);
+    return () => clearTimeout(t);
+  }, [outcome]);
   // published-show-alerts §5.4: pre-rendered attention banners from the crew
   // chrome context (published modal only; ABSENT in staged mode → the map
   // below renders the original row markup byte-identically). Only the FIRST
@@ -1266,6 +1279,38 @@ export function CrewBreakdown({
       label="Crew"
       count={members.length}
     >
+      {actions?.enabled && members.length > 0 ? (
+        <>
+          {/* PCR-1 banner pair (PickerResetControl.tsx): persistent sr-only
+              polite region announces success; visible banners are decorative/alert.
+              Gated on non-empty crew too — an empty section renders ONLY
+              "No crew parsed." with no banner state (spec §5). */}
+          <div className="sr-only" role="status" aria-live="polite">
+            {outcome?.kind === "ok" ? outcome.message : ""}
+          </div>
+          {outcome?.kind === "ok" && (
+            <p
+              data-testid="crew-row-reset-ok"
+              aria-hidden="true"
+              className="rounded-sm bg-surface-raised px-2 py-1 text-sm wrap-break-word text-text-strong"
+            >
+              <span aria-hidden="true" className="mr-1 font-semibold text-accent-on-bg">
+                ✓
+              </span>
+              {outcome.message}
+            </p>
+          )}
+          {outcome?.kind === "error" && (
+            <p
+              data-testid="crew-row-reset-error"
+              role="alert"
+              className="rounded-sm bg-warning-bg px-2 py-1 text-sm wrap-break-word text-warning-text"
+            >
+              {outcome.message}
+            </p>
+          )}
+        </>
+      ) : null}
       {crewAttention && crewAttention.sectionTop.length > 0 ? (
         <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
       ) : null}
@@ -1277,128 +1322,88 @@ export function CrewBreakdown({
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
-            // §5.5: crew-scoped Preview-As link, only when published && !archived AND this row
-            // has a persisted crew id (index-aligned with `members`).
-            const previewCrewId = previewAs?.enabled ? (previewAs.crewIds[i] ?? "") : "";
+            // Spec §4.1: the row-actions trigger mounts only when published &&
+            // !archived AND this row has a persisted crew id (index-aligned).
+            const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
             const attentionKey = canonicalCrewKey(m.name || "");
             const rowBanners =
               crewAttention && !consumedAttentionKeys.has(attentionKey)
                 ? crewAttention.byCrewKey.get(attentionKey)
                 : undefined;
             if (rowBanners) consumedAttentionKeys.add(attentionKey);
-            if (rowBanners && rowBanners.length > 0) {
-              // Attention-hosting row: the original flex row nests inside a
-              // column <li> so the banner block sits under it (mock's
-              // card-with-attached-banner shape). Non-hosting rows below keep
-              // the original <li> markup byte-identically.
-              return (
-                <Fragment key={`${m.name}-${i}`}>
-                  <li className="py-1">
-                    <div className="flex items-center gap-3">
-                      <Avatar name={m.name || null} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                          {name}
-                        </span>
-                        {subline ? (
-                          <span className="block wrap-break-word text-xs text-text-subtle">
-                            {subline}
-                          </span>
-                        ) : null}
-                      </span>
-                      {/* §8 exact anchor DOM — same affordances as the non-hosting row below. */}
-                      <span className="flex shrink-0 items-center">
-                        {hasContent(m.phone) ? (
-                          <a
-                            href={`tel:${m.phone}`}
-                            aria-label={`Call ${name}`}
-                            className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                          >
-                            <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                              <Phone aria-hidden="true" className="size-4" />
-                            </span>
-                          </a>
-                        ) : null}
-                        {hasContent(m.email) ? (
-                          <a
-                            href={`mailto:${m.email}`}
-                            aria-label={`Email ${name}`}
-                            className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                          >
-                            <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                              <Mail aria-hidden="true" className="size-4" />
-                            </span>
-                          </a>
-                        ) : null}
-                      </span>
-                      {previewCrewId ? (
-                        <Link
-                          data-testid={`admin-show-preview-as-link-${previewCrewId}`}
-                          href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
-                          className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                        >
-                          Preview as<span className="sr-only"> {name}</span>
-                        </Link>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex flex-col gap-2">{rowBanners}</div>
-                  </li>
-                </Fragment>
-              );
-            }
-            return (
-              <Fragment key={`${m.name}-${i}`}>
-                <li className="flex items-center gap-3 py-1">
-                  <Avatar name={m.name || null} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                      {name}
-                    </span>
-                    {subline ? (
-                      <span className="block wrap-break-word text-xs text-text-subtle">
-                        {subline}
-                      </span>
-                    ) : null}
+            // Row content is built ONCE (crew-row-controls #499 reconcile):
+            // both branches below render these exact children, so the
+            // non-hosting <li> stays byte-identical to the pre-attention render
+            // and the hosting branch can never drift from the live row markup.
+            const rowInner = (
+              <>
+                <Avatar name={m.name || null} />
+                <span className="min-w-0 flex-1">
+                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                    {name}
                   </span>
-                  {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
+                  {subline ? (
+                    <span className="block wrap-break-word text-xs text-text-subtle">
+                      {subline}
+                    </span>
+                  ) : null}
+                </span>
+                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
                     border box (`size-tap-min`); the bordered 32px square is a
                     nested NON-interactive visual. Adjacent anchors sit flush
                     (no gap, no negative margins) so hit areas never overlap;
                     the centered visuals leave a natural 12px gutter. */}
-                  <span className="flex shrink-0 items-center">
-                    {hasContent(m.phone) ? (
-                      <a
-                        href={`tel:${m.phone}`}
-                        aria-label={`Call ${name}`}
-                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                      >
-                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                          <Phone aria-hidden="true" className="size-4" />
-                        </span>
-                      </a>
-                    ) : null}
-                    {hasContent(m.email) ? (
-                      <a
-                        href={`mailto:${m.email}`}
-                        aria-label={`Email ${name}`}
-                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                      >
-                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                          <Mail aria-hidden="true" className="size-4" />
-                        </span>
-                      </a>
-                    ) : null}
-                  </span>
-                  {previewCrewId ? (
-                    <Link
-                      data-testid={`admin-show-preview-as-link-${previewCrewId}`}
-                      href={`/admin/show/${encodeURIComponent(previewAs!.slug)}/preview/${encodeURIComponent(previewCrewId)}`}
-                      className="inline-flex min-h-tap-min shrink-0 items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-xs font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                <span className="flex shrink-0 items-center">
+                  {hasContent(m.phone) ? (
+                    <a
+                      href={`tel:${m.phone}`}
+                      aria-label={`Call ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      Preview as<span className="sr-only"> {name}</span>
-                    </Link>
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Phone aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
                   ) : null}
-                </li>
+                  {hasContent(m.email) ? (
+                    <a
+                      href={`mailto:${m.email}`}
+                      aria-label={`Email ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Mail aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
+                  ) : null}
+                </span>
+                {crewId ? (
+                  <CrewRowActions
+                    crewId={crewId}
+                    name={name}
+                    showId={actions!.showId}
+                    slug={actions!.slug}
+                    open={openCrewId === crewId}
+                    onOpenChange={(next) => setOpenCrewId(next ? crewId : null)}
+                    onOutcome={setOutcome}
+                  />
+                ) : null}
+              </>
+            );
+            return (
+              <Fragment key={`${m.name}-${i}`}>
+                {rowBanners && rowBanners.length > 0 ? (
+                  /* Attention-hosting row (published-show-alerts §5.4): the
+                     original flex row nests inside a column <li> so the banner
+                     block sits under it (mock's card-with-attached-banner
+                     shape). */
+                  <li className="py-1">
+                    <div className="flex items-center gap-3">{rowInner}</div>
+                    <div className="mt-2 flex flex-col gap-2">{rowBanners}</div>
+                  </li>
+                ) : (
+                  <li className="flex items-center gap-3 py-1">{rowInner}</li>
+                )}
               </Fragment>
             );
           })}
@@ -3588,14 +3593,16 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      // Mode fork (spec §5.5): published rows gain the crew-scoped Preview-As link (gated on
-      // published && !archived); staged renders byte-identically (no previewAs prop).
+      // Mode fork (crew-row-controls spec §3): published rows gain the ⋮ row-action
+      // menu (Preview as + Reset name picker, gated on published && !archived);
+      // staged renders byte-identically (no actions prop).
       render: (s) =>
         isPublished(s) ? (
           <CrewBreakdown
             dfid={s.driveFileId}
             members={s.crewMembers}
-            previewAs={{
+            actions={{
+              showId: s.showId,
               slug: s.slug,
               enabled: s.published && !s.archived,
               crewIds: (s.previewRoster ?? []).map((r) => r.id),

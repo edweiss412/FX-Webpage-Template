@@ -19,7 +19,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isValidElement, type ReactElement } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { fireEvent, cleanup, render, screen } from "@testing-library/react";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 
@@ -528,12 +528,14 @@ describe("show review modal loader — archived read-only posture (§6)", () => 
     state.snapshot = baseSnapshot({ archived: true, published: true });
     await renderLoader();
     expect(screen.queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
+    expect(screen.queryByTestId("crew-row-menu-button-c1")).toBeNull();
   });
 });
 
 describe("show review modal loader — Preview-As gating (§5.5)", () => {
-  it("published+!archived: crew row shows a Preview-As link", async () => {
+  it("published+!archived: crew row shows a Preview-As link (inside the row ⋮ menu)", async () => {
     await renderLoader();
+    fireEvent.click(screen.getByTestId("crew-row-menu-button-c1"));
     expect(screen.getByTestId("admin-show-preview-as-link-c1")).toBeTruthy();
   });
 
@@ -547,6 +549,7 @@ describe("show review modal loader — Preview-As gating (§5.5)", () => {
     }));
     await renderLoader();
     expect(screen.queryByTestId("admin-show-preview-as-link-c0")).toBeNull();
+    expect(screen.queryByTestId("crew-row-menu-button-c0")).toBeNull();
     const panel = screen.getByTestId("admin-current-share-link-panel");
     expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
     const call = logSpy.warn.mock.calls.find(

@@ -17,10 +17,11 @@
  * successful sync ends with router.refresh() so the parse panel reads
  * fresh `pending_syncs` rows on the next render.
  */
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -65,6 +66,96 @@ const PENDING_LABEL = "Syncing…";
  */
 const OVERLAY_PANEL =
   "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile";
+
+/**
+ * Nearest ancestor that clips this node, or `null` when nothing does.
+ *
+ * Any non-`visible` overflow on either axis clips: the review-modal panel uses
+ * `overflow-clip` (ReviewModalShell), and a scrolling ancestor clips just the
+ * same. `overflow: clip` on ONE axis forces `clip` on the other in the used
+ * value, so testing both axes and taking the first hit is sufficient.
+ */
+function findClippingAncestor(node: HTMLElement): HTMLElement | null {
+  for (let el = node.parentElement; el !== null; el = el.parentElement) {
+    const { overflowX, overflowY } = getComputedStyle(el);
+    if (overflowX !== "visible" || overflowY !== "visible") return el;
+  }
+  return null;
+}
+
+/**
+ * Caps an overlay so it cannot be cut off by a clipping ancestor.
+ *
+ * The panel that hosts these overlays clips (see `findClippingAncestor`), so
+ * the CSS `max-h-[min(50vh,20rem)]` alone is not enough: at 375×667 the band's
+ * bottom lands at 456 and the panel's at 667, so a 320px overlay loses 109px.
+ * That is not merely a hidden tail — the overlay has its own `overflow-y-auto`,
+ * so the last 109px of its scroll range sits in the hidden strip, and the
+ * shrink confirm's decision buttons become unreachable at full scroll.
+ *
+ * Returns a callback ref: measurement has to happen once the node is in the
+ * document, and the overlays mount and unmount with their own state.
+ */
+function useFitWithinClip() {
+  // The node lives in a REF (the effect writes to its style, and the React
+  // compiler refuses mutation of anything reached through state), while a
+  // counter in STATE is what actually re-runs the effect: each overlay mounts
+  // long after this component does — it appears when a sync resolves — so an
+  // effect that keyed on the ref alone would run once with `null` and never
+  // wire the observers up.
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const [attachCount, setAttachCount] = useState(0);
+
+  const apply = useCallback(() => {
+    const el = nodeRef.current;
+    if (el === null) return;
+
+    // Cleared first so the CSS cap is what we measure, not last pass's result.
+    el.style.maxHeight = "";
+    const clip = findClippingAncestor(el);
+    if (clip === null) return; // nothing clips: the CSS cap already governs
+
+    const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
+    el.style.maxHeight = `${computeFittedMaxHeight({
+      elementTop: el.getBoundingClientRect().top,
+      clipBottom: clip.getBoundingClientRect().bottom,
+      // `max-height: none` parses as NaN; Infinity means "only the clip binds".
+      cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
+    })}px`;
+  }, []);
+
+  useEffect(() => {
+    const node = nodeRef.current;
+    if (node === null) return;
+    apply();
+
+    // The band can grow (a wrapping header or strip pushes the anchor down)
+    // and the panel's height is viewport-derived, so both need watching: a
+    // ResizeObserver on the clip ancestor covers the panel, window resize
+    // covers the viewport-unit cap.
+    // Feature-detected, not assumed: a missing ResizeObserver must degrade to
+    // "measured once on mount, re-measured on viewport resize", never throw
+    // during render of the overlay it is trying to size (jsdom has no
+    // ResizeObserver, and an unguarded `new ResizeObserver` there takes the
+    // whole component down).
+    const clip = findClippingAncestor(node);
+    const observer =
+      typeof ResizeObserver === "function" && clip !== null ? new ResizeObserver(apply) : null;
+    if (observer !== null && clip !== null) observer.observe(clip);
+    window.addEventListener("resize", apply);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", apply);
+    };
+  }, [attachCount, apply]);
+
+  return useCallback((node: HTMLDivElement | null) => {
+    nodeRef.current = node;
+    // Bumped on detach too: the count is only an effect trigger, and a stale
+    // observer on an unmounted overlay is exactly what the cleanup exists for.
+    setAttachCount((n) => n + 1);
+  }, []);
+}
 
 /** A real interactive control, not a glyph: 44px floor + a visible focus ring.
  *  Its accessible name is always branch-specific ("Dismiss sync error" /
@@ -126,6 +217,12 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   // handler focuses the still-mounted re-sync trigger FIRST, then dismisses.
   // No auto-revert exists (persistent panel), so no two-phase guard is needed.
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // One per overlay: each is an independent node with its own mount lifetime,
+  // so they cannot share a single measured cap.
+  const fitErrorRef = useFitWithinClip();
+  const fitShrinkRef = useFitWithinClip();
+  const fitSuccessRef = useFitWithinClip();
   // Names for the two dismissable panels' role="group" wrappers, pointing at
   // the message node that also carries the live-region role.
   const errorMsgId = useId();
@@ -231,6 +328,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         <div
           role="group"
           aria-labelledby={errorMsgId}
+          ref={fitErrorRef}
           data-testid="admin-resync-error"
           className={`${OVERLAY_PANEL} flex items-start gap-2 border-border-strong bg-warning-bg text-warning-text`}
         >
@@ -257,6 +355,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
       {heldShrink && !errorCode ? (
         <div
           role="status"
+          ref={fitShrinkRef}
           data-testid="admin-resync-shrink-confirm"
           // Watchpoint 9: NO neutral dismiss and NO outside-click-to-close.
           // This is not a notification, it is a pending decision about the
@@ -312,6 +411,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         <div
           role="group"
           aria-labelledby={successMsgId}
+          ref={fitSuccessRef}
           data-testid="admin-resync-success"
           className={`${OVERLAY_PANEL} flex items-start gap-2 border-border bg-info-bg text-text-strong`}
         >
