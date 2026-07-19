@@ -263,7 +263,7 @@ Numbered as in the mock's option `#1a`.
 6. **Strip order.** `[Published label + toggle]` | 1px divider | `[status line]` |
    `[Re-sync]` | `margin-left:auto` | `[Copy crew link]`.
 7. **Re-sync joins the strip** (mock revision 2, 2026-07-18). **DOM order is
-   normative, not just visual order:** the `<ReSyncButton surface="overlay"/>`
+   normative, not just visual order:** the `<ReSyncButton/>`
    fragment must be inserted BEFORE `strip-copy-link` in the strip's DOM. Copy is
    right-flushed by `ml-auto`, which means a DOM order of Copy-then-Re-sync would
    still *look* correct while producing the tab order toggle → Copy → Re-sync →
@@ -729,17 +729,17 @@ already solves exactly this problem in exactly this strip: it anchors its popove
 off the strip with `inset-x-0` / `top-full` (`PublishedToggle.tsx:50` documents
 the positioned-ancestor requirement). Re-sync adopts the same idiom:
 
-- `ReSyncButton` gains a `surface?: "flow" | "overlay"` prop, default `"flow"`
-  (today's behavior, unchanged for every existing consumer).
+- **NO `surface` mode prop — `ReSyncButton` is restructured outright.** An
+  earlier draft added `surface?: "flow" | "overlay"` to preserve the old shape
+  for existing consumers. Verified: `<ReSyncButton>` has exactly TWO render sites,
+  `OverviewSection.tsx:133` and `:136`, and §4.3 removes BOTH. After this change
+  the component has one consumer — the strip — so a `"flow"` arm would be dead
+  on arrival: unreachable API, an untestable branch, and speculative generality
+  of exactly the kind §6.5 deletes elsewhere in this same spec.
 
-  **`surface` gates layout AND the dismiss affordance — both, and only in
-  overlay mode.** `"flow"` keeps today's non-dismissable in-flow panels exactly
-  as they are: no dismiss control, no role restructure, no `absolute`. The
-  dismiss controls specified below exist because a FLOATING panel can obstruct
-  the rail; an in-flow panel inside Overview's column cannot, so adding them
-  there would be unrequested scope on a surface this change is not touching.
-  Any implementation that renders a dismiss button in flow mode has over-applied
-  §6.7.
+  The component is therefore rebuilt for its single remaining context. Everything
+  below (fragment return, absolute panels, dismiss controls, role restructure) is
+  simply what `ReSyncButton` IS after this change, not one mode of two.
 - **`"overlay"` must return a FRAGMENT, not a wrapper `<div>`.** Today the
   component's root is `<div className="flex flex-col gap-3">`
   (`ReSyncButton.tsx:136-137`) — correct for Overview's column, wrong here. If it
@@ -757,7 +757,12 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
       full-band width of the absolute panels — while every focus and order test
       still passed. The trigger already carries data-testid="admin-resync-button"
       (ReSyncButton.tsx:140); query that, do not add a wrapper to hang a testid on. */}
-  {archived ? null : <ReSyncButton slug={slug} surface="overlay" />}
+  {/* Counted form — `{!archived ? (` is what the lexical scanner sees (§9).
+      `{archived ? null : …}` renders identically but is INVISIBLE to the pin,
+      leaving this mount with no fails-by-default protection. */}
+  {!archived ? (
+    <ReSyncButton slug={slug} />
+  ) : null}
   {copyUrl != null ? (<div data-testid="strip-copy-link" className="ml-auto shrink-0">…</div>) : null}
   ```
 
@@ -1170,8 +1175,8 @@ sheet-link anchor ≥44px, and no horizontal overflow of the panel at 375/390/76
 After this change the strip's conditionals are: `archived` / `control-divider` /
 `live` / `sync` / `edited` / `re-sync` / `copy-link` = **7**. (`renderTitle`
 deleted §6.5; `alert` relocated §6.6; `re-sync` added §4.3 — it is conditional on
-`!archived`.) `PublishedReviewModal.tsx`'s count moves from **1** (sheet-link) to
-**3** (sheet-link, subline client entry, alert pill).
+`!archived`.) `PublishedReviewModal.tsx`'s count moves from **1** (sheet-link) to **4**
+(sheet-link, subline client entry, alert pill, capped sr-only suffix).
 
 `OverviewSection.tsx` **stays at 4** — do NOT change its literal. The counter is a
 purely lexical source scan (`pageTransitions.test.tsx:102-112`) matching the
@@ -1188,6 +1193,34 @@ components mount. A count that "should" move but doesn't (or vice versa) means
 the edit landed differently than assumed — investigate before touching the
 literal. Editing a count literal to make a red test green, without confirming the
 enumeration, defeats the pin's entire purpose.
+
+**The counts depend on JSX FORM, because the scanner is lexical.** Verified
+against `pageTransitions.test.tsx:102-109`:
+
+| Written as | Counted? |
+| --- | --- |
+| `{!archived ? (` (multi-line head) | **yes** |
+| `{alertCount > 99 ? (` | **yes** |
+| `{archived ? null : (` | **no** — `?` is not immediately followed by `(` |
+| `{archived ? null : <ReSyncButton …/>}` | **no** — one-line regex requires `? <Element` |
+
+So the spec MANDATES the counted forms for both new mounts — the Re-sync slot is
+written `{!archived ? (…) : null}`, not `{archived ? null : …}`. This is not
+cosmetic: a conditional the scanner cannot see is a mount with no fails-by-default
+protection, which defeats the pin. **Never reshape JSX to satisfy the counter;
+write the counted form deliberately and record why here.**
+
+Final targets with those forms:
+
+| File | Before | After |
+| --- | --- | --- |
+| `StatusStrip.tsx` | 8 | **7** (−`renderTitle`, −`alert`, +`re-sync` as `{!archived ? (`) |
+| `PublishedReviewModal.tsx` | 1 | **4** (sheet-link, subline client entry, alert pill, capped sr-only suffix) |
+| `OverviewSection.tsx` | 4 | **4** (unchanged — the `{archived ? (` head survives) |
+
+`PublishedReviewModal` is **4, not 3**: §6.6's capped-count implementation adds
+`{alertCount > 99 ? (` as its own mounted conditional. An earlier draft said 3
+and would have failed T-COUNTS the moment the cap landed.
 
 **These count literals MUST be updated in the same commit as the source change** —
 the pin fails-by-default, which is the intent.
@@ -1274,25 +1307,24 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-NO-ORANGE | Accent-resolving elements in the header region match the EXACT expected set **for each of the three states in §4.2's table** — enumerated, not a `bg-accent` absence check | Delta 4 silently reverting; a `bg-accent`-only assertion that misses `bg-status-live` (same hue, different class); and a single-fixture test that pins only the live happy path |
 | T-ARCHIVED-BAND | `archived` → band renders with archived badge, no toggle/copy/live | Empty or missing band in read-only mode |
 | T-NO-H1 | No `<h1>` in the dialog (existing, must still pass) | Dead `<h1>` branch resurrected |
-| T-COUNTS | `pageTransitions` counts: `StatusStrip` **7**, `PublishedReviewModal` **3**, `OverviewSection` **4 (unchanged)** — each verified by running the scan, not by reasoning (§9) | Undocumented new conditional mount; or a literal edited to green a red test |
+| T-COUNTS | `pageTransitions` counts: `StatusStrip` **7**, `PublishedReviewModal` **4**, `OverviewSection` **4 (unchanged)** — each verified by running the scan, not by reasoning (§9) | Undocumented new conditional mount; or a literal edited to green a red test |
 | T-RESYNC-MOVED | Strip renders a Re-sync trigger; `OverviewSection` renders NO Re-sync button | §4.3 half-done — duplicated control, the outcome explicitly rejected |
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version"; and it has NO neutral dismiss and does not close on outside click (§6.7) | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
 | T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip), shows catalog copy, never a raw code, AND is dismissable without re-running the mutation — the dismiss control clears the overlay and returns focus to the trigger — assert the rendered text CONTAINS the `lib/messages/lookup.ts` copy and does NOT contain the raw code string. **Containment, not equality** — the branch legitimately renders `<ErrorExplainer>` PLUS `<HelpAffordance>` (`ReSyncButton.tsx:158-159`), so an equality assertion is false-red and the likely "fix" is deleting the help affordance | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
-| T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
-| T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay, does not reflow the strip, AND renders `summarizeResult` copy rather than a raw `outcome` string — assert an unknown/unmapped outcome falls back to "Sync complete." and that no raw token (e.g. `revision_race`, `asset_recovery`) appears |  Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
+| T-OVERLAY-BOUNDS (real browser) | Capped height + internal scroll asserted for ALL THREE branches — error, shrink-confirm, success — not shrink alone. The ERROR branch is the likeliest to overflow: it renders `ErrorExplainer` PLUS `HelpAffordance` (`ReSyncButton.tsx:158-159`). Band and body do not reflow when any of them opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
+| T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay, HAS a dismiss control that clears it and returns focus to the trigger, does not reflow the strip, AND renders `summarizeResult` copy rather than a raw `outcome` string — assert an unknown/unmapped outcome falls back to "Sync complete." and that no raw token (e.g. `revision_race`, `asset_recovery`) appears |  Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND — assert GEOMETRY, not `offsetParent`: each overlay's left/right edges match the band's within 1px and its top matches the band's bottom within 1px. Neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel. `offsetParent` is deliberately NOT the assertion — it is sensitive to transforms, hidden states and browser detail, so it false-reds on correct placement and couples the test to layout internals instead of the user-visible result |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
 | T-RESYNC-FOCUS-ORDER | **Overlay-CLOSED steady state:** sheet link → alert pill → close → toggle → Re-sync → copy. **Overlay-OPEN (shrink confirm):** … → Re-sync → Keep current version → Apply reduced version → copy — the confirm's controls sit DOM-adjacent to their trigger, which is the intent | Re-sync lands after Copy or is skipped; and an unscoped order test that runs with an overlay open, fails, and gets "fixed" by hoisting the overlay after Copy — destroying the confirm's focus proximity to its trigger |
 | T-COPY-FLUSH (real browser) | Copy button's right edge == band content-box right edge (±1px) | Strip shrink-wraps as a flex item, so `ml-auto` flushes to the strip's edge, not the band's — invisible to overflow-based checks |
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
-| T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
+| T-TAP (real browser) | Sheet link, Re-sync trigger, AND both overlay dismiss controls (error + success): `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-CONTRAST (real browser, BOTH themes) | Assert ≥4.5:1 (WCAG 1.4.3) for the outline Copy LABEL and the ghost Re-sync LABEL. Assert NO border ratio — `border-border-strong` measures ~1.6:1 on band surface in both themes, so a 3:1 border rule is unsatisfiable with the mandated token (§7.1). **Sampling is specified** — §7.2 | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
 | T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element; and a type-level check that `subHeader={0}` does not compile | `!= null` gate emits an empty bordered seam for `cond && <X/>`; and a `ReactNode`-typed prop silently swallowing `0` (§6.1 narrows the type so this is a compile error — `pnpm typecheck` is the enforcing gate, since vitest strips types) |
-| T-RESYNC-FLOW-UNCHANGED | In FLOW mode the component still returns its single root `<div className="flex flex-col gap-3">` with the result panels inside it, and Overview's rendered structure is unchanged | The overlay branch is implemented by restructuring shared markup, silently changing flow-mode DOM too. Existing Overview consumers/tests query within that root; the new strip tests would pass while Overview regresses |
 | T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |
@@ -1416,7 +1448,7 @@ Declared per AGENTS.md writing-plans rules.
 | --- | --- | --- |
 | 44px | tap floor (`size-tap-min` / `min-h-tap-min`) | §4.1, §6.6, §8, §11 T-TAP |
 | 8 → 7 | `StatusStrip.tsx` conditional-mount pin | §9, §11 T-COUNTS |
-| 1 → 3 | `PublishedReviewModal.tsx` conditional-mount pin | §9, §11 T-COUNTS |
+| 1 → 4 | `PublishedReviewModal.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 4 → 4 (unchanged) | `OverviewSection.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 2 → 3 | strip action budget (amended ceiling) | §4.3 |
 | 3px | subline + status bullet separators | §6.3, §7, §8 |
