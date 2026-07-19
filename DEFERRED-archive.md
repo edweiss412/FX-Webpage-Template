@@ -2,6 +2,22 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+
+## Review-modal close (2026-07-19)
+
+Source: MODAL-SKELETON-CLOSE-1 ship (`fix/modal-skeleton-close`, spec `docs/superpowers/specs/2026-07-19-modal-skeleton-close.md`, plan `docs/superpowers/plans/2026-07-19-modal-skeleton-close.md`). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved here from the working queue in the same pass (queue policy: resolved entries live in the archive).
+
+### MODAL-SKELETON-CLOSE-1 — [P2] Suspense skeleton frame had a no-op onClose — Esc/scrim dead while the loader streams — ✅ RESOLVED
+
+Original entry: `ShowReviewModalSkeleton` mounts the shell with `onClose={() => {}}` and no live close control (spec §4 ratified an "open, non-interactive modal frame"). On a slow load the user's only escape was browser-back; body scroll locked and the background inert. Skeleton is a client component, so it COULD wire `useShowModalNav().close` without crossing the RSC boundary. **Un-defer trigger:** any report of a stuck loading modal, or the next ReviewModalShell/skeleton task — wire the skeleton's onClose to `useShowModalNav().close` and render a real close button in place of the placeholder block (spec amendment: relax "non-interactive" to "content-non-interactive").
+
+**Resolution:** the un-defer trigger fired (this task, picked directly). Shipped: `ReviewModalShell` gained a one-shot `onDismissStart` callback fired at dismiss-commit inside an idempotence-guarded `beginDismiss` — the skeleton's server-fallback usage issues `useShowModalNav().close` there, so a Suspense swap unmounting the frame mid-exit can never lose the close; `onClose` at exit-end is the instant client-side hide (#485 pattern). The 44px placeholder became a real `ModalCloseButton` (same `published-show-review-close` testid as the loaded modal) holding initial focus, outside any `aria-hidden` subtree. The zombie `closeAffordancesDisabled` shell prop (skeleton was sole consumer) was deleted. Spec §4 amended to "content-non-interactive"; exit-anim spec §3.1/§3.4/matrices amended.
+
+### ~~MODAL-CLOSE-EXIT-ANIM-1~~ — RESOLVED (exit animation shipped)
+
+From impeccable critique of the admin-show-modal branch (33/40): every non-drag close affordance funnels through `useShowModalNav().close` (a `router.push`), so the modal lingers until the RSC roundtrip returns, then unmounts with no exit transition — asymmetric with the drag-dismiss slide-out, and can read as laggy on venue cellular. **Declined as a defect: the spec's transition inventory explicitly ratifies "open → closed (X/scrim/Esc/back) | instant unmount — pattern identical to Step3 today (no exit animation)" (docs/superpowers/specs/2026-07-18-admin-show-modal.md:147), preserving Step3 chrome parity.**
+**Resolved:** the un-defer trigger fired (motion pass touching `ReviewModalShell`). `ReviewModalShell` now owns a `requestClose` that plays the mode-aware reverse of the entrance and calls `onClose` at exit-end, on all five affordances in BOTH consumers; reduced motion keeps the instant unmount. Master spec §6.5 amended at `docs/superpowers/specs/2026-07-18-admin-show-modal.md:147`. Spec + plan: `docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md`, `docs/superpowers/plans/2026-07-18-modal-close-exit-anim/`. (Its "`MODAL-SKELETON-CLOSE-1` below stays deferred" cross-reference is superseded — that item is resolved by `2026-07-19-modal-skeleton-close.md`, above.)
+
 ## Alert-surface UI pass (2026-07-18)
 
 Source: ARC-2 of the alert-surface ship (`feat/alert-surface-ui`, spec + plan `docs/superpowers/{specs,plans}/2026-07-18-alert-surface-ui{,.md}`), branched off the merged EMDASH-1 (ARC-1). Six work items (WI-1..WI-6) closed these four deferrals. Invariant-8 impeccable dual-gate on the diff: **critique 38/40 (AI-slop CLEAN, zero P0/P1), audit 19/20 Excellent (zero P0/P1)**; three P2s fixed in-branch (hint glyph↔affordance match, "+N more" overflow contrast text-faint→text-subtle, mark-read action-name aria-label), remaining P3s acceptable at the AA floor.
