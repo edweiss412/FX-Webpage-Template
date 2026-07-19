@@ -512,57 +512,74 @@ export function deriveAttentionItems(args: {
 **Interfaces:**
 - Produces: `export type AdminAlertRow` (existing shape + `crewName: string | null`), `export async function fetchPerShowAlerts(showId: string): Promise<AdminAlertRow[] | { kind: "infra_error"; message: string }>` — body identical to `components/admin/PerShowAlertSection.tsx:134-241` except the final map adds `crewName`.
 
-- [ ] **Step 1: Write the failing test** — `tests/adminAlerts/fetchPerShowAlerts.test.ts`. Mock `createSupabaseServerClient` + `resolveAlertIdentities` exactly the way `tests/components/PerShowAlertSection.test.tsx` already mocks them (copy its mock scaffolding), then:
+- [ ] **Step 1: Write the failing test** — `tests/adminAlerts/fetchPerShowAlerts.test.ts`. Mock `createSupabaseServerClient` + `resolveAlertIdentities` exactly the way `tests/components/PerShowAlertSection.test.tsx` already mocks them (copy its mock scaffolding — the supabase query-builder chain mock and the `vi.mock("@/lib/adminAlerts/resolveAlertIdentities")` module mock). `AlertIdentity` is `{ segments: { label: string | null; value: string; pii?: boolean }[]; global: boolean }` (`lib/adminAlerts/identityTypes.ts:49-62`); crew segments carry `label: "Crew"` (`lib/adminAlerts/resolveAlertIdentities.ts:264`). Full tests:
 
 ```ts
-it("crewName: OAUTH_IDENTITY_CLAIMED single crew segment → the resolved name", async () => {
-  // resolver mock returns an identity whose segments include { kind: "crew", text: "John Redcorn" }
-  // (match the AlertIdentity segment shape used by describeAlert — copy from the existing test fixtures)
+it("crewName: single Crew-labeled segment → its value (OAUTH_IDENTITY_CLAIMED)", async () => {
+  queueAlertRows([row({ id: "a1", code: "OAUTH_IDENTITY_CLAIMED" })]);
+  mockResolvedIdentities(
+    new Map([
+      ["a1", { segments: [{ label: "Crew", value: "John Redcorn" }, { label: "Show", value: "East Coast" }], global: false }],
+    ]),
+  );
   const rows = await fetchPerShowAlerts(SHOW_ID);
-  expect(Array.isArray(rows) && rows[0]!.crewName).toBe("John Redcorn");
+  expect(Array.isArray(rows)).toBe(true);
+  expect((rows as AdminAlertRow[])[0]!.crewName).toBe("John Redcorn");
 });
 
-it("crewName: ROLE_FLAGS_NOTICE with changes.length===1 → sole projected name; multi-name → null", async () => {
-  /* two rows: context {changes:[{crew_name:"Ana"}]} → "Ana"; {changes:[{crew_name:"A"},{crew_name:"B"}]} → null */
+it("crewName: ROLE_FLAGS_NOTICE uses the PROJECTED sanitized name list — sole name → that name; multi → null", async () => {
+  queueAlertRows([
+    row({ id: "one", code: "ROLE_FLAGS_NOTICE", context: { changes: [{ crew_name: "Ana Silva" }] } }),
+    row({ id: "two", code: "ROLE_FLAGS_NOTICE", context: { changes: [{ crew_name: "A" }, { crew_name: "B" }] } }),
+  ]);
+  mockResolvedIdentities(new Map()); // identity resolution not the source for this code
+  const rows = (await fetchPerShowAlerts(SHOW_ID)) as AdminAlertRow[];
+  expect(rows.find((r) => r.id === "one")!.crewName).toBe("Ana Silva");
+  expect(rows.find((r) => r.id === "two")!.crewName).toBeNull();
 });
 
-it("crewName: codes with no crew identity → null; degraded resolve → null (alerts still returned)", async () => {
-  /* AMBIGUOUS_EMAIL_BINDING row → crewName null; resolver throwing → rows returned with crewName null */
+it("crewName: no Crew segment → null; two Crew segments → null; degraded resolve → null but rows still returned", async () => {
+  queueAlertRows([row({ id: "a2", code: "AMBIGUOUS_EMAIL_BINDING" }), row({ id: "a3", code: "OAUTH_IDENTITY_CLAIMED" })]);
+  mockResolverThrows(new Error("boom"));
+  const rows = (await fetchPerShowAlerts(SHOW_ID)) as AdminAlertRow[];
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.crewName === null)).toBe(true);
 });
 ```
 
-(Write these as full tests against the real mock scaffolding — the existing `PerShowAlertSection.test.tsx` fixtures show the exact `AlertIdentity` shape; derive expected values from the fixtures, don't hardcode resolver internals.)
+(`queueAlertRows` / `mockResolvedIdentities` / `mockResolverThrows` / `row` are thin wrappers over the copied scaffolding — define them in the test file; expectations derive from the fixtures above, not resolver internals.)
 
 - [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/adminAlerts/fetchPerShowAlerts.test.ts` → FAIL (module not found).
 
 - [ ] **Step 3: Implement.** Move the fetch body verbatim into `lib/adminAlerts/fetchPerShowAlerts.ts`; import `safeDougFacingTemplate` is NOT needed there (template is computed in derivation) — the fetch keeps computing `identityText` + `messageParams` as today and ADDS:
 
 ```ts
-// After the identities map resolves (the existing final map at the old :235-240):
+// After the identities map resolves (the existing final map at the old :235-240).
+// The fetch ALREADY projects each row's context (resolverRows at the old :198-204):
+//   projectIdentityContext(r.context, { includePii: true })
+// Keep those projections in a Map<string, ProjectedIdentityContext> keyed by row id
+// so crewName reads the SANITIZED projection (spec §3.1a), never raw context.
 function crewNameFor(
   code: string,
-  context: Record<string, unknown> | null,
+  projected: ReturnType<typeof projectIdentityContext>,
   identity: AlertIdentity | undefined,
 ): string | null {
   if (code === "ROLE_FLAGS_NOTICE") {
-    // spec §3.1a: projected role_change_crew_names (projectIdentityContext.ts:85-99)
-    // — recompute from raw context.changes to avoid depending on segment text formatting.
-    const changes = Array.isArray(context?.changes) ? (context.changes as unknown[]) : null;
-    if (!changes || changes.length !== 1) return null;
-    const c = changes[0];
-    const name =
-      c && typeof c === "object" ? (c as Record<string, unknown>).crew_name : undefined;
-    return typeof name === "string" && name.trim().length > 0 ? name : null;
+    // spec §3.1a: the projected sanitized capped list (projectIdentityContext.ts:85-99).
+    // Sole-name rule: exactly one change AND exactly one projected name.
+    const names = projected.display.role_change_crew_names;
+    if (projected.counts.role_change_count !== 1 || !names || names.length !== 1) return null;
+    const name = names[0]!;
+    return name.trim().length > 0 ? name : null;
   }
-  // exactly-one crew-kind segment (spec §3.1a; OAUTH_IDENTITY_CLAIMED etc.)
-  const crewSegs = (identity?.segments ?? []).filter((s) => s.kind === "crew");
+  // exactly-one Crew-labeled segment (identityTypes.ts:49-62; the crew segment
+  // label literal is "Crew" — resolveAlertIdentities.ts:264)
+  const crewSegs = (identity?.segments ?? []).filter((s) => s.label === "Crew");
   if (crewSegs.length !== 1) return null;
-  const text = crewSegs[0]!.text;
-  return typeof text === "string" && text.trim().length > 0 ? text : null;
+  const value = crewSegs[0]!.value;
+  return value.trim().length > 0 ? value : null;
 }
 ```
-
-(VERIFY the actual `AlertIdentity` segment field names in `lib/adminAlerts/identityTypes.ts` before writing — if the segment kind literal for crew differs (e.g. `"crewName"`), use the live literal; the test fixtures must use the live shape too.)
 
 `PerShowAlertSection.tsx` keeps rendering by importing `fetchPerShowAlerts`/`AdminAlertRow` from the new module and `safeDougFacingTemplate`/`catalogHelpHref`/`readDataGapsDigest`/`formatRelativeRaisedAt` from `lib/admin/attentionItems` (delete its local copies). Registry row update in `_metaInfraContract.test.ts`:
 
@@ -605,16 +622,36 @@ and the two `await import("@/components/admin/PerShowAlertSection")` calls becom
 "use client";
 // components/admin/review/AttentionBanner.tsx — spec §5.4. One inline banner per
 // alert AttentionItem; holds render nothing here (their surface is the Changes entry).
+// Render rules are PerShowAlertSection.tsx:341-446 verbatim, minus <li>/section chrome.
+import { useState } from "react";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { ATTENTION_FALLBACK_TITLE, formatRelativeRaisedAt } from "@/lib/admin/attentionItems";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
+import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
+import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
+import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
+
+export type AttentionBannerProps = {
+  item: AttentionItem;
+  slug: string;
+  now: Date;
+  underCrewRow: boolean;
+  highlighted: boolean;
+  onResolved: (id: string) => void;
+};
+
 export function AttentionBanner({ item, slug, now, underCrewRow, highlighted, onResolved }: AttentionBannerProps) {
   const [confirmed, setConfirmed] = useState(false);
   if (item.kind !== "alert" || !item.alert) return null;
   const a = item.alert;
-  const body = a.template
-    ? renderCatalogEmphasis(a.template, a.params)
-    : ATTENTION_FALLBACK_TITLE;
+  // Tone stripe: notice = amber review token; critical = the degraded/red token.
+  // NOTE (verify at implementation): grep app/globals.css for the degraded token
+  // Tailwind name (DESIGN.md:47 pair) — if only `--color-status-degraded` exists,
+  // the class is `border-l-status-degraded`; adjust to the live token name. Alerts
+  // are always notice today (spec §3.1) — the critical branch is hold-only headroom.
   const stripe = item.tone === "critical" ? "border-l-status-degraded" : "border-l-status-review";
-  // (VERIFY the degraded-red token name in app/globals.css before use — DESIGN.md:47 names the
-  // degraded pair; use the exact --color-* token exposed to Tailwind.)
+  const showIdentity =
+    a.template === null || !INLINE_IDENTITY_CODES.has(a.code) ? item.menuSubtitle : null;
   return (
     <div
       data-attention-anchor={item.id}
@@ -623,16 +660,77 @@ export function AttentionBanner({ item, slug, now, underCrewRow, highlighted, on
       className={`flex flex-col gap-2 rounded-sm border border-border border-l-[3px] ${stripe} bg-warning-bg p-3 text-text`}
     >
       {confirmed ? (
-        <p className="text-sm font-medium text-status-positive-text">✓ Confirmed</p>
+        <p data-testid={`attention-banner-confirmed-${a.alertId}`} className="text-sm font-medium text-status-positive-text">
+          ✓ Confirmed
+        </p>
       ) : (
-        <>{/* body, action link, help link, failedKeys, dataGaps, identity, raised-at, resolve/autoclear — the PerShowAlertSection.tsx:341-446 render rules verbatim, minus the <li>/section chrome */}</>
+        <>
+          <p className="wrap-break-word whitespace-pre-line text-sm font-semibold text-text-strong">
+            {a.template ? renderCatalogEmphasis(a.template, a.params) : ATTENTION_FALLBACK_TITLE}
+          </p>
+          {a.action ? (
+            <a
+              href={a.action.href}
+              data-testid={`attention-banner-action-${a.alertId}`}
+              {...(a.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              {a.action.label}
+              {a.action.external ? <span aria-hidden="true"> ↗</span> : null}
+            </a>
+          ) : null}
+          {a.helpHref ? (
+            <a
+              href={a.helpHref}
+              data-testid={`attention-banner-help-${a.alertId}`}
+              className="inline-flex min-h-tap-min items-center self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              Learn more
+            </a>
+          ) : null}
+          {a.failedKeys && a.failedKeys.length > 0 ? (
+            <p data-testid={`attention-banner-failed-sources-${a.alertId}`} className="text-xs text-text-subtle">
+              Failed sources: {a.failedKeys.join(", ")}
+            </p>
+          ) : null}
+          {a.dataGaps ? (
+            <p data-testid={`attention-banner-data-gaps-${a.alertId}`} className="text-xs text-text-subtle">
+              Data dropped while parsing: {formatDataGapBreakdown(a.dataGaps)}
+            </p>
+          ) : null}
+          {!underCrewRow && showIdentity ? (
+            <p data-testid="attention-banner-identity" className="wrap-break-word text-xs text-text-subtle">
+              {showIdentity}
+            </p>
+          ) : null}
+          <p className="text-xs text-text-subtle tabular-nums">
+            Raised{" "}
+            <time dateTime={a.raisedAt} suppressHydrationWarning>
+              {formatRelativeRaisedAt(a.raisedAt, now)}
+            </time>
+          </p>
+          {a.autoClearNote ? (
+            <p data-testid={`attention-banner-autoclear-${a.alertId}`} className="text-xs text-text-subtle">
+              {a.autoClearNote}
+            </p>
+          ) : (
+            <PerShowAlertResolveButton
+              alertId={a.alertId}
+              slug={slug}
+              onResolved={() => {
+                setConfirmed(true);
+                onResolved(item.id);
+              }}
+            />
+          )}
+        </>
       )}
     </div>
   );
 }
 ```
 
-Fill the `<>…</>` with the exact blocks from `PerShowAlertSection.tsx:341-446` (same testids re-keyed `attention-*`, same class strings), with `PerShowAlertResolveButton` receiving `onResolved={() => { setConfirmed(true); onResolved(item.id); }}`.
+(Identity suppression note: `menuSubtitle` IS `identityText` for alert items — Task 1's derivation — so the `showIdentity` expression implements the `PerShowAlertSection.tsx:408-416` rule with the spec's under-crew-row addition.)
 
 - [ ] **Step 4: Run banner + button + emphasis-walker tests → PASS.**
 - [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(admin): AttentionBanner inline alert banner + resolve onResolved callback"`
@@ -682,7 +780,7 @@ useEffect(() => {
 }, [open, pillRef]);
 ```
 
-Menu open animation: wrapper `motion-safe:animate-[…]`? NO — reuse the existing pattern: apply `duration-fast ease-out-quart` transition classes via a mount-frame opacity/scale toggle ONLY if an existing popover in the codebase does so (check `BellPanel`); otherwise render instant and record "instant — deliberate" — then update spec §9 row to match reality in the SAME commit (transition table must not drift).
+Menu open animation — spec §9 REQUIRES `motion-safe` fade+scale on closed→open (`duration-fast ease-out-quart`, reduced-motion instant); open→closed is instant (unmount). Implement with the rail-indicator mount-frame idiom (`ShowReviewSurface.tsx:554-560`): render the panel with `opacity-0 scale-95`, flip to `opacity-100 scale-100` on the next `requestAnimationFrame`, panel classes `origin-top-right transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none`. Test (jsdom): panel mounts with the pre-frame classes and carries `motion-reduce:transition-none`; the rAF flip is exercised in Task 8's real-browser pass.
 
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit** — `git commit --no-verify -m "feat(admin): AttentionMenu dropdown with capture-phase Esc + click-outside"`
@@ -692,20 +790,20 @@ Menu open animation: wrapper `motion-safe:animate-[…]`? NO — reuse the exist
 ### Task 5: `ShowReviewSurface` attention props + `CrewBreakdown` banners + Changes anchors
 
 **Files:**
-- Modify: `components/admin/review/ShowReviewSurface.tsx` (new optional props `attentionSections?: ReadonlySet<string>`, `attentionJump?: { itemId: string; sectionId: string; nonce: number } | null`; `dotClass`/`dotStatusText` OR-in attention at `:244-257`; jump effect mirroring `jumpToWarning` `:335-357`)
-- Modify: `components/admin/wizard/step3ReviewSections.tsx` (`CrewBreakdown` optional `attention` prop; in-li banners + section-top block)
+- Modify: `components/admin/review/ShowReviewSurface.tsx` (new optional props `attentionSections?: ReadonlySet<string>`, `attentionJump?: { itemId: string; sectionId: string; nonce: number } | null`, `crewAttention?: CrewAttention`; `dotClass`/`dotStatusText` OR-in attention at `:244-257`; jump effect mirroring `jumpToWarning` `:335-357`; `crewAttention` injected into the crew section's `Step3SectionChromeContext` provider value at `:829-870` — conditional spread, ABSENT otherwise)
+- Modify: `components/admin/wizard/step3ReviewSections.tsx` (`Step3SectionChromeContext` value type gains optional `crewAttention?: CrewAttention`; `CrewBreakdown` reads it from the context — NOT a direct prop, because the registry's crew `render()` closures at `:3501-3520` construct `CrewBreakdown` themselves and the provider already wraps `s.render(data)` (`ShowReviewSurface.tsx:829`); staged wizard passes no `crewAttention` → context field absent → byte-identical)
 - Modify: `components/admin/ChangeFeedEntry.tsx` (`data-attention-anchor` on gate rows, root `<li>` at `:95-97`)
 - Tests: `tests/components/admin/review/showReviewSurfaceAttention.test.tsx` (new), extend `tests/components/PerShowAlertSection.test.tsx`-family crew tests in `tests/components/admin/` if present, `tests/admin/changeFeedEntry`-family test (find with `rg -l ChangeFeedEntry tests`)
 
 **Interfaces:**
 - `ShowReviewSurface` new props (both optional; absent → byte-identical staged rendering — assert via existing snapshot/DOM tests still passing untouched).
-- `CrewBreakdown` new prop: `attention?: { byCrewKey: ReadonlyMap<string, ReactNode[]>; sectionTop: ReactNode[] }` — PRE-RENDERED nodes (the modal builds `<AttentionBanner>` elements; CrewBreakdown stays presentation-only and staged mode passes nothing). Row match: `attention.byCrewKey.get(canonicalCrewKey(m.name))` rendered INSIDE that member's `<li>` after the row flex block; only the FIRST matching row hosts (track a consumed set while mapping); `sectionTop` nodes render above the `<ul>`. Unmatched byCrewKey entries are the MODAL's responsibility (Task 6 folds them into sectionTop before passing — CrewBreakdown never re-buckets).
+- `export type CrewAttention = { byCrewKey: ReadonlyMap<string, ReactNode[]>; sectionTop: ReactNode[] }` (exported from `ShowReviewSurface.tsx`) — PRE-RENDERED nodes (the modal builds `<AttentionBanner>` elements; presentation stays dumb; staged mode passes nothing). Threading: `ShowReviewSurface` prop → crew section's `Step3SectionChromeContext` value (optional `crewAttention` field, conditional spread) → `CrewBreakdown` reads via `useContext(Step3SectionChromeContext)`. Row match: `crewAttention.byCrewKey.get(canonicalCrewKey(m.name))` rendered INSIDE that member's `<li>` after the row flex block; only the FIRST matching row hosts (track a consumed set while mapping); `sectionTop` nodes render above the `<ul>`. Unmatched byCrewKey entries are the MODAL's responsibility (Task 6 folds them into sectionTop before passing — CrewBreakdown never re-buckets).
 - `ChangeFeedEntry`: gate rows (`entry.action === "approve_reject" && entry.gate != null`) add `data-attention-anchor={`hold:${entry.gate.holdId}`}` to the root `<li>`.
 
 - [ ] **Step 1: Failing tests:**
   - `attentionSections: new Set(["crew"])` → crew rail dot classes flip to `bg-status-review` + sr text " — needs review" even with zero parse warnings; absent prop → hollow ring (assert both rail + chip dot testids `wizard-step3-card-<dfid>-review-rail-dot-crew` / `-chip-dot-crew`).
   - `attentionJump` change scrolls: stub scroller geometry (the existing surface test file shows the `scrollTo` stub idiom — reuse it), render an element with `data-attention-anchor="alert:a1"` inside the crew section, set prop `{itemId:"alert:a1", sectionId:"crew", nonce:1}` → `scroller.scrollTo` called, target carries `data-step3-warning-flash`; missing anchor → falls back to section scroll, no flash attribute anywhere; same-nonce re-render → no second scroll.
-  - `CrewBreakdown` attention: banner node renders inside the matching member's `<li>` (query `li` containing the member name, assert it contains the banner testid — clone-and-strip other rows per anti-tautology rule); duplicate names → only first `<li>` hosts; `sectionTop` nodes render before the `<ul>`; absent prop → DOM byte-identical (render with/without and diff `container.innerHTML`).
+  - `CrewBreakdown` attention (threaded via `ShowReviewSurface` `crewAttention` prop → chrome context; test renders the SURFACE with published-mode `SectionData`, not `CrewBreakdown` bare — exercises the real plumbing): banner node renders inside the matching member's `<li>` (query `li` containing the member name, assert it contains the banner testid — clone-and-strip other rows per anti-tautology rule); duplicate names → only first `<li>` hosts; `sectionTop` nodes render before the `<ul>`; absent prop → DOM byte-identical (render with/without and diff the crew section's `innerHTML`).
   - `ChangeFeedEntry` gate row carries `data-attention-anchor="hold:hold-1"`; non-gate rows carry none.
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement.** Jump effect in `ShowReviewSurface` (after `jumpToRoom`):
@@ -742,13 +840,14 @@ useEffect(() => {
 `CrewBreakdown` (keep presentation-only; note the consumed-set rule so duplicates host once):
 
 ```tsx
-{attention?.sectionTop && attention.sectionTop.length > 0 ? (
-  <div className="flex flex-col gap-2">{attention.sectionTop}</div>
+const { crewAttention } = useContext(Step3SectionChromeContext); // absent in staged mode
+{crewAttention?.sectionTop && crewAttention.sectionTop.length > 0 ? (
+  <div className="flex flex-col gap-2">{crewAttention.sectionTop}</div>
 ) : null}
 <ul className="flex flex-col">
   {shown.map((m, i) => {
     const key = canonicalCrewKey(m.name || "");
-    const banners = !consumed.has(key) ? attention?.byCrewKey.get(key) : undefined;
+    const banners = !consumed.has(key) ? crewAttention?.byCrewKey.get(key) : undefined;
     if (banners) consumed.add(key);
     return (
       <Fragment key={`${m.name}-${i}`}>
@@ -858,7 +957,7 @@ const overviewBanners = live.filter((i) => i.kind === "alert" && i.sectionId ===
   .map((i) => bannerFor(i, false));
 ```
 
-`overviewExtra.railBadge` count = `actionable.filter(i => i.sectionId === "overview").length`; `changesExtra` gains the same badge idiom with `actionable.filter(i => i.kind === "hold").length`. `OverviewSection` receives `alertSlot={<>{alertsDegraded ? <AlertsDegradedNotice /> : null}{overviewBanners}</>}` (`AlertsDegradedNotice` = the §3.2 copy-parity card, a tiny local component in the modal file). `CrewBreakdown` receives `attention={{ byCrewKey: crewByKey, sectionTop: crewSectionTop }}` — threaded via `SectionData`? NO: `CrewBreakdown` is rendered by the registry (`step3ReviewSections.tsx:3501-3520`). Thread via `Step3SectionChromeContext`? Neither — the registry's crew `render()` reads `SectionData`. Simplest compliant path: `ShowReviewSurface` accepts `crewAttention?: { byCrewKey: ReadonlyMap<string, ReactNode[]>; sectionTop: ReactNode[] }` and passes it through the crew section's chrome context; `CrewBreakdown` reads it from `Step3SectionChromeContext` (add optional field, default absent). VERIFY at implementation: if the crew registry entry can take extra props more directly, prefer that; the context field is the fallback. Either way the staged wizard passes nothing → byte-identical.
+`overviewExtra.railBadge` count = `actionable.filter(i => i.sectionId === "overview").length`; `changesExtra` gains the same badge idiom with `actionable.filter(i => i.kind === "hold").length`. `OverviewSection` receives `alertSlot={<>{alertsDegraded ? <AlertsDegradedNotice /> : null}{overviewBanners}</>}` (`AlertsDegradedNotice` = the §3.2 copy-parity card, a tiny local component in the modal file). Crew banners thread via the SINGLE mechanism Task 5 built: the modal passes `crewAttention={{ byCrewKey: crewByKey, sectionTop: crewSectionTop }}` to `ShowReviewSurface`, which injects it into the crew section's `Step3SectionChromeContext`; `CrewBreakdown` reads the context (Task 5 interface — no direct prop, no `SectionData` change). Staged wizard passes nothing → byte-identical.
 
 Loader (`_showReviewModal.tsx`): after the wave —
 
