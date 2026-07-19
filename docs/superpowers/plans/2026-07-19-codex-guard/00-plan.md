@@ -184,6 +184,23 @@ it("prompt above PROMPT_MAX_BYTES → usage error before any spawn", async () =>
   expect(res.code).toBe(2);
   expect(readCalls(run)).toHaveLength(0); // never spawned
 });
+
+it("classification throw preserves the attempt in wrapper_error history", async () => {
+  // Failure mode caught: runAttempt clears state.currentAttempt BEFORE classifyAttempt,
+  // so a classify-time throw (readFileSync on the -o path) drops the completed attempt
+  // from the exit-3 result. Deterministic trigger: a DIRECTORY at the -o path —
+  // existsSync passes, readFileSync throws EISDIR. No fixture change needed.
+  const run = mkRun();
+  mkdirSync(join(run.outDir, "attempt-1.last-message.txt"), { recursive: true }); // creates outDir too (mkRun leaves it to the guard); guard's own mkdirSync(out, {recursive:true}) tolerates the pre-made dir
+  writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]); // exits 0, never writes -o
+  const res = await runGuard(run, []);
+  expect(res.code).toBe(3);
+  const r = readResult(run);
+  expect(r.failureReason).toBe("wrapper_error");
+  expect(r.error).toContain("classification failed");
+  expect(r.attempts).toHaveLength(1);           // the attempt survived into history
+  expect(r.attempts[0]!.pid).not.toBeNull();    // recorded from the live child
+});
 ```
 
 and these strengthenings to A4's two tests:
@@ -254,6 +271,13 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   const child = spawn(cfg.bin.cmd, [...cfg.bin.leadingArgs, ...argvAfterExec], {
     cwd: cfg.cwd, detached: true, stdio: ["pipe", "pipe", "pipe"],
   });
+  // On a successful spawn, child.pid is set SYNCHRONOUSLY by spawn(); register the live
+  // attempt BEFORE the first await so a signal landing in the spawn-confirmation window
+  // can both kill (pid known) and record (currentAttempt set) it. On spawn failure pid
+  // is undefined and the error path below unregisters before throwing.
+  attempt.pid = child.pid ?? null;
+  state.liveChild = child;
+  state.currentAttempt = attempt; // live-attempt snapshot for onSignal (cleared on every exit path)
   // spawn failures surface via the async "error" event, NOT try/catch
   const spawnError = new Promise((res) => child.on("error", (e) => res(e)));
   const exited = new Promise((res) => child.on("exit", (code, signal) => res({ code, signal })));
@@ -264,13 +288,12 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     new Promise((res) => child.on("spawn", () => res({ kind: "spawned" }))),
   ]);
   if (first.kind === "error") {
+    state.currentAttempt = null;
+    state.liveChild = null;
     attempt.failureShape = "spawn_error";
     attempt.durationSecs = nowSecs() - t0;
     throw fail(`spawn failed: ${first.e.message}`);
   }
-  attempt.pid = child.pid ?? null;
-  state.liveChild = child;
-  state.currentAttempt = attempt; // live-attempt snapshot for onSignal (cleared before return)
 
   const tOut = createWriteStream(transcriptPath);
   const tErr = createWriteStream(stderrPath);
@@ -278,6 +301,8 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     tOut.on("error", (e) => rej(fail(`transcript write failed: ${e.message}`)));
     tErr.on("error", (e) => rej(fail(`stderr write failed: ${e.message}`)));
   });
+  let streamFailure = null;
+  streamErr.catch((e) => { streamFailure = e; }); // latch: also swallows post-race rejection
   child.stdout.pipe(tOut);
   child.stderr.pipe(tErr);
   // settle on finish OR error — an errored stream never emits "finish" (no deadlock)
@@ -303,14 +328,29 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   }
   await closed;      // stdio flushed
   await finished;    // files durable (or errored — settled either way)
-  state.liveChild = null;
-  state.currentAttempt = null;
+  // Late stream failure — child exited BEFORE/WITH the write-stream error, so the race
+  // above resolved on `exited` and never threw. Rethrow here: an attempt must never be
+  // classified (least of all as success) against a torn transcript/stderr file.
+  if (streamFailure) {
+    killGroup(child.pid, "SIGKILL"); // group hygiene — helpers may outlive the leader
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw streamFailure;
+  }
   attempt.exitCode = exitInfo.code;
   attempt.signal = exitInfo.signal;
   // NOTE: external_signal classification (exitInfo.signal !== null → killedReason) is
   // deliberately NOT set here — Task 7 adds that line when scenario 13 (its owning test) lands.
   attempt.durationSecs = nowSecs() - t0;
-  classifyAttempt(attempt);
+  try {
+    classifyAttempt(attempt);
+  } catch (e) {
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw fail(`classification failed: ${e.message}`); // fail() attaches attempt — history survives via e.attempt
+  }
+  state.liveChild = null;
+  state.currentAttempt = null; // cleared only AFTER classification — a classify throw still reaches history
   return attempt;
 }
 
@@ -388,13 +428,12 @@ it("scenario 12b: stderr-only periodic output resets clocks — no kill", async 
 
 - [ ] **Step 2: Run — expect FAIL** on 5, 6, 17a, 17b (12 may pass trivially — acceptable: it pins the non-kill).
 
-- [ ] **Step 3: Implement the poll loop inside `runAttempt`** — replace the `try { exitInfo = await Promise.race([exited, streamErr]); } catch ...` block with byte-counting listeners on BOTH streams (`child.stdout.on("data", c => { bytesOut += c.length; }); child.stderr.on("data", c => { bytesOut += c.length; })` alongside the pipes — pipes keep writing files; counters drive timers; §5 "no growth in either") and the §5 loop (kill-before-throw on stream failure preserved):
+- [ ] **Step 3: Implement the poll loop inside `runAttempt`** — replace ONLY the `try { exitInfo = await Promise.race([exited, streamErr]); } catch ...` block with byte-counting listeners on BOTH streams (`child.stdout.on("data", c => { bytesOut += c.length; }); child.stderr.on("data", c => { bytesOut += c.length; })` alongside the pipes — pipes keep writing files; counters drive timers; §5 "no growth in either") and the §5 loop (kill-before-throw on stream failure preserved). Task 3's `streamFailure` latch declaration AND its post-`finished` rethrow block stay untouched — the loop reuses the latch, and the rethrow still guards the child-exits-before-stream-error race:
 
 ```js
   let exitInfo = null;
   exited.then((v) => { exitInfo = v; });
-  let streamFailure = null;
-  streamErr.catch((e) => { streamFailure = e; });
+  // (streamFailure latch already declared in Task 3, next to streamErr)
 
   let firstByteAt = null, lastGrowthAt = t0, lastBytes = 0;
   while (exitInfo === null) {
@@ -953,11 +992,13 @@ process.exit(3);
 
 ```ts
 import { afterAll, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupRuns, mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
 
 afterAll(cleanupRuns);
+// (mkdirSync/writeFileSync serve the Task 3 Step 1 additions in this same file:
+//  composition tests + the classification-throw history test)
 
 describe("codex-guard happy path", () => {
   it("scenario 1: exact argv, stdin prompt, child cwd, result.json contract", async () => {
@@ -1364,7 +1405,7 @@ describe("codex-guard signals + spawn errors", () => {
 });
 ```
 
-(scenario 16 note: the signal handler snapshots `state.currentAttempt` — the live, not-yet-returned attempt — into the written attempts. Task 3's `runAttempt` sets `state.currentAttempt = attempt` after constructing it and clears it before returning; `onSignal` (Task 7) appends it when set. That is what makes `attempts.length >= 1` pass while attempt 1 is still live.)
+(scenario 16 note: the signal handler snapshots `state.currentAttempt` — the live, not-yet-returned attempt — into the written attempts. Task 3's `runAttempt` sets `state.currentAttempt = attempt` (and `state.liveChild`) SYNCHRONOUSLY after `spawn()`, before the first await, and clears both on every exit path — after `classifyAttempt` on the normal return, and immediately before each throw (throws carry the attempt via `fail()`); `onSignal` (Task 7) appends `currentAttempt` when set and not already in `attempts`. That is what makes `attempts.length >= 1` pass while attempt 1 is still live.)
 
 ### A9 — ladder internals (final shapes; Task 5 installs loop + retry, Task 6 installs cache, Task 7 installs resume)
 
@@ -1504,7 +1545,7 @@ async function main() {
 }
 ```
 
-(`runAttempt` — Task 3 body + Task 4 poll loop — additionally sets `state.currentAttempt = attempt` immediately after constructing `attempt` and clears it (`state.currentAttempt = null`) just before returning; `onSignal` (Task 7) includes `state.currentAttempt` in the written attempts when set. Imports consumed by A9's lock code: add `renameSync`, `rmSync`, `createWriteStream` (runner), `spawn` (`node:child_process`) as the owning tasks land.)
+(`runAttempt` — Task 3 body + Task 4 poll loop — additionally sets `state.currentAttempt = attempt` + `state.liveChild = child` synchronously after `spawn()` (before the first await — `child.pid` is set synchronously on success, so a signal in the spawn-confirmation window can kill AND record) and clears both on every exit path, with the normal-return clear happening only AFTER `classifyAttempt`; `onSignal` (Task 7) includes `state.currentAttempt` in the written attempts when set and not already present. Imports consumed by A9's lock code: add `renameSync`, `rmSync`, `createWriteStream` (runner), `spawn` (`node:child_process`) as the owning tasks land.)
 
 ### A10 — `composePrompt` (Task 3; complete)
 
