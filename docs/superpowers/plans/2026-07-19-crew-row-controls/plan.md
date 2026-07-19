@@ -109,7 +109,12 @@ const member = (name: string, phone: string | null, email: string | null): CrewM
 });
 
 const MEMBERS = [member("Alex Rodrigues", "5125550101", "alex@x.test"), member("Kari Rose", null, null)];
-const CREW_IDS = ["c1111111-1111-4111-8111-111111111111", "c2222222-2222-4222-8222-222222222222"];
+// Tuple type — indexing stays defined under noUncheckedIndexedAccess.
+const CREW_IDS = [
+  "c1111111-1111-4111-8111-111111111111",
+  "c2222222-2222-4222-8222-222222222222",
+] as const;
+const [ID_A, ID_B] = CREW_IDS;
 const ACTIONS = {
   showId: "11111111-2222-4333-8444-555555555555",
   slug: "test-show",
@@ -141,7 +146,7 @@ describe("mount gating (spec §4.1, §5)", () => {
     const mail = screen.getByLabelText("Email Alex Rodrigues");
     expect(mail.getAttribute("href")).toBe("mailto:alex@x.test");
     // No preview pill anywhere (moved into menu):
-    expect(screen.queryByTestId(`admin-show-preview-as-link-${CREW_IDS[0]}`)).toBeNull();
+    expect(screen.queryByTestId(`admin-show-preview-as-link-${ID_A}`)).toBeNull();
     // No banner infrastructure in ineligible mode (byte-identity):
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
@@ -155,8 +160,8 @@ describe("mount gating (spec §4.1, §5)", () => {
     expect(container.querySelector("button[aria-haspopup]")).toBeNull();
   });
   it("empty crewId gap renders no trigger for that row only", () => {
-    renderCrew({ ...ACTIONS, crewIds: [CREW_IDS[0], ""] });
-    expect(trigger(CREW_IDS[0])).toBeTruthy();
+    renderCrew({ ...ACTIONS, crewIds: [ID_A, ""] });
+    expect(trigger(ID_A)).toBeTruthy();
     expect(screen.queryByTestId(`crew-row-menu-button-`)).toBeNull();
   });
 });
@@ -164,8 +169,8 @@ describe("mount gating (spec §4.1, §5)", () => {
 describe("menu open/close + keyboard (spec §4.2)", () => {
   it("opens with first menuitem focused; ArrowDown/ArrowUp cycle; Home/End jump", async () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    const m = menu(CREW_IDS[0])!;
+    fireEvent.click(trigger(ID_A));
+    const m = menu(ID_A)!;
     const items = Array.from(m.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     expect(items.length).toBe(2); // Preview as + Reset name picker
     await vi.waitFor(() => expect(items[0]).toHaveFocus());
@@ -182,74 +187,74 @@ describe("menu open/close + keyboard (spec §4.2)", () => {
   });
   it("Preview as is a real link to the preview route with the preserved testid", () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    const link = screen.getByTestId(`admin-show-preview-as-link-${CREW_IDS[0]}`);
+    fireEvent.click(trigger(ID_A));
+    const link = screen.getByTestId(`admin-show-preview-as-link-${ID_A}`);
     expect(link.getAttribute("role")).toBe("menuitem");
-    expect(link.getAttribute("href")).toBe(`/admin/show/test-show/preview/${CREW_IDS[0]}`);
+    expect(link.getAttribute("href")).toBe(`/admin/show/test-show/preview/${ID_A}`);
   });
   it("menu has a role=separator divider", () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    expect(menu(CREW_IDS[0])!.querySelector('[role="separator"]')).toBeTruthy();
+    fireEvent.click(trigger(ID_A));
+    expect(menu(ID_A)!.querySelector('[role="separator"]')).toBeTruthy();
   });
   it("Escape closes and restores focus to the trigger", async () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    fireEvent.keyDown(menu(CREW_IDS[0])!, { key: "Escape" });
-    expect(menu(CREW_IDS[0])).toBeNull();
-    await vi.waitFor(() => expect(trigger(CREW_IDS[0])).toHaveFocus());
+    fireEvent.click(trigger(ID_A));
+    fireEvent.keyDown(menu(ID_A)!, { key: "Escape" });
+    expect(menu(ID_A)).toBeNull();
+    await vi.waitFor(() => expect(trigger(ID_A)).toHaveFocus());
   });
   it("Tab closes the menu (focus proceeds from trigger)", () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    fireEvent.keyDown(menu(CREW_IDS[0])!, { key: "Tab" });
-    expect(menu(CREW_IDS[0])).toBeNull();
+    fireEvent.click(trigger(ID_A));
+    fireEvent.keyDown(menu(ID_A)!, { key: "Tab" });
+    expect(menu(ID_A)).toBeNull();
   });
   it("backdrop click closes without reopening; single-open across rows", () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    expect(menu(CREW_IDS[0])).toBeTruthy();
+    fireEvent.click(trigger(ID_A));
+    expect(menu(ID_A)).toBeTruthy();
     // Backdrop covers everything incl. row B's trigger — a click closes only.
-    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${CREW_IDS[0]}`));
-    expect(menu(CREW_IDS[0])).toBeNull();
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${ID_A}`));
+    expect(menu(ID_A)).toBeNull();
     // Second click opens row B; row A stays closed (single openCrewId).
-    fireEvent.click(trigger(CREW_IDS[1]));
-    expect(menu(CREW_IDS[1])).toBeTruthy();
-    expect(menu(CREW_IDS[0])).toBeNull();
+    fireEvent.click(trigger(ID_B));
+    expect(menu(ID_B)).toBeTruthy();
+    expect(menu(ID_A)).toBeNull();
   });
   it("Space activates the focused menuitem (Preview-as Link closes the menu); Enter opens the confirm from Reset", async () => {
     renderCrew();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    const m = menu(CREW_IDS[0])!;
+    fireEvent.click(trigger(ID_A));
+    const m = menu(ID_A)!;
     const items = Array.from(m.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     await vi.waitFor(() => expect(items[0]).toHaveFocus());
     fireEvent.keyDown(m, { key: " " }); // Space on the Link — no native activation, handler clicks
-    expect(menu(CREW_IDS[0])).toBeNull();
-    fireEvent.click(trigger(CREW_IDS[0]));
-    const m2 = menu(CREW_IDS[0])!;
+    expect(menu(ID_A)).toBeNull();
+    fireEvent.click(trigger(ID_A));
+    const m2 = menu(ID_A)!;
     const items2 = Array.from(m2.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     items2[1]!.focus();
     fireEvent.keyDown(m2, { key: "Enter" });
-    expect(confirm(CREW_IDS[0])).toBeTruthy();
+    expect(confirm(ID_A)).toBeTruthy();
   });
   it("aria-expanded tracks open state", () => {
     renderCrew();
-    expect(trigger(CREW_IDS[0]).getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(trigger(CREW_IDS[0]));
-    expect(trigger(CREW_IDS[0]).getAttribute("aria-expanded")).toBe("true");
+    expect(trigger(ID_A).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger(ID_A));
+    expect(trigger(ID_A).getAttribute("aria-expanded")).toBe("true");
   });
 });
 
 describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
-  function openConfirm(id = CREW_IDS[0]) {
+  function openConfirm(id = ID_A) {
     fireEvent.click(trigger(id));
     fireEvent.click(screen.getByTestId(`crew-row-reset-item-${id}`));
   }
   it("Reset name picker swaps menu → confirm; Cancel focused (C3); warning wraps; CTA described by warning", async () => {
     renderCrew();
     openConfirm();
-    expect(menu(CREW_IDS[0])).toBeNull();
-    const c = confirm(CREW_IDS[0])!;
+    expect(menu(ID_A)).toBeNull();
+    const c = confirm(ID_A)!;
     expect(c.textContent).toContain("Alex Rodrigues will choose their name again on their next visit.");
     const warning = c.querySelector("p[id]")!;
     expect(warning.className).toMatch(/\bwrap-break-word\b/);
@@ -260,7 +265,7 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
   it("confirm Tab is a 2-stop trap Cancel ⇄ Confirm (never behind the backdrop)", async () => {
     renderCrew();
     openConfirm();
-    const c = confirm(CREW_IDS[0])!;
+    const c = confirm(ID_A)!;
     const cancel = screen.getByTestId("crew-row-reset-cancel");
     const go = screen.getByTestId("crew-row-reset-confirm-go");
     await vi.waitFor(() => expect(cancel).toHaveFocus());
@@ -273,9 +278,9 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     renderCrew();
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-cancel"));
-    expect(confirm(CREW_IDS[0])).toBeNull();
-    expect(menu(CREW_IDS[0])).toBeNull();
-    await vi.waitFor(() => expect(trigger(CREW_IDS[0])).toHaveFocus());
+    expect(confirm(ID_A)).toBeNull();
+    expect(menu(ID_A)).toBeNull();
+    await vi.waitFor(() => expect(trigger(ID_A)).toHaveFocus());
   });
   it("auto-revert closes the confirm after 4s and a stale Confirm cannot fire the action", () => {
     vi.useFakeTimers();
@@ -284,7 +289,7 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
       openConfirm();
       const go = screen.getByTestId("crew-row-reset-confirm-go");
       act(() => vi.advanceTimersByTime(4_000));
-      expect(confirm(CREW_IDS[0])).toBeNull();
+      expect(confirm(ID_A)).toBeNull();
       fireEvent.click(go); // detached node — must not fire
       expect(resetMock).not.toHaveBeenCalled();
     } finally {
@@ -298,27 +303,27 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
     // anti-tautology: expected ids come from the fixture, not literals repeated in the component
-    expect(resetMock).toHaveBeenCalledWith({ showId: ACTIONS.showId, crewMemberId: ACTIONS.crewIds[0] });
+    expect(resetMock).toHaveBeenCalledWith({ showId: ACTIONS.showId, crewMemberId: ID_A });
     const go = screen.getByTestId("crew-row-reset-confirm-go") as HTMLButtonElement;
     await vi.waitFor(() => expect(go.disabled).toBe(true));
     expect(go.textContent).toContain("Resetting…");
     expect(go.getAttribute("aria-busy")).toBe("true");
     expect((screen.getByTestId("crew-row-reset-cancel") as HTMLButtonElement).disabled).toBe(true);
     // Close paths inert while resolving — Esc, backdrop click, auto-revert timer:
-    fireEvent.keyDown(confirm(CREW_IDS[0])!, { key: "Escape" });
-    expect(confirm(CREW_IDS[0])).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${CREW_IDS[0]}`));
-    expect(confirm(CREW_IDS[0])).toBeTruthy();
+    fireEvent.keyDown(confirm(ID_A)!, { key: "Escape" });
+    expect(confirm(ID_A)).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${ID_A}`));
+    expect(confirm(ID_A)).toBeTruthy();
     // (Auto-revert timer was cleared on Confirm — advancing time must not close.)
     vi.useFakeTimers();
     try {
       act(() => vi.advanceTimersByTime(4_000));
-      expect(confirm(CREW_IDS[0])).toBeTruthy();
+      expect(confirm(ID_A)).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
     resolve({ ok: true });
-    await vi.waitFor(() => expect(confirm(CREW_IDS[0])).toBeNull());
+    await vi.waitFor(() => expect(confirm(ID_A)).toBeNull());
     expect(screen.getByTestId("crew-row-reset-ok").textContent).toContain(
       "Reset Alex Rodrigues. They'll pick again next visit.",
     );
@@ -336,7 +341,7 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(screen.getByTestId("crew-row-reset-error").getAttribute("role")).toBe("alert");
     // generic path
     resetMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    openConfirm(CREW_IDS[1]);
+    openConfirm(ID_B);
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
     await vi.waitFor(() =>
       expect(screen.getByTestId("crew-row-reset-error").textContent).toMatch(/Couldn't reset the picker/),
@@ -368,7 +373,7 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
     await vi.waitFor(() => expect(screen.getByTestId("crew-row-reset-ok")).toBeTruthy());
-    openConfirm(CREW_IDS[1]);
+    openConfirm(ID_B);
     expect(screen.queryByTestId("crew-row-reset-ok")).toBeNull();
   });
 });
@@ -1345,13 +1350,20 @@ function rowTrigger(page: Page, crewId: string) {
   return page.getByTestId(`crew-row-menu-button-${crewId}`);
 }
 
+/** noUncheckedIndexedAccess-safe seeded-crew id accessor. */
+function crewIdAt(index: number): string {
+  const row = show.crew[index];
+  if (!row) throw new Error(`seeded crew missing index ${index}`);
+  return row.id;
+}
+
 test.afterEach(async ({ page }) => {
   await signOut(page);
 });
 
 test("dimensional invariants: trigger 44×44 with 32×32 centered visual; menu flush right, 6px below cluster", async ({ page }) => {
   await openModal(page);
-  const crewId = show.crew[0].id;
+  const crewId = crewIdAt(0);
   const trigger = rowTrigger(page, crewId);
   await trigger.scrollIntoViewIfNeeded();
   const tb = (await trigger.boundingBox())!;
@@ -1388,7 +1400,7 @@ test("dimensional invariants: trigger 44×44 with 32×32 centered visual; menu f
 
 test("stacking contract: open-trigger click hits the backdrop and closes; second click reopens; other-row trigger also closes only", async ({ page }) => {
   await openModal(page);
-  const [a, b] = [show.crew[0].id, show.crew[1].id];
+  const [a, b] = [crewIdAt(0), crewIdAt(1)];
   await rowTrigger(page, a).scrollIntoViewIfNeeded();
   await rowTrigger(page, a).click();
   await expect(page.getByTestId(`crew-row-menu-${a}`)).toBeVisible();
@@ -1412,7 +1424,7 @@ test("stacking contract: open-trigger click hits the backdrop and closes; second
 
 test("Esc closes and restores focus to the trigger; backdrop click does not restore", async ({ page }) => {
   await openModal(page);
-  const crewId = show.crew[0].id;
+  const crewId = crewIdAt(0);
   await rowTrigger(page, crewId).scrollIntoViewIfNeeded();
   await rowTrigger(page, crewId).click();
   // first menuitem receives focus (poll — effect flush)
@@ -1436,7 +1448,7 @@ test("Esc closes and restores focus to the trigger; backdrop click does not rest
 
 test("scroll-edge: popover forced to open past the scrollport bottom is scrolled into view (scrollTop increases) and confirm is clickable", async ({ page }) => {
   await openModal(page);
-  const lastId = show.crew[show.crew.length - 1].id;
+  const lastId = crewIdAt(show.crew.length - 1);
   const scroller = page.locator('[data-testid$="-review-content"]').first();
   const triggerSel = `[data-testid="crew-row-menu-button-${lastId}"]`;
   await rowTrigger(page, lastId).scrollIntoViewIfNeeded();
@@ -1491,7 +1503,7 @@ test("scroll-edge: popover forced to open past the scrollport bottom is scrolled
 
 test("Preview as navigates to the impersonated preview route", async ({ page }) => {
   await openModal(page);
-  const crewId = show.crew[0].id;
+  const crewId = crewIdAt(0);
   await rowTrigger(page, crewId).scrollIntoViewIfNeeded();
   await rowTrigger(page, crewId).click();
   await page.getByTestId(`admin-show-preview-as-link-${crewId}`).click();
@@ -1500,7 +1512,7 @@ test("Preview as navigates to the impersonated preview route", async ({ page }) 
 
 test("confirm reset round-trips: success banner appears at the panel top", async ({ page }) => {
   await openModal(page);
-  const crewId = show.crew[1].id;
+  const crewId = crewIdAt(1);
   await rowTrigger(page, crewId).scrollIntoViewIfNeeded();
   await rowTrigger(page, crewId).click();
   await page.getByTestId(`crew-row-reset-item-${crewId}`).click();
@@ -1540,7 +1552,7 @@ git add -A && git commit --no-verify -m "test(admin): crew-row menu e2e green �
   - `per-show-panel/page.mdx:65`: "and a **Reset name picker** control (reset one crew member's pick, or everyone's)" → "and a **Reset everyone's pick** control (reset one crew member instead from that row's **⋮ menu** in the crew section)".
   - `per-show-panel/page.mdx:67`: "To preview the page as a specific crew member, use the [Preview as a crew member](#preview-as-crew-member) section above." → "To preview the page as a specific crew member, open that row's **⋮ menu** and choose **Preview as** (see the [Preview as a crew member](#preview-as-crew-member) section above)."
   - `preview-as-crew/page.mdx:5`: "and the **Preview as** action drops you onto their crew page" → "and the **Preview as** action in the row's **⋮ menu** drops you onto their crew page".
-- [ ] **Step 2: Verify no stale references**: `rg -n "Preview as. link|Preview as. button" app/help` → no hits. Then run the help e2e explicitly (h1s unchanged, but the spec walks these pages): `pnpm exec playwright test --project=mobile-safari tests/e2e/help-pages.spec.ts` → PASS.
+- [ ] **Step 2: Verify no stale references**: `rg -n "Preview as[*_ ]*(link|button)" app/help` → no hits (pattern tolerates `**Preview as** link` markdown emphasis). Then run the help e2e explicitly (h1s unchanged, but the spec walks these pages): `pnpm exec playwright test --project=mobile-safari tests/e2e/help-pages.spec.ts` → PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
