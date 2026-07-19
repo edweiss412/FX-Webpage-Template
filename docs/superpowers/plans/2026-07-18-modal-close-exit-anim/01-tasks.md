@@ -180,7 +180,7 @@ This task ships the guards WITHOUT the animation — in jsdom `matchMedia` is ab
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/components/admin/review/reviewModalShell.test.tsx`:
+Append to `tests/components/admin/review/reviewModalShell.test.tsx`. **Check the file's existing imports first** — it does not currently import `userEvent`; add `import userEvent from "@testing-library/user-event";` (and `fireEvent` from `@testing-library/react`, needed in Task 3) if absent, or the red step fails to compile for a reason unrelated to the behavior under test.
 
 ```tsx
 describe("requestClose guards (spec §3.1)", () => {
@@ -464,9 +464,10 @@ git commit --no-verify -m "feat(admin): mode-aware modal exit animation with sna
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/admin/review/ReviewModalShell";
 import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
 
 describe("ShowReviewModalSkeleton dual usage (spec §3.4)", () => {
@@ -650,6 +651,26 @@ const CONSUMERS = [
   "components/admin/wizard/Step3ReviewModal.tsx",
 ];
 
+/** Brace-match a function body. A `slice(indexOf(decl))` + `indexOf("\n}")`
+ *  scan does NOT work here: these are indented nested functions, so the closing
+ *  brace is "\n  }" and the search returns -1 — leaving `body` as the rest of
+ *  the FILE, which lets a required token be satisfied from unrelated code while
+ *  the function under test is missing its guard entirely. */
+function bodyOf(src: string, decl: string): string {
+  const start = src.indexOf(decl);
+  if (start < 0) throw new Error(`${decl} not found in shell`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces scanning ${decl}`);
+}
+
 describe("structural guards (spec §7.6)", () => {
   // Failure mode: a new close site calls onClose() directly, creating a second
   // un-animated path that races the exit. Behavioral tests cannot cover a
@@ -727,8 +748,11 @@ describe("structural guards (spec §7.6)", () => {
   // Failure mode: clearPanelDragStyles loses its guard and a pending settle
   // blanks the exit styles mid-animation.
   it("clearPanelDragStyles early-returns while dismissing", () => {
-    const body = SHELL_SRC.slice(SHELL_SRC.indexOf("function clearPanelDragStyles"));
-    expect(body.slice(0, 200)).toContain("if (dismissingRef.current) return;");
+    // Same brace-matching rationale as above — a slice-to-"\n}" scan reads the
+    // rest of the file and would pass on a guard living in some other function.
+    expect(bodyOf(SHELL_SRC, "function clearPanelDragStyles")).toContain(
+      "if (dismissingRef.current) return;",
+    );
   });
 
   // Failure mode: an affordance is silently reverted to a bare onClose during a
@@ -745,8 +769,7 @@ describe("structural guards (spec §7.6)", () => {
   // Failure mode: a guard is dropped and the failure is invisible until a user
   // hits the compound case in production.
   it("every §3.1 guard is present", () => {
-    const fn = SHELL_SRC.slice(SHELL_SRC.indexOf("function requestClose"));
-    const body = fn.slice(0, fn.indexOf("\n}"));
+    const body = bodyOf(SHELL_SRC, "function requestClose");
     expect(body).toContain("closeAffordancesDisabled"); // step 0
     expect(body).toContain("dismissingRef.current) return"); // step 1
     expect(body).toContain("dragRef.current"); // step 2
@@ -790,7 +813,7 @@ git commit --no-verify -m "test(admin): structural guards for close path, motion
 
 - **Deferred, test-controlled promises** for `onRequestSetChecked` and the resolution handlers (`onApplyResolve`, the ignore path) — resolve them from the spec via an exposed `window.__resolveAction(name)` rather than a timer, so "inside the exit window" vs "after exit-end" is deterministic rather than racing a `waitForTimeout`.
 - **The resolution variant mounted** via the existing `harnessResolution()` when the param requests it.
-- **Counters, not booleans:** `window.__closeCount` (increment per `onClose`) and `window.__actionCount`. The existing `window.__modalClosed` boolean (`:17-20`) cannot distinguish one close from two — and "exactly once" is the whole assertion in (g)/(h).
+- **Counters AND a timestamp:** `window.__closeCount` (increment per `onClose`), `window.__actionCount`, and `window.__closeAt = performance.now()` set in `onClose` — the finish-source assertion needs ordering, which a count cannot express. The existing `window.__modalClosed` boolean (`:17-20`) cannot distinguish one close from two — and "exactly once" is the whole assertion in (g)/(h).
 
 **Config:** the Step3 spec runs under `tests/e2e/standalone.config.ts` (`:17`); the published spec runs under the app Playwright config. Run them separately — do not assume one invocation covers both.
 
@@ -846,26 +869,38 @@ Each case asserts: ≥2 distinct intermediate values, strict progression toward 
 
 Observe it entirely **test-side**, with two requirements that are easy to get wrong:
 
-**(i) Arm the listener at dismiss time, in the same evaluation that triggers the dismissal.** A listener installed earlier with `{ once: true }` can be consumed by a *different* transform transition — the spring-back's own transition in case (e), or the entrance in (f) — recording a `__exitEnd` that a later fallback-timer close still satisfies. That would silently defeat the check. Stamp a dismiss marker and ignore any `transitionend` before it:
+**(i) Gate the listener on an observable dismiss-start marker, not a timestamp.** A listener armed before the dismissal can be consumed by a *different* transform transition — the spring-back's own transition in case (e), the entrance in (f) — and a `performance.now()` stamp does not fix it: those transitions can END after the stamp but before the close actually begins, setting `__exitEnd` and letting a fallback-timer close still satisfy the ordering.
+
+Use the DOM state the shell itself sets at dismiss-commit. `beginDismiss()` puts `inert` on the `role="dialog"` element BEFORE any exit style is applied (spec §3.1 step 3), so `dialog[inert]` is a marker guaranteed to precede the exit transition and to be absent during entrance and spring-back. It works identically for all five affordances, including drag (which reaches `beginDismiss` through its own branch):
+
+`DIALOG` does not exist in either spec yet — define it alongside the existing selector consts (`MODAL_ANY` at `published-review-modal.interactions.spec.ts:53`):
 
 ```ts
-await page.evaluate((panelSel) => {
-  const el = document.querySelector(panelSel);
-  const w = window as unknown as { __dismissAt?: number; __exitEnd?: number | null; __closeAt?: number | null };
-  w.__dismissAt = performance.now();
-  w.__exitEnd = null;
-  const onEnd = (ev: Event) => {
-    const te = ev as TransitionEvent;
-    if (te.propertyName !== "transform") return;
-    // Ignore anything that started before this dismissal (spring-back, entrance).
-    if (performance.now() < (w.__dismissAt ?? 0)) return;
-    if (w.__exitEnd === null) w.__exitEnd = performance.now();
-    el?.removeEventListener("transitionend", onEnd);
-  };
-  el?.addEventListener("transitionend", onEnd);
-}, PANEL);
-// ...then trigger the dismissal (Esc / click / drag) in the NEXT step.
+const DIALOG = '[role="dialog"]';
 ```
+
+```ts
+await page.evaluate(
+  ({ panelSel, dialogSel }) => {
+    const el = document.querySelector(panelSel);
+    const dialog = document.querySelector(dialogSel);
+    const w = window as unknown as { __exitEnd?: number | null; __closeAt?: number | null };
+    w.__exitEnd = null;
+    el?.addEventListener("transitionend", (ev) => {
+      const te = ev as TransitionEvent;
+      if (te.target !== el || te.propertyName !== "transform") return;
+      // Only count transitions that end while the dismiss is committed. The
+      // entrance and the spring-back both run with the dialog NOT inert, so
+      // neither can be mistaken for the exit.
+      if (!dialog?.hasAttribute("inert")) return;
+      if (w.__exitEnd === null) w.__exitEnd = performance.now();
+    });
+  },
+  { panelSel: PANEL, dialogSel: DIALOG },
+);
+```
+
+Leave the listener attached (no `{ once: true }`) — the `inert` gate, not consumption order, is what selects the right event.
 
 **(ii) Timestamp the close from the real page, not from a harness the spec never loads.** `published-review-modal.interactions.spec.ts` drives the **real app** at `/admin?show=<slug>` (`:100`) — `tests/e2e/_publishedReviewModalHarness.tsx` serves only `published-review-modal.layout.spec.ts`, so adding a `window.__closeAt` there would give these tests nothing. Observe the unmount from the page instead:
 
@@ -887,7 +922,7 @@ await page.evaluate((panelSel) => {
 
 Then assert **both**: `__exitEnd` is non-null (a real post-dismiss transform transition completed), and `__closeAt >= __exitEnd`. Assert on the source, never on elapsed time alone.
 
-For the **Step3** cases the harness counters from the prerequisites above already give a close timestamp — use those rather than a second observer.
+For the **Step3** cases, counters alone cannot order close against `__exitEnd` — add `window.__closeAt = performance.now()` inside the live entry's `onClose` alongside `__closeCount`, and assert against that. Counters answer how many; the ordering assertion needs when.
 
 **Mandatory precondition for every "Approve & apply" case — (b), (g), (h).** `harnessResolution()` includes a tier-3 radio item, and Step3 disables *Approve & apply* until every resolution item has a choice. A test that clicks a **disabled** button during the exit window observes "handler not invoked" and passes — even if `inert` and the whole suppression contract were broken. So before any close/timing sequence:
 
