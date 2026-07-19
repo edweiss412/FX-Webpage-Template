@@ -124,6 +124,11 @@ describe("mount gating (spec §4.1, §5)", () => {
     // No banner infrastructure in ineligible mode (byte-identity):
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
+  it("empty crew renders only the empty state — no banner infrastructure even when enabled", () => {
+    const { container } = renderCrew({ ...ACTIONS, crewIds: [] }, []);
+    expect(screen.getByText("No crew parsed.")).toBeTruthy();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
   it("enabled:false renders no trigger", () => {
     const { container } = renderCrew({ ...ACTIONS, enabled: false });
     expect(container.querySelector("button[aria-haspopup]")).toBeNull();
@@ -278,9 +283,19 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(go.textContent).toContain("Resetting…");
     expect(go.getAttribute("aria-busy")).toBe("true");
     expect((screen.getByTestId("crew-row-reset-cancel") as HTMLButtonElement).disabled).toBe(true);
-    // Close paths inert while resolving:
+    // Close paths inert while resolving — Esc, backdrop click, auto-revert timer:
     fireEvent.keyDown(confirm(CREW_IDS[0])!, { key: "Escape" });
     expect(confirm(CREW_IDS[0])).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${CREW_IDS[0]}`));
+    expect(confirm(CREW_IDS[0])).toBeTruthy();
+    // (Auto-revert timer was cleared on Confirm — advancing time must not close.)
+    vi.useFakeTimers();
+    try {
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(confirm(CREW_IDS[0])).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
     resolve({ ok: true });
     await vi.waitFor(() => expect(confirm(CREW_IDS[0])).toBeNull());
     expect(screen.getByTestId("crew-row-reset-ok").textContent).toContain(
@@ -688,10 +703,12 @@ export function CrewBreakdown({
       label="Crew"
       count={members.length}
     >
-      {actions?.enabled ? (
+      {actions?.enabled && members.length > 0 ? (
         <>
           {/* PCR-1 banner pair (PickerResetControl.tsx:199-238): persistent sr-only
-              polite region announces success; visible banners are decorative/alert. */}
+              polite region announces success; visible banners are decorative/alert.
+              Gated on non-empty crew too — an empty section renders ONLY
+              "No crew parsed." with no banner state (spec §5). */}
           <div className="sr-only" role="status" aria-live="polite">
             {outcome?.kind === "ok" ? outcome.message : ""}
           </div>
@@ -1045,12 +1062,29 @@ test.afterAll(async () => {
   if (restoreDashboardState) await restoreDashboardState();
 });
 
+const BASE = "published-show-review";
+const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
+// LOADED modal only (skeleton twin renders no title node) — see
+// published-review-modal.interactions.spec.ts:50-63.
+const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
+
 async function openModal(page: Page) {
   await signInAs(page, ADMIN_FIXTURE);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/admin?show=${show.slug}`);
-  await expect(page.locator("[data-review-modal-panel]")).toBeVisible({ timeout: 30_000 });
+  // Mirror published-review-modal.interactions.spec.ts:104-120 — loaded frame
+  // visible, skeleton twin gone, and the shell's effect-driven initial focus
+  // landed (proves the passive-effect flush; synthetic gestures before that
+  // are silently lost).
+  await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(MODAL_ANY)).toHaveCount(1);
+  await expect
+    .poll(
+      () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+      { message: "loaded modal's effect flush completed (initial focus applied)" },
+    )
+    .toBe(`${BASE}-close`);
 }
 
 function rowTrigger(page: Page, crewId: string) {
