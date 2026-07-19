@@ -50,7 +50,7 @@ ratified non-control exception — the Live-now indicator (§4.2).
 
 ## 3. Live-code citation pass
 
-Verified against the worktree at `origin/main` = `fbef2cbf5`, 2026-07-18.
+Verified against the worktree at `origin/main` = `91149861a`, 2026-07-18. Every line number below was RE-verified after rebasing onto that commit — a rebase can shift them, so treat a stale base hash as a reason to re-run the citation pass, not a formality.
 
 | Claim | Verified at |
 | --- | --- |
@@ -175,9 +175,22 @@ therefore stated precisely:
 header region" is doubly wrong: it would MISS the live dot (which is
 `bg-status-live`, a different class resolving to the same color) and it would
 have no way to catch a future third orange. The test must instead enumerate the
-accent-resolving elements in the region and assert the set is EXACTLY
-{publish toggle, live dot} — so a third one fails, and so removing the exception
-later is a deliberate edit rather than a silent drift.
+accent-resolving elements in the region and assert the set matches EXACTLY — so a
+third one fails, and removing the exception later is a deliberate edit rather
+than silent drift.
+
+**The expected set is state-dependent.** A single happy-path fixture would pin
+only one row of this table and let a new orange slip into any other state, so all
+three rows are asserted:
+
+| State | Expected accent-resolving set | Why |
+| --- | --- | --- |
+| `!archived`, `isLive: true` | {publish toggle, live dot} | Both render (`StatusStrip.tsx:202-211`, `:221-225`) |
+| `!archived`, `isLive: false` | {publish toggle} | Live badge is gated on `isLive`; asserting the live dot here would fail correctly |
+| `archived: true` | {} — **empty** | Archived renders the archived badge instead of the toggle (`:194-201`) and suppresses the live badge (`:221`). No orange at all |
+
+The archived row is the strongest of the three: it is the only state that proves
+the assertion is measuring rather than matching a hardcoded expectation.
 
 ### 4.3 RATIFIED AMENDMENT — resync moves to the strip
 
@@ -300,10 +313,22 @@ change removes, at exactly the moment the user is watching the header. The
 skeleton is the *only* thing on screen during that window, so the regression is
 maximally visible.
 
-Required: move the skeleton's strip placeholder out of its header into a
-`subHeader` band whose height and seam match the loaded modal's, so the
-header→subheader boundary does not shift when the real content replaces it.
-Pinned by T-SKELETON-BANDS (§11).
+Required, BOTH parts — the strip move alone is not sufficient:
+
+1. **Move the strip placeholder** out of the skeleton's header into a `subHeader`
+   band whose height and seam match the loaded modal's.
+2. **Add a subline placeholder row** to the skeleton's header. The loaded header
+   gains a client/date subline (§6.3) that the skeleton has no counterpart for
+   today (`ShowReviewModalSkeleton.tsx:44-64` renders a title bar + close only).
+   Without it the skeleton header is one line shorter than the loaded one, so the
+   header→subheader boundary jumps downward the instant content streams in —
+   the same class of snap the strip move exists to prevent, just on the other
+   axis.
+
+Both are pinned by T-SKELETON-BANDS (§11), which compares the skeleton's header
+AND subheader heights to the loaded modal's rather than merely asserting the band
+exists. A test that only checks for the presence of a `-subheader` element would
+pass with a one-line header and still snap.
 
 ### 6.2 `PublishedReviewModal` — header slot
 
@@ -768,7 +793,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-STATUS-ERROR-BUCKET | non-`ok` status → health label + bucket-colored dot, NOT "Synced …" | Hardcoding the mock's happy-path "Synced just now" |
 | T-COPY-OUTLINE | Strip copy button has the outline classes, visible "Copy crew link", no conflicting `aria-label`; scoped to `strip-copy-link` | Restyling the shared accent arm (F3); asserting the share-panel button by mistake |
 | T-COPY-ACCENT-UNCHANGED | `CurrentShareLinkPanel`'s button keeps the accent arm | F3 regression |
-| T-NO-ORANGE | Accent-resolving elements in the header region are EXACTLY {publish toggle, live dot} — enumerated, not a `bg-accent` absence check (§4.2) | Delta 4 silently reverting; and a `bg-accent`-only assertion that misses `bg-status-live`, which resolves to the same hue |
+| T-NO-ORANGE | Accent-resolving elements in the header region match the EXACT expected set **for each of the three states in §4.2's table** — enumerated, not a `bg-accent` absence check | Delta 4 silently reverting; a `bg-accent`-only assertion that misses `bg-status-live` (same hue, different class); and a single-fixture test that pins only the live happy path |
 | T-ARCHIVED-BAND | `archived` → band renders with archived badge, no toggle/copy/live | Empty or missing band in read-only mode |
 | T-NO-H1 | No `<h1>` in the dialog (existing, must still pass) | Dead `<h1>` branch resurrected |
 | T-COUNTS | `pageTransitions` counts: `StatusStrip` **7**, `PublishedReviewModal` **3**, `OverviewSection` **4 (unchanged)** — each verified by running the scan, not by reasoning (§9) | Undocumented new conditional mount; or a literal edited to green a red test |
