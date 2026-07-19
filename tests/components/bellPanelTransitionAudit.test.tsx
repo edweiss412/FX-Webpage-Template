@@ -1,29 +1,27 @@
 // @vitest-environment jsdom
 /**
- * WI-5 transition audit (spec §6 Transition Inventory).
+ * BellPanel transition audit (spec §6 Transition Inventory).
  *
- * The only animated surface added by this pass is the chevron-hint banner, and
- * its treatment is INSTANT (no AnimatePresence / exit): dismiss removes it in the
- * same tick, its mount is silent (no entrance animation). The message-block /
- * <ul> toggles are instant conditional renders. Compound: dismissing the banner
- * is independent of a row's read state.
+ * Every conditional surface in the panel body is an INSTANT conditional render —
+ * no AnimatePresence, no framer exit. (The WI-5 chevron-hint banner, the one
+ * surface this audit was originally written for, was removed: a self-referential
+ * "now opens its show page" onboarding note goes stale the moment it ships. The
+ * chevron affordance itself is unchanged.)
  *
- * jsdom is sufficient for prop-presence / instant-removal; the geometry
- * (no-overlap, tap-target, in-flow non-clip) lives in the real-browser layout
+ * jsdom is sufficient for prop-presence / instant-render; the geometry
+ * (right-flush columns, tap-target, no-overflow) lives in the real-browser layout
  * spec (tests/e2e/bell-panel-layout.spec.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
-import { __resetDismissMemory } from "@/components/admin/useDismissibleOnce";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
   window.localStorage.clear();
-  __resetDismissMemory();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -74,42 +72,41 @@ function renderPanel(entries: BellEntry[]) {
   return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />);
 }
 
-describe("WI-5 transition audit", () => {
-  it("BellPanel source uses NO AnimatePresence / framer exit for the hint (instant is deliberate)", () => {
+describe("BellPanel transition audit", () => {
+  it("BellPanel source uses NO AnimatePresence / framer exit (instant is deliberate)", () => {
     const src = readFileSync(join(process.cwd(), "components/admin/BellPanel.tsx"), "utf8");
     expect(src).not.toContain("AnimatePresence");
     expect(src).not.toContain("framer-motion");
   });
 
-  it("dismiss removes the banner in the same tick, no error, no exit animation", async () => {
+  it("the removed WI-5 chevron-hint banner does not come back", async () => {
+    const src = readFileSync(join(process.cwd(), "components/admin/BellPanel.tsx"), "utf8");
+    expect(src).not.toContain("bell-chevron-hint");
+    expect(src).not.toContain("useDismissibleOnce");
     renderPanel([makeEntry({ alertId: "c1", slug: "east-coast", unread: true })]);
-    const dismiss = await screen.findByTestId("bell-chevron-hint-dismiss");
-    expect(() => fireEvent.click(dismiss)).not.toThrow();
-    // Instant removal — no waitFor needed.
+    await waitFor(() => expect(screen.getByTestId("bell-entry-c1")).toBeTruthy());
     expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   });
 
-  it("compound: dismissing the banner leaves a row's unread read-state unaffected", async () => {
-    renderPanel([makeEntry({ alertId: "c1", slug: "east-coast", unread: true })]);
-    const dismiss = await screen.findByTestId("bell-chevron-hint-dismiss");
-    expect(screen.getByTestId("bell-entry-c1").getAttribute("data-unread")).toBe("true");
-    fireEvent.click(dismiss);
-    // The row keeps its unread state — the banner dismiss touched only the hint.
-    expect(screen.getByTestId("bell-entry-c1").getAttribute("data-unread")).toBe("true");
+  it("chevron slot is reserved exactly once per row, whichever branch renders", async () => {
+    renderPanel([
+      makeEntry({ alertId: "withSlug", slug: "east-coast" }),
+      makeEntry({ alertId: "noSlug", slug: null }),
+    ]);
+    await waitFor(() => expect(screen.getByTestId("bell-entry-noSlug")).toBeTruthy());
+    // Chevron-present row: real link, no reserved spacer.
+    expect(screen.getByTestId("bell-caret-withSlug")).toBeTruthy();
+    expect(screen.queryByTestId("bell-caret-slot-withSlug")).toBeNull();
+    // Chevron-absent row: spacer stands in, and it is out of the a11y tree so the
+    // reservation never reads as an interactive affordance.
+    expect(screen.queryByTestId("bell-caret-noSlug")).toBeNull();
+    const slot = screen.getByTestId("bell-caret-slot-noSlug");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.textContent).toBe("");
   });
 
-  it("message-block / <ul> are instant conditional renders (role=note banner, no motion attrs)", async () => {
-    renderPanel([makeEntry({ alertId: "c1", slug: "east-coast" })]);
-    const banner = await screen.findByTestId("bell-chevron-hint");
-    expect(banner.getAttribute("role")).toBe("note");
-    // No framer-motion runtime attributes on the banner.
-    expect(banner.getAttribute("data-projection-id")).toBeNull();
-    expect(banner.style.opacity).toBe("");
-  });
-
-  it("banner absent on empty list; no crash", async () => {
+  it("empty list renders the empty state; no crash", async () => {
     renderPanel([]);
     await waitFor(() => expect(screen.getByTestId("bell-empty")).toBeTruthy());
-    expect(screen.queryByTestId("bell-chevron-hint")).toBeNull();
   });
 });

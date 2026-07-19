@@ -24,7 +24,7 @@ Six work items (WI). WI-1 (row restructure) is the structural enabler: moving th
 | WI-2 | Learn-more inline-append | `components/admin/BellPanel.tsx` | screenshot ask |
 | WI-3 | Identity-tier bold at render | `components/messages/renderEmphasis.tsx`, `components/admin/BellPanel.tsx` | `ALERT-COPY-IDENTITY-BOLD-1` |
 | WI-4 | Multi-change real `<ul>` + tail drop + em-dash sweep | `lib/adminAlerts/deriveMessageParams.ts`, `components/admin/BellPanel.tsx` | `ALERT-MULTI-CHANGE-TONE-1` |
-| WI-5 | Chevron one-time dismissible hint | `components/admin/BellPanel.tsx` (+ small client hook) | `ALERT-CHEVRON-HINT-1` |
+| ~~WI-5~~ (removed post-ship) | ~~Chevron one-time dismissible hint~~ | `components/admin/BellPanel.tsx` (+ small client hook) | `ALERT-CHEVRON-HINT-1` |
 | WI-6 | PerShow link tap-target parity | `components/admin/PerShowAlertSection.tsx` | `PERSHOW-LINK-TAPTARGET-1` |
 
 ---
@@ -83,7 +83,11 @@ Six work items (WI). WI-1 (row restructure) is the structural enabler: moving th
 
 **Guard conditions:**
 - Message TEXT renders only when `message && messageResolved`; but the message-block WRAPPER renders when `((message && messageResolved) || helpHref)` (see WI-2 — the wrapper also hosts the inline Learn-more, so it must survive a suppressed message when `helpHref` exists). The block is omitted only when BOTH resolved message text AND `helpHref` are absent. Header + chip + timestamp + chevron always render independently of the block.
-- `entry.slug === null`: no chevron (and no WI-5 hint); right-group is rightmost, flush to content right edge.
+- `entry.slug === null`: no chevron. **Amended 2026-07-18 (post-ship):** the row now renders an `aria-hidden`
+  spacer of the chevron's exact width (`size-tap-min`, testid `bell-caret-slot-${alertId}`) in the chevron's
+  place, so the right-group lands on the SAME right edge as a chevron-present row's. The original
+  "right-group is rightmost, flush to content right edge" rule shipped two ragged timestamp columns
+  (chevron rows ~52px left of chevron-less rows); column alignment supersedes per-row flush.
 - Title always present (non-null invariant of the feed row).
 
 ### WI-2 — Learn-more inline-append
@@ -145,6 +149,13 @@ BellPanel passes `identityKeys={BELL_BOLD_IDENTITY_TOKENS}` (the narrow name-onl
 - Non-`ROLE_FLAGS_NOTICE` codes: ordinary path (no `<ul>`).
 
 ### WI-5 — Chevron one-time dismissible hint
+
+> **REMOVED 2026-07-18 (post-ship amendment).** The banner shipped, then read as noise: a
+> self-referential "the chevron now opens its show page" note is stale the moment the behavior stops
+> being new, and it costs a permanent row of panel height plus a `localStorage` key to say so. The
+> chevron affordance itself (WI-1/§4.1) is UNCHANGED. `components/admin/useDismissibleOnce.ts` and
+> `tests/components/bellChevronHint.test.tsx` were deleted with it; the jsdom transition audit pins its
+> absence. Everything below is retained as the historical record of what was built.
 
 Chevron behavior changed expand→navigate (PR #472). Add a one-time dismissible hint for returning sighted users. Shown only until dismissed, on the **first** `ActiveRow` that has a chevron. Persist dismissal in `localStorage` under key `fxav:bell-chevron-hint:v1` (client-only; SSR renders nothing until mounted to avoid hydration mismatch).
 
