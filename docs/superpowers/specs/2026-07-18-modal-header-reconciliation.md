@@ -522,11 +522,23 @@ After this change the strip's conditionals are: `archived` / `control-divider` /
 `live` / `sync` / `edited` / `re-sync` / `copy-link` = **7**. (`renderTitle`
 deleted §6.5; `alert` relocated §6.6; `re-sync` added §4.2 — it is conditional on
 `!archived`.) `PublishedReviewModal.tsx`'s count moves from **1** (sheet-link) to
-**3** (sheet-link, subline client entry, alert pill). `OverviewSection.tsx` moves
-from **4** (`share / sheet-sync / open-sheet / archive-row`) to **3** — the
-`sheet-sync` head keeps its archived/warnings branching but loses the button arm;
-confirm the exact post-change count against the source rather than assuming, and
-update the literal to whatever the enumeration actually yields.
+**3** (sheet-link, subline client entry, alert pill).
+
+`OverviewSection.tsx` **stays at 4** — do NOT change its literal. The counter is a
+purely lexical source scan (`pageTransitions.test.tsx:102-112`) matching the
+ternary HEAD line, and chained arms are explicitly NOT counted separately
+(`:116-117`). Overview's `sheet-sync` head is `{archived ? (` at
+`OverviewSection.tsx:127`; the Re-sync move deletes the BUTTON from that
+ternary's arms, not the head, so the head still matches and the count is
+unchanged. Today's four hits are `:110` (`isCrewLinkActive`), `:127` (`archived`),
+`:138` (`openSheetHref`), `:158` (`archived`).
+
+**Enumeration is lexical, not semantic.** Verify every post-change count by
+running the scan over the actual source, never by reasoning about which
+components mount. A count that "should" move but doesn't (or vice versa) means
+the edit landed differently than assumed — investigate before touching the
+literal. Editing a count literal to make a red test green, without confirming the
+enumeration, defeats the pin's entire purpose.
 
 **These count literals MUST be updated in the same commit as the source change** —
 the pin fails-by-default, which is the intent.
@@ -646,7 +658,7 @@ Declared per AGENTS.md writing-plans rules.
 | 44px | tap floor (`size-tap-min` / `min-h-tap-min`) | §4.1, §6.6, §8, §11 T-TAP |
 | 8 → 7 | `StatusStrip.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 1 → 3 | `PublishedReviewModal.tsx` conditional-mount pin | §9, §11 T-COUNTS |
-| 4 → 3 (verify) | `OverviewSection.tsx` conditional-mount pin | §9, §11 T-COUNTS |
+| 4 → 4 (unchanged) | `OverviewSection.tsx` conditional-mount pin | §9, §11 T-COUNTS |
 | 2 → 3 | strip action budget (amended ceiling) | §4.2 |
 | 3px | subline + status bullet separators | §6.3, §7, §8 |
 | 8px (`size-2`) | alert pill dot | §6.6 |
