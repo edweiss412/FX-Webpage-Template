@@ -120,6 +120,8 @@ In `navigate` mode, `requestClose` step 5 fires `startNavigation(() => onClose()
 
 **What this deletes outright:** `CLOSE_NAV_TIMEOUT_MS` and its timer, the 15-row rollback inverse table's timer rows, the three-condition screen-ownership guard, the post-release `pointerdown`/`keydown`/`focusin` activity tracking, and every listener/snapshot/cleanup those required. The entire R21–R25 defect class is removed rather than re-guarded.
 
+> **⚠ BLOCKING PREREQUISITE — §3.1d is UNRATIFIED until the spike passes (Codex R27).** The premise below — that `navPending` goes `false` while the component stays mounted when a close navigation fails — is **not a documented App Router contract**, and reading Next 16.2.4's client source shows failure paths are not uniform: some resolve to current state, but an RSC fetch failure can fall back to **MPA navigation**, where the router intentionally suspends until unload. On those paths `releaseOverlay()` would hide the dialog and outcome 3 would never be reached, recreating the hidden-unretryable regression this section exists to eliminate. A spike against real Next 16.2.4 MUST prove all four cases settle-while-mounted before this design is ratified: **(1)** push resolving with no route change, **(2)** aborted RSC, **(3)** offline, **(4)** MPA fallback. If any case fails, **stop and escalate** — revise §3.1d around the measured behavior. A timeout fallback is explicitly forbidden: it reinstates the R21–R25 defect class.
+
 **The three outcomes are now exhaustive and distinguishable:**
 
 | Outcome | Signal | Behavior |
