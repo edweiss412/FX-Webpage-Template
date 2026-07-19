@@ -249,7 +249,14 @@ Numbered as in the mock's option `#1a`.
    one line: positive-toned dot · `Synced {rel}` · 3px bullet · `Edited {rel}`.
 6. **Strip order.** `[Published label + toggle]` | 1px divider | `[status line]` |
    `[Re-sync]` | `margin-left:auto` | `[Copy crew link]`.
-7. **Re-sync joins the strip** (mock revision 2, 2026-07-18). A ghost button —
+7. **Re-sync joins the strip** (mock revision 2, 2026-07-18). **DOM order is
+   normative, not just visual order:** the `<ReSyncButton surface="overlay"/>`
+   fragment must be inserted BEFORE `strip-copy-link` in the strip's DOM. Copy is
+   right-flushed by `ml-auto`, which means a DOM order of Copy-then-Re-sync would
+   still *look* correct while producing the tab order toggle → Copy → Re-sync →
+   confirm controls, breaking the confirm-proximity contract (§10). This is an
+   accessibility requirement on the component contract, not merely something
+   T-RESYNC-FOCUS-ORDER happens to check. A ghost button —
    no border, no background, `text-text-subtle`, 13px, refresh glyph, label
    "Re-sync" — sits after the status line, left of the auto-margin. It is
    **moved**, not duplicated: the Overview rail's Re-sync affordance is removed
@@ -738,6 +745,21 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
     error copy scrolls inside the panel instead of blanketing the rail.
   - `shadow-tile` + the band's `bg-surface`, so the panel reads as a layer above
     the body rather than merging with it.
+  - **Exactly one result surface renders at a time — already guaranteed, do not
+    regress it.** `post()` clears `errorCode` and `successMessage`
+    unconditionally at its start (`ReSyncButton.tsx:92-93`), and the success
+    branch clears `heldShrink` (`:118`) while the shrink branch is the only one
+    that sets it. `heldShrink` is *deliberately* not cleared at post start
+    (`:88-89`) so the confirm stays mounted through the accept re-POST. Net: the
+    three panels are mutually exclusive by construction.
+
+    This matters more after relocation, because all three now share one anchor
+    and z-index — two simultaneously visible panels would overlap rather than
+    stack in flow. The overlay refactor must preserve the existing clearing
+    order; it does not need to add a new guard. (Adversarial review round 14
+    proposed one on the theory that a stale success could coexist with a shrink
+    confirm; verified against `:92-93` — it cannot.)
+
   - **Dismissal, per branch.** The shrink confirm dismisses via its own "Keep
     current version" (`ReSyncButton.tsx:78-82`) and **deliberately gets NO
     neutral dismiss and NO outside-click-to-close.** It is not a notification;
@@ -934,6 +956,8 @@ states it does not draw and are the highest-risk part of this change.
 | `openSheetHref` | `null` | Sheet-link anchor omitted (no dead anchor) — unchanged. |
 | `alertCount` | `0` | Header alert pill omitted; header right slot holds close only. |
 | `alertCount` | `1` vs `>1` | "1 alert" vs "N alerts". |
+| `alertCount` | `>99` | Capped display `99+ alerts`, exact count in the accessible name (§6.6). |
+| `alertCount` | negative, non-integer, or `NaN` | **Treat as 0 — render no pill.** The value is server-derived (`app/admin/_showReviewModal.tsx:270`, an array length, so non-negative by construction), but §7 promises a stated behavior for every input and an unguarded render would produce `NaN alerts` or `-1 alerts` in the header. Guard: `Number.isInteger(alertCount) && alertCount > 0` gates the pill; anything else omits it, matching the `0` row rather than inventing an error state. |
 | `archived` | `true` | Strip shows `strip-archived-badge`, NO toggle, NO copy-link, NO live badge (`StatusStrip.tsx:194-211`, `221`, `144-146`). **The strip band still renders** — it is not empty (the archived badge + status line occupy it). |
 | `published` | `false` | Copy-link omitted (crew link paused). Toggle still renders, OFF. |
 | `token` | `null` | Copy-link omitted. |
@@ -1149,7 +1173,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version"; and it has NO neutral dismiss and does not close on outside click (§6.7) | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
 | T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip), shows catalog copy, never a raw code, AND is dismissable without re-running the mutation — the dismiss control clears the overlay and returns focus to the trigger — assert the rendered text CONTAINS the `lib/messages/lookup.ts` copy and does NOT contain the raw code string. **Containment, not equality** — the branch legitimately renders `<ErrorExplainer>` PLUS `<HelpAffordance>` (`ReSyncButton.tsx:158-159`), so an equality assertion is false-red and the likely "fix" is deleting the help affordance | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
 | T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
-| T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay and does not reflow the strip | Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
+| T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay, does not reflow the strip, AND renders `summarizeResult` copy rather than a raw `outcome` string — assert an unknown/unmapped outcome falls back to "Sync complete." and that no raw token (e.g. `revision_race`, `asset_recovery`) appears |  Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
