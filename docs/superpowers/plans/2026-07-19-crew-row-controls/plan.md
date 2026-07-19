@@ -197,12 +197,21 @@ describe("menu open/close + keyboard (spec §4.2)", () => {
     fireEvent.click(trigger(ID_A));
     expect(menu(ID_A)!.querySelector('[role="separator"]')).toBeTruthy();
   });
-  it("Escape closes and restores focus to the trigger", async () => {
-    renderCrew();
-    fireEvent.click(trigger(ID_A));
-    fireEvent.keyDown(menu(ID_A)!, { key: "Escape" });
-    expect(menu(ID_A)).toBeNull();
-    await vi.waitFor(() => expect(trigger(ID_A)).toHaveFocus());
+  it("Escape closes, restores trigger focus, and never reaches document listeners (shell-close guard)", async () => {
+    const docSpy = vi.fn();
+    document.addEventListener("keydown", docSpy);
+    try {
+      renderCrew();
+      fireEvent.click(trigger(ID_A));
+      fireEvent.keyDown(menu(ID_A)!, { key: "Escape" });
+      expect(menu(ID_A)).toBeNull();
+      await vi.waitFor(() => expect(trigger(ID_A)).toHaveFocus());
+      // stopPropagation kept the Escape from bubbling to document (the modal
+      // shell's close listener lives there — ReviewModalShell.tsx:238-243).
+      expect(docSpy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", docSpy);
+    }
   });
   it("Tab closes the menu (focus proceeds from trigger)", () => {
     renderCrew();
@@ -497,7 +506,11 @@ export function CrewRowActions({
     );
     const idx = items.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") {
+      // stopPropagation: the modal shell listens for Escape at document level
+      // and ignores defaultPrevented (ReviewModalShell.tsx:238-243) — without
+      // this the whole review modal would close along with the popover.
       e.preventDefault();
+      e.stopPropagation();
       closeFully(true);
     } else if (e.key === "Tab") {
       // APG menu-button: Tab closes; focusing the trigger BEFORE the default
@@ -526,12 +539,20 @@ export function CrewRowActions({
 
   const onConfirmKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (resolving) {
-      // Close paths + focus escape are inert while resolving (spec §6).
-      if (e.key === "Escape" || e.key === "Tab") e.preventDefault();
+      // Close paths + focus escape are inert while resolving (spec §6). Escape
+      // must ALSO not bubble to the shell's document listener — a resolving
+      // popover must not take the whole modal down.
+      if (e.key === "Escape" || e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       return;
     }
     if (e.key === "Escape") {
+      // stopPropagation: keep the shell's document-level Escape from closing
+      // the whole modal (ReviewModalShell.tsx:238-243).
       e.preventDefault();
+      e.stopPropagation();
       closeFully(true);
     } else if (e.key === "Tab") {
       // 2-stop trap: focus can never land behind the backdrop (spec §4.3).
@@ -1432,6 +1453,9 @@ test("Esc closes and restores focus to the trigger; backdrop click does not rest
   await page.keyboard.press("Escape");
   await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toHaveCount(0);
   await expect(rowTrigger(page, crewId)).toBeFocused();
+  // Escape consumed by the popover — the review modal itself must stay open
+  // (shell's document listener never sees the stopped event).
+  await expect(page.locator(MODAL)).toBeVisible();
   // Backdrop-click branch: closes WITHOUT restoring trigger focus (spec §4.2).
   await rowTrigger(page, crewId).click();
   await expect(page.getByTestId(`crew-row-menu-${crewId}`)).toBeVisible();
