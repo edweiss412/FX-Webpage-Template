@@ -252,8 +252,15 @@ subHeader?: ReactNode;
 Rendered directly after `</header>`, mirroring the existing `footer` idiom
 (`ReviewModalShell.tsx:449-456`) — wrapper only when the consumer provides one:
 
+**Gate on truthiness, not `!= null`.** `false`, `""`, and `0` are all valid
+`ReactNode` values that are NOT `null`, so a `!= null` gate renders an empty
+bordered band for the extremely natural `subHeader={cond && <StatusStrip …/>}`.
+An empty seam is precisely the regression this slot must not introduce. (The
+existing `footer` gate at `ReviewModalShell.tsx:449` uses `!= null`; that is
+pre-existing and out of scope, but do not copy it here.)
+
 ```tsx
-{subHeader != null ? (
+{subHeader ? (
   <div
     data-testid={`${testIdBase}-subheader`}
     className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
@@ -516,6 +523,29 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
 
 - `ReSyncButton` gains a `surface?: "flow" | "overlay"` prop, default `"flow"`
   (today's behavior, byte-identical for every existing consumer).
+- **`"overlay"` must return a FRAGMENT, not a wrapper `<div>`.** Today the
+  component's root is `<div className="flex flex-col gap-3">`
+  (`ReSyncButton.tsx:136-137`) — correct for Overview's column, wrong here. If it
+  survives, the strip gains a stray column wrapper as its flex item: the trigger
+  is no longer a direct row item (so `items-center` and the row gap apply to the
+  wrapper, not the button), and the absolute panels anchor to an unintended
+  subtree. Required shape in overlay mode:
+
+  ```
+  <>  {/* no box — the trigger IS the strip row item */}
+    <button …trigger… />
+    {error   ? <div className="absolute inset-x-0 top-full z-50 …" /> : null}
+    {shrink  ? <div className="absolute inset-x-0 top-full z-50 …" /> : null}
+    {success ? <div className="absolute inset-x-0 top-full z-50 …" /> : null}
+  </>
+  ```
+
+  A fragment generates no box, so the absolutely-positioned panels resolve their
+  containing block to the nearest positioned ancestor — the band, which is
+  `relative` (§6.1) while the strip root is not. That is exactly the intent, and
+  it is why the strip root must NOT be given `relative`: doing so would silently
+  re-anchor the overlays to the strip and break `inset-x-0` full-band width.
+
 - `"overlay"` renders the trigger inline and **all THREE** result surfaces as
   `absolute inset-x-0 top-full z-50` beneath the strip band. The three are
   separate branches in `ReSyncButton.tsx` and each must be relocated — missing
@@ -669,6 +699,12 @@ The alert pill inherits an existing, already-shipped token pair
 confirmation that the 8px `bg-status-review` dot is not the sole carrier of
 meaning (it is not; the count text carries it — §10).
 
+**This requirement is executable, not advisory.** T-CONTRAST (§11) measures
+computed colors in a real browser under both themes and asserts ≥3:1 for the
+Copy border (WCAG 1.4.11, non-text UI boundary) and ≥4.5:1 for the ghost Re-sync
+label (1.4.3, text). Token usage alone proves neither: a token can resolve to a
+perfectly valid color that still disappears against this particular background.
+
 ## 8. Dimensional invariants
 
 Tailwind v4 in this project does **not** default `.flex` to `align-items:
@@ -811,6 +847,9 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Alert pill hit rect ≥44px; sheet link ≥44px; Re-sync trigger ≥44px | Controls styled from the mock's sub-44px boxes |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
+| T-CONTRAST (real browser, BOTH themes) | Measure computed colors and assert ratios: outline Copy's border vs band background ≥3:1 (WCAG 1.4.11 non-text UI boundary); ghost Re-sync's label vs band background ≥4.5:1 (1.4.3 text). Run under light AND dark | §7.1's requirement is otherwise unexecutable: T-TOKENS, T-COPY-OUTLINE and every layout test inspect classes and geometry, so a Copy button whose border vanishes on light — or a ghost Re-sync that reads as disabled — passes all of them |
+| T-SUBHEADER-FALSEY | `subHeader={false}` renders NO band element | `!= null` gate emits an empty bordered seam for `cond && <X/>` |
+| T-RESYNC-NO-WRAPPER | In overlay mode the trigger is a DIRECT flex child of the strip root — no intervening wrapper element | The `flex flex-col gap-3` root survives the move, silently breaking row alignment and the gap while overlay/focus tests still pass |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |
 | T-HARNESS | e2e strip harnesses build without `renderTitle`/`chrome` | Harness rot after prop deletion |
