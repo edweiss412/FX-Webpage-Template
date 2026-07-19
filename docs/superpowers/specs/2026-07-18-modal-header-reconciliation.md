@@ -653,7 +653,7 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
 
   ```tsx
   {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
-  {alertCount > 99 ? <span className="sr-only"> ({alertCount} total)</span> : null}
+  {alertCount > 99 ? <span className="sr-only"> ({alertCount} open alerts)</span> : null}
   ```
 
   **The unit stays VISIBLE.** A bare `99+` in the header is not self-explanatory;
@@ -663,10 +663,13 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
   | --- | --- | --- |
   | 1 | `1 alert` | `1 alert` |
   | 2 | `2 alerts` | `2 alerts` |
-  | 1200 | `99+ alerts` | `99+ alerts (1200 total)` |
+  | 1200 | `99+ alerts` | `99+ alerts (1200 open alerts)` |
 
   The sr-only suffix renders ONLY past the cap — below it the visible text is
-  already exact, and a redundant "(2 total)" would just make the name noisier.
+  already exact, and a redundant "(2 open alerts)" would just make the name
+  noisier. The suffix carries the UNIT, not a bare number: the point of preserving
+  the exact count for assistive tech is preserving its meaning, and "1200 total"
+  alone drops what 1200 counts.
 
   The separator space is its OWN visible text node — a leading space inside the
   `sr-only` span is trimmed during accessible-name computation, yielding
@@ -717,7 +720,20 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   - `shadow-tile` + the band's `bg-surface`, so the panel reads as a layer above
     the body rather than merging with it.
   - **Dismissal, per branch.** The shrink confirm dismisses via its own "Keep
-    current version" (`ReSyncButton.tsx:78-82`). **Neither the error NOR the
+    current version" (`ReSyncButton.tsx:78-82`) and **deliberately gets NO
+    neutral dismiss and NO outside-click-to-close.** It is not a notification;
+    it is a pending decision about the show's data — hold last-good, or apply the
+    reduced version. A neutral X would create a third, ambiguous outcome ("I
+    closed it — did it apply?"), and outside-click dismissal on a
+    destructive-adjacent confirm is an accidental-data-loss vector. "Keep current
+    version" IS the safe exit, which is exactly why focus lands there on open
+    (`:83-85`). This matches the component's existing persistent-panel contract
+    (`:78-82` documents that no auto-revert exists).
+
+    Obstruction is handled by the height cap + internal scroll above, not by
+    making the decision dismissable. If the admin needs to read rail content
+    underneath before choosing, "Keep current version" is the non-destructive
+    way out and re-running Re-sync restores the same choice. **Neither the error NOR the
     success branch self-clears** — verified: `successMessage` is set at
     `ReSyncButton.tsx:121` and cleared only at `:93`, the start of the *next*
     POST; there is no timer, and `router.refresh()` (`:122`) refreshes server data
@@ -736,6 +752,25 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
     bug than the layout one this move fixes. Esc is NOT the mechanism — the shell
     binds Esc to closing the whole modal, so overloading it here would either
     dismiss the dialog or require fighting the shell's handler.
+
+    **Role semantics after adding the dismiss control.** The existing branches
+    use `role="alert"` (error) and `role="status"` (success). Those live-region
+    roles stay on the MESSAGE node only — never on a container that also holds
+    the focusable dismiss button, which would announce the control as part of the
+    alert. Required panel shape:
+
+    ```tsx
+    <div className="absolute inset-x-0 top-full z-50 …" aria-labelledby={msgId}>
+      <p id={msgId} role="alert">{catalogCopy}</p>
+      <button aria-label="Dismiss sync error">…</button>
+    </div>
+    ```
+
+    The panel is labelled by its own message, so a keyboard user tabbing in
+    reaches a named region rather than an anonymous floating box, and the dismiss
+    button's name says WHAT it dismisses ("Dismiss sync error" / "Dismiss sync
+    result") rather than a bare "Dismiss" that is ambiguous once two overlay
+    types exist.
 
     **The dismiss control is a real interactive control** and inherits every
     contract that implies: `min-h-tap-min`/`min-w-tap-min` (44px floor), a
@@ -1057,7 +1092,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 
 | ID | Test | Failure mode caught |
 | --- | --- | --- |
-| T-STEP3-INVARIANT | Two scoped assertions, NOT a whole-panel snapshot: (a) the Step 3 modal contains zero `[data-testid$="-subheader"]` elements; (b) the Step 3 `<header>` subtree's `innerHTML` is unchanged vs. a baseline captured from the same fixture | The new shell slot leaks a wrapper or seam into Step 3. Scoping matters: a whole-panel snapshot fails on the shell's intentional new `null`-rendering branch, and the usual response is to loosen or delete the test — losing the real guard |
+| T-STEP3-INVARIANT | Two scoped assertions, NOT a whole-panel snapshot: (a) the Step 3 modal contains zero `[data-testid$="-subheader"]` elements; (b) the Step 3 `<header>` subtree's `innerHTML` matches a baseline **captured from the PRE-change implementation and committed as a fixture file** (see §11.2) | The new shell slot leaks a wrapper or seam into Step 3. Scoping matters: a whole-panel snapshot fails on the shell's intentional new `null`-rendering branch, and the usual response is to loosen or delete the test — losing the real guard. Baseline provenance matters just as much: a test that captures baseline and candidate from the SAME post-change render proves nothing and passes a real Step 3 regression |
 | T-SUBHEADER-SLOT | Shell renders the band only when `subHeader` is provided | Empty bordered band (a stray seam) on consumers that omit it |
 | T-SUBLINE-CLIENT-NULL | `clientLabel: null` → no client span AND no orphan bullet | Leading separator with nothing before it |
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
@@ -1078,7 +1113,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-MOVED | Strip renders a Re-sync trigger; `OverviewSection` renders NO Re-sync button | §4.3 half-done — duplicated control, the outcome explicitly rejected |
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
-| T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
+| T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version"; and it has NO neutral dismiss and does not close on outside click (§6.7) | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
 | T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip), shows catalog copy, never a raw code, AND is dismissable without re-running the mutation — the dismiss control clears the overlay and returns focus to the trigger — assert the rendered text is the `lib/messages/lookup.ts` copy AND that the raw code string is absent | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
 | T-OVERLAY-BOUNDS (real browser) | With long shrink detail, the overlay's height is capped and it scrolls internally rather than blanketing the rail; the band and body do not reflow when it opens | Overlay reserves no layout space by design, so an uncapped panel silently covers Overview controls while T-OVERLAY still passes |
 | T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay and does not reflow the strip | Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
@@ -1138,6 +1173,37 @@ Coordinates are viewport-relative. This is the same class of check T-OVERLAY use
 and the only one that distinguishes "extends the hit area" from "looks big
 enough". Apply the identical treatment to any other control that reaches the
 floor via a pseudo-element rather than its own box.
+
+### 11.2 T-STEP3-INVARIANT baseline provenance (anti-tautology)
+
+The invariant is "Step 3's header did not change." A test can only prove that
+against a baseline that predates the change. The tempting-but-worthless shape:
+
+```ts
+const a = render(<Step3ReviewModal …/>);   // post-change code
+const baseline = a.querySelector("header").innerHTML;
+// …later…
+expect(header.innerHTML).toBe(baseline);   // compares post-change to itself
+```
+
+That passes no matter how badly Step 3 regressed.
+
+Required instead — capture the baseline BEFORE touching `ReviewModalShell`, as
+the first step of the shell task:
+
+1. On the pre-change tree, render Step 3 from a fixed fixture and write
+   `header.innerHTML` to a committed fixture file (e.g.
+   `tests/components/admin/review/__fixtures__/step3-header-baseline.html`).
+2. Commit it in the SAME task that adds the `subHeader` slot, so the PR diff
+   shows the baseline arriving unmodified alongside the shell change.
+3. The test renders Step 3 from that same fixture and compares against the
+   committed file's contents.
+
+The reviewer signal is then structural: if a later commit changes Step 3's
+header, the fixture must change too, and that shows up in the diff as an explicit
+edit rather than a silently-updated snapshot. Do NOT use a self-updating snapshot
+format (`toMatchSnapshot` with auto-write), which would absorb the regression on
+the next `-u` run.
 
 ## 12. Meta-test inventory
 
