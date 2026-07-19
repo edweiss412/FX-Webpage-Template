@@ -336,51 +336,86 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
     expect(postOpen.length, "no refresh storm").toBeLessThanOrEqual(OPEN_SLUG_REQUEST_BOUND);
   });
 
-  for (const motion of ["reduce", "no-preference"] as const) {
-    test(`§6.4 close safety (${motion}): a refresh released around close never resurrects the modal`, async ({
-      page,
-    }) => {
-      // Covers spec §3.2 cases 1+3 (motion=no-preference exercises the exit
-      // window; reduce collapses it) and case 2 (release lands after the close
-      // commit). Failure mode caught: the refreshed RSC payload for the OPEN
-      // URL remounting/re-showing the shell after close.
-      await loadDashboard(page);
-      await page.emulateMedia({ reducedMotion: motion });
-      await page.waitForTimeout(PREFETCH_SETTLE_MS);
-      const held: Array<() => void> = [];
-      await page.route(
-        (u) => isShowReq(u, show.slug),
-        async (route) => {
-          await new Promise<void>((resolve) => held.push(resolve));
-          await route.continue();
-        },
-      );
-      await page.getByTestId(`shows-table-row-${show.slug}`).click();
-      await expect(page.locator(MODAL)).toBeVisible({ timeout: 10_000 });
-      await page.locator(CLOSE).click();
-      // Release the held refresh DURING the exit window (no-preference) /
-      // right after the instant close (reduce)…
-      for (const release of held) release();
-      // …and the modal must still end gone, URL stripped, and STAY gone.
-      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 5_000 });
-      await expect
-        .poll(() => new URL(page.url()).searchParams.has("show"), { timeout: 15_000 })
-        .toBe(false);
-      await page.waitForTimeout(1_000);
-      await expect(page.locator(MODAL_ANY)).toHaveCount(0);
-    });
+  /** Shared §6.4 scaffold: open with every post-settle ?show request HELD, then
+   *  close, then hand the release decision to the case. Each case ASSERTS the
+   *  refresh was genuinely captured (held.length > 0) before releasing — a
+   *  vacuous release-of-nothing cannot pass. */
+  async function openHeldThenClose(page: Page, motion: "reduce" | "no-preference") {
+    await loadDashboard(page);
+    await page.emulateMedia({ reducedMotion: motion });
+    await page.waitForTimeout(PREFETCH_SETTLE_MS);
+    const held: Array<() => void> = [];
+    await page.route(
+      (u) => isShowReq(u, show.slug),
+      async (route) => {
+        await new Promise<void>((resolve) => held.push(resolve));
+        await route.continue();
+      },
+    );
+    await page.getByTestId(`shows-table-row-${show.slug}`).click();
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 10_000 });
+    // The mount refresh must be in the trap before we close (dead-refresh
+    // detector for this scaffold; also guarantees the later release is real).
+    await expect.poll(() => held.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    await page.locator(CLOSE).click();
+    return held;
   }
+
+  async function assertClosedForGood(page: Page) {
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 5_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), { timeout: 15_000 })
+      .toBe(false);
+    await page.waitForTimeout(1_000);
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0);
+  }
+
+  test("§6.4a close safety — refresh released DURING the animated exit (spec §3.2 case 1)", async ({
+    page,
+  }) => {
+    // Release immediately after the close click: under no-preference the exit
+    // runs ~220ms and the URL still carries ?show, so the refreshed payload for
+    // the OPEN URL lands mid-exit. Failure mode: the refresh remounts/reshows
+    // the shell (resurrection) or restarts the exit.
+    const held = await openHeldThenClose(page, "no-preference");
+    expect(new URL(page.url()).searchParams.get("show"), "URL still open mid-exit").toBe(
+      show.slug,
+    );
+    for (const release of held) release();
+    await assertClosedForGood(page);
+  });
+
+  test("§6.4b close safety — refresh released AFTER the close commit (spec §3.2 case 2)", async ({
+    page,
+  }) => {
+    // Keep the trap shut until the close navigation commits (?show stripped),
+    // THEN release. Failure mode: a late refresh response for the pre-close
+    // URL re-rendering the modal slot over the closed dashboard.
+    const held = await openHeldThenClose(page, "no-preference");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.has("show"), { timeout: 15_000 })
+      .toBe(false);
+    for (const release of held) release();
+    await assertClosedForGood(page);
+  });
+
+  test("§6.4c close safety — reduced motion (spec §3.2 case 3)", async ({ page }) => {
+    // Instant close (exit collapsed): case 1 degenerates into case 2.
+    const held = await openHeldThenClose(page, "reduce");
+    for (const release of held) release();
+    await assertClosedForGood(page);
+  });
 });
 ```
 
-- [ ] **Step 2: testMatch** — in `playwright.config.ts:70` extend the desktop-chromium alternation: `published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.prefetch|step3-review-modal\.interactions`.
+- [ ] **Step 2: testMatch** — in `playwright.config.ts:71` (desktop-chromium), INSERT `published-review-modal\.prefetch|` into the existing alternation immediately after `published-review-modal\.layout|` — an insertion, never a rewrite; the post-edit tail must read `…|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|step3-review-modal\.interactions)…` with every pre-existing entry (including `\.layout`) intact. Verify with `rg -c "published-review-modal" playwright.config.ts` (the line must now contain 4 modal entries).
 
 - [ ] **Step 3: Red-proof the gate, then verify green against a local prod server.**
 
 ```bash
 # (a) skip path: without the env flag the spec must SKIP (not fail) —
 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.prefetch.spec.ts
-# Expected: 5 skipped.
+# Expected: 6 skipped.
 
 # (b) boot a prod :3000 (kill any sibling dev server on :3000 first — lsof -i :3000):
 JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true \
@@ -392,7 +427,7 @@ NEXT_DIST_DIR=.next-prefetch-probe pnpm exec next start -H 127.0.0.1 --port 3000
 # (c) run gated (reuseExistingServer attaches to the prod server):
 MODAL_PREFETCH_E2E=1 ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP \
 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.prefetch.spec.ts
-# Expected: 5 passed. Then kill the server and `git checkout tsconfig.json`.
+# Expected: 6 passed. Then kill the server and `git checkout tsconfig.json`.
 ```
 
 Red-proof note: Task 3 may be implemented before/after Tasks 1-2 land in the worktree; if run BEFORE them, §6.1/§6.2 must FAIL (that is the red state). Run order in this plan (Tasks 1-2 first) means red-proofing is by reverting: `git stash` the Task 1 commit is NOT required — instead red-proof §6.2 by temporarily changing `prefetch={true}` to `prefetch={false}` locally, observing the timeout, and restoring. Record the observation in the commit message body.
@@ -422,7 +457,7 @@ git commit --no-verify -m "test(admin): prod-server e2e for show-modal prefetch 
 
 - [ ] **Step 2: Validate YAML**
 
-Run: `pnpm exec prettier --check .github/workflows/published-modal-e2e.yml || pnpm exec prettier --write .github/workflows/published-modal-e2e.yml` then `node -e "require('js-yaml') && console.log('ok')" 2>/dev/null || python3 -c "import yaml,sys;yaml.safe_load(open('.github/workflows/published-modal-e2e.yml'));print('yaml ok')"`
+Run: `pnpm exec prettier --check .github/workflows/published-modal-e2e.yml` (write+re-check if it fails) then `python3 -c "import yaml;yaml.safe_load(open('.github/workflows/published-modal-e2e.yml'));print('yaml ok')"`
 Expected: `yaml ok`.
 
 - [ ] **Step 3: Commit**
