@@ -1000,7 +1000,239 @@ describe("PickerResetControl (everyone-only)", () => {
 Run: `pnpm vitest run tests/admin/pickerResetControl.test.tsx`
 Expected: FAIL (member select still present, old heading).
 
-- [ ] **Step 3: Slim the component.** Delete: `Scope` type, `scope` state, member `<select>` + label, per-member Reset button, `onSelectChange`, `memberLabel` usage for selection (keep `memberLabel`? — delete it too; nothing else imports it), the `resetCrewMemberSelection` import and its outcome branches, `selectedId`/`selectedRow`/`selectedLabel`. Keep: `ARM_REVERT_MS`, `SUCCESS_DISMISS_MS`, banners block verbatim (testids `picker-reset-ok`/`-error`), confirm row (`picker-reset-confirm-row`/`-confirm-button`/`-cancel-button`) with warning fixed to "Every device's picker re-prompts on next visit.", C3/C5 refs + effects, the resolving snap-back effect. The single trigger keeps testid `picker-reset-all-button` but is promoted to the neutral bordered button recipe (copy the class string from the deleted per-member Reset button, spec §4.6) with label "Reset everyone's pick" + `RefreshCw` icon. Heading: "Reset everyone's pick"; description: `hasCrew ? "Make everyone pick their name again on their next visit." : "No crew to reset yet."`. `onConfirm` keeps only the `resetPickerEpoch` branch with its two outcome messages (`// not-subject:M5-D8` comments retained).
+- [ ] **Step 3: Slim the component.** Full replacement for `app/admin/show/[slug]/PickerResetControl.tsx`:
+
+```tsx
+"use client";
+
+/**
+ * app/admin/show/[slug]/PickerResetControl.tsx (everyone-only, 2026-07-19)
+ *
+ * Admin control on the per-show Share & access panel: reset EVERYONE's picker
+ * selection (global epoch bump via resetPickerEpoch). Per-member reset moved to
+ * the crew section's row menu (CrewRowActions — crew-row-controls spec §4.6);
+ * this control keeps the two-tap idle → confirm → resolving pattern, tokens,
+ * a11y contract, and every picker-reset-* testid.
+ *
+ * Correctness nudge, not access control: reset members return to the ungated
+ * picker and can re-pick the same name. Revocation stays with Rotate
+ * share-token / roster removal.
+ */
+
+import { RefreshCw } from "lucide-react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
+
+import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
+
+// Armed-state auto-revert window — harmonized 4s across every destructive
+// surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
+const ARM_REVERT_MS = 4_000;
+/** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
+const SUCCESS_DISMISS_MS = 5_000;
+
+export type PickerResetCrewRow = { id: string; name: string; role: string | null };
+
+type UiState = "idle" | "confirm" | "resolving";
+type Outcome = { kind: "ok"; message: string } | { kind: "error"; message: string } | null;
+
+export function PickerResetControl({
+  showId,
+  crew,
+}: {
+  showId: string;
+  crew: PickerResetCrewRow[];
+}) {
+  const hasCrew = crew.length > 0;
+  const [ui, setUi] = useState<UiState>("idle");
+  const [outcome, setOutcome] = useState<Outcome>(null);
+  const [isPending, startTransition] = useTransition();
+  const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const descId = useId();
+  const warningId = useId();
+  // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const confirmRowRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef(false);
+
+  const clearAutoRevert = () => {
+    if (autoRevertRef.current !== null) {
+      clearTimeout(autoRevertRef.current);
+      autoRevertRef.current = null;
+    }
+  };
+  useEffect(() => () => clearAutoRevert(), []);
+
+  function closeConfirm() {
+    // used ONLY by cancel onClick and the auto-revert timer callback — never submit/result paths
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
+    setUi((prev) => (prev === "confirm" ? "idle" : prev));
+  }
+
+  // C3 (open focus): the confirm row mounts with the SAFE control focused.
+  useEffect(() => {
+    if (ui === "confirm") cancelRef.current?.focus();
+  }, [ui]);
+
+  // C5 (close focus), single-shot consumption.
+  useEffect(() => {
+    if (ui === "idle" && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [ui]);
+
+  // Snap back to idle when the transition settles so the outcome banner anchors next to the row.
+  useEffect(() => {
+    if (!isPending && outcome !== null && ui === "resolving") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUi("idle");
+    }
+  }, [isPending, outcome, ui]);
+
+  // PCR-1 (d): auto-dismiss the SUCCESS banner; errors persist.
+  useEffect(() => {
+    if (outcome?.kind !== "ok") return;
+    const t = setTimeout(() => setOutcome(null), SUCCESS_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [outcome]);
+
+  const isResolving = ui === "resolving" || isPending;
+
+  const enterConfirm = () => {
+    clearAutoRevert();
+    setOutcome(null);
+    setUi("confirm");
+    autoRevertRef.current = setTimeout(() => {
+      closeConfirm();
+    }, ARM_REVERT_MS);
+  };
+
+  const onCancel = () => {
+    clearAutoRevert();
+    closeConfirm();
+  };
+
+  const onConfirm = () => {
+    clearAutoRevert();
+    setUi("resolving");
+    // not-subject:M5-D8 — outcome copy is admin-authored inline BY DESIGN (spec §6.2): the
+    // picker message catalog is crew-oriented and would misattribute an admin reset. No raw
+    // error CODE is ever rendered (codes are mapped to these sentences here).
+    startTransition(async () => {
+      const r = await resetPickerEpoch({ showId });
+      // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
+      setOutcome(
+        r.ok
+          ? { kind: "ok", message: "Everyone will pick again on their next visit." }
+          : { kind: "error", message: "Couldn't reset the picker. Please try again." },
+      );
+    });
+  };
+
+  const banners = (
+    <>
+      {/* PCR-1 (a): persistent, visually-hidden polite live region (see prior
+          revision's rationale — real element, not display:contents). */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {outcome?.kind === "ok" ? outcome.message : ""}
+      </div>
+      {ui === "idle" && outcome?.kind === "ok" && (
+        <p
+          data-testid="picker-reset-ok"
+          aria-hidden="true"
+          className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+        >
+          <span aria-hidden="true" className="mr-1 font-semibold text-accent-on-bg">
+            ✓
+          </span>
+          {outcome.message}
+        </p>
+      )}
+      {ui === "idle" && outcome?.kind === "error" && (
+        <p
+          data-testid="picker-reset-error"
+          role="alert"
+          className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {outcome.message}
+        </p>
+      )}
+    </>
+  );
+
+  const inConfirm = ui === "confirm" || ui === "resolving";
+
+  return (
+    <div className="flex flex-col gap-2 py-3" data-testid="picker-reset-control">
+      <div className="min-w-0">
+        {/* PCR-1 (b): heading so the control is reachable in the SR heading outline. */}
+        <h4 className="text-sm font-medium text-text-strong">Reset everyone&rsquo;s pick</h4>
+        <p id={descId} className="text-xs text-text-subtle">
+          {hasCrew
+            ? "Make everyone pick their name again on their next visit."
+            : "No crew to reset yet."}
+        </p>
+      </div>
+
+      {inConfirm ? (
+        <div
+          ref={confirmRowRef}
+          data-testid="picker-reset-confirm-row"
+          role="group"
+          aria-label="Confirm resetting picker selections for everyone on this show"
+          className="flex flex-col gap-2"
+        >
+          <p id={warningId} className="text-xs text-text-subtle">
+            Every device&rsquo;s picker re-prompts on next visit.
+          </p>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={isResolving}
+              aria-busy={isResolving}
+              aria-describedby={warningId}
+              data-testid="picker-reset-confirm-button"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isResolving ? "Resetting…" : "Confirm reset"}
+            </button>
+            <button
+              type="button"
+              ref={cancelRef}
+              onClick={onCancel}
+              disabled={isResolving}
+              data-testid="picker-reset-cancel-button"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          ref={triggerRef}
+          onClick={enterConfirm}
+          disabled={!hasCrew}
+          data-testid="picker-reset-all-button"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw aria-hidden="true" size={14} />
+          Reset everyone&rsquo;s pick
+        </button>
+      )}
+
+      {banners}
+    </div>
+  );
+}
+```
+
+Deletions vs the old file: `Scope` type + `scope` state, `memberLabel` (nothing else imports it — verified by grep), member `<select>` + label + `onSelectChange`, per-member Reset button, the `resetCrewMemberSelection` import and outcome branches, `selectedId`/`selectedRow`/`selectedLabel`.
 
 - [ ] **Step 4: Run tests**
 
@@ -1287,7 +1519,7 @@ git add -A && git commit --no-verify -m "test(admin): live crew-row menu e2e —
   - `per-show-panel/page.mdx:57`: "Each crew member parsed from the sheet gets a row with a **Preview as** button; tapping a row drops you" → "Each crew member parsed from the sheet gets a row; **Preview as** lives in the row's **⋮ menu**, and tapping it drops you".
   - `per-show-panel/page.mdx:65`: "and a **Reset name picker** control (reset one crew member's pick, or everyone's)" → "and a **Reset everyone's pick** control (reset one crew member instead from that row's **⋮ menu** in the crew section)".
   - `preview-as-crew/page.mdx:5`: "and the **Preview as** action drops you onto their crew page" → "and the **Preview as** action in the row's **⋮ menu** drops you onto their crew page".
-- [ ] **Step 2: Verify no stale references**: `rg -n "Preview as. link|Preview as. button" app/help` → no hits; `pnpm vitest run tests/e2e/help-pages.spec.ts` is e2e-only (skip; covered by full gates).
+- [ ] **Step 2: Verify no stale references**: `rg -n "Preview as. link|Preview as. button" app/help` → no hits. Then run the help e2e explicitly (h1s unchanged, but the spec walks these pages): `pnpm exec playwright test --project=mobile-safari tests/e2e/help-pages.spec.ts` → PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
