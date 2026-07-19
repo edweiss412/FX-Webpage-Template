@@ -29,7 +29,7 @@ Every test, enumerated:
 
 | Test (file:line) | Class | Immunity argument |
 | --- | --- | --- |
-| layout: both tests (2 total, self-hosted) | HARNESS | Immune — no app server. |
+| layout `:168` §6.6 panel-column equations (mode × width matrix, one `test()` per combination) · `:232` header rhythm (title→strip gap) | HARNESS | Immune — the spec self-hosts its fixture over node:http (`:42,141`) and never contacts :3000. |
 | deeplink `:160` cold open · `:180` alert_id highlight · `:199` #share-access · `:207` legacy 307 · `:225` combined legacy · `:266` unknown slug D8 · `:282` signed-out D10 | G | Immune — all hard navigations. |
 | interactions `:172` focus trap · `:278` Esc strips params · `:306` scrim · `:322` X close · `:382` browser Back · `:400` drag dismiss · `:429` spring-back · `:461` slop tap · `:554` reduced-motion entrance · `:562` compound viewport-cross · `:607` sheet sanity · `:714` §7.5(a) Esc exit · `:750` §7.5(a) desktop exit · `:786` §7.5(c) focus after exit · `:801` §7.5(d) drag+Esc · `:825` §7.5(e) spring-back close · `:860` §7.5(f) entrance close | G | Immune — every one opens via `openModal` (direct goto `:102`); close/exit oracles are about the shell, not the open path. |
 | interactions `:511` §6.5 entrance <sm · `:538` §6.5 entrance ≥sm | GATED | Premise (cold open, skeleton frozen) preserved: the pre-goto gate holds prefetch requests too, so the cache never fills and the click blocks on the held navigation exactly as today. |
@@ -361,8 +361,13 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
     );
     await page.getByTestId(`shows-table-row-${show.slug}`).click();
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 10_000 });
-    // The mount refresh must be in the trap before we close (dead-refresh
-    // detector for this scaffold; also guarantees the later release is real).
+    // EVERY ?show=<slug> request from pre-click onward is in the trap — the
+    // cache-served open issues no navigation, so whatever lands here arrives
+    // post-mount: the mount refresh (proved to fire by the unit oracle and
+    // §6.3's presence assertion) is necessarily AMONG the held requests when
+    // the case releases them; re-warm twins may be held alongside it, which
+    // only widens the release. held.length > 0 additionally proves the trap
+    // actually captured traffic (a release-of-nothing cannot pass).
     await expect.poll(() => held.length, { timeout: 10_000 }).toBeGreaterThan(0);
     await page.locator(CLOSE).click();
     return held;
@@ -380,10 +385,15 @@ test.describe("published review modal — prefetch + revalidate (prefetch spec �
   test("§6.4a close safety — refresh released DURING the animated exit (spec §3.2 case 1)", async ({
     page,
   }) => {
-    // Release immediately after the close click: under no-preference the exit
-    // runs ~220ms and the URL still carries ?show, so the refreshed payload for
-    // the OPEN URL lands mid-exit. Failure mode: the refresh remounts/reshows
-    // the shell (resurrection) or restarts the exit.
+    // CLOSE MODEL (do not "fix" this to expect an instant URL strip): under
+    // normal motion the shell's requestClose plays the exit and calls onClose
+    // only at exit-END (transitionend, ReviewModalShell.tsx:389; reduced
+    // motion short-circuits at :345) — PublishedReviewModal.handleClose (:141, the
+    // "instant close" header comment predates #488) therefore pushes the
+    // close URL ~220ms AFTER the click, so the URL check below runs inside
+    // that window. Release immediately after the close click: the refreshed
+    // payload for the OPEN URL lands mid-exit. Failure mode: the refresh
+    // remounts/reshows the shell (resurrection) or restarts the exit.
     const held = await openHeldThenClose(page, "no-preference");
     expect(new URL(page.url()).searchParams.get("show"), "URL still open mid-exit").toBe(
       show.slug,
