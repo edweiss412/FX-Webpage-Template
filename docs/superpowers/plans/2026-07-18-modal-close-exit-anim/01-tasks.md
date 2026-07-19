@@ -871,28 +871,30 @@ Observe it entirely **test-side**, with two requirements that are easy to get wr
 
 **(i) Gate the listener on an observable dismiss-start marker, not a timestamp.** A listener armed before the dismissal can be consumed by a *different* transform transition — the spring-back's own transition in case (e), the entrance in (f) — and a `performance.now()` stamp does not fix it: those transitions can END after the stamp but before the close actually begins, setting `__exitEnd` and letting a fallback-timer close still satisfy the ordering.
 
-Use the DOM state the shell itself sets at dismiss-commit. `beginDismiss()` puts `inert` on the `role="dialog"` element BEFORE any exit style is applied (spec §3.1 step 3), so `dialog[inert]` is a marker guaranteed to precede the exit transition and to be absent during entrance and spring-back. It works identically for all five affordances, including drag (which reaches `beginDismiss` through its own branch):
+Use **two** discriminators together. `dialog[inert]` alone is not enough: `beginDismiss()` sets `inert` *before* `requestClose` applies the exit styles, so in case (e) — dismissing while a spring-back is mid-flight — the spring-back's own `transitionend` can land inside that window, after `inert` but before the exit transition exists. A fallback-timer close would then still satisfy `__exitEnd !== null`.
 
-`DIALOG` does not exist in either spec yet — define it alongside the existing selector consts (`MODAL_ANY` at `published-review-modal.interactions.spec.ts:53`):
-
-```ts
-const DIALOG = '[role="dialog"]';
-```
+The second discriminator is the **trajectory**: a spring-back ends at `translateY(0)` (it is returning the panel home), while the exit ends far from home — `translateY(100%)` in sheet mode, `opacity: 0` in desktop mode. Check the end state at event time and reject anything sitting at the spring-back's target:
 
 ```ts
 await page.evaluate(
   ({ panelSel, dialogSel }) => {
-    const el = document.querySelector(panelSel);
+    const el = document.querySelector(panelSel) as HTMLElement | null;
     const dialog = document.querySelector(dialogSel);
     const w = window as unknown as { __exitEnd?: number | null; __closeAt?: number | null };
     w.__exitEnd = null;
     el?.addEventListener("transitionend", (ev) => {
       const te = ev as TransitionEvent;
       if (te.target !== el || te.propertyName !== "transform") return;
-      // Only count transitions that end while the dismiss is committed. The
-      // entrance and the spring-back both run with the dialog NOT inert, so
-      // neither can be mistaken for the exit.
+      // (1) dismiss must be committed — excludes the entrance outright.
       if (!dialog?.hasAttribute("inert")) return;
+      // (2) the panel must have ARRIVED at the exit end state, not the
+      //     spring-back's translateY(0) home. Excludes a spring-back event
+      //     landing in the window between beginDismiss() and the exit styles.
+      const cs = getComputedStyle(el);
+      const m = new DOMMatrixReadOnly(cs.transform === "none" ? undefined : cs.transform);
+      const travelled = Math.abs(m.m42) > el.getBoundingClientRect().height * 0.5;
+      const faded = Number(cs.opacity) < 0.5;
+      if (!travelled && !faded) return;
       if (w.__exitEnd === null) w.__exitEnd = performance.now();
     });
   },
@@ -900,7 +902,9 @@ await page.evaluate(
 );
 ```
 
-Leave the listener attached (no `{ once: true }`) — the `inert` gate, not consumption order, is what selects the right event.
+Leave the listener attached (no `{ once: true }`) — the two gates, not consumption order, select the right event.
+
+**Case (e) must prove this specifically:** assert that if the *only* post-dismiss transform event came from the pre-dismiss spring-back, the test FAILS. Verify by temporarily stubbing the exit to jump instantly (no transition) during implementation — `__exitEnd` must stay null and the case must go red. If it passes, the discriminator is not working and the whole finish-source assertion is decorative.
 
 **(ii) Timestamp the close from the real page, not from a harness the spec never loads.** `published-review-modal.interactions.spec.ts` drives the **real app** at `/admin?show=<slug>` (`:100`) — `tests/e2e/_publishedReviewModalHarness.tsx` serves only `published-review-modal.layout.spec.ts`, so adding a `window.__closeAt` there would give these tests nothing. Observe the unmount from the page instead:
 
