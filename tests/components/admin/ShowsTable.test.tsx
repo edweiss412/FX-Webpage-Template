@@ -54,6 +54,80 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
   };
 }
 
+// ── Optimistic open skeleton (perceived-latency tier 2) ──────────────────────
+// Opening a row is a full RSC navigation; until the server's first streamed
+// chunk lands there is ZERO on-screen feedback (the Suspense skeleton is
+// server-rendered, so it too waits on the round-trip). The row click must
+// mount the ShowReviewModalSkeleton client-side immediately. Failure mode
+// caught: click produces no pending UI and the screen sits inert for the
+// whole server round-trip.
+
+describe("ShowsTable optimistic open skeleton", () => {
+  // jsdom implements no navigation: kill the anchor default so clicking the
+  // row exercises ONLY the React onClick (no "not implemented" stderr noise).
+  function clickRow(link: HTMLElement, init?: MouseEventInit) {
+    link.addEventListener("click", (e) => e.preventDefault());
+    fireEvent.click(link, init);
+  }
+
+  it("primary unmodified row click mounts the review-modal skeleton immediately", () => {
+    mockSearchParams = new URLSearchParams();
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    // Client-side, synchronously — no navigation has committed.
+    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+  });
+
+  it("modified / non-primary clicks (new-tab intents) never mount the skeleton", () => {
+    mockSearchParams = new URLSearchParams();
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    const link = screen.getByTestId("shows-table-row-rpas");
+    for (const init of [
+      { metaKey: true },
+      { ctrlKey: true },
+      { shiftKey: true },
+      { altKey: true },
+      { button: 1 },
+    ] satisfies MouseEventInit[]) {
+      clickRow(link, init);
+      expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    }
+  });
+
+  it("popstate (browser Back cancels the in-flight open) clears the skeleton — no stuck overlay", () => {
+    mockSearchParams = new URLSearchParams();
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+    fireEvent.popState(window);
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+  });
+
+  it("skeleton unmounts once the ?show param commits (server fallback takes over)", () => {
+    mockSearchParams = new URLSearchParams();
+    const view = render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    clickRow(screen.getByTestId("shows-table-row-rpas"));
+    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+    // Navigation commits: the URL now carries ?show=rpas and the server's own
+    // Suspense fallback owns the frame — the client copy must be gone in the
+    // SAME render pass (render-time derivation, no one-frame double overlay).
+    mockSearchParams = new URLSearchParams("show=rpas");
+    view.rerender(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+  });
+});
+
 describe("ShowsTable", () => {
   it("row links to the /admin?show= modal URL; renders Show/Dates/Crew/Sync + chevron", () => {
     mockSearchParams = new URLSearchParams();
