@@ -23,6 +23,8 @@
  * PublishedReviewModal (`dataAttrPrefix="review-modal"`).
  */
 import {
+  createContext,
+  useContext,
   useEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
@@ -50,6 +52,13 @@ export const DURATION_NORMAL_FALLBACK_MS = 220;
  *  mirrors `--duration-fast: 120ms` (app/globals.css). Same drift-guard
  *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
 export const DURATION_FAST_FALLBACK_MS = 120;
+
+/** Close entry point for consumer-owned header slots (spec §3.3). Default is a
+ *  no-op so the button degrades rather than throwing outside a provider. */
+export const ReviewModalCloseContext = createContext<() => void>(() => {});
+export function useReviewModalClose(): () => void {
+  return useContext(ReviewModalCloseContext);
+}
 
 export type ReviewModalShellProps = {
   /** §6.2 guard: `false` renders nothing (no effects run, no portal). */
@@ -372,73 +381,74 @@ function OpenReviewModalShell({
   }, []);
 
   const tree = (
-    <div
-      data-testid={`${testIdBase}-modal`}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelledBy}
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
-    >
-      {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
+    <ReviewModalCloseContext.Provider value={onClose}>
+      <div
+        data-testid={`${testIdBase}-modal`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+      >
+        {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
           order (tabIndex -1) so the focus trap never lands on it; Escape + the
           visible close button are the keyboard/AT exits. Deliberately NOT
           aria-hidden — aria-hidden on an interactive control is an a11y
           footgun. (Pattern carried from Step3DetailsDialog / ReportModal.) */}
-      <button
-        type="button"
-        data-testid={`${testIdBase}-backdrop`}
-        {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
-        aria-label="Close"
-        tabIndex={-1}
-        onClick={onClose}
-        className="absolute inset-0 bg-overlay-scrim"
-      />
+        <button
+          type="button"
+          data-testid={`${testIdBase}-backdrop`}
+          {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
+          aria-label="Close"
+          tabIndex={-1}
+          onClick={onClose}
+          className="absolute inset-0 bg-overlay-scrim"
+        />
 
-      {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
+        {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
           does NOT default `.flex` to align-items:stretch (DESIGN.md §7).
           Header/footer/grab are shrink-0; the body region is min-h-0 flex-1. */}
-      <div
-        ref={panelRef}
-        {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
-        className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
-      >
-        {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
+        <div
+          ref={panelRef}
+          {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
+          className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+        >
+          {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
             DRAG_SLOP_PX) closes via the click; a real drag consumes the
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
-        <button
-          type="button"
-          data-testid={`${testIdBase}-grab`}
-          aria-label="Drag down or tap to close"
-          onClick={() => {
-            if (dragConsumedClickRef.current) return; // the drag ate this click
-            onClose();
-          }}
-          onPointerDown={handleGrabPointerDown}
-          onPointerMove={handleGrabPointerMove}
-          onPointerUp={handleGrabPointerEnd}
-          onPointerCancel={handleGrabPointerEnd}
-          className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-        >
-          <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-        </button>
+          <button
+            type="button"
+            data-testid={`${testIdBase}-grab`}
+            aria-label="Drag down or tap to close"
+            onClick={() => {
+              if (dragConsumedClickRef.current) return; // the drag ate this click
+              onClose();
+            }}
+            onPointerDown={handleGrabPointerDown}
+            onPointerMove={handleGrabPointerMove}
+            onPointerUp={handleGrabPointerEnd}
+            onPointerCancel={handleGrabPointerEnd}
+            className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
+          >
+            <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
+          </button>
 
-        {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
+          {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
             shrink-0 actions, so a long unbroken title wraps and never pushes
             the chip/close off-screen). */}
-        <header
-          data-testid={`${testIdBase}-header`}
-          className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-        >
-          {header}
-        </header>
+          <header
+            data-testid={`${testIdBase}-header`}
+            className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
+          >
+            {header}
+          </header>
 
-        {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
+          {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element. */}
-        {children}
+          {children}
 
-        {/* Footer wrapper — only when the consumer provides one. Sheet-mode
+          {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
             covered by the iOS home indicator; ≥sm restores the plain token
             padding. `relative` is load-bearing: below sm the RescanSheetButton
@@ -446,16 +456,17 @@ function OpenReviewModalShell({
             `sm:relative` only) so a coded result spans from the footer's left
             edge instead of clipping off-screen at 390px (impeccable audit P1 —
             see RescanSheetButton.tsx). */}
-        {footer != null ? (
-          <footer
-            data-testid={`${testIdBase}-footer`}
-            className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-          >
-            {footer}
-          </footer>
-        ) : null}
+          {footer != null ? (
+            <footer
+              data-testid={`${testIdBase}-footer`}
+              className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+            >
+              {footer}
+            </footer>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </ReviewModalCloseContext.Provider>
   );
 
   // §S3C-2: portal to body once mounted (client). Pre-mount (SSR/hydration)

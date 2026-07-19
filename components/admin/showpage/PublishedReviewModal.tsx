@@ -31,8 +31,9 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, History, LayoutDashboard, X } from "lucide-react";
+import { ExternalLink, History, LayoutDashboard } from "lucide-react";
 
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { ShowReviewSurface, type ExtraSection } from "@/components/admin/review/ShowReviewSurface";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
@@ -273,16 +274,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 </a>
               ) : null}
             </div>
-            <button
-              ref={closeRef}
-              type="button"
-              data-testid={`${TESTID_BASE}-close`}
-              aria-label="Close"
-              onClick={handleClose}
-              className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <X aria-hidden="true" className="size-5" />
-            </button>
+            <ModalCloseButton ref={closeRef} testId={`${TESTID_BASE}-close`} />
           </div>
           {/* Below the title row: the strip minus its h1 title/divider
               (renderTitle={false}) and minus its page chrome

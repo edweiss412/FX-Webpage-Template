@@ -38,7 +38,8 @@
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
 import { useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink } from "lucide-react";
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
@@ -433,16 +434,7 @@ export function Step3ReviewModal({
                 All clean
               </span>
             )}
-            <button
-              ref={closeRef}
-              type="button"
-              data-testid={`wizard-step3-card-${dfid}-review-close`}
-              aria-label="Close"
-              onClick={onClose}
-              className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <X aria-hidden="true" className="size-5" />
-            </button>
+            <ModalCloseButton ref={closeRef} testId={`wizard-step3-card-${dfid}-review-close`} />
           </div>
         </>
       }
