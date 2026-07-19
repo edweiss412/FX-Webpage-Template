@@ -44,7 +44,7 @@
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
 Expected: FAIL — every test times out on `crew-row-menu-button-*` (no trigger rendered yet).
 
-- [ ] **Step 3: NO commit here.** Invariant 1 (AGENTS.md) requires commits to land green: the spec + CI wiring files stay staged in the working tree and are committed as part of Task 1 Step 8 (whose unit tests are green; the e2e goes green at Task 3 before push). The RED run above is the recorded failing-test evidence for the TDD cycle.
+- [ ] **Step 3: NO commit here.** Invariant 1 (AGENTS.md) requires commits to land green: the spec + CI wiring files stay UNCOMMITTED in the working tree until Task 3 verifies them green (Task 1 and Task 2 commits explicitly exclude them via path-scoped `git add`). The RED run above is the recorded failing-test evidence for the TDD cycle.
 
 ---
 
@@ -119,7 +119,8 @@ const ACTIONS: CrewActions = {
   crewIds: CREW_IDS,
 };
 
-function renderCrew(actions: CrewActions | undefined = ACTIONS, members = MEMBERS) {
+// `null` = explicitly ABSENT actions (staged mode); omitting the arg = default enabled.
+function renderCrew(actions: CrewActions | null = ACTIONS, members = MEMBERS) {
   return render(<CrewBreakdown dfid="df-1" members={members} {...(actions ? { actions } : {})} />);
 }
 const trigger = (id: string) => screen.getByTestId(`crew-row-menu-button-${id}`);
@@ -133,7 +134,7 @@ afterEach(cleanup);
 
 describe("mount gating (spec §4.1, §5)", () => {
   it("staged / no-actions render has NO trigger and keeps the concrete committed icon DOM", () => {
-    const { container } = renderCrew(undefined);
+    const { container } = renderCrew(null);
     expect(container.querySelector("button[aria-haspopup]")).toBeNull();
     // Concrete committed shape (step3ReviewSections.tsx:1283-1305), fixture-derived hrefs:
     const call = screen.getByLabelText("Call Alex Rodrigues");
@@ -927,8 +928,11 @@ Expected: PASS (noOverrideRows unchanged — staged render byte-identical).
 - [ ] **Step 8: Commit**
 
 ```bash
-# Includes the Task-0 e2e spec + CI wiring files (kept uncommitted until now per invariant 1).
-git add -A && git commit --no-verify -m "feat(admin): per-row crew action menu — Preview as + Reset name picker with confirm popover"
+# Path-scoped: excludes the Task-0 e2e spec + CI wiring files (still RED until Task 3).
+git add components/admin/wizard/CrewRowActions.tsx components/admin/wizard/step3ReviewSections.tsx \
+  tests/components/admin/wizard/crewRowActions.test.tsx tests/app/admin/showReviewModalLoader.test.tsx \
+  tests/components/admin/showpage/sectionWarningControls.test.tsx tests/styles/_metaDestructiveConfirm.test.ts
+git commit --no-verify -m "feat(admin): per-row crew action menu — Preview as + Reset name picker with confirm popover"
 ```
 
 ---
@@ -1304,7 +1308,9 @@ Expected: PASS (registry row for PickerResetControl still valid — confirm CTA 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A && git commit --no-verify -m "refactor(admin): PickerResetControl slims to everyone-only — per-member reset lives in the crew row menu"
+# Path-scoped: e2e spec + CI wiring stay uncommitted until Task 3 green.
+git add "app/admin/show/[slug]/PickerResetControl.tsx" tests/admin/pickerResetControl.test.tsx
+git commit --no-verify -m "refactor(admin): PickerResetControl slims to everyone-only — per-member reset lives in the crew row menu"
 ```
 
 ---
@@ -1574,10 +1580,11 @@ test("confirm reset round-trips: success banner appears at the panel top", async
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
 Expected: all tests PASS (they were RED in Task 0; Tasks 1-2 made them pass).
 
-- [ ] **Step 4: Commit** (only if the spec needed fixes against real behavior)
+- [ ] **Step 4: Commit the now-green e2e spec + CI wiring** (first commit containing these files — invariant 1 satisfied: failing run recorded in Task 0, green run above)
 
 ```bash
-git add -A && git commit --no-verify -m "test(admin): crew-row menu e2e green — adjustments from real-browser run"
+git add tests/e2e/published-review-modal.crew-actions.spec.ts playwright.config.ts .github/workflows/published-modal-e2e.yml
+git commit --no-verify -m "test(admin): live crew-row menu e2e — dimensions, stacking, scroll-edge, reset round-trip + CI wiring"
 ```
 
 ---
