@@ -66,8 +66,13 @@ No `tests/e2e/*` spec references `preview-as-link`, `breakdown-crew`, or `picker
 
 **In scope**
 
-1. New client component `components/admin/wizard/CrewRowActions.tsx`: the per-row action cluster
-   (call icon, email icon, three-dot trigger, menu popover, confirm popover).
+1. New client component `components/admin/wizard/CrewRowActions.tsx`: ONLY the three-dot
+   trigger + menu popover + confirm popover. The call/email icon anchors are NOT moved — they
+   stay inline in `CrewBreakdown` exactly as committed today
+   (`step3ReviewSections.tsx:1283-1305`), so the staged / no-id / disabled render path is the
+   UNTOUCHED existing code, and the reset-bearing component MOUNTS only for
+   `actions.enabled && crewIds[i]` rows (serialization-gate parity: no reset affordance in the
+   tree for read-only shows — `app/admin/_showReviewModal.tsx:343-362`).
 2. `CrewBreakdown` published-mode wiring: replace `previewAs` prop with
    `actions?: { showId: string; slug: string; enabled: boolean; crewIds: readonly string[] }`;
    hold the single-open-menu state + outcome banner state; render the banner at panel top.
@@ -91,8 +96,11 @@ No `tests/e2e/*` spec references `preview-as-link`, `breakdown-crew`, or `picker
 
 ### 4.1 Row anatomy (published mode, `actions.enabled && crewIds[i]` non-empty)
 
-Left→right: `Avatar` · name/subline block (unchanged) · action cluster
-(`relative flex shrink-0 items-center`):
+Left→right: `Avatar` · name/subline block (unchanged) · existing icon span (unchanged,
+`step3ReviewSections.tsx:1283`) · `CrewRowActions` (only for eligible rows). "Cluster"
+throughout this spec = `CrewRowActions`' own wrapper (`relative flex shrink-0 items-center`),
+which contains the trigger and anchors both popovers; the visible "Preview as" pill
+(`:1307-1315`) is REMOVED:
 
 1. **Call icon** — unchanged from today (`tel:` anchor, 44×44 hit, 32px visual) when
    `hasContent(m.phone)`.
@@ -120,12 +128,15 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
   2. divider (`h-px bg-border mx-1.5 my-1`)
   3. **Reset name picker** — button, RefreshCw icon → confirm popover (4.3).
 - One menu open across the whole section (single `openCrewId` state in `CrewBreakdown`).
-  Toggling another row's trigger closes the first and opens the second.
-- Close paths: trigger re-click; outside click (fixed-inset backdrop button,
-  `aria-hidden tabIndex={-1}`, `z-20`, UserMenu idiom); `Escape` (keydown on cluster); menu-item
-  activation; `Tab`/`Shift+Tab` (APG menu-button pattern — menu closes, focus proceeds in
-  document order from the trigger). Esc/outside-click/trigger-toggle restore focus to that
-  row's trigger.
+- Close paths & stacking (ratified: backdrop-simple, the UserMenu idiom — NOT the mock's
+  elevated-trigger one-click cross-row toggle): while a popover is open, a fixed-inset backdrop
+  button (`aria-hidden tabIndex={-1}`, `z-20`) sits above the page INCLUDING every trigger;
+  popovers are `z-30`. Consequences, stated as contract: ANY click outside the popover —
+  including on the open row's own trigger or another row's trigger — lands on the backdrop and
+  ONLY closes (no focus restore; pointer users keep their pointer context). Opening another
+  row after that takes a second click. `aria-expanded` tracks state on the owning trigger.
+  Other close paths: `Escape` (closes + restores focus to the trigger); menu-item activation;
+  `Tab`/`Shift+Tab` (APG — menu closes, focus proceeds in document order from the trigger).
 - **Keyboard contract (APG menu-button):** menu opens with the FIRST menuitem focused (roving
   focus via `tabIndex={-1}` items, `.focus()` on mount); `ArrowDown`/`ArrowUp` move focus
   cyclically; `Home`/`End` jump to first/last; `Enter`/`Space` activate the focused item.
@@ -244,14 +255,29 @@ resolving is confirm's pending variant: same popover, both buttons `disabled`, C
 
 Compound transitions:
 
-- Open row B's menu while row A's menu/confirm open → A closes fully (state is single
-  `openCrewId`+`mode`), B's menu enters. A's auto-revert timer cleared.
-- Trigger re-click while confirm open → full close (toggle semantics), timer cleared.
+- Click anywhere outside while row A's menu/confirm open (incl. any trigger) → backdrop closes
+  A fully, auto-revert timer cleared (§4.2 stacking contract); a subsequent trigger click opens
+  normally. Single `openCrewId`+`mode` state makes an A-and-B-both-open frame unrepresentable.
 - Auto-revert fires while `resolving` → no-op (functional guard: only `confirm` → closed, mirror
   `PickerResetControl.tsx:88-89`).
 - Success banner visible while a new menu opens → banner stays (independent state) but a new
   confirm-open clears it (§4.5).
 - Section unmount (modal dismiss) mid-anything → cleanup clears both timers.
+
+## 6b. Dimensional Invariants
+
+(Tailwind v4 does not default `.flex` to `align-items: stretch` — every relationship explicit;
+each gets a real-browser assertion, §8.)
+
+| Parent → child | Relationship | Guaranteeing class/style |
+| --- | --- | --- |
+| row `<li>` → action cluster | vertically centered, natural height | `flex items-center` on li (existing), `flex items-center` on cluster |
+| action cluster → trigger button | 44×44 hit box | `size-tap-min` on the button (`inline-flex items-center justify-center`) |
+| trigger button → dots visual | 32×32 centered square | `size-8` + `grid place-items-center` on inner span |
+| cluster (`relative`) → menu popover | right edges flush; top = cluster bottom + 6px | `absolute right-0 top-[calc(100%+6px)]` |
+| cluster (`relative`) → confirm popover | same anchor; fixed width 268px | `absolute right-0 top-[calc(100%+6px)] w-[268px]` |
+| menu popover → menuitems | full-width rows | `flex w-full` per item |
+| icon anchors (unchanged) | 44×44 hit / 32×32 visual | existing `size-tap-min` / `size-8` (`step3ReviewSections.tsx:1288-1302`) |
 
 ## 7. Flag lifecycle table
 
@@ -279,8 +305,12 @@ Unit (RTL, jsdom — behavior only, no layout claims):
   keyboard contract (open focuses first menuitem; ArrowDown/ArrowUp cycle; Home/End; Tab
   closes; Enter activates focused item);
   C3/C5 focus (`vi.waitFor` per async-focus lesson); sr-only region receives success text; new
-  confirm clears prior outcome; no-trigger render for `enabled:false` / empty crewId / staged
-  (assert DOM equality of the cluster against a no-`actions` render — pins byte-identical claim).
+  confirm clears prior outcome; no-trigger render for `enabled:false` / empty crewId / staged —
+  asserted against the CONCRETE committed DOM shape, not a self-comparison: the cluster
+  contains zero `button[aria-haspopup]` elements AND the icon anchors match the existing
+  literal contract (an `<a>` per phone/email with `aria-label` `Call/Email ${name}`, class
+  containing `size-tap-min`, nested `span` with `size-8` — the `step3ReviewSections.tsx:1283-1305`
+  shape; expected hrefs derived from fixture phone/email values).
 - `tests/admin/pickerResetControl.test.tsx`: rewrite to everyone-only surface (select/member
   branches deleted; all/confirm/cancel/banners/focus retained).
 - `tests/app/admin/showReviewModalLoader.test.tsx` + `tests/components/admin/showpage/sectionWarningControls.test.tsx`:
@@ -305,8 +335,14 @@ Real-browser (Playwright, extends `tests/e2e/_publishedReviewModalHarness.tsx` +
   `crew-row-menu-*` fully within viewport and intersecting the modal scroll container's visible
   box; z-order above adjacent rows (elementFromPoint on menu center resolves to a menu
   descendant — viewport coords per `reference_playwright_elementfrompoint_viewport_coords`).
-- Trigger hit area: `crew-row-menu-button-*` bounding box ≥ 44×44 (±0.5px).
-- Esc + outside-click close with focus restored to trigger (real focus, not jsdom).
+- Dimensional Invariants (§6b), each ±0.5px via `getBoundingClientRect()`: trigger box ≥ 44×44
+  and its inner visual 32×32 centered; open menu right edge flush with cluster right edge and
+  `menu.top === cluster.bottom + 6`; confirm width 268.
+- Stacking contract: with row A's menu open, click row A's trigger center →
+  `document.elementFromPoint` resolves to the backdrop and the menu closes (one click, no
+  reopen); a second click reopens. Same for clicking row B's trigger (closes only).
+- Esc closes with focus restored to trigger (real focus, not jsdom); backdrop click closes
+  without focus restore.
 - Confirm CTA visible + clickable within the modal on the LAST crew row (where
   `top: calc(100%+6px)` opens past the scrollport edge): after opening, the
   `scrollIntoView({ block: "nearest" })` mount behavior (§4.2) must leave the popover fully
@@ -337,6 +373,9 @@ Real-browser (Playwright, extends `tests/e2e/_publishedReviewModalHarness.tsx` +
    bespoke `crewMenuPop`; open-state tint via tokens instead of hex.
 6. Reset outcome renders as the panel-top banner pair (sr-only + visible, PCR-1) rather than a
    bare visual toast — a11y parity with the existing control.
+7. Backdrop-simple close semantics (any outside click, incl. triggers, closes only; reopening
+   takes a second click) instead of the mock's one-click cross-row toggle — UserMenu precedent,
+   avoids elevated-trigger stacking complexity.
 
 ## 11. Numeric sweep (single sources)
 
