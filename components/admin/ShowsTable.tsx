@@ -305,37 +305,43 @@ export function ShowsTable({
   // (no double-overlay frame). Modified/non-primary clicks are new-tab
   // intents — never covered with an overlay.
   const searchParams = useSearchParams();
-  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
+  // `pending` carries BOTH the clicked slug AND the params object that was
+  // committed at click time — the anchor for the reset below.
+  const [pending, setPending] = useState<{
+    slug: string;
+    paramsAtClick: ReturnType<typeof useSearchParams>;
+  } | null>(null);
   const committedShow = searchParams.get("show");
-  const showPendingSkeleton = pendingSlug !== null && committedShow !== pendingSlug;
-  const handleRowClick = (slug: string) => (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
-      return;
-    setPendingSlug(slug);
-  };
   // RESET, not just hide (critique P0/P1): any committed navigation swaps the
   // searchParams object — clear the pending state then. Open commit (?show
   // present) hands off to the server fallback; a loader redirect back to
   // /admin (missing/blocked show) clears the overlay instead of stranding a
-  // fake "loading"; and a later CLOSE (show stripped) can never re-satisfy
-  // `committedShow !== pendingSlug` with a stale slug and remount the skeleton
-  // over the dashboard. During the in-flight window the params object is
-  // untouched, so the overlay stays up exactly until a commit lands.
-  // Render-time derive-from-props reset (the React-endorsed alternative to a
-  // setState-in-effect, which react-hooks/set-state-in-effect forbids).
-  const [seenParams, setSeenParams] = useState(searchParams);
-  if (seenParams !== searchParams) {
-    setSeenParams(searchParams);
-    if (pendingSlug !== null) setPendingSlug(null);
+  // fake "loading" (identity compare, NOT value — that redirect can land on
+  // the exact URL the click started from); and a later CLOSE (show stripped)
+  // can never re-satisfy `committedShow !== slug` with a stale slug and
+  // remount the skeleton over the dashboard. Guarded setState-in-render is
+  // the React-endorsed derive-from-props pattern
+  // (react-hooks/set-state-in-effect forbids the effect form; react-hooks/refs
+  // forbids a render-read ref anchor — hence the anchor lives IN the state).
+  // Idle renders (pending === null) never call setState, so a test mock
+  // returning a fresh params instance per call cannot start a render loop.
+  if (pending !== null && searchParams !== pending.paramsAtClick) {
+    setPending(null);
   }
+  const showPendingSkeleton = pending !== null && committedShow !== pending.slug;
+  const handleRowClick = (slug: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+      return;
+    setPending({ slug, paramsAtClick: searchParams });
+  };
   // Browser Back can cancel the in-flight open without ANY commit landing —
   // clear the overlay on popstate so it can never strand.
   useEffect(() => {
-    if (pendingSlug === null) return;
-    const cancel = () => setPendingSlug(null);
+    if (pending === null) return;
+    const cancel = () => setPending(null);
     window.addEventListener("popstate", cancel);
     return () => window.removeEventListener("popstate", cancel);
-  }, [pendingSlug]);
+  }, [pending]);
 
   const trimmed = query.trim().toLowerCase();
   const filtered = useMemo(
@@ -663,9 +669,7 @@ export function ShowsTable({
           fallback (RSC — can't serialize an onClose), the CLIENT copy is
           cancelable: scrim / Esc / grab dismiss the overlay (critique P1), so
           a mis-tap never traps the user behind a non-interactive frame. */}
-      {showPendingSkeleton ? (
-        <ShowReviewModalSkeleton onClose={() => setPendingSlug(null)} />
-      ) : null}
+      {showPendingSkeleton ? <ShowReviewModalSkeleton onClose={() => setPending(null)} /> : null}
     </div>
   );
 }
