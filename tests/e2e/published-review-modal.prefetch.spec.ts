@@ -80,6 +80,12 @@ test.describe("published review modal â€” prefetch + revalidate (prefetch spec Â
     await expect(page.getByTestId(`shows-table-row-${show.slug}`)).toBeVisible({
       timeout: 30_000,
     });
+    // Viewport-entry is the feature's trigger, and Playwright's toBeVisible does
+    // NOT imply in-viewport: with a large seeded corpus (CI db:seed) the row can
+    // sort below the 800px fold and its Link never schedules a prefetch (first
+    // real-CI run failed exactly this way while small local corpora passed).
+    // Scroll it into view so the IntersectionObserver fires deterministically.
+    await page.getByTestId(`shows-table-row-${show.slug}`).scrollIntoViewIfNeeded();
     await waitForRowHydration(page, show.slug);
   }
 
