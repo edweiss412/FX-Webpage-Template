@@ -54,6 +54,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import sharp from "sharp";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (mirrors the
 // step3-review-modal.layout.spec.ts template; do NOT use import.meta.url here).
@@ -180,6 +181,32 @@ async function openHarness(page: Page, viewport: { width: number; height: number
 
 async function heightOf(page: Page, selector: string): Promise<number> {
   return page.locator(selector).evaluate((el) => el.getBoundingClientRect().height);
+}
+
+/**
+ * The rendered colour of a single viewport pixel, as `[r, g, b]`.
+ *
+ * T-CORNER needs PAINT, not hit-testing: Blink's `elementFromPoint` ignores a
+ * rounded `overflow: hidden` clip entirely (it still returns the clipped child
+ * at a corner the child no longer paints), so a DOM probe cannot tell a
+ * square-cornered modal from a rounded one. A 1×1 screenshot can. `sharp` is
+ * already a project dependency used by the help-screenshot pipeline.
+ *
+ * Not a baseline/byte gate: nothing is compared against a committed image, only
+ * against other pixels sampled in the same run, so this carries none of the
+ * pinned-capture-environment obligations of a screenshot-diff gate (AGENTS.md).
+ */
+async function pixelAt(page: Page, [x, y]: [number, number]): Promise<[number, number, number]> {
+  const png = await page.screenshot({
+    clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 },
+  });
+  const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  return [data[0]!, data[1]!, data[2]!];
+}
+
+/** Exact-equal RGB. Every probe sits on flat fill, never on an antialiased edge. */
+function rgbEq(a: [number, number, number], b: [number, number, number]): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 }
 
 test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", () => {
@@ -349,6 +376,87 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       expect(comp.bandPadBottom, `band supplies the vertical inset @ ${mode}`).toBeGreaterThan(0);
       expect(comp.stripPadTop, `strip has no own top padding @ ${mode}`).toBe(0);
       expect(comp.stripPadBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
+    });
+
+    // T-CORNER. The panel declares `rounded-t-md` / `sm:rounded-md`, but its
+    // direct children (header, subheader) and the two-pane side rail all paint
+    // an OPAQUE `bg-surface` with square corners of their own. Without a clip
+    // on the panel those bands cover the panel's rounded corners and the modal
+    // renders with square edges — the panel's own `border-radius` keeps
+    // computing as 12px the whole time, so a `getComputedStyle(panel)`
+    // assertion would pass against the bug. This is therefore a PAINT probe
+    // (see `pixelAt`): the pixel just inside the panel's bounding-box corner
+    // but OUTSIDE the rounded arc must not be painted with the band's fill.
+    //
+    // The probe offset is derived from the panel's own computed radius, never
+    // hardcoded: a point at (left+d, top+d) lies outside a quarter-circle of
+    // radius r whenever d < r·(1 − 1/√2) ≈ 0.293r. `d = r/4` sits inside that
+    // bound for every radius the token scale can produce, and the assertion
+    // self-disables (fails loud) if the panel's radius is 0.
+    //
+    // Sheet mode (<sm) clips only the TOP corners — the panel is flush to the
+    // viewport bottom (`rounded-t-md`), so bottom probes are meaningless there.
+    test(`T-CORNER @ ${width}: opaque bands do not paint over the panel's rounded corners`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const geom = await page.locator(PANEL).evaluate((el, sheet: boolean) => {
+        const panel = el as HTMLElement;
+        const rect = panel.getBoundingClientRect();
+        const radius = parseFloat(getComputedStyle(panel).borderTopLeftRadius);
+        const d = radius / 4;
+        const corners: Record<string, [number, number]> = {
+          "top-left": [rect.left + d, rect.top + d],
+          "top-right": [rect.right - d - 1, rect.top + d],
+        };
+        if (!sheet) {
+          corners["bottom-left"] = [rect.left + d, rect.bottom - d - 1];
+          corners["bottom-right"] = [rect.right - d - 1, rect.bottom - d - 1];
+        }
+        return {
+          radius,
+          d,
+          corners,
+          // Reference A: a point deep inside the top band — whatever opaque
+          // colour the band paints. Reference B: a point outside the panel
+          // entirely — the scrim over the page background.
+          band: [rect.left + rect.width / 2, rect.top + radius * 2] as [number, number],
+          outside: [Math.max(0, rect.left - 8), rect.top + rect.height / 2] as [number, number],
+        };
+      }, isSheet);
+
+      // Non-vacuity: with a 0 radius every probe would sit on a square corner
+      // that is CORRECTLY painted, and the test would police nothing.
+      expect(geom.radius, `panel has a real corner radius @ ${mode}`).toBeGreaterThan(0);
+
+      const band = await pixelAt(page, geom.band);
+      const outside = await pixelAt(page, geom.outside);
+      // Discriminating power: if the band and the scrim rendered the same
+      // colour, every corner assertion below would be satisfiable by the bug.
+      expect(
+        rgbEq(band, outside),
+        `band ${band} and scrim ${outside} are distinguishable colours @ ${mode}`,
+      ).toBe(false);
+
+      // EVERY corner is probed before asserting: a per-corner assert would
+      // abort on the first offender and hide the others, so a repair that fixed
+      // only the top corners would read as fully green.
+      const painted: string[] = [];
+      for (const [corner, point] of Object.entries(geom.corners)) {
+        const px = await pixelAt(page, point as [number, number]);
+        // Compared against the BAND, not against the scrim: the panel casts
+        // `shadow-(--shadow-tile)`, which darkens the scrim in exactly this
+        // ring, so a correct render reads scrim-plus-shadow (neither pure
+        // colour). What can never be true is the band's own fill landing here.
+        if (rgbEq(px, band)) painted.push(corner);
+      }
+      expect(
+        painted,
+        `@ ${mode}: ${geom.d.toFixed(2)}px inside the panel's bounding box is OUTSIDE its` +
+          ` ${geom.radius}px arc, so the band fill ${band} must paint at NO corner` +
+          ` (scrim reads ${outside})`,
+      ).toEqual([]);
     });
 
     // T-TAP (modal-header-reconciliation §11.1). A HIT-BEHAVIOR probe, NOT a
