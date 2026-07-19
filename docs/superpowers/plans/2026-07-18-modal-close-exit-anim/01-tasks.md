@@ -657,35 +657,71 @@ describe("structural guards (spec §7.6)", () => {
   it("no consumer invokes the shell's onClose prop directly", () => {
     for (const path of CONSUMERS) {
       const src = readFileSync(join(process.cwd(), path), "utf8");
-      const direct = src.match(/(?<!closeApiRef\.current\?\.\(\)[\s\S]{0,0})\bonClose\(\)/g) ?? [];
+      // Literal call sites...
+      const direct = src.match(/\bonClose\(\)/g) ?? [];
       expect(direct, `${path} must route every close through requestClose/closeApiRef`).toHaveLength(0);
+      // ...and aliases/wrappers, which a lexical `onClose()` scan misses
+      // entirely (`const close = onClose; close();` violates the contract while
+      // reading clean). Passing onClose to the shell as a prop is the ONE
+      // legitimate use, so allow only that shape.
+      const aliased =
+        [...src.matchAll(/(?:const|let)\s+\w+\s*=\s*onClose\b/g)].map((m) => m[0]);
+      expect(aliased, `${path} aliases onClose; route the alias through requestClose`).toHaveLength(0);
+      const referenced = [...src.matchAll(/\bonClose\b/g)].length;
+      const asProp = [...src.matchAll(/onClose=\{onClose\}/g)].length;
+      const inSignature = [...src.matchAll(/onClose[?]?\s*:/g)].length;
+      const destructured = [...src.matchAll(/\bonClose,|\{\s*onClose\s*\}/g)].length;
+      expect(
+        referenced - asProp - inSignature - destructured,
+        `${path} references onClose outside its signature and the shell prop — check for a wrapper close path`,
+      ).toBeLessThanOrEqual(0);
     }
   });
 
   // Failure mode: a new motion state is added without a normalization row, so
   // exits from it silently jump instead of animating.
-  it("every motion-state source has an inventory row", () => {
-    // Spec §7.6 requires the entrance animation as a motion-state source too:
-    // S2 (close-during-entrance) is the state the snapshot-first order exists
-    // for, so leaving it to E2E alone drops the fail-by-default guard.
-    // Source token and spec token differ (the spec's S2 row says "`animation`
-    // running", the shell says `style.animation`), so pair them explicitly
-    // rather than assuming one string appears in both.
-    const SOURCES: Array<{ src: string; row: string }> = [
-      { src: "dragRef", row: "| S3 |" },
-      { src: "settleTimerRef", row: "| S4 |" },
-      { src: "dismissTimerRef", row: "| S5 |" },
-      { src: "dismissingRef", row: "| S5 |" },
-      { src: "style.animation", row: "| S2 |" },
-    ];
+  //
+  // DISCOVERS candidates rather than checking a hard-coded list — a positive
+  // list passes for any source it does not name (a future `bounceTimerRef`),
+  // which is the opposite of fail-by-default. Every discovered ref must be
+  // either mapped to an inventory row or explicitly exempted here with a
+  // reason, so adding one to the shell breaks CI until it is classified.
+  it("every motion-state source is mapped to an inventory row or exempted", () => {
     const spec = readFileSync(
       join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
       "utf8",
     );
-    for (const { src, row } of SOURCES) {
-      expect(SHELL_SRC, `${src} is no longer a shell motion-state source`).toContain(src);
-      expect(spec, `${src} needs its ${row} row in the §3.2 motion-state inventory`).toContain(row);
+    // Refs the shell declares. Motion-state sources are the ones that drive or
+    // schedule panel motion; the rest are exempt with a stated reason.
+    const declared = [...SHELL_SRC.matchAll(/const (\w+Ref)\s*=\s*useRef/g)].map((m) => m[1]);
+    const ROWS: Record<string, string> = {
+      dragRef: "| S3 |",
+      settleTimerRef: "| S4 |",
+      dismissTimerRef: "| S5 |",
+      dismissingRef: "| S5 |",
+    };
+    const EXEMPT: Record<string, string> = {
+      panelRef: "the element itself, not a motion state",
+      scrimRef: "cosmetic fade; does not gate exit-end (spec §3.2)",
+      dialogRef: "inert target, not a motion state",
+      grabRef: "pointer-capture target, not a motion state",
+      dragConsumedClickRef: "click-swallow latch, no panel motion",
+      closeApiRef: "close entry point, not a motion state",
+    };
+    for (const ref of declared) {
+      const row = ROWS[ref];
+      if (row) {
+        expect(spec, `${ref} needs its ${row} row in the §3.2 motion-state inventory`).toContain(row);
+        continue;
+      }
+      expect(
+        EXEMPT[ref],
+        `${ref} is a new shell ref: add an inventory row (§3.2) or an EXEMPT entry with a reason`,
+      ).toBeTruthy();
     }
+    // The entrance is a motion state with no ref — pin it separately (S2).
+    expect(SHELL_SRC).toContain("style.animation");
+    expect(spec, "entrance needs its | S2 | row in the §3.2 inventory").toContain("| S2 |");
   });
 
   // Failure mode: clearPanelDragStyles loses its guard and a pending settle
@@ -748,7 +784,6 @@ git commit --no-verify -m "test(admin): structural guards for close path, motion
 - Modify: `tests/e2e/published-review-modal.interactions.spec.ts:23`, `:254-292`
 - Modify: `tests/e2e/step3-review-modal.interactions.spec.ts`
 - Modify: `tests/e2e/_step3ReviewModalLiveEntry.tsx` — **required for (g)/(h)**, see below
-- Modify: `tests/e2e/_publishedReviewModalHarness.tsx` — `window.__closeAt` timestamp for the finish-source assertion (a boolean cannot order close against `transitionend`)
 - Reference (no edit expected): `tests/e2e/_step3ReviewModalHarness.tsx` — `modalElement()` (`:172`) already accepts handler injection; `harnessResolution()` (`:201`) already builds the resolution variant
 
 **Harness prerequisites — (g)/(h) cannot be written without these.** The live entry currently hardcodes `onRequestSetChecked: async () => true` (`_step3ReviewModalLiveEntry.tsx:65`) and passes no `resolution` prop, so there is no way to time a resolution relative to the exit window. Add, gated behind a query param so existing tests are untouched:
@@ -809,30 +844,50 @@ Each case asserts: ≥2 distinct intermediate values, strict progression toward 
 
 **How to actually observe the finish source.** The shell does not expose which path called `onClose`, and it must not — production instrumentation for tests is a smell. Timing cannot substitute: `DURATION_NORMAL_FALLBACK_MS` (220) and `DURATION_FAST_FALLBACK_MS` (120) are the *same* nominal values as the tokens they back, so a fallback-timer close lands at roughly the right moment and a timing-only assertion passes against a broken exit.
 
-Observe it **test-side**, installed BEFORE the dismissal:
+Observe it entirely **test-side**, with two requirements that are easy to get wrong:
+
+**(i) Arm the listener at dismiss time, in the same evaluation that triggers the dismissal.** A listener installed earlier with `{ once: true }` can be consumed by a *different* transform transition — the spring-back's own transition in case (e), or the entrance in (f) — recording a `__exitEnd` that a later fallback-timer close still satisfies. That would silently defeat the check. Stamp a dismiss marker and ignore any `transitionend` before it:
 
 ```ts
-/** Record the panel's own transform transitionend, then compare against the
- *  close counter. A broken exit (instant jump / transition:none) fires NO
- *  transform transitionend at all and closes on the fallback timer — so
- *  `sawTransitionEnd === false` is exactly the discriminator. */
 await page.evaluate((panelSel) => {
   const el = document.querySelector(panelSel);
-  const w = window as unknown as { __exitEnd?: number | null };
+  const w = window as unknown as { __dismissAt?: number; __exitEnd?: number | null; __closeAt?: number | null };
+  w.__dismissAt = performance.now();
   w.__exitEnd = null;
-  el?.addEventListener(
-    "transitionend",
-    (ev) => {
-      if ((ev as TransitionEvent).propertyName === "transform") w.__exitEnd = performance.now();
-    },
-    { once: true },
-  );
+  const onEnd = (ev: Event) => {
+    const te = ev as TransitionEvent;
+    if (te.propertyName !== "transform") return;
+    // Ignore anything that started before this dismissal (spring-back, entrance).
+    if (performance.now() < (w.__dismissAt ?? 0)) return;
+    if (w.__exitEnd === null) w.__exitEnd = performance.now();
+    el?.removeEventListener("transitionend", onEnd);
+  };
+  el?.addEventListener("transitionend", onEnd);
+}, PANEL);
+// ...then trigger the dismissal (Esc / click / drag) in the NEXT step.
+```
+
+**(ii) Timestamp the close from the real page, not from a harness the spec never loads.** `published-review-modal.interactions.spec.ts` drives the **real app** at `/admin?show=<slug>` (`:100`) — `tests/e2e/_publishedReviewModalHarness.tsx` serves only `published-review-modal.layout.spec.ts`, so adding a `window.__closeAt` there would give these tests nothing. Observe the unmount from the page instead:
+
+```ts
+await page.evaluate((panelSel) => {
+  const w = window as unknown as { __closeAt?: number | null };
+  w.__closeAt = null;
+  const target = document.querySelector(panelSel);
+  if (!target) return;
+  const obs = new MutationObserver(() => {
+    if (!document.contains(target)) {
+      w.__closeAt = performance.now();
+      obs.disconnect();
+    }
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
 }, PANEL);
 ```
 
-Then each relevant case asserts **both**: `__exitEnd` is non-null (a real transform transition completed), and the close was observed at-or-after it (`__closeAt >= __exitEnd`, using the harness's close counter/timestamp from the prerequisites above). Assert on the *source*, never on elapsed time alone.
+Then assert **both**: `__exitEnd` is non-null (a real post-dismiss transform transition completed), and `__closeAt >= __exitEnd`. Assert on the source, never on elapsed time alone.
 
-For the published harness, `window.__closeAt` needs the same treatment as the Step3 counters — a timestamp set in `onClose`, not just a boolean.
+For the **Step3** cases the harness counters from the prerequisites above already give a close timestamp — use those rather than a second observer.
 
 **Mandatory precondition for every "Approve & apply" case — (b), (g), (h).** `harnessResolution()` includes a tier-3 radio item, and Step3 disables *Approve & apply* until every resolution item has a choice. A test that clicks a **disabled** button during the exit window observes "handler not invoked" and passes — even if `inert` and the whole suppression contract were broken. So before any close/timing sequence:
 
