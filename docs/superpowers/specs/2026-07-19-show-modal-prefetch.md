@@ -35,35 +35,33 @@ Out of scope: `StagedReviewCard` and bell alert links (keep default prefetch); a
 - Fires **once per shell mount** (ref guard; React 19 StrictMode double-effect in dev must not double-fire the network call — guard is the dedupe).
 - Fires **after** mount, never during render; never awaited by UI.
 - Reconciliation is an in-place prop swap: the client shell instance persists (same tree position/type), so `closing` state, scroll, expanded sections, and the one-shot `alert_id` highlight (client state) survive. Entrance does not replay — #492's `entrance="none"` governs the loaded frame, and a refresh does not remount the shell.
-- A refresh landing **after the user closed** the modal must not resurrect it: close = URL commit stripping `show` (`useShowModalNav.ts:30-36`); the refreshed tree for the closed URL has no modal. The #485 pending-reset contract (`ShowsTable.tsx:315-330`, identity compare) is untouched.
+- A refresh landing around a close must not resurrect the modal. Close is NOT an instant URL strip: under normal motion, `ReviewModalShell.requestClose` plays the exit animation and calls `onClose` at exit-END (~220 ms; `components/admin/review/ReviewModalShell.tsx:345,389`, #488) — only then does `useShowModalNav().close` strip `show` from the URL (`useShowModalNav.ts:30-36`). Three distinct cases, each pinned (§6.4):
+  1. **Refresh lands during exit** (URL still `/admin?show=<slug>`): the refreshed server tree for the OPEN URL re-renders the modal slot; reconciliation reaches the same-type/-position client shell instance, whose local `closing`/exit state must survive (props swap, not remount) — the exit completes and the URL strip follows. No visual resurrection mid-exit.
+  2. **Refresh lands after the close commit** (URL is `/admin` without `show`): the refreshed tree for the closed URL has no modal slot — nothing to resurrect.
+  3. **Reduced motion**: `onClose` fires immediately (exit collapsed), collapsing case 1 into case 2.
+  The #485 pending-reset contract (`ShowsTable.tsx:315-330`, identity compare) is untouched.
 - Interaction with in-flight server actions (accept/undo/archive): server actions already conclude with their own revalidation; an overlapping background refresh is a benign extra read. No new mutation surface is introduced (invariant 10 not triggered).
 
 ### 3.3 Skeleton fast-swap (transition inventory delta)
 
 The §6.5 transition inventory (admin-show-modal spec) is unchanged — no new visual states. One pair gets a timing note: closed→open with a cache hit compresses the skeleton window to 0–2 frames; the skeleton's entrance may be cut mid-flight by the loaded swap (`animation: none`). This is the same visual as today's fast-network open and is **accepted** (do-not-relitigate: latency work cannot make the fast path slower to look smoother). CDP frame audit in the impeccable pass confirms no NEW artifact class (no opacity re-pop, which #492 pinned).
 
-### 3.4 Cache-eviction risk (plan-time empirical gate)
+### 3.4 Cache eviction + re-prefetch (source-verified; plan-time empirical confirmation)
 
-Unknown pinned for Stage 2 verification on a real prod build:
+Next 16.2.4 source (verified): `router.refresh()` invalidates the segment cache (`next/dist/client/components/router-reducer/reducers/refresh-reducer.js:29,42` → `segment-cache/cache.js:226`), and cache invalidation **pings visible links**, rescheduling prefetch tasks for every still-mounted dashboard row Link (`next/dist/client/components/links.js:270`). Consequences, all part of this spec's contract:
 
-- (a) Does `router.refresh()` evict **other rows'** prefetched entries?
-- (b) After eviction, do still-visible Links re-prefetch, or is the cache entry gone until remount?
-
-Decision table (single source of truth for fallbacks):
-
-| Empirical result | Ship shape |
-| --- | --- |
-| Refresh keeps other entries (or visible links re-prefetch) | Ship as specced. |
-| Refresh evicts and links do NOT re-prefetch | Fallback A: after refresh settles, re-run `router.prefetch(openHref(slug))` for visible rows (small client hook in `ShowsTable`); or Fallback B: drop the mount refresh, set `experimental.staleTimes.static: 30` (the configured minimum) so staleness is bounded at 30 s. Pick A unless it measurably re-fires N full waves per open; record the choice in the plan. |
+- The mount refresh evicts prefetched entries AND the still-visible rows (mounted behind the modal) re-prefetch automatically — the cache re-warms itself; no custom re-prefetch hook is needed. This is the shipped shape.
+- Post-refresh traffic therefore includes re-prefetch requests — possibly including another `?show=<slug>` request for the open row's own Link. Any "how many requests" assertion MUST discriminate prefetch requests from the navigation/refresh requests via the Next prefetch request header (`Next-Router-Prefetch` / segment-cache prefetch marker — plan pins the exact header observed against the prod server) rather than counting bare URL matches.
+- Stage 2 still runs the empirical probe on a real prod build to CONFIRM the source-read behavior (observed request pattern on open: refresh + re-prefetch wave) before the e2e assertions are written. If observation contradicts the source read (e.g. links do NOT re-ping), fallbacks remain: (A) explicit `router.prefetch(openHref(slug))` for visible rows after refresh settles, or (B) drop the mount refresh and set `experimental.staleTimes.static: 30` (the configured minimum). Record the observed pattern in the plan.
 
 ### 3.5 Server cost
 
-N visible rows × full loader wave per dashboard visit + 1 extra wave per open (refresh). Single-admin internal tool, dashboard O(10-30) rows; accepted (do-not-relitigate). No caps added; if this ever needs bounding it is a follow-up, not this spec.
+Per dashboard visit: N visible rows × full loader wave (initial prefetch). Per open: 1 refresh wave + up to N re-prefetch waves (the §3.4 re-ping — eager cache re-warm). Single-admin internal tool, dashboard O(10-30) rows; accepted with the re-ping cost stated (do-not-relitigate). No caps added; if this ever needs bounding it is a follow-up, not this spec.
 
 ## 4. Security / correctness invariants
 
 - Prefetch responses are auth'd RSC payloads for the same admin session — no new auth surface. `requireAdmin` runs on the dashboard page per request as today.
-- Archived/missing show prefetched then clicked: loader `redirect("/admin")` (`_showReviewModal.tsx:133,245`) unchanged; the pending-reset identity compare already handles the redirect-to-same-URL case.
+- Missing/blocked show prefetched then clicked: loader `redirect("/admin")` (`_showReviewModal.tsx:133` absent slug row; `:245` `not_admin_or_missing`) unchanged; the pending-reset identity compare already handles the redirect-to-same-URL case. **Archived** shows do NOT redirect — they render the read-only modal (`_showReviewModal.tsx:263,355`; admin-show-modal spec §6), and prefetching one is as valid as opening it.
 - No DB, no migrations, no advisory locks, no email boundaries, no new error codes (invariants 2,3,5 untouched; nothing for the §12.4 catalog).
 - Supabase call-boundary discipline (invariant 9): no new Supabase call sites.
 
@@ -85,8 +83,8 @@ Env gate: the spec `test.skip()`s unless `MODAL_PREFETCH_E2E=1` (set by the new 
 
 1. **Prefetch emitted:** dashboard load with ≥1 seeded show (`seedShowWithCrew`, `signInAs(ADMIN_FIXTURE)`, `settleDashboardAdminState` — the `published-review-modal.interactions.spec.ts:39-76` harness) produces a network request whose URL carries `?show=<slug>` with the RSC prefetch header, before any click.
 2. **Cache proof (anti-tautology):** after prefetch settles, install `page.route` that **holds every subsequent** `?show=<slug>` request (the refresh); click the row; assert the LOADED modal (title node, not skeleton) renders while the route still holds. Only a cache-served payload can do that. Concrete failure mode caught: `prefetch={true}` silently dropped/downgraded → click blocks on the held request → skeleton only → test fails.
-3. **Refresh once:** count `?show=<slug>` RSC requests post-click while the modal stays open: exactly one (the refresh). Catches both zero (dead revalidate) and per-render refresh storms.
-4. **Close safety:** open → close immediately (before releasing the held refresh) → release → modal stays closed, no resurrection, dashboard intact.
+3. **Refresh once:** post-click while the modal stays open, count `?show=<slug>` requests that are NOT prefetch-marked (§3.4 header discrimination): exactly one — the refresh. Prefetch-marked re-ping requests are permitted and NOT counted. Catches both zero (dead revalidate) and per-render refresh storms.
+4. **Close safety (three §3.2 cases):** (a) animated close, then release the held refresh DURING the exit window — exit completes, URL strips, modal stays gone; (b) release after the close commit — no resurrection, dashboard intact; (c) reduced-motion close then release — same. In all cases assert final state: no modal panel, URL without `show`.
 
 Existing-suite impact (verified, not assumed): `published-review-modal.interactions.spec.ts` + `.deeplink` run in no CI workflow and locally target the dev :3000 server where prefetch is inert; additionally their `openGated` helper (`interactions.spec.ts:455-479`) installs its route **before** `page.goto`, so under a prod server prefetch requests are held by the same gate — the skeleton premise survives both ways. The plan re-runs both specs locally as regression evidence; no edits expected.
 
