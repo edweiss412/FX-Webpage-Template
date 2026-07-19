@@ -979,6 +979,80 @@ describe("processOneFile", () => {
     expect(events).toEqual(["lock:start", "broadcast", "alert:first-published", "lock:commit"]);
   });
 
+  // First-seen change-feed suppression (cron path). The wizard's first-seen path already pins the
+  // same invariant from the other side via feedPolicy {kind:"none"} — applyStagedCore.ts:605 omits
+  // notableItems, rationale at :423-425 ("the feed documents changes to LIVE shows"), asserted in
+  // tests/onboarding/finalizeFirstSeenFullApply.db.test.ts. These two tests pin the CRON side of
+  // that same contract.
+  //
+  // The distinction is load-bearing and NOT interchangeable with "empty vs non-empty": the phase2
+  // writer gate is `args.notableItems !== undefined` (phase2.ts:527), and applyStagedCore.ts:600-604
+  // documents that choice_aware deliberately forwards an EMPTY array so the crew add/remove diff
+  // still lands. So `[]` means "run the writer", `undefined` means "no feed". A first-seen cron run
+  // previously forwarded `[]`, which ran the writer against an empty prior roster and emitted one
+  // phantom `crew_added` row per crew member into the admin "Recently auto-applied" strip.
+  test("cron first-seen (auto_publish_ready) omits notableItems entirely — no change-feed rows", async () => {
+    let captured: Parameters<NonNullable<ProcessOneFileDeps["runPhase2"]>>[1] | undefined;
+    const fakeTx = tx();
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        captured = args;
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    // Must be ABSENT, not empty — an empty array passes the `!== undefined` writer gate.
+    expect(captured).toBeDefined();
+    expect(Object.hasOwn(captured!, "notableItems")).toBe(false);
+    expect(captured!.notableItems).toBeUndefined();
+  });
+
+  // Negative regression for the test above: the suppression must be scoped to first-seen only.
+  // A fix that unconditionally dropped notableItems would silence the auto-applied feed for every
+  // genuine change to a LIVE show, and the test above would still pass.
+  test("cron existing-show (pass) still forwards notableItems so live changes DO feed", async () => {
+    let captured: Parameters<NonNullable<ProcessOneFileDeps["runPhase2"]>>[1] | undefined;
+    const fakeTx = tx();
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "pass" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        captured = args;
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(captured).toBeDefined();
+    expect(Array.isArray(captured!.notableItems)).toBe(true);
+  });
+
   // parse-data-quality-warnings Task 11 (P1, §6.4) — the SHOW_FIRST_PUBLISHED
   // alert gains an additive `context.data_gaps` digest in the SHARED emitter
   // (emitFirstPublishedNotice) when the parsed sheet carries warn-severity data-

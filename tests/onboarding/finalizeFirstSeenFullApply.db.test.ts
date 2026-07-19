@@ -361,6 +361,9 @@ describe("Phase B first-seen finalize — full Phase-2 apply (real DB)", () => {
       expect(show.wizard_created_session_id).toBe(SESSION);
 
       // feedPolicy "none": a first-seen apply writes ZERO show_change_log rows (R35-1).
+      // Sibling pin for the CRON first-seen path (same invariant, other entry point):
+      // tests/sync/runScheduledCronSync.test.ts "cron first-seen (auto_publish_ready) omits
+      // notableItems entirely" — the cron side suppresses by OMITTING the runPhase2 arg.
       expect(
         (
           await sql!.unsafe(`select 1 from public.show_change_log where drive_file_id = $1`, [

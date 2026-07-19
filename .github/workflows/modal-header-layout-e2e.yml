@@ -1,10 +1,7 @@
 name: Modal-header layout e2e (standalone harnesses)
-# Runs the four self-contained real-browser specs that police the admin
-# published-show modal header region:
+# Runs the self-contained real-browser specs that police the admin published-show
+# modal header region AND that no other workflow covers:
 #
-#   published-review-modal.layout   panel-column equations, band composition,
-#                                   copy right-flush, tap targets, no-orange
-#                                   enumeration, Re-sync overlay geometry
 #   skeletonBandParity              streaming skeleton vs loaded modal band
 #                                   parity (the load-time header "snap")
 #   statusStripToggleLayout         PublishedToggle containment + error banner
@@ -18,29 +15,37 @@ name: Modal-header layout e2e (standalone harnesses)
 # CLI, and serves it over its OWN node:http server. No app boot, no Supabase, no
 # seed — so this job needs none of the :3000-:3004 webServers.
 #
-# WHY ITS OWN JOB (the #479 lesson, repeated): these specs live in
+# NOT COVERED HERE, deliberately: published-review-modal.{layout,interactions,
+# deeplink} are run by .github/workflows/published-modal-e2e.yml (PR #493,
+# merged 2026-07-19), which also added published-review-modal.layout to the
+# desktop-chromium testMatch. That job boots the :3000 prod artifact + a seeded
+# Supabase because its interaction specs need them. Listing those specs here too
+# would double-run them, so this job covers only what #493 left dark.
+#
+# WHY ITS OWN JOB (the #479 lesson, repeated): the specs below live in
 # tests/e2e/standalone.config.ts, which NO workflow invoked. Playwright's
 # default config matches none of them either, so `pnpm exec playwright test
 # <path>` reports "No tests found" — they were runnable ONLY by a developer who
-# already knew to pass --config. Every real-browser assertion this surface
-# owns (T-LAYOUT, T-COPY-FLUSH, T-TAP, T-OVERLAY, T-NO-ORANGE, T-CONTRAST,
-# T-RESYNC-FOCUS-ORDER, T-STATUS-INLINE, skeleton A-E) was therefore dark in CI:
-# green locally once, then never run again. A dark spec rots.
+# already knew to pass --config. T-STATUS-INLINE, the skeleton A-E band-parity
+# assertions, the PublishedToggle containment invariants, and the Step 3
+# invariance signal were therefore dark in CI: green locally once, then never
+# run again. A dark spec rots.
+#
+# Unlike #493's job this one needs NO server and NO Supabase — every spec below
+# self-hosts — so it stays a ~15s job.
 #
 # The rest of standalone.config.ts (~15 further specs) is dark for the same
 # pre-existing reason and is NOT fixed here — see BACKLOG.md
-# BL-STANDALONE-CONFIG-CI-DARK. This job covers the modal-header family only.
+# BL-STANDALONE-CONFIG-CI-DARK.
 #
 # workflow_dispatch so close-out can fire it via `gh workflow run` without
 # waiting for a PR.
 on:
   pull_request:
     paths:
-      - "tests/e2e/published-review-modal.layout.spec.ts"
       - "tests/e2e/skeletonBandParity.spec.ts"
       - "tests/e2e/statusStripToggleLayout.spec.ts"
       - "tests/e2e/step3-review-modal.layout.spec.ts"
-      - "tests/e2e/_publishedReviewModalHarness.tsx"
       - "tests/e2e/_skeletonParityHarness.tsx"
       - "tests/e2e/_statusStripToggleHarness.tsx"
       - "tests/e2e/_step3ReviewModalHarness.tsx"

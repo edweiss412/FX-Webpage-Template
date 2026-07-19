@@ -531,7 +531,7 @@ export function ShowsTable({
                     scroll={false}
                     onClick={handleRowClick(row.slug)}
                     data-testid={`shows-table-row-${row.slug}`}
-                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
+                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
                   >
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">

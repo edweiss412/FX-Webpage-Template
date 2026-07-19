@@ -22,11 +22,14 @@
  */
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { buildSectionData, modalElement } from "./_step3ReviewModalHarness";
+import { buildSectionData, harnessResolution, modalElement } from "./_step3ReviewModalHarness";
 
 declare global {
   interface Window {
     __modalClosed?: boolean;
+    __closeCount?: number;
+    __closeAt?: number | null;
+    __resolveAction?: (name: string, ok?: boolean) => void;
   }
 }
 
@@ -58,17 +61,59 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   return realFetch(input as RequestInfo, init);
 }) as typeof window.fetch;
 
+/** Deferred action promises, resolved by the spec via `window.__resolveAction`.
+ *  MODAL-CLOSE-EXIT-ANIM-1 §7.5(g)/(h) need a resolution to land at a chosen
+ *  moment relative to the exit window — a timer would race it, so the spec
+ *  drives the timing explicitly. Opt-in via `?deferActions=1` so every existing
+ *  test keeps the immediate-resolution behavior. */
+const pendingActions = new Map<string, (ok: boolean) => void>();
+function deferred(name: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    pendingActions.set(name, resolve);
+  });
+}
+
+const params = new URLSearchParams(window.location.search);
+const DEFER_ACTIONS = params.get("deferActions") === "1";
+const WITH_RESOLUTION = params.get("resolution") === "1";
+
+window.__resolveAction = (name: string, ok = true) => {
+  pendingActions.get(name)?.(ok);
+  pendingActions.delete(name);
+};
+
 function LiveHarness() {
   const [open, setOpen] = useState(true);
   if (!open) return null;
   return modalElement(buildSectionData(), {
-    onRequestSetChecked: async () => true,
+    onRequestSetChecked: DEFER_ACTIONS ? () => deferred("publish") : async () => true,
+    ...(WITH_RESOLUTION
+      ? {
+          resolution: {
+            ...harnessResolution(),
+            ...(DEFER_ACTIONS
+              ? {
+                  onApplyResolve: () => deferred("apply"),
+                  onIgnoreResolve: () => deferred("ignore"),
+                }
+              : {}),
+          },
+        }
+      : {}),
     onClose: () => {
-      // Deliberate test-harness window hook: the Playwright spec reads
-      // window.__modalClosed to distinguish "onClose fired" from "modal
-      // merely left the DOM".
-      // eslint-disable-next-line react-hooks/immutability -- test-harness window hook
+      // Deliberate test-harness window hooks. `__modalClosed` distinguishes
+      // "onClose fired" from "modal merely left the DOM"; the COUNT and the
+      // TIMESTAMP are what §7.5(g)/(h) actually assert on — "exactly once" and
+      // "at-or-after the exit's transitionend" are both unexpressible with a
+      // boolean.
+      /* eslint-disable react-hooks/immutability, react-hooks/purity --
+         test-harness window hooks; `performance.now()` here is an event-handler
+         timestamp, not render-time state — the spec needs the ORDERING of close
+         vs the exit's transitionend, which a count cannot express. */
       window.__modalClosed = true;
+      window.__closeCount = (window.__closeCount ?? 0) + 1;
+      window.__closeAt = performance.now();
+      /* eslint-enable react-hooks/immutability, react-hooks/purity */
       setOpen(false);
     },
   });

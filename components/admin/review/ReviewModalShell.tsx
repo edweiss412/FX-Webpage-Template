@@ -23,6 +23,9 @@
  * PublishedReviewModal (`dataAttrPrefix="review-modal"`).
  */
 import {
+  createContext,
+  useLayoutEffect,
+  useContext,
   useEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
@@ -52,7 +55,36 @@ export const DURATION_NORMAL_FALLBACK_MS = 220;
  *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
 export const DURATION_FAST_FALLBACK_MS = 120;
 
+/** Grace added to the EXIT's fallback timer only (not the drag/spring-back
+ *  paths, whose timings are unchanged). See the call site for why. */
+export const EXIT_FALLBACK_BUFFER_MS = 80;
+
+/** Close entry point for consumer-owned header slots (spec §3.3). Default is a
+ *  no-op so the button degrades rather than throwing outside a provider. */
+export const ReviewModalCloseContext = createContext<() => void>(() => {});
+export function useReviewModalClose(): () => void {
+  return useContext(ReviewModalCloseContext);
+}
+
 export type ReviewModalShellProps = {
+  /** Populated with `requestClose` in a layout effect (pre-paint) and cleared on
+   *  unmount. Step3's action-success handlers are consumer-owned closures that
+   *  sit ABOVE this shell's close provider, so a `useReviewModalClose()` call in
+   *  their component body would read the default no-op and the modal would never
+   *  close after a successful publish (spec §3.1a). This ref is how they reach
+   *  the real `requestClose`. Call it as `closeApiRef.current?.()` — there is NO
+   *  `?? onClose` fallback: the ref is null only after unmount, i.e. a close
+   *  already happened, so a fallback would fire a SECOND close. */
+  closeApiRef?: RefObject<(() => void) | null>;
+
+  /** When true every close affordance is dead — no inert, no exit, no onClose.
+   *  The Suspense-fallback skeleton has no real close (spec §3.4), and the
+   *  exit animation would otherwise slide the LOADING frame away into an inert,
+   *  scroll-locked state the user cannot leave. Gates `requestClose` step 0,
+   *  `handleGrabPointerDown`, AND `beginDismiss` — the drag branch reaches
+   *  `beginDismiss` without passing through `requestClose`. */
+  closeAffordancesDisabled?: boolean;
+
   /** §6.2 guard: `false` renders nothing (no effects run, no portal). */
   open: boolean;
   onClose: () => void;
@@ -60,6 +92,14 @@ export type ReviewModalShellProps = {
   labelledBy: string;
   /** Interpolated into the CSS entrance hooks `data-<prefix>-scrim/panel`. */
   dataAttrPrefix: "step3-review" | "review-modal";
+  /** `"none"` stamps `data-<prefix>-entrance="none"` on scrim + panel, which
+   *  the globals.css suppression twins collapse to `animation: none`. For
+   *  frames that REPLACE an already-settled shell instance (the published
+   *  modal streaming in over its Suspense skeleton, §6.5: "in-place swap …
+   *  instant") — a fresh mount would otherwise replay the entrance keyframe
+   *  from opacity≈0 and visibly dim the open modal. The exit animation is
+   *  transition-driven and unaffected. Default: animated. */
+  entrance?: "animated" | "none";
   /** Interpolated into the shell-owned testids `<base>-modal/-backdrop/-grab/-header/-footer`. */
   testIdBase: string;
   /** Receives initial focus (useDialogFocus) — the consumer's close button. */
@@ -86,6 +126,8 @@ export function ReviewModalShell(props: ReviewModalShellProps): ReactNode {
 
 function OpenReviewModalShell({
   onClose,
+  closeAffordancesDisabled = false,
+  closeApiRef,
   labelledBy,
   dataAttrPrefix,
   testIdBase,
@@ -94,8 +136,19 @@ function OpenReviewModalShell({
   subHeader,
   children,
   footer,
+  entrance = "animated",
 }: ReviewModalShellProps) {
+  // Spread onto scrim + panel next to their entrance hooks; empty when animated
+  // so the default DOM is byte-identical to the pre-prop shell.
+  const entranceAttr = entrance === "none" ? { [`data-${dataAttrPrefix}-entrance`]: "none" } : {};
   const panelRef = useRef<HTMLDivElement | null>(null);
+  /** The `role="dialog"` root — `beginDismiss` inerts this subtree. */
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  /** The grab strip — `requestClose` releases its pointer capture when it
+   *  cancels an in-flight drag. */
+  const grabRef = useRef<HTMLButtonElement | null>(null);
+  /** The scrim — the exit fades it out alongside the panel (spec §3.2). */
+  const scrimRef = useRef<HTMLButtonElement | null>(null);
   // §S3C-2: portal the fixed-overlay dialog to document.body on the client so
   // the background admin shell can be inerted (below) and the modal escapes any
   // transformed ancestor (PageTransition) that would confine `position: fixed`.
@@ -184,12 +237,15 @@ function OpenReviewModalShell({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        requestClose();
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    // `requestClose` is redefined every render, so this re-subscribes every
+    // render — cheap for one document listener, and it keeps the handler bound
+    // to the CURRENT closure (which reads `onClose` and the drag refs).
+  }, [requestClose]);
 
   // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
   // All drag state lives in refs (no re-renders while the pointer moves); the
@@ -214,8 +270,23 @@ function OpenReviewModalShell({
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Populated pre-paint so it is ready before any user-triggered action can
+  // resolve, and cleared on unmount so a late resolution closes nothing
+  // (spec §3.1a). No dependency array: `requestClose` is redefined every render
+  // and the ref must always hold the current closure.
+  useLayoutEffect(() => {
+    if (!closeApiRef) return;
+    closeApiRef.current = requestClose;
+    return () => {
+      closeApiRef.current = null;
+    };
+  });
+
   /** Return the panel to stylesheet control (entrance keyframes, mode classes). */
   function clearPanelDragStyles() {
+    // Never hand the panel back to stylesheet control while an exit is in flight
+    // — a pending settle() would otherwise blank the exit styles (spec §3.2).
+    if (dismissingRef.current) return;
     const panel = panelRef.current;
     if (!panel) return;
     panel.style.transform = "";
@@ -223,7 +294,124 @@ function OpenReviewModalShell({
     panel.style.animation = "";
   }
 
+  /** Commit the dismiss: no second exit may start, and the subtree stops taking
+   *  input for the 120–220ms the exit now lasts (spec §3.1 step 3). Shared with
+   *  the drag-past-threshold branch so every affordance inerts identically. */
+  function beginDismiss() {
+    // The drag-past-threshold branch calls this directly, bypassing
+    // `requestClose` and its step-0 gate — so the gate is repeated here.
+    if (closeAffordancesDisabled) return;
+    dismissingRef.current = true;
+    // setAttribute, NOT `.inert = true`: jsdom does not reflect the property to
+    // an attribute, so a property-only assignment is untestable in the unit
+    // suite (and `hasAttribute("inert")` would read false). Every target browser
+    // honours the attribute form identically.
+    dialogRef.current?.setAttribute("inert", "");
+  }
+
+  /** The single close entry point for every non-drag affordance (spec §3.1).
+   *  Task 3 replaces the immediate `onClose()` tail with the animated exit.
+   *
+   *  Deliberately NOT `useCallback`: it must be redefined every render so the
+   *  Esc listener and (Task 5) `closeApiRef` always hold the current closure —
+   *  a memoized one would capture a stale `closeAffordancesDisabled` once that
+   *  becomes a prop in Task 4. Re-subscribing one document listener per render
+   *  is the cheaper side of that trade. */
+  function requestClose() {
+    if (closeAffordancesDisabled) return; // step 0
+    if (dismissingRef.current) return; // step 1 — one exit, one close
+    // step 2: cancel an active drag so its pointerup cannot spring back over the
+    // exiting panel. Do NOT clear the inline transform — it is the exit's start
+    // state (spec §3.2).
+    const drag = dragRef.current;
+    if (drag !== null) {
+      dragRef.current = null;
+      const grab = grabRef.current;
+      if (grab && typeof grab.releasePointerCapture === "function") {
+        try {
+          grab.releasePointerCapture(drag.pointerId);
+        } catch {
+          /* capture already released */
+        }
+      }
+    }
+    // step 2 (cont.): a pending spring-back settle would call
+    // clearPanelDragStyles() mid-exit. The chokepoint guard above already
+    // refuses it, but cancelling the timer keeps the exit free of dead work.
+    if (settleTimerRef.current !== null) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    beginDismiss();
+
+    const panel = panelRef.current;
+    const reduced =
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (panel === null || reduced) {
+      onClose(); // step 4 — byte-identical to today
+      return;
+    }
+
+    // step 5 — snapshot FIRST, before neutralizing anything: an interrupted
+    // entrance must continue from where it reached, not snap to resting style.
+    const computed = window.getComputedStyle(panel);
+    const startTransform = computed.transform === "none" ? "" : computed.transform;
+    const startOpacity = computed.opacity;
+
+    const isSheet = !window.matchMedia("(min-width: 640px)").matches;
+    const durationVar = isSheet ? "--duration-normal" : "--duration-fast";
+    const fallbackMs = isSheet ? DURATION_NORMAL_FALLBACK_MS : DURATION_FAST_FALLBACK_MS;
+
+    panel.style.animation = "none";
+    panel.style.transition = "none";
+    if (startTransform) panel.style.transform = startTransform;
+    panel.style.opacity = startOpacity;
+    void panel.offsetHeight; // force a style flush so start and end resolve separately
+    panel.style.transition = `transform var(${durationVar}) var(--ease-out-quart), opacity var(${durationVar}) var(--ease-out-quart)`;
+    if (isSheet) {
+      panel.style.transform = "translateY(100%)";
+    } else {
+      panel.style.opacity = "0";
+      panel.style.transform = "translateY(8px) scale(0.98)";
+    }
+
+    const scrim = scrimRef.current;
+    if (scrim) {
+      scrim.style.animation = "none";
+      scrim.style.transition = `opacity var(${durationVar}) ease-out`;
+      scrim.style.opacity = "0";
+    }
+
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      panel.removeEventListener("transitionend", onTransitionEnd);
+      if (dismissTimerRef.current !== null) {
+        clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
+      }
+      onClose();
+    };
+    // Keys on `transform` in BOTH modes — desktop animates transform as well as
+    // opacity precisely so this one predicate works (spec §3.2).
+    const onTransitionEnd = (ev: TransitionEvent) => {
+      if (ev.target === panel && ev.propertyName === "transform") finish();
+    };
+    panel.addEventListener("transitionend", onTransitionEnd);
+    // + EXIT_FALLBACK_BUFFER_MS: the fallback constants equal the duration
+    // tokens they back, so an unbuffered timer fires in the same frame the
+    // transition completes and USUALLY WINS — `transitionend` would be dead
+    // code and every exit would close on the timer. The buffer keeps the timer
+    // a genuine safety net (display:none ancestors, dropped events) rather than
+    // the primary path. Caught by §7.5(a)'s finish-source assertion.
+    dismissTimerRef.current = setTimeout(finish, fallbackMs + EXIT_FALLBACK_BUFFER_MS);
+  }
+
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (closeAffordancesDisabled) return; // no drag may start (spec §3.4)
     if (dismissingRef.current) return;
     // A new drag takes over from a still-settling spring-back.
     if (settleTimerRef.current !== null) {
@@ -263,6 +451,9 @@ function OpenReviewModalShell({
   }
 
   function handleGrabPointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
+    // An affordance already committed the exit — a late pointerup must not
+    // spring the departing panel back or start a second dismiss.
+    if (dismissingRef.current) return;
     const drag = dragRef.current;
     if (drag === null || event.pointerId !== drag.pointerId) return;
     dragRef.current = null;
@@ -285,7 +476,7 @@ function OpenReviewModalShell({
       // fallback matched to the `--duration-normal` token (220ms) in case the
       // transitionend never fires (display:none ancestors, reduced motion
       // collapsing the duration to 0ms, dropped events).
-      dismissingRef.current = true;
+      beginDismiss();
       panel.style.transition = "transform var(--duration-normal) var(--ease-out-quart)";
       panel.style.transform = "translateY(100%)";
       let closed = false;
@@ -379,69 +570,75 @@ function OpenReviewModalShell({
   }, []);
 
   const tree = (
-    <div
-      data-testid={`${testIdBase}-modal`}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelledBy}
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
-    >
-      {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
+    <ReviewModalCloseContext.Provider value={requestClose}>
+      <div
+        ref={dialogRef}
+        data-testid={`${testIdBase}-modal`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+      >
+        {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
           order (tabIndex -1) so the focus trap never lands on it; Escape + the
           visible close button are the keyboard/AT exits. Deliberately NOT
           aria-hidden — aria-hidden on an interactive control is an a11y
           footgun. (Pattern carried from Step3DetailsDialog / ReportModal.) */}
-      <button
-        type="button"
-        data-testid={`${testIdBase}-backdrop`}
-        {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
-        aria-label="Close"
-        tabIndex={-1}
-        onClick={onClose}
-        className="absolute inset-0 bg-overlay-scrim"
-      />
+        <button
+          ref={scrimRef}
+          type="button"
+          data-testid={`${testIdBase}-backdrop`}
+          {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
+          {...entranceAttr}
+          aria-label="Close"
+          tabIndex={-1}
+          onClick={requestClose}
+          className="absolute inset-0 bg-overlay-scrim"
+        />
 
-      {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
+        {/* Panel — `items-stretch` stated explicitly: this repo's Tailwind v4
           does NOT default `.flex` to align-items:stretch (DESIGN.md §7).
           Header/footer/grab are shrink-0; the body region is min-h-0 flex-1. */}
-      <div
-        ref={panelRef}
-        {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
-        className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
-      >
-        {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
+        <div
+          ref={panelRef}
+          {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
+          {...entranceAttr}
+          className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+        >
+          {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
             DRAG_SLOP_PX) closes via the click; a real drag consumes the
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
-        <button
-          type="button"
-          data-testid={`${testIdBase}-grab`}
-          aria-label="Drag down or tap to close"
-          onClick={() => {
-            if (dragConsumedClickRef.current) return; // the drag ate this click
-            onClose();
-          }}
-          onPointerDown={handleGrabPointerDown}
-          onPointerMove={handleGrabPointerMove}
-          onPointerUp={handleGrabPointerEnd}
-          onPointerCancel={handleGrabPointerEnd}
-          className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-        >
-          <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-        </button>
+          <button
+            ref={grabRef}
+            type="button"
+            data-testid={`${testIdBase}-grab`}
+            aria-label="Drag down or tap to close"
+            onClick={() => {
+              if (dragConsumedClickRef.current) return; // the drag ate this click
+              requestClose();
+            }}
+            onPointerDown={handleGrabPointerDown}
+            onPointerMove={handleGrabPointerMove}
+            onPointerUp={handleGrabPointerEnd}
+            onPointerCancel={handleGrabPointerEnd}
+            className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
+          >
+            <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
+          </button>
 
-        {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
+          {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
             shrink-0 actions, so a long unbroken title wraps and never pushes
             the chip/close off-screen). */}
-        <header
-          data-testid={`${testIdBase}-header`}
-          className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-        >
-          {header}
-        </header>
+          <header
+            data-testid={`${testIdBase}-header`}
+            className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
+          >
+            {header}
+          </header>
 
-        {/* Optional sub-header band (modal-header-reconciliation §6.1): a
+          {/* Optional sub-header band (modal-header-reconciliation §6.1): a
             separate control strip below the identity header, with its own
             bottom seam.
 
@@ -461,20 +658,20 @@ function OpenReviewModalShell({
             Omitting it does not fail loudly — `absolute inset-x-0 top-full`
             would silently resolve against the panel (itself `relative`) and
             the overlay would land below the entire modal. */}
-        {subHeader ? (
-          <div
-            data-testid={`${testIdBase}-subheader`}
-            className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
-          >
-            {subHeader}
-          </div>
-        ) : null}
+          {subHeader ? (
+            <div
+              data-testid={`${testIdBase}-subheader`}
+              className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+            >
+              {subHeader}
+            </div>
+          ) : null}
 
-        {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
+          {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element. */}
-        {children}
+          {children}
 
-        {/* Footer wrapper — only when the consumer provides one. Sheet-mode
+          {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
             covered by the iOS home indicator; ≥sm restores the plain token
             padding. `relative` is load-bearing: below sm the RescanSheetButton
@@ -482,16 +679,17 @@ function OpenReviewModalShell({
             `sm:relative` only) so a coded result spans from the footer's left
             edge instead of clipping off-screen at 390px (impeccable audit P1 —
             see RescanSheetButton.tsx). */}
-        {footer != null ? (
-          <footer
-            data-testid={`${testIdBase}-footer`}
-            className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-          >
-            {footer}
-          </footer>
-        ) : null}
+          {footer != null ? (
+            <footer
+              data-testid={`${testIdBase}-footer`}
+              className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+            >
+              {footer}
+            </footer>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </ReviewModalCloseContext.Provider>
   );
 
   // §S3C-2: portal to body once mounted (client). Pre-mount (SSR/hydration)

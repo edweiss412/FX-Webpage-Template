@@ -41,6 +41,42 @@ This gate hooks `superpowers:brainstorming` and OVERRIDES its default flow (per 
 
 This pipeline is the authoritative definition (it lives here in the tracked repo so it is cross-CLI durable). A local convenience command `/ship-feature <description>` runs the same pipeline triggered explicitly, but `.claude/` is gitignored on this repo, so that command is per-machine and may be absent in a fresh checkout — never rely on it existing; rely on this section.
 
+### Never end your turn mid-pipeline (the dominant failure mode)
+
+An autonomous run's expensive failure is not a bad diff — it is a **turn that ends while the pipeline is live**. Nobody is babysitting, so the session simply sits dead until a human notices. Two audited runs on 2026-07-19 each burned **~6.4h of idle wall clock**: one stopped after Task 3 of 9 to file a status report at a task boundary; the other's final words were "Starting Stage 2 now." with no tool call after them. Neither hit an error, a usage limit, a wedge, or a genuine ambiguity. Separately, PR #482 sat `CLEAN` with green CI, unmerged, for 5 hours. Combined productive work across both runs: ~2.5h.
+
+Binding rules for any autonomous run, under any harness:
+
+- **Never announce an action instead of emitting it.** If you write that you are about to do something, the next thing in that turn is the tool call that does it.
+- **Never end a turn to report progress.** Report inline, while continuing. Reporting is never the terminal act of a turn.
+- **Never re-ask for authorization.** Approval at the gate (or `/ship-feature`) is the consent. When woken mid-pipeline by anything — a notification, a `status?` — resume the next action immediately; do not offer "proceed, or pause here?"
+- **Never dispatch a background subagent and end the turn.** Run subagents synchronously or work inline. One run dispatched three implementation tasks to background agents, ended its turn each time, and survived only on notification luck until the last notification was consumed.
+- **Context pressure is not a reason to stop.** One run reasoned "the remaining pipeline won't fit in this context," adopted a handoff posture, and handed off to nobody. Continue and let the harness compact; if a handoff is genuinely required, dispatch it in the same turn.
+- **Green CI is not a stopping point.** `gh pr merge --merge` follows CI-green in the same turn.
+
+The run is complete only when `git rev-list --left-right --count main...origin/main` reports `0  0`. Ending a turn before that is a pipeline failure regardless of how much work got done.
+
+**Hourly nudge (Claude Code harness).** A `Stop` gate catches a stop at the moment it happens, but it can stand down, and a session that goes idle any other way has nothing to revive it — no external process can inject a turn into a running REPL. `CronCreate` can: it enqueues a prompt into the session and fires **only while the REPL is idle**, which is exactly the stall state. Stage 0 of an autonomous run registers an hourly job (off-minute, e.g. `17 * * * *`, local time — no timezone conversion) that re-reads the pipeline marker and resumes the next action; Stage 4.4 `CronDelete`s it. The prompt must run `date` first and treat the shell clock as the only source of truth, and must explicitly discard any earlier "blocked / out of context / standing down / handing off" framing in the conversation — that stale framing causing a false stand-down is the documented failure mode. **The nudge is cancelled only by shipping.** `CronDelete` is permitted at exactly one place: Stage 4.4, after the `0  0` check. A genuine blocker does _not_ cancel it — the run sets the marker's `blockedOn` to a one-line description, escalates once, and leaves the job registered. It keeps firing, stays silent while `blockedOn` is unresolved, and resumes driving the moment it clears. Never delete the job because the run seems stuck, because context is tight, or because a handoff is imminent.
+
+**The nudge cannot be self-arming, and the gate compensates.** Unlike the Stop gate, which derives its own arming from git, no shell hook can register a cron job — `CronCreate` is a model tool and jobs live in session memory, invisible to any script. Registration therefore remains a Stage 0 model action. What closes most of the gap: the Stop gate fires on _every_ stop attempt, and a session cannot go idle without attempting to stop, so that is the complete trigger surface. Whenever it blocks a strict-tier run whose marker has no `cronJobId`, it appends the `CronCreate` call to its message. A run that skipped Stage 0 gets told at the first moment the omission could cost anything. The soft tier carries a one-line version of the same prompt, since a marker-less autonomous run is exactly the case the gate cannot positively identify.
+
+Deliberately hourly across **all** hours, not just overnight: both audited stalls (05:04→11:24 and 04:56→11:22) ran well past any night window, and the job self-deletes at Stage 4.4, so it costs nothing when no run is live. Cron jobs are session-only — gone if the REPL process exits — and auto-expire after 7 days.
+
+**Stop gate (Claude Code harness).** Because no prompt-side rule can catch "announced the dispatch, emitted nothing," Claude Code backs these rules with a `Stop` hook that refuses to end a session while branch work is unfinished.
+
+**Arming is derived from git, never self-reported.** The first version armed only when the run remembered to write a marker at Stage 0 — a guard against unreliable model behavior that depended on reliable model behavior, which is the same weak link it was built to remove. The hook now infers the state from the repo, so nothing has to be remembered: an `FX-worktrees/` checkout, not on `main`, with commits ahead of `origin/main` or a dirty tree, means work is unfinished. Merging and syncing disarms it automatically.
+
+Two tiers, so failing safe does not wedge ordinary interactive sessions:
+
+- **Strict** — `<worktree>/.claude/ship-state.json` present with `stage` != `"done"`. Treated as an autonomous run: loud message, quotes `next`, blocks up to 6 no-progress stops.
+- **Soft** — no marker, but git says work is live. Blocks twice, and says plainly that stopping is correct if this is interactive work.
+
+The marker (`{branch, stage, tasksRemaining, next, blockedOn, cronJobId}`) therefore no longer arms the gate — it only raises the tier and supplies the next-action text. A non-empty `blockedOn` silences the gate until it clears, matching the nudge's pause-don't-cancel contract.
+
+Safety valves: never re-blocks when `stop_hook_active` is set; stands down past the tier's block budget on an unchanged fingerprint; `touch <worktree>/.claude/ship-gate-off` opts a checkout out entirely. Gate state lives in `~/.claude/ship-gate/`, deliberately **outside** the worktree — an earlier version kept it in `<worktree>/.claude/` and the state file dirtied the very tree it was measuring, resetting the counter every run so the gate could never stand down. That stayed invisible only because this repo gitignores `.claude/`.
+
+The hook lives in the per-machine `~/.claude/` tree, so a fresh checkout or a non-Claude harness will not have it. The rules above are what actually bind; the hook is only their enforcement on one harness.
+
 ---
 
 ## Spec self-review additions (mirrors global guidance, project-scoped)

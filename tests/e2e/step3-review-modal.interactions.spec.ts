@@ -1048,3 +1048,174 @@ test.describe("§K11/§K12 with motion enabled", () => {
     ).toContain("transform");
   });
 });
+
+// ── MODAL-CLOSE-EXIT-ANIM-1 §7.5 (b)/(g)/(h) ────────────────────────────────
+//
+// MOTION ENABLED throughout. `openLive` above hardcodes reducedMotion:"reduce"
+// (the other tests depend on it for determinism), under which globals.css
+// zeroes the duration tokens and there is NO exit window — every assertion here
+// would pass vacuously. This block therefore has its own opener, following the
+// motion-enabled pattern already used by the §K11/§K12 describe.
+//
+// VIEWPORTS: the grab strip is `sm:hidden` (ReviewModalShell.tsx), so grab-tap
+// and drag runs REQUIRE the sheet viewport. A desktop-only matrix would silently
+// skip two of the five affordances while reporting green.
+
+const SHEET_VP = { width: 390, height: 844 };
+const POPUP_VP = { width: 1280, height: 800 };
+const PUBLISH = `[data-testid="${tid("publish")}"]`;
+const APPROVE = `[data-testid="${tid("resolution-approve")}"]`;
+const IGNORE = `[data-testid="${tid("resolution-ignore")}"]`;
+const BACKDROP_SEL = `[data-testid="${tid("backdrop")}"]`;
+
+test.describe("MODAL-CLOSE-EXIT-ANIM-1 — exit window (motion enabled)", () => {
+  async function openMotion(page: Page, viewport: { width: number; height: number }, query = "") {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize(viewport);
+    await page.goto(`${baseUrl}live.html${query}`);
+    await expect(page.locator(PANEL)).toBeVisible();
+    // With motion ENABLED the entrance keyframes are still running here. The
+    // drag machinery hands control to the inline transform only once the
+    // entrance has finished, so wait it out — otherwise a pointerdown lands
+    // mid-entrance and the drag never starts (the §10 suite never sees this
+    // because it runs under reduced motion, where the entrance is 0ms).
+    await page
+      .locator(PANEL)
+      .evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished.catch(() => {}))));
+  }
+
+  async function counters(page: Page) {
+    return page.evaluate(() => {
+      const w = window as unknown as { __closeCount?: number; __closeAt?: number | null };
+      return { closeCount: w.__closeCount ?? 0, closeAt: w.__closeAt ?? null };
+    });
+  }
+
+  // §7.5(b). Each affordance gets its own run. The action must be proven LIVE in
+  // the variant that run uses before its suppression is asserted — "handler not
+  // invoked" is otherwise satisfied by a button that was absent or disabled,
+  // which proves nothing about inert.
+  test("(b) positive control: Publish is live in the non-resolution variant", async ({ page }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1");
+    await expect(page.locator(PUBLISH)).toBeEnabled();
+    await page.locator(PUBLISH).click();
+    // The deferred publish handler was entered — resolve it and the modal closes.
+    await page.evaluate(() => {
+      (
+        window as unknown as { __resolveAction?: (n: string, ok?: boolean) => void }
+      ).__resolveAction?.("publish", true);
+    });
+    await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+  });
+
+  for (const [name, dismiss] of [
+    ["Esc", async (page: Page) => page.keyboard.press("Escape")],
+    ["X", async (page: Page) => page.locator(CLOSE).click()],
+    ["scrim", async (page: Page) => page.locator(BACKDROP_SEL).click({ position: { x: 5, y: 5 } })],
+  ] as const) {
+    test(`(b) ${name} dismiss: Publish cannot fire inside the exit window`, async ({ page }) => {
+      await openMotion(page, SHEET_VP, "?deferActions=1");
+      await expect(page.locator(PUBLISH)).toBeEnabled(); // live before we dismiss
+      await dismiss(page);
+      // Inside the exit window the subtree is inert — the click must not reach
+      // the handler. force:true bypasses Playwright's own actionability checks
+      // so we are testing `inert`, not the harness.
+      await page
+        .locator(PUBLISH)
+        .click({ force: true, timeout: 1_000 })
+        .catch(() => {});
+      await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+    });
+  }
+
+  // Grab-tap and drag REQUIRE the sheet viewport (grab strip is sm:hidden).
+  test("(b) grab-tap dismiss (sheet only): Publish cannot fire inside the exit window", async ({
+    page,
+  }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1");
+    await expect(page.locator(GRAB)).toBeVisible();
+    await page.locator(GRAB).click();
+    await page
+      .locator(PUBLISH)
+      .click({ force: true, timeout: 1_000 })
+      .catch(() => {});
+    await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+  });
+
+  test("(b) drag-past-threshold dismiss (sheet only): Publish cannot fire inside the exit window", async ({
+    page,
+  }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1");
+    // Same mechanics as the §10 drag suite above: grabCenter + stepped move, with
+    // the mid-drag sanity assertion so a failure here cannot be the TAP path
+    // masquerading as a drag.
+    const { x, y } = await grabCenter(page);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + DRAG_DISMISS_PX, { steps: 8 });
+    expect((await panelInlineStyles(page)).transform).toBe(`translateY(${DRAG_DISMISS_PX}px)`);
+    await page.mouse.up();
+    await page
+      .locator(PUBLISH)
+      .click({ force: true, timeout: 1_000 })
+      .catch(() => {});
+    await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+  });
+
+  test("(b) positive control: Approve & apply is live once every choice is made", async ({
+    page,
+  }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1&resolution=1");
+    // harnessResolution() includes a tier-3 radio; Approve stays disabled until
+    // every item has a choice, so a suppression run without this control would
+    // be vacuous.
+    const radios = page.locator('input[type="radio"]');
+    const count = await radios.count();
+    for (let i = 0; i < count; i++)
+      await radios
+        .nth(i)
+        .check()
+        .catch(() => {});
+    await expect(page.locator(APPROVE)).toBeEnabled();
+  });
+
+  test("(b) positive control: Ignore is live in the resolution variant", async ({ page }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1&resolution=1");
+    await expect(page.locator(IGNORE)).toBeEnabled();
+  });
+
+  // §7.5(g): an action clicked BEFORE the dismissal that resolves DURING the
+  // exit must no-op on the re-entrancy guard — not truncate the exit, not close
+  // twice. inert does not cover this: the click predates it.
+  test("(g) resolution during the exit window: one close, exit not truncated", async ({ page }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1");
+    await page.locator(PUBLISH).click(); // enters the deferred handler
+    await page.keyboard.press("Escape"); // exit starts with the action pending
+    await page.waitForTimeout(30); // land inside the 220ms window
+    await page.evaluate(() => {
+      (
+        window as unknown as { __resolveAction?: (n: string, ok?: boolean) => void }
+      ).__resolveAction?.("publish", true);
+    });
+    await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+  });
+
+  // §7.5(h): the slower-than-exit case. After unmount the ref is cleared, so a
+  // late resolution closes NOTHING. This is the regression pin for the
+  // withdrawn `?? onClose` fallback ever returning — (g) alone would still pass
+  // with that fallback in place.
+  test("(h) resolution AFTER exit-end closes nothing (no second close)", async ({ page }) => {
+    await openMotion(page, SHEET_VP, "?deferActions=1");
+    await page.locator(PUBLISH).click();
+    await page.keyboard.press("Escape");
+    await expect.poll(async () => (await counters(page)).closeCount, { timeout: 5_000 }).toBe(1);
+    // Modal is gone and the ref is cleared; resolve the action only now.
+    await page.evaluate(() => {
+      (
+        window as unknown as { __resolveAction?: (n: string, ok?: boolean) => void }
+      ).__resolveAction?.("publish", true);
+    });
+    await page.waitForTimeout(250);
+    expect((await counters(page)).closeCount, "late resolution must not close again").toBe(1);
+  });
+});

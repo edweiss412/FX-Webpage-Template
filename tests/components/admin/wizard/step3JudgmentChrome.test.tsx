@@ -119,12 +119,18 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   // spec §9, so this bump is an acknowledged, spec-sanctioned rail affordance —
   // NOT a new state-swap animation (all pairs stay instant; the sole animated
   // element remains the sliding rail indicator).
-  "Step3ReviewModal.tsx": 11,
+  "Step3ReviewModal.tsx": 10,
 };
 
 describe("§7.4 transition audit — 2a static guard (all pairs instant)", () => {
   for (const [file, expected] of Object.entries(PREEXISTING_TRANSITION_COUNTS)) {
     test(`${file}: no AnimatePresence, transition-class count pinned at ${expected}`, () => {
+      // MODAL-CLOSE-EXIT-ANIM-1: the header X moved out of Step3ReviewModal.tsx
+      // into the shared components/admin/review/ModalCloseButton.tsx, taking its
+      // `transition-colors duration-fast` with it — modal 6 → 5, so the pinned
+      // total is 5 + surface 5 = 10. The scan follows the code, so the button's
+      // own transition is now pinned by ModalCloseButton's own coverage.
+      //
       // Phase-1 extraction (spec 2026-07-16 §5): the Step-3 review rail/content
       // moved to components/admin/review/ShowReviewSurface.tsx. The guard FOLLOWS
       // the moved code — for the modal entry it scans modal + surface as one body,

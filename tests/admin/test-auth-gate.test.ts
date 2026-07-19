@@ -273,6 +273,55 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
     expect(res.status, "non-allowlist LAN address must reject").toBe(403);
   });
 
+  // ── Gate 3 extension: TEST_AUTH_ALLOWED_EXTRA_HOST (validation smoke) ─────
+  // One exact extra host, env-driven, fail-closed when unset. A cleared gate
+  // is proven by the request advancing to Gate 4's 400 (empty email) — never
+  // by a minted session, so these stay deterministic and DB-free.
+  const EXTRA_HOST = "fxav-crew-pages-validation.vercel.app";
+  const savedExtraHost = process.env.TEST_AUTH_ALLOWED_EXTRA_HOST;
+  afterEach(() => {
+    if (savedExtraHost === undefined) delete process.env.TEST_AUTH_ALLOWED_EXTRA_HOST;
+    else process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = savedExtraHost;
+  });
+
+  test("Gate 3 extension: env unset + validation host → 403 (fail-closed)", async () => {
+    delete process.env.TEST_AUTH_ALLOWED_EXTRA_HOST;
+    const res = await POST(makeRequest({ body: { email: "" }, host: EXTRA_HOST }));
+    expect(res.status, "extra host must be rejected while the env var is unset").toBe(403);
+  });
+
+  test("Gate 3 extension: env set + matching Host → gate clears (Gate 4's 400 proves it)", async () => {
+    process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = EXTRA_HOST;
+    const res = await POST(makeRequest({ body: { email: "" }, host: EXTRA_HOST }));
+    expect(res.status, "matching extra host must clear Gate 3 and fail Gate 4 instead").toBe(400);
+  });
+
+  test("Gate 3 extension: env set + DIFFERENT host → 403 (exact match only)", async () => {
+    process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = EXTRA_HOST;
+    const res = await POST(
+      makeRequest({ body: { email: "" }, host: "fxav-crew-pages-validation.vercel.app.evil.test" }),
+    );
+    expect(res.status, "suffix-spoofed host must still reject").toBe(403);
+  });
+
+  test("Gate 3 extension: env set + host with port → 403 (exact match, no port)", async () => {
+    process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = EXTRA_HOST;
+    const res = await POST(makeRequest({ body: { email: "" }, host: `${EXTRA_HOST}:443` }));
+    expect(res.status, "port-suffixed extra host must reject").toBe(403);
+  });
+
+  test("Gate 3 extension: localhost stays allowed while env is set", async () => {
+    process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = EXTRA_HOST;
+    const res = await POST(makeRequest({ body: { email: "" } }));
+    expect(res.status, "localhost must still clear Gate 3 (400 = Gate 4)").toBe(400);
+  });
+
+  test("Gate 3 extension: empty-string env → 403 (empty never matches)", async () => {
+    process.env.TEST_AUTH_ALLOWED_EXTRA_HOST = "";
+    const res = await POST(makeRequest({ body: { email: "" }, host: "" }));
+    expect(res.status, "empty env must never allow an empty Host to clear").toBe(403);
+  });
+
   test("Gate 4: non-allowlisted email → 400", async () => {
     const res = await POST(makeRequest({ body: { email: "attacker@malicious.test" } }));
     expect(res.status, "non-allowlisted email must reject").toBe(400);

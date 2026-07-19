@@ -32,8 +32,9 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, History, LayoutDashboard, X } from "lucide-react";
+import { ExternalLink, History, LayoutDashboard } from "lucide-react";
 
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { ShowReviewSurface, type ExtraSection } from "@/components/admin/review/ShowReviewSurface";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
@@ -249,6 +250,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     <ReviewModalShell
       open={!closing}
       onClose={handleClose}
+      // §6.5: this frame always streams in REPLACING the settled Suspense
+      // skeleton (which owns the closed→open entrance) — an animated mount
+      // here replays the pop-in over an already-opaque modal.
+      entrance="none"
       labelledBy={h2Id}
       dataAttrPrefix="review-modal"
       testIdBase={TESTID_BASE}
@@ -357,16 +362,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 ) : null}
               </a>
             ) : null}
-            <button
-              ref={closeRef}
-              type="button"
-              data-testid={`${TESTID_BASE}-close`}
-              aria-label="Close"
-              onClick={handleClose}
-              className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <X aria-hidden="true" className="size-5" />
-            </button>
+            <ModalCloseButton ref={closeRef} testId={`${TESTID_BASE}-close`} />
           </div>
         </>
       }

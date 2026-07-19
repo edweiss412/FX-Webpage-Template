@@ -22,7 +22,7 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // One unified next/navigation mock: useShowModalNav (useRouter/useSearchParams),
 // StatusStrip's copy-link + feed/warning controls (useRouter().refresh()).
@@ -37,6 +37,10 @@ import {
   PublishedReviewModal,
   type PublishedReviewModalProps,
 } from "@/components/admin/showpage/PublishedReviewModal";
+import {
+  DURATION_NORMAL_FALLBACK_MS,
+  EXIT_FALLBACK_BUFFER_MS,
+} from "@/components/admin/review/ReviewModalShell";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
@@ -464,29 +468,82 @@ describe("PublishedReviewModal header alert pill (modal-header-reconciliation §
 // (~1s perceived close lag). Failure mode caught: close only funnels into
 // router.push and the dialog persists in the DOM while navigation is pending.
 
+/** Force the reduced-motion branch. `tests/setup.ts:70` stubs matchMedia with
+ *  `matches: false` (MOTION ENABLED), so without this the close plays the exit
+ *  animation and resolves only on the fallback timer. */
+function withReducedMotion(run: () => void) {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  try {
+    run();
+  } finally {
+    window.matchMedia = original;
+  }
+}
+
 describe("PublishedReviewModal instant close (client hide before nav commit)", () => {
-  it("X click removes the dialog synchronously while router.push is still pending", () => {
-    renderModal();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId(`${TB}-close`));
-    // The push mock never resolves a navigation in jsdom — the dialog must be
-    // gone anyway, purely from client state.
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  // #485's contract: the hide is CLIENT-SIDE and does not wait for the close
+  // navigation. Under reduced motion that hide is still synchronous — pinned
+  // verbatim so the exit animation cannot regress the instant-close guarantee.
+  it("X click removes the dialog synchronously under reduced motion, while router.push is still pending", () => {
+    withReducedMotion(() => {
+      renderModal();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId(`${TB}-close`));
+      // The push mock never resolves a navigation in jsdom — the dialog must be
+      // gone anyway, purely from client state.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+    });
   });
 
-  it("Escape removes the dialog synchronously and fires the close nav", () => {
-    renderModal();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  it("Escape removes the dialog synchronously under reduced motion and fires the close nav", () => {
+    withReducedMotion(() => {
+      renderModal();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+    });
   });
 
-  it("scrim click removes the dialog synchronously and fires the close nav", () => {
-    renderModal();
-    fireEvent.click(screen.getByTestId(`${TB}-backdrop`));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+  it("scrim click removes the dialog synchronously under reduced motion and fires the close nav", () => {
+    withReducedMotion(() => {
+      renderModal();
+      fireEvent.click(screen.getByTestId(`${TB}-backdrop`));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+    });
+  });
+
+  // The animated half. Without this, the suite would pin ONLY the reduced-motion
+  // path and a broken exit (or no exit at all) would ship green here.
+  it("with motion enabled the exit plays BEFORE the dialog leaves and the nav fires", () => {
+    vi.useFakeTimers();
+    try {
+      renderModal();
+      fireEvent.keyDown(document, { key: "Escape" });
+      // Exit in flight: still mounted, close nav not yet fired.
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(routerPush).not.toHaveBeenCalled();
+      // jsdom never fires transitionend — exit-end arrives via the fallback.
+      // act() so the `closing` state update the close triggers is flushed.
+      act(() => {
+        vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(routerPush).toHaveBeenCalledWith("/admin", { scroll: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -674,5 +731,19 @@ describe("PublishedReviewModal alert_id scroll effect (spec §3 — one-shot)", 
   it("alertId=null → no scroll at all", () => {
     renderModal({ alertId: null });
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("PublishedReviewModal entrance suppression (§6.5 skeleton→loaded in-place swap)", () => {
+  // Failure mode: the loaded modal always streams in REPLACING the settled
+  // Suspense skeleton (ShowReviewModalSkeleton), so a default shell entrance
+  // replays the pop-in from opacity≈0 — the opaque modal visibly dims and
+  // re-pops. §6.5:150: "in-place swap when Suspense resolves; instant".
+  it('passes entrance="none" — scrim + panel carry the suppression attr', () => {
+    renderModal();
+    const scrim = document.querySelector<HTMLElement>("[data-review-modal-scrim]")!;
+    const panel = document.querySelector<HTMLElement>("[data-review-modal-panel]")!;
+    expect(scrim.getAttribute("data-review-modal-entrance")).toBe("none");
+    expect(panel.getAttribute("data-review-modal-entrance")).toBe("none");
   });
 });

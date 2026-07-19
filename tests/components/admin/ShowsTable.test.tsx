@@ -23,6 +23,7 @@ import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { mkDataGaps } from "../../helpers/dataGapsFixture";
+import { withReducedMotion } from "../../helpers/reducedMotion";
 
 afterEach(cleanup);
 
@@ -131,15 +132,20 @@ describe("ShowsTable optimistic open skeleton", () => {
     expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
   });
 
+  // MODAL-CLOSE-EXIT-ANIM-1: the optimistic skeleton's cancel now plays the exit
+  // first. Reduced motion keeps the dismissal synchronous, so the #485 critique-P1
+  // guarantee (the skeleton is CANCELABLE, not a trap) stays pinned as written.
   it("critique P1: the optimistic skeleton is cancelable — scrim tap dismisses it", () => {
-    mockSearchParams = new URLSearchParams();
-    render(
-      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
-    );
-    clickRow(screen.getByTestId("shows-table-row-rpas"));
-    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("published-show-review-backdrop"));
-    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    withReducedMotion(() => {
+      mockSearchParams = new URLSearchParams();
+      render(
+        <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+      );
+      clickRow(screen.getByTestId("shows-table-row-rpas"));
+      expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("published-show-review-backdrop"));
+      expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    });
   });
 
   it("popstate (browser Back cancels the in-flight open) clears the skeleton — no stuck overlay", () => {
@@ -1094,5 +1100,19 @@ describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
     );
     expect(screen.queryByTestId("shows-auto-fixed-chip-y")).toBeNull();
     expect(screen.queryByTestId("shows-auto-fixed-chip-z")).toBeNull();
+  });
+});
+
+describe("row pressed feedback", () => {
+  // Failure mode: between pointerdown and the optimistic skeleton's first
+  // paint (~120ms measured) the row shows NO state change at all — on touch,
+  // hover: never fires pre-tap, so active: is the only instant cue.
+  it("row link carries an active: tint for instant press feedback", () => {
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    expect(screen.getByTestId("shows-table-row-rpas").className).toContain(
+      "active:bg-surface-sunken",
+    );
   });
 });
