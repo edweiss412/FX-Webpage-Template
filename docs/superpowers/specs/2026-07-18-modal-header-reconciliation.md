@@ -243,7 +243,7 @@ Rendered directly after `</header>`, mirroring the existing `footer` idiom
 {subHeader != null ? (
   <div
     data-testid={`${testIdBase}-subheader`}
-    className="relative shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+    className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
   >
     {subHeader}
   </div>
@@ -452,17 +452,21 @@ intent (rewrite). Retiring both would silently remove the double-seam guard.
 <a
   href="#overview"
   data-testid={`${TESTID_BASE}-alert-pill`}
-  className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+  className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
 >
   <span aria-hidden="true" className="size-2 shrink-0 rounded-pill bg-status-review" />
   {alertCount} {alertCount === 1 ? "alert" : "alerts"}
 </a>
 ```
 
-- The `before:-inset-y-*` idiom is retained from `StatusStrip.tsx:248-252` to hold
-  the 44px tap floor without growing the visible pill. The exact inset is whatever
-  makes the hit rect ≥44px given the pill's rendered height — **assert it, don't
-  assume it** (§9, T-TAP).
+- The `before:-inset-y-3` idiom is retained from `StatusStrip.tsx:248-252` — the
+  value is copied deliberately, not chosen fresh. Arithmetic: `text-xs` gives a
+  ~16px line box, `py-1` adds 8px, so the visible pill is ~24px; `-inset-y-3`
+  (12px each side) yields ~48px ≥ 44. **`-inset-y-2` would yield ~40px and MISS
+  the floor** — the shipped implementation's `-3` is load-bearing. Still assert
+  the measured rect (§11, T-TAP) rather than trusting this arithmetic: the pill's
+  real height depends on the resolved line-height, and a future padding tweak
+  changes the answer.
 - The dot replaces today's `TriangleAlert` glyph per the mock. The count text
   carries the meaning; the dot is decorative and `aria-hidden`.
 - The `bg-status-review` token must be confirmed to exist in `app/globals.css`
@@ -487,8 +491,13 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
 
 - `ReSyncButton` gains a `surface?: "flow" | "overlay"` prop, default `"flow"`
   (today's behavior, byte-identical for every existing consumer).
-- `"overlay"` renders the trigger inline and its result/confirm surfaces as
-  `absolute inset-x-0 top-full z-*` beneath the strip band.
+- `"overlay"` renders the trigger inline and **all THREE** result surfaces as
+  `absolute inset-x-0 top-full z-50` beneath the strip band. The three are
+  separate branches in `ReSyncButton.tsx` and each must be relocated — missing
+  one leaves it rendering in-flow, reflowing the band:
+  - `:152` error (`errorCode`) — coded copy via `lib/messages/lookup.ts`, never raw
+  - `:162` shrink-hold confirm (`heldShrink && !errorCode`) — focus-managed
+  - `:204` success (`successMessage && !errorCode`)
 - The subheader band therefore needs `relative` (§6.1) — it becomes the
   positioned ancestor for BOTH the publish toggle's popover and the Re-sync
   overlay. `ReviewModalShell.tsx:449-456`'s footer already carries a `relative`
@@ -644,17 +653,17 @@ explicitly and verified in a real browser (jsdom computes no layout).
 | Parent | Child | Invariant | Guaranteed by |
 | --- | --- | --- | --- |
 | panel (`flex flex-col`) | header / subheader / body | Bands stack; header + subheader never shrink | `shrink-0` on each band |
-| panel | subheader band | Band width == panel content width | block-level flex child, no explicit width |
+| panel | subheader band | Band width == panel content width | explicit `w-full` on the band — NOT inherited stretch (Tailwind v4 here does not default `.flex` to `align-items: stretch`, so the panel column does not stretch it for free) |
 | `<header>` (`items-start`) | text block | Text block takes remaining width | `min-w-0 flex-1` |
 | `<header>` | right action group | Never compressed by a long title | `shrink-0` |
 | header right group | alert pill + close | Vertically centered relative to each other | `items-center` on the group |
 | alert pill | hit rect | ≥44px tall | `before:-inset-y-*` pseudo-element |
 | subheader band | `StatusStrip` root | Strip spans the FULL band content width | `w-full` on the strip root; band is NOT a flex container (§6.1) |
-| subheader band | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` on the strip root |
+| strip root | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` on the strip root |
 | strip root | copy button | Right edge == band content-box right edge | `ml-auto` on `strip-copy-link`, **conditional on the `w-full` row above** |
 | status line | dot + text | Baseline-consistent single line | `inline-flex items-center` |
-| subheader band | Re-sync trigger | Width IDENTICAL idle vs pending — no reflow mid-action | reserved min-width sized to the widest label (§6.7) |
-| subheader band | Re-sync trigger | Vertically centered with its row neighbours | band's `items-center`; `selfStart` NOT carried over |
+| strip root | Re-sync trigger | Width IDENTICAL idle vs pending — no reflow mid-action | reserved min-width sized to the widest label (§6.7) |
+| strip root | Re-sync trigger | Vertically centered with its row neighbours | `items-center` on the STRIP ROOT (the band is not a flex container — §6.1); `selfStart` NOT carried over |
 | subheader band | Re-sync overlay | Anchors to the BAND, not the panel | `relative` on the band (§6.1) + `absolute inset-x-0 top-full` |
 
 **Explicitly asserted in the real browser:** header height, subheader height,
@@ -767,6 +776,8 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-GUIDANCE | `hasActionableWarnings` → `CorrectionLoopCallout` still renders its copy in Overview, with no child button | Guidance deleted along with the button |
 | T-RESYNC-ARCHIVED | `archived` → NO Re-sync trigger in the strip; Overview keeps the paused notice | Archived show reaching `/api/admin/sync` |
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
+| T-RESYNC-ERROR | A failing Re-sync renders its result in the OVERLAY (not in-flow under the strip) and shows catalog copy, never a raw code — assert the rendered text is the `lib/messages/lookup.ts` copy AND that the raw code string is absent | Invariant 5 violation: the relocation drops the lookup and leaks `SYNC_INFRA_ERROR`-style codes; or the error renders in-flow and reflows the band. T-RESYNC-SHRINK/T-OVERLAY both pass while this is broken — they only exercise the shrink path |
+| T-RESYNC-SUCCESS | A successful Re-sync renders its success message in the overlay and does not reflow the strip | Third result surface silently left in-flow; `ReSyncButton.tsx:204` is a separate branch from both error and shrink |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
