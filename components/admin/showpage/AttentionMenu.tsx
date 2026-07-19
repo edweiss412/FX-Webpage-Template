@@ -94,6 +94,7 @@ function AttentionMenuPanel({
     <div
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
+      role="group"
       aria-label="Needs your confirmation"
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"

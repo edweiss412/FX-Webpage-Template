@@ -32,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, History, LayoutDashboard } from "lucide-react";
+import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
@@ -523,9 +523,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       <span className="sr-only">({actionable.length} to confirm)</span>
                     </>
                   ) : null}
-                  <span aria-hidden="true" className="text-[10px] text-warning-text">
-                    {menuOpen ? "⌃" : "⌄"}
-                  </span>
+                  {/* Lucide chevron (codebase icon idiom), not the ⌃/⌄ text
+                      glyphs — ⌃ is the macOS Control symbol and its baseline
+                      drifts across platform fonts. */}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`size-3 shrink-0 text-warning-text transition-transform duration-fast ease-out-quart motion-reduce:transition-none ${
+                      menuOpen ? "rotate-180" : ""
+                    }`}
+                  />
                 </button>
                 <div id={menuId}>
                   <AttentionMenu

@@ -83,7 +83,7 @@ export function AttentionBanner({
               href={a.action.href}
               data-testid={`attention-banner-action-${a.alertId}`}
               {...(a.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
             >
               {a.action.label}
               {a.action.external ? <span aria-hidden="true"> ↗</span> : null}
@@ -94,7 +94,7 @@ export function AttentionBanner({
             <a
               href={a.helpHref}
               data-testid={`attention-banner-help-${a.alertId}`}
-              className="inline-flex min-h-tap-min items-center self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="inline-flex min-h-tap-min items-center self-start text-xs text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
             >
               Learn more
             </a>

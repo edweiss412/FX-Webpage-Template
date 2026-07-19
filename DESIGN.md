@@ -70,6 +70,10 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-idle` dot on bg/surface           | 3.2:1  | 4.0:1  | ≥3:1 graphical (dot)                                     |
 | `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot)                                     |
 | `--color-status-degraded-text` on degraded fill   | 6.5:1  | 4.7:1  | AA body (≥4.5:1) — text-on-fill, not on surface         |
+| `--color-text` on `--color-warning-bg`            | 15.6:1 | 10.6:1 | AAA body — attention-banner body copy on the warning wash (published-show attention surface, 2026-07-19) |
+| `--color-text-strong` on `--color-warning-bg`     | 17.4:1 | 12.0:1 | AAA body — attention-banner title line                   |
+| `--color-text-subtle` on `--color-warning-bg`     | 6.1:1  | 4.7:1  | AA body (≥4.5:1) — banner detail/identity/raised-at lines; dark clears with a thin margin, so any warning-bg or text-subtle retune re-checks this row (pinned in `tests/styles/status-token-contrast.test.ts`) |
+| `--color-status-positive-text` on `--color-warning-bg` | 6.1:1 | 8.6:1 | AA body (≥4.5:1) — the banner's transient "✓ Confirmed" swap |
 | `--color-status-degraded` icon on `--color-danger-bg` | 5.6:1  | 4.2:1  | ≥3:1 graphical (icon) — retained reference pair (was bell critical circle pre-§16 restyle) |
 | `--color-accent-on-bg` icon on `--color-accent-tint`  | 4.91:1 | 8.03:1 | ≥3:1 graphical (icon) — retained reference pair (was bell info circle pre-§16 restyle; clears 4.5:1 text too) |
 | `--color-text-strong` on `--color-accent-tint`        | 16.5:1 | 14.9:1 | AA body (≥4.5:1) — active-count pill number             |
