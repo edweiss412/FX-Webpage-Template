@@ -30,7 +30,7 @@
 - `tests/codexGuard/fixture.test.ts`, `usage.test.ts`, `happyPath.test.ts`, `timeouts.test.ts`, `ladder.test.ts`, `lock.test.ts`, `signals.test.ts`.
 - `AGENTS.md` — "Codex dispatch guard (`codex-guard`)" subsection.
 
-**Fixture scenario protocol:** env `FAKE_CODEX_SCENARIO` = JSON `{steps:[{onCall:N, actions:[...]}]}`. Actions: `{type:"stdout"|"stderr",text}`, `{type:"lastMessage",text}` (writes `-o` arg), `{type:"sleepMs",ms}`, `{type:"hang"}`, `{type:"emitEvery",ms,times,text}`, `{type:"exit",code}`, `{type:"grandchild"}` (spawns non-detached SIGTERM-IGNORING helper, records `grandchild-pid-<N>.txt`), `{type:"writeFile",path,text}` (path supports `$CODEX_HOME` substitution — deterministic cache recreation). Always records `call-<N>.json` {argv, cwd, stdinBytes, stdin, codexHome} + `pid-<N>.txt` to `FAKE_CODEX_RECORD_DIR`. Call N = count of existing call files + 1.
+**Fixture scenario protocol:** env `FAKE_CODEX_SCENARIO` = JSON `{steps:[{onCall:N, actions:[...]}]}`. Actions: `{type:"stdout"|"stderr",text}`, `{type:"lastMessage",text}` (writes `-o` arg), `{type:"sleepMs",ms}`, `{type:"hang"}`, `{type:"emitEvery",ms,times,text,stream?}` (stream: "stderr" writes to stderr; default stdout), `{type:"exit",code}`, `{type:"grandchild"}` (spawns non-detached SIGTERM-IGNORING helper, records `grandchild-pid-<N>.txt`), `{type:"writeFile",path,text}` (path supports `$CODEX_HOME` substitution — deterministic cache recreation). Always records `call-<N>.json` {argv, cwd, stdinBytes, stdin, codexHome} + `pid-<N>.txt` to `FAKE_CODEX_RECORD_DIR`. Call N = count of existing call files + 1.
 
 ---
 
@@ -156,7 +156,37 @@ All fixture tests end the file with `afterAll(() => { /* rm the mkdtemp dirs mad
 
 No timers yet (Task 4). This task: spawn with exact argv, stdin prompt, stream capture with FLUSH-SAFE completion, spawn-`error`-event handling, verdict parse, single-attempt main, result writer, wrapper_error catch preserving attempt history.
 
-- [ ] **Step 1: Failing tests** — Appendix A's two tests with these strengthenings:
+- [ ] **Step 1: Failing tests** — Appendix A's two tests (A4), PLUS two composition tests in the same file:
+
+```ts
+it("fallback composition: artifact blocks + budget trailer reach codex stdin", async () => {
+  const run = mkRun();
+  const art = join(run.dir, "spec-artifact.md");
+  writeFileSync(art, "SPEC BODY CONTENT\n");
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+  ]);
+  const res = await runGuard(run, ["--fallback", "--artifact", art]);
+  expect(res.code).toBe(0);
+  const stdin = readCalls(run)[0]!.stdin;
+  expect(stdin).toContain("===== ARTIFACT: spec-artifact.md =====");
+  expect(stdin).toContain("SPEC BODY CONTENT");
+  expect(stdin).toContain("===== END ARTIFACT =====");
+  expect(stdin).toContain("REACH A VERDICT — budget your reading.");
+});
+
+it("prompt above PROMPT_MAX_BYTES → usage error before any spawn", async () => {
+  const run = mkRun();
+  const art = join(run.dir, "huge.md");
+  writeFileSync(art, "x".repeat(2_100_000)); // > 2,000,000 cap
+  writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
+  const res = await runGuard(run, ["--fallback", "--artifact", art]);
+  expect(res.code).toBe(2);
+  expect(readCalls(run)).toHaveLength(0); // never spawned
+});
+```
+
+and these strengthenings to A4's two tests:
   - scenario 1 additionally asserts `calls[0]!.cwd === run.cwdDir` (child cwd pin, not just `-C` argv) and uses typed access: `const calls = readCalls(run); expect(calls).toHaveLength(1); const c0 = calls[0]!;`
   - scenario 2's last message keeps the fence + emphasis cases and ADDS a duplicate-outcome exclusion line and raw-verdictLine pin:
 
@@ -240,6 +270,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   }
   attempt.pid = child.pid ?? null;
   state.liveChild = child;
+  state.currentAttempt = attempt; // live-attempt snapshot for onSignal (cleared before return)
 
   const tOut = createWriteStream(transcriptPath);
   const tErr = createWriteStream(stderrPath);
@@ -249,27 +280,42 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   });
   child.stdout.pipe(tOut);
   child.stderr.pipe(tErr);
+  // settle on finish OR error — an errored stream never emits "finish" (no deadlock)
   const finished = Promise.all([
-    new Promise((res) => tOut.on("finish", res)),
-    new Promise((res) => tErr.on("finish", res)),
+    new Promise((res) => { tOut.on("finish", res); tOut.on("error", res); }),
+    new Promise((res) => { tErr.on("finish", res); tErr.on("error", res); }),
   ]);
 
   const prompt = kind === "resume"
     ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
-    : composePrompt(cfg);
+    : cfg.prompt; // composed + cap-validated once at startup (Task 3 top-level; Appendix A10)
   child.stdin.on("error", () => {});
   child.stdin.end(prompt);
 
-  const exitInfo = await Promise.race([exited, streamErr]);
+  let exitInfo;
+  try {
+    exitInfo = await Promise.race([exited, streamErr]);
+  } catch (e) {
+    killGroup(child.pid, "SIGKILL"); // stream error while child live: never orphan the group
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw e;
+  }
   await closed;      // stdio flushed
-  await finished;    // files durable
+  await finished;    // files durable (or errored — settled either way)
   state.liveChild = null;
+  state.currentAttempt = null;
   attempt.exitCode = exitInfo.code;
   attempt.signal = exitInfo.signal;
-  if (exitInfo.signal !== null) attempt.killedReason = "external_signal";
+  // NOTE: external_signal classification (exitInfo.signal !== null → killedReason) is
+  // deliberately NOT set here — Task 7 adds that line when scenario 13 (its owning test) lands.
   attempt.durationSecs = nowSecs() - t0;
   classifyAttempt(attempt);
   return attempt;
+}
+
+function killGroup(pid, signal) {
+  try { process.kill(-pid, signal); } catch { /* group gone */ }
 }
 
 function classifyAttempt(attempt) {
@@ -284,7 +330,7 @@ function classifyAttempt(attempt) {
 }
 ```
 
-`composePrompt` uses `cfg.briefText`/`cfg.artifactTexts` from Task 2 validation (no second read). `writeResult` as Appendix A. Single-attempt `main()` as Appendix A. Top-level catch preserves history:
+Task 3 also adds, at top level right after `buildConfig`: `cfg.prompt = composePrompt(cfg);` — composition + `Buffer.byteLength(prompt) > cfg.promptMaxBytes` check happen ONCE at startup, and a cap violation is a usage error (exit 2) BEFORE any spawn. Full `composePrompt` in Appendix A10. `writeResult` as Appendix A. Single-attempt `main()` as Appendix A. Top-level catch preserves history:
 
 ```js
 main().catch((e) => {
@@ -318,11 +364,31 @@ main().catch((e) => {
 
 **Files:** Modify `scripts/codex-guard.mjs` (ADD the poll loop to `runAttempt`); Test `tests/codexGuard/timeouts.test.ts`.
 
-- [ ] **Step 1: Failing tests** — Appendix A's five tests with typed access (`(readResult(run).attempts[0]!)`), file-level `afterAll(cleanupRuns)`, and scenario 9 written as `it.fails` (multi-attempt — armed for real in Task 5; comment says so). Timer-less Task 3 code makes 5/6/12/17a/17b FAIL (hang until vitest timeout on 5/6; no kills on 17) — that is the red state.
+- [ ] **Step 1: Failing tests** — Appendix A's five tests with typed access (`(readResult(run).attempts[0]!)`), file-level `afterAll(cleanupRuns)`, and scenario 9 written as `it.fails` (multi-attempt — armed for real in Task 5; comment says so). PLUS scenario 12b (stderr-only activity keeps the clocks alive — catches a stdout-only counter):
+
+```ts
+it("scenario 12b: stderr-only periodic output resets clocks — no kill", async () => {
+  const run = mkRun();
+  writeScenario(run, [
+    { onCall: 1, actions: [
+      { type: "emitEvery", ms: 400, times: 20, text: "warn tick\n", stream: "stderr" },
+      { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+      { type: "exit", code: 0 },
+    ]},
+  ]);
+  const res = await runGuard(run, [], {
+    CODEX_GUARD_MAX_ATTEMPTS: "1", CODEX_GUARD_ATTEMPT_MAX_SECS: "15", CODEX_GUARD_TOTAL_MAX_SECS: "18",
+  });
+  expect(res.code).toBe(0);
+  expect(readResult(run).status).toBe("verdict");
+}, 30000);
+```
+
+(Fixture change owned by this task's Step 1: `emitEvery` gains an optional `stream` field — A1's handler becomes `const w = a.stream === "stderr" ? process.stderr : process.stdout; w.write(a.text);` inside the loop.) Timer-less Task 3 code makes 5/6/12/12b/17a/17b FAIL (hang until vitest/harness timeout on 5/6; no kills on 17) — that is the red state.
 
 - [ ] **Step 2: Run — expect FAIL** on 5, 6, 17a, 17b (12 may pass trivially — acceptable: it pins the non-kill).
 
-- [ ] **Step 3: Implement the poll loop inside `runAttempt`** — replace `const exitInfo = await Promise.race([exited, streamErr]);` with byte-counting listeners (`child.stdout.on("data", c => { bytesOut += c.length; })` alongside the pipes — pipes keep writing files; counters drive timers) and the §5 loop:
+- [ ] **Step 3: Implement the poll loop inside `runAttempt`** — replace the `try { exitInfo = await Promise.race([exited, streamErr]); } catch ...` block with byte-counting listeners on BOTH streams (`child.stdout.on("data", c => { bytesOut += c.length; }); child.stderr.on("data", c => { bytesOut += c.length; })` alongside the pipes — pipes keep writing files; counters drive timers; §5 "no growth in either") and the §5 loop (kill-before-throw on stream failure preserved):
 
 ```js
   let exitInfo = null;
@@ -332,7 +398,7 @@ main().catch((e) => {
 
   let firstByteAt = null, lastGrowthAt = t0, lastBytes = 0;
   while (exitInfo === null) {
-    if (streamFailure) throw streamFailure;
+    if (streamFailure) { killGroup(child.pid, "SIGKILL"); state.currentAttempt = null; state.liveChild = null; throw streamFailure; }
     await sleep(cfg.pollIntervalSecs * 1000);
     if (exitInfo !== null) break;
     const now = nowSecs();
@@ -359,7 +425,9 @@ main().catch((e) => {
   }
 ```
 
-(`classifyAttempt` unchanged: killedReason set → `killed`; external `exitInfo.signal` with killedReason null → `external_signal` — set that in the post-loop block from Task 3, but only when `attempt.killedReason === null`.)
+(`classifyAttempt` unchanged: killedReason set → `killed`. The `external_signal` mapping stays UNIMPLEMENTED until Task 7 — scenario 13 owns it; in Task 4 a signal-killed child with `killedReason === null` classifies as `nonzero_exit` via `exitCode !== 0`... no: `exitCode` is null on signal death. Interim Task 4 behavior: `exitCode: null` + no killedReason falls through `exitCode !== 0` (null !== 0 → `nonzero_exit`) — acceptable transitional shape, replaced by Task 7's explicit line, and no Task 4 test asserts it.)
+
+Both stdout AND stderr drive the activity clock — attach `child.stdout.on("data", (c) => { bytesOut += c.length; })` AND `child.stderr.on("data", (c) => { bytesOut += c.length; })` alongside the pipes (spec §5: "no growth in either").
 
 - [ ] **Step 4: Run — expect PASS** (scenario 9 still `it.fails`): `pnpm vitest run tests/codexGuard/timeouts.test.ts tests/codexGuard/happyPath.test.ts`
 
@@ -440,7 +508,28 @@ it("scenario 3: TTL stderr fires rung once; cap holds even with cache recreated"
 });
 ```
 
-Scenario 3b (stdout-only signature → retry, no backup) and 11 (cache absent → `cache_ttl_skipped` consumes cap; TTL again next failure would NOT shadow resume — exercised in Task 7's scenario 10/11 combo; here assert skip + cap via recoveries `["cache_ttl_skipped","retry",null]` with two TTL failures then success). `lock.test.ts` — Appendix A's 18a (chmod-000 unreadable cache → backup fails → skip → lock released; perms restored in `finally`), 18b (stale lock broken AND cleaned, rung skipped), 18c (fresh foreign lock survives wrapper exit), 19a (literal-tilde CODEX_HOME), 19b (`CODEX_HOME: ""` → HOME/.codex) — all with typed access + `afterAll(cleanupRuns)`.
+Scenario 3b (stdout-only signature → retry, no backup) and the FULL approved scenario 11 — absent cache → `cache_ttl_skipped` consumes the cap AND the resume rung remains reachable on the next failure (the shadowing catch; NOT reducible to a cap-only variant):
+
+```ts
+it("scenario 11: absent cache → cache_ttl_skipped consumes cap; resume still reachable", async () => {
+  const run = mkRun();
+  rmSync(join(run.codexHome, "models_cache.json"));
+  const sid = "aaaabbbb-cccc-4ddd-8eee-ffff00001111";
+  writeScenario(run, [
+    { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },      // TTL, no -o → failed; rung 1 skips (no cache), cap consumed
+    { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] }, // truncation → rung 2 must fire
+    { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+  ]);
+  const res = await runGuard(run);
+  expect(res.code).toBe(0);
+  const r = readResult(run);
+  expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl_skipped", "resume", null]);
+  expect(r.attempts[2]!.kind).toBe("resume");
+  expect(r.status).toBe("verdict");
+});
+```
+
+(This lands in Task 6 with the resume branch not yet implemented — attempt 2's rung reads `retry` and the test is RED; it turns green when Task 7 adds the resume branch. Keep it `it.fails` in Task 6 with a comment, flip to `it` in Task 7 Step 1 — same staging pattern as scenario 9.) `lock.test.ts` — Appendix A's 18a (chmod-000 unreadable cache → backup fails → skip → lock released; perms restored in `finally`), 18b (stale lock broken AND cleaned, rung skipped), 18c (fresh foreign lock survives wrapper exit), 19a (literal-tilde CODEX_HOME), 19b (`CODEX_HOME: ""` → HOME/.codex) — all with typed access + `afterAll(cleanupRuns)`.
 
 - [ ] **Step 2: Run — expect FAIL** (`selectRung` knows only retry).
 
@@ -471,7 +560,10 @@ plus `tryCacheRung`/`releaseOwnLock` verbatim from Appendix A (already advisory 
 
 - [ ] **Step 2: Run — expect FAIL** (no resume branch, no handlers).
 
-- [ ] **Step 3: Implement.** Resume branch in `selectRung` (after cache branch, before generic) verbatim from Appendix A. Signal handlers — emergency TERM+KILL sweep (no grace), lock release, result, exit:
+- [ ] **Step 3: Implement.** Three pieces:
+  1. Resume branch in `selectRung` (after cache branch, before generic) verbatim from Appendix A9.
+  2. The `external_signal` mapping in `runAttempt`'s post-loop block (owned by scenario 13, landing now): after `attempt.signal = exitInfo.signal;` add `if (attempt.killedReason === null && exitInfo.signal !== null) attempt.killedReason = "external_signal";`.
+  3. Signal handlers — emergency TERM+KILL sweep (no grace), live-attempt snapshot, lock release, result, exit:
 
 ```js
 function onSignal(sig) {
@@ -480,7 +572,13 @@ function onSignal(sig) {
     const pid = state?.liveChild?.pid;
     if (pid) { killGroup(pid, "SIGTERM"); killGroup(pid, "SIGKILL"); }  // emergency: no grace window
     if (state?.heldLockDir) releaseOwnLock(state, state.heldLockDir);
-    if (state) writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
+    if (state) {
+      // snapshot the live attempt so the interrupted result preserves history (scenario 16 / 14b pin)
+      if (state.currentAttempt && !state.attempts.includes(state.currentAttempt)) {
+        state.attempts.push(state.currentAttempt);
+      }
+      writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
+    }
   } catch { /* best-effort */ }
   process.exit(3);
 }
@@ -562,7 +660,8 @@ async function main() {
     else if (a.type === "sleepMs") await sleep(a.ms);
     else if (a.type === "hang") await sleep(2 ** 31 - 1);
     else if (a.type === "emitEvery") {
-      for (let i = 0; i < a.times; i++) { process.stdout.write(a.text); await sleep(a.ms); }
+      const w = a.stream === "stderr" ? process.stderr : process.stdout;
+      for (let i = 0; i < a.times; i++) { w.write(a.text); await sleep(a.ms); }
     } else if (a.type === "writeFile") {
       writeFileSync(a.path.replace("$CODEX_HOME", process.env.CODEX_HOME ?? ""), a.text);
     } else if (a.type === "grandchild") {
@@ -612,7 +711,16 @@ export interface GuardExit { code: number | null; stdout: string; stderr: string
 
 const RUNS: string[] = [];
 export function cleanupRuns(): void {
-  for (const d of RUNS.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of RUNS.splice(0)) {
+    // best-effort: kill any fake/grandchild processes recorded in this run before deleting it
+    const rec = join(d, "record");
+    try {
+      for (const f of readdirSync(rec).filter((x) => /^(grandchild-)?pid-\d+\.txt$/.test(x))) {
+        try { process.kill(Number(readFileSync(join(rec, f), "utf8")), "SIGKILL"); } catch { /* gone */ }
+      }
+    } catch { /* record dir gone */ }
+    rmSync(d, { recursive: true, force: true });
+  }
 }
 
 export function mkRun(): Run {
@@ -668,7 +776,9 @@ export function runGuard(
     execFile(
       process.execPath,
       [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir, ...extraArgs],
-      { env: guardEnv(run, envOverrides), maxBuffer: 16 * 1024 * 1024 },
+      // timeout: a hung guard (red-state TDD runs!) is SIGTERMed — its own handler cleans the
+      // child group — instead of leaking past a vitest timeout. SIGTERM, not SIGKILL, on purpose.
+      { env: guardEnv(run, envOverrides), maxBuffer: 16 * 1024 * 1024, timeout: 25000, killSignal: "SIGTERM" },
       (err, stdout, stderr) => {
         const code = err
           ? (typeof (err as { code?: unknown }).code === "number" ? ((err as { code?: number }).code ?? null) : null)
@@ -1233,7 +1343,9 @@ describe("codex-guard signals + spawn errors", () => {
     try {
       for (let i = 0; i < 100 && !existsSync(join(run.recordDir, "pid-1.txt")); i++) await sleep(50);
       expect(existsSync(join(run.recordDir, "pid-1.txt"))).toBe(true);
-      await sleep(200); // let the grandchild spawn
+      // deterministic: wait for the grandchild pidfile too (no fixed-delay race on slow CI)
+      for (let i = 0; i < 100 && !existsSync(join(run.recordDir, "grandchild-pid-1.txt")); i++) await sleep(50);
+      expect(existsSync(join(run.recordDir, "grandchild-pid-1.txt"))).toBe(true);
       child.kill("SIGTERM");
       const code = await exit;
       expect(code).toBe(3);
@@ -1393,3 +1505,29 @@ async function main() {
 ```
 
 (`runAttempt` — Task 3 body + Task 4 poll loop — additionally sets `state.currentAttempt = attempt` immediately after constructing `attempt` and clears it (`state.currentAttempt = null`) just before returning; `onSignal` (Task 7) includes `state.currentAttempt` in the written attempts when set. Imports consumed by A9's lock code: add `renameSync`, `rmSync`, `createWriteStream` (runner), `spawn` (`node:child_process`) as the owning tasks land.)
+
+### A10 — `composePrompt` (Task 3; complete)
+
+```js
+// Composed ONCE at startup (right after buildConfig): cfg.prompt = composePrompt(cfg);
+// A PROMPT_MAX_BYTES violation is a USAGE error (exit 2) — checked before any spawn.
+function composePrompt(cfg) {
+  let prompt = cfg.briefText;
+  if (cfg.fallback) {
+    for (let i = 0; i < cfg.artifacts.length; i++) {
+      prompt += `\n===== ARTIFACT: ${basename(cfg.artifacts[i])} =====\n`;
+      prompt += cfg.artifactTexts[i];
+      prompt += `\n===== END ARTIFACT =====\n`;
+    }
+    prompt +=
+      "\nCitations were pre-verified — do not re-read files needlessly. " +
+      "REACH A VERDICT — budget your reading.\n";
+  }
+  if (Buffer.byteLength(prompt) > cfg.promptMaxBytes) {
+    usageError(`composed prompt exceeds PROMPT_MAX_BYTES (${cfg.promptMaxBytes})`);
+  }
+  return prompt;
+}
+```
+
+(`basename` import from `node:path` joins the Task 3 import additions. `cfg.briefText`/`cfg.artifactTexts` were read and cached during Task 2 validation — composition performs no file reads.)
