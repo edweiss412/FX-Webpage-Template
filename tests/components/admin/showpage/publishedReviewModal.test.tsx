@@ -531,3 +531,17 @@ describe("PublishedReviewModal alert_id scroll effect (spec §3 — one-shot)", 
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("PublishedReviewModal entrance suppression (§6.5 skeleton→loaded in-place swap)", () => {
+  // Failure mode: the loaded modal always streams in REPLACING the settled
+  // Suspense skeleton (ShowReviewModalSkeleton), so a default shell entrance
+  // replays the pop-in from opacity≈0 — the opaque modal visibly dims and
+  // re-pops. §6.5:150: "in-place swap when Suspense resolves; instant".
+  it('passes entrance="none" — scrim + panel carry the suppression attr', () => {
+    renderModal();
+    const scrim = document.querySelector<HTMLElement>("[data-review-modal-scrim]")!;
+    const panel = document.querySelector<HTMLElement>("[data-review-modal-panel]")!;
+    expect(scrim.getAttribute("data-review-modal-entrance")).toBe("none");
+    expect(panel.getAttribute("data-review-modal-entrance")).toBe("none");
+  });
+});
