@@ -245,7 +245,14 @@ Add one optional prop:
 
 ```ts
 /** Optional band rendered BETWEEN the header and the body, with its own bottom
- *  seam. Omitted → no element at all (Step 3's DOM is byte-identical to today). */
+ *  seam. Omitted → no element at all (Step 3's DOM is byte-identical to today).
+ *
+ *  Pass a rendered ELEMENT or fragment. The wrapper is gated on truthiness, so
+ *  `cond && <X/>` correctly yields no band when `cond` is false — but that also
+ *  means falsey primitives (`0`, `""`) render nothing rather than a band
+ *  containing "0". That is deliberate: a bare number is not a meaningful
+ *  control strip, and silently emitting an empty bordered seam is the worse
+ *  failure for this shared shell. */
 subHeader?: ReactNode;
 ```
 
@@ -454,7 +461,7 @@ pins as real intended behavior.
 | `renderTitle` | **Delete.** Strip never renders a title. | Only call site passes `false` (`PublishedReviewModal.tsx:305`). The `<h1>` branch (`StatusStrip.tsx:171-192`) is dead in production — the modal's `<h2>` is the dialog's only title node. Removing it also removes `strip-title` and `strip-title-divider`. |
 | `chrome` | **Delete.** Band owns chrome now (§6.1). | Both arms (`StatusStrip.tsx:161-164`) collapse to the single flex-layout literal; the page arm's `sticky/z-30/border/px/py/shadow` is dead once the band supplies it. |
 | `title` | **Delete.** | Its ONLY consumer is `title ?? slug` inside the deleted `<h1>` branch (`StatusStrip.tsx:179`). `slug` stays (it feeds `copyUrl` and the toggle); `title` becomes dead API the moment `renderTitle` goes. |
-| `alertCount` | **Delete.** | Both consumers leave the strip: the alert badge itself (`:244`, relocated §6.6) and the `hasSignal` disjunct (`:154`), which §7 removes because an alert is no longer a strip signal. Leaving it lets harnesses keep constructing a prop no production render reads. |
+| `alertCount` | **Delete — from `StatusStripProps` ONLY.** | Both strip consumers leave: the alert badge (`:244`, relocated §6.6) and the `hasSignal` disjunct (`:154`), which §7 removes. **This does NOT starve the new header pill:** `alertCount` is `PublishedReviewModal`'s OWN prop (`PublishedReviewModal.tsx:74`, destructured `:114`) and is already consumed there independently of the strip — the Overview rail badge uses it at `:183-195`. Only the pass-through at `:304` disappears. Do not remove it from `PublishedReviewModalProps`. |
 | `isLive` | **KEEP.** | Reachable: computed in `app/admin/_showReviewModal.tsx:336` and passed at `:382`. Renders `strip-live-badge`. See §7 for its placement. |
 | `archived` | **KEEP.** | Reachable: `_showReviewModal.tsx:253` → `:377`-adjacent. Drives the read-only mode (§7). |
 | `finalizeOwned` | **KEEP.** | Passed through to `PublishedToggle`; real behavior. |
@@ -828,10 +835,15 @@ requirement is focus reachability, not motion. Asserted as T-OVERLAY (§11).
   between the toggle and copy, matching its DOM order in the strip (§4.6) — DOM
   order IS tab order here; no `tabindex` juggling.
 - When the Re-sync overlay is open, its contents follow the trigger in tab order
-  (they are DOM-adjacent, rendered inside the band). The shrink-hold confirm
-  moves focus to "Keep current version" on open (`ReSyncButton.tsx:83-85`) and
-  restores to the trigger on cancel (`:78-82`) — both behaviors survive the
-  relocation unchanged.
+  — Re-sync → "Keep current version" → "Apply reduced version" → Copy. This is
+  intended, not incidental: the confirm's controls must stay adjacent to the
+  trigger that produced them. The steady-state order above therefore describes
+  the overlay-CLOSED case only, and T-RESYNC-FOCUS-ORDER asserts both states
+  separately (§11). Never satisfy the simple order by hoisting the overlay after
+  Copy.
+- The shrink-hold confirm moves focus to "Keep current version" on open
+  (`ReSyncButton.tsx:83-85`) and restores to the trigger on cancel (`:78-82`) —
+  both behaviors survive the relocation unchanged.
 - Color is never the sole signal: the sync dot always pairs with its text label;
   the alert dot pairs with the count.
 
@@ -842,7 +854,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 
 | ID | Test | Failure mode caught |
 | --- | --- | --- |
-| T-STEP3-INVARIANT | Step 3 modal renders no `-subheader` element and its header DOM is unchanged | The new shell slot leaks a wrapper/seam into Step 3 |
+| T-STEP3-INVARIANT | Two scoped assertions, NOT a whole-panel snapshot: (a) the Step 3 modal contains zero `[data-testid$="-subheader"]` elements; (b) the Step 3 `<header>` subtree's `innerHTML` is unchanged vs. a baseline captured from the same fixture | The new shell slot leaks a wrapper or seam into Step 3. Scoping matters: a whole-panel snapshot fails on the shell's intentional new `null`-rendering branch, and the usual response is to loosen or delete the test — losing the real guard |
 | T-SUBHEADER-SLOT | Shell renders the band only when `subHeader` is provided | Empty bordered band (a stray seam) on consumers that omit it |
 | T-SUBLINE-CLIENT-NULL | `clientLabel: null` → no client span AND no orphan bullet | Leading separator with nothing before it |
 | T-SUBLINE-DATES-EMPTY | empty `dates` → literal "Dates not detected" | Subline vanishes, header loses its second line |
@@ -868,7 +880,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the BAND (offsetParent is the band, not the panel); neither traps focus behind the other | Two overlays sharing one positioned ancestor; `relative` dropped from the band, silently reparenting the overlay to the panel |
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
-| T-RESYNC-FOCUS-ORDER | Tab order: sheet link → alert pill → close → toggle → Re-sync → copy | Re-sync lands after Copy or is skipped |
+| T-RESYNC-FOCUS-ORDER | **Overlay-CLOSED steady state:** sheet link → alert pill → close → toggle → Re-sync → copy. **Overlay-OPEN (shrink confirm):** … → Re-sync → Keep current version → Apply reduced version → copy — the confirm's controls sit DOM-adjacent to their trigger, which is the intent | Re-sync lands after Copy or is skipped; and an unscoped order test that runs with an overlay open, fails, and gets "fixed" by hoisting the overlay after Copy — destroying the confirm's focus proximity to its trigger |
 | T-COPY-FLUSH (real browser) | Copy button's right edge == band content-box right edge (±1px) | Strip shrink-wraps as a flex item, so `ml-auto` flushes to the strip's edge, not the band's — invisible to overflow-based checks |
 | T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Sheet link and Re-sync trigger: `getBoundingClientRect()` ≥44px (real boxes). Alert pill: **hit-behavior probe, NOT a rect measurement** — see below | Controls styled from the mock's sub-44px boxes; and a rect-based pill assertion that fails a correct implementation (§11.1) |
