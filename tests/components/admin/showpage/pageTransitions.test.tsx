@@ -120,8 +120,18 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // consumer. Its ONE JSX-mount conditional is the header sheet deep-link
   // (`openSheetHref !== null` — §6.2 guard, instant omit/mount); the Overview
   // railBadge stays an object-spread conditional (asserted separately).
-  "components/admin/showpage/PublishedReviewModal.tsx": 1,
-  "components/admin/showpage/StatusStrip.tsx": 8, // renderTitle(+divider) / archived / control-divider / live / sync / edited / alert / copy-link
+  // modal-header-reconciliation §9: 1 → 2 (Task 4, the §6.3 subline's client
+  // entry) → 4 (Task 5, the §6.6 alert pill AND its capped sr-only suffix —
+  // `{alertCount > 99 ? (` is its own mounted conditional, which is why the
+  // target is 4 and not 3). All four are instant omit/mounts that follow data.
+  // Verified by RUNNING the scanner over the source, not by reasoning.
+  "components/admin/showpage/PublishedReviewModal.tsx": 4,
+  // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
+  // which covered the h1 AND its adjacent title divider — deleted with the prop)
+  // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7
+  // brings it back to 7 when the Re-sync slot lands. Verified by RUNNING the
+  // scanner, not by reasoning.
+  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / re-sync / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
@@ -341,7 +351,6 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
     slug: "east-coast-summit",
-    title: "East Coast Broadcast Summit",
     archived: false,
     published: true,
     finalizeOwned: false,
@@ -351,7 +360,6 @@ function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripP
     lastCheckedAt: "2026-07-16T11:58:00.000Z",
     lastSyncStatus: "ok",
     now: NOW,
-    alertCount: 0,
     ...overrides,
   };
 }

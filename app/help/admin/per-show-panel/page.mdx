@@ -8,7 +8,7 @@ The panel's main parts:
 - **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced in the Overview section.
 - **Crew & share access.** The crew roster (each row has a **Preview as** link), the show's share-link, and the share-token controls.
 - **Sheet changes.** The show's feed of what synced recently: edits applied on their own, plus anything waiting for your OK. ([Jump](#changes-feed).)
-- **[Sync health](#sync-health).** The status strip's quiet sync line, with **Re-sync from Drive** in the Overview section.
+- **[Sync health](#sync-health).** The status strip's quiet sync line, with **Re-sync** beside it in the same strip.
 
 There is no footer bar: publishing lives in the status strip, and archiving is a row in the Overview section. On a quiet show the Sheet changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
 
@@ -27,16 +27,16 @@ Brand-new sheets are different: a sheet the app has never published waits for yo
 
 Sync health lives in the status strip at the top of the show details: a health dot beside two quiet lines, **"Synced …"** (the last time the app reached the sheet) and **"Edited …"** (the last time the sheet's content changed). When something is off, the line shows a plain-language problem label instead (the same labels the dashboard's [Sync status column](/help/admin/dashboard#active-shows) uses).
 
-The **Re-sync from Drive** button sits in the Overview section, next to the **Open sheet** link. It makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
+The **Re-sync** button sits in the status strip, between the sync line and the copy-link button. It makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
 
 - You've just edited the sheet and want the change to land now.
 - You're fixing a cell a previous sync complained about.
 
-While it runs, the label flips to "Syncing…".
+While it runs, the label flips to "Syncing…" and the button is disabled, so a second tap can't start an overlapping sync. The result appears in a panel just under the strip: a success line, an error, or a confirm asking whether to apply a version that would shrink the show. Success and error panels each have a dismiss button; the shrink confirm is answered with **Keep current version** or **Apply reduced version** instead.
 
 <Callout type="note">
-  On an archived show, re-sync is paused: the button is replaced by a note until you unarchive the
-  show.
+  On an archived show, re-sync is paused: the strip shows no Re-sync button, and the Overview
+  section carries a note explaining why, until you unarchive the show.
 </Callout>
 
 If syncs keep failing in a row, the most likely cause is in the sheet itself: a renamed tab, a column the app expected that's gone missing, or a row layout it doesn't recognize.
@@ -45,7 +45,7 @@ If syncs keep failing in a row, the most likely cause is in the sheet itself: a 
 
 <Step n={2}>Fix the cell the error points at.</Step>
 
-<Step n={3}>Come back here and tap **Re-sync from Drive**.</Step>
+<Step n={3}>Come back here and tap **Re-sync**.</Step>
 
 <Callout type="note">
   If the failures don't have an obvious cause in the sheet, send the page link and the error text to

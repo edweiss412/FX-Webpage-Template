@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modal Header Reconciliation — design mock snapshot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0f1014;
+        --surface: #16171c;
+        --sunken: #0b0c10;
+        --text: #e8e6e0;
+        --strong: #f5f3ee;
+        --subtle: #9c9a93;
+        --faint: #74736d;
+        --border: #2a2b30;
+        --border-strong: #3a3b40;
+        --accent: #ff8c1a;
+        --accent-hover: #ffa047;
+        --accent-text: #0e0f12;
+        --accent-edge: #ffa047;
+        --warning-bg: #3a2e14;
+        --warning-text: #ffd68a;
+        --review: #e0b84e;
+        --positive: #4fc9be;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #08090c;
+        color: var(--text);
+        font-family: "Inter", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--accent-hover);
+      }
+      a:hover {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      style="
+        min-height: 100vh;
+        padding: 64px 56px 120px;
+        display: flex;
+        flex-direction: column;
+        gap: 72px;
+        align-items: flex-start;
+      "
+    >
+      <div style="max-width: 760px">
+        <div
+          style="
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--faint);
+          "
+        >
+          Admin show modal · header polish
+        </div>
+        <h1
+          style="
+            margin: 10px 0 12px;
+            font-size: 30px;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+            font-weight: 700;
+            color: var(--strong);
+          "
+        >
+          Published header, aligned to the wizard
+        </h1>
+        <p
+          style="
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--subtle);
+            text-wrap: pretty;
+          "
+        >
+          Locked design: the published-show header now uses the wizard's frame — eyebrow → title →
+          quiet client/date subline, with the alert as a rounded pill beside the close. The live
+          controls (Published toggle, synced/edited status, and a neutral Copy) sit in their own slim
+          strip below the seam, so the header reads as one family with Step&nbsp;3 and the toggle is
+          the only orange. Today's two headers are kept below for reference.
+        </p>
+      </div>
+
+      <!-- ============================ TURN 1 — RECONCILED OPTIONS ============================ -->
+      <section style="display: flex; flex-direction: column; gap: 28px; width: 100%">
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span
+            style="font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--strong)"
+            >Locked — published header in the wizard's frame</span
+          >
+          <span style="font-size: 12px; color: var(--faint)">final</span>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start">
+          <!-- ---------- OPTION 1a ---------- -->
+          <div
+            id="1a"
+            style="display: flex; flex-direction: column; gap: 14px; width: 1024px; max-width: 100%"
+          >
+            <div
+              style="
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+                overflow: hidden;
+                background: var(--bg);
+              "
+            >
+              <!-- header -->
+              <div
+                style="
+                  display: flex;
+                  align-items: flex-start;
+                  gap: 12px;
+                  background: var(--surface);
+                  border-bottom: 1px solid var(--border);
+                  padding: 16px 20px;
+                "
+              >
+                <div style="min-width: 0; flex: 1">
+                  <div style="display: flex; align-items: center; gap: 4px">
+                    <span
+                      style="
+                        min-width: 0;
+                        font-size: 18px;
+                        font-weight: 700;
+                        letter-spacing: -0.025em;
+                        color: var(--strong);
+                        overflow-wrap: break-word;
+                      "
+                      >All/III&nbsp;–&nbsp;Consultants Roundtable 2025</span
+                    >
+                    <span
+                      style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 24px;
+                        height: 24px;
+                        color: var(--subtle);
+                        flex: none;
+                      "
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M10 14 21 3" />
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+                      </svg>
+                    </span>
+                  </div>
+                  <div
+                    style="
+                      margin-top: 2px;
+                      display: flex;
+                      flex-wrap: wrap;
+                      align-items: center;
+                      gap: 2px 8px;
+                      font-size: 14px;
+                      color: var(--subtle);
+                    "
+                  >
+                    <span>Institutional Investor</span>
+                    <span
+                      style="
+                        display: inline-block;
+                        width: 3px;
+                        height: 3px;
+                        border-radius: 999px;
+                        background: var(--border-strong);
+                        flex: none;
+                      "
+                    ></span>
+                    <span>Travel in Jun 3 · Set Jun 4 · Show Jun 5–6 · Travel out Jun 7</span>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; flex: none">
+                  <span
+                    style="
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 6px;
+                      border-radius: 999px;
+                      background: var(--warning-bg);
+                      padding: 4px 10px;
+                      font-size: 12px;
+                      font-weight: 600;
+                      white-space: nowrap;
+                      color: var(--warning-text);
+                    "
+                  >
+                    <span
+                      style="
+                        display: inline-block;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 999px;
+                        background: var(--review);
+                      "
+                    ></span
+                    >1 alert
+                  </span>
+                  <button
+                    style="
+                      margin-right: -4px;
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                      width: 44px;
+                      height: 44px;
+                      border: none;
+                      background: none;
+                      border-radius: 6px;
+                      color: var(--subtle);
+                      cursor: pointer;
+                    "
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="20"
+                      height="20"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <!-- control strip -->
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 16px;
+                  background: var(--surface);
+                  border-bottom: 1px solid var(--border);
+                  padding: 10px 20px;
+                "
+              >
+                <div style="display: inline-flex; align-items: center; gap: 8px">
+                  <span style="font-size: 14px; font-weight: 500; color: var(--strong)"
+                    >Published</span
+                  >
+                  <span
+                    style="
+                      position: relative;
+                      display: inline-flex;
+                      align-items: center;
+                      width: 48px;
+                      height: 28px;
+                      border-radius: 999px;
+                      border: 1px solid var(--accent-edge);
+                      background: var(--accent);
+                    "
+                  >
+                    <span
+                      style="
+                        position: absolute;
+                        left: 24px;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 999px;
+                        background: var(--bg);
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+                      "
+                    ></span>
+                  </span>
+                </div>
+                <span
+                  style="display: inline-block; width: 1px; height: 20px; background: var(--border)"
+                ></span>
+                <span
+                  style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 12px;
+                    color: var(--subtle);
+                  "
+                >
+                  <span
+                    style="
+                      display: inline-block;
+                      width: 8px;
+                      height: 8px;
+                      border-radius: 999px;
+                      background: var(--positive);
+                      flex: none;
+                    "
+                  ></span>
+                  <span>Synced just now</span>
+                  <span
+                    style="
+                      display: inline-block;
+                      width: 3px;
+                      height: 3px;
+                      border-radius: 999px;
+                      background: var(--border-strong);
+                      flex: none;
+                    "
+                  ></span>
+                  <span>Edited 25&nbsp;min ago</span>
+                </span>
+                <button
+                  style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    border: none;
+                    background: none;
+                    border-radius: 6px;
+                    padding: 6px 8px;
+                    color: var(--subtle);
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                  "
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                  Re-sync
+                </button>
+                <div
+                  style="
+                    margin-left: auto;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    border: 1px solid var(--border-strong);
+                    background: transparent;
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    color: var(--text);
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                  "
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  Copy crew link
+                </div>
+              </div>
+              <div style="height: 96px; background: var(--bg)"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ REFERENCE — TODAY ============================ -->
+      <section style="display: flex; flex-direction: column; gap: 28px; width: 100%">
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span
+            style="font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--strong)"
+            >Today — faithful recreations</span
+          >
+          <span style="font-size: 12px; color: var(--faint)">the current state, for reference</span>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start">
+          <!-- CURRENT WIZARD STEP 3 (the one that reads well) -->
+          <div
+            style="display: flex; flex-direction: column; gap: 14px; width: 1024px; max-width: 100%"
+          >
+            <div style="font-size: 13px; font-weight: 600; color: var(--subtle)">
+              Wizard · Step&nbsp;3 review
+              <span style="color: var(--faint); font-weight: 500">— the target language</span>
+            </div>
+            <div
+              style="
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+                overflow: hidden;
+                background: var(--bg);
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: flex-start;
+                  gap: 12px;
+                  background: var(--surface);
+                  border-bottom: 1px solid var(--border);
+                  padding: 16px 20px;
+                "
+              >
+                <div style="min-width: 0; flex: 1">
+                  <div
+                    style="
+                      font-size: 12px;
+                      font-weight: 500;
+                      letter-spacing: 0.12em;
+                      text-transform: uppercase;
+                      color: var(--subtle);
+                    "
+                  >
+                    Review before publishing
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 2px">
+                    <span
+                      style="
+                        min-width: 0;
+                        font-size: 18px;
+                        font-weight: 700;
+                        letter-spacing: -0.025em;
+                        color: var(--strong);
+                        overflow-wrap: break-word;
+                      "
+                      >RFI &amp; PC Chicago</span
+                    >
+                    <span
+                      style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 44px;
+                        height: 44px;
+                        color: var(--subtle);
+                        flex: none;
+                      "
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M10 14 21 3" />
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+                      </svg>
+                    </span>
+                  </div>
+                  <div
+                    style="
+                      margin-top: 2px;
+                      display: flex;
+                      flex-wrap: wrap;
+                      align-items: center;
+                      gap: 2px 8px;
+                      font-size: 14px;
+                      color: var(--subtle);
+                    "
+                  >
+                    <span>Institutional Investor</span>
+                    <span
+                      style="
+                        display: inline-block;
+                        width: 3px;
+                        height: 3px;
+                        border-radius: 999px;
+                        background: var(--border-strong);
+                        flex: none;
+                      "
+                    ></span>
+                    <span>Travel in May 11 · Set May 12 · Show May 13–14 · Travel out May 15</span>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; flex: none">
+                  <span
+                    style="
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 6px;
+                      border-radius: 999px;
+                      background: var(--warning-bg);
+                      padding: 4px 10px;
+                      font-size: 12px;
+                      font-weight: 600;
+                      white-space: nowrap;
+                      color: var(--warning-text);
+                    "
+                  >
+                    <span
+                      style="
+                        display: inline-block;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 999px;
+                        background: var(--review);
+                      "
+                    ></span
+                    >1 needs a look
+                  </span>
+                  <button
+                    style="
+                      margin-right: -4px;
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                      width: 44px;
+                      height: 44px;
+                      border: none;
+                      background: none;
+                      border-radius: 6px;
+                      color: var(--subtle);
+                      cursor: pointer;
+                    "
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="20"
+                      height="20"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div style="height: 96px; background: var(--bg)"></div>
+            </div>
+          </div>
+
+          <!-- CURRENT PUBLISHED SHOW (the one that clashes) -->
+          <div
+            style="display: flex; flex-direction: column; gap: 14px; width: 1024px; max-width: 100%"
+          >
+            <div style="font-size: 13px; font-weight: 600; color: var(--subtle)">
+              Published show
+              <span style="color: var(--faint); font-weight: 500">— the one that doesn't gel</span>
+            </div>
+            <div
+              style="
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
+                overflow: hidden;
+                background: var(--bg);
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 12px;
+                  background: var(--surface);
+                  border-bottom: 1px solid var(--border);
+                  padding: 16px 20px;
+                "
+              >
+                <div style="display: flex; align-items: flex-start; gap: 12px">
+                  <div style="display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1">
+                    <span
+                      style="
+                        min-width: 0;
+                        font-size: 18px;
+                        font-weight: 700;
+                        letter-spacing: -0.025em;
+                        color: var(--strong);
+                        overflow-wrap: break-word;
+                      "
+                      >All/III&nbsp;–&nbsp;Consultants Roundtable 2025</span
+                    >
+                    <span
+                      style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 44px;
+                        height: 44px;
+                        color: var(--subtle);
+                        flex: none;
+                      "
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M10 14 21 3" />
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+                      </svg>
+                    </span>
+                  </div>
+                  <button
+                    style="
+                      margin-right: -4px;
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                      width: 44px;
+                      height: 44px;
+                      border: none;
+                      background: none;
+                      border-radius: 6px;
+                      color: var(--subtle);
+                      cursor: pointer;
+                    "
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="20"
+                      height="20"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 16px">
+                  <div style="display: inline-flex; align-items: center; gap: 8px">
+                    <span style="font-size: 14px; font-weight: 500; color: var(--strong)"
+                      >Published</span
+                    >
+                    <span
+                      style="
+                        position: relative;
+                        display: inline-flex;
+                        align-items: center;
+                        width: 48px;
+                        height: 28px;
+                        border-radius: 999px;
+                        border: 1px solid var(--accent-edge);
+                        background: var(--accent);
+                      "
+                    >
+                      <span
+                        style="
+                          position: absolute;
+                          left: 24px;
+                          width: 20px;
+                          height: 20px;
+                          border-radius: 999px;
+                          background: var(--bg);
+                          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+                        "
+                      ></span>
+                    </span>
+                  </div>
+                  <span
+                    style="
+                      display: inline-block;
+                      width: 1px;
+                      height: 20px;
+                      background: var(--border);
+                    "
+                  ></span>
+                  <span style="display: inline-flex; align-items: center; gap: 8px">
+                    <span
+                      style="
+                        display: inline-block;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 999px;
+                        background: var(--positive);
+                        flex: none;
+                      "
+                    ></span>
+                    <span
+                      style="
+                        display: flex;
+                        flex-direction: column;
+                        font-size: 12px;
+                        line-height: 1.25;
+                        color: var(--subtle);
+                      "
+                    >
+                      <span>Synced just now</span>
+                      <span>Edited 25&nbsp;min ago</span>
+                    </span>
+                  </span>
+                  <span
+                    style="
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 6px;
+                      border-radius: 6px;
+                      border: 1px solid var(--border);
+                      background: var(--warning-bg);
+                      padding: 2px 8px;
+                      font-size: 12px;
+                      font-weight: 600;
+                      white-space: nowrap;
+                      color: var(--warning-text);
+                    "
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="12"
+                      height="12"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="m21.73 16-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 19h16a2 2 0 0 0 1.73-3Z" />
+                      <path d="M12 9v4" />
+                      <path d="M12 17h.01" />
+                    </svg>
+                    1 alert
+                  </span>
+                  <div
+                    style="
+                      margin-left: auto;
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                      background: var(--accent);
+                      border-radius: 6px;
+                      padding: 6px 12px;
+                      color: var(--accent-text);
+                      font-size: 14px;
+                      font-weight: 600;
+                      cursor: pointer;
+                    "
+                  >
+                    Copy
+                  </div>
+                </div>
+              </div>
+              <div style="height: 96px; background: var(--bg)"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

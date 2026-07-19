@@ -12,7 +12,7 @@
  * §12.4 catalog (invariant 5).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
@@ -268,6 +268,173 @@ describe("ReSyncButton", () => {
     fireEvent.click(keep);
     await waitFor(() => expect(queryByTestId("admin-resync-shrink-confirm")).toBeNull());
     await waitFor(() => expect(getByTestId("admin-resync-button")).toHaveFocus());
+  });
+
+  // ---- modal-header-reconciliation §6.7 (Task 7): strip mount + overlay results ----
+
+  const shrinkHeld = () =>
+    ({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    }) as unknown as Response;
+
+  const OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-50", "overflow-y-auto"];
+
+  /** Every overlay panel anchors to the BAND, caps its height and scrolls
+   *  internally (§6.7). Asserted per branch — relocating two of three is the
+   *  documented half-done failure mode. */
+  function expectOverlayPanel(el: HTMLElement) {
+    const tokens = el.className.split(/\s+/);
+    for (const t of OVERLAY_TOKENS) expect(tokens, `overlay panel missing ${t}`).toContain(t);
+    // z-50 vs the publish popover's z-40 (PublishedToggle.tsx) is a RULE: an
+    // unspecified z can leave the focused shrink confirm obscured.
+    expect(tokens).not.toContain("z-40");
+    // The height cap is what keeps "reserves no layout space" from becoming an
+    // obscured-content bug. Arbitrary-value class, so match by prefix.
+    expect(
+      tokens.some((t) => t.startsWith("max-h-[")),
+      `overlay panel missing a max-h cap (had: ${el.className})`,
+    ).toBe(true);
+  }
+
+  test("T-RESYNC-NO-WRAPPER: the root is a FRAGMENT — the trigger is the mount point's direct child", () => {
+    // Failure mode: a surviving `<div className="flex flex-col gap-3">` becomes
+    // the strip's flex item, so `items-center` and the row gap apply to the
+    // wrapper rather than the button, and the absolute panels anchor to an
+    // unintended subtree — while every focus and ORDER test still passes.
+    const { container } = render(<ReSyncButton slug="s" />);
+    const trigger = container.querySelector('[data-testid="admin-resync-button"]')!;
+    expect(trigger.parentElement, "no intervening wrapper between mount point and trigger").toBe(
+      container,
+    );
+    expect(container.firstElementChild).toBe(trigger);
+  });
+
+  test("ghost trigger: keeps aria-busy / disabled / testid, carries the tap floor and the band-resolved ring, and is NOT an AccentButton", async () => {
+    // The accent→ghost swap is NOT style-only: AccentButton supplied these
+    // through props, and a raw <button> drops each one silently. Dropping
+    // `disabled` leaves a pending Re-sync clickable and able to double-POST.
+    let resolve: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolve = r)));
+    const { getByTestId } = render(<ReSyncButton slug="s" />);
+    const button = getByTestId("admin-resync-button") as HTMLButtonElement;
+
+    const tokens = button.className.split(/\s+/);
+    expect(tokens).toContain("min-h-tap-min");
+    expect(tokens).toContain("min-w-tap-min");
+    // ringOffset="bg" is REPLACED: the trigger now sits on the band's surface.
+    expect(tokens).toContain("focus-visible:ring-offset-surface");
+    expect(tokens).not.toContain("focus-visible:ring-offset-bg");
+    // `selfStart` was correct for Overview's flex-col, wrong in a centered row.
+    expect(tokens).not.toContain("self-start");
+    // The observable AccentButton signature is gone (delta 4's orange budget).
+    for (const t of ["bg-accent", "hover:bg-accent-hover", "text-accent-text"]) {
+      expect(tokens, `ghost trigger must not carry ${t}`).not.toContain(t);
+    }
+
+    expect(button.getAttribute("aria-busy")).toBe("false");
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+    expect(button.disabled).toBe(true);
+    resolve({ json: async () => ({ ok: true }) } as unknown as Response);
+  });
+
+  test("trigger label shortens to 'Re-sync' / 'Syncing…' and the width sizer never leaks into the accessible name", async () => {
+    // §6.7 label change (D2: the help registry pinned "Re-sync from Drive").
+    // The width reservation renders the inactive label as a hidden sizer, so
+    // the accessible name must still be exactly one label — a sizer that leaks
+    // announces "Re-syncSyncing…" to a screen reader.
+    let resolve: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolve = r)));
+    const { getByTestId } = render(<ReSyncButton slug="s" />);
+    const button = getByTestId("admin-resync-button") as HTMLButtonElement;
+    expect(button).toHaveAccessibleName("Re-sync");
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toHaveAccessibleName("Syncing…"));
+    resolve({ json: async () => ({ ok: true }) } as unknown as Response);
+  });
+
+  test("T-RESYNC-SHRINK: the confirm renders in the OVERLAY, still focuses the safe control, and has NO neutral dismiss", async () => {
+    fetchMock.mockResolvedValue(shrinkHeld());
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-shrink-confirm");
+    expectOverlayPanel(panel);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(getByTestId("admin-resync-keep-current")),
+    );
+    // Watchpoint 9: "Keep current version" IS the safe exit. A neutral X would
+    // create a third, ambiguous outcome on a destructive-adjacent confirm.
+    expect(queryByTestId("admin-resync-shrink-dismiss")).toBeNull();
+    expect(within(panel).queryByLabelText(/dismiss/i)).toBeNull();
+  });
+
+  test("T-RESYNC-ERROR: renders in the OVERLAY with catalog copy (CONTAINMENT, not equality), and dismisses without re-running the mutation", async () => {
+    // Containment, deliberately: the branch legitimately renders <ErrorExplainer>
+    // PLUS <HelpAffordance>, so an equality assertion is false-red and the
+    // likely "fix" is deleting the help affordance.
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: false, error: "FINALIZE_OWNED_SHOW" }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-error");
+    expectOverlayPanel(panel);
+    expect(panel.textContent ?? "").toContain(MESSAGE_CATALOG.FINALIZE_OWNED_SHOW.dougFacing!);
+    expect(panel.textContent ?? "").not.toContain("FINALIZE_OWNED_SHOW");
+
+    // The live-region role MOVED to the message node: a focusable dismiss
+    // button inside a live region would be announced as part of the alert.
+    expect(panel.getAttribute("role")).toBe("group");
+    const labelledBy = panel.getAttribute("aria-labelledby");
+    expect(labelledBy, "role=group is named by the message node").toBeTruthy();
+    const msg = panel.querySelector(`#${CSS.escape(labelledBy!)}`)!;
+    expect(msg.getAttribute("role")).toBe("alert");
+    expect(msg.querySelector("button"), "no focusable control inside the live region").toBeNull();
+
+    const dismiss = getByTestId("admin-resync-error-dismiss");
+    expect(dismiss).toHaveAccessibleName("Dismiss sync error");
+    expect(dismiss.className.split(/\s+/)).toContain("min-h-tap-min");
+    fireEvent.click(dismiss);
+    await waitFor(() => expect(queryByTestId("admin-resync-error")).toBeNull());
+    expect(fetchMock, "dismiss clears the overlay without re-POSTing").toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(getByTestId("admin-resync-button")).toHaveFocus());
+  });
+
+  test("T-RESYNC-SUCCESS: renders summarizeResult copy in the OVERLAY and dismisses back to the trigger", async () => {
+    // A separate branch from BOTH error and shrink: T-RESYNC-SHRINK and
+    // T-OVERLAY both pass while this one is still rendering in flow.
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, result: { outcome: "revision_race" } }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-success");
+    expectOverlayPanel(panel);
+    expect(panel.textContent ?? "").toContain("the sheet changed mid-sync");
+    // Never the raw outcome token.
+    expect(panel.textContent ?? "").not.toContain("revision_race");
+
+    const dismiss = getByTestId("admin-resync-success-dismiss");
+    expect(dismiss).toHaveAccessibleName("Dismiss sync result");
+    expect(dismiss.className.split(/\s+/)).toContain("min-h-tap-min");
+    fireEvent.click(dismiss);
+    await waitFor(() => expect(queryByTestId("admin-resync-success")).toBeNull());
+    await waitFor(() => expect(getByTestId("admin-resync-button")).toHaveFocus());
+  });
+
+  test("an UNKNOWN outcome falls back to 'Sync complete.' rather than echoing a raw token", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, result: { outcome: "asset_recovery_v2_unknown" } }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-success");
+    expect(panel.textContent ?? "").toContain("Sync complete.");
+    expect(panel.textContent ?? "").not.toContain("asset_recovery");
   });
 
   test("INVARIANT 5: no raw error codes leak into the DOM after an error response", async () => {

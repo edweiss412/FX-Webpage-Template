@@ -7,11 +7,12 @@
  * chrome: the dashboard's `/admin?show=<slug>` modal. Header slot owns the
  * heading-safe `<h2>` title (the dialog's aria-labelledby target — ONLY the
  * title text; the sheet deep link is a separate adjacent 44px icon anchor, the
- * Step3ReviewModal pattern) plus the close button and, below the title row,
- * `<StatusStrip renderTitle={false} chrome="modal-header">` (its internal
- * `<h1>` + divider are suppressed so the panel contains exactly one title node
- * and no h1; its page chrome is dropped so the shell header's own surface,
- * seam and `px-tile-pad` are not doubled). Body =
+ * Step3ReviewModal pattern) plus the close button. The control strip is NOT in
+ * the header: it mounts in the shell's `subHeader` band, its own seamed row
+ * below the header (modal-header-reconciliation §6.1) — identity above, live
+ * controls below. `<StatusStrip>` renders no title of its own and no container
+ * chrome at all (§6.5), so the panel contains exactly one title node and no h1,
+ * and the band's surface, seam and `px-tile-pad` are never doubled. Body =
  * `<ShowReviewSurface layout="modal" syncHash>` with the EXACT extras
  * composition `PublishedReviewPage` builds today (Overview first, Changes
  * last, per-section warning controls, raw-unrecognized bottom slot). NO
@@ -39,7 +40,10 @@ import { ShowReviewSurface, type ExtraSection } from "@/components/admin/review/
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
-import { RawUnrecognizedCallout } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  RawUnrecognizedCallout,
+  dateSummarySegments,
+} from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
@@ -151,6 +155,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // empty accessible name.
   const displayTitle = title || slug;
 
+  // §6.3 subline: identity's second line, derived ENTIRELY from `data` — no new
+  // props (§F2). `dateSummarySegments` is imported from the wizard module in
+  // place; the helper does NOT move (§6.3, Watchpoint 6) — `PublishedReviewModal`
+  // already imports `RawUnrecognizedCallout` from that same module, so the
+  // cross-domain import is established, and moving the helper would drag its
+  // ten-caller `arr` dependency with it.
+  const client = data.clientLabel;
+  const segs = dateSummarySegments(data.dates ?? undefined);
+
   // §5.3 per-section warning controls: the crypto-free render factory over the
   // server-derived model. Memoized on the record identity (stable per render).
   const renderSectionExtras = useMemo(() => buildSectionWarningExtras({ bySection }), [bySection]);
@@ -200,7 +213,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       : {}),
     render: () => (
       <OverviewSection
-        slug={slug}
         showId={showId}
         archived={archived}
         published={published}
@@ -247,18 +259,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       testIdBase={TESTID_BASE}
       initialFocusRef={closeRef}
       header={
-        // gap-3 (not gap-2): since #480 the strip carries no vertical padding of
-        // its own inside this header, so this gap is the WHOLE separation budget
-        // between the title row and the control row. It has to step above the
-        // strip's own 8px wrapped-row gap or the two groups read as one stack
-        // (DESIGN.md §3.1 — vary spacing for rhythm). Pinned by the "header
-        // rhythm" assertion in published-review-modal.layout.spec.ts.
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex items-start gap-3">
+        // TWO children, no outer flex-column wrapper (modal-header-reconciliation
+        // §6.2): the control strip has moved out to the `subHeader` band, so
+        // there is no second row left inside the header for a column to space.
+        // The shell's <header> is `flex items-start gap-3`, so these sit side by
+        // side — the text block flexes, the actions cluster stays shrink-0.
+        <>
+          <div className="min-w-0 flex-1">
             {/* Heading-safe title split (Step3 pattern): the h2 holds ONLY the
                 plain title (the dialog's accessible name); the deep link is a
                 separate adjacent 44px icon anchor. */}
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
               <h2 id={h2Id} data-testid={`${TESTID_BASE}-title`} className="min-w-0">
                 <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong">
                   {displayTitle}
@@ -278,30 +289,98 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 </a>
               ) : null}
             </div>
+            {/* §6.3 subline: client entry (omitted WITH its bullet when null —
+                a leading separator with nothing before it is the defect) plus
+                the dates entry, which ALWAYS renders so the line never
+                disappears. Mirrors Step3ReviewModal.tsx's subline exactly,
+                including the "Dates not detected" fallback. */}
+            <div
+              data-testid={`${TESTID_BASE}-subline`}
+              className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle"
+            >
+              {/* §9: instant — deliberate (client presence follows data, not a state transition) */}
+              {client !== null ? (
+                <>
+                  <span className="min-w-0 wrap-break-word">{client}</span>
+                  <span
+                    aria-hidden="true"
+                    className="size-[3px] shrink-0 rounded-pill bg-border-strong"
+                  />
+                </>
+              ) : null}
+              <span className="min-w-0 wrap-break-word">
+                {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* §6.6 alert pill — RELOCATED from the control strip. It stays an
+                <a href="#overview"> (§F1, Watchpoint 4): the mock draws an
+                inert <span>, but that is a static-canvas artifact, and a span
+                would delete the only affordance connecting this count to the
+                alert list. `overviewSection.test.tsx` pins the jump target.
+
+                `before:-inset-y-3` is COPIED from the old strip badge, not
+                chosen fresh: text-xs (~16px line box) + py-1 (8px) ≈ a 24px
+                visible pill, and -inset-y-3 (12px per side) ≈ 48px ≥ the 44px
+                tap floor. `-inset-y-2` would yield ~40px and MISS it. T-TAP
+                probes the resolved hit band rather than trusting this
+                arithmetic (§11.1).
+
+                Guard (§7): the count is server-derived (an array length), so
+                the Number.isInteger gate is defensive-only — but an unguarded
+                render puts a literal "NaN alerts" in the header. */}
+            {Number.isInteger(alertCount) && alertCount > 0 ? (
+              <a
+                href="#overview"
+                data-testid={`${TESTID_BASE}-alert-pill`}
+                className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                {/* Decorative: the count text carries the meaning. Replaces the
+                    strip badge's TriangleAlert glyph per the mock. The token is
+                    live (globals.css `--color-status-review`) — never the mock hex. */}
+                <span
+                  aria-hidden="true"
+                  className="size-2 shrink-0 rounded-pill bg-status-review"
+                />
+                {/* Capped at 99+ (§6.6): `alertCount` is unbounded and this group
+                    is shrink-0 beside Close, so four digits squeeze the title at
+                    375px. The UNIT stays VISIBLE — a bare "99+" is not
+                    self-explanatory — and the exact count is preserved for
+                    assistive tech past the cap only (below it the visible text
+                    is already exact). */}
+                {alertCount > 99 ? "99+" : alertCount} {alertCount === 1 ? "alert" : "alerts"}
+                {alertCount > 99 ? (
+                  <>
+                    {/* The separator is its OWN visible text node. A leading
+                        space INSIDE the sr-only span is trimmed during
+                        accessible-name computation, yielding
+                        "99+ alerts(1200 open alerts)" — the same bug class as
+                        the Overview rail badge above. */}{" "}
+                    <span className="sr-only">({alertCount} open alerts)</span>
+                  </>
+                ) : null}
+              </a>
+            ) : null}
             <ModalCloseButton ref={closeRef} testId={`${TESTID_BASE}-close`} />
           </div>
-          {/* Below the title row: the strip minus its h1 title/divider
-              (renderTitle={false}) and minus its page chrome
-              (chrome="modal-header" — the shell header owns the surface, seam
-              and px-tile-pad; MODAL-STRIP-CHROME-1) — publish toggle, live
-              badge, sync age, alert badge, copy-link unchanged. */}
-          <StatusStrip
-            slug={slug}
-            title={title}
-            archived={archived}
-            published={published}
-            finalizeOwned={finalizeOwned}
-            setPublished={setPublished}
-            isLive={isLive}
-            lastSyncedAt={lastSyncedAt}
-            lastCheckedAt={lastCheckedAt}
-            lastSyncStatus={lastSyncStatus}
-            now={now}
-            alertCount={alertCount}
-            renderTitle={false}
-            chrome="modal-header"
-          />
-        </div>
+        </>
+      }
+      // The control strip is its OWN band below the header seam
+      // (modal-header-reconciliation §6.1): identity above, live controls below.
+      subHeader={
+        <StatusStrip
+          slug={slug}
+          archived={archived}
+          published={published}
+          finalizeOwned={finalizeOwned}
+          setPublished={setPublished}
+          isLive={isLive}
+          lastSyncedAt={lastSyncedAt}
+          lastCheckedAt={lastCheckedAt}
+          lastSyncStatus={lastSyncStatus}
+          now={now}
+        />
       }
     >
       {/* Body: the surface mounts DIRECTLY in the panel flex column (shell

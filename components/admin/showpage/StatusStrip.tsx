@@ -4,21 +4,28 @@
  * components/admin/showpage/StatusStrip.tsx (consolidated-admin-show-page spec §4/§6/§11)
  *
  * The slim, pinned status strip that stays under the admin nav while the rail sections
- * scroll. DISPLAY + 2 actions max — the publish toggle and the copy-link; everything else
- * (share panel, resync, archive/unarchive, alert detail) lives in the Overview rail section
- * (spec §4 last line; mock README delta 5 — Unarchive is NOT a strip control).
+ * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the copy-link.
+ *
+ * The budget was 2 (toggle + copy-link, "everything else lives in Overview") until
+ * modal-header-reconciliation §4.3, a RATIFIED amendment: Re-sync moves here, and
+ * duplicating the control across the strip and Overview was explicitly rejected —
+ * there is exactly ONE Re-sync. Share panel, archive/unarchive and alert detail
+ * still live in the Overview rail section (mock README delta 5 — Unarchive is NOT
+ * a strip control).
  *
  * All data arrives as plain props (the page shell wires it); this component fetches nothing
  * and defines no server actions. The publish toggle carries its own bound action through
  * (`setPublished`); the copy-link consumes `ShareTokenProvider` so a rotate updates the
  * copied URL instantly (spec §4 "within ShareTokenProvider context").
  *
- * Mode boundaries (spec §6):
- *   - Not archived            → title · [divider] · PublishedToggle · live badge (if live)
+ * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
+ *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · alert badge (if any) · copy-link (published + token only).
- *   - Archived (read-only)    → title · archived badge · sync age · edited age. No toggle,
- *                               no copy-link, no live badge — zero mutating affordances.
+ *                               · Re-sync · copy-link (published + token only). The alert
+ *                               badge MOVED to the modal header (§6.6).
+ *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
+ *                               no copy-link, no live badge, no Re-sync — zero mutating
+ *                               affordances.
  *
  * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
  * (last successful Drive reach) for `ok`; the muted "Edited {rel}" shows the last-EDITED
@@ -26,22 +33,29 @@
  * bucket + a hover-revealed "Checked" line only.
  *
  * Guard conditions (spec §11):
- *   - `title` null            → fall back to the slug (never an empty label).
  *   - `lastSyncedAt` null     → OMIT the sync-age element entirely. `formatRelative` returns
  *                               "never" for null; rendering that would violate the omit
  *                               contract, so the null is guarded BEFORE the call.
  *   - no active share token   → copy-link hidden. "Active" = published: an unpublished show
  *                               keeps its token but the crew link is paused, so copying it
  *                               would hand out a dead link.
- *   - `alertCount` 0          → alert badge hidden.
  *
  * Live-now is NOT derived here (it needs the show timezone + wall clock): the page computes
  * `published && isShowLiveOnDate(dates, todayIso)` — the same rule the dashboard uses
  * (Dashboard.tsx:483-484) — and passes the result as `isLive`.
+ *
+ * Container chrome (modal-header-reconciliation §6.5): the strip supplies LAYOUT ONLY.
+ * Its sole render site is the published review modal, where it mounts in the shell's
+ * `subHeader` band — and the band supplies the surface, the bottom seam and
+ * `px-tile-pad` (ReviewModalShell.tsx). The former `chrome` prop's `"page"` arm (sticky
+ * pin, z-index, own seam, shadow, own padding) was only reachable from the retired
+ * standalone show page and is gone; re-adding any of it here would double-seam and
+ * double-pad the band. `w-full` is added in Task 3 — it is what makes the copy button's
+ * `ml-auto` resolve against the BAND's width rather than the strip's shrink-wrapped one.
  */
 
-import { TriangleAlert } from "lucide-react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
+import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { syncStatusBucket, showsEditedClause } from "@/lib/admin/syncStatus";
@@ -52,10 +66,10 @@ import { useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 export type StatusStripProps = {
-  /** Stable subject id for the bound publish action + crew-URL path. */
+  /** Stable subject id for the bound publish action + crew-URL path. Feeds the crew
+   *  copy URL and the bound publish toggle — NOT a display label (the strip renders no
+   *  title; the modal's `<h2>` owns it). */
   slug: string;
-  /** `shows.title`; null → the slug is shown instead (never an empty label). */
-  title: string | null;
   /** Read-only lifecycle state: hides every mutating strip affordance. */
   archived: boolean;
   /** Current publish state (drives the wrapped toggle + the copy-link "active" gate). */
@@ -76,34 +90,10 @@ export type StatusStripProps = {
   lastSyncStatus: string | null;
   /** Server "now" for deterministic relative formatting. */
   now: Date;
-  /** Open `admin_alerts` count for this show; 0 → the badge is hidden. */
-  alertCount: number;
-  /** admin-show-modal spec §6.1: `false` suppresses the internal `<h1>` title AND its
-   *  immediately-following divider (no orphan leading separator — the strip then starts
-   *  at the publish toggle). The modal header owns the title as an `<h2>`, so the dialog
-   *  contains exactly one title node and no `<h1>`. Default `true` (page behavior). */
-  renderTitle?: boolean;
-  /** MODAL-STRIP-CHROME-1: which container chrome the strip wears.
-   *  `"page"` (default) = the pinned page strip — sticky/z under the admin nav, its own
-   *  bottom seam + shadow, its own horizontal/vertical padding.
-   *  `"modal-header"` = layout only. ReviewModalShell's `<header>` already supplies the
-   *  surface, the bottom border and `px-tile-pad` (ReviewModalShell.tsx:432) and the header's
-   *  flex column supplies the row gap, so the page chrome would stack a doubled seam and
-   *  doubled padding; sticky/z are inert inside a non-scrolling header.
-   *
-   *  PRECONDITION for `"modal-header"` — the parent MUST supply all four, because the
-   *  strip supplies none of them in this mode: (1) a `bg-surface` background (the strip's
-   *  children resolve `focus-visible:ring-offset-surface` against it), (2) horizontal
-   *  padding, (3) the bottom seam, and (4) vertical separation from whatever precedes the
-   *  strip — the strip has NO vertical padding here, so the parent's column gap is the
-   *  entire budget (pinned by the "header rhythm" assertion in
-   *  tests/e2e/published-review-modal.layout.spec.ts). */
-  chrome?: "page" | "modal-header";
 };
 
 export function StatusStrip({
   slug,
-  title,
   archived,
   published,
   finalizeOwned,
@@ -113,9 +103,6 @@ export function StatusStrip({
   lastCheckedAt,
   lastSyncStatus,
   now,
-  alertCount,
-  renderTitle = true,
-  chrome = "page",
 }: StatusStripProps) {
   const { token } = useShareToken();
 
@@ -147,50 +134,39 @@ export function StatusStrip({
 
   // CASP2-4 (item 2, approach A): a control/signal divider so the ON switch (bg-accent) and the
   // Live-now dot (bg-status-live = accent, SAME hue — globals.css:89) stop reading as one orange
-  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The three
-  // disjuncts are exactly the render conditions of the live/sync/alert elements below, so the
-  // divider appears iff a signal renders beside the toggle. `hidden sm:block` matches the title
-  // divider — no vertical divider on the wrapped 390px mobile row.
-  const hasSignal = isLive || (syncLabel != null && sync != null) || alertCount > 0;
+  // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The two
+  // disjuncts are exactly the render conditions of the live/sync elements below, so the
+  // divider appears iff a signal renders beside the toggle. `hidden sm:block` — no vertical
+  // divider on the wrapped 390px mobile row.
+  //
+  // The former third disjunct (`alertCount > 0`) was DROPPED with the alert
+  // relocation (modal-header-reconciliation §7): the element it stood in for now
+  // lives in the modal header, so keeping it would draw a divider followed by
+  // nothing on an alerts-only show.
+  const hasSignal = isLive || (syncLabel != null && sync != null);
   const showControlDivider = !archived && hasSignal;
 
-  // Container chrome (MODAL-STRIP-CHROME-1). Both arms are whole literals (not a
-  // template concat) so the Tailwind class-order lint still sorts them, and the
-  // ternary lives OUTSIDE the JSX so it is not a conditional MOUNT — the
-  // pageTransitions count pin (8) is unchanged by this variant.
-  const containerClass =
-    chrome === "modal-header"
-      ? "flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
-      : "sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6";
-
   return (
-    <div data-testid="show-status-strip" className={containerClass}>
-      {/* admin-show-modal spec §6.1: the title block (h1 + its adjacent divider) is one
-          conditional — the modal passes renderTitle={false} so its <h2> header stays the
-          dialog's only title node and the strip starts at the publish toggle. */}
-      {renderTitle ? (
-        <>
-          {/* The rebuild dropped AdminPageHeader, so the sticky strip title IS the page's
-              top-level heading — an <h1> (not a <span>), or screen readers get no h1 landmark. */}
-          <h1
-            data-testid="strip-title"
-            className="min-w-0 truncate text-base font-semibold text-text-strong"
-          >
-            {title ?? slug}
-          </h1>
-          {/* Title↔toggle divider: only when a toggle follows (¬archived). Lives inside the
-              renderTitle block (covered by its count row) so suppressing the title can never
-              leave an orphan leading separator. */}
-          {archived ? null : (
-            <span
-              aria-hidden="true"
-              data-testid="strip-title-divider"
-              className="hidden h-5 w-px shrink-0 bg-border sm:block"
-            />
-          )}
-        </>
-      ) : null}
-
+    <div
+      data-testid="show-status-strip"
+      // Full band width is what makes right-flush reachable (§8): `ml-auto` on
+      // the copy button only reaches the band's content edge if this row spans
+      // it. VERIFIED by measurement — swapping `w-full` for `w-fit` fails
+      // T-COPY-FLUSH by ~470px at 1280 (published-review-modal.layout.spec.ts).
+      //
+      // Honest note: `w-full` is DEFENSIVE, not load-bearing today. The band is
+      // a block-level, non-flex container, so this block-level flex row already
+      // fills it; T-COPY-FLUSH passes with `w-full` removed. It is kept because
+      // the guarantee would evaporate the moment the band became a flex
+      // container — the strip would then shrink-wrap as a flex item (this
+      // repo's Tailwind v4 does not default `.flex` to align-items: stretch)
+      // and `ml-auto` would flush to the strip's own edge instead.
+      //
+      // Deliberately NO `relative` here — that would re-anchor the Task 7
+      // Re-sync overlay to the strip and break its `inset-x-0` full-band width.
+      // The band owns the positioned ancestor.
+      className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
+    >
       {archived ? (
         <span
           data-testid="strip-archived-badge"
@@ -230,35 +206,87 @@ export function StatusStrip({
               edit time. It pairs with both text lines (the color-blind floor). */}
           {/* pulse: subtle heartbeat on the healthy/synced dot (no-op on non-positive). */}
           <StatusDot status={sync.bucket} pulse />
-          {/* Synced (last-checked) over Edited (last-synced), stacked and equally weighted
-              — same size/color, neither is the "primary" of the pair. */}
-          <span className="flex flex-col text-xs/tight text-text-subtle tabular-nums">
+          {/* ONE row (modal-header-reconciliation §4.5): dot · "Synced {rel}" ·
+              3px bullet · "Edited {rel}". Equally weighted — same size/color,
+              neither is the "primary" of the pair, so both inherit this row's
+              type rather than setting their own.
+
+              `inline-flex items-center` is the §8 dimensional invariant that
+              guarantees the baseline-consistent single row. It replaces a
+              `flex flex-col` column: restyling this element's colors or order
+              while leaving `flex-col` in place passes EVERY other status
+              assertion, so the single-row structure is pinned explicitly —
+              in jsdom by statusStrip.test.tsx's expectSingleRowStatus() and in
+              the browser by T-STATUS-INLINE.
+
+              NOT "Synced" hardcoded: `syncLabel` is the ok-bucket phrasing for
+              ONE bucket of several; every non-ok bucket renders its health
+              label here instead (syncStatus.ts:20). */}
+          <span
+            data-testid="strip-status-line"
+            className="inline-flex items-center gap-2 text-xs/tight text-text-subtle tabular-nums"
+          >
             <span data-testid="strip-synced-line">{syncLabel}</span>
+            {/* The bullet is the collapse's ONLY new orphan risk: with the
+                column gone, nothing else separates the two texts, so it must
+                mount and unmount WITH the Edited clause — never on its own.
+                Same 3px decorative atom as the header subline
+                (PublishedReviewModal.tsx:299-303). */}
             {editedRel != null ? (
-              <span data-testid="strip-edited-age">Edited {editedRel}</span>
+              <>
+                <span
+                  aria-hidden="true"
+                  data-testid="strip-status-bullet"
+                  className="size-[3px] shrink-0 rounded-pill bg-border-strong"
+                />
+                <span data-testid="strip-edited-age">Edited {editedRel}</span>
+              </>
             ) : null}
           </span>
         </span>
       ) : null}
 
-      {alertCount > 0 ? (
-        <a
-          href="#overview"
-          data-testid="strip-alert-badge"
-          // The visible pill stays slim (text-xs); before:-inset-y-3 extends the HIT AREA to the
-          // 44px tap-min floor (PRODUCT a11y — no tiny click targets on the venue floor) without
-          // growing the pill, the same idiom the publish switch uses (PublishedToggle.tsx:143-145).
-          // Vertical-only extension keeps it from overlapping the strip's horizontal neighbours.
-          className="relative inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-warning-bg px-2 py-0.5 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-        >
-          <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
-          {alertCount} {alertCount === 1 ? "alert" : "alerts"}
-        </a>
+      {/* The alert badge lived here until modal-header-reconciliation §6.6 moved
+          it to the modal header as `published-show-review-alert-pill`. Do not
+          re-add it: rendered in both places, the count reads as two different
+          numbers the moment one of them lags. */}
+
+      {/* Re-sync (modal-header-reconciliation §4.3 — a RATIFIED amendment to
+          the "2 actions max" rule quoted at the top of this file; the budget is
+          now 3). Mounted as a BARE element: a wrapper <div> would become the
+          flex item, so `items-center` and the row gap would apply to the
+          wrapper rather than the button, and the component's absolute result
+          panels would lose the band's full width — while every focus and order
+          test still passed. The trigger carries its own
+          `data-testid="admin-resync-button"`; query that.
+
+          DOM order is normative, not merely visual: Copy is right-flushed by
+          `ml-auto`, so Copy-then-Re-sync would still LOOK right while producing
+          the tab order toggle → Copy → Re-sync → confirm controls, breaking
+          §10's confirm-proximity contract.
+
+          Archived shows get NO trigger — Re-sync mutates via /api/admin/sync,
+          which an archived show must not reach. Overview keeps the "paused
+          while archived" notice so the reason is still stated (§6.7).
+
+          Counted form: the MULTI-LINE `{!archived ? (` head is what §9's lexical
+          scanner sees. Both `{archived ? null : …}` AND the one-line
+          `{!archived ? <ReSyncButton …/>}` render identically but are INVISIBLE
+          to the pin — the one-line regex requires a LETTER immediately after
+          `{`, which `!archived` does not supply. Verified by running the scan:
+          the one-line form left the count at 6. This mount keeps its
+          fails-by-default protection only in the form below — and Prettier
+          collapses the parenthesized form back to one line unless something
+          inside it forces a break, which is what the inner comment is for. */}
+      {!archived ? (
+        // Gated on `archived` ALONE: an unpublished (held) show is still
+        // syncable — only archived is read-only.
+        <ReSyncButton slug={slug} />
       ) : null}
 
       {copyUrl != null ? (
         <div data-testid="strip-copy-link" className="ml-auto shrink-0">
-          <ShareLinkCopyButton url={copyUrl} />
+          <ShareLinkCopyButton url={copyUrl} variant="outline" />
         </div>
       ) : null}
     </div>

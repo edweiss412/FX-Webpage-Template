@@ -10,6 +10,13 @@
  * meta-test (tests/styles/accent-button-atom.test.ts) bans raw
  * compositions in the migrated files outside the atom.
  *
+ * The call-site list above is the M5-D7 historical drift set, not the
+ * current registry. ReSyncButton has since been DE-MIGRATED: the
+ * modal-header-reconciliation change demoted it from accent to ghost so
+ * the publish toggle is the only orange control in the strip (§4.2's
+ * orange budget), and it no longer imports the atom. See the rationale
+ * on MIGRATED_FILES in tests/styles/accent-button-atom.test.ts.
+ *
  * These tests pin the atom's contract:
  *   - the canonical shared chrome is always emitted;
  *   - size / fontWeight / ringOffset / inline / selfStart / shadow /

@@ -14,12 +14,15 @@
  *   - archived strip still exposing the publish toggle / copy link (must be read-only),
  *     OR sneaking an Unarchive button into the strip (mock README delta 5: Unarchive is an
  *     Overview control; the strip caps at two actions).
- *   - alert badge rendered when the open count is 0 (spec §4 "hidden when 0").
+ *   - an alert element coming BACK into the strip (modal-header-reconciliation §6.6
+ *     relocated it to the modal header; rendered in both places = a duplicated count).
  *
  * Anti-tautology: sync/live/copy assertions scope INTO the element's own testid subtree so
  * a sibling that independently renders the same word (e.g. the toggle's "Published", the
  * copy button's "Copy") cannot satisfy them. Expected values derive from the props fixture.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 
@@ -38,6 +41,16 @@ afterEach(() => {
   routerRefresh.mockClear();
 });
 
+/** Source path for the §6.5 dead-API scan (a deleted TS prop leaves no runtime trace). */
+const STRIP_SRC = join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "components/admin/showpage/StatusStrip.tsx",
+);
+
 // Fixed clock so formatRelative is deterministic. last_synced_at (Edited) 12 min before;
 // last_checked_at (the badge time for `ok`) 2 min before — distinct so assertions can tell
 // which field feeds which element.
@@ -48,7 +61,6 @@ const CHECKED_2M = "2026-07-16T11:58:00.000Z";
 function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
     slug: "east-coast-summit",
-    title: "East Coast Broadcast Summit",
     archived: false,
     published: true,
     finalizeOwned: false,
@@ -58,7 +70,6 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     lastCheckedAt: CHECKED_2M,
     lastSyncStatus: "ok",
     now: NOW,
-    alertCount: 0,
     ...overrides,
   };
 }
@@ -75,24 +86,19 @@ function renderStrip(
 }
 
 describe("StatusStrip", () => {
-  it("renders the strip container and the show title", () => {
+  // RETIRED (modal-header-reconciliation §6.5, Task 2): "renders the show title",
+  // "renders the show title as the page's h1", and "falls back to the slug when
+  // title is null". Their subject — the strip's internal `<h1 data-testid=
+  // "strip-title">{title ?? slug}</h1>` and the `title` prop feeding it — is
+  // deleted. The strip's only production render site is the published modal,
+  // whose `<h2>` header owns the title; the `<h1>` branch was dead there and had
+  // no other consumer. The replacement guard (the strip renders NO h1 and no
+  // title text) lives in the "no internal title" describe below — retiring
+  // without it would silently drop the single-title-node contract.
+
+  it("renders the strip container", () => {
     renderStrip();
     expect(screen.getByTestId("show-status-strip")).toBeTruthy();
-    expect(screen.getByTestId("strip-title").textContent).toBe("East Coast Broadcast Summit");
-  });
-
-  it("renders the show title as the page's h1 (the consolidated page's top-level heading)", () => {
-    // The rebuild dropped AdminPageHeader; the sticky strip title IS the page heading, so it
-    // must be an <h1> — a page with no h1 loses its top-level landmark for screen readers.
-    renderStrip();
-    const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading.textContent).toBe("East Coast Broadcast Summit");
-    expect(heading.getAttribute("data-testid")).toBe("strip-title");
-  });
-
-  it("falls back to the slug when title is null", () => {
-    renderStrip({ title: null });
-    expect(screen.getByTestId("strip-title").textContent).toBe("east-coast-summit");
   });
 
   it("shows the live-now badge when the show is live", () => {
@@ -125,8 +131,16 @@ describe("StatusStrip", () => {
   it("renders the copy-link (with the token URL) for a published, non-archived show with a token", () => {
     renderStrip({ published: true, archived: false }, { token: "TOK" });
     const copy = screen.getByTestId("strip-copy-link");
+    // Scoped to `strip-copy-link`, never the bare testid: that testid appears
+    // TWICE inside the open modal (strip + Overview share panel), so a bare
+    // query silently measures the share panel's button instead (§6.4).
     const btn = within(copy).getByTestId("admin-current-share-link-copy-button");
-    expect(btn.getAttribute("aria-label")).toMatch(/copy/i);
+    // modal-header-reconciliation §6.4 (Task 6): the strip's button is the
+    // OUTLINE arm — a visible label, no aria-label. The old accent-arm
+    // aria-label assertion would now be asserting the wrong contract.
+    expect(btn.getAttribute("aria-label")).toBeNull();
+    expect(btn.textContent).toContain("Copy crew link");
+    expect(btn.className).toContain("bg-transparent");
     // The URL is closed over on the button's click handler; assert the surface is present.
     expect(copy).toBeTruthy();
   });
@@ -144,29 +158,43 @@ describe("StatusStrip", () => {
 
   describe("control divider (CASP2-4)", () => {
     it("renders the divider when the ONLY signal is isLive (isolates the isLive disjunct)", () => {
-      // baseProps sets lastSyncedAt: SYNCED_12M — null it and zero alerts so ONLY isLive drives
-      // hasSignal; a guard that dropped the isLive disjunct would still pass if sync co-fired.
-      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      // baseProps sets lastSyncedAt: SYNCED_12M — null it so ONLY isLive drives hasSignal;
+      // a guard that dropped the isLive disjunct would still pass if sync co-fired.
+      renderStrip({ isLive: true, lastSyncedAt: null });
       expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
     });
 
-    it("renders the divider when the only signal is an alert", () => {
-      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 1 });
+    it("renders the divider when the only signal is the sync line (isolates the sync disjunct)", () => {
+      renderStrip({ isLive: false, lastSyncedAt: SYNCED_12M });
       expect(screen.getByTestId("strip-control-divider")).toBeTruthy();
     });
 
-    it("omits the divider when the show has no signal (not live, never synced, no alerts)", () => {
-      renderStrip({ isLive: false, lastSyncedAt: null, alertCount: 0 });
+    // REPLACES the pre-change case "renders the divider when the only signal is
+    // an alert", whose premise INVERTED: the alert left the strip (§6.6), so
+    // `alertCount > 0` is no longer a strip signal and keeping the disjunct
+    // would draw a divider with NOTHING after it.
+    //
+    // This case can no longer construct the alerts-only input — `alertCount` is
+    // not a StatusStrip prop any more — so it is a keep-green guard on the
+    // remaining two disjuncts, NOT the red proof. T-DIVIDER-ALERT-ONLY lives at
+    // the modal level (publishedReviewModal.test.tsx), the only surface that can
+    // still pass an alert count in.
+    it("omits the divider when the show has no signal (not live, never synced)", () => {
+      renderStrip({ isLive: false, lastSyncedAt: null });
       expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+      // Nothing follows the toggle: no live badge, no sync line, no alert.
+      expect(screen.queryByTestId("strip-live-badge")).toBeNull();
+      expect(screen.queryByTestId("strip-sync-age")).toBeNull();
+      expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
     });
 
     it("omits the divider when archived, even if a sync signal would render", () => {
-      renderStrip({ archived: true, lastSyncedAt: SYNCED_12M, alertCount: 3 });
+      renderStrip({ archived: true, lastSyncedAt: SYNCED_12M });
       expect(screen.queryByTestId("strip-control-divider")).toBeNull();
     });
 
     it("carries the responsive-suppression + decorative recipe", () => {
-      renderStrip({ isLive: true, lastSyncedAt: null, alertCount: 0 });
+      renderStrip({ isLive: true, lastSyncedAt: null });
       const divider = screen.getByTestId("strip-control-divider");
       expect(divider.className).toContain("hidden");
       expect(divider.className).toContain("sm:block");
@@ -174,27 +202,26 @@ describe("StatusStrip", () => {
     });
   });
 
-  describe("renderTitle (admin-show-modal spec §6.1 — modal header suppression)", () => {
-    it("default (prop omitted): renders the h1 title and its adjacent divider exactly as today", () => {
+  // REWRITTEN from the "renderTitle" describe (modal-header-reconciliation §6.5,
+  // Task 2). The prop is gone, so the suppression is no longer conditional — it
+  // is the strip's only behavior. The INTENT (the strip contributes no title
+  // node, so the dialog has exactly one title and no `<h1>`) is what survives,
+  // and these are now unconditional guards against the `<h1>` branch coming back.
+  describe("no internal title (modal-header-reconciliation §6.5)", () => {
+    it("never renders an h1, a strip-title node, or the title text", () => {
       renderStrip();
-      const heading = screen.getByRole("heading", { level: 1 });
-      expect(heading.getAttribute("data-testid")).toBe("strip-title");
-      expect(screen.getByTestId("strip-title-divider")).toBeTruthy();
-    });
-
-    it("renderTitle={false}: no h1, no title text node, no leading divider", () => {
-      renderStrip({ renderTitle: false });
       expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
       expect(screen.queryByTestId("strip-title")).toBeNull();
-      // The title TEXT must not sneak in via another node (the modal's h2 owns it).
+      // The title TEXT must not sneak in via another node (the modal's h2 owns
+      // it). Scoped to the strip so a sibling cannot satisfy it.
       const strip = screen.getByTestId("show-status-strip");
       expect(within(strip).queryByText("East Coast Broadcast Summit")).toBeNull();
       // No orphan leading separator — the strip starts at the publish toggle.
       expect(screen.queryByTestId("strip-title-divider")).toBeNull();
     });
 
-    it("renderTitle={false}: PublishedToggle, live badge, and copy-link are untouched", () => {
-      renderStrip({ renderTitle: false, isLive: true, published: true }, { token: "TOK" });
+    it("PublishedToggle, live badge, and copy-link are untouched by the title removal", () => {
+      renderStrip({ isLive: true, published: true }, { token: "TOK" });
       const wrapper = screen.getByTestId("strip-publish-toggle");
       expect(within(wrapper).getByTestId("published-toggle").getAttribute("aria-checked")).toBe(
         "true",
@@ -203,17 +230,53 @@ describe("StatusStrip", () => {
       expect(screen.getByTestId("strip-copy-link")).toBeTruthy();
     });
 
-    it("renderTitle={false} + archived: badge renders, still no h1 and no divider", () => {
-      renderStrip({ renderTitle: false, archived: true, published: false });
+    it("archived: the badge renders, still no h1 and no divider", () => {
+      renderStrip({ archived: true, published: false });
       expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
       expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
       expect(screen.queryByTestId("strip-title-divider")).toBeNull();
     });
+  });
 
-    it("archived with the title rendered: no title divider (badge follows the h1 directly)", () => {
-      renderStrip({ archived: true, published: false });
-      expect(screen.getByTestId("strip-title")).toBeTruthy();
-      expect(screen.queryByTestId("strip-title-divider")).toBeNull();
+  // T-RESYNC-MOVED / T-RESYNC-ARCHIVED, strip half (modal-header-reconciliation
+  // §4.3 ratified amendment — the strip's action budget becomes 3). The Overview
+  // half (no duplicate there) lives in overviewSection.test.tsx; both halves are
+  // required, because "exactly one Re-sync" is what the amendment actually says.
+  describe("Re-sync moved into the strip (§4.3 / §6.7)", () => {
+    it("T-RESYNC-MOVED: the strip renders the Re-sync trigger, mounted with NO wrapper element", () => {
+      renderStrip();
+      const strip = screen.getByTestId("show-status-strip");
+      const trigger = screen.getByTestId("admin-resync-button");
+      // Failure mode: a `<div data-testid="strip-resync">` wrapper becomes the
+      // flex item, so the row gap and `items-center` apply to the wrapper and
+      // the absolute panels lose the band's full width — while every focus and
+      // order test still passes. The trigger must be a DIRECT strip child.
+      expect(trigger.parentElement, "Re-sync is a bare strip row item").toBe(strip);
+      expect(screen.getAllByTestId("admin-resync-button")).toHaveLength(1);
+    });
+
+    it("DOM order is normative: Re-sync precedes the copy-link (§10 confirm-proximity)", () => {
+      // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
+      // still LOOKS correct while producing the tab order toggle → Copy →
+      // Re-sync → confirm controls. This is an a11y contract, not a visual one.
+      renderStrip();
+      const kids = Array.from(screen.getByTestId("show-status-strip").children);
+      const resyncIdx = kids.indexOf(screen.getByTestId("admin-resync-button"));
+      const copyIdx = kids.indexOf(screen.getByTestId("strip-copy-link"));
+      expect(resyncIdx).toBeGreaterThanOrEqual(0);
+      expect(copyIdx).toBeGreaterThan(resyncIdx);
+    });
+
+    it("T-RESYNC-ARCHIVED: an archived show gets NO Re-sync trigger (it mutates via /api/admin/sync)", () => {
+      renderStrip({ archived: true });
+      expect(screen.queryByTestId("admin-resync-button")).toBeNull();
+    });
+
+    it("an unpublished (held) show keeps Re-sync — only `archived` gates it", () => {
+      // Anti-tautology: gating on `published` instead of `archived` would pass
+      // the archived case above for the wrong reason.
+      renderStrip({ published: false });
+      expect(screen.getByTestId("admin-resync-button")).toBeTruthy();
     });
   });
 
@@ -233,51 +296,42 @@ describe("StatusStrip", () => {
     });
   });
 
-  describe("alert badge", () => {
-    it("hides the alert badge when the open count is 0", () => {
-      renderStrip({ alertCount: 0 });
-      expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+  // RETIRED + REPLACED (modal-header-reconciliation §6.6, Task 5). The former
+  // "alert badge" describe lost its SUBJECT: the badge moved to the modal
+  // header as `published-show-review-alert-pill`, and `alertCount` is no longer
+  // a StatusStrip prop at all. Every surviving assertion of intent — link to
+  // #overview, singular/plural, the before:-inset-y tap-min extension, the
+  // focus-ring offset — was carried to the pill's suite in
+  // publishedReviewModal.test.tsx, NOT dropped. What remains here is the guard
+  // that the badge does not come BACK: the strip must render no alert element
+  // no matter what props it is given, or the count renders twice.
+  describe("alert badge is gone from the strip (relocated to the header, §6.6)", () => {
+    it("renders no alert element in ANY strip mode", () => {
+      for (const overrides of [{}, { archived: true }, { isLive: true }, { published: false }]) {
+        cleanup();
+        renderStrip(overrides);
+        const strip = screen.getByTestId("show-status-strip");
+        expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+        // Shape-level, not testid-level: a re-added badge under a NEW testid
+        // would still be an #overview jump link inside the strip.
+        expect(strip.querySelector('a[href="#overview"]')).toBeNull();
+        expect(within(strip).queryByText(/\balerts?\b/i)).toBeNull();
+      }
     });
 
-    it("shows a count badge anchored to #overview when there are open alerts", () => {
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.getAttribute("href")).toBe("#overview");
-      expect(badge.textContent).toMatch(/3/);
-      expect(badge.textContent).toMatch(/alert/i);
-    });
-
-    it("uses the singular noun for a single alert", () => {
-      renderStrip({ alertCount: 1 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.textContent).toMatch(/\b1\b/);
-      expect(badge.textContent).not.toMatch(/alerts/i);
-    });
-
-    it("carries a 44px tap-min hit area without inflating the visual pill (PRODUCT a11y floor)", () => {
-      // The visible pill stays small (text-xs), but as an interactive chrome target it MUST
-      // meet 44×44 — extended via the same before:-inset hit-area pattern the publish switch
-      // uses (PublishedToggle.tsx), so the slim strip is unaffected.
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.className).toContain("relative");
-      expect(badge.className).toMatch(/before:-inset-y/);
-    });
-
-    it("renders the alert glyph as a committed lucide icon (svg), not a raw unicode glyph", () => {
-      // DESIGN §8: lucide-react is the icon system. The alert badge uses TriangleAlert
-      // (the same warning vocabulary as IgnoredSheetsDisclosure), never a raw '▲'.
-      renderStrip({ alertCount: 3 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.querySelector("svg")).not.toBeNull();
-      expect(badge.textContent).not.toContain("▲");
-    });
-
-    it("completes the focus ring with an offset, matching the publish switch (CASP2-4 item 3)", () => {
-      renderStrip({ alertCount: 2 });
-      const badge = screen.getByTestId("strip-alert-badge");
-      expect(badge.className).toContain("focus-visible:ring-offset-2");
-      expect(badge.className).toContain("focus-visible:ring-offset-surface");
+    it("StatusStrip's props no longer carry alertCount (dead API deleted, §6.5)", () => {
+      // A source scan, because a deleted TS prop is invisible to a runtime
+      // assertion — vitest strips types. `pnpm typecheck` is the other half.
+      //
+      // Comments are stripped first: the file deliberately DOCUMENTS the removed
+      // `alertCount > 0` disjunct so a future reader does not re-add it, and that
+      // prose must not read as a live reference.
+      const code = readFileSync(STRIP_SRC, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      expect(code).not.toMatch(/alertCount/);
+      // Non-vacuity: the comment-stripper must not have eaten the whole file.
+      expect(code).toMatch(/export function StatusStrip/);
     });
   });
 
@@ -331,16 +385,81 @@ describe("StatusStrip", () => {
       ).toBeTruthy();
     });
 
-    it("stacks Synced over Edited as two equally-weighted lines (same class, neither primary)", () => {
+    // REWRITTEN from "stacks Synced over Edited as two equally-weighted lines"
+    // (modal-header-reconciliation §4.5, Task 8). The two-line column collapses
+    // to ONE row: dot · "Synced {rel}" · 3px bullet · "Edited {rel}".
+    //
+    // The class clause below is the SHARED STRUCTURAL CLAUSE this describe's
+    // three §4.5 cases all carry. It is what makes them genuinely red: an
+    // implementer who restyles colors/order but leaves `flex-col` in place
+    // passes every other status assertion (null-edited, error-bucket, dot
+    // color, time source) while the headline delta is silently unimplemented.
+    // jsdom computes no layout, so the real single-row geometry is asserted in
+    // the browser by T-STATUS-INLINE (published-review-modal.layout.spec.ts);
+    // this is its cheap, always-run structural counterpart.
+    function expectSingleRowStatus(): HTMLElement {
+      const line = screen.getByTestId("strip-status-line");
+      expect(line.className).toMatch(/inline-flex/);
+      expect(line.className).toMatch(/items-center/);
+      expect(line.className).not.toMatch(/flex-col/);
+      return line;
+    }
+
+    it("renders Synced and Edited on ONE row, equally weighted, separated by a 3px bullet", () => {
       renderStrip({ lastSyncedAt: SYNCED_12M, lastCheckedAt: CHECKED_2M, lastSyncStatus: "ok" });
+      const line = expectSingleRowStatus();
       const synced = screen.getByTestId("strip-synced-line");
       const edited = screen.getByTestId("strip-edited-age");
-      // Equal weight = same typography; they share the parent column's class, not per-line
-      // size/weight overrides. Assert neither line sets its own font-size/weight.
+      // Equal weight = same typography; they inherit the row's class rather than
+      // setting per-line size/weight overrides.
       expect(synced.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
       expect(edited.className).not.toMatch(/text-(xs|sm|base|lg)|font-/);
-      // Both lines share one parent (the stacked column) → same rendered weight.
-      expect(synced.parentElement).toBe(edited.parentElement);
+      expect(synced.parentElement).toBe(line);
+      expect(edited.parentElement).toBe(line);
+      // The separator: 3px, pill, aria-hidden — the same atom as the header
+      // subline's bullet (PublishedReviewModal.tsx:299-303), and decorative
+      // (§9's decorative-dot rule), so it must never reach the a11y tree.
+      const bullet = screen.getByTestId("strip-status-bullet");
+      expect(bullet.getAttribute("aria-hidden")).toBe("true");
+      expect(bullet.className).toMatch(/size-\[3px\]/);
+      expect(bullet.className).toMatch(/rounded-pill/);
+      // Bullet sits BETWEEN the two texts, not before or after both.
+      const order = Array.from(line.children);
+      expect(order.indexOf(synced)).toBeLessThan(order.indexOf(bullet));
+      expect(order.indexOf(bullet)).toBeLessThan(order.indexOf(edited));
+    });
+
+    // T-STATUS-INLINE-NO-EDITED (§4.5's main NEW failure mode): the collapse
+    // turns the stacked column's implicit separation into an explicit
+    // separator, so the null-edited case can now strand it.
+    it("renders ONE row with NO trailing bullet and no 'Edited' when editedRel is null", () => {
+      // parse_error is in the showsEditedClause deny-set → editedRel === null
+      // while the status element itself still renders.
+      renderStrip({ lastSyncedAt: SYNCED_12M, lastSyncStatus: "parse_error" });
+      const line = expectSingleRowStatus();
+      expect(screen.queryByTestId("strip-edited-age")).toBeNull();
+      expect(screen.queryByTestId("strip-status-bullet")).toBeNull();
+      expect(line.textContent).not.toMatch(/edited/i);
+    });
+
+    // T-STATUS-ERROR-BUCKET — DECLARED PARTLY-RED (plan 03-resync.md:148).
+    // The bucket behavior already exists (`syncLabel` resolves to the health
+    // label for non-ok, `StatusDot` is keyed on the bucket), so this half is a
+    // KEEP-GREEN guard against the collapse hardcoding the mock's green
+    // "Synced just now" — one bucket of several. Its red comes from the shared
+    // single-row structural clause above.
+    it("shows the health label + bucket-colored dot (never 'Synced …') on one row for a non-ok bucket", () => {
+      renderStrip({
+        lastSyncedAt: SYNCED_12M,
+        lastCheckedAt: CHECKED_2M,
+        lastSyncStatus: "drive_error",
+      });
+      const line = expectSingleRowStatus();
+      expect(line.textContent).not.toMatch(/synced/i);
+      expect(screen.getByTestId("strip-synced-line").textContent).toMatch(/couldn.t reach/i);
+      expect(
+        within(screen.getByTestId("strip-sync-age")).getByTestId("status-dot-warn"),
+      ).toBeTruthy();
     });
   });
 
@@ -371,15 +490,17 @@ describe("StatusStrip", () => {
     });
   });
 
-  // MODAL-STRIP-CHROME-1: the strip's page-context chrome (sticky pin, z-index, own
-  // bottom border, drop shadow, own horizontal padding, own vertical padding) is
-  // page-only. Inside ReviewModalShell's <header> (ReviewModalShell.tsx:432 —
-  // `border-b border-border bg-surface px-tile-pad py-3`) those classes are either
-  // inert (sticky/z inside a non-scrolling header) or actively wrong: a doubled seam
-  // (strip border-b + shadow-tile stacked on the header's own border-b) and doubled
-  // horizontal padding. Failure mode caught: someone renders the strip in a modal
-  // header without the variant, or the variant silently stops dropping a class.
-  describe("chrome variant", () => {
+  // REWRITTEN from the "chrome variant" describe (modal-header-reconciliation
+  // §6.5, Task 2). The `chrome` prop is deleted and both arms collapse to ONE
+  // layout literal — the `subHeader` band (ReviewModalShell.tsx) owns the
+  // surface, the seam and the padding now.
+  //
+  // The "defaults to page chrome" case is RETIRED: the `page` arm ceases to
+  // exist, so it has no subject. Its sibling is NOT retired — the intent (the
+  // strip must not carry container chrome, which would double-seam and
+  // double-pad the band) is the only guard against page chrome being re-added,
+  // and retiring both would remove it silently.
+  describe("container chrome", () => {
     const PAGE_ONLY_CHROME = [
       "sticky",
       "top-0",
@@ -393,24 +514,18 @@ describe("StatusStrip", () => {
       "py-2",
     ];
 
-    it("defaults to page chrome (sticky pin, seam, shadow, own padding) when `chrome` is omitted", () => {
+    it("carries NO container chrome — the band supplies surface, seam and padding", () => {
       renderStrip();
       const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
       for (const token of PAGE_ONLY_CHROME) {
-        expect(classes, `page chrome must keep \`${token}\``).toContain(token);
+        expect(classes, `strip must not carry \`${token}\` (the band owns it)`).not.toContain(
+          token,
+        );
       }
     });
 
-    it('chrome="modal-header" drops every page-context class (no doubled seam or padding)', () => {
-      renderStrip({ chrome: "modal-header" });
-      const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
-      for (const token of PAGE_ONLY_CHROME) {
-        expect(classes, `modal-header chrome must drop \`${token}\``).not.toContain(token);
-      }
-    });
-
-    it('chrome="modal-header" keeps the strip layout (wrapping flex row, gaps, alignment)', () => {
-      renderStrip({ chrome: "modal-header" });
+    it("keeps the strip layout (wrapping flex row, gaps, alignment)", () => {
+      renderStrip();
       const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
       for (const token of [
         "flex",
@@ -420,7 +535,7 @@ describe("StatusStrip", () => {
         "gap-y-2",
         "sm:flex-nowrap",
       ]) {
-        expect(classes, `layout class \`${token}\` must survive the variant`).toContain(token);
+        expect(classes, `layout class \`${token}\` must survive the collapse`).toContain(token);
       }
     });
   });

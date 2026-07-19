@@ -19,14 +19,17 @@
  * harness: tests/e2e/_step3ReviewModalHarness.tsx. Router + share-token context
  * are stubbed so the client tree renders (useShowModalNav → useRouter;
  * useSearchParams resolves null outside Next and the nav helper only builds
- * closures — nothing fires in a static render). The share token is null so the
- * copy-link (and thus resolveOrigin, which reads window) never renders —
- * irrelevant to the §6.6 geometry, and keeps the static render browser-API-free.
+ * closures — nothing fires in a static render). The share token is a FIXTURE
+ * VALUE (not null) so the strip's copy-link renders: T-COPY-FLUSH
+ * (modal-header-reconciliation §8) measures its right edge against the band's
+ * content box, and a null token would make that assertion silently vacuous.
+ * `resolveOrigin` reads only NEXT_PUBLIC_SITE_ORIGIN — no window, no browser
+ * API — so the static render stays server-safe.
  *
  * NEVER imported by the layout spec: Playwright's test transform rewrites JSX in
  * every .tsx it loads into component-testing payloads react-dom/server cannot
  * render, so the spec shells out to `tsx` to run this file's main-guard, which
- * writes { dfid, normal }.
+ * writes { dfid, normal, capped }.
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -45,6 +48,10 @@ import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSec
 export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
+
+/** Share token for the fixture — present so the strip renders its copy-link
+ *  (T-COPY-FLUSH measures that button). Inert: nothing navigates here. */
+const HARNESS_SHARE_TOKEN = "harness-share-token";
 
 /** The modal header's h2 title (the dialog's accessible name). */
 export const MODAL_TITLE = "Published Modal Layout Fixture";
@@ -183,7 +190,32 @@ const NOOP_OK = async () => ({ ok: true as const });
  *  React.createElement — Playwright's JSX transform would corrupt a
  *  spec-imported tree; createElement is untouched, so this stays renderable
  *  even if a future spec imports the module. */
-export function modalElement(): React.ReactElement {
+/** Open-alert count for the normal page. Two → the header pill renders its
+ *  uncapped plural form, which T-TAP probes for its 44px hit band. */
+export const HARNESS_ALERT_COUNT = 2;
+/** Open-alert count for the `capped` page — past §6.6's 99 cap, so the pill
+ *  renders "99+ alerts". Deliberately four digits: an UNCAPPED implementation
+ *  renders "1200 alerts", widening the header's shrink-0 right group and
+ *  squeezing the title at 375px, which is exactly what T-ALERT-CAP measures. */
+export const HARNESS_CAPPED_ALERT_COUNT = 1200;
+
+/** §4.2 state overrides. T-NO-ORANGE enumerates the accent-resolving set for
+ *  THREE states, and the archived row (expected set: EMPTY) is the only one
+ *  that proves the probe is measuring rather than matching a hardcoded
+ *  expectation — so the harness must be able to render it. */
+export type HarnessStateOverrides = {
+  archived?: boolean;
+  isLive?: boolean;
+  published?: boolean;
+};
+
+export function modalElement(
+  alertCount: number = HARNESS_ALERT_COUNT,
+  state: HarnessStateOverrides = {},
+): React.ReactElement {
+  const archived = state.archived ?? false;
+  const published = state.published ?? true;
+  const isLive = state.isLive ?? true;
   const data = buildPublishedSectionData(snapshot(), { slug: MODAL_SLUG });
   const bySection: SectionWarningRecord = {};
   const modal = React.createElement(PublishedReviewModal, {
@@ -193,16 +225,16 @@ export function modalElement(): React.ReactElement {
     slug: MODAL_SLUG,
     showId: SHOW_ID,
     title: MODAL_TITLE,
-    archived: false,
-    published: true,
+    archived,
+    published,
     finalizeOwned: false,
     setPublished: NOOP_OK,
-    isLive: true,
+    isLive,
     lastSyncedAt: "2026-05-02T12:00:00.000Z",
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
-    alertCount: 2,
+    alertCount,
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
     hasActionableWarnings: false,
     archiveAction: NOOP_OK,
@@ -223,16 +255,19 @@ export function modalElement(): React.ReactElement {
     { value: stubRouter },
     // eslint-disable-next-line react/no-children-prop -- ShareTokenProvider types `children` as required; createElement's positional-children overload cannot satisfy a required-children prop, so it is passed in props.
     React.createElement(ShareTokenProvider, {
-      initialToken: null,
-      initialEpoch: 0,
+      initialToken: HARNESS_SHARE_TOKEN,
+      initialEpoch: 1,
       children: modal,
     }),
   );
 }
 
 /** The open modal rendered to static markup (fixed overlay — no page shell). */
-export function renderModalHtml(): string {
-  return renderToStaticMarkup(modalElement());
+export function renderModalHtml(
+  alertCount: number = HARNESS_ALERT_COUNT,
+  state: HarnessStateOverrides = {},
+): string {
+  return renderToStaticMarkup(modalElement(alertCount, state));
 }
 
 /* Direct-execution entry: `tsx` runs THIS file (real JSX transform, `@/` paths)
@@ -248,6 +283,19 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     JSON.stringify({
       dfid: MODAL_DFID,
       normal: renderModalHtml(),
+      // §6.6 cap page — same tree, an over-cap alert count (T-ALERT-CAP).
+      capped: renderModalHtml(HARNESS_CAPPED_ALERT_COUNT),
+      // §4.2 orange-budget pages (T-NO-ORANGE). `normal` already covers the
+      // {publish toggle, live dot} row; these two cover the other two rows.
+      notLive: renderModalHtml(HARNESS_ALERT_COUNT, { isLive: false }),
+      // Archived is the STRONGEST row — expected set is EMPTY (no toggle, no
+      // live dot, no Re-sync trigger), so it is the only state that proves the
+      // probe measures rather than matches a hardcoded expectation.
+      archived: renderModalHtml(HARNESS_ALERT_COUNT, {
+        archived: true,
+        isLive: false,
+        published: false,
+      }),
     }),
   );
 }

@@ -16,18 +16,27 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+/**
+ * Style axis (modal-header-reconciliation §6.4). Replaces the former boolean
+ * `compact`: three styles cannot be spelled by two boolean states, and two
+ * spellings for one axis is the defect being fixed — so the boolean is
+ * REPLACED, not kept as a deprecated alias.
+ *
+ *   - "accent"  — the default fill. `CurrentShareLinkPanel` via ShareLinkBody.
+ *   - "compact" — icon-only, for the per-show `ShareChip` pill.
+ *   - "outline" — neutral bordered, for the published modal's control strip.
+ *
+ * Behavior (clipboard write, 2s reset, sr-only announce) is identical across
+ * all three; only presentation and accessible-name strategy differ.
+ */
+export type ShareLinkCopyButtonVariant = "accent" | "compact" | "outline";
+
 export function ShareLinkCopyButton({
   url,
-  compact = false,
+  variant = "accent",
 }: {
   url: string;
-  /**
-   * #16 compact crew-chip variant: a small icon-only copy button that fits the
-   * pill chip in the per-show header. Default (false) keeps the labelled
-   * "Copy"/"Copied" button used by CurrentShareLinkPanel. Behavior (clipboard
-   * write + sr-only announce) is identical across both variants.
-   */
-  compact?: boolean;
+  variant?: ShareLinkCopyButtonVariant;
 }) {
   const [copied, setCopied] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,48 +61,77 @@ export function ShareLinkCopyButton({
     }
   };
 
+  const checkGlyph = (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+  const copyGlyph = (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+
+  const className: Record<ShareLinkCopyButtonVariant, string> = {
+    compact:
+      "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    accent:
+      "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    // Neutral bordered arm (§6.4). `min-w-[8.5rem]` reserves the WIDER of
+    // "Copy crew link" / "Copied" so the idle→copied swap cannot shift the
+    // button's left edge — it sits at the strip row's `ml-auto` end, where a
+    // width change would visibly jump. Same discipline as the Re-sync trigger.
+    // The border carries NO contrast obligation (§7.1): it measures ~1.6:1 in
+    // both themes and the visible label does the identifying work.
+    outline:
+      "inline-flex min-h-tap-min min-w-[8.5rem] items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-transparent px-3 py-1.5 text-sm font-semibold text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  };
+
   return (
     <>
       <button
         type="button"
         onClick={() => void onClick()}
         data-testid="admin-current-share-link-copy-button"
-        aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
-        className={
-          compact
-            ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-        }
+        // The outline arm has a VISIBLE label, so it must NOT carry an
+        // aria-label — that would override and contradict what the user reads
+        // (§6.4). The copied state still reaches assistive tech through the
+        // sr-only live region below.
+        {...(variant === "outline"
+          ? {}
+          : { "aria-label": copied ? "URL copied to clipboard" : "Copy URL" })}
+        className={className[variant]}
       >
-        {compact ? (
+        {variant === "compact" ? (
           copied ? (
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
+            checkGlyph
           ) : (
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="size-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
+            copyGlyph
           )
+        ) : variant === "outline" ? (
+          <>
+            {copied ? checkGlyph : copyGlyph}
+            {copied ? "Copied" : "Copy crew link"}
+          </>
         ) : copied ? (
           "Copied"
         ) : (

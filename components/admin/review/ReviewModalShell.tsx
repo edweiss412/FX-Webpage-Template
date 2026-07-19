@@ -29,6 +29,7 @@ import {
   useEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -106,6 +107,11 @@ export type ReviewModalShellProps = {
   /** Receives initial focus (useDialogFocus) — the consumer's close button. */
   initialFocusRef: RefObject<HTMLElement | null>;
   header: ReactNode;
+  /** Optional band rendered BETWEEN header and body, with its own bottom seam.
+   *  Omitted → no element at all. Type is deliberately narrower than ReactNode:
+   *  `0` / `""` must be a COMPILE ERROR, not a silently-omitted band.
+   *  `| undefined` is EXPLICIT — this repo sets exactOptionalPropertyTypes (tsconfig.json:9). */
+  subHeader?: ReactElement | false | null | undefined;
   /** Mounts DIRECTLY in the panel flex column — NO body wrapper (spec §5). */
   children: ReactNode;
   /** Omitted → no footer element at all. */
@@ -129,6 +135,7 @@ function OpenReviewModalShell({
   testIdBase,
   initialFocusRef,
   header,
+  subHeader,
   children,
   footer,
   entrance = "animated",
@@ -632,6 +639,35 @@ function OpenReviewModalShell({
           >
             {header}
           </header>
+
+          {/* Optional sub-header band (modal-header-reconciliation §6.1): a
+            separate control strip below the identity header, with its own
+            bottom seam.
+
+            Gated on TRUTHINESS, not `!= null` (the footer wrapper below uses
+            `!= null` — pre-existing, deliberately not copied): a consumer that
+            computes this slot as `archived && <StatusStrip/>` yields `false`,
+            and a `!= null` gate would paint an empty bordered seam.
+
+            NOT a flex container, deliberately: if it were `flex items-center`
+            a plain-`<div>` strip would shrink-wrap as a flex item and the
+            strip's own `ml-auto` would flush to the strip's edge rather than
+            the band's. The band supplies chrome; the strip's root supplies
+            the row.
+
+            `relative` is load-bearing, not decorative: it is the positioned
+            ancestor for the publish toggle's popover and the Re-sync overlay.
+            Omitting it does not fail loudly — `absolute inset-x-0 top-full`
+            would silently resolve against the panel (itself `relative`) and
+            the overlay would land below the entire modal. */}
+          {subHeader ? (
+            <div
+              data-testid={`${testIdBase}-subheader`}
+              className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+            >
+              {subHeader}
+            </div>
+          ) : null}
 
           {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element. */}

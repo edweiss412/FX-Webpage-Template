@@ -72,3 +72,9 @@ supabase/.temp/
 .superpowers/
 .claude/
 .vercel/
+
+# Captured-baseline fixtures are byte-compared against a live render
+# (tests/components/admin/review/reviewModalShell.test.tsx, T-STEP3-INVARIANT).
+# Prettier would re-flow the captured markup and break the comparison; the
+# generator (scripts/captureStep3HeaderBaseline.ts) owns this file’s formatting.
+tests/components/admin/review/__fixtures__/

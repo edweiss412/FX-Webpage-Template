@@ -7,7 +7,7 @@
  * composed inside the extracted `ReviewModalShell` chrome. Pins the §6.1
  * header composition (heading-safe h2 accessible name, title→slug fallback,
  * conditional sheet icon, close-button initial focus, NO h1 in the panel),
- * the §6.1 body composition (StatusStrip renderTitle={false} with the publish
+ * the §6.1 body composition (StatusStrip — titleless — with the publish
  * toggle, ShowReviewSurface layout="modal" + syncHash with Overview-first /
  * Changes-last extras), the §6.2 guards (feed=null infra notice, not-eligible
  * inactive-share notice), the §3 one-shot alert_id scroll effect (li
@@ -44,7 +44,7 @@ import {
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
-import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { dateSummarySegments, step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -276,7 +276,8 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     const panel = document.querySelector("[data-review-modal-panel]")!;
     expect(panel).not.toBeNull();
     expect(panel.querySelector("h1")).toBeNull();
-    // renderTitle={false}: the strip's internal h1 title and its divider are gone.
+    // modal-header-reconciliation §6.5: the strip renders no title node of its
+    // own — the h1 branch and its divider were deleted with the `renderTitle` prop.
     expect(screen.queryByTestId("strip-title")).toBeNull();
     expect(screen.queryByTestId("strip-title-divider")).toBeNull();
   });
@@ -285,6 +286,178 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     renderModal();
     const close = screen.getByTestId(`${TB}-close`);
     await waitFor(() => expect(document.activeElement).toBe(close));
+  });
+});
+
+// ── §6.3 header subline (modal-header-reconciliation Task 4) ─────────────────
+// The header's second line: the client label (omitted when null, WITH its
+// trailing bullet) followed by the humanized date segments — or the
+// "Dates not detected" fallback, which never lets the line disappear entirely.
+// Every expected string is DERIVED from the fixture through the same helper the
+// component uses; a hardcoded date literal could not prove the helper was called.
+
+describe("PublishedReviewModal header subline (modal-header-reconciliation §6.3)", () => {
+  /** Build the published contract off the shared snapshot, then override fields. */
+  const dataWith = (overrides: Partial<PublishedSectionData>): PublishedSectionData => ({
+    ...buildPublishedSectionData(snapshot(), { slug: SLUG }),
+    ...overrides,
+  });
+
+  it("renders client → bullet → the helper-derived date segments", () => {
+    const { props } = renderModal();
+    const subline = screen.getByTestId(`${TB}-subline`);
+    const expectedDates = dateSummarySegments(props.data.dates ?? undefined).join(" · ");
+    // Non-vacuity: the fixture must actually produce segments, or the assertion
+    // below would collapse into the empty-dates case.
+    expect(expectedDates.length).toBeGreaterThan(0);
+    expect(props.data.clientLabel).not.toBeNull();
+    expect(subline).toHaveTextContent(props.data.clientLabel!);
+    expect(subline).toHaveTextContent(expectedDates);
+    // The separator between the two entries is the aria-hidden bullet.
+    expect(subline.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  // T-SUBLINE-CLIENT-NULL — the defect is the ORPHAN SEPARATOR, not just the
+  // missing text: a bullet with nothing before it reads as a rendering bug.
+  it("clientLabel=null omits the client entry AND its bullet (no orphan separator)", () => {
+    renderModal({ data: dataWith({ clientLabel: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline.querySelector('[aria-hidden="true"]')).toBeNull();
+    const expectedDates = dateSummarySegments(
+      buildPublishedSectionData(snapshot(), { slug: SLUG }).dates ?? undefined,
+    ).join(" · ");
+    expect(subline.textContent).toBe(expectedDates);
+  });
+
+  // T-SUBLINE-DATES-EMPTY — the subline NEVER vanishes.
+  it("dates=null still renders the subline, with the 'Dates not detected' fallback", () => {
+    renderModal({ data: dataWith({ dates: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline).toHaveTextContent("Dates not detected");
+  });
+
+  it("clientLabel=null AND dates=null still renders the subline with only the fallback", () => {
+    renderModal({ data: dataWith({ clientLabel: null, dates: null }) });
+    const subline = screen.getByTestId(`${TB}-subline`);
+    expect(subline.textContent).toBe("Dates not detected");
+    expect(subline.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+});
+
+// ── §6.6 header alert pill (modal-header-reconciliation Task 5) ──────────────
+// The alert count MOVES here from the control strip, ATOMICALLY. It stays an
+// `<a href="#overview">` (§F1, Watchpoint 4): the mock draws an inert <span>,
+// but that is a static-canvas artifact — turning the pill into a span would
+// delete the only affordance connecting the header count to the alert list.
+//
+// The count is CAPPED at 99+ because `alertCount` is unbounded and the pill
+// sits in the header's shrink-0 right group beside Close; four digits there
+// squeeze the title at 375px. The UNIT stays visible (a bare "99+" is not
+// self-explanatory) and the exact count is preserved for assistive tech.
+
+describe("PublishedReviewModal header alert pill (modal-header-reconciliation §6.6)", () => {
+  const pill = () => screen.getByTestId(`${TB}-alert-pill`);
+
+  /** Visible text = the subtree with every sr-only node removed. Asserting
+   *  against raw textContent would let the sr-only suffix satisfy a "visible
+   *  text" claim, which is exactly the confusion the cap introduces. */
+  const visibleText = (el: HTMLElement): string => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    return clone.textContent!.replace(/\s+/g, " ").trim();
+  };
+
+  it("T-ALERT-PILL-LINK: renders an <a href='#overview'>, not an inert span", () => {
+    renderModal({ alertCount: 2 });
+    const el = pill();
+    expect(el.tagName).toBe("A");
+    expect(el.getAttribute("href")).toBe("#overview");
+    // The jump target the pill points at is pinned by overviewSection.test.tsx.
+    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(el);
+  });
+
+  it("T-ALERT-PILL-ZERO: alertCount=0 renders NO pill (not an empty one, not '0 alerts')", () => {
+    renderModal({ alertCount: 0 });
+    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
+    expect(screen.queryByText(/0 alerts/)).toBeNull();
+  });
+
+  it("T-ALERT-CAP: 1 → visible '1 alert', accessible name '1 alert' (singular, no suffix)", () => {
+    renderModal({ alertCount: 1 });
+    expect(visibleText(pill())).toBe("1 alert");
+    expect(screen.getByRole("link", { name: /^1 alert$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 2 → visible '2 alerts', accessible name '2 alerts' (below the cap, no suffix)", () => {
+    renderModal({ alertCount: 2 });
+    expect(visibleText(pill())).toBe("2 alerts");
+    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 1200 → visible '99+ alerts', accessible name '99+ alerts (1200 open alerts)'", () => {
+    renderModal({ alertCount: 1200 });
+    // The UNIT stays visible past the cap — a bare "99+" carries no meaning.
+    expect(visibleText(pill())).toBe("99+ alerts");
+    // Anchored: a name of "99+ alerts(1200 open alerts)" (the trimmed-leading-
+    // space bug this repo has hit before) must NOT satisfy this.
+    expect(screen.getByRole("link", { name: /^99\+ alerts \(1200 open alerts\)$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 99 is NOT capped (boundary — the cap fires strictly above 99)", () => {
+    renderModal({ alertCount: 99 });
+    expect(visibleText(pill())).toBe("99 alerts");
+    expect(screen.getByRole("link", { name: /^99 alerts$/ })).toBe(pill());
+  });
+
+  it("T-ALERT-CAP: 100 IS capped (boundary — the first capped value)", () => {
+    renderModal({ alertCount: 100 });
+    expect(visibleText(pill())).toBe("99+ alerts");
+    expect(screen.getByRole("link", { name: /^99\+ alerts \(100 open alerts\)$/ })).toBe(pill());
+  });
+
+  // §7 guard row. Defensive-only — `alertCount` is server-derived at
+  // _showReviewModal.tsx:270 (an array length, so a non-negative integer by
+  // construction) — but §7 promises stated behavior for EVERY input, and an
+  // unguarded render puts a literal "NaN alerts" in the header.
+  it.each([
+    ["negative", -1],
+    ["non-integer", 2.5],
+    ["NaN", Number.NaN],
+  ])("§7 guard: alertCount %s renders no pill (matches the 0 row, not an error state)", (_l, n) => {
+    renderModal({ alertCount: n });
+    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+  });
+
+  // T-ALERT-NOT-IN-STRIP — the relocation is a MOVE. Rendered twice is the
+  // failure mode a "moved but not removed" commit produces, and it is
+  // invisible to any assertion that only checks the pill exists.
+  it("T-ALERT-NOT-IN-STRIP: the count renders ONCE — the strip carries no alert element", () => {
+    renderModal({ alertCount: 2 });
+    expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
+    const strip = screen.getByTestId("show-status-strip");
+    expect(strip.querySelector('a[href="#overview"]')).toBeNull();
+    expect(screen.getAllByRole("link", { name: /alerts?$/ })).toHaveLength(1);
+  });
+
+  // T-DIVIDER-ALERT-ONLY (§7). Asserted HERE, at the modal, because this is the
+  // only surface where `alertCount` is still a real prop — Task 5 deletes it
+  // from StatusStripProps, so the strip's own suite can no longer construct the
+  // alerts-only case and a strip-level version of this test would pass
+  // vacuously (undefined > 0 is false) rather than proving anything.
+  //
+  // Pre-change this renders a control divider followed by NOTHING: `hasSignal`
+  // includes an `alertCount > 0` disjunct, but the element that disjunct was
+  // standing in for has just moved to the header.
+  it("T-DIVIDER-ALERT-ONLY: alerts-only show renders NO strip control divider", () => {
+    renderModal({ alertCount: 2, isLive: false, lastSyncedAt: null, lastCheckedAt: null });
+    // The pill is present, so the show genuinely has alerts — without this the
+    // assertion below could pass for the trivial no-alerts reason.
+    expect(screen.getByTestId(`${TB}-alert-pill`)).toBeTruthy();
+    expect(screen.queryByTestId("strip-control-divider")).toBeNull();
+    // Non-vacuity for the divider itself: nothing follows the toggle in the strip.
+    expect(screen.queryByTestId("strip-live-badge")).toBeNull();
+    expect(screen.queryByTestId("strip-sync-age")).toBeNull();
   });
 });
 
@@ -377,23 +550,52 @@ describe("PublishedReviewModal instant close (client hide before nav commit)", (
 // ── §6.1 body ─────────────────────────────────────────────────────────────────
 
 describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
-  it("StatusStrip renders inside the panel with the publish toggle present", () => {
+  // REWRITTEN, not retired (modal-header-reconciliation §6.1/§6.2, Task 3).
+  // "inside the panel" was satisfiable by the pre-change layout too — the strip
+  // lived in the shell's <header>. The intent (the strip is mounted and carries
+  // the toggle) survives; the location assertion is now specific enough to fail
+  // for the reason this task exists.
+  it("StatusStrip renders in the subHeader BAND — not in the header wrapper — with the toggle present", () => {
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const strip = within(panel).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-publish-toggle")).toBeTruthy();
+
+    const band = screen.getByTestId(`${TB}-subheader`);
+    const header = screen.getByTestId(`${TB}-header`);
+    // BOTH directions. The positive alone passes for a COPY of the strip left
+    // behind in the header; the negative is what proves this was a MOVE.
+    expect(band.contains(strip)).toBe(true);
+    expect(header.contains(strip)).toBe(false);
   });
 
-  it("MODAL-STRIP-CHROME-1: the strip wears modal-header chrome — no second seam, shadow, sticky pin or padding inside the shell header", () => {
-    // The shell's <header> already owns the surface, the bottom border and
-    // px-tile-pad; the page strip's own border-b + shadow-tile would stack a
-    // doubled seam right above it, and px-4/sm:px-6 a doubled inset. Failure
-    // mode: the modal drops the `chrome` prop and silently regains page chrome.
+  // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
+  // bordered seam. `archived` removes the toggle, the copy-link and the live
+  // badge (StatusStrip.tsx), so the band's content is at its thinnest here — if
+  // the archived strip ever rendered nothing, the band would still paint its
+  // border and the panel would grow a hairline for no reason.
+  it("archived: the band still renders non-empty (archived badge), with no toggle, copy-link or live badge", () => {
+    renderModal({ archived: true, published: false, isLive: true });
+    const band = screen.getByTestId(`${TB}-subheader`);
+    const strip = within(band).getByTestId("show-status-strip");
+    expect(within(strip).getByTestId("strip-archived-badge").textContent).toMatch(/read-only/i);
+    expect(band.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+    expect(within(band).queryByTestId("strip-publish-toggle")).toBeNull();
+    expect(within(band).queryByTestId("strip-copy-link")).toBeNull();
+    expect(within(band).queryByTestId("strip-live-badge")).toBeNull();
+  });
+
+  it("the strip carries no container chrome — no second seam, shadow, sticky pin or padding inside the band", () => {
+    // The subHeader band already owns the surface, the bottom border and
+    // px-tile-pad (ReviewModalShell.tsx); a strip-level border-b + shadow-tile
+    // would stack a doubled seam right above it, and px-4/sm:px-6 a doubled
+    // inset. Failure mode: page chrome is re-added to the strip's single
+    // layout literal (modal-header-reconciliation §6.5).
     renderModal();
     const panel = document.querySelector("[data-review-modal-panel]")! as HTMLElement;
     const classes = within(panel).getByTestId("show-status-strip").className.split(/\s+/);
     for (const token of ["sticky", "top-0", "z-30", "border-b", "shadow-tile", "px-4", "sm:px-6"]) {
-      expect(classes, `strip in the modal header must not carry \`${token}\``).not.toContain(token);
+      expect(classes, `strip in the band must not carry \`${token}\``).not.toContain(token);
     }
   });
 

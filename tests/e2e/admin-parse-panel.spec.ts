@@ -45,7 +45,7 @@ const LOADED_REVIEW_MODAL =
  * `pnpm db:seed` generates opaque `drive-<uuid>` / `slug-<hex>` ids with no
  * stable constant to hardcode, so query for a suitable row instead. A
  * PUBLISHED + NON-ARCHIVED show is what makes the Overview section render the
- * Re-sync button (OverviewSection.tsx:126-137); the seed's synthetic
+ * Re-sync button (the control strip — modal-header-reconciliation §4.3); the seed's synthetic
  * drive_file_id is not a real Drive file, so the Re-sync round-trip fails and
  * surfaces `admin-resync-error` — exactly the path this test asserts. Ordered
  * by created_at for a deterministic pick across runs.
@@ -263,14 +263,36 @@ test.describe("admin staged-review card — /admin/show/staged/[stagedId] (first
     // ErrorExplainer; we do NOT assert a specific status (failure mode depends on
     // the env's Drive wiring).
     //
-    // Rebuild note: the old `#resync` footer anchor is gone. The Re-sync button now
-    // lives in the Overview section's `overview-sheet-sync` block (OverviewSection.tsx:
-    // 126-137) — either standalone or wrapped in a CorrectionLoopCallout when the show
-    // has actionable warnings, but exactly one <ReSyncButton> renders there. Scope to
-    // that container so the click is unambiguous under Playwright strict mode.
-    const sheetSync = modal.getByTestId("overview-sheet-sync");
-    await expect(sheetSync).toBeVisible();
-    await sheetSync.getByTestId("admin-resync-button").click();
+    // Rebuild note: the old `#resync` footer anchor is gone, and
+    // modal-header-reconciliation §4.3 then moved the button OUT of Overview's
+    // `overview-sheet-sync` block into the modal's control strip — so this is
+    // rescoped to the subheader band, NOT retired. The round-trip-and-render-
+    // catalog-copy intent is unchanged, including the deliberate non-assertion
+    // of a specific status code above. Exactly one <ReSyncButton> renders, in
+    // the band; scoping there keeps the click unambiguous under strict mode.
+    const strip = modal.getByTestId("published-show-review-subheader");
+    // Same generous budget as the modal wait above: the band arrives with the
+    // Suspense-streamed loaded frame, and under a loaded parallel run the
+    // default 5s expect timeout can land inside that swap.
+    await expect(strip).toBeVisible({ timeout: 30_000 });
+
+    // Do NOT click the instant the band is visible. The Suspense swap makes the
+    // loaded frame VISIBLE before its passive effects have flushed, and a
+    // synthetic click in that gap is silently dropped (a real user cannot beat
+    // the window; Playwright can). Initial focus landing on the close button
+    // proves the flush completed — the same gate published-review-modal.
+    // interactions.spec.ts uses before every synthetic gesture. Without it this
+    // test is flaky on WebKit specifically, where the gap is widest.
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "loaded modal's effect flush completed", timeout: 30_000 },
+      )
+      .toBe("published-show-review-close");
+
+    await strip.getByTestId("admin-resync-button").click();
+    // The error panel is the band-anchored overlay (§6.7) — still scoped to the
+    // modal, since the overlay renders inside the band, not portalled elsewhere.
     await expect(modal.getByTestId("admin-resync-error")).toBeVisible({ timeout: 15_000 });
 
     expect(responses.length).toBeGreaterThan(0);
