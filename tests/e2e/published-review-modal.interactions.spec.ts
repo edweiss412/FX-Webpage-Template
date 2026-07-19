@@ -323,6 +323,17 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
 
     await page.locator(CLOSE).click();
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
+    // Audit P2 (WCAG 2.4.3): the optimistic path stacks a THIRD transient
+    // shell mount (client skeleton → server skeleton → loaded modal), each
+    // owning an inert save/restore pair — after close, focus must still land
+    // back on the row trigger, not <body> (real-browser-only; jsdom doesn't
+    // enforce inert).
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "focus restored to the dashboard row after the optimistic-path close" },
+      )
+      .toBe(`shows-table-row-${show.slug}`);
     await expect
       .poll(() => new URL(page.url()).searchParams.has("show"), {
         message: "close strips the show param",
