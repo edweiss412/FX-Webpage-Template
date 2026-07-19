@@ -173,19 +173,33 @@ export function HoverHelp({
           <span aria-hidden="true">?</span>
         </button>
       )}
-      {/* Body stays in the DOM (so aria-describedby always resolves); visually
-          hidden until open. Hoverable while open (pointer-events-auto + shares the
-          open/close timer) so the pointer can move onto it — 1.4.13 Hoverable. */}
+      {/* Body stays in the DOM (so aria-describedby always resolves); hidden
+          until open. Hoverable while open (pointer-events-auto + shares the
+          open/close timer) so the pointer can move onto it — 1.4.13 Hoverable.
+
+          CLOSED = `hidden` (display:none), NOT `invisible`
+          (BELL-HELP-POPOVER-OVERFLOW-1). visibility:hidden still generates a
+          layout box, so every closed 288px popover contributed its full width to
+          the document's scrollWidth — /admin rendered 104-143px past the viewport
+          at 390px/1280px with nothing hovered. display:none generates no box.
+          The M12.5 SR contract is unchanged: the node is still in the DOM, and a
+          hidden node reached THROUGH an aria-describedby reference is included in
+          the description per the accname spec (display:none included) — the same
+          rule that already made the visibility:hidden version work.
+          The fade survives via `transition-discrete` + `starting:opacity-0`
+          (Tailwind v4 / CSS `transition-behavior: allow-discrete` +
+          `@starting-style`); where unsupported the popover simply appears
+          instantly, which is the correct degradation for a help tooltip. */}
       <div
         id={bodyId}
         role={learnMore ? undefined : "tooltip"}
         data-testid={`${testId}-body`}
         onPointerEnter={openNow}
         onPointerLeave={scheduleClose}
-        className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+        className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
           placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
         } ${
-          open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
+          open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >
         <div id={descId}>{children}</div>

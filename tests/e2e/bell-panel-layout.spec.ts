@@ -143,6 +143,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 import { seedShowWithCrew, deleteSeededShow } from "./helpers/seedShowWithCrew";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 const TOL = 0.5;
@@ -322,6 +323,21 @@ async function gotoAdmin(page: Page): Promise<void> {
 }
 
 test.describe("bell panel layout dimensions + transition audit (real browser, §13/§14)", () => {
+  let restoreDashboardState: (() => Promise<void>) | null = null;
+
+  // The nav bell mounts only on the SETTLED dashboard branch: with
+  // app_settings.watched_folder_id NULL, /admin renders the slim
+  // OnboardingTopBar, which omits <NotifBell> (app/admin/layout.tsx) — every
+  // test here then fails with an opaque "bell not visible". Pin the state for
+  // the run instead of inheriting whatever the shared local DB was left in.
+  test.beforeAll(async () => {
+    restoreDashboardState = await settleDashboardAdminState();
+  });
+
+  test.afterAll(async () => {
+    await restoreDashboardState?.();
+  });
+
   test.beforeEach(async ({ page }) => {
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
@@ -633,7 +649,12 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
           return r.right - Number.parseFloat(getComputedStyle(el).paddingRight);
         });
 
-      // ── chevron-PRESENT row (DI-1 flush, DI-2, DI-3, DI-4) ──
+      // ── chevron-PRESENT row ──
+      // Geometry changed with the 28px gutter: the chevron is no longer a child
+      // of the header line, it is the row's full-height right gutter. So DI-1 is
+      // no longer "meta one gap left of the chevron" — it is the stronger claim
+      // the gutter exists to make: the header's timestamp and the action row's
+      // Dismiss, which live in DIFFERENT blocks, end on ONE right edge.
       const caret = page.getByTestId(`bell-caret-${showAlertId}`);
       await expect(caret).toBeVisible();
       const headerContentRight = await contentRightOf(
@@ -641,24 +662,62 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       );
       const metaR = await rectOf(page.getByTestId(`bell-meta-${showAlertId}`));
       const caretR = await rectOf(caret);
+      // Row CONTENT height (border box − vertical padding): the gutter stretches
+      // to the content box, so comparing against the border box would be off by
+      // the row's py-3.5 (28px) and prove nothing about stretch.
+      const rowContentHeight = await page
+        .getByTestId(`bell-entry-${showAlertId}`)
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return (
+            el.getBoundingClientRect().height -
+            Number.parseFloat(cs.paddingTop) -
+            Number.parseFloat(cs.paddingBottom)
+          );
+        });
       const timeR = await rectOf(page.getByTestId(`bell-time-${showAlertId}`));
       const toggleR = await rectOf(page.getByTestId(`bell-entry-toggle-${showAlertId}`));
+      const actionR = await rectOf(page.getByTestId(`bell-action-cell-${showAlertId}`));
 
-      // DI-1 (actual flush): the meta group sits ONE header flex gap (gap-2 = 8px)
-      // left of the chevron — flush, not stopped short in the title column.
+      // DI-1: ONE right edge for the header meta and the action row below it.
       expect(
-        caretR.left - metaR.right,
-        "DI-1 present: meta one flex gap (8px ±1) left of the chevron",
-      ).toBeGreaterThan(8 - 1);
-      expect(
-        caretR.left - metaR.right,
-        "DI-1 present: meta one flex gap (8px ±1) left of the chevron",
-      ).toBeLessThan(8 + 1);
-      // DI-2: chevron flush to the row content right edge.
-      expect(
-        Math.abs(caretR.right - headerContentRight),
-        "DI-2: chevron flush to row content right edge",
+        Math.abs(metaR.right - actionR.right),
+        "DI-1: header timestamp and the action row share one right edge",
       ).toBeLessThanOrEqual(TOL);
+      // …and that shared edge is the body's edge, i.e. left of the gutter.
+      expect(
+        Math.abs(metaR.right - headerContentRight),
+        "DI-1: the shared edge IS the header content edge",
+      ).toBeLessThanOrEqual(TOL);
+
+      // DI-2: the gutter is 28px VISIBLE and spans the row's full height, and its
+      // real tap target is ≥44px wide via the transparent before:-inset-x-2 bleed.
+      // Width is asserted from the element; the bleed is asserted BEHAVIORALLY by
+      // hit-testing 6px outside the visible box — a width-only assert would pass
+      // on a 28px box with no overlay at all.
+      expect(caretR.width, "DI-2: chevron gutter is 28px wide").toBeGreaterThan(28 - 1);
+      expect(caretR.width, "DI-2: chevron gutter is 28px wide").toBeLessThan(28 + 1);
+      expect(
+        Math.abs(caretR.height - rowContentHeight),
+        "DI-2: gutter spans the row's full content height (self-stretch)",
+      ).toBeLessThanOrEqual(TOL);
+      expect(caretR.height, "DI-2: gutter height clears the 44px floor").toBeGreaterThanOrEqual(
+        44 - TOL,
+      );
+      for (const [label, x] of [
+        ["left of the visible box", caretR.left - 6],
+        ["right of the visible box", caretR.right + 6],
+      ] as const) {
+        const hitsCaret = await page.evaluate(
+          ([px, py, id]) => {
+            const el = document.elementFromPoint(px as number, py as number);
+            return el?.closest(`[data-testid="${id}"]`) !== null;
+          },
+          [x, caretR.top + caretR.height / 2, `bell-caret-${showAlertId}`] as const,
+        );
+        expect(hitsCaret, `DI-2: tap area extends 6px ${label} (44px floor via bleed)`).toBe(true);
+      }
+
       // DI-3: title button keeps a ≥44px tap target and does not overflow the header.
       expect(toggleR.height, "DI-3: toggle height ≥ 44px").toBeGreaterThanOrEqual(44 - TOL);
       expect(
@@ -671,34 +730,37 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         "DI-4: timestamp right edge ≥ title button right edge",
       ).toBeGreaterThanOrEqual(toggleR.right - TOL);
 
-      // ── chevron-ABSENT row (DI-1 absent: reserved chevron slot) ──
-      // A chevron-less row reserves the chevron's box (`bell-caret-slot`), so its
-      // meta group lands on the SAME right edge as a chevron-present row's. Without
-      // the reservation the two timestamps sit ~52px apart (chevron width + gap) and
-      // the panel reads as two ragged columns.
+      // ── chevron-ABSENT row (reserved 28px gutter) ──
+      // A chevron-less row reserves the same 28px so the shared right edge holds
+      // across rows. Without it the timestamps sit a gutter-width apart and the
+      // panel reads as two ragged columns.
       expect(
         await page.getByTestId(`bell-caret-${globalId}`).count(),
         "global row (slug null) has no chevron",
       ).toBe(0);
       const gSlotR = await rectOf(page.getByTestId(`bell-caret-slot-${globalId}`));
-      const gContentRight = await contentRightOf(page.getByTestId(`bell-header-${globalId}`));
       const gMetaR = await rectOf(page.getByTestId(`bell-meta-${globalId}`));
       const gToggleR = await rectOf(page.getByTestId(`bell-entry-toggle-${globalId}`));
       const gTimeR = await rectOf(page.getByTestId(`bell-time-${globalId}`));
-      // The reserved slot occupies the chevron's box, flush to the content edge.
-      expect(
-        Math.abs(gSlotR.right - gContentRight),
-        "DI-1 absent: reserved slot flush to the row content right edge",
-      ).toBeLessThanOrEqual(TOL);
+      const gActionR = await rectOf(page.getByTestId(`bell-action-cell-${globalId}`));
       expect(
         Math.abs(gSlotR.width - caretR.width),
-        "DI-1 absent: reserved slot matches the chevron's width",
+        "absent: reserved gutter matches the chevron's width",
       ).toBeLessThanOrEqual(TOL);
-      // Column alignment: both rows' meta groups (and timestamps) share one right
-      // edge regardless of chevron presence.
+      // No height assertion on the ACTIVE row's reserved gutter: it is an empty
+      // span in a stretch row, so it fills the line without being able to GROW
+      // it (row height is driven by the body). The height claim that matters is
+      // on the history band, where the row is items-center and a squared
+      // reservation WOULD floor a short row — asserted in the alignment test.
+      expect(
+        Math.abs(gMetaR.right - gActionR.right),
+        "absent: header timestamp and action row share one right edge",
+      ).toBeLessThanOrEqual(TOL);
+      // Column alignment ACROSS rows: both rows' meta groups share one right edge
+      // regardless of chevron presence.
       expect(
         Math.abs(gMetaR.right - metaR.right),
-        "DI-1 absent: meta right edge aligns with the chevron-present row's",
+        "absent: meta right edge aligns with the chevron-present row's",
       ).toBeLessThanOrEqual(TOL);
       expect(
         gTimeR.right,
@@ -780,31 +842,26 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         const historySlot = await rectOf(page.getByTestId(`bell-caret-slot-${resolvedId}`));
         expect(
           historySlot.width,
-          `history slot reserves the chevron's full width @ ${width}px`,
-        ).toBeGreaterThanOrEqual(44 - TOL);
+          `history gutter reserves the chevron's 28px @ ${width}px`,
+        ).toBeGreaterThan(28 - 1);
         expect(
           historySlot.height,
-          `history slot imposes no height floor (w-tap-min, not size-tap-min) @ ${width}px`,
+          `history gutter imposes no height floor (width-only reservation) @ ${width}px`,
         ).toBeLessThan(44);
-        // The active row's slot IS square by design — its header already floors
-        // at 44px via the toggle's min-h-tap-min, so the box costs nothing there.
-        const activeSlot = await rectOf(page.getByTestId(`bell-caret-slot-${globalId}`));
-        expect(
-          activeSlot.height,
-          `active slot keeps the full 44px tap box @ ${width}px`,
-        ).toBeGreaterThanOrEqual(44 - TOL);
 
-        // The reservation must not cost horizontal room: still no PANEL overflow.
-        // Deliberately panel-scoped, not document-scoped: the /admin dashboard
-        // ships a pre-existing document overflow of 104-143px from its `absolute
-        // w-72` help popovers (`shows-help-body`, `recent-auto-applied-help-body`
-        // et al) rendering past the viewport's right edge. No bell element is in
-        // the offender list, so a document-level assert here would fail for a
-        // reason this surface does not own. Tracked as BELL-HELP-POPOVER-OVERFLOW-1
-        // in DEFERRED.md; the older DI-1..DI-4 test above still carries the
-        // document-level assert and fails on it at merge-base for the same reason.
+        // The reservation must not cost horizontal room — panel AND document.
+        // The document-level assert was narrowed to panel-scope in #484 because
+        // /admin shipped a 104-143px overflow from its closed `absolute w-72`
+        // HoverHelp popovers (visibility:hidden still generates a layout box).
+        // That is fixed at the source (HoverHelp closed state is display:none),
+        // so the document-level assert is restored here — it is the regression
+        // guard for BELL-HELP-POPOVER-OVERFLOW-1, not just a bell check.
         const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(overflow, `panel no horizontal overflow @ ${width}px`).toBeLessThanOrEqual(TOL);
+        expect(
+          await horizontalOverflow(page),
+          `no document horizontal overflow @ ${width}px`,
+        ).toBeLessThanOrEqual(TOL);
       } finally {
         if (seededDrive) await deleteSeededShow(seededDrive);
       }

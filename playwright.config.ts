@@ -378,7 +378,13 @@ export default defineConfig({
     // project, crew-section-toggle.spec). Without this the :3001-:3004 servers
     // also cold-build (4 wasted builds contending on the with-admin-dev-flag
     // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
-    if (process.env.CREW_E2E_ONLY) return server.url === "http://127.0.0.1:3000";
+    // CREW_E2E_ONLY is the original (crew-e2e.yml) name; BASELINE_SERVER_ONLY is
+    // the same filter under a job-agnostic name, used by bell-panel-e2e.yml —
+    // any job that needs ONLY the :3000 app server and none of the
+    // :3001-:3004 build-gate servers.
+    if (process.env.CREW_E2E_ONLY || process.env.BASELINE_SERVER_ONLY) {
+      return server.url === "http://127.0.0.1:3000";
+    }
     // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
     // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline
     // :3000 and screenshots/help :3004 servers ALSO run `pnpm build`, and every
