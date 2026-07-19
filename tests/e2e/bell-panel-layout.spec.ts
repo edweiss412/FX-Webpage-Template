@@ -210,6 +210,44 @@ async function horizontalOverflow(page: Page): Promise<number> {
 }
 
 /**
+ * Names the elements whose right edge crosses the viewport, widest first.
+ *
+ * A bare "document horizontal overflow: 8" tells you a page is 8px too wide and
+ * nothing about WHICH element did it — and this class is environment-sensitive
+ * (a CI runner's font metrics render nav labels wider than a dev Mac's), so the
+ * failing run is often the only place the evidence exists. Fold this into the
+ * assertion message so a red CI job is self-diagnosing instead of the start of a
+ * reproduction hunt.
+ */
+async function overflowReport(page: Page): Promise<string> {
+  const px = await horizontalOverflow(page);
+  if (px <= TOL) return `${px}px`;
+  const offenders = await page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const rows: { tag: string; testid: string; cls: string; right: number; width: number }[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.right > vw + 0.5) {
+        rows.push({
+          tag: el.tagName.toLowerCase(),
+          testid: el.dataset.testid ?? "",
+          cls: (typeof el.className === "string" ? el.className : "").slice(0, 80),
+          right: Math.round(r.right * 10) / 10,
+          width: Math.round(r.width * 10) / 10,
+        });
+      }
+    }
+    // Widest overhang first; the deepest children repeat their parent's overhang,
+    // so the head of this list is the structural cause.
+    return rows.sort((a, b) => b.right - a.right).slice(0, 5);
+  });
+  const lines = offenders.map(
+    (o) => `    ${o.tag}${o.testid ? `[${o.testid}]` : ""} right=${o.right} w=${o.width} .${o.cls}`,
+  );
+  return `${px}px over; widest offenders:\n${lines.join("\n")}`;
+}
+
+/**
  * Deterministic bell baseline for the fixture admin: no alerts, no read marks,
  * no watermark. With `admin_bell_state.opened_at` absent, every active alert is
  * unseen (badge counts it); with `admin_alert_reads` absent, every active row is
@@ -472,7 +510,7 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       expect(r.left, `left edge ≥ 0 @ ${width}px`).toBeGreaterThanOrEqual(-TOL);
       expect(
         await horizontalOverflow(page),
-        `document horizontal overflow @ ${width}px`,
+        `document horizontal overflow @ ${width}px — ${await overflowReport(page)}`,
       ).toBeLessThanOrEqual(TOL);
 
       if (sheetMode) {
@@ -605,9 +643,10 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     expect(Math.abs(sev.height - 18), "severity glyph height 18px").toBeLessThanOrEqual(TOL);
 
     // No horizontal overflow with the tier headers present.
-    expect(await horizontalOverflow(page), "no document horizontal overflow").toBeLessThanOrEqual(
-      TOL,
-    );
+    expect(
+      await horizontalOverflow(page),
+      `no document horizontal overflow — ${await overflowReport(page)}`,
+    ).toBeLessThanOrEqual(TOL);
 
     // §3 transition audit: the static tier headers run NO animation/transition.
     for (const header of [critHeader, noticeHeader]) {
@@ -768,9 +807,10 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       ).toBeGreaterThanOrEqual(gToggleR.right - TOL);
 
       // No document horizontal overflow with both rows present.
-      expect(await horizontalOverflow(page), "no document horizontal overflow").toBeLessThanOrEqual(
-        TOL,
-      );
+      expect(
+        await horizontalOverflow(page),
+        `no document horizontal overflow — ${await overflowReport(page)}`,
+      ).toBeLessThanOrEqual(TOL);
     } finally {
       if (seededDrive) await deleteSeededShow(seededDrive);
     }
@@ -860,7 +900,7 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
         expect(overflow, `panel no horizontal overflow @ ${width}px`).toBeLessThanOrEqual(TOL);
         expect(
           await horizontalOverflow(page),
-          `no document horizontal overflow @ ${width}px`,
+          `no document horizontal overflow @ ${width}px — ${await overflowReport(page)}`,
         ).toBeLessThanOrEqual(TOL);
       } finally {
         if (seededDrive) await deleteSeededShow(seededDrive);
