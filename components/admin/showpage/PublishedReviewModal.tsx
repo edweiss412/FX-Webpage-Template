@@ -8,10 +8,10 @@
  * heading-safe `<h2>` title (the dialog's aria-labelledby target — ONLY the
  * title text; the sheet deep link is a separate adjacent 44px icon anchor, the
  * Step3ReviewModal pattern) plus the close button and, below the title row,
- * `<StatusStrip renderTitle={false} chrome="modal-header">` (its internal
- * `<h1>` + divider are suppressed so the panel contains exactly one title node
- * and no h1; its page chrome is dropped so the shell header's own surface,
- * seam and `px-tile-pad` are not doubled). Body =
+ * `<StatusStrip>` — which renders no title of its own and no container chrome
+ * at all (modal-header-reconciliation §6.5), so the panel contains exactly one
+ * title node and no h1, and the shell's own surface, seam and `px-tile-pad`
+ * are never doubled. Body =
  * `<ShowReviewSurface layout="modal" syncHash>` with the EXACT extras
  * composition `PublishedReviewPage` builds today (Overview first, Changes
  * last, per-section warning controls, raw-unrecognized bottom slot). NO
@@ -284,14 +284,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               <X aria-hidden="true" className="size-5" />
             </button>
           </div>
-          {/* Below the title row: the strip minus its h1 title/divider
-              (renderTitle={false}) and minus its page chrome
-              (chrome="modal-header" — the shell header owns the surface, seam
-              and px-tile-pad; MODAL-STRIP-CHROME-1) — publish toggle, live
-              badge, sync age, alert badge, copy-link unchanged. */}
+          {/* Below the title row: the strip — publish toggle, live badge, sync
+              age, alert badge, copy-link. It renders no title and no container
+              chrome of its own (modal-header-reconciliation §6.5): this header
+              supplies the surface, the seam and px-tile-pad. */}
           <StatusStrip
             slug={slug}
-            title={title}
             archived={archived}
             published={published}
             finalizeOwned={finalizeOwned}
@@ -302,8 +300,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             lastSyncStatus={lastSyncStatus}
             now={now}
             alertCount={alertCount}
-            renderTitle={false}
-            chrome="modal-header"
           />
         </div>
       }

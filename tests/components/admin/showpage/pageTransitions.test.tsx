@@ -121,7 +121,10 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // (`openSheetHref !== null` — §6.2 guard, instant omit/mount); the Overview
   // railBadge stays an object-spread conditional (asserted separately).
   "components/admin/showpage/PublishedReviewModal.tsx": 1,
-  "components/admin/showpage/StatusStrip.tsx": 8, // renderTitle(+divider) / archived / control-divider / live / sync / edited / alert / copy-link
+  // modal-header-reconciliation §6.5 (Task 2): 8 → 7. The `renderTitle` head site
+  // (which covered the h1 AND its adjacent title divider) is deleted with the prop.
+  // Verified by RUNNING the scanner, not by reasoning.
+  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / alert / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
@@ -341,7 +344,6 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
     slug: "east-coast-summit",
-    title: "East Coast Broadcast Summit",
     archived: false,
     published: true,
     finalizeOwned: false,

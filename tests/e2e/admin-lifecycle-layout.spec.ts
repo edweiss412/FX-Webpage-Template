@@ -258,7 +258,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // dropped AdminPageHeader, and the admin-show-modal pivot then replaced the
     // page itself with the dashboard review modal — whose header <h2> title is
     // min-w-0 wrap-break-word beside a shrink-0 close cluster (the Step3
-    // pattern), with the StatusStrip's own <h1> suppressed (renderTitle=false).
+    // pattern); the StatusStrip renders no <h1> of its own (modal-header-reconciliation §6.5).
     // The modal's panel-column geometry is pinned end-to-end in
     // tests/e2e/published-review-modal.layout.spec.ts (§6.6, standalone —
     // no dev server).

@@ -48,7 +48,6 @@ const CHECKED_2M = "2026-07-16T11:58:00.000Z";
 function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
     slug: "east-coast-summit",
-    title: "East Coast Broadcast Summit",
     archived: false,
     published: true,
     finalizeOwned: false,
@@ -75,24 +74,19 @@ function renderStrip(
 }
 
 describe("StatusStrip", () => {
-  it("renders the strip container and the show title", () => {
+  // RETIRED (modal-header-reconciliation §6.5, Task 2): "renders the show title",
+  // "renders the show title as the page's h1", and "falls back to the slug when
+  // title is null". Their subject — the strip's internal `<h1 data-testid=
+  // "strip-title">{title ?? slug}</h1>` and the `title` prop feeding it — is
+  // deleted. The strip's only production render site is the published modal,
+  // whose `<h2>` header owns the title; the `<h1>` branch was dead there and had
+  // no other consumer. The replacement guard (the strip renders NO h1 and no
+  // title text) lives in the "no internal title" describe below — retiring
+  // without it would silently drop the single-title-node contract.
+
+  it("renders the strip container", () => {
     renderStrip();
     expect(screen.getByTestId("show-status-strip")).toBeTruthy();
-    expect(screen.getByTestId("strip-title").textContent).toBe("East Coast Broadcast Summit");
-  });
-
-  it("renders the show title as the page's h1 (the consolidated page's top-level heading)", () => {
-    // The rebuild dropped AdminPageHeader; the sticky strip title IS the page heading, so it
-    // must be an <h1> — a page with no h1 loses its top-level landmark for screen readers.
-    renderStrip();
-    const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading.textContent).toBe("East Coast Broadcast Summit");
-    expect(heading.getAttribute("data-testid")).toBe("strip-title");
-  });
-
-  it("falls back to the slug when title is null", () => {
-    renderStrip({ title: null });
-    expect(screen.getByTestId("strip-title").textContent).toBe("east-coast-summit");
   });
 
   it("shows the live-now badge when the show is live", () => {
@@ -174,27 +168,26 @@ describe("StatusStrip", () => {
     });
   });
 
-  describe("renderTitle (admin-show-modal spec §6.1 — modal header suppression)", () => {
-    it("default (prop omitted): renders the h1 title and its adjacent divider exactly as today", () => {
+  // REWRITTEN from the "renderTitle" describe (modal-header-reconciliation §6.5,
+  // Task 2). The prop is gone, so the suppression is no longer conditional — it
+  // is the strip's only behavior. The INTENT (the strip contributes no title
+  // node, so the dialog has exactly one title and no `<h1>`) is what survives,
+  // and these are now unconditional guards against the `<h1>` branch coming back.
+  describe("no internal title (modal-header-reconciliation §6.5)", () => {
+    it("never renders an h1, a strip-title node, or the title text", () => {
       renderStrip();
-      const heading = screen.getByRole("heading", { level: 1 });
-      expect(heading.getAttribute("data-testid")).toBe("strip-title");
-      expect(screen.getByTestId("strip-title-divider")).toBeTruthy();
-    });
-
-    it("renderTitle={false}: no h1, no title text node, no leading divider", () => {
-      renderStrip({ renderTitle: false });
       expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
       expect(screen.queryByTestId("strip-title")).toBeNull();
-      // The title TEXT must not sneak in via another node (the modal's h2 owns it).
+      // The title TEXT must not sneak in via another node (the modal's h2 owns
+      // it). Scoped to the strip so a sibling cannot satisfy it.
       const strip = screen.getByTestId("show-status-strip");
       expect(within(strip).queryByText("East Coast Broadcast Summit")).toBeNull();
       // No orphan leading separator — the strip starts at the publish toggle.
       expect(screen.queryByTestId("strip-title-divider")).toBeNull();
     });
 
-    it("renderTitle={false}: PublishedToggle, live badge, and copy-link are untouched", () => {
-      renderStrip({ renderTitle: false, isLive: true, published: true }, { token: "TOK" });
+    it("PublishedToggle, live badge, and copy-link are untouched by the title removal", () => {
+      renderStrip({ isLive: true, published: true }, { token: "TOK" });
       const wrapper = screen.getByTestId("strip-publish-toggle");
       expect(within(wrapper).getByTestId("published-toggle").getAttribute("aria-checked")).toBe(
         "true",
@@ -203,16 +196,10 @@ describe("StatusStrip", () => {
       expect(screen.getByTestId("strip-copy-link")).toBeTruthy();
     });
 
-    it("renderTitle={false} + archived: badge renders, still no h1 and no divider", () => {
-      renderStrip({ renderTitle: false, archived: true, published: false });
+    it("archived: the badge renders, still no h1 and no divider", () => {
+      renderStrip({ archived: true, published: false });
       expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
       expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
-      expect(screen.queryByTestId("strip-title-divider")).toBeNull();
-    });
-
-    it("archived with the title rendered: no title divider (badge follows the h1 directly)", () => {
-      renderStrip({ archived: true, published: false });
-      expect(screen.getByTestId("strip-title")).toBeTruthy();
       expect(screen.queryByTestId("strip-title-divider")).toBeNull();
     });
   });
@@ -371,15 +358,17 @@ describe("StatusStrip", () => {
     });
   });
 
-  // MODAL-STRIP-CHROME-1: the strip's page-context chrome (sticky pin, z-index, own
-  // bottom border, drop shadow, own horizontal padding, own vertical padding) is
-  // page-only. Inside ReviewModalShell's <header> (ReviewModalShell.tsx:432 —
-  // `border-b border-border bg-surface px-tile-pad py-3`) those classes are either
-  // inert (sticky/z inside a non-scrolling header) or actively wrong: a doubled seam
-  // (strip border-b + shadow-tile stacked on the header's own border-b) and doubled
-  // horizontal padding. Failure mode caught: someone renders the strip in a modal
-  // header without the variant, or the variant silently stops dropping a class.
-  describe("chrome variant", () => {
+  // REWRITTEN from the "chrome variant" describe (modal-header-reconciliation
+  // §6.5, Task 2). The `chrome` prop is deleted and both arms collapse to ONE
+  // layout literal — the `subHeader` band (ReviewModalShell.tsx) owns the
+  // surface, the seam and the padding now.
+  //
+  // The "defaults to page chrome" case is RETIRED: the `page` arm ceases to
+  // exist, so it has no subject. Its sibling is NOT retired — the intent (the
+  // strip must not carry container chrome, which would double-seam and
+  // double-pad the band) is the only guard against page chrome being re-added,
+  // and retiring both would remove it silently.
+  describe("container chrome", () => {
     const PAGE_ONLY_CHROME = [
       "sticky",
       "top-0",
@@ -393,24 +382,18 @@ describe("StatusStrip", () => {
       "py-2",
     ];
 
-    it("defaults to page chrome (sticky pin, seam, shadow, own padding) when `chrome` is omitted", () => {
+    it("carries NO container chrome — the band supplies surface, seam and padding", () => {
       renderStrip();
       const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
       for (const token of PAGE_ONLY_CHROME) {
-        expect(classes, `page chrome must keep \`${token}\``).toContain(token);
+        expect(classes, `strip must not carry \`${token}\` (the band owns it)`).not.toContain(
+          token,
+        );
       }
     });
 
-    it('chrome="modal-header" drops every page-context class (no doubled seam or padding)', () => {
-      renderStrip({ chrome: "modal-header" });
-      const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
-      for (const token of PAGE_ONLY_CHROME) {
-        expect(classes, `modal-header chrome must drop \`${token}\``).not.toContain(token);
-      }
-    });
-
-    it('chrome="modal-header" keeps the strip layout (wrapping flex row, gaps, alignment)', () => {
-      renderStrip({ chrome: "modal-header" });
+    it("keeps the strip layout (wrapping flex row, gaps, alignment)", () => {
+      renderStrip();
       const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
       for (const token of [
         "flex",
@@ -420,7 +403,7 @@ describe("StatusStrip", () => {
         "gap-y-2",
         "sm:flex-nowrap",
       ]) {
-        expect(classes, `layout class \`${token}\` must survive the variant`).toContain(token);
+        expect(classes, `layout class \`${token}\` must survive the collapse`).toContain(token);
       }
     });
   });

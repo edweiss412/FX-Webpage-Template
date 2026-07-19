@@ -1,7 +1,7 @@
 /**
  * tests/e2e/statusStripToggleLayout.spec.ts (CASP-2 — spec §8.10)
  *
- * Real-browser geometry for the compact inline PublishedToggle in the sticky
+ * Real-browser geometry for the compact inline PublishedToggle in the
  * StatusStrip at a 390px phone. jsdom computes NO layout, so the strip-height +
  * popover-containment invariants MUST be measured end-to-end. STANDALONE static
  * harness (no app boot / Supabase), modelled on published-review-modal.layout.spec.ts:
@@ -20,7 +20,12 @@
  *       ±0.5px (bounds finalize-state growth; baseline from the idle render, not hardcoded).
  *   (b) compaction: inline idle strip height < card-variant strip height by
  *       > 20px (one text-line) — proves real compaction, baseline from the card
- *       render in the same harness (never a hardcoded pixel).
+ *       render in the same harness (never a hardcoded pixel). REWRITTEN for
+ *       modal-header-reconciliation §6.5 (Task 2): the `chrome` prop is deleted, so
+ *       the strip carries no container padding and no title. The card baseline is
+ *       re-derived from a sibling render that mirrors the CURRENT strip container
+ *       exactly, keeping the comparison apples-to-apples — the delta is still the
+ *       toggle's own weight, and the threshold is unchanged.
  *   (c) compact chip: the finalize chip is an in-viewport pill (left ≥ 0, right ≤ 390, no
  *       document h-scroll) sitting right of the switch, width < 200px — NOT a full-strip
  *       banner. The overlay residual (BL-CASP2-STRIP-POLISH) is gone: an in-flow chip
@@ -47,9 +52,7 @@ const SLUG = "casp2-toggle-show";
 type HarnessJson = {
   slug: string;
   idleShort: string;
-  idleLong: string;
   finalizeShort: string;
-  finalizeLong: string;
   cardShort: string;
   errorProbe: string;
   liveShort: string;
@@ -87,9 +90,7 @@ test.beforeAll(async () => {
   // strings, only markup differs).
   const keys: (keyof HarnessJson)[] = [
     "idleShort",
-    "idleLong",
     "finalizeShort",
-    "finalizeLong",
     "cardShort",
     "errorProbe",
     "liveShort",

@@ -7,7 +7,7 @@
  * composed inside the extracted `ReviewModalShell` chrome. Pins the §6.1
  * header composition (heading-safe h2 accessible name, title→slug fallback,
  * conditional sheet icon, close-button initial focus, NO h1 in the panel),
- * the §6.1 body composition (StatusStrip renderTitle={false} with the publish
+ * the §6.1 body composition (StatusStrip — titleless — with the publish
  * toggle, ShowReviewSurface layout="modal" + syncHash with Overview-first /
  * Changes-last extras), the §6.2 guards (feed=null infra notice, not-eligible
  * inactive-share notice), the §3 one-shot alert_id scroll effect (li
@@ -272,7 +272,8 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     const panel = document.querySelector("[data-review-modal-panel]")!;
     expect(panel).not.toBeNull();
     expect(panel.querySelector("h1")).toBeNull();
-    // renderTitle={false}: the strip's internal h1 title and its divider are gone.
+    // modal-header-reconciliation §6.5: the strip renders no title node of its
+    // own — the h1 branch and its divider were deleted with the `renderTitle` prop.
     expect(screen.queryByTestId("strip-title")).toBeNull();
     expect(screen.queryByTestId("strip-title-divider")).toBeNull();
   });

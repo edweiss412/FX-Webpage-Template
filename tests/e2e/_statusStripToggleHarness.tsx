@@ -2,7 +2,7 @@
  * tests/e2e/_statusStripToggleHarness.tsx (CASP-2 — spec §8.10)
  *
  * Static real-browser harness for the compact inline PublishedToggle inside the
- * sticky StatusStrip. jsdom computes NO layout, so the mobile strip-height +
+ * StatusStrip. jsdom computes NO layout, so the mobile strip-height +
  * popover-containment invariants (CASP-2 §7/§8.10) MUST be measured end-to-end.
  * Modelled on _publishedReviewModalHarness.tsx: `tsx` runs this file's main-guard OUT
  * of process (its JSX + the imported real component tree break react-dom/server
@@ -14,7 +14,10 @@
  *   finalize  — StatusStrip inline S4 (finalizeOwned): the real in-flow finalize CHIP
  *               renders from the prop (no test-only forced-error path).
  *   card      — a strip-width row holding <PublishedToggle variant="card"> — the
- *               pre-CASP-2 baseline, for the compaction delta (height only).
+ *               pre-CASP-2 baseline, for the compaction delta (height only). It mirrors
+ *               the CURRENT strip container classes exactly (modal-header-reconciliation
+ *               §6.5, Task 2), so the measured delta is the toggle's own weight and
+ *               nothing else.
  *   errorProbe— the REAL <ErrorExplainer> + <HelpAffordance> for the long catalog
  *               row inside the full-width `inset-x-0 break-words` banner box (the
  *               width-governing classes the class-equality unit test pins on the real
@@ -39,11 +42,13 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 
 export const TOGGLE_SLUG = "casp2-toggle-show";
-export const TOGGLE_TITLE = "CASP-2 Toggle Fixture";
-/** A long title that changes where the toggle flex-wraps at 390px (a different
- *  toggle x-position for the popover-containment sub-check). */
-export const TOGGLE_LONG_TITLE =
-  "Q3 Global Partner Enablement Summit & Annual Broadcast Operations Review — Grand Ballroom Main Stage Production, Downtown Convention Center";
+
+// modal-header-reconciliation §6.5 (Task 2): TOGGLE_TITLE / TOGGLE_LONG_TITLE and the
+// `idleLong` / `finalizeLong` states are RETIRED. The strip no longer renders a title,
+// so a long title cannot change where the toggle wraps — the long-title states became
+// byte-identical to their short twins, i.e. assertions that could no longer fail for the
+// reason they existed. No spec assertion consumed them (statusStripToggleLayout.spec.ts
+// only ever read idleShort / finalizeShort / cardShort / errorProbe / liveShort).
 
 const LONG_CODE = "PUBLISH_BLOCKED_PENDING_REVIEW"; // the long dougFacing catalog row (worst-case width)
 
@@ -62,7 +67,6 @@ const NOOP_OK = async () => ({ ok: true }) as const;
 function stripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
     slug: TOGGLE_SLUG,
-    title: TOGGLE_TITLE,
     archived: false,
     published: true,
     finalizeOwned: false,
@@ -107,41 +111,33 @@ function shell(inner: React.ReactElement): string {
   );
 }
 
-export function idleHtml(title: string = TOGGLE_TITLE): string {
-  return shell(wrap(React.createElement(StatusStrip, stripProps({ title }))));
+export function idleHtml(): string {
+  return shell(wrap(React.createElement(StatusStrip, stripProps())));
 }
 
-export function finalizeHtml(title: string = TOGGLE_TITLE): string {
-  return shell(wrap(React.createElement(StatusStrip, stripProps({ title, finalizeOwned: true }))));
+export function finalizeHtml(): string {
+  return shell(wrap(React.createElement(StatusStrip, stripProps({ finalizeOwned: true }))));
 }
 
 /** A published + LIVE strip (CASP2-4 item 2): renders the toggle, the control divider,
  *  and the live badge — the geometry that proves the divider separates control from signal
  *  at ≥sm and is `display:none` at 390px. */
-export function liveHtml(title: string = TOGGLE_TITLE): string {
-  return shell(wrap(React.createElement(StatusStrip, stripProps({ title, isLive: true }))));
+export function liveHtml(): string {
+  return shell(wrap(React.createElement(StatusStrip, stripProps({ isLive: true }))));
 }
 
 /** A strip-width row that swaps the inline toggle for the full card toggle — the
- *  pre-CASP-2 layout, for the compaction height delta. Same strip container
- *  classes + title <h1> as StatusStrip so the only height difference is the
- *  toggle's own weight (card box vs inline row). */
-export function cardHtml(title: string = TOGGLE_TITLE): string {
+ *  pre-CASP-2 layout, for the compaction height delta. The container class string is
+ *  the SAME literal StatusStrip.tsx now renders (modal-header-reconciliation §6.5) and
+ *  there is no title node on either side, so the only height difference is the toggle's
+ *  own weight (card box vs inline row) — which is precisely what invariant (b) measures. */
+export function cardHtml(): string {
   const row = React.createElement(
     "div",
     {
       "data-testid": "show-status-strip",
-      className:
-        "sticky top-0 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 shadow-tile sm:flex-nowrap sm:px-6",
+      className: "flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap",
     },
-    React.createElement(
-      "h1",
-      {
-        "data-testid": "strip-title",
-        className: "min-w-0 truncate text-base font-semibold text-text-strong",
-      },
-      title,
-    ),
     React.createElement(
       "div",
       { "data-testid": "strip-publish-toggle", className: "min-w-0 shrink-0" },
@@ -192,9 +188,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     JSON.stringify({
       slug: TOGGLE_SLUG,
       idleShort: idleHtml(),
-      idleLong: idleHtml(TOGGLE_LONG_TITLE),
       finalizeShort: finalizeHtml(),
-      finalizeLong: finalizeHtml(TOGGLE_LONG_TITLE),
       cardShort: cardHtml(),
       errorProbe: errorProbeHtml(),
       liveShort: liveHtml(),
