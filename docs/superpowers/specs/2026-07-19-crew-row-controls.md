@@ -197,7 +197,7 @@ admin-authored inline (same `not-subject:M5-D8` rationale + comment as
 
 ### 4.5 Outcome banner (panel-top toast)
 
-Rendered by `CrewBreakdown` above the `<ul>`, PCR-1 pattern verbatim
+Rendered by `CrewBreakdown` above the `<ul>` ONLY when `actions?.enabled` (published eligible mode) — staged / disabled renders mount neither region nor banner, preserving the byte-identical claim (§5). PCR-1 pattern verbatim
 (`PickerResetControl.tsx:199-238`):
 
 - Persistent sr-only `role="status" aria-live="polite"` region (success text only).
@@ -258,7 +258,7 @@ resolving is confirm's pending variant: same popover, both buttons `disabled`, C
 | confirm → resolving | In-place prop change (disabled/busy/label) — instant, popover does not remount/re-animate. |
 | confirm → closed (cancel/Esc/outside/auto-revert) | Instant unmount. |
 | resolving → closed (settle: success or error) | Instant unmount; banner renders (§4.5). |
-| resolving → confirm / menu / anything else | **Unreachable** — close paths and auto-revert are inert while resolving (functional guard); buttons disabled. |
+| resolving → any state except closed | **Unreachable** — close paths and auto-revert are inert while resolving (functional guard); buttons disabled. |
 | confirm → menu | **Unreachable** — cancel closes fully (§4.3); no back-navigation. |
 | closed → confirm, closed → resolving, menu → resolving | Unreachable (confirm only via menu; resolving only via confirm CTA). Full pair coverage: all 12 directed pairs of {closed, menu, confirm, resolving} are now enumerated above (6 reachable, 6 unreachable). |
 | banner show/hide | Instant mount/unmount (matches PCR banners). |
@@ -295,7 +295,7 @@ each gets a real-browser assertion, §8.)
 | --- | --- | --- | --- | --- |
 | mock `dotsOrientation` | none (not shipped) | — | — | Fixed: vertical dots. Not a prop. |
 | mock `showQuickCall` | none (not shipped) | — | — | Fixed: quick icons always render (with per-field guards). No "Call/Email" menu items ship (they existed in the mock only for the quick-call-off variant). |
-| `actions.enabled` | derived per render (`published && !archived`) | registry def `step3ReviewSections.tsx:3515` | `CrewRowActions` render gate | Hides trigger + preview item on read-only shows (serialization-gate parity §2). |
+| `actions.enabled` | derived per render (`published && !archived`) | registry def `step3ReviewSections.tsx:3515` | PARENT-owned gate: `CrewBreakdown` mounts `CrewRowActions` only when `enabled && crewIds[i]`; the child assumes eligibility | Hides trigger + preview item on read-only shows (serialization-gate parity §2). |
 
 No zombie flags introduced.
 
