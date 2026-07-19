@@ -529,3 +529,26 @@ describe("structural guards (spec §7.6)", () => {
     expect(spec, "entrance needs its | S2 | row in the §3.2 inventory").toContain("| S2 |");
   });
 });
+
+// ── Exit ↔ entrance drift pin (impeccable critique) ─────────────────────────
+
+describe("desktop exit is the exact reverse of the entrance keyframe", () => {
+  // The exit applies `translateY(8px) scale(0.98)` from JS while
+  // `@keyframes step3-details-pop-in` declares the same values as its `from`
+  // state. Two sources, one intent: editing the keyframe silently desyncs the
+  // exit, and the result still "animates" so no behavioral test would catch
+  // it. Same CSS↔constant drift-pin pattern the warning-flash duration uses.
+  it("the JS exit values match the pop-in keyframe's from-state", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    const popIn = css.slice(css.indexOf("@keyframes step3-details-pop-in"));
+    const from = popIn.slice(popIn.indexOf("from"), popIn.indexOf("to"));
+    const keyframeTransform = from.match(/transform:\s*([^;]+);/)?.[1]?.trim();
+    expect(keyframeTransform, "pop-in from-state transform").toBe("translateY(8px) scale(0.98)");
+
+    const exit = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    expect(
+      exit,
+      `desktop exit must mirror the keyframe's from-state (${keyframeTransform})`,
+    ).toContain(`panel.style.transform = "${keyframeTransform}"`);
+  });
+});
