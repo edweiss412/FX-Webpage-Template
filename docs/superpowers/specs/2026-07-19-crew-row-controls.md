@@ -47,7 +47,9 @@ This feature moves per-member actions onto the row itself behind a three-dot "Mo
 | Popover idiom: backdrop `<button aria-hidden tabIndex={-1}>` fixed inset-0 + `role="menu"` panel `route-enter` entrance | `components/admin/nav/UserMenu.tsx:63-79` |
 | `route-enter` keyframes with `prefers-reduced-motion` guard | `app/globals.css:511-523` |
 | Destructive-confirm CTA recipe (`bg-warning-text` + `text-warning-bg`) is registry-pinned | `tests/styles/_metaDestructiveConfirm.test.ts:98` (registry), matcher `tests/styles/_metaDestructiveConfirm.test.ts:112-113` |
-| Modal serialization gate: reset affordances must not serialize for read-only shows; RPC is lifecycle-agnostic (`BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD`) | `app/admin/_showReviewModal.tsx:341-362` |
+| Modal serialization gate: reset affordances must not serialize for read-only shows | `app/admin/_showReviewModal.tsx:341-362` (NOTE: that comment's "lifecycle-agnostic" claim is STALE) |
+| Reset RPC lifecycle guard (authoritative, landed 2026-07-19): post-lock re-read refuses archived (`SHOW_ARCHIVED_IMMUTABLE`) and unpublished (`FINALIZE_OWNED_SHOW` / not-published) via `P0001` | `supabase/migrations/20260719000000_reset_crew_member_selection_lifecycle_guard.sql:3-41`, tests `tests/db/reset_crew_member_selection_lifecycle_guard.test.ts`, registry `tests/db/crew-rpc-lifecycle-guard-meta.test.ts` |
+| Action maps `P0001` refusals to `PICKER_RESOLVER_LOOKUP_FAILED` (deliberate refusal, no infra forensic); also `PICKER_INVALID_INPUT` on non-UUID `showId`/`crewMemberId` | `lib/auth/picker/resetCrewMemberSelection.ts:16,46-49,60-61,74-89` |
 | Preview route exists | `app/admin/show/[slug]/preview/[crewId]/page.tsx` |
 | Avatar atom | `components/atoms/Avatar.tsx` (imported at `step3ReviewSections.tsx:128`) |
 
@@ -121,7 +123,25 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
   Toggling another row's trigger closes the first and opens the second.
 - Close paths: trigger re-click; outside click (fixed-inset backdrop button,
   `aria-hidden tabIndex={-1}`, `z-20`, UserMenu idiom); `Escape` (keydown on cluster); menu-item
-  activation. Esc/outside-click/trigger-toggle restore focus to that row's trigger.
+  activation; `Tab`/`Shift+Tab` (APG menu-button pattern — menu closes, focus proceeds in
+  document order from the trigger). Esc/outside-click/trigger-toggle restore focus to that
+  row's trigger.
+- **Keyboard contract (APG menu-button):** menu opens with the FIRST menuitem focused (roving
+  focus via `tabIndex={-1}` items, `.focus()` on mount); `ArrowDown`/`ArrowUp` move focus
+  cyclically; `Home`/`End` jump to first/last; `Enter`/`Space` activate the focused item.
+  All handled on the menu's keydown; asserted in unit tests (§8).
+- **Scroll-edge visibility:** the modal content pane is an `overflow-y-auto` scroller
+  (`components/admin/review/ShowReviewSurface.tsx:803-807`) inside a `max-h-[85vh]` /
+  `sm:max-h-[80vh]` panel (`components/admin/review/ReviewModalShell.tsx:604`). An
+  absolutely-positioned popover on the LAST row extends the scroller's overflow area but can
+  open off-screen. On popover mount (menu AND confirm), call
+  `el.scrollIntoView({ block: "nearest" })` (instant; minimal scroll; no-op when already
+  visible). No flip/portal logic. The §8 real-browser test asserts last-row visibility
+  through this mechanism.
+- **Copy budget (owner note 2026-07-19):** everything inside the menu and confirm popover is
+  concise fixed copy — short labels ("Preview as", "Reset name picker") and the ONE-sentence
+  confirm warning. No outcome text, no multi-sentence context ever renders inside the
+  popovers; longer contextual copy belongs exclusively to the panel-top inline banner (§4.5).
 
 ### 4.3 Confirm popover (destructive confirm)
 
@@ -139,7 +159,8 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
   PickerResetControl's restore-only-on-cancel semantics, `PickerResetControl.tsx:81-108`).
 - Auto-revert: **4s** (`ARM_REVERT_MS` harmonization, DESTRUCT-2) — timer from confirm-open;
   fires → popover closes fully (back to closed, NOT back to menu). Any of Cancel / outside click /
-  Esc also closes fully. Deviation from mock noted in §10.
+  Esc also closes fully. All of these close paths (incl. the auto-revert timer) are inert while
+  `resolving` (§6 table). Deviation from mock noted in §10.
 - Confirm → `resolving`: both buttons `disabled` + CTA `aria-busy`, label "Resetting…";
   on settle the popover closes and the outcome banner renders.
 
@@ -193,6 +214,9 @@ Rendered by `CrewBreakdown` above the `<ul>`, PCR-1 pattern verbatim
 | `members` empty | — | "No crew parsed." (unchanged); no banner state. |
 | `members.length > CREW_CAP` | existing cap | Overflow note unchanged; menus only on shown rows. |
 | Reset while member deleted server-side | `PICKER_CREW_MEMBER_NOT_FOUND` | Error banner (4.4). |
+| `actions.showId` empty/malformed (trusted `PublishedSectionData.showId` is a UUID; defensive row) | non-UUID | No client validation; action returns `PICKER_INVALID_INPUT` (`resetCrewMemberSelection.ts:60-61`) → generic error banner. UI never renders the code (invariant 5). |
+| `actions.slug` empty (trusted; defensive row) | `""` | Preview href degrades to `/admin/show//preview/<id>` only if registry ever passed a blank slug — it cannot (`s.slug` is the route param); no client validation added. |
+| Reset on show archived/unpublished mid-session (race with another admin) | RPC lifecycle guard `P0001` | Action maps to `PICKER_RESOLVER_LOOKUP_FAILED` → generic error banner; `enabled` gate already hides the trigger on next render. |
 | Unmount mid-timer (modal closes) | — | All timers cleared in effect cleanup; no setState-after-unmount. |
 
 ## 6. Mode boundaries & transition inventory
@@ -200,15 +224,20 @@ Rendered by `CrewBreakdown` above the `<ul>`, PCR-1 pattern verbatim
 Modes: **staged** (no cluster changes at all) vs **published** (cluster per 4.1). Shared between
 modes: avatar, name/subline, call/email icons, cap/overflow note, empty state.
 
-Per-row control state machine: `closed` → `menu` → `confirm` → (`resolving`) → `closed`, plus
-section-level `outcome` banner. Pairs (N=3 visual states + banner):
+Per-row control state machine: `closed` → `menu` → `confirm` → `resolving` → `closed`, plus
+section-level `outcome` banner. **N=4 visual states** (closed, menu, confirm, resolving —
+resolving is confirm's pending variant: same popover, both buttons `disabled`, CTA
+`aria-busy` labeled "Resetting…") + banner:
 
 | From → To | Treatment |
 | --- | --- |
 | closed → menu | `route-enter` entrance (reduced-motion guarded). |
 | menu → closed | Instant unmount — no exit animation (matches UserMenu; AnimatePresence not used in this module). |
 | menu → confirm | Menu unmounts, confirm mounts with `route-enter`. Instant swap otherwise. |
-| confirm → closed (cancel/Esc/outside/auto-revert/settle) | Instant unmount. |
+| confirm → resolving | In-place prop change (disabled/busy/label) — instant, popover does not remount/re-animate. |
+| confirm → closed (cancel/Esc/outside/auto-revert) | Instant unmount. |
+| resolving → closed (settle: success or error) | Instant unmount; banner renders (§4.5). |
+| resolving → confirm / menu / anything else | **Unreachable** — close paths and auto-revert are inert while resolving (functional guard); buttons disabled. |
 | confirm → menu | **Unreachable** — cancel closes fully (§4.3); no back-navigation. |
 | closed → confirm | Unreachable (confirm only via menu). |
 | banner show/hide | Instant mount/unmount (matches PCR banners). |
@@ -245,6 +274,10 @@ Unit (RTL, jsdom — behavior only, no layout claims):
   fixture's `crewIds[i]`, not a hardcoded literal); `PICKER_CREW_MEMBER_NOT_FOUND` → error banner
   text; generic failure → generic banner; 4s auto-revert (fake timers) closes confirm and a
   post-revert Confirm click cannot fire the action (concrete failure mode: stale confirm firing);
+  resolving UI (both buttons disabled, CTA `aria-busy` + "Resetting…", Esc/outside/auto-revert
+  inert while resolving — concrete failure mode: double-fire or close-drops-outcome);
+  keyboard contract (open focuses first menuitem; ArrowDown/ArrowUp cycle; Home/End; Tab
+  closes; Enter activates focused item);
   C3/C5 focus (`vi.waitFor` per async-focus lesson); sr-only region receives success text; new
   confirm clears prior outcome; no-trigger render for `enabled:false` / empty crewId / staged
   (assert DOM equality of the cluster against a no-`actions` render — pins byte-identical claim).
@@ -274,8 +307,11 @@ Real-browser (Playwright, extends `tests/e2e/_publishedReviewModalHarness.tsx` +
   descendant — viewport coords per `reference_playwright_elementfrompoint_viewport_coords`).
 - Trigger hit area: `crew-row-menu-button-*` bounding box ≥ 44×44 (±0.5px).
 - Esc + outside-click close with focus restored to trigger (real focus, not jsdom).
-- Confirm CTA visible + clickable within the modal (no overflow clipping at the last visible row:
-  run the assertion on the LAST crew row, where `top: calc(100%+6px)` is most likely to clip).
+- Confirm CTA visible + clickable within the modal on the LAST crew row (where
+  `top: calc(100%+6px)` opens past the scrollport edge): after opening, the
+  `scrollIntoView({ block: "nearest" })` mount behavior (§4.2) must leave the popover fully
+  inside the scroller's visible box — assert via `getBoundingClientRect()` containment against
+  the `wizard-step3-card-*-review-content` scroller, then click Confirm.
 
 ## 9. Docs & copy
 
