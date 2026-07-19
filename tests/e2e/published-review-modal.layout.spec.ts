@@ -70,6 +70,8 @@ const PANEL = "[data-review-modal-panel]";
 const GRAB = `[data-testid="${BASE}-grab"]`;
 const HEADER = `[data-testid="${BASE}-header"]`;
 const FOOTER = `[data-testid="${BASE}-footer"]`;
+/** The StatusStrip's control row, scoped INSIDE the published modal. */
+const STRIP = `${MODAL} [data-testid="show-status-strip"]`;
 /** ShowReviewSurface root ("main" in the §6.6 equations), scoped INSIDE the
  *  published modal container — never a page-wide match. */
 const MAIN = `${MODAL} [data-testid="wizard-step3-card-${HARNESS_DFID}-review-main"]`;
@@ -213,6 +215,45 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // modal omits it (spec §6.1: publish toggle lives in the StatusStrip,
       // archive in Overview). Asserted in BOTH modes.
       await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
+    });
+
+    // MODAL-STRIP-CHROME-1 follow-up: with the strip's own `py-2` gone (it wore
+    // page chrome inside the header until #480), the ONLY separation between
+    // the header's title row and the strip's control row is the header
+    // wrapper's flex-column gap. DESIGN.md §3.1 ("vary spacing for rhythm")
+    // wants the outer group gap to step ABOVE the inner row gap — with both at
+    // 8px the title block and the control rows read as one undifferentiated
+    // stack, worst at 375 where the strip itself wraps.
+    //
+    // Concrete failure modes caught: the wrapper reverts to `gap-2` (cascade
+    // flattens); or someone re-adds vertical chrome to the strip's modal arm
+    // (the gap would then double-count and the strip would grow its own inset
+    // back).
+    test(`header rhythm @ ${width}: title→strip gap steps above the strip's own row gap`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const rhythm = await page.locator(STRIP).evaluate((strip) => {
+        const wrapper = strip.parentElement!;
+        const titleRow = wrapper.firstElementChild!;
+        const stripStyle = getComputedStyle(strip);
+        return {
+          outerGap: strip.getBoundingClientRect().top - titleRow.getBoundingClientRect().bottom,
+          innerRowGap: parseFloat(stripStyle.rowGap),
+          stripPaddingTop: parseFloat(stripStyle.paddingTop),
+          stripPaddingBottom: parseFloat(stripStyle.paddingBottom),
+        };
+      });
+
+      // The strip owns no vertical padding in the modal (#480) — so the gap is
+      // the whole separation budget, and this assertion is non-vacuous.
+      expect(rhythm.stripPaddingTop, `strip has no own top padding @ ${mode}`).toBe(0);
+      expect(rhythm.stripPaddingBottom, `strip has no own bottom padding @ ${mode}`).toBe(0);
+      expect(
+        rhythm.outerGap,
+        `title→strip gap ${rhythm.outerGap} steps above the strip's own ${rhythm.innerRowGap}px row gap @ ${mode}`,
+      ).toBeGreaterThan(rhythm.innerRowGap);
     });
   }
 });

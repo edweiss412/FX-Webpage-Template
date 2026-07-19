@@ -227,7 +227,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       testIdBase={TESTID_BASE}
       initialFocusRef={closeRef}
       header={
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        // gap-3 (not gap-2): since #480 the strip carries no vertical padding of
+        // its own inside this header, so this gap is the WHOLE separation budget
+        // between the title row and the control row. It has to step above the
+        // strip's own 8px wrapped-row gap or the two groups read as one stack
+        // (DESIGN.md §3.1 — vary spacing for rhythm). Pinned by the "header
+        // rhythm" assertion in published-review-modal.layout.spec.ts.
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex items-start gap-3">
             {/* Heading-safe title split (Step3 pattern): the h2 holds ONLY the
                 plain title (the dialog's accessible name); the deep link is a
