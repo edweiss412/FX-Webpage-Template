@@ -21,10 +21,22 @@ import { join } from "node:path";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+// Step3ReviewModal's footer mounts RescanSheetButton, which calls useRouter().
+// Required for the T-STEP3-INVARIANT render below.
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 import {
   ReviewModalShell,
   type ReviewModalShellProps,
 } from "@/components/admin/review/ReviewModalShell";
+import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
+import {
+  buildStep3BaselineData,
+  normalizeIds,
+  STEP3_BASELINE_DFID,
+  STEP3_BASELINE_FIXTURE_PATH,
+} from "@/tests/helpers/step3HeaderBaseline";
 
 afterEach(cleanup);
 
@@ -34,6 +46,7 @@ type HostProps = {
   testIdBase?: string;
   onClose?: () => void;
   footer?: React.ReactNode;
+  subHeader?: ReviewModalShellProps["subHeader"];
 };
 
 /** Consumer stand-in: owns its close button + ref inside the header slot,
@@ -44,6 +57,7 @@ function Host({
   testIdBase = "shell-under-test",
   onClose = () => {},
   footer,
+  subHeader,
 }: HostProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   return (
@@ -63,6 +77,7 @@ function Host({
         </>
       }
       {...(footer !== undefined ? { footer } : {})}
+      {...(subHeader !== undefined ? { subHeader } : {})}
     >
       <div data-testid="host-body">body content</div>
     </ReviewModalShell>
@@ -129,6 +144,76 @@ describe("ReviewModalShell — chrome topology (both dataAttrPrefix values inter
   });
 });
 
+// ── Task 1 (modal-header-reconciliation §6.1, §11.2): the `subHeader` band ───
+
+describe("ReviewModalShell — subHeader band (T-SUBHEADER-SLOT / T-SUBHEADER-FALSEY)", () => {
+  it("subHeader provided → a band between the header wrapper and the body, carrying the §6.1 chrome", () => {
+    render(<Host subHeader={<div data-testid="host-strip">strip</div>} />);
+
+    const band = screen.getByTestId("shell-under-test-subheader");
+    expect(band.contains(screen.getByTestId("host-strip"))).toBe(true);
+
+    // DOM ORDER: header wrapper → band → body. Asserted positionally rather
+    // than by parent identity, because "renders somewhere in the panel" would
+    // pass for a band appended after the body.
+    const header = screen.getByTestId("shell-under-test-header");
+    const body = screen.getByTestId("host-body");
+    const panel = band.parentElement;
+    expect(panel).not.toBeNull();
+    const order = Array.from(panel!.children);
+    expect(order.indexOf(header)).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf(band)).toBe(order.indexOf(header) + 1);
+    expect(order.indexOf(body)).toBe(order.indexOf(band) + 1);
+
+    // §6.1 chrome. `relative` is the positioned ancestor for the publish
+    // popover and the relocated Re-sync overlay — omitting it does NOT fail
+    // loudly (the overlay silently resolves against the panel), so it is
+    // pinned here. The band is deliberately NOT a flex container: the strip's
+    // own root owns the row, so `ml-auto` resolves against full band width.
+    for (const cls of [
+      "relative",
+      "w-full",
+      "shrink-0",
+      "border-b",
+      "border-border",
+      "bg-surface",
+      "px-tile-pad",
+      "py-2",
+    ]) {
+      expect(band.classList.contains(cls)).toBe(true);
+    }
+    expect(band.classList.contains("flex")).toBe(false);
+  });
+
+  it("subHeader omitted → no band element at all", () => {
+    render(<Host />);
+    expect(screen.queryByTestId("shell-under-test-subheader")).toBeNull();
+  });
+
+  it("subHeader={false} / {null} → no band element (truthiness gate, not != null)", () => {
+    // A `!= null` gate — the shape the pre-existing `footer` slot uses at
+    // ReviewModalShell.tsx:449 — would render an EMPTY bordered seam here,
+    // double-seaming the panel. `false` is the shape a consumer produces from
+    // `archived && <StatusStrip …/>`, so this is a reachable state, not a
+    // theoretical one.
+    const { unmount } = render(<Host subHeader={false} />);
+    expect(screen.queryByTestId("shell-under-test-subheader")).toBeNull();
+    unmount();
+
+    render(<Host subHeader={null} />);
+    expect(screen.queryByTestId("shell-under-test-subheader")).toBeNull();
+  });
+
+  it("subHeader rejects non-element ReactNodes at COMPILE time (pnpm typecheck is the gate)", () => {
+    // vitest strips types, so this assertion is enforced by `pnpm typecheck`,
+    // not by the runtime expectation below. `0` and `""` are valid ReactNodes
+    // that would render an empty band; the narrowed prop type makes them errors.
+    // @ts-expect-error `0` is not assignable to ReactElement | false | null
+    render(<Host subHeader={0} />);
+    expect(screen.queryByTestId("shell-under-test-subheader")).toBeNull();
+  });
+});
+
 describe("ReviewModalShell — close paths + initial focus", () => {
   it("Escape calls onClose", () => {
     const onClose = vi.fn();
@@ -147,6 +232,51 @@ describe("ReviewModalShell — close paths + initial focus", () => {
   it("initial focus lands on the element initialFocusRef points at (consumer close button)", () => {
     render(<Host />);
     expect(document.activeElement).toBe(screen.getByTestId("host-close"));
+  });
+});
+
+// ── T-STEP3-INVARIANT (modal-header-reconciliation §11.2) ───────────────────
+//
+// DECLARED NOT-RED: this is a regression guard by construction — green on the
+// pre-change tree AND after the `subHeader` slot lands. Task 1's genuine red is
+// T-SUBHEADER-SLOT / T-SUBHEADER-FALSEY above. Declaring that honestly (rather
+// than dressing it up as TDD red) follows spec §11.2's own baseline table.
+//
+// Deliberately TWO SCOPED assertions, never a whole-panel snapshot: the shell
+// gains an intentional new `null`-rendering branch, so a panel-wide snapshot
+// would fail for a legitimate reason and the reflex fix would be to loosen or
+// delete the guard — losing the actual signal.
+
+describe("Step 3 is provably unchanged by the shell's subHeader slot (T-STEP3-INVARIANT)", () => {
+  it("renders no subHeader band anywhere — Step 3 never passes the slot", () => {
+    render(
+      <Step3ReviewModal
+        data={buildStep3BaselineData()}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+    expect(document.querySelectorAll('[data-testid$="-subheader"]').length).toBe(0);
+  });
+
+  it("Step 3 header markup matches the pre-change baseline byte-for-byte", () => {
+    render(
+      <Step3ReviewModal
+        data={buildStep3BaselineData()}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+    const header = screen.getByTestId(`wizard-step3-card-${STEP3_BASELINE_DFID}-review-header`);
+    const expected = readFileSync(join(process.cwd(), STEP3_BASELINE_FIXTURE_PATH), "utf8").trim();
+    // Anti-vacuity: an empty/stub fixture would make this assertion pass for
+    // any header at all.
+    expect(expected.length).toBeGreaterThan(500);
+    expect(normalizeIds(header.innerHTML)).toBe(expected);
   });
 });
 
