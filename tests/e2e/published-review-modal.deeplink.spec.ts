@@ -304,4 +304,39 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
       "sign-in redirect carries a validated admin next target",
     ).toContain(next);
   });
+
+  // MODAL-SKELETON-CLOSE-1: Esc during a deep-link load closes the modal from
+  // EITHER frame — the Suspense skeleton (navs at dismiss-commit) or the
+  // loaded modal (navs at exit-end). Pre-fix, Esc landing in the fallback
+  // window was silently dead and the modal stayed. Real-browser
+  // wedge-regression test; the red/green proof lives in the jsdom suite
+  // (spec §5). Reduced motion → the close is synchronous once dispatched.
+  test("Esc during load closes whichever frame is up and strips ?show", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/admin?show=${show.slug}`);
+    // ANY frame — skeleton or loaded, whichever the stream timing yields.
+    await expect(page.locator(MODAL_ANY).first()).toBeVisible({ timeout: 30_000 });
+    // Effect-flush proof before the synthetic gesture (memory-#485 class): both
+    // frames apply initial focus to their X, and the Esc listener flushes in
+    // the same effect pass. Poll BEFORE pressing — a keypress in the gap is
+    // silently lost (interactions.spec.ts effect-flush discipline).
+    await expect
+      .poll(
+        () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
+        { message: "frame effect flush completed (initial focus on the X)" },
+      )
+      .toBe(`${BASE}-close`);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 10_000 });
+    // The hide is client-side FIRST (#485); the close nav catches the URL up
+    // in the background — so the strip is awaited, not asserted instantly.
+    await page.waitForURL((u) => !u.searchParams.has("show"), { timeout: 10_000 });
+    // Overlay hygiene restored: scroll unlocked, background un-inerted.
+    const hygiene = await page.evaluate(() => ({
+      overflow: document.body.style.overflow,
+      inert: document.querySelector("[data-inert-root]")?.hasAttribute("inert") ?? false,
+    }));
+    expect(hygiene.overflow).toBe("");
+    expect(hygiene.inert).toBe(false);
+  });
 });
