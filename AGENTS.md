@@ -60,7 +60,20 @@ The run is complete only when `git rev-list --left-right --count main...origin/m
 
 Deliberately hourly across **all** hours, not just overnight: both audited stalls (05:04→11:24 and 04:56→11:22) ran well past any night window, and the job self-deletes at Stage 4.4, so it costs nothing when no run is live. Cron jobs are session-only — gone if the REPL process exits — and auto-expire after 7 days.
 
-**Pipeline marker (Claude Code harness).** Because no prompt-side rule can catch "announced the dispatch, emitted nothing," Claude Code backs these rules with a `Stop` hook. The run writes `<worktree>/.claude/ship-state.json` (`{branch, stage, tasksRemaining, next}`) at Stage 0, updates it at every stage and task boundary, and sets `stage: "done"` only after the `0  0` check. The hook refuses to let the session stop while the marker is live. Two deliberate safety valves keep the gate from wedging a session: it never re-blocks when `stop_hook_active` is set, and it stands down after 6 consecutive stop attempts with an unchanged `stage|tasksRemaining` fingerprint. That second valve means **a marker you forget to update silently disarms the protection** — update it in the same beat as each task commit. The hook itself lives in the per-machine `~/.claude/` tree, so a fresh checkout or a non-Claude harness will not have it; the rules above are what actually bind, and the hook is only their enforcement on one harness.
+**Stop gate (Claude Code harness).** Because no prompt-side rule can catch "announced the dispatch, emitted nothing," Claude Code backs these rules with a `Stop` hook that refuses to end a session while branch work is unfinished.
+
+**Arming is derived from git, never self-reported.** The first version armed only when the run remembered to write a marker at Stage 0 — a guard against unreliable model behavior that depended on reliable model behavior, which is the same weak link it was built to remove. The hook now infers the state from the repo, so nothing has to be remembered: an `FX-worktrees/` checkout, not on `main`, with commits ahead of `origin/main` or a dirty tree, means work is unfinished. Merging and syncing disarms it automatically.
+
+Two tiers, so failing safe does not wedge ordinary interactive sessions:
+
+- **Strict** — `<worktree>/.claude/ship-state.json` present with `stage` != `"done"`. Treated as an autonomous run: loud message, quotes `next`, blocks up to 6 no-progress stops.
+- **Soft** — no marker, but git says work is live. Blocks twice, and says plainly that stopping is correct if this is interactive work.
+
+The marker (`{branch, stage, tasksRemaining, next, blockedOn, cronJobId}`) therefore no longer arms the gate — it only raises the tier and supplies the next-action text. A non-empty `blockedOn` silences the gate until it clears, matching the nudge's pause-don't-cancel contract.
+
+Safety valves: never re-blocks when `stop_hook_active` is set; stands down past the tier's block budget on an unchanged fingerprint; `touch <worktree>/.claude/ship-gate-off` opts a checkout out entirely. Gate state lives in `~/.claude/ship-gate/`, deliberately **outside** the worktree — an earlier version kept it in `<worktree>/.claude/` and the state file dirtied the very tree it was measuring, resetting the counter every run so the gate could never stand down. That stayed invisible only because this repo gitignores `.claude/`.
+
+The hook lives in the per-machine `~/.claude/` tree, so a fresh checkout or a non-Claude harness will not have it. The rules above are what actually bind; the hook is only their enforcement on one harness.
 
 ---
 
