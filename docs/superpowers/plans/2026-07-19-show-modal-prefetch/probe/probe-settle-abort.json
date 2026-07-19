@@ -1,0 +1,316 @@
+{
+ "clickT": 4893,
+ "modalVisibleT": 4993,
+ "reqs": [
+  {
+   "t": 382,
+   "url": "/admin?",
+   "headers": {},
+   "phase": "load"
+  },
+  {
+   "t": 689,
+   "url": "/admin?_rsc=tg9kl",
+   "headers": {
+    "rsc": "1",
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 895,
+   "url": "/admin?show=picker-e2e-98791655&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 895,
+   "url": "/admin?show=picker-e2e-1a7f8e53&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 895,
+   "url": "/admin?show=sh-867cf1ac&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 902,
+   "url": "/admin?show=slug-b605291c&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 902,
+   "url": "/admin?show=slug-c8626bfd&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 902,
+   "url": "/admin?show=slug-e94293fc&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 902,
+   "url": "/admin?show=slug-dd7ce49d&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 912,
+   "url": "/admin?bucket=archived&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 913,
+   "url": "/admin?bucket=active&_rsc=17qrm",
+   "headers": {
+    "rsc": "1",
+    "next-router-segment-prefetch": "/_tree",
+    "next-router-prefetch": "1",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 913,
+   "url": "/admin?show=picker-e2e-98791655&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 929,
+   "url": "/admin?show=picker-e2e-1a7f8e53&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 929,
+   "url": "/admin?show=sh-867cf1ac&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 942,
+   "url": "/admin?show=slug-b605291c&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 1165,
+   "url": "/admin?show=slug-c8626bfd&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 1165,
+   "url": "/admin?show=slug-e94293fc&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 1181,
+   "url": "/admin?show=slug-dd7ce49d&_rsc=szskq",
+   "headers": {
+    "rsc": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 1182,
+   "url": "/admin?bucket=archived&_rsc=tg9kl",
+   "headers": {
+    "rsc": "1",
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 1191,
+   "url": "/admin?bucket=active&_rsc=tg9kl",
+   "headers": {
+    "rsc": "1",
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin"
+   },
+   "phase": "load"
+  },
+  {
+   "t": 4982,
+   "url": "/admin?show=picker-e2e-1a7f8e53&_rsc=9epgf",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C4%5D%7D%2Cnull%2C%22refetch%22%2C24%5D",
+    "rsc": "1"
+   },
+   "phase": "click"
+  },
+  {
+   "t": 4984,
+   "url": "/admin?show=picker-e2e-98791655&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "click"
+  },
+  {
+   "t": 4985,
+   "url": "/admin?show=sh-867cf1ac&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "click"
+  },
+  {
+   "t": 4987,
+   "url": "/admin?show=slug-b605291c&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "click"
+  },
+  {
+   "t": 4993,
+   "url": "/admin?show=slug-c8626bfd&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  },
+  {
+   "t": 5150,
+   "url": "/admin?show=slug-e94293fc&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  },
+  {
+   "t": 5155,
+   "url": "/admin?show=slug-dd7ce49d&_rsc=szskq",
+   "headers": {
+    "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22admin%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2C%22refetch%22%5D%7D%5D%7D%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  },
+  {
+   "t": 5156,
+   "url": "/admin?bucket=archived&_rsc=tg9kl",
+   "headers": {
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  },
+  {
+   "t": 5156,
+   "url": "/admin?bucket=active&_rsc=tg9kl",
+   "headers": {
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  },
+  {
+   "t": 5160,
+   "url": "/admin?_rsc=tg9kl",
+   "headers": {
+    "next-router-prefetch": "1",
+    "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+    "next-url": "/admin",
+    "rsc": "1"
+   },
+   "phase": "post-open"
+  }
+ ]
+}
