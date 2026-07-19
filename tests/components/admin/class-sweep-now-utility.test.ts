@@ -102,29 +102,34 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
   // its render-side-time class-sweep entry is removed here (the surviving
   // render-side time consumers below still pin the request-scoped nowDate()).
 
-  describe("components/admin/PerShowAlertSection.tsx", () => {
-    const src = read("components/admin/PerShowAlertSection.tsx");
+  // published-show-alerts: PerShowAlertSection retired; its relative-time
+  // helper relocated to lib/admin/attentionItems.ts (formatRelativeRaisedAt)
+  // and the render-side consumer is AttentionBanner, which takes the loader's
+  // `now` as a prop — same request-scoped-time contract, new surfaces.
+  describe("lib/admin/attentionItems.ts (formatRelativeRaisedAt)", () => {
+    const src = read("lib/admin/attentionItems.ts");
 
-    it("imports nowDate from @/lib/time/now", () => {
-      expect(src).toMatch(/from\s+["']@\/lib\/time\/now["']/);
-      expect(src).toMatch(/\bnowDate\b/);
+    it("formatRelativeRaisedAt takes a `now: Date` parameter", () => {
+      expect(src).toMatch(/function\s+formatRelativeRaisedAt\s*\([^)]*\bnow\s*:\s*Date\b/);
     });
 
-    it("formatRelative takes a `now: Date` parameter", () => {
-      expect(src).toMatch(/function\s+formatRelative\s*\([^)]*\bnow\s*:\s*Date\b/);
-    });
-
-    it("formatRelative does NOT call Date.now() or new Date() inside its body", () => {
-      const fnMatch = src.match(/function\s+formatRelative[\s\S]*?\n\}/);
+    it("formatRelativeRaisedAt does NOT call Date.now() or new Date() inside its body", () => {
+      const fnMatch = src.match(/function\s+formatRelativeRaisedAt[\s\S]*?\n\}/);
       expect(fnMatch).not.toBeNull();
       const body = fnMatch![0];
       expect(body).not.toMatch(/\bDate\.now\s*\(/);
       expect(body).not.toMatch(/\bnew\s+Date\s*\(\s*\)/);
       expect(body).toMatch(/\bnow\.getTime\s*\(\s*\)/);
     });
+  });
 
-    it("awaits nowDate() inside the PerShowAlertSection function", () => {
-      expect(src).toMatch(/\bawait\s+nowDate\s*\(\s*\)/);
+  describe("components/admin/review/AttentionBanner.tsx", () => {
+    const src = read("components/admin/review/AttentionBanner.tsx");
+
+    it("consumes the caller-supplied `now: Date` prop and never reads the clock itself", () => {
+      expect(src).toMatch(/\bnow\s*:\s*Date\b/);
+      expect(src).not.toMatch(/\bDate\.now\s*\(/);
+      expect(src).not.toMatch(/\bnew\s+Date\s*\(\s*\)/);
     });
   });
 });

@@ -9,7 +9,7 @@
  *     modal container — never a page-wide match the dashboard rows could
  *     satisfy; expected text derives from the seeded fixture).
  *   - `&alert_id=<uuid>` renders the highlight ring on the matching alert row
- *     (`li[aria-current="true"]`, PerShowAlertSection) AND one-shot-scrolls it
+ *     (`[data-attention-anchor][aria-current="true"]`, AttentionBanner) AND one-shot-scrolls it
  *     into the surface scroller's viewport (§3 — highlight alone never
  *     scrolled anything on the old page).
  *   - `#share-access` fragment scrolls the share panel into view via the
@@ -182,16 +182,16 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
   }) => {
     await openModal(page, `/admin?show=${show.slug}&alert_id=${alertId}`);
 
-    const highlighted = page.locator(`${MODAL} li[aria-current="true"]`);
+    const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
     await expect(highlighted, "exactly one highlighted alert row").toHaveCount(1);
-    await expect(highlighted).toHaveAttribute("data-testid", `per-show-alert-${alertId}`);
+    await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
     // The §3 highlight ring (PerShowAlertSection's static ring treatment).
     const cls = (await highlighted.getAttribute("class")) ?? "";
-    expect(cls, "highlight ring classes applied").toContain("ring-2");
+    expect(cls, "attention banner tone stripe applied").toContain("border-l-status-review");
 
     await expectInScrollerViewport(
       page,
-      `${MODAL} li[aria-current="true"]`,
+      `${MODAL} [data-attention-anchor][aria-current="true"]`,
       "highlighted alert row",
     );
   });
@@ -218,8 +218,8 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     expect(u.searchParams.get("alert_id"), "redirect preserves alert_id").toBe(alertId);
 
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
-    const highlighted = page.locator(`${MODAL} li[aria-current="true"]`);
-    await expect(highlighted).toHaveAttribute("data-testid", `per-show-alert-${alertId}`);
+    const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
+    await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
   });
 
   test("SIGNED-IN combined legacy ?alert_id=x#share-access keeps params; fragment per redirect delivery; alert scroll wins", async ({
@@ -250,15 +250,15 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     }
 
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
-    const highlighted = page.locator(`${MODAL} li[aria-current="true"]`);
+    const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
     await expect(highlighted, "highlight applied").toHaveCount(1);
-    await expect(highlighted).toHaveAttribute("data-testid", `per-show-alert-${alertId}`);
+    await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
     // §3 precedence: when BOTH alert_id and a fragment are present, the
     // alert_id one-shot scroll wins — the highlighted row (not merely the
     // share panel) ends inside the scroller viewport.
     await expectInScrollerViewport(
       page,
-      `${MODAL} li[aria-current="true"]`,
+      `${MODAL} [data-attention-anchor][aria-current="true"]`,
       "highlighted alert row (precedence over hash restore)",
     );
   });

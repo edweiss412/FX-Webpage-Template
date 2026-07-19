@@ -13,7 +13,7 @@
  * The archived paused-notice and the correction-loop guidance stay (§6.7).
  *
  * RSC boundary: Overview renders inside the CLIENT `ShowReviewSurface` (via an extra-section
- * `render()` closure), so it is a client component. The server-only pieces (`PerShowAlertSection`,
+ * `render()` closure), so it is a client component. The server-only pieces (`CurrentShareLinkPanel`,
  * `CurrentShareLinkPanel`) are pre-rendered by the server page (Task 13) and handed in as
  * `attentionSlot` / `shareSlot` ReactNode props. The client controls (`ArchiveShowButton`,
  * `UnarchiveShowButton`, `CorrectionLoopCallout`) are rendered directly,
@@ -69,7 +69,7 @@ export type OverviewSectionProps = {
   archiveAction: () => Promise<LifecycleResult>;
   /** Show-scoped Unarchive server action (called with `showId`). */
   unarchiveAction: (showId: string) => Promise<void>;
-  /** Server-rendered `<PerShowAlertSection/>` (admin-only Supabase read stays on the server). */
+  /** Attention banners + degraded notice for this show (published-show-alerts §5.4). */
   attentionSlot: ReactNode;
   /** Server-rendered share-&-access cluster (`<CurrentShareLinkPanel/>`); only shown when the
    *  crew link is active (published && !archived). Ignored otherwise (inactive notice shown). */

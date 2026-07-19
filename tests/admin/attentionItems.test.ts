@@ -66,6 +66,42 @@ describe("deriveAttentionItems", () => {
     expect(it0.menuTitle.length).toBeGreaterThan(0);
   });
 
+  it("positive interpolation (ported from the retired section suite): a real code with resolving params carries its raw template; unresolved placeholders → null template", () => {
+    // RESYNC_SHRINK_HELD's dougFacing names <sheet-name>; supplying it resolves
+    // the template (the raw template string is kept — emphasis renders later).
+    const [resolved] = deriveAttentionItems({
+      alerts: [
+        alert({
+          id: "i1",
+          code: "RESYNC_SHRINK_HELD",
+          messageParams: { "sheet-name": "II - Demo Show" },
+        }),
+      ],
+      feed: null,
+      slug: SLUG,
+    });
+    expect(resolved!.alert?.template).toBeTruthy();
+    // Missing params → unresolved <placeholder> → null (invariant-5 guard).
+    const [unresolved] = deriveAttentionItems({
+      alerts: [alert({ id: "i2", code: "RESYNC_SHRINK_HELD", messageParams: {} })],
+      feed: null,
+      slug: SLUG,
+    });
+    expect(unresolved!.alert?.template).toBeNull();
+  });
+
+  it("auto-resolving (resolution:'auto') codes get autoResolveNote copy, not the inbox line", () => {
+    const items = deriveAttentionItems({
+      alerts: [alert({ id: "ar1", code: "RESYNC_SHRINK_HELD", messageParams: {} })],
+      feed: null,
+      slug: SLUG,
+    });
+    expect(items[0]!.actionable).toBe(false);
+    // autoResolveNote's copy (per-code or its default) — presence is the
+    // contract; the exact string is catalog-owned.
+    expect(items[0]!.alert?.autoClearNote).toBeTruthy();
+  });
+
   it("classifies inbox-routed codes as non-actionable with an auto-clear note", () => {
     const items = deriveAttentionItems({
       alerts: [alert({ id: "a2", code: "SHEET_UNAVAILABLE", identityText: null })],

@@ -7,7 +7,7 @@
  * Resolves a per-show admin_alerts row. POSTs to the SHOW-SCOPED
  * resolve route /api/admin/show/[slug]/alerts/[id]/resolve per Pin-2
  * AdminAlertResolveResponse. Cross-show forgery hardening: this
- * component is ONLY mounted from <PerShowAlertSection /> which has the
+ * component is ONLY mounted from the attention surface (AttentionBanner) which has the
  * slug + alert id from the same `shows` row + `admin_alerts.show_id`
  * server-side join, so the route's server-side show_id check is a
  * defensive backstop rather than the only guard. On success refreshes

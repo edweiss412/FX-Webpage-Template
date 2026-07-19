@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fetchPerShowAlerts, type AdminAlertRow } from "@/lib/adminAlerts/fetchPerShowAlerts";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { setLogSink, resetLogSink } from "@/lib/log";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +32,7 @@ const mockState = vi.hoisted(() => ({
   }>,
   failAlertRead: false,
   failIdentityRead: false,
+  notCalls: [] as Array<[string, string, string]>,
 }));
 
 vi.mock("@/lib/supabase/server", () => {
@@ -45,7 +47,10 @@ vi.mock("@/lib/supabase/server", () => {
           select: () => builder,
           eq: () => builder,
           is: () => builder,
-          not: () => builder,
+          not: (column: string, op: string, value: string) => {
+            mockState.notCalls.push([column, op, value]);
+            return builder;
+          },
           order: () => builder,
           in: (column: string, values: string[]) => {
             inFilter.column = column;
@@ -115,6 +120,7 @@ beforeEach(() => {
   mockState.showRows = [];
   mockState.failAlertRead = false;
   mockState.failIdentityRead = false;
+  mockState.notCalls = [];
   setLogSink(() => {});
 });
 
@@ -173,5 +179,17 @@ describe("fetchPerShowAlerts crewName (§3.1a)", () => {
     const result = await fetchPerShowAlerts(SHOW_ID);
     expect(Array.isArray(result)).toBe(false);
     expect((result as { kind: string }).kind).toBe("infra_error");
+  });
+
+  test("audience exclusion (ported from the retired section suite): the query excludes ALL health codes via .not(code, in, …)", async () => {
+    setAlerts([]);
+    await fetchPerShowAlerts(SHOW_ID);
+    expect(mockState.notCalls).toHaveLength(1);
+    const [column, op, value] = mockState.notCalls[0]!;
+    expect(column).toBe("code");
+    expect(op).toBe("in");
+    for (const code of HEALTH_CODES) {
+      expect(value).toContain(`"${code}"`);
+    }
   });
 });
