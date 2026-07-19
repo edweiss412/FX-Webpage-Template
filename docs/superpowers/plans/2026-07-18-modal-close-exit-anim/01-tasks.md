@@ -288,23 +288,47 @@ This is the task the spec's S1–S4 inventory exists for. The normalization orde
 
 - [ ] **Step 1: Write the failing test**
 
-The animation itself needs a real browser (jsdom computes no layout and has no `matchMedia`), so the *unit* test pins the chokepoint guard and the settle neutralization — the parts that are observable in jsdom:
+The animation itself needs a real browser (jsdom computes no layout and has no `matchMedia`), so the *unit* test pins the chokepoint guard and the settle neutralization — the parts that are observable in jsdom.
+
+**This test must actually enter the S4 spring-back state.** Manually assigning `panel.style.transform` and pressing Esc does NOT: on today's code Esc just calls a spy `onClose`, the component stays mounted, and nothing clears the manual transform — so such a test passes BEFORE the implementation and proves nothing about `settle()` neutralization. Drive a real sub-threshold drag and fire the pending settle with fake timers instead:
 
 ```tsx
+import { DRAG_SLOP_PX, DURATION_FAST_FALLBACK_MS } from "@/components/admin/review/ReviewModalShell";
+
 describe("exit start-state (spec §3.2)", () => {
-  // Failure mode: a pending spring-back's settle() fires during the exit and
-  // blanks transform/transition/animation, wiping the animation mid-flight.
-  // Its only guard is `dragRef === null`, which is TRUE during an exit.
-  it("clearPanelDragStyles is a no-op once dismissing", async () => {
-    renderShell({ onClose: vi.fn() });
-    const panel = screen.getByTestId("test-modal-panel");
-    panel.style.transform = "translateY(40px)";
-    await userEvent.keyboard("{Escape}");
-    // The exit committed; nothing may hand the panel back to stylesheet control.
-    expect(panel.style.transform).not.toBe("");
+  // Failure mode: a pending spring-back's settle() fires DURING the exit and
+  // calls clearPanelDragStyles(), blanking transform/transition/animation and
+  // wiping the animation mid-flight. settle()'s only guard is
+  // `dragRef.current === null` — which is TRUE during an exit, so it fires.
+  it("a pending settle cannot blank the exit styles", async () => {
+    vi.useFakeTimers();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    try {
+      renderShell({ onClose: vi.fn() });
+      const grab = screen.getByTestId("test-modal-grab");
+      const panel = screen.getByTestId("test-modal-panel");
+
+      // Sub-threshold drag: past slop (so `wasDrag`), under the dismiss
+      // threshold (so release takes the spring-back branch, arming settleTimer).
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: 100 + DRAG_SLOP_PX + 10 });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: 100 + DRAG_SLOP_PX + 10 });
+      expect(panel.style.transform).not.toBe(""); // spring-back is animating
+
+      // Close INSIDE the settle window, then let the pending settle fire.
+      await user.keyboard("{Escape}");
+      vi.advanceTimersByTime(DURATION_FAST_FALLBACK_MS + 20);
+
+      // The exit committed; nothing may hand the panel back to stylesheet control.
+      expect(panel.style.transform).not.toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 ```
+
+Import `fireEvent` from `@testing-library/react` if the file does not already. Confirm `test-modal-grab` / `test-modal-panel` match the `testIdBase` the existing suite renders with — use the suite's actual base, not these literals.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -436,12 +460,25 @@ describe("ShowReviewModalSkeleton dual usage (spec §3.4)", () => {
   // Failure mode: the shell-wide requestClose rewiring animates the LOADING
   // frame off-screen into an inert, scroll-locked state with no close. A test
   // asserting only "no X button" passes while exactly that ships.
+  // All FOUR affordances, per spec §7.5 item 4 — not just Esc and scrim. The
+  // drag branch bypasses requestClose entirely, so a gate that covers
+  // requestClose step 0 but forgets handleGrabPointerDown / beginDismiss would
+  // still animate the loading frame away while a two-affordance test passes.
   it("server-fallback usage: every affordance is inert", async () => {
     render(<ShowReviewModalSkeleton />);
     const dialog = screen.getByRole("dialog");
     const panel = screen.getByTestId("show-review-modal-panel");
+    const grab = screen.getByTestId("show-review-modal-grab");
+
     await userEvent.keyboard("{Escape}");
     await userEvent.click(screen.getByTestId("show-review-modal-backdrop"));
+    await userEvent.click(grab); // grab TAP
+
+    // Grab DRAG past the dismiss threshold — the branch that bypasses requestClose.
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: 100 + DRAG_DISMISS_THRESHOLD_PX + 20 });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: 100 + DRAG_DISMISS_THRESHOLD_PX + 20 });
+
     expect(dialog.hasAttribute("inert")).toBe(false);
     expect(panel.style.transform).toBe("");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -685,6 +722,16 @@ git commit --no-verify -m "test(admin): structural guards for close path, motion
 
 - Modify: `tests/e2e/published-review-modal.interactions.spec.ts:23`, `:254-292`
 - Modify: `tests/e2e/step3-review-modal.interactions.spec.ts`
+- Modify: `tests/e2e/_step3ReviewModalLiveEntry.tsx` — **required for (g)/(h)**, see below
+- Reference (no edit expected): `tests/e2e/_step3ReviewModalHarness.tsx` — `modalElement()` (`:172`) already accepts handler injection; `harnessResolution()` (`:201`) already builds the resolution variant
+
+**Harness prerequisites — (g)/(h) cannot be written without these.** The live entry currently hardcodes `onRequestSetChecked: async () => true` (`_step3ReviewModalLiveEntry.tsx:65`) and passes no `resolution` prop, so there is no way to time a resolution relative to the exit window. Add, gated behind a query param so existing tests are untouched:
+
+- **Deferred, test-controlled promises** for `onRequestSetChecked` and the resolution handlers (`onApplyResolve`, the ignore path) — resolve them from the spec via an exposed `window.__resolveAction(name)` rather than a timer, so "inside the exit window" vs "after exit-end" is deterministic rather than racing a `waitForTimeout`.
+- **The resolution variant mounted** via the existing `harnessResolution()` when the param requests it.
+- **Counters, not booleans:** `window.__closeCount` (increment per `onClose`) and `window.__actionCount`. The existing `window.__modalClosed` boolean (`:17-20`) cannot distinguish one close from two — and "exactly once" is the whole assertion in (g)/(h).
+
+**Config:** the Step3 spec runs under `tests/e2e/standalone.config.ts` (`:17`); the published spec runs under the app Playwright config. Run them separately — do not assume one invocation covers both.
 
 **VIEWPORT CONSTRAINT (verified):** the grab strip is `sm:hidden` (`ReviewModalShell.tsx:423`). Grab-tap and drag runs REQUIRE `SHEET` (`{width:390,height:844}`); X/Esc/scrim run at both `SHEET` and `POPUP` (`{width:1280,height:800}`). A desktop-only matrix silently skips two of the five affordances while appearing green. Reuse the existing `SHEET`/`POPUP` consts (`published-review-modal.interactions.spec.ts:64-65`) — do not invent viewports.
 
@@ -728,8 +775,10 @@ Each case asserts: ≥2 distinct intermediate values, strict progression toward 
 - [ ] **Step 3: Run**
 
 ```bash
-pnpm exec playwright test tests/e2e/published-review-modal.interactions.spec.ts \
-  tests/e2e/step3-review-modal.interactions.spec.ts
+# Published spec — app Playwright config
+pnpm exec playwright test tests/e2e/published-review-modal.interactions.spec.ts
+# Step3 spec — standalone config (tests/e2e/standalone.config.ts:17)
+pnpm exec playwright test -c tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.interactions.spec.ts
 ```
 
 Expected: PASS. If a sibling dev server occupies :3000, `lsof` the cwd and use a scratch alt-port config rather than fighting the port.
@@ -737,7 +786,9 @@ Expected: PASS. If a sibling dev server occupies :3000, `lsof` the cwd and use a
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts
+git add tests/e2e/published-review-modal.interactions.spec.ts \
+  tests/e2e/step3-review-modal.interactions.spec.ts \
+  tests/e2e/_step3ReviewModalLiveEntry.tsx
 git commit --no-verify -m "test(admin): real-browser exit-animation matrix, five affordances at correct viewports"
 ```
 

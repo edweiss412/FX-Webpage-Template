@@ -105,6 +105,7 @@ Every symbol, path, and line this plan names was grepped against the live worktr
 | `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx` | **new** — dual-usage gate | 4 |
 | `tests/e2e/published-review-modal.interactions.spec.ts` | flip instant-unmount; (a)(c)(d)(e)(f) | 7 |
 | `tests/e2e/step3-review-modal.interactions.spec.ts` | (b) five-affordance matrix, (g), (h) | 7 |
+| `tests/e2e/_step3ReviewModalLiveEntry.tsx` | deferred test-controlled action promises + close/action counters — (g)/(h) prerequisite | 7 |
 | `docs/superpowers/specs/2026-07-18-admin-show-modal.md` | §6.5 amendment | 8 |
 | `DEFERRED.md` | resolve `MODAL-CLOSE-EXIT-ANIM-1`; `MODAL-SKELETON-CLOSE-1` untouched | 8 |
 
