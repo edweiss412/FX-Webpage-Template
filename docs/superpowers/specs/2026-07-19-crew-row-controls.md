@@ -125,7 +125,7 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
      `/admin/show/${encodeURIComponent(slug)}/preview/${encodeURIComponent(crewId)}`, keeps
      `data-testid="admin-show-preview-as-link-${crewId}"` (test/help continuity). Eye icon.
      Clicking closes the menu (navigation proceeds).
-  2. divider (`h-px bg-border mx-1.5 my-1`)
+  2. divider (`h-px bg-border mx-1.5 my-1`, `role="separator"` — non-focusable, not a menuitem)
   3. **Reset name picker** — button, RefreshCw icon → confirm popover (4.3).
 - One menu open across the whole section (single `openCrewId` state in `CrewBreakdown`).
 - Close paths & stacking (ratified: backdrop-simple, the UserMenu idiom — NOT the mock's
@@ -162,8 +162,10 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
 - Content: heading "Reset name picker" (13px semibold), warning
   `"${name} will choose their name again on their next visit."` (12px `text-text-subtle`,
   id wired to `aria-describedby` on the CTA), actions right-aligned:
-  **Cancel** (neutral: `border border-border bg-surface`) and **Confirm reset**
-  (`bg-warning-text text-warning-bg` — the pinned destructive recipe; requires a new
+  **Cancel** (neutral: `border border-border bg-surface`,
+  `data-testid="crew-row-reset-cancel"`) and **Confirm reset**
+  (`bg-warning-text text-warning-bg` — the pinned destructive recipe,
+  `data-testid="crew-row-reset-confirm-go"`; requires a new
   `_metaDestructiveConfirm` registry row for `CrewRowActions.tsx`).
 - Focus: opens with **Cancel** focused (C3); Cancel/auto-revert restores focus to the row trigger
   (C5). Confirm-resolve path does not restore (outcome banner announces; matches
@@ -351,9 +353,12 @@ Real-browser — ALL of the following run in a LIVE spec (new sibling
 (client-only mounts hidden — known lesson), so NO new assertion lands there. **CI wiring is
 part of the deliverable** (testMatch ≠ CI, the #479 lesson): (a) add
 `published-review-modal\.crew-actions` to the `desktop-chromium` testMatch regex
-(`playwright.config.ts:70`), and (b) add the new spec file to BOTH the `paths:` trigger list
-and the `playwright test` run command of `.github/workflows/published-modal-e2e.yml`
-(`:45,:126`) in the same PR:
+(`playwright.config.ts:70`), and (b) in `.github/workflows/published-modal-e2e.yml`, add to the `paths:` trigger list
+(`:35-52`) BOTH the new spec file AND the row-control source files
+(`components/admin/wizard/step3ReviewSections.tsx`, `components/admin/wizard/CrewRowActions.tsx`
+— exact files, not `components/admin/wizard/**`, to avoid retriggering the modal e2e on
+unrelated wizard-step churn), and add the new spec file to the `playwright test` run command
+(`:126`) — all in the same PR:
 
 - Menu popover opens inside the modal without being clipped: `getBoundingClientRect()` of
   `crew-row-menu-*` fully within viewport and intersecting the modal scroll container's visible
