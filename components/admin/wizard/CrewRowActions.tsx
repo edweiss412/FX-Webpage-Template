@@ -290,7 +290,7 @@ export function CrewRowActions({
           {/* not-subject:M5-D8 — admin-authored inline warning copy (see onConfirm rationale). */}
           <p
             id={warningId}
-            className="mt-0.5 mb-3 text-xs leading-relaxed wrap-break-word text-text-subtle"
+            className="mt-0.5 mb-3 text-xs/relaxed wrap-break-word text-text-subtle"
           >
             {name} will choose their name again on their next visit.
           </p>

@@ -185,7 +185,7 @@ export function PickerResetControl({
       <div className="min-w-0">
         {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
             in the screen-reader heading outline. */}
-        <h4 className="text-sm font-medium text-text-strong">Reset everyone&rsquo;s pick</h4>
+        <h4 className="text-sm font-medium text-text-strong">{"Reset everyone's pick"}</h4>
         <p id={descId} className="text-xs text-text-subtle">
           {hasCrew
             ? "Make everyone pick their name again on their next visit."
@@ -202,7 +202,7 @@ export function PickerResetControl({
           className="flex flex-col gap-2"
         >
           <p id={warningId} className="text-xs text-text-subtle">
-            Every device&rsquo;s picker re-prompts on next visit.
+            {"Every device's picker re-prompts on next visit."}
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
@@ -238,7 +238,7 @@ export function PickerResetControl({
           className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw aria-hidden="true" size={14} />
-          Reset everyone&rsquo;s pick
+          {"Reset everyone's pick"}
         </button>
       )}
 
