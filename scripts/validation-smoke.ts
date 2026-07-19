@@ -33,6 +33,7 @@ import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { loadValidationEnv } from "./lib/validation-env";
 import { assertSupabaseTargetMatchesProjectRef } from "./lib/validation-target";
+import { assertValidationSmokeBaseUrl } from "./lib/validation-smoke-target";
 
 const AGENT_EMAIL = "agent@fxav.test";
 const DEFAULT_BASE_URL = "https://fxav-crew-pages-validation.vercel.app";
@@ -89,6 +90,10 @@ async function main(): Promise<void> {
   assertSupabaseTargetMatchesProjectRef(supabaseUrl, projectRef, false);
   const testAuthSecret = requireEnv("VALIDATION_TEST_AUTH_SECRET");
   const baseURL = process.env.VALIDATION_SMOKE_BASE_URL || DEFAULT_BASE_URL;
+  // Codex R1-F1: the bearer below travels to this URL — pin it to the
+  // validation project (production alias or its own preview deployments)
+  // before anything else touches the network.
+  assertValidationSmokeBaseUrl(baseURL);
 
   await deleteAgentUser(supabaseUrl, secretKey);
 
