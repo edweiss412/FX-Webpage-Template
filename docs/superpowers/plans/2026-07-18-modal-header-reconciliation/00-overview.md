@@ -8,44 +8,93 @@
 
 **Design mock:** `docs/superpowers/specs/2026-07-18-modal-header-reconciliation-mock/mock.html`, option `#1a` = the locked target. The two "Today" panels are before-state reference, NOT targets. The mock is dark-only and happy-path-only; spec §7 is the authority for every state it does not draw.
 
-**Base:** worktree `/Users/ericweiss/FX-worktrees/modal-header-reconciliation`, branch `feat/modal-header-reconciliation`, off `origin/main` = `91149861a`. Spec §3.2's 103-row citation appendix was re-verified against this tree during the plan's pre-draft pass — see "Pre-draft verification results" below.
+**Base:** worktree `/Users/ericweiss/FX-worktrees/modal-header-reconciliation`, branch `feat/modal-header-reconciliation`, off `origin/main` = `91149861a`. Spec §3.2's 103-row citation appendix was re-verified against this tree during the plan's pre-draft pass.
 
 **Tech stack:** Next.js 16 App Router, Tailwind v4, vitest + RTL (jsdom), Playwright (real-browser assertions).
 
 ---
 
-## Architecture / sequencing rationale
+## Two structural rules this plan is built around
 
-Bottom-up, so each commit leaves the tree green AND leaves the product coherent:
+### Rule 1 — NO known-red commits. Every task ends with the FULL suite green.
 
-1. **Shell capability first** (Task 1) — the `subHeader` slot must exist before anything can mount into it, and the Step 3 baseline must be captured on the pre-change tree (§11.2).
-2. **Strip prop deletions** (Task 2) — removes dead API and its harness coupling while the strip is still in its old mount site, so the type-check blast radius is isolated from the layout change.
-3. **Band mount** (Task 3) — the strip moves out of `<header>` into the `subHeader` band. This is the structural pivot.
-4. **Header content** (Tasks 4–5) — subline, then the alert relocation. The alert move is ATOMIC (remove from strip + add pill to header + fix `hasSignal` in ONE commit) because splitting it produces a commit where the alert count is invisible to the user despite a green test run.
-5. **Copy variant migration** (Task 6) — all three call sites in one commit (§6.4; a partial migration fails `pnpm typecheck`).
-6. **Re-sync cluster** (Tasks 7–9) — the separable, highest-risk piece (§14.5), kept as its own cluster per §11's scope note.
-7. **Skeleton parity** (Task 10) — after the loaded modal's final band geometry exists to match against.
-8. **Real-browser suites** (Tasks 11–13) — jsdom cannot assert any of it; run once the DOM is final.
-9. **Close-out** (Task 14).
+A task that breaks an existing spec **also updates that spec, in the same commit**. There is no "known-red, fixed later" state anywhere in this plan. Where two changes genuinely cannot be split without a red intermediate, they are **merged into one task** and the task body says why.
 
-**Count pins are NOT a late task.** §9 requires each count literal to move in the SAME commit as the source change that moves it (the pin fails-by-default — that is its entire purpose). T-COUNTS is therefore distributed across Tasks 2, 3, 4, 5, 8 and 9, each of which re-runs the lexical scanner and updates `pageTransitions.test.tsx` in its own commit. Task 12 only re-verifies the final state.
+Consequences, applied concretely:
+
+- **Task 2** deletes `chrome`, which `tests/e2e/statusStripToggleLayout.spec.ts` consumes through the harness's `stripProps()` — so Task 2 owns that spec's rewrite.
+- **Task 3** moves the strip out of `<header>`, which breaks `published-review-modal.layout.spec.ts:169-198` (`header + main === panel.clientHeight` — verified live) and dissolves the premise of `:221-232` (header rhythm) — so Task 3 owns both rewrites.
+- **Task 7** is a MERGE of the former Tasks 7 + 8. `ReSyncButton`'s restructure alone leaves an overlay-shaped component mounted in Overview's `flex-col` with its panels anchored to the panel instead of the band, breaks `accent-button-atom` sub-scan 2 (drift D1), and strands `admin-parse-panel.spec.ts`'s Overview-scoped locator. The strip mount is what makes all three coherent. **Genuinely inseparable — merged.**
+- The **alert relocation** (Task 5) was already atomic for the same reason, and stays so.
+- **Former Task 13 (existing-spec repair) is DISSOLVED.** Every rewrite it held is pushed into the task that causes the break. Its RETIRE-vs-REWRITE disposition table survives intact, redistributed and reproduced in full in `04-verification.md` as a cross-reference index.
+
+### Rule 2 — Real-browser assertions live in the feature task they police, written FIRST.
+
+The former Tasks 11–12 (two trailing real-browser suites) are **DISSOLVED**. Writing T-LAYOUT, T-COPY-FLUSH, T-TAP, T-OVERLAY, T-CONTRAST, T-RESYNC-FOCUS-ORDER and T-NO-ORANGE *after* Tasks 3–10 had already built the DOM meant a correct implementation produced **no red phase at all** — the history could not prove those assertions would have caught the pre-change layout. Each now belongs to the task that makes it pass, and each task states **what makes it genuinely red on the pre-change tree**.
+
+The final task (Task 10) adds **no new assertions** — it is cross-cutting close-out only: full suite, count re-verify, source scans, impeccable dual-gate, adversarial review.
+
+**Three assertions are NOT genuinely red, and are declared as such rather than dressed up** (the honest-declaration precedent is spec §11.2's own baseline table):
+
+| Assertion | Task | Why it cannot be red |
+| --- | --- | --- |
+| T-STEP3-INVARIANT | 1 | A regression guard by construction — green before AND after. Spec §11.2 declares this explicitly; the task's red comes from T-SUBHEADER-SLOT (the new capability) |
+| T-TAP, sheet-link 44px clause | 5 | The sheet link is already `size-tap-min` today (`PublishedReviewModal.tsx:270`) and is ratified unchanged (Watchpoint 1). It passes pre- and post-change. It rides along as a guard against the header restructure dropping it. The genuinely-red T-TAP clauses are the alert pill (Task 5) and the Re-sync trigger + dismiss controls (Task 7) — none of which exist pre-change |
+| T-COPY-ACCENT-UNCHANGED | 6 | An invariance guard on the shared accent arm (§F3) — green before and after by design. Task 6's red comes from T-COPY-OUTLINE, whose subject (`variant="outline"`) does not exist pre-change |
+
+Everywhere else, the red is real and named in the task body.
+
+---
+
+## Architecture / sequencing
+
+1. **Shell capability** (Task 1) — the `subHeader` slot must exist before anything mounts into it, and the Step 3 baseline must be captured on the pre-change tree (§11.2).
+2. **Strip prop deletions** (Task 2) — removes dead API + its harness/e2e coupling while the strip is still in its old mount site, isolating the type-check blast radius from the layout change.
+3. **Band mount** (Task 3) — the structural pivot, carrying its own real-browser band assertions and the layout-spec rewrites.
+4. **Header content** (Tasks 4–5) — subline, then the atomic alert relocation.
+5. **Copy variant migration** (Task 6) — all three call sites in one commit.
+6. **Re-sync cluster** (Task 7, merged) — the separable, highest-risk piece (§14.5).
+7. **Status collapse** (Task 8).
+8. **Skeleton parity** (Task 9) — after the loaded modal's final band geometry exists to match against.
+9. **Close-out** (Task 10).
+
+**Count pins are distributed, not a late task.** §9 requires each count literal to move in the SAME commit as the source change that moves it (the pin fails-by-default — that is its purpose). T-COUNTS therefore lives in Tasks 2, 3, 4, 5, 7 and 8; Task 10 only re-verifies the final state.
+
+### Sequencing re-verification (the check performed)
+
+After restructuring, each task was walked against what exists at its commit, asking: *does anything in the tree assert a contract this commit just broke, and does this commit fix it?* The specific check was a `rg` over `tests/` for each symbol the task touches (`chrome=`, `renderTitle`, `show-status-strip`, `strip-title`, `ReSyncButton`, `admin-resync`, `overview-sheet-sync`, `ShareLinkCopyButton`, `compact`), cross-referenced against the disposition index in `04-verification.md`.
+
+| Task | Breaks | Fixed in the same commit? |
+| --- | --- | --- |
+| 1 | nothing (additive optional prop; Step 3 suites must pass unmodified — that IS the acceptance signal) | n/a |
+| 2 | `statusStrip.test.tsx:197,400,408`, `_statusStripToggleHarness.tsx:62-127`, `statusStripToggleLayout.spec.ts`, `pageTransitions:124` | **Yes** — all five listed in Task 2's files |
+| 3 | `published-review-modal.layout.spec.ts:169-198` + `:221-232`, `publishedReviewModal.test.tsx:323` | **Yes** |
+| 4 | `pageTransitions:124` only | **Yes** |
+| 5 | `statusStrip.test.tsx` alert cases, `pageTransitions` ×2 literals | **Yes**; `overviewSection.test.tsx:71` (`#overview` target) must still PASS — verified as a keep-green, not a break |
+| 6 | share-panel / share-chip / strip copy suites | **Yes**; `pnpm typecheck` is the completeness gate |
+| 7 | `ReSyncButton.test.tsx`, `overviewSection.test.tsx` Re-sync cases, `accent-button-atom:52` (D1), `_uiLabelExceptions:180` (D2), `_metaDestructiveConfirm:79` (D3), `admin-parse-panel.spec.ts:269` (D4), `pageTransitions` | **Yes — all six, which is exactly why 7 and 8 merged** |
+| 8 | `statusStrip.test.tsx` status cases | **Yes** |
+| 9 | nothing (skeleton has no external consumers) | n/a |
+| 10 | nothing (adds no assertions) | n/a |
+
+`step3-review-modal.layout.spec.ts:222` and `publishedReviewModal.test.tsx:270` (no `<h1>`) are **keep-green throughout** — they must pass unmodified at every commit, and their passing untouched is the Step-3-invariance and single-title signal respectively.
 
 ---
 
 ## Global constraints
 
-- **TDD per task** (invariant 1): failing test → minimal implementation → green → commit. One task = one commit. Conventional commits, scope `admin` / `crew-page` / `review`.
-- **No DB, RPC, migration, telemetry, or mutation-surface change** (spec §2). Re-sync's relocation moves a client trigger between render sites; `/api/admin/sync` and its auth are untouched. Invariants 2, 3, 4, 9, 10 are all N/A by construction — no `pg_advisory*`, no Supabase call, no email handling, no new/moved mutating route or `"use server"` action.
+- **TDD per task** (invariant 1): failing test → minimal implementation → green → commit. One task = one commit. Conventional commits, scope `admin` / `crew-page` / `review`. **Every task ends with the full suite green** (Rule 1).
+- **No DB, RPC, migration, telemetry, or mutation-surface change** (spec §2). Invariants 2, 3, 4, 9, 10 are N/A by construction — no `pg_advisory*`, no Supabase call, no email handling, no new/moved mutating route or `"use server"` action.
 - **Invariant 5 (no raw error codes in UI)** applies and is actively at risk: Task 7 relocates `ReSyncButton`'s error branch, which must keep routing through `lib/messages/lookup.ts`. T-RESYNC-ERROR is the executable guard.
-- **Invariant 8 (impeccable dual-gate)** applies — every task touches `components/` or `app/`. `/impeccable critique` AND `/impeccable audit` run at close-out (Task 14), before adversarial review, with P0/P1 findings fixed or explicitly deferred in `DEFERRED.md`.
-- **Invariant 11 (worktree)** — already satisfied; all work stays in this worktree.
-- **UI is Opus-only** (ROUTING.md hard rule): every file in this diff is under `components/` or `app/`. Do not route any implementation task to Codex.
+- **Invariant 8 (impeccable dual-gate)** — every task touches `components/` or `app/`. `/impeccable critique` AND `/impeccable audit` run at close-out (Task 10), before adversarial review, P0/P1 fixed or explicitly deferred in `DEFERRED.md`.
+- **Invariant 11 (worktree)** — satisfied; all work stays in this worktree.
 - **`pnpm typecheck` is a required gate on Tasks 2, 6 and 7** — vitest strips types, so prop deletions and the `compact` → `variant` migration break at type-check only (§14.3).
-- **Every new color / radius / spacing is a token class, never a ported hex** (§7.1). The mock's `:root` block is the dark-theme runtime values byte-for-byte; porting them breaks light mode.
+- **Every new color / radius / spacing is a token class, never a ported hex** (§7.1).
+- **UI is Opus-only** (ROUTING.md hard rule): every file in this diff is under `components/` or `app/`.
 
 ## Meta-test inventory (declared per AGENTS.md writing-plans rules)
 
-**Restating spec §12, plus three registries the spec does not enumerate (found in this plan's pre-draft pass — see drift D1–D3).**
+**Restating spec §12, plus three registries the spec does not enumerate (found in this plan's pre-draft pass — drifts D1–D3).**
 
 - **Creates:** none.
 - **Extends:**
@@ -65,16 +114,22 @@ All 28 spot-checked rows of spec §3.2 resolve **byte-exact** at this tree, incl
 
 **Lexical scanner re-run against live source** (spec §9's exact regexes, not reasoned): `StatusStrip.tsx` = 8 (`:171,194,213,221,227,237,244,259`), `PublishedReviewModal.tsx` = 1 (`:263`), `OverviewSection.tsx` = 4 (`:110,127,138,158`). Every "before" figure in §9's target table confirmed.
 
+**Additional live reads made during the restructure** (these drive the red-phase claims in Tasks 2, 3 and 6):
+- `StatusStrip.tsx:161-164` — the `modal-header` arm is `"flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"`. **No `w-full` today.** This is what makes T-COPY-FLUSH genuinely red.
+- `StatusStrip.tsx:259-263` — `strip-copy-link` **already carries `ml-auto shrink-0`**. So T-COPY-FLUSH is not testing `ml-auto`'s presence; it tests that `ml-auto` resolves against a full-band-width row, which requires `w-full` + the band. Do not "fix" a red T-COPY-FLUSH by re-adding `ml-auto` — it is already there.
+- `published-review-modal.layout.spec.ts:169-198` — asserts `header + main (+grab) === panel.clientHeight ±0.5px`, with an explicit non-vacuity check and a `no footer element` assertion. **This fails the instant the third band lands.** Task 3 owns it.
+- `statusStripToggleLayout.spec.ts:1-55` — a standalone harness spec measuring strip geometry at 390px across `card` / inline / error states built from `stripProps()`. Coupled to the deleted props. Task 2 owns it.
+
 **Token confirmed live:** `--color-status-review` exists (`globals.css:93`), light `#a87716` (`:298`) / dark `#e0b84e` (`:349`). §6.6's `bg-status-review` is a real token — do not port the mock hex.
 
-### Drift found — three registries spec §12 does not list
+### Drift found — four registries/specs spec §11–§12 do not enumerate
 
 | # | Finding | Where | Effect | Handled by |
 | --- | --- | --- | --- | --- |
 | **D1** | `accent-button-atom.test.ts` sub-scan 2 asserts `ReSyncButton.tsx` **imports `AccentButton`** | `tests/styles/accent-button-atom.test.ts:52`, `:83-99` | §6.7's demotion to a raw ghost `<button>` **hard-fails this meta-test**. Spec §11/§12 never mention it | Task 7 — delete the `"ReSyncButton.tsx"` row from `MIGRATED_FILES` in the same commit, with a comment recording the de-migration rationale |
-| **D2** | Help-label registry pins the literal `"Re-sync from Drive"` | `tests/help/_uiLabelExceptions.ts:180-184` (note cites `ReSyncButton.tsx:99`; the literal actually lives at `:150` — the note's line ref is itself stale) | §6.7 shortens the idle label to `"Re-sync"`, so the help MDX (`app/help/admin/per-show-panel/page.mdx`) and this row drift | Task 8 — update MDX copy + the exception row together |
+| **D2** | Help-label registry pins the literal `"Re-sync from Drive"` | `tests/help/_uiLabelExceptions.ts:180-184` (note cites `ReSyncButton.tsx:99`; the literal actually lives at `:150` — the note's line ref is itself stale) | §6.7 shortens the idle label to `"Re-sync"`, so the help MDX and this row drift | Task 7 — update MDX copy + the exception row together |
 | **D3** | `_metaDestructiveConfirm` registers `ReSyncButton.tsx` as a `"panel"` confirm keyed `admin-resync-accept` | `tests/styles/_metaDestructiveConfirm.test.ts:79` | §6.7 restructures that panel (absolute positioning, `role="group"`, moved live-region role) | Task 7 — re-run the meta-test; keep the row, adjust only if the scan's structural assumption breaks |
-| **D4** | e2e clicks `admin-resync-button` **scoped inside `overview-sheet-sync`** | `tests/e2e/admin-parse-panel.spec.ts:269-274` | The button leaves that container entirely; the scoped locator resolves to nothing | Task 13 — rescope to the strip band. **REWRITTEN, not retired** — the round-trip-and-render-catalog-copy intent survives the move |
+| **D4** | e2e clicks `admin-resync-button` **scoped inside `overview-sheet-sync`** | `tests/e2e/admin-parse-panel.spec.ts:269-274` | The button leaves that container entirely; the scoped locator resolves to nothing | Task 7 — rescope to the strip band. **REWRITTEN, not retired** — the round-trip-and-render-catalog-copy intent survives |
 
 **Could not verify:** nothing material. Two soft spots flagged for the implementer rather than blocking: (a) the exact light-mode contrast ratios in §7.1 are the spec's own measurements — T-CONTRAST re-measures them in-browser and is the authority; (b) `_metaDestructiveConfirm`'s scan internals were read but not executed against a hypothetical post-change `ReSyncButton`, so D3 is "re-verify", not "known-broken".
 
@@ -82,61 +137,74 @@ All 28 spot-checked rows of spec §3.2 resolve **byte-exact** at this tree, incl
 
 ## Watchpoints — RATIFIED, do NOT relitigate
 
-Pre-loading the reviewer per AGENTS.md's disagreement-loop preempt rule. Each carries its ratification citation; verify the contract there rather than re-deriving it.
+Pre-loading the reviewer per AGENTS.md's disagreement-loop preempt rule. Each carries its ratification citation.
 
 1. **Sheet-link hit area stays 44px** (`size-tap-min`) — spec §4.1, `PublishedReviewModal.tsx:270`. The mock draws a 24px slot; the glyph is `size-4` in both, so only the hit rect differs. Ratified by the user 2026-07-18.
-2. **No `chrome`-prop gating is needed** — spec §4.1. `StatusStrip` has exactly one production render site (`PublishedReviewModal.tsx:292`); `/admin/show/[slug]/page.tsx` is a 307 redirect stub. Restyle directly; the prop is deleted outright (§6.5).
+2. **No `chrome`-prop gating is needed** — spec §4.1. `StatusStrip` has exactly one production render site (`PublishedReviewModal.tsx:292`); `/admin/show/[slug]/page.tsx` is a 307 redirect stub. The prop is deleted outright (§6.5).
 3. **Re-sync MOVES to the strip** — spec §4.3, a ratified amendment to the consolidated-admin-show-page spec's "2 actions max" rule (quoted at `StatusStrip.tsx:7-9`). The budget becomes 3. Duplicating the control was explicitly rejected. In scope for review: whether the move is executed correctly (§6.7) and whether the removed Overview affordance leaves a hole (§7). NOT in scope: the placement decision.
 4. **The alert stays an `<a href="#overview">`** — spec §4.1 / F1. The mock's inert `<span>` is a static-canvas fidelity artifact, not a decision to remove navigation. `overviewSection.test.tsx:71` pins the target's existence.
-5. **Live-now keeps its accent hue** — spec §4.2. `bg-status-live` resolves to `var(--color-accent)` (`globals.css:89`). The rule is "the publish toggle is the only orange **control**; exactly one non-control element may be orange: the Live-now indicator." T-NO-ORANGE enumerates the exact set per state rather than asserting absence.
-6. **`dateSummarySegments` does NOT move** — spec §6.3. The cross-domain import is already established (`PublishedReviewModal.tsx:41` imports from `step3ReviewSections`). Moving it drags `arr` away from ten callers.
-7. **No eyebrow in the published header** — spec §6.2. The mock's markup is authoritative over its prose blurb. Do not invent eyebrow copy.
+5. **Live-now keeps its accent hue** — spec §4.2. `bg-status-live` resolves to `var(--color-accent)` (`globals.css:89`). The rule: "the publish toggle is the only orange **control**; exactly one non-control element may be orange: the Live-now indicator." T-NO-ORANGE enumerates the exact set per state rather than asserting absence.
+6. **`dateSummarySegments` does NOT move** — spec §6.3. The cross-domain import is already established (`PublishedReviewModal.tsx:41`). Moving it drags `arr` away from ten callers.
+7. **No eyebrow in the published header** — spec §6.2. The mock's markup is authoritative over its prose blurb.
 8. **The outline Copy border carries no contrast obligation** — spec §7.1, MEASURED at ~1.6:1 in BOTH themes. The visible label does the identifying work (17.21:1 light / 14.34:1 dark). A 3:1 border rule is unsatisfiable with the mandated token; do not "restore" one.
-9. **The shrink-hold confirm gets NO neutral dismiss and NO outside-click-to-close** — spec §6.7. It is a pending decision about the show's data; "Keep current version" IS the safe exit. Error and success branches DO gain dismiss controls; the confirm does not.
+9. **The shrink-hold confirm gets NO neutral dismiss and NO outside-click-to-close** — spec §6.7. "Keep current version" IS the safe exit. Error and success branches DO gain dismiss controls; the confirm does not.
 10. **Success does not self-clear.** Verified at `ReSyncButton.tsx:121` (set) / `:93` (cleared only at the next POST). An earlier spec draft claimed otherwise; the correction is why the success branch gains a dismiss control.
 
 ---
 
-## Task index
+## Task index — 10 tasks
 
 | # | Task | File |
 |---|------|------|
 | 1 | Shell `subHeader` slot + Step 3 baseline fixture | `01-shell-and-strip.md` |
-| 2 | `StatusStrip` prop deletions (`renderTitle`/`chrome`/`title`/`alertCount`) + harness repair | `01-shell-and-strip.md` |
-| 3 | Strip moves into the `subHeader` band | `01-shell-and-strip.md` |
+| 2 | `StatusStrip` prop deletions + harness **and `statusStripToggleLayout.spec.ts`** repair | `01-shell-and-strip.md` |
+| 3 | Strip moves into the `subHeader` band **+ T-LAYOUT / T-COPY-FLUSH + layout-spec rewrites** | `01-shell-and-strip.md` |
 | 4 | Header subline | `02-header.md` |
-| 5 | Alert relocation (strip → header pill) + `hasSignal` fix — ATOMIC | `02-header.md` |
-| 6 | `ShareLinkCopyButton` `variant` union — all three call sites | `02-header.md` |
-| 7 | `ReSyncButton` restructure: ghost trigger + overlay result surfaces | `03-resync.md` |
-| 8 | Re-sync mounts in the strip; Overview affordance removed | `03-resync.md` |
-| 9 | Status line collapses to one row | `03-resync.md` |
-| 10 | `ShowReviewModalSkeleton` three-band parity | `04-verification.md` |
-| 11 | Real-browser suite A — layout, flush, tap, status row, width | `04-verification.md` |
-| 12 | Real-browser suite B — overlay, bounds, contrast, focus order | `04-verification.md` |
-| 13 | Existing e2e spec updates (rewrite vs retire) | `04-verification.md` |
-| 14 | Close-out: source-scan pins, impeccable dual-gate, full suite, adversarial review | `04-verification.md` |
+| 5 | Alert relocation (strip → header pill) + `hasSignal` fix **+ T-TAP pill probe + T-ALERT-CAP 375px** — ATOMIC | `02-header.md` |
+| 6 | `ShareLinkCopyButton` `variant` union, all three call sites **+ T-CONTRAST (Copy label)** | `02-header.md` |
+| 7 | **MERGED:** `ReSyncButton` restructure + strip mount + Overview removal + all Re-sync real-browser pins + D1–D4 | `03-resync.md` |
+| 8 | Status line collapses to one row **+ T-STATUS-INLINE** | `03-resync.md` |
+| 9 | `ShowReviewModalSkeleton` band parity (re-specified — achievable invariant) | `04-verification.md` |
+| 10 | Close-out: count re-verify, source scans, impeccable dual-gate, full suite, adversarial review (**adds no new assertions**) | `04-verification.md` |
+
+**Dissolved:** former Task 11 (real-browser suite A) and Task 12 (suite B) → redistributed into Tasks 3, 5, 6, 7, 8. Former Task 13 (existing-spec repair) → redistributed into Tasks 2, 3, 5, 7. Former Task 8 (Re-sync strip mount) → **merged into Task 7**.
 
 ## §11 test-table coverage map — every T-* row is placed
 
-| T-* | Task | T-* | Task |
-| --- | --- | --- | --- |
-| T-STEP3-INVARIANT | 1 | T-RESYNC-MOVED | 8 |
-| T-SUBHEADER-SLOT | 1 | T-RESYNC-GUIDANCE | 8 |
-| T-SUBHEADER-FALSEY | 1 | T-RESYNC-ARCHIVED | 8 |
-| T-HARNESS | 2 | T-STATUS-INLINE-NO-EDITED | 9 |
-| T-NO-H1 | 2 | T-STATUS-ERROR-BUCKET | 9 |
-| T-ARCHIVED-BAND | 3 | T-SKELETON-BANDS | 10 |
-| T-SUBLINE-CLIENT-NULL | 4 | T-LAYOUT | 11 |
-| T-SUBLINE-DATES-EMPTY | 4 | T-COPY-FLUSH | 11 |
-| T-ALERT-PILL-LINK | 5 | T-TAP | 11 |
-| T-ALERT-PILL-ZERO | 5 | T-STATUS-INLINE | 11 |
-| T-ALERT-CAP | 5 (+ 11 for the 375px clause) | T-RESYNC-WIDTH | 11 |
-| T-ALERT-NOT-IN-STRIP | 5 | T-OVERLAY | 12 |
-| T-DIVIDER-ALERT-ONLY | 5 | T-OVERLAY-BOUNDS | 12 |
-| T-COPY-OUTLINE | 6 | T-CONTRAST | 12 |
-| T-COPY-ACCENT-UNCHANGED | 6 | T-RESYNC-FOCUS-ORDER | 12 |
-| T-RESYNC-GHOST | 7 (folded into T-NO-ORANGE) | T-NO-ORANGE | 12 |
-| T-RESYNC-NO-WRAPPER | 7 | T-TOKENS | 14 |
-| T-RESYNC-SHRINK | 7 | T-TRANSITIONS | 14 |
-| T-RESYNC-ERROR | 7 | T-COUNTS | distributed: 2, 3, 4, 5, 8, 9; re-verified 14 |
-| T-RESYNC-SUCCESS | 7 | | |
+| T-* | Task | Genuinely red pre-change? |
+| --- | --- | --- |
+| T-SUBHEADER-SLOT | 1 | **Yes** — prop does not exist |
+| T-SUBHEADER-FALSEY | 1 | **Yes** — prop does not exist |
+| T-STEP3-INVARIANT | 1 | **No — declared** (regression guard; §11.2) |
+| T-HARNESS | 2 | **Yes** — harness builds deleted props |
+| T-NO-H1 | 2 | **No — keep-green guard** (`publishedReviewModal.test.tsx:270` passes today; the strip's dead `<h1>` branch is unreachable in production) |
+| T-LAYOUT | 3 | **Yes** — no `-subheader` element exists; the panel is two bands |
+| T-COPY-FLUSH | 3 | **Yes** — strip root has no `w-full` (`:161-164` verified) and no band exists, so Copy's right edge ≠ band content-box right edge |
+| T-ARCHIVED-BAND | 3 | **Yes** — no band |
+| T-SUBLINE-CLIENT-NULL | 4 | **Yes** — no subline |
+| T-SUBLINE-DATES-EMPTY | 4 | **Yes** — no subline |
+| T-ALERT-PILL-LINK | 5 | **Yes** — no header pill |
+| T-ALERT-PILL-ZERO | 5 | **Yes** — no header pill |
+| T-ALERT-CAP (incl. 375px) | 5 | **Yes** — no cap today; `StatusStrip.tsx:255` renders `{alertCount}` uncapped |
+| T-ALERT-NOT-IN-STRIP | 5 | **Yes** — alert IS in the strip today (`:244`) |
+| T-DIVIDER-ALERT-ONLY | 5 | **Yes** — `hasSignal` includes `alertCount > 0` today (`:154` verified) |
+| T-TAP (alert pill probe) | 5 | **Yes** — pill does not exist |
+| T-TAP (sheet link 44px) | 5 | **No — declared** (already `size-tap-min`; ratified unchanged) |
+| T-COPY-OUTLINE | 6 | **Yes** — `variant="outline"` does not exist |
+| T-CONTRAST (Copy label) | 6 | **Yes** — the outline arm does not exist |
+| T-COPY-ACCENT-UNCHANGED | 6 | **No — declared** (invariance guard, §F3) |
+| T-RESYNC-NO-WRAPPER | 7 | **Yes** — root is `<div className="flex flex-col gap-3">` (`:136-137`) |
+| T-RESYNC-GHOST → folded into T-NO-ORANGE | 7 | **Yes** — trigger is `AccentButton` today |
+| T-NO-ORANGE | 7 | **Yes** — the accent Re-sync is a third accent-resolving element |
+| T-RESYNC-SHRINK / -ERROR / -SUCCESS | 7 | **Yes** — panels are in-flow, no dismiss controls |
+| T-OVERLAY / T-OVERLAY-BOUNDS | 7 | **Yes** — no absolute panels; geometry assertion cannot resolve |
+| T-RESYNC-WIDTH | 7 | **Yes** — `"Re-sync from Drive"` vs `"Syncing…"` differ in width, no reservation |
+| T-RESYNC-FOCUS-ORDER | 7 | **Yes** — Re-sync is not in the strip |
+| T-RESYNC-MOVED / -ARCHIVED / -GUIDANCE | 7 | **Yes** |
+| T-CONTRAST (ghost label) | 7 | **Yes** — ghost trigger does not exist |
+| T-STATUS-INLINE | 8 | **Yes** — `flex-col` stack today (`:235`); tops differ |
+| T-STATUS-INLINE-NO-EDITED | 8 | **Yes** |
+| T-STATUS-ERROR-BUCKET | 8 | **Partly — declared.** The bucket behavior exists today (`:128-133`); the assertion is a keep-green guard against the collapse hardcoding "Synced". Its red comes from the single-row structural clause it shares with T-STATUS-INLINE |
+| T-SKELETON-BANDS | 9 | **Yes** — skeleton renders no `-subheader` band |
+| T-TOKENS / T-TRANSITIONS | 10 | Source scans over the finished diff — declared as close-out verification, not TDD |
+| T-COUNTS | 2, 3, 4, 5, 7, 8; re-verified 10 | **Yes at each** — the pin fails-by-default |
