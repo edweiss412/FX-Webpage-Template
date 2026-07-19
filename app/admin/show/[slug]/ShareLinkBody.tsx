@@ -50,7 +50,7 @@ export function ShareLinkBody({
             >
               {url}
             </code>
-            <ShareLinkCopyButton url={url} />
+            <ShareLinkCopyButton url={url} variant="accent" />
           </div>
           {emailMailtos.length > 1 && (
             <p

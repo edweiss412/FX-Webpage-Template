@@ -131,8 +131,16 @@ describe("StatusStrip", () => {
   it("renders the copy-link (with the token URL) for a published, non-archived show with a token", () => {
     renderStrip({ published: true, archived: false }, { token: "TOK" });
     const copy = screen.getByTestId("strip-copy-link");
+    // Scoped to `strip-copy-link`, never the bare testid: that testid appears
+    // TWICE inside the open modal (strip + Overview share panel), so a bare
+    // query silently measures the share panel's button instead (§6.4).
     const btn = within(copy).getByTestId("admin-current-share-link-copy-button");
-    expect(btn.getAttribute("aria-label")).toMatch(/copy/i);
+    // modal-header-reconciliation §6.4 (Task 6): the strip's button is the
+    // OUTLINE arm — a visible label, no aria-label. The old accent-arm
+    // aria-label assertion would now be asserting the wrong contract.
+    expect(btn.getAttribute("aria-label")).toBeNull();
+    expect(btn.textContent).toContain("Copy crew link");
+    expect(btn.className).toContain("bg-transparent");
     // The URL is closed over on the button's click handler; assert the surface is present.
     expect(copy).toBeTruthy();
   });

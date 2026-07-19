@@ -454,4 +454,96 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     );
     expect(hOverflow, "no document h-scroll with a capped four-digit count @ 375").toBe(false);
   });
+
+  // T-CONTRAST (modal-header-reconciliation §6.4 / §7.1 / §7.2, Task 6).
+  //
+  // The sampling method IS the test. The outline Copy button is
+  // `background: transparent`, so reading `backgroundColor` off the element
+  // itself yields rgba(0,0,0,0) and ANY ratio computed against it is
+  // meaningless — a correct implementation fails, or a broken one passes. The
+  // "fix" that failure invites is giving the button a solid fill, which undoes
+  // the neutral treatment this task exists to introduce. So the backdrop is
+  // resolved by WALKING UP to the first ancestor that actually paints (§7.2 —
+  // by walking, not by assuming a fixed ancestor depth).
+  //
+  // LABEL ONLY, deliberately: there is NO border-ratio assertion. Watchpoint 8 /
+  // §7.1 record that `border-border-strong` measures ~1.6:1 on the band surface
+  // in BOTH themes; a 3:1 border rule is unsatisfiable with the mandated token
+  // and would force either weakening the test or abandoning the token system.
+  // The visible label does the identifying work.
+  for (const theme of ["light", "dark"] as const) {
+    test(`T-CONTRAST ${theme}: the outline Copy label clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width: 1280, height: 900 });
+      await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+
+      // MUST settle before sampling. The button carries `transition-colors`, so
+      // flipping the theme starts a color transition and an immediate read
+      // returns a MID-TRANSITION value — measured here as rgb(27,28,32), one
+      // step off the light-mode text color, on a page that was already dark.
+      // That produced a ~1.04:1 ratio and would have been "fixed" by weakening
+      // the threshold. Waiting on getAnimations() is exact (CSS transitions are
+      // animations); a fixed sleep would be a guess.
+      await page.evaluate(async () => {
+        await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
+      });
+
+      const sample = await page
+        .locator(`${SUBHEADER} [data-testid="strip-copy-link"] button`)
+        .evaluate((btn) => {
+          const parse = (c: string): [number, number, number, number] => {
+            const n = c.match(/[\d.]+/g)!.map(Number);
+            return [n[0]!, n[1]!, n[2]!, n[3] ?? 1];
+          };
+          const self = getComputedStyle(btn);
+          // Walk up until something genuinely paints (alpha > 0).
+          let node: HTMLElement | null = btn.parentElement;
+          let backdrop: [number, number, number, number] | null = null;
+          let depth = 0;
+          while (node !== null) {
+            depth += 1;
+            const bg = parse(getComputedStyle(node).backgroundColor);
+            if (bg[3] > 0) {
+              backdrop = bg;
+              break;
+            }
+            node = node.parentElement;
+          }
+          return {
+            ownBg: parse(self.backgroundColor),
+            label: parse(self.color),
+            backdrop,
+            depth,
+            backdropTestId: node?.getAttribute("data-testid") ?? null,
+          };
+        });
+
+      // The premise of the whole method: the control really is transparent, so
+      // a naive same-element sample would have been meaningless. If this ever
+      // fails, the button gained a fill and the neutral treatment is gone.
+      expect(sample.ownBg[3], "the outline control is transparent-backed (§7.2 premise)").toBe(0);
+      expect(sample.backdrop, "a painting ancestor was found by walking up").not.toBeNull();
+
+      const luminance = (c: number[]): number => {
+        const lin = (v: number) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * lin(c[0]!) + 0.7152 * lin(c[1]!) + 0.0722 * lin(c[2]!);
+      };
+      const l1 = luminance(sample.label);
+      const l2 = luminance(sample.backdrop!);
+      const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+
+      expect(
+        ratio,
+        `${theme}: label rgb(${sample.label.slice(0, 3).join(",")}) on backdrop rgb(${sample
+          .backdrop!.slice(0, 3)
+          .join(
+            ",",
+          )}) (${sample.depth} level(s) up, testid ${sample.backdropTestId}) = ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });

@@ -41,7 +41,7 @@ export function ShareChip({ slug, isEligible }: { slug: string; isEligible: bool
         <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
       </svg>
       <code className="min-w-0 truncate font-mono text-text-strong">{path}</code>
-      <ShareLinkCopyButton url={url} compact />
+      <ShareLinkCopyButton url={url} variant="compact" />
     </div>
   );
 }

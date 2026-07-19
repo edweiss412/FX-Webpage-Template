@@ -217,7 +217,7 @@ export function StatusStrip({
 
       {copyUrl != null ? (
         <div data-testid="strip-copy-link" className="ml-auto shrink-0">
-          <ShareLinkCopyButton url={copyUrl} />
+          <ShareLinkCopyButton url={copyUrl} variant="outline" />
         </div>
       ) : null}
     </div>
