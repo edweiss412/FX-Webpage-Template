@@ -105,18 +105,45 @@ describe("PickerResetControl (everyone-only)", () => {
     expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
   });
 
-  it("failure shows the persistent error banner", async () => {
+  it("failure shows the persistent error banner (survives past the 5s success window)", async () => {
     epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
-    fireEvent.click(allBtn());
-    fireEvent.click(confirmGo());
-    await vi.waitFor(() =>
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
       expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
         /Couldn't reset the picker/,
-      ),
-    );
-    expect(screen.getByTestId("picker-reset-error").getAttribute("role")).toBe("alert");
-    // Invariant 5: no raw picker code ever reaches the DOM.
-    expect(document.body.textContent).not.toMatch(/PICKER_[A-Z_]+/);
+      );
+      expect(screen.getByTestId("picker-reset-error").getAttribute("role")).toBe("alert");
+      // Errors are NOT auto-dismissed — advance past SUCCESS_DISMISS_MS.
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+      // Invariant 5: no raw picker code ever reaches the DOM.
+      expect(document.body.textContent).not.toMatch(/PICKER_[A-Z_]+/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("success banner auto-dismisses after 5s (fake timers)", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    vi.useFakeTimers();
+    try {
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
