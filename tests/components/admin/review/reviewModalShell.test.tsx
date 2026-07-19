@@ -384,3 +384,145 @@ describe("closeApiRef (spec §3.1a)", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// ── Task 6: structural guards (spec §7.6) ───────────────────────────────────
+
+const SHELL_PATH = "components/admin/review/ReviewModalShell.tsx";
+const SHELL_SRC = readFileSync(join(process.cwd(), SHELL_PATH), "utf8");
+const CONSUMERS = [
+  "components/admin/showpage/PublishedReviewModal.tsx",
+  "components/admin/wizard/Step3ReviewModal.tsx",
+];
+
+/** Remove comments before scanning: a doc-comment mentioning `onClose()` must
+ *  not fail the close-path guard. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+/** Brace-match a function body. `slice(indexOf(decl))` + `indexOf("\n}")` does
+ *  NOT work here: these are indented nested functions, so the closing brace is
+ *  "\n  }" and the search returns -1 — leaving `body` as the rest of the FILE,
+ *  which lets a required token be satisfied from unrelated code while the
+ *  function under test is missing its guard entirely. */
+function bodyOf(src: string, decl: string): string {
+  const start = src.indexOf(decl);
+  if (start < 0) throw new Error(`${decl} not found in shell`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces scanning ${decl}`);
+}
+
+describe("structural guards (spec §7.6)", () => {
+  // Failure mode: a new close site calls onClose() directly, creating a second
+  // un-animated path that races the exit. Behavioral tests cannot cover a
+  // FUTURE call site — only a static scan can.
+  it("no consumer invokes the shell's onClose prop directly", () => {
+    for (const path of CONSUMERS) {
+      const src = stripComments(readFileSync(join(process.cwd(), path), "utf8"));
+      // INVOCATIONS only — `onClose={handleClose}` (PublishedReviewModal:239)
+      // is legitimate prop wiring, not a close call.
+      const direct = src.match(/\bonClose\s*\(\s*\)/g) ?? [];
+      expect(
+        direct,
+        `${path} must route every close through requestClose/closeApiRef`,
+      ).toHaveLength(0);
+      // `const close = onClose; close();` violates the contract while reading
+      // clean, so a call-site scan alone would miss it.
+      const aliased = [...src.matchAll(/(?:const|let|var)\s+\w+\s*=\s*onClose\b(?!\s*[=(])/g)];
+      expect(aliased, `${path} aliases onClose; route the alias through requestClose`).toHaveLength(
+        0,
+      );
+    }
+  });
+
+  // Failure mode: ONE affordance regresses to a bare onClose while the others
+  // still route correctly — a repo-wide substring check passes because another
+  // affordance supplies the matching text. Each is anchored to its own site.
+  it("each affordance is anchored to requestClose at its own call site", () => {
+    const src = stripComments(SHELL_SRC);
+    const scrimAt = src.indexOf("-backdrop`");
+    expect(src.slice(scrimAt, scrimAt + 400), "scrim onClick must be requestClose").toContain(
+      "onClick={requestClose}",
+    );
+    const grabAt = src.indexOf("-grab`");
+    expect(src.slice(grabAt, grabAt + 600), "grab tap must call requestClose").toContain(
+      "requestClose()",
+    );
+    expect(bodyOf(src, "function onKeyDown"), "Escape must call requestClose").toContain(
+      "requestClose()",
+    );
+    expect(src, "the X reaches requestClose only through the provider value").toContain(
+      "<ReviewModalCloseContext.Provider value={requestClose}>",
+    );
+  });
+
+  // Failure mode: a guard is dropped and the failure is invisible until a user
+  // hits the compound case in production.
+  it("every §3.1 guard is present inside requestClose itself", () => {
+    const body = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    expect(body).toContain("closeAffordancesDisabled"); // step 0
+    expect(body).toContain("dismissingRef.current) return"); // step 1
+    expect(body).toContain("dragRef.current"); // step 2
+    expect(body).toContain("settleTimerRef"); // step 2 settle neutralization
+    expect(body).toContain("prefers-reduced-motion"); // step 4
+    expect(stripComments(SHELL_SRC)).toMatch(
+      /handleGrabPointerEnd[\s\S]{0,200}dismissingRef\.current\) return/,
+    );
+  });
+
+  // Failure mode: a pending settle blanks the exit styles mid-animation. The
+  // guard must live in clearPanelDragStyles itself — the chokepoint — not at
+  // each call site.
+  it("clearPanelDragStyles early-returns while dismissing", () => {
+    expect(bodyOf(stripComments(SHELL_SRC), "function clearPanelDragStyles")).toContain(
+      "if (dismissingRef.current) return;",
+    );
+  });
+
+  // Failure mode: a new motion state is added with no normalization row, so
+  // exits from it silently jump. DISCOVERS the shell's refs rather than
+  // checking a hard-coded list — a positive list passes for anything it does
+  // not name, which is the opposite of fail-by-default.
+  it("every motion-state source is mapped to an inventory row or exempted", () => {
+    const spec = readFileSync(
+      join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
+      "utf8",
+    );
+    const declared = [...SHELL_SRC.matchAll(/const (\w+Ref)\s*=\s*useRef/g)].map((m) => m[1]);
+    const ROWS: Record<string, string> = {
+      dragRef: "| S3 |",
+      settleTimerRef: "| S4 |",
+      dismissTimerRef: "| S5 |",
+      dismissingRef: "| S5 |",
+    };
+    const EXEMPT: Record<string, string> = {
+      panelRef: "the element itself, not a motion state",
+      scrimRef: "cosmetic fade; does not gate exit-end (spec §3.2)",
+      dialogRef: "inert target, not a motion state",
+      grabRef: "pointer-capture target, not a motion state",
+      dragConsumedClickRef: "click-swallow latch, no panel motion",
+    };
+    for (const ref of declared) {
+      const row = ROWS[ref];
+      if (row) {
+        expect(spec, `${ref} needs its ${row} row in the §3.2 inventory`).toContain(row);
+        continue;
+      }
+      expect(
+        EXEMPT[ref],
+        `${ref} is a new shell ref: add a §3.2 inventory row or an EXEMPT entry with a reason`,
+      ).toBeTruthy();
+    }
+    // The entrance is a motion state with no ref — pinned separately (S2).
+    expect(SHELL_SRC).toContain("style.animation");
+    expect(spec, "entrance needs its | S2 | row in the §3.2 inventory").toContain("| S2 |");
+  });
+});
