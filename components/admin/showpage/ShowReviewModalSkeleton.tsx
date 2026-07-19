@@ -42,25 +42,73 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
       testIdBase="published-show-review"
       initialFocusRef={noFocusRef}
       header={
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {/* The dialog's accessible name while content streams (the loaded
-              modal's h2 show title replaces it). */}
-          <h2 id={headingId} className="sr-only">
-            Loading show details…
-          </h2>
-          {/* Title row: title bar (left) + 44px close-affordance placeholder. */}
-          <div className="flex items-start gap-3" aria-hidden="true">
-            <div className="flex min-w-0 flex-1 items-center gap-1 py-1.5">
-              <Skeleton className="h-6 w-56 max-w-full" />
+        // THREE-BAND FRAME (modal-header-reconciliation §6.1.1). The header
+        // mirrors PublishedReviewModal's post-change shape EXACTLY — two
+        // children, no outer flex-column wrapper — because the shell's
+        // <header> is already `flex items-start gap-3`. The strip row that used
+        // to live here has moved to the `subHeader` band below.
+        //
+        // Why the shapes are mirrored rather than merely "close": this skeleton
+        // is the ONLY thing on screen while the loader streams, so any header
+        // shape it renders that the loaded modal does not is a layout the user
+        // watches SNAP away. Height parity is not achievable (fixed bars vs
+        // type-set text) and is not the goal; the seam position is, and it is
+        // pinned by skeletonBandParity.spec.ts.
+        <>
+          <div className="min-w-0 flex-1">
+            {/* The dialog's accessible name while content streams (the loaded
+                modal's h2 show title replaces it). */}
+            <h2 id={headingId} className="sr-only">
+              Loading show details…
+            </h2>
+            {/* Title row. Its height is set by the 44px box on the right, NOT
+                by the bar — same as the loaded row, whose height comes from the
+                44px sheet-link anchor rather than its text-lg title. */}
+            <div className="flex min-w-0 items-center gap-1" aria-hidden="true">
+              <Skeleton className="h-6 w-40 max-w-full" />
+              {/* The sheet-link anchor's slot. Deliberately an EMPTY spacer,
+                  not a Skeleton: the loaded anchor is a small glyph in a mostly
+                  transparent 44px hit area, so painting a 44px block here would
+                  promise a control that never arrives — while still needing to
+                  occupy the row's height driver. */}
+              <div className="size-tap-min shrink-0" />
             </div>
+            {/* Subline row (§6.1.1 requirement 2). WITHOUT this the skeleton
+                header is one text row shorter than the loaded one, so the
+                header->subheader seam jumps DOWNWARD the instant content
+                streams in — the same class of snap the strip move exists to
+                prevent, just on the other axis. `h-5` is the loaded subline's
+                text-sm line box (20px), so the two rows agree to ~1px. */}
+            <div className="mt-0.5 flex min-w-0 items-center" aria-hidden="true">
+              <Skeleton className="h-5 w-32 max-w-full" />
+            </div>
+          </div>
+          {/* Right action group: the 44px close-affordance placeholder,
+              unchanged, mirroring the loaded header's shrink-0 action cluster. */}
+          <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
             <Skeleton className="size-tap-min shrink-0 rounded-sm" />
           </div>
-          {/* Strip row: publish toggle / live-sync badges / copy-link chips. */}
-          <div className="flex flex-wrap items-center gap-3" aria-hidden="true">
-            <Skeleton className="h-6 w-28 rounded-pill" />
-            <Skeleton className="h-6 w-20 rounded-pill" />
-            <Skeleton className="h-6 w-36 rounded-pill" />
-          </div>
+        </>
+      }
+      subHeader={
+        // The control strip's band. Mirrors StatusStrip's own root row classes
+        // (`flex-wrap` below sm, `sm:flex-nowrap`) so the placeholder wraps at
+        // 390px the way the real strip does — a non-wrapping placeholder would
+        // under-report the band height at exactly the viewport where the real
+        // strip is tallest. `min-h-tap-min` reproduces the real row's height
+        // driver: the Re-sync trigger's 44px tap floor, not the chips.
+        <div
+          aria-hidden="true"
+          className="flex min-h-tap-min w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
+        >
+          {/* publish toggle */}
+          <Skeleton className="h-6 w-28 rounded-pill" />
+          {/* sync status line */}
+          <Skeleton className="h-6 w-32 rounded-pill" />
+          {/* Re-sync trigger */}
+          <Skeleton className="h-6 w-20 rounded-pill" />
+          {/* copy link — right-flushed, matching the strip's `ml-auto` */}
+          <Skeleton className="ml-auto h-6 w-36 rounded-pill" />
         </div>
       }
     >
