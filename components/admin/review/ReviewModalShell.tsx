@@ -54,6 +54,10 @@ export const DURATION_NORMAL_FALLBACK_MS = 220;
  *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
 export const DURATION_FAST_FALLBACK_MS = 120;
 
+/** Grace added to the EXIT's fallback timer only (not the drag/spring-back
+ *  paths, whose timings are unchanged). See the call site for why. */
+export const EXIT_FALLBACK_BUFFER_MS = 80;
+
 /** Close entry point for consumer-owned header slots (spec §3.3). Default is a
  *  no-op so the button degrades rather than throwing outside a provider. */
 export const ReviewModalCloseContext = createContext<() => void>(() => {});
@@ -378,7 +382,13 @@ function OpenReviewModalShell({
       if (ev.target === panel && ev.propertyName === "transform") finish();
     };
     panel.addEventListener("transitionend", onTransitionEnd);
-    dismissTimerRef.current = setTimeout(finish, fallbackMs);
+    // + EXIT_FALLBACK_BUFFER_MS: the fallback constants equal the duration
+    // tokens they back, so an unbuffered timer fires in the same frame the
+    // transition completes and USUALLY WINS — `transitionend` would be dead
+    // code and every exit would close on the timer. The buffer keeps the timer
+    // a genuine safety net (display:none ancestors, dropped events) rather than
+    // the primary path. Caught by §7.5(a)'s finish-source assertion.
+    dismissTimerRef.current = setTimeout(finish, fallbackMs + EXIT_FALLBACK_BUFFER_MS);
   }
 
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {

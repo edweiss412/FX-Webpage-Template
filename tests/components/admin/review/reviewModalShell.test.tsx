@@ -496,7 +496,9 @@ describe("structural guards (spec §7.6)", () => {
       join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
       "utf8",
     );
-    const declared = [...SHELL_SRC.matchAll(/const (\w+Ref)\s*=\s*useRef/g)].map((m) => m[1]);
+    const declared = [...SHELL_SRC.matchAll(/const (\w+Ref)\s*=\s*useRef/g)]
+      .map((m) => m[1])
+      .filter((name): name is string => typeof name === "string");
     const ROWS: Record<string, string> = {
       dragRef: "| S3 |",
       settleTimerRef: "| S4 |",

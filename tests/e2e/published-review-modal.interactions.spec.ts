@@ -251,9 +251,12 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     });
 
     await page.keyboard.press("Escape");
-    // §6.5 + perceived-latency tier 1: open→closed is an INSTANT client-side
-    // unmount (local closing state) — it does NOT wait for the close
-    // navigation. The URL catches up when the router.push RSC roundtrip
+    // §6.5 + perceived-latency tier 1: under REDUCED MOTION (this suite's
+    // default, see openModal) open→closed is an INSTANT client-side unmount
+    // (local closing state) — it does NOT wait for the close navigation.
+    // MODAL-CLOSE-EXIT-ANIM-1 leaves this path byte-identical; the exit
+    // animation is asserted in the motion-enabled describe at the end of this
+    // file. The URL catches up when the router.push RSC roundtrip
     // commits, so the unmount bound is tight and the URL assertions POLL with
     // a nav-sized budget (first archived-bucket compile here).
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
@@ -274,8 +277,8 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await openModal(page, POPUP);
     // The centered ≥sm panel leaves the viewport corner to the scrim.
     await page.locator(BACKDROP).click({ position: { x: 10, y: 10 } });
-    // Instant client-side unmount; the URL catches up on the close nav commit
-    // (see the Esc test note).
+    // Instant client-side unmount (reduced motion); the URL catches up on the
+    // close nav commit (see the Esc test note).
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
     await expect
       .poll(() => new URL(page.url()).searchParams.has("show"), {
@@ -289,8 +292,8 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   test("X button closes and strips the show param", async ({ page }) => {
     await openModal(page, POPUP);
     await page.locator(CLOSE).click();
-    // Instant client-side unmount; the URL catches up on the close nav commit
-    // (see the Esc test note).
+    // Instant client-side unmount (reduced motion); the URL catches up on the
+    // close nav commit (see the Esc test note).
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 2_000 });
     await expect
       .poll(() => new URL(page.url()).searchParams.has("show"), {
@@ -527,5 +530,260 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(Math.abs(panelWidth - SHEET.width), "sheet spans the viewport").toBeLessThanOrEqual(TOL);
     const grabH = await page.locator(GRAB).evaluate((el) => el.getBoundingClientRect().height);
     expect(grabH, "grab strip tap-sized").toBeGreaterThanOrEqual(44 - TOL);
+  });
+
+  // ── MODAL-CLOSE-EXIT-ANIM-1: the exit animation (spec §7.5 a/c/d/e/f) ────────
+  //
+  // Every case here runs with MOTION ENABLED. The suite default is
+  // `reducedMotion: "reduce"`, under which app/globals.css zeroes the duration
+  // tokens and `requestClose` takes the immediate path — there is no exit window
+  // at all, so an animation assertion would pass vacuously. Each case therefore
+  // asserts the window EXISTS before asserting anything about it.
+
+  const DIALOG = '[role="dialog"]';
+
+  /** Arm the finish-source probe BEFORE dismissing.
+   *
+   *  Two gates, both required:
+   *  1. `dialog[inert]` — `beginDismiss()` sets it at dismiss-commit, so the
+   *     ENTRANCE (which runs with the dialog not inert) can never be counted.
+   *  2. arrived at the exit end state — a SPRING-BACK ends at translateY(0),
+   *     i.e. home, while the exit ends translated past half the panel height
+   *     (sheet) or faded below 0.5 (desktop, where the translate is only 8px).
+   *     Without this, a spring-back transitionend landing between beginDismiss()
+   *     and the exit styles would be recorded as the exit, and a fallback-timer
+   *     close would still satisfy the ordering.
+   *
+   *  Timing cannot substitute for either: DURATION_*_FALLBACK_MS equals the token
+   *  it backs, so a fallback close lands at the right moment anyway. */
+  async function armExitProbe(page: Page) {
+    await page.evaluate(
+      ({ panelSel, dialogSel }) => {
+        const w = window as unknown as { __exitEnd?: number | null; __closeAt?: number | null };
+        w.__exitEnd = null;
+        w.__closeAt = null;
+        // Listen on DOCUMENT (capture), not on the element: React can replace
+        // the panel node during the exit, which would strand an element-bound
+        // listener on a detached node and silently record nothing.
+        document.addEventListener(
+          "transitionend",
+          (ev) => {
+            const te = ev as TransitionEvent;
+            const el = te.target as HTMLElement | null;
+            if (!el || !el.matches?.(panelSel) || te.propertyName !== "transform") return;
+            // Gate 1 — dismiss committed. beginDismiss() sets `inert` before any
+            // exit style, and both the entrance and the spring-back run with the
+            // dialog NOT inert, so neither can be counted as the exit.
+            const dialog = document.querySelector(dialogSel);
+            if (!dialog?.hasAttribute("inert")) return;
+            // Gate 2 — arrived at the exit END STATE. A spring-back ends at
+            // translateY(0) (home); the exit ends translated past half the panel
+            // height (sheet) or faded (desktop, where the translate is only 8px).
+            const cs = getComputedStyle(el);
+            const m = new DOMMatrixReadOnly(cs.transform === "none" ? undefined : cs.transform);
+            const travelled = Math.abs(m.m42) > el.getBoundingClientRect().height * 0.5;
+            const faded = Number(cs.opacity) < 0.5;
+            if (!travelled && !faded) return;
+            if (w.__exitEnd === null) w.__exitEnd = performance.now();
+          },
+          true,
+        );
+        // The published spec drives the REAL app, so there is no harness onClose
+        // to timestamp — observe the unmount instead.
+        const obs = new MutationObserver(() => {
+          if (!document.querySelector(panelSel)) {
+            if (w.__closeAt == null) w.__closeAt = performance.now();
+            obs.disconnect();
+          }
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+      },
+      { panelSel: PANEL, dialogSel: DIALOG },
+    );
+  }
+
+  /** Sample the panel's COMPUTED transform across the exit. Endpoint-only
+   *  assertions ("eventually closed", "never snapped back") are BOTH satisfied by
+   *  an instant jump — the regression this catches. */
+  async function sampleTransforms(page: Page, samples = 6): Promise<string[]> {
+    const out: string[] = [];
+    for (let i = 0; i < samples; i++) {
+      out.push(
+        await page
+          .locator(PANEL)
+          .evaluate((el) => getComputedStyle(el).transform)
+          .catch(() => "gone"),
+      );
+      await page.waitForTimeout(20);
+    }
+    return out;
+  }
+
+  function translateYOf(transform: string): number {
+    if (!transform || transform === "none" || transform === "gone") return 0;
+    const m = transform.match(/matrix\(([^)]+)\)/);
+    if (m?.[1]) return Number(m[1].split(",")[5] ?? 0);
+    const m3d = transform.match(/matrix3d\(([^)]+)\)/);
+    if (m3d?.[1]) return Number(m3d[1].split(",")[13] ?? 0);
+    return 0;
+  }
+
+  test.describe("MODAL-CLOSE-EXIT-ANIM-1 — exit animation (motion enabled)", () => {
+    test("§7.5(a) Esc plays a real exit before unmounting; the URL still strips show", async ({
+      page,
+    }) => {
+      await openModal(page, SHEET, { reducedMotion: "no-preference" });
+      await armExitProbe(page);
+      await page.keyboard.press("Escape");
+
+      // The window must EXIST — otherwise every assertion below is vacuous.
+      const firstTransform = await page
+        .locator(PANEL)
+        .evaluate((el) => getComputedStyle(el).transform)
+        .catch(() => "gone");
+      expect(firstTransform, "exit window exists (panel is mid-transform)").not.toBe("none");
+
+      const samples = await sampleTransforms(page);
+      const ys = samples.map(translateYOf).filter((y) => Number.isFinite(y));
+      expect(Math.max(...ys), "panel translates DOWN during the exit").toBeGreaterThan(0);
+
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+
+      const probe = await page.evaluate(() => {
+        const w = window as unknown as { __exitEnd?: number | null; __closeAt?: number | null };
+        return { exitEnd: w.__exitEnd ?? null, closeAt: w.__closeAt ?? null };
+      });
+      expect(probe.exitEnd, "exit ended via a real transform transitionend").not.toBeNull();
+      expect(probe.closeAt, "unmount observed").not.toBeNull();
+      expect(probe.closeAt!, "close happened at-or-after exit-end").toBeGreaterThanOrEqual(
+        probe.exitEnd! - 1,
+      );
+
+      // #485's URL-strip contract is unchanged by the animation.
+      await expect
+        .poll(() => new URL(page.url()).searchParams.has("show"), { timeout: 15_000 })
+        .toBe(false);
+    });
+
+    test("§7.5(a) desktop exit fades and unmounts (8px translate — the opacity carries it)", async ({
+      page,
+    }) => {
+      await openModal(page, POPUP, { reducedMotion: "no-preference" });
+      await armExitProbe(page);
+      await page.locator(CLOSE).click();
+
+      const opacity = await page
+        .locator(PANEL)
+        .evaluate((el) => Number(getComputedStyle(el).opacity))
+        .catch(() => 1);
+      expect(opacity, "desktop exit fades the panel").toBeLessThan(1);
+
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      const probe = await page.evaluate(() => {
+        const w = window as unknown as { __exitEnd?: number | null };
+        return w.__exitEnd ?? null;
+      });
+      expect(probe, "desktop exit ended via transitionend, not the fallback").not.toBeNull();
+    });
+
+    test("§7.5(c) focus returns to the trigger AFTER exit-end, not mid-animation", async ({
+      page,
+    }) => {
+      await openModal(page, POPUP, { reducedMotion: "no-preference" });
+      await page.locator(CLOSE).click();
+      // Mid-exit the trigger must NOT yet hold focus (the dialog is still mounted
+      // and inert). 7555c0316 pins the end state; this pins the ordering.
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      await expect
+        .poll(async () => page.evaluate(() => document.activeElement?.tagName ?? null), {
+          timeout: 5_000,
+        })
+        .not.toBeNull();
+    });
+
+    test("§7.5(d) drag held, then Esc: one animated exit, no snap-back to translateY(0)", async ({
+      page,
+    }) => {
+      await openModal(page, SHEET, { reducedMotion: "no-preference" });
+      const box = (await page.locator(GRAB).boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 40, { steps: 4 });
+
+      await armExitProbe(page);
+      await page.keyboard.press("Escape");
+      const samples = await sampleTransforms(page);
+      const ys = samples.map(translateYOf);
+      // Continuous progression away from the drag offset; never home.
+      expect(Math.max(...ys), "exit continues DOWN from the dragged position").toBeGreaterThan(40);
+      await page.mouse.up(); // late release must not spring back over the exit
+
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      const exitEnd = await page.evaluate(
+        () => (window as unknown as { __exitEnd?: number | null }).__exitEnd ?? null,
+      );
+      expect(exitEnd, "drag-cancelled exit still ends via transitionend").not.toBeNull();
+    });
+
+    test("§7.5(e) close during spring-back: exit runs, styles are never blanked", async ({
+      page,
+    }) => {
+      await openModal(page, SHEET, { reducedMotion: "no-preference" });
+      const box = (await page.locator(GRAB).boundingBox())!;
+      // Sub-threshold drag (past slop, under the 110px dismiss threshold), then
+      // release to arm the spring-back.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 30, { steps: 4 });
+      await page.mouse.up();
+
+      await armExitProbe(page);
+      await page.keyboard.press("Escape"); // inside the 120ms settle window
+
+      const samples = await sampleTransforms(page);
+      const ys = samples.map(translateYOf);
+      expect(Math.max(...ys), "exit progresses despite the pending settle").toBeGreaterThan(0);
+      // clearPanelDragStyles must not have blanked the inline transform.
+      const inline = await page
+        .locator(PANEL)
+        .evaluate((el) => (el as HTMLElement).style.transform)
+        .catch(() => "gone");
+      expect(
+        inline === "gone" || inline !== "",
+        "inline transform survived the pending settle",
+      ).toBe(true);
+
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      const exitEnd = await page.evaluate(
+        () => (window as unknown as { __exitEnd?: number | null }).__exitEnd ?? null,
+      );
+      expect(exitEnd, "spring-back case still ends via the EXIT transitionend").not.toBeNull();
+    });
+
+    test("§7.5(f) close during the entrance continues from mid-flight, not from resting", async ({
+      page,
+    }) => {
+      for (const viewport of [SHEET, POPUP]) {
+        await openModal(page, viewport, { reducedMotion: "no-preference" });
+        await armExitProbe(page);
+        await page.keyboard.press("Escape");
+        const first = await page
+          .locator(PANEL)
+          .evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return { transform: cs.transform, opacity: Number(cs.opacity) };
+          })
+          .catch(() => null);
+        if (first) {
+          // A snapshot-AFTER-neutralize implementation snaps to the resting style
+          // first (identity transform, opacity 1) before exiting.
+          const resting = first.transform === "none" && first.opacity === 1;
+          expect(resting, `${viewport.width}px: exit starts from mid-flight, not resting`).toBe(
+            false,
+          );
+        }
+        await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      }
+    });
   });
 });
