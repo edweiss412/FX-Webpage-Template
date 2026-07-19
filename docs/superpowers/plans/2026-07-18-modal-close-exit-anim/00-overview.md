@@ -116,7 +116,7 @@ Every symbol, path, and line this plan names was grepped against the live worktr
 Several spec tests exist *because* an endpoint-only assertion would have passed while a regression shipped. Every test task must respect these; a test that only proves "the function was called" is a plan failure.
 
 1. **Animation tests assert progression, not endpoints.** Sample the *computed* `transform`/`opacity` at ≥2 points inside the exit window and assert strict movement plus a value strictly between start and end. "Eventually closed" and "never snapped back" are both satisfied by an instant jump — the exact regression R1 caught.
-2. **Assert exit-end arrived by `transitionend`, not by the fallback timer.** A broken exit still closes on the timer; only the event distinguishes them.
+2. **Assert exit-end arrived by `transitionend`, not by the fallback timer.** A broken exit still closes on the timer; only the event distinguishes them — and NOT timing, since each `DURATION_*_FALLBACK_MS` equals the token duration it backs, so a fallback close lands at the right moment anyway. Observe the source with a test-side `transitionend` listener installed before dismissal (Task 7 gives the exact hook); never instrument production for this.
 3. **The skeleton test must exercise affordances, not absence.** Checking "no X button" passes while scrim/Esc/grab/drag silently animate the loading frame away. Exercise all four.
 4. **Derive expected values from fixtures/constants**, never hardcode: import `DRAG_SLOP_PX` / `DRAG_DISMISS_THRESHOLD_PX` / the duration fallbacks rather than restating 6 / 110 / 120 / 220.
 5. **State the concrete failure mode each test catches** in a comment above it. If the answer is "the function is called," strengthen it.

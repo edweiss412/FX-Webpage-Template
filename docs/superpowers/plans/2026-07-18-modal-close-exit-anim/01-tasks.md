@@ -748,6 +748,7 @@ git commit --no-verify -m "test(admin): structural guards for close path, motion
 - Modify: `tests/e2e/published-review-modal.interactions.spec.ts:23`, `:254-292`
 - Modify: `tests/e2e/step3-review-modal.interactions.spec.ts`
 - Modify: `tests/e2e/_step3ReviewModalLiveEntry.tsx` — **required for (g)/(h)**, see below
+- Modify: `tests/e2e/_publishedReviewModalHarness.tsx` — `window.__closeAt` timestamp for the finish-source assertion (a boolean cannot order close against `transitionend`)
 - Reference (no edit expected): `tests/e2e/_step3ReviewModalHarness.tsx` — `modalElement()` (`:172`) already accepts handler injection; `harnessResolution()` (`:201`) already builds the resolution variant
 
 **Harness prerequisites — (g)/(h) cannot be written without these.** The live entry currently hardcodes `onRequestSetChecked: async () => true` (`_step3ReviewModalLiveEntry.tsx:65`) and passes no `resolution` prop, so there is no way to time a resolution relative to the exit window. Add, gated behind a query param so existing tests are untouched:
@@ -805,6 +806,33 @@ async function sampleExit(page: Page, panel: string, samples = 4) {
 ```
 
 Each case asserts: ≥2 distinct intermediate values, strict progression toward the end state, and that exit-end arrived via `transitionend` rather than the fallback timer.
+
+**How to actually observe the finish source.** The shell does not expose which path called `onClose`, and it must not — production instrumentation for tests is a smell. Timing cannot substitute: `DURATION_NORMAL_FALLBACK_MS` (220) and `DURATION_FAST_FALLBACK_MS` (120) are the *same* nominal values as the tokens they back, so a fallback-timer close lands at roughly the right moment and a timing-only assertion passes against a broken exit.
+
+Observe it **test-side**, installed BEFORE the dismissal:
+
+```ts
+/** Record the panel's own transform transitionend, then compare against the
+ *  close counter. A broken exit (instant jump / transition:none) fires NO
+ *  transform transitionend at all and closes on the fallback timer — so
+ *  `sawTransitionEnd === false` is exactly the discriminator. */
+await page.evaluate((panelSel) => {
+  const el = document.querySelector(panelSel);
+  const w = window as unknown as { __exitEnd?: number | null };
+  w.__exitEnd = null;
+  el?.addEventListener(
+    "transitionend",
+    (ev) => {
+      if ((ev as TransitionEvent).propertyName === "transform") w.__exitEnd = performance.now();
+    },
+    { once: true },
+  );
+}, PANEL);
+```
+
+Then each relevant case asserts **both**: `__exitEnd` is non-null (a real transform transition completed), and the close was observed at-or-after it (`__closeAt >= __exitEnd`, using the harness's close counter/timestamp from the prerequisites above). Assert on the *source*, never on elapsed time alone.
+
+For the published harness, `window.__closeAt` needs the same treatment as the Step3 counters — a timestamp set in `onClose`, not just a boolean.
 
 **Mandatory precondition for every "Approve & apply" case — (b), (g), (h).** `harnessResolution()` includes a tier-3 radio item, and Step3 disables *Approve & apply* until every resolution item has a choice. A test that clicks a **disabled** button during the exit window observes "handler not invoked" and passes — even if `inert` and the whole suppression contract were broken. So before any close/timing sequence:
 
