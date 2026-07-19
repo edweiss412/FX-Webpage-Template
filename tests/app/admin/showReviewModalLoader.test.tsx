@@ -46,6 +46,7 @@ const state = vi.hoisted(() => ({
   ignoredFingerprints: [] as string[],
   ignoredInfraError: false as boolean,
   alerts: [] as Array<Record<string, unknown>>,
+  alertsInfraError: false as boolean,
   // Perceived-latency tier 3 (parallel wave): when set, the snapshot mock
   // blocks on this gate; the `started` flags record which reads have been
   // ENTERED, so a test can assert the whole post-lookup wave launched before
@@ -145,15 +146,30 @@ vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
   },
 }));
 
-// Server child components: PerShowAlertSection is an async Server Component (stub
-// to null); fetchPerShowAlerts is the count source (returns the seeded rows).
-vi.mock("@/components/admin/PerShowAlertSection", () => ({
-  PerShowAlertSection: () => null,
+// The alert read (published-show-alerts §3.1a home): returns the seeded rows;
+// the loader derives AttentionItems from them server-side.
+vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => {
     state.started.alerts = true;
+    if (state.alertsInfraError) return { kind: "infra_error", message: "simulated" };
     return state.alerts;
   },
 }));
+
+/** Full AdminAlertRow-shaped fixture — deriveAttentionItems consumes these.
+ *  ROLE_FLAGS_NOTICE is resolution:"manual" (catalog) → actionable. */
+function alertRow(id: string): Record<string, unknown> {
+  return {
+    id,
+    code: "ROLE_FLAGS_NOTICE",
+    context: null,
+    raised_at: "2026-06-14T12:00:00.000Z",
+    occurrence_count: 1,
+    identityText: null,
+    messageParams: {},
+    crewName: null,
+  };
+}
 
 // CurrentShareLinkPanel is an async Server shell — stub it, exposing the wired
 // props so the loader's threading (crewEmails/showTitle/isCrewLinkActive) is
@@ -554,23 +570,33 @@ describe("show review modal loader — Changes + alerts (§5.4/§5.1)", () => {
     expect(screen.queryByTestId("change-feed-empty")).toBeNull();
   });
 
-  // REWRITTEN, not retired (modal-header-reconciliation §6.6, Task 5): the alert
-  // count moved from the strip badge to the modal HEADER pill. The intent this
-  // case owns — the loader's server-derived count reaches the rendered surface —
-  // survives verbatim; only the element it lands in changed.
-  it("open alerts → header alert pill shows the count; zero → no pill", async () => {
-    state.alerts = [{ id: "a1" }, { id: "a2" }];
+  // REWRITTEN again (published-show-alerts §5.1): the loader now derives
+  // AttentionItems server-side; the intent this case owns — the loader's
+  // server-derived rows reach the rendered pill — survives verbatim.
+  it("open alerts → header pill shows the derived to-confirm count", async () => {
+    state.alerts = [alertRow("a1"), alertRow("a2")];
     await renderLoader();
     const pillEl = screen.getByTestId("published-show-review-alert-pill");
-    expect(pillEl.textContent).toMatch(/2/);
+    expect(pillEl.textContent).toMatch(/2 to confirm/);
     // The count must not ALSO render in the strip — the relocation is a move.
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
   });
 
-  it("no open alerts → no header alert pill", async () => {
+  it("no open alerts → the In-sync pill (never a bare header)", async () => {
     state.alerts = [];
     await renderLoader();
-    expect(screen.queryByTestId("published-show-review-alert-pill")).toBeNull();
+    const pillEl = screen.getByTestId("published-show-review-alert-pill");
+    expect(pillEl.textContent).toMatch(/In sync/);
+  });
+
+  it("alert read infra_error → degraded pill + Overview notice; the loader does NOT throw (§3.2)", async () => {
+    state.alertsInfraError = true;
+    await renderLoader();
+    state.alertsInfraError = false;
+    expect(screen.getByTestId("published-show-review-alert-pill").textContent).toMatch(
+      /Alerts unavailable/,
+    );
+    expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 });
 

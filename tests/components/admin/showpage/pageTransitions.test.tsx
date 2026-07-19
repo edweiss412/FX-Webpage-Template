@@ -158,13 +158,16 @@ describe("§9 source enumeration — every conditional in the new page component
     });
   }
 
-  // PublishedReviewModal's ONE conditional the JSX-mount regex can't see: the
-  // Overview rail badge is added via an object-spread ternary producing a plain
-  // <span> (instant — a conditional prop, never an animated presence).
-  it("PublishedReviewModal adds the Overview railBadge via a plain object-spread conditional (instant)", () => {
+  // PublishedReviewModal's conditionals the JSX-mount regex can't see: the
+  // Overview AND Changes rail badges are added via object-spread ternaries
+  // producing plain <span>s (instant — conditional props, never an animated
+  // presence). published-show-alerts §5.3: counts are attention-derived.
+  it("PublishedReviewModal adds the Overview + Changes railBadges via plain object-spread conditionals (instant)", () => {
     const s = src("components/admin/showpage/PublishedReviewModal.tsx");
-    expect(s).toMatch(/\.\.\.\(alertCount > 0/);
+    expect(s).toMatch(/\.\.\.\(overviewActionableCount > 0/);
     expect(s).toMatch(/data-testid="overview-rail-badge"/);
+    expect(s).toMatch(/\.\.\.\(holdCount > 0/);
+    expect(s).toMatch(/data-testid="changes-rail-badge"/);
   });
 
   // Row C: the Ignored disclosure is a NATIVE <details> — its body is

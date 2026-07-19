@@ -54,6 +54,7 @@ import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { FeedEntry } from "@/lib/sync/holds/types";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 const SHOW_ID = "22222222-2222-2222-2222-222222222222";
 const SLUG = "published-fixture-show";
@@ -133,6 +134,75 @@ function feedEntry(): FeedEntry {
   };
 }
 
+/** Pending MI-11 gate entry — the hold-kind attention source (spec §2). */
+function pendingGateEntry(holdId = "hold-1"): FeedEntry {
+  return {
+    id: `entry-${holdId}`,
+    occurredAt: "2026-07-16T10:30:00.000Z",
+    status: "pending",
+    summary: "Priya Shah's row changed while a rename was pending.",
+    action: "approve_reject",
+    entityRef: null,
+    acceptable: false,
+    acknowledgedAt: null,
+    gate: {
+      holdId,
+      disposition: { disposition: "rename", name: "Priya Shah" } as never,
+      baseModifiedTime: "2026-07-16T10:00:00.000Z",
+    },
+  };
+}
+
+/** Attention item fixtures (published-show-alerts §3.1). */
+function alertItem(over: Partial<AttentionItem> = {}, payload: Partial<NonNullable<AttentionItem["alert"]>> = {}): AttentionItem {
+  const alertId = (over.id ?? `alert:${ALERT_ID}`).replace(/^alert:/, "");
+  return {
+    id: `alert:${alertId}`,
+    kind: "alert",
+    tone: "notice",
+    sectionId: "overview",
+    crewKey: null,
+    actionable: true,
+    menuTitle: "Role flags changed",
+    menuSubtitle: "Crew · John Redcorn",
+    ...over,
+    alert: {
+      alertId,
+      code: "TEST_FAKE_ATTENTION_CODE",
+      template: null,
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-07-16T09:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+      ...payload,
+    },
+  };
+}
+
+function holdItem(holdId = "hold-1"): AttentionItem {
+  return {
+    id: `hold:${holdId}`,
+    kind: "hold",
+    tone: "critical",
+    sectionId: "changes",
+    crewKey: null,
+    actionable: true,
+    menuTitle: "Priya Shah's row changed while a rename was pending.",
+    menuSubtitle: "Pick what happens in Changes",
+  };
+}
+
+function clearingItem(id = "alert:clearing-1"): AttentionItem {
+  return alertItem(
+    { id, actionable: false, menuTitle: "Sheet unavailable" },
+    { autoClearNote: "Clears automatically once the sheet is back or re-parses." },
+  );
+}
+
 function baseProps(
   overrides: Partial<PublishedReviewModalProps> = {},
   warnings: ParseWarning[] = [],
@@ -159,12 +229,12 @@ function baseProps(
     lastCheckedAt: "2026-07-16T11:58:00.000Z",
     lastSyncStatus: "ok",
     now: NOW,
-    alertCount: 0,
+    attentionItems: [],
+    alertsDegraded: false,
     openSheetHref: SHEET_HREF,
     hasActionableWarnings: false,
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
     unarchiveAction: vi.fn(async () => {}),
-    alertSlot: null,
     shareSlot: <div data-testid="share-slot-fixture" />,
     feed: { entries: [feedEntry()], truncated: false },
     undoAction: vi.fn(),
@@ -348,120 +418,162 @@ describe("PublishedReviewModal header subline (modal-header-reconciliation §6.3
   });
 });
 
-// ── §6.6 header alert pill (modal-header-reconciliation Task 5) ──────────────
-// The alert count MOVES here from the control strip, ATOMICALLY. It stays an
-// `<a href="#overview">` (§F1, Watchpoint 4): the mock draws an inert <span>,
-// but that is a static-canvas artifact — turning the pill into a span would
-// delete the only affordance connecting the header count to the alert list.
-//
-// The count is CAPPED at 99+ because `alertCount` is unbounded and the pill
-// sits in the header's shrink-0 right group beside Close; four digits there
-// squeeze the title at 375px. The UNIT stays visible (a bare "99+" is not
-// self-explanatory) and the exact count is preserved for assistive tech.
+// ── Header attention pill (published-show-alerts §5.1) ──────────────────────
+// Four states from ONE derived list: To-confirm (button + menu), Clearing
+// (non-interactive), In-sync (teal), Degraded. The 99+ cap keeps four digits
+// from squeezing the title at 375px; the sr-only exact count survives the cap.
 
-describe("PublishedReviewModal header alert pill (modal-header-reconciliation §6.6)", () => {
+describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
   const pill = () => screen.getByTestId(`${TB}-alert-pill`);
 
-  /** Visible text = the subtree with every sr-only node removed. Asserting
-   *  against raw textContent would let the sr-only suffix satisfy a "visible
-   *  text" claim, which is exactly the confusion the cap introduces. */
+  /** Visible MEANINGFUL text = the subtree minus sr-only nodes (invisible) and
+   *  aria-hidden decorations (the chevron/dot glyphs carry no meaning). */
   const visibleText = (el: HTMLElement): string => {
     const clone = el.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
     return clone.textContent!.replace(/\s+/g, " ").trim();
   };
 
-  it("T-ALERT-PILL-LINK: renders an <a href='#overview'>, not an inert span", () => {
-    renderModal({ alertCount: 2 });
+  const twoActionable = () => [alertItem({ id: "alert:p1" }), alertItem({ id: "alert:p2" })];
+
+  it("To confirm: actionable items render a BUTTON pill '2 to confirm' with aria-expanded", () => {
+    renderModal({ attentionItems: twoActionable() });
     const el = pill();
-    expect(el.tagName).toBe("A");
-    expect(el.getAttribute("href")).toBe("#overview");
-    // The jump target the pill points at is pinned by overviewSection.test.tsx.
-    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(el);
+    expect(el.tagName).toBe("BUTTON");
+    expect(visibleText(el)).toBe("2 to confirm");
+    expect(el.getAttribute("aria-expanded")).toBe("true"); // auto-open on arrival
+    expect(el.getAttribute("aria-controls")).toBeTruthy();
   });
 
-  it("T-ALERT-PILL-ZERO: alertCount=0 renders NO pill (not an empty one, not '0 alerts')", () => {
-    renderModal({ alertCount: 0 });
-    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
-    expect(screen.queryByText(/0 alerts/)).toBeNull();
+  it("Clearing: zero actionable + clearing>0 renders the non-interactive '1 clearing' pill", () => {
+    renderModal({ attentionItems: [clearingItem()] });
+    const el = pill();
+    expect(el.tagName).not.toBe("BUTTON");
+    expect(visibleText(el)).toBe("1 clearing");
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
   });
 
-  it("T-ALERT-CAP: 1 → visible '1 alert', accessible name '1 alert' (singular, no suffix)", () => {
-    renderModal({ alertCount: 1 });
-    expect(visibleText(pill())).toBe("1 alert");
-    expect(screen.getByRole("link", { name: /^1 alert$/ })).toBe(pill());
+  it("In sync: zero items renders the teal ring pill, non-interactive", () => {
+    renderModal({ attentionItems: [] });
+    const el = pill();
+    expect(el.tagName).not.toBe("BUTTON");
+    expect(visibleText(el)).toBe("In sync");
+    expect(el.querySelector(".border-status-positive")).toBeTruthy();
   });
 
-  it("T-ALERT-CAP: 2 → visible '2 alerts', accessible name '2 alerts' (below the cap, no suffix)", () => {
-    renderModal({ alertCount: 2 });
-    expect(visibleText(pill())).toBe("2 alerts");
-    expect(screen.getByRole("link", { name: /^2 alerts$/ })).toBe(pill());
+  it("Degraded + zero items: 'Alerts unavailable' pill + Overview notice card", () => {
+    renderModal({ attentionItems: [], alertsDegraded: true });
+    expect(visibleText(pill())).toBe("Alerts unavailable");
+    expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("T-ALERT-CAP: 1200 → visible '99+ alerts', accessible name '99+ alerts (1200 open alerts)'", () => {
-    renderModal({ alertCount: 1200 });
-    // The UNIT stays visible past the cap — a bare "99+" carries no meaning.
-    expect(visibleText(pill())).toBe("99+ alerts");
-    // Anchored: a name of "99+ alerts(1200 open alerts)" (the trimmed-leading-
-    // space bug this repo has hit before) must NOT satisfy this.
-    expect(screen.getByRole("link", { name: /^99\+ alerts \(1200 open alerts\)$/ })).toBe(pill());
+  it("Degraded + one hold: the ACTIONABLE To-confirm pill wins, menu lists the hold, notice still renders (spec §5.1 degraded row)", () => {
+    renderModal({ attentionItems: [holdItem()], alertsDegraded: true });
+    expect(visibleText(pill())).toBe("1 to confirm");
+    expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
+    expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("T-ALERT-CAP: 99 is NOT capped (boundary — the cap fires strictly above 99)", () => {
-    renderModal({ alertCount: 99 });
-    expect(visibleText(pill())).toBe("99 alerts");
-    expect(screen.getByRole("link", { name: /^99 alerts$/ })).toBe(pill());
+  it("cap: 100 actionable → visible '99+ to confirm', sr-only exact count; 99 NOT capped", () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => alertItem({ id: `alert:m${i}` }));
+    renderModal({ attentionItems: many(100) });
+    expect(visibleText(pill())).toBe("99+ to confirm");
+    expect(pill().textContent).toContain("(100 to confirm)");
+    cleanup();
+    renderModal({ attentionItems: many(99) });
+    expect(visibleText(pill())).toBe("99 to confirm");
   });
 
-  it("T-ALERT-CAP: 100 IS capped (boundary — the first capped value)", () => {
-    renderModal({ alertCount: 100 });
-    expect(visibleText(pill())).toBe("99+ alerts");
-    expect(screen.getByRole("link", { name: /^99\+ alerts \(100 open alerts\)$/ })).toBe(pill());
-  });
-
-  // §7 guard row. Defensive-only — `alertCount` is server-derived at
-  // _showReviewModal.tsx:270 (an array length, so a non-negative integer by
-  // construction) — but §7 promises stated behavior for EVERY input, and an
-  // unguarded render puts a literal "NaN alerts" in the header.
-  it.each([
-    ["negative", -1],
-    ["non-integer", 2.5],
-    ["NaN", Number.NaN],
-  ])("§7 guard: alertCount %s renders no pill (matches the 0 row, not an error state)", (_l, n) => {
-    renderModal({ alertCount: n });
-    expect(screen.queryByTestId(`${TB}-alert-pill`)).toBeNull();
-    expect(screen.queryByText(/NaN/)).toBeNull();
-  });
-
-  // T-ALERT-NOT-IN-STRIP — the relocation is a MOVE. Rendered twice is the
-  // failure mode a "moved but not removed" commit produces, and it is
-  // invisible to any assertion that only checks the pill exists.
+  // T-ALERT-NOT-IN-STRIP — pill lives ONLY in the header; the strip never
+  // regrows an alert element.
   it("T-ALERT-NOT-IN-STRIP: the count renders ONCE — the strip carries no alert element", () => {
-    renderModal({ alertCount: 2 });
+    renderModal({ attentionItems: twoActionable() });
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
     const strip = screen.getByTestId("show-status-strip");
     expect(strip.querySelector('a[href="#overview"]')).toBeNull();
-    expect(screen.getAllByRole("link", { name: /alerts?$/ })).toHaveLength(1);
+    expect(strip.textContent).not.toContain("to confirm");
   });
 
-  // T-DIVIDER-ALERT-ONLY (§7). Asserted HERE, at the modal, because this is the
-  // only surface where `alertCount` is still a real prop — Task 5 deletes it
-  // from StatusStripProps, so the strip's own suite can no longer construct the
-  // alerts-only case and a strip-level version of this test would pass
-  // vacuously (undefined > 0 is false) rather than proving anything.
-  //
-  // Pre-change this renders a control divider followed by NOTHING: `hasSignal`
-  // includes an `alertCount > 0` disjunct, but the element that disjunct was
-  // standing in for has just moved to the header.
-  it("T-DIVIDER-ALERT-ONLY: alerts-only show renders NO strip control divider", () => {
-    renderModal({ alertCount: 2, isLive: false, lastSyncedAt: null, lastCheckedAt: null });
-    // The pill is present, so the show genuinely has alerts — without this the
-    // assertion below could pass for the trivial no-alerts reason.
+  it("T-DIVIDER-ALERT-ONLY: attention-only show renders NO strip control divider", () => {
+    renderModal({
+      attentionItems: twoActionable(),
+      isLive: false,
+      lastSyncedAt: null,
+      lastCheckedAt: null,
+    });
     expect(screen.getByTestId(`${TB}-alert-pill`)).toBeTruthy();
     expect(screen.queryByTestId("strip-control-divider")).toBeNull();
-    // Non-vacuity for the divider itself: nothing follows the toggle in the strip.
     expect(screen.queryByTestId("strip-live-badge")).toBeNull();
     expect(screen.queryByTestId("strip-sync-age")).toBeNull();
+  });
+});
+
+// ── Auto-open + menu wiring + resolve lifecycle (spec §5.2/§6.3) ─────────────
+
+describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)", () => {
+  it("auto-open fires once on mount with actionable items; rerender keeps ONE menu", () => {
+    const { rerenderWith } = renderModal({ attentionItems: [alertItem({ id: "alert:p1" })] });
+    expect(screen.getAllByTestId(`${TB}-attention-menu`)).toHaveLength(1);
+    rerenderWith({ attentionItems: [alertItem({ id: "alert:p1" })] });
+    expect(screen.getAllByTestId(`${TB}-attention-menu`)).toHaveLength(1);
+  });
+
+  it("stale→fresh: mount with [] then items arriving via refresh reconcile → menu auto-opens", () => {
+    const { rerenderWith } = renderModal({ attentionItems: [] });
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    rerenderWith({ attentionItems: [alertItem({ id: "alert:late" })] });
+    expect(screen.getByTestId(`${TB}-attention-menu`)).toBeTruthy();
+  });
+
+  it("after the user closes the menu, MORE items arriving never re-open it", () => {
+    const { rerenderWith } = renderModal({ attentionItems: [alertItem({ id: "alert:p1" })] });
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`)); // toggle closed
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    rerenderWith({
+      attentionItems: [alertItem({ id: "alert:p1" }), alertItem({ id: "alert:p2" })],
+    });
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+  });
+
+  it("alertId present → auto-open suppressed, even when items arrive late", () => {
+    const { rerenderWith } = renderModal({ attentionItems: [], alertId: ALERT_ID });
+    rerenderWith({ attentionItems: [alertItem({ id: "alert:late" })], alertId: ALERT_ID });
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+  });
+
+  it("menu row click → menu closes, the item's banner anchor gets the one-shot flash", () => {
+    // Overview-routed item: its banner mounts in the Overview attention slot,
+    // so the surface's jump finds a REAL anchor.
+    renderModal({ attentionItems: [alertItem({ id: "alert:nav1" })] });
+    fireEvent.click(screen.getByTestId("attention-menu-row-alert:nav1"));
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    const anchor = document.querySelector('[data-attention-anchor="alert:nav1"]')!;
+    expect(anchor).toBeTruthy();
+    expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  it("resolve: banner button → pill decrements optimistically; last one → menu closes, pill flips to In sync", async () => {
+    renderModal({ attentionItems: [alertItem({ id: "alert:r1" })] });
+    // Menu auto-opened; the overview banner carries the resolve button.
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-r1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("attention-banner-confirmed-r1")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    const pillEl = screen.getByTestId(`${TB}-alert-pill`);
+    expect(pillEl.textContent).toContain("In sync");
+  });
+
+  it("archived pin (spec §7): hold gate forms still render on an archived show (no client-side gating exists)", () => {
+    renderModal({
+      archived: true,
+      attentionItems: [holdItem()],
+      feed: { entries: [pendingGateEntry()], truncated: false },
+    });
+    expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
+    const gateRow = document.querySelector('[data-attention-anchor="hold:hold-1"]')!;
+    expect(gateRow).toBeTruthy();
+    expect(gateRow.querySelector("form, button")).toBeTruthy();
   });
 });
 
@@ -633,13 +745,29 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     expect(screen.getByTestId("changes-section")).toBeTruthy();
   });
 
-  it("alertCount > 0 renders the Overview rail badge with the fixture count", () => {
-    const alertCount = 3;
-    renderModal({ alertCount });
+  it("Overview rail badge = overview-routed ACTIONABLE count (crew-routed + clearing excluded); Changes badge = hold count", () => {
+    renderModal({
+      attentionItems: [
+        alertItem({ id: "alert:ov1" }),
+        alertItem({ id: "alert:ov2" }),
+        alertItem({ id: "alert:crew1", sectionId: "crew" }),
+        clearingItem(),
+        holdItem(),
+      ],
+    });
     const badge = screen.getByTestId("overview-rail-badge");
-    expect(badge.textContent).toContain(String(alertCount));
+    expect(badge.textContent).toContain("2");
     // Inside the Overview rail button, exactly as the page composed it.
     expect(screen.getByTestId(railTid("rail-item-overview")).contains(badge)).toBe(true);
+    const changesBadge = screen.getByTestId("changes-rail-badge");
+    expect(changesBadge.textContent).toContain("1");
+    expect(screen.getByTestId(railTid("rail-item-changes")).contains(changesBadge)).toBe(true);
+  });
+
+  it("zero counts → no badges (conditional-spread pattern)", () => {
+    renderModal({ attentionItems: [] });
+    expect(screen.queryByTestId("overview-rail-badge")).toBeNull();
+    expect(screen.queryByTestId("changes-rail-badge")).toBeNull();
   });
 
   it("rail badge separates count and sr-only unit with a VISIBLE space node (accName-safe)", () => {
@@ -649,7 +777,13 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
     // text node BETWEEN the count and the sr-only span, and the sr-only text
     // must not lean on internal leading whitespace. (Real-browser accName
     // trimming can't be observed in jsdom — this pins the DOM shape instead.)
-    renderModal({ alertCount: 3 });
+    renderModal({
+      attentionItems: [
+        alertItem({ id: "alert:ov1" }),
+        alertItem({ id: "alert:ov2" }),
+        alertItem({ id: "alert:ov3" }),
+      ],
+    });
     const badge = screen.getByTestId("overview-rail-badge");
     const srOnly = badge.querySelector(".sr-only");
     expect(srOnly, "badge renders an sr-only unit span").not.toBeNull();
@@ -694,40 +828,62 @@ describe("PublishedReviewModal guards (spec §6.2)", () => {
     expect(screen.queryByTestId("share-slot-fixture")).toBeNull();
   });
 
-  it("alertSlot=null (no alerts) renders no alert content — Overview stays healthy", () => {
-    renderModal({ alertSlot: null });
+  it("attentionItems=[] renders no banner content — Overview stays healthy", () => {
+    renderModal({ attentionItems: [] });
     const overview = screen.getByTestId("overview-section");
-    expect(within(overview).queryByRole("list")).toBeNull();
+    expect(overview.querySelector("[data-attention-anchor]")).toBeNull();
+  });
+
+  it("overview-routed banners render inside Overview; crew-routed inside the Crew section (matching row) or its top", () => {
+    renderModal({
+      attentionItems: [
+        alertItem({ id: "alert:ov1" }),
+        // crewKey matches the fixture roster row "Alice Anders"
+        alertItem({ id: "alert:crew1", sectionId: "crew", crewKey: "alice anders" }),
+        // no roster match → crew section top
+        alertItem({ id: "alert:crew2", sectionId: "crew", crewKey: "nobody here" }),
+      ],
+    });
+    const overview = screen.getByTestId("overview-section");
+    expect(overview.querySelector('[data-attention-anchor="alert:ov1"]')).toBeTruthy();
+    const crewSection = screen.getByTestId(railTid("section-crew"));
+    const inRow = crewSection.querySelector('[data-attention-anchor="alert:crew1"]')!;
+    expect(inRow.closest("li")).toBeTruthy();
+    expect(inRow.closest("li")!.textContent).toContain("Alice Anders");
+    const topBanner = crewSection.querySelector('[data-attention-anchor="alert:crew2"]')!;
+    expect(topBanner).toBeTruthy();
+    expect(topBanner.closest("li")).toBeNull(); // section-top, not inside a row
   });
 });
 
-// ── §3 one-shot alert_id scroll ───────────────────────────────────────────────
+// ── §6.4 one-shot alert_id deep link ─────────────────────────────────────────
 
-describe("PublishedReviewModal alert_id scroll effect (spec §3 — one-shot)", () => {
-  const highlightedSlot = (
-    <ul>
-      <li aria-current="true" data-testid="alert-li-fixture">
-        Highlighted alert
-      </li>
-    </ul>
-  );
-
-  it('alertId + a rendered li[aria-current="true"] → scrollIntoView({ block: "center" }) on that li, exactly once', () => {
-    renderModal({ alertId: ALERT_ID, alertSlot: highlightedSlot });
-    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
-    expect(scrollIntoViewSpy.mock.instances[0]).toBe(screen.getByTestId("alert-li-fixture"));
-    expect(scrollIntoViewSpy.mock.calls[0]![0]).toEqual({ block: "center" });
+describe("PublishedReviewModal alert_id deep link (spec §6.4 — one-shot)", () => {
+  it("alertId matching an item → its banner flashes with aria-current; menu stays closed", () => {
+    renderModal({
+      alertId: ALERT_ID,
+      attentionItems: [alertItem({ id: `alert:${ALERT_ID}` })],
+    });
+    const anchor = document.querySelector(`[data-attention-anchor="alert:${ALERT_ID}"]`)!;
+    expect(anchor).toBeTruthy();
+    expect(anchor.getAttribute("aria-current")).toBe("true");
+    expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
   });
 
-  it("one-shot: a rerender (even with changed props) never re-fires the scroll", () => {
-    const { rerenderWith } = renderModal({ alertId: ALERT_ID, alertSlot: highlightedSlot });
-    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
-    rerenderWith({ alertCount: 5 });
-    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
+  it("one-shot: a rerender (even with changed props) never re-fires the jump", () => {
+    const { rerenderWith } = renderModal({
+      alertId: ALERT_ID,
+      attentionItems: [alertItem({ id: `alert:${ALERT_ID}` })],
+    });
+    const anchor = document.querySelector(`[data-attention-anchor="alert:${ALERT_ID}"]`)!;
+    anchor.removeAttribute("data-step3-warning-flash");
+    rerenderWith({ attentionItems: [alertItem({ id: `alert:${ALERT_ID}` }), alertItem({ id: "alert:extra" })] });
+    expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(false);
   });
 
-  it("alertId with no matching row falls back to the #overview rail target", () => {
-    renderModal({ alertId: ALERT_ID, alertSlot: null });
+  it("alertId with no matching item falls back to the #overview scrollIntoView", () => {
+    renderModal({ alertId: ALERT_ID, attentionItems: [] });
     expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
     expect((scrollIntoViewSpy.mock.instances[0] as HTMLElement).id).toBe("overview");
   });

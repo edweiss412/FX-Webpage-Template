@@ -49,7 +49,8 @@ import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
-import { fetchPerShowAlerts, PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
+import { fetchPerShowAlerts } from "@/lib/adminAlerts/fetchPerShowAlerts";
+import { deriveAttentionItems } from "@/lib/admin/attentionItems";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -265,9 +266,15 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   const finalizeOwned = !archived && finalizeOwnedRead;
   const tokenEpoch = tokenEpochRead ?? pickerEpoch;
 
-  // §5.1 alert-count badge: open non-health alerts for this show (the
-  // PerShowAlertSection count query). Any fault → 0 (badge hidden — safe degrade).
-  const alertCount = Array.isArray(alertsForCount) ? alertsForCount.length : 0;
+  // published-show-alerts §3: ONE serializable attention list feeds the modal's
+  // pill/menu/dots/banners. Alert-read fault → degraded pill + Overview notice
+  // (§3.2); hold-derived items still flow from the feed.
+  const alertsDegraded = !Array.isArray(alertsForCount);
+  const attentionItems = deriveAttentionItems({
+    alerts: alertsDegraded ? [] : alertsForCount,
+    feed: feed ? { entries: feed.entries } : null,
+    slug,
+  });
 
   // Ignored-warning fingerprints (side table, survives the parse_warnings
   // full-replace). An infra_error → empty set → every warning shows active
@@ -337,9 +344,6 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
 
   const openSheetHref = buildSheetDeepLink(driveFileId);
 
-  // Server-rendered slots (admin-only reads stay on the server; passed to the
-  // client shell as ReactNode props — RSC boundary).
-  const alertSlot = <PerShowAlertSection showId={showId} slug={slug} highlightAlertId={alertId} />;
   // Serialization gate (old-page parity, page.tsx merge-base:792): build the
   // share-&-access cluster ONLY when the crew link is eligible (published &&
   // !archived). The cluster subtree (rotate + per-member picker-reset actions)
@@ -384,12 +388,12 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         lastCheckedAt={lastCheckedAt}
         lastSyncStatus={lastSyncStatus}
         now={now}
-        alertCount={alertCount}
+        attentionItems={attentionItems}
+        alertsDegraded={alertsDegraded}
         openSheetHref={openSheetHref}
         hasActionableWarnings={hasActionableWarnings}
         archiveAction={archiveShowAction.bind(null, slug)}
         unarchiveAction={unarchiveShowAction}
-        alertSlot={alertSlot}
         shareSlot={shareSlot}
         feed={feed}
         undoAction={undoChangeAction}
