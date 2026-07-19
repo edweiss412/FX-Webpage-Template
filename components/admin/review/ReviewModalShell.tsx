@@ -98,6 +98,11 @@ function OpenReviewModalShell({
   footer,
 }: ReviewModalShellProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  /** The `role="dialog"` root — `beginDismiss` inerts this subtree. */
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  /** The grab strip — `requestClose` releases its pointer capture when it
+   *  cancels an in-flight drag. */
+  const grabRef = useRef<HTMLButtonElement | null>(null);
   // §S3C-2: portal the fixed-overlay dialog to document.body on the client so
   // the background admin shell can be inerted (below) and the modal escapes any
   // transformed ancestor (PageTransition) that would confine `position: fixed`.
@@ -186,12 +191,15 @@ function OpenReviewModalShell({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        requestClose();
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    // `requestClose` is redefined every render, so this re-subscribes every
+    // render — cheap for one document listener, and it keeps the handler bound
+    // to the CURRENT closure (which reads `onClose` and the drag refs).
+  }, [requestClose]);
 
   // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
   // All drag state lives in refs (no re-renders while the pointer moves); the
@@ -223,6 +231,54 @@ function OpenReviewModalShell({
     panel.style.transform = "";
     panel.style.transition = "";
     panel.style.animation = "";
+  }
+
+  // Task 4 turns this into a prop; until then every consumer's affordances are
+  // live, which is today's behavior.
+  const closeAffordancesDisabled = false;
+
+  /** Commit the dismiss: no second exit may start, and the subtree stops taking
+   *  input for the 120–220ms the exit now lasts (spec §3.1 step 3). Shared with
+   *  the drag-past-threshold branch so every affordance inerts identically. */
+  function beginDismiss() {
+    dismissingRef.current = true;
+    // setAttribute, NOT `.inert = true`: jsdom does not reflect the property to
+    // an attribute, so a property-only assignment is untestable in the unit
+    // suite (and `hasAttribute("inert")` would read false). Every target browser
+    // honours the attribute form identically.
+    dialogRef.current?.setAttribute("inert", "");
+  }
+
+  /** The single close entry point for every non-drag affordance (spec §3.1).
+   *  Task 3 replaces the immediate `onClose()` tail with the animated exit.
+   *
+   *  Deliberately NOT `useCallback`: it must be redefined every render so the
+   *  Esc listener and (Task 5) `closeApiRef` always hold the current closure —
+   *  a memoized one would capture a stale `closeAffordancesDisabled` once that
+   *  becomes a prop in Task 4. Re-subscribing one document listener per render
+   *  is the cheaper side of that trade. */
+  function requestClose() {
+    if (closeAffordancesDisabled) return; // step 0
+    if (dismissingRef.current) return; // step 1 — one exit, one close
+    // step 2: cancel an active drag so its pointerup cannot spring back over the
+    // exiting panel. Do NOT clear the inline transform — it is the exit's start
+    // state (spec §3.2).
+    const drag = dragRef.current;
+    if (drag !== null) {
+      dragRef.current = null;
+      const grab = grabRef.current;
+      if (grab && typeof grab.releasePointerCapture === "function") {
+        try {
+          grab.releasePointerCapture(drag.pointerId);
+        } catch {
+          /* capture already released */
+        }
+      }
+    }
+    beginDismiss();
+    // step 4: reduced motion / no panel / jsdom → immediate, byte-identical to
+    // today. Task 3 adds the animated path ahead of this line.
+    onClose();
   }
 
   function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -265,6 +321,9 @@ function OpenReviewModalShell({
   }
 
   function handleGrabPointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
+    // An affordance already committed the exit — a late pointerup must not
+    // spring the departing panel back or start a second dismiss.
+    if (dismissingRef.current) return;
     const drag = dragRef.current;
     if (drag === null || event.pointerId !== drag.pointerId) return;
     dragRef.current = null;
@@ -287,7 +346,7 @@ function OpenReviewModalShell({
       // fallback matched to the `--duration-normal` token (220ms) in case the
       // transitionend never fires (display:none ancestors, reduced motion
       // collapsing the duration to 0ms, dropped events).
-      dismissingRef.current = true;
+      beginDismiss();
       panel.style.transition = "transform var(--duration-normal) var(--ease-out-quart)";
       panel.style.transform = "translateY(100%)";
       let closed = false;
@@ -381,8 +440,9 @@ function OpenReviewModalShell({
   }, []);
 
   const tree = (
-    <ReviewModalCloseContext.Provider value={onClose}>
+    <ReviewModalCloseContext.Provider value={requestClose}>
       <div
+        ref={dialogRef}
         data-testid={`${testIdBase}-modal`}
         role="dialog"
         aria-modal="true"
@@ -400,7 +460,7 @@ function OpenReviewModalShell({
           {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
           aria-label="Close"
           tabIndex={-1}
-          onClick={onClose}
+          onClick={requestClose}
           className="absolute inset-0 bg-overlay-scrim"
         />
 
@@ -418,12 +478,13 @@ function OpenReviewModalShell({
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
           <button
+            ref={grabRef}
             type="button"
             data-testid={`${testIdBase}-grab`}
             aria-label="Drag down or tap to close"
             onClick={() => {
               if (dragConsumedClickRef.current) return; // the drag ate this click
-              onClose();
+              requestClose();
             }}
             onPointerDown={handleGrabPointerDown}
             onPointerMove={handleGrabPointerMove}

@@ -69,6 +69,15 @@ function Host({
   );
 }
 
+/** Shared render entry for the close-path suites below — same prop bag the
+ *  chrome-topology suite uses, via the `Host` consumer stand-in. */
+function renderShell(props: HostProps = {}) {
+  return render(<Host {...props} />);
+}
+/** testIdBase the default `Host` renders with — the close-path suites locate
+ *  shell-owned nodes through it rather than restating the literal. */
+const SHELL_BASE = "shell-under-test";
+
 describe("ReviewModalShell — open guard (§6.2)", () => {
   it("renders nothing when open === false", () => {
     const { container } = render(<Host open={false} />);
@@ -147,6 +156,33 @@ describe("ReviewModalShell — close paths + initial focus", () => {
   it("initial focus lands on the element initialFocusRef points at (consumer close button)", () => {
     render(<Host />);
     expect(document.activeElement).toBe(screen.getByTestId("host-close"));
+  });
+});
+
+// The plan's Task 2 snippets drive these through `userEvent`; this repo has no
+// `@testing-library/user-event` (see modalCloseButton.test.tsx:11), so they use
+// `fireEvent` like the rest of the suite. Same events, no behavioral difference
+// for a document-level Esc listener and a scrim click.
+describe("requestClose guards (spec §3.1)", () => {
+  // Failure mode: two fast affordances (double-Esc, Esc-then-scrim) each fire
+  // onClose, producing a duplicate close — on Published, a duplicate router.push.
+  it("fires onClose exactly once for repeated affordances", () => {
+    const onClose = vi.fn();
+    renderShell({ onClose });
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByTestId(`${SHELL_BASE}-backdrop`));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Failure mode: the exit window (Task 3) leaves footer buttons live, so a
+  // fast click fires a mutation against an already-dismissed modal.
+  it("inerts the dialog subtree at dismiss-commit", () => {
+    renderShell({ onClose: vi.fn() });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dialog.hasAttribute("inert")).toBe(true);
   });
 });
 
