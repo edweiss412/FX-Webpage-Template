@@ -442,6 +442,12 @@ it("template missing <role-changes> or <2 changes falls back to ordinary render 
 
 ## Task 6: Chevron one-time dismissible in-flow banner + throwing-safe hook
 
+> **Task 6 was later REVERTED (2026-07-18, post-ship).** The banner, `useDismissibleOnce`,
+> and `tests/components/bellChevronHint.test.tsx` were removed; see the WI-5 amendment in
+> `docs/superpowers/specs/2026-07-18-alert-surface-ui.md`. This task block is the historical
+> record of what was built, not live work. Tasks 8 and 9 lost their hint-geometry and
+> hint-transition steps with it.
+
 **Files:**
 - Create: `components/admin/useDismissibleOnce.ts` (client hook)
 - Modify: `components/admin/BellPanel.tsx` (render banner at top of active list)

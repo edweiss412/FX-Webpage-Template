@@ -447,8 +447,9 @@ function ActiveRow({
             violation, and the message/`<ul>`/`<a>` below are illegal inside a
             <button> per the HTML content model). `items-start` keeps the
             right-group top-aligned with the title's first line; the meta group's
-            `shrink-0` sits it flush against the chevron / row content right edge
-            (DI-1/DI-2). */}
+            `shrink-0` sits it flush against the chevron — or, on a chevron-less
+            row, against the reserved slot that stands in for it, so both cases
+            land on one right edge (DI-1/DI-2). */}
         <div data-testid={`bell-header-${entry.alertId}`} className="flex items-start gap-2">
           {/* min-h-tap-min: this is the primary per-row gesture (mark-read). A
               title-only row would otherwise render the affordance well under the
@@ -506,6 +507,11 @@ function ActiveRow({
               href={`/admin?show=${encodeURIComponent(entry.slug)}`}
               data-testid={`bell-caret-${entry.alertId}`}
               aria-label="Open show page"
+              // Permanent desktop cue for where the chevron goes. The WI-5 banner
+              // used to say this once; a native tooltip says it every time, for
+              // free, and never goes stale. Touch has no hover — there the
+              // disclosure chevron itself is the convention.
+              title="Open show page"
               className={SHOW_PAGE_LINK}
             >
               <ChevronRight aria-hidden="true" className="size-4" />
@@ -563,13 +569,30 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
+      // px-4 (not px-2.5) + the same reserved chevron slot the active rows carry:
+      // history sits in the SAME scroll container as the active list, so a history
+      // timestamp on a different right edge reads as a bug, not as a quieter tier.
+      // History rows never navigate (no chevron ever), so the slot here is purely
+      // the column reservation.
+      // gap-2 (not gap-2.5) so the time→slot gap equals the active header's gap-2
+      // and the two bands' timestamps land on the SAME right edge, not 2px apart.
+      className="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
     >
       <CircleCheck aria-hidden="true" className="size-[15px] shrink-0 text-status-positive" />
       <span className="min-w-0 flex-1 wrap-break-word text-sm text-text-subtle">{title}</span>
       {resolved ? (
-        <span className="shrink-0 text-xs tabular-nums text-text-faint">{resolved}</span>
+        <span
+          data-testid={`bell-time-${entry.alertId}`}
+          className="shrink-0 text-xs tabular-nums text-text-faint"
+        >
+          {resolved}
+        </span>
       ) : null}
+      <span
+        aria-hidden="true"
+        data-testid={`bell-caret-slot-${entry.alertId}`}
+        className="size-tap-min shrink-0"
+      />
     </div>
   );
 }
@@ -984,9 +1007,14 @@ export function BellPanel({
             <section
               data-testid="bell-section-history"
               aria-label="History"
-              className="mt-3 border-t border-border pt-3 text-text-subtle"
+              // Full-bleed on the SAME `-mx` as the active section: the scroll
+              // container's px-2/px-2.5 would otherwise inset this band by 8/10px,
+              // putting its timestamps on a different column than the active
+              // rows' and its divider on a shorter line. Both bands now share one
+              // content box, so one right edge serves the whole panel.
+              className="-mx-2 mt-3 border-t border-border pt-3 text-text-subtle sm:-mx-2.5"
             >
-              <h3 className="mb-1.5 px-1 text-xs font-bold uppercase tracking-wider text-text-faint">
+              <h3 className="mb-1.5 px-4 text-xs font-bold uppercase tracking-wider text-text-faint">
                 Earlier · last {feed.historyDays} days
               </h3>
               {history.map((entry) => (
