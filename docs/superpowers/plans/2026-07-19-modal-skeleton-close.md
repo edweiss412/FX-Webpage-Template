@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Worktree: `/Users/ericweiss/FX-worktrees/modal-skeleton-close` (branch `fix/modal-skeleton-close`). All paths below are relative to it. Commits use `--no-verify`.
-- TDD per task (AGENTS.md invariant 1): failing test → minimal implementation → green → commit (invariant 6, conventional commits).
+- TDD per task (AGENTS.md invariant 1): failing test → minimal implementation → green → commit (invariant 6, conventional commits). **Declared exception (spec §5 honesty note):** Task 2's e2e is a wedge-regression invariant test whose pre-fix redness is timing-dependent (Esc landing in the fallback window) — a deterministic red run is not achievable without freezing the Suspense fallback, which Playwright cannot do. Its red/green proof lives in Task 1's jsdom suite; the e2e lands green-only, after implementation.
 - `exactOptionalPropertyTypes: true` (tsconfig.json:9): optional props passed conditionally use spread (`{...(cond ? { prop: v } : {})}`), never `prop={cond ? v : undefined}`.
 - Unit suite default matchMedia stub is `matches: false` for every query (tests/setup.ts:70) → motion ENABLED + sheet mode by default; reduced-motion tests wrap with a local matchMedia mock (pattern `tests/components/admin/showpage/publishedReviewModal.test.tsx:301-318`).
 - jsdom never fires `transitionend` → motion-enabled exits resolve on the fallback timer (`DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS` = 220+80ms, sheet mode) — use `vi.useFakeTimers()`.
@@ -20,17 +20,21 @@
 
 ---
 
-### Task 1: `ReviewModalShell` — `onDismissStart`, `beginDismiss` idempotence, delete `closeAffordancesDisabled`
+### Task 1: Shell `onDismissStart` + skeleton default nav-close (one red→green cycle, one commit)
+
+The shell prop deletion and the skeleton rewrite are a single compile unit — deleting `closeAffordancesDisabled` breaks the skeleton's typecheck, so splitting them would leave a red commit boundary (adversarial plan-R1 F2). Both surfaces get their failing tests FIRST, then both implementations, then one green run, then one commit.
 
 **Files:**
 - Modify: `components/admin/review/ReviewModalShell.tsx` (prop block :79-85, destructure :123, `beginDismiss` :293-303, `requestClose` step 0 :314 + comment :308-312, `handleGrabPointerDown` :407)
+- Modify: `components/admin/showpage/ShowReviewModalSkeleton.tsx`
 - Test: `tests/components/admin/review/reviewModalShell.test.tsx`
+- Test: `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
 
 **Interfaces:**
-- Produces: `ReviewModalShellProps.onDismissStart?: () => void` — fires exactly once per open shell instance, at dismiss-commit (inside `beginDismiss`, after the idempotence guard, after the subtree is inerted, before exit styles / before any exit-end `onClose`). `closeAffordancesDisabled` no longer exists.
-- Consumes: nothing new.
+- Produces: `ReviewModalShellProps.onDismissStart?: () => void` — fires exactly once per open shell instance, at dismiss-commit (inside `beginDismiss`, after the idempotence guard, after the subtree is inerted, before exit styles / before any exit-end `onClose`). `closeAffordancesDisabled` no longer exists. Skeleton signature unchanged: `{ onClose?: () => void }` — both call sites (`app/admin/page.tsx:168` propless; `components/admin/ShowsTable.tsx:672` with cancel) compile unchanged.
+- Consumes: `useShowModalNav().close` (`components/admin/useShowModalNav.ts:30-36`); `ModalCloseButton` (`components/admin/review/ModalCloseButton.tsx` — `forwardRef<HTMLButtonElement, { testId: string }>`, closes via `useReviewModalClose()` context).
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing shell tests**
 
 In `tests/components/admin/review/reviewModalShell.test.tsx`, replace the step-0 line in the "§3.1 guard" test and add a structural + behavioral block. The file already imports `render/fireEvent/cleanup`, `DRAG_DISMISS_THRESHOLD_PX`, reads `SHELL_SRC`, and defines `stripComments`/`bodyOf` — reuse them.
 
@@ -148,16 +152,18 @@ describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
 });
 ```
 
-Imports to extend at the top of the file (only those not already present): `screen`, `vi`, `afterEach`, `useRef`, `ReviewModalShell`, `DURATION_NORMAL_FALLBACK_MS`, `EXIT_FALLBACK_BUFFER_MS`.
+Imports to extend at the top of the file (only those not already present — the live file imports `DRAG_SLOP_PX` but NOT `DRAG_DISMISS_THRESHOLD_PX`, `reviewModalShell.test.tsx:24-32`): `screen`, `vi`, `afterEach`, `useRef`, `ReviewModalShell`, `DRAG_DISMISS_THRESHOLD_PX`, `DURATION_NORMAL_FALLBACK_MS`, `EXIT_FALLBACK_BUFFER_MS`.
 
 Note the tap-below-slop case: a grab TAP (travel ≤ slop) closes via the synthesized click → `requestClose` → `beginDismiss` → `onDismissStart` DOES fire — that is correct behavior (a tap IS a close affordance), which is why the "does not fire" test uses a spring-back (past slop, below threshold), not a tap.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Write the failing skeleton tests** — apply the full test-file rewrite shown in Step 2a below.
 
-Run: `cd /Users/ericweiss/FX-worktrees/modal-skeleton-close && pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx`
-Expected: FAIL — `closeAffordancesDisabled is gone` (still present), `beginDismiss early-returns` (guard absent), and the behavioral block errors on the unknown `onDismissStart` prop / uncalled spy.
+- [ ] **Step 3: Run both suites to verify they fail**
 
-- [ ] **Step 3: Implement in `ReviewModalShell.tsx`**
+Run: `cd /Users/ericweiss/FX-worktrees/modal-skeleton-close && pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
+Expected: FAIL — shell suite: `closeAffordancesDisabled is gone` (still present), `beginDismiss early-returns` (guard absent), behavioral block errors on the unknown `onDismissStart` prop; skeleton suite: no `-close` testid, `routerPush` never called, focus falls back to the panel.
+
+- [ ] **Step 4: Implement in `ReviewModalShell.tsx`**
 
 (a) Replace the `closeAffordancesDisabled` prop declaration + comment (:79-85) with:
 
@@ -195,33 +201,7 @@ Expected: FAIL — `closeAffordancesDisabled is gone` (still present), `beginDis
 
 (d) Delete the step-0 line `if (closeAffordancesDisabled) return; // step 0` in `requestClose` (:314) and the `if (closeAffordancesDisabled) return; // no drag may start (spec §3.4)` line in `handleGrabPointerDown` (:407). In the `requestClose` doc comment (:308-312), replace the sentence citing a stale `closeAffordancesDisabled` capture with: `a memoized one would capture stale drag refs and the current onDismissStart closure`.
 
-- [ ] **Step 4: Run tests to verify they pass**
-
-First, in `components/admin/showpage/ShowReviewModalSkeleton.tsx`, delete ONLY the `closeAffordancesDisabled={onClose === undefined}` line and its two comment lines (:40-42) — the deleted prop no longer typechecks; every other skeleton change stays in Task 2.
-
-Run: `pnpm vitest run tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/showReviewModalSkeleton.test.tsx tests/components/admin/showpage/publishedReviewModal.test.tsx`
-Expected: reviewModalShell + publishedReviewModal suites PASS. showReviewModalSkeleton's "server-fallback usage: every affordance is inert" now FAILS (affordances live) — that red is Task 2's starting contract; do NOT fix it in this task.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add components/admin/review/ReviewModalShell.tsx components/admin/showpage/ShowReviewModalSkeleton.tsx tests/components/admin/review/reviewModalShell.test.tsx
-git commit --no-verify -m "feat(admin): shell onDismissStart at dismiss-commit; drop closeAffordancesDisabled"
-```
-
-(The skeleton suite is intentionally red at this commit boundary — Task 2's Step 1 rewrites it in the same PR; the branch, not each commit, must be green. If you prefer every commit green, squash Tasks 1–2 into one commit instead — but do NOT write implementation before its test within either task.)
-
-### Task 2: `ShowReviewModalSkeleton` — default nav-close, real X, focus, a11y structure
-
-**Files:**
-- Modify: `components/admin/showpage/ShowReviewModalSkeleton.tsx`
-- Test: `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
-
-**Interfaces:**
-- Consumes: Task 1's `onDismissStart`; `useShowModalNav().close` (`components/admin/useShowModalNav.ts:30-36`); `ModalCloseButton` (`components/admin/review/ModalCloseButton.tsx` — `forwardRef<HTMLButtonElement, { testId: string }>`, closes via `useReviewModalClose()` context).
-- Produces: same component signature `{ onClose?: () => void }` — both existing call sites (`app/admin/page.tsx:168` propless; `components/admin/ShowsTable.tsx:672` with cancel) compile unchanged.
-
-- [ ] **Step 1: Rewrite the test file (failing first)**
+**Step 2a (content for Step 2): the skeleton test-file rewrite**
 
 Replace the whole of `tests/components/admin/showpage/showReviewModalSkeleton.test.tsx` with:
 
@@ -337,6 +317,22 @@ describe("server-fallback usage (no onClose): default nav-close (spec §2.1)", (
     vi.runAllTimers(); // late fallback timer must not double-close or throw
     expect(routerPush).toHaveBeenCalledTimes(1);
   });
+
+  // Spec §5 (plan-R1 F3): the drag branch bypasses requestClose — its
+  // dismiss-commit push must survive an unmount-mid-transition too.
+  it("drag dismiss + Suspense swap mid-transition: push already issued, no double push", () => {
+    vi.useFakeTimers();
+    const { unmount } = render(<ShowReviewModalSkeleton />);
+    const grab = screen.getByTestId(`${TB}-grab`);
+    const endY = 100 + DRAG_DISMISS_THRESHOLD_PX + 30;
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: endY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: endY });
+    expect(routerPush).toHaveBeenCalledTimes(1); // at release (dismiss-commit)
+    unmount(); // swap before the translateY transition resolves
+    vi.runAllTimers();
+    expect(routerPush).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("client optimistic usage (real onClose): prop path unchanged", () => {
@@ -383,12 +379,7 @@ describe("skeleton owns the closed→open entrance (§6.5)", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pnpm vitest run tests/components/admin/showpage/showReviewModalSkeleton.test.tsx`
-Expected: FAIL — no `${TB}-close` testid, `routerPush` never called (skeleton still no-ops), focus falls back to the panel.
-
-- [ ] **Step 3: Implement the skeleton**
+- [ ] **Step 5: Implement the skeleton**
 
 Replace `components/admin/showpage/ShowReviewModalSkeleton.tsx` body (keep the file's role; rewrite header comment per spec §2.3):
 
@@ -492,19 +483,19 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
 }
 ```
 
-- [ ] **Step 4: Run the affected unit suites**
+- [ ] **Step 6: Run the affected unit suites**
 
 Run: `pnpm vitest run tests/components/admin/showpage/showReviewModalSkeleton.test.tsx tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/publishedReviewModal.test.tsx tests/components/admin/ShowsTable.test.tsx tests/components/admin/AdminPage.test.tsx tests/components/admin/transitionAudit.test.tsx`
 Expected: ALL PASS (AdminPage mocks the skeleton — `AdminPage.test.tsx:135`; ShowsTable's suite mocks next/navigation already; transition audit scans the skeleton source for motion classes — none added).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit (one task, one commit)**
 
 ```bash
-git add components/admin/showpage/ShowReviewModalSkeleton.tsx tests/components/admin/showpage/showReviewModalSkeleton.test.tsx
-git commit --no-verify -m "feat(admin): skeleton frame closes for real — default nav-close + live X (MODAL-SKELETON-CLOSE-1)"
+git add components/admin/review/ReviewModalShell.tsx components/admin/showpage/ShowReviewModalSkeleton.tsx tests/components/admin/review/reviewModalShell.test.tsx tests/components/admin/showpage/showReviewModalSkeleton.test.tsx
+git commit --no-verify -m "feat(admin): skeleton frame closes for real — shell onDismissStart + live X (MODAL-SKELETON-CLOSE-1)"
 ```
 
-### Task 3: Deeplink e2e — Esc during load never wedges
+### Task 2: Deeplink e2e — Esc during load never wedges
 
 **Files:**
 - Modify: `tests/e2e/published-review-modal.deeplink.spec.ts` (append one test inside the existing `test.describe`)
@@ -556,7 +547,7 @@ Append inside the describe block:
 
 Run: `pnpm exec playwright test tests/e2e/published-review-modal.deeplink.spec.ts -g "Esc during load" --project=desktop-chromium 2>&1 | tail -20`
 (Env: `.env.local` is symlinked; the spec seeds its own show. If the local dev-server port is contested by a sibling worktree, use the repo's alt-port config per the sibling-dev-server discipline — check `lsof -nP -iTCP:3000 -sTCP:LISTEN` first.)
-Expected: PASS post-Task-2. (Optional red proof: `git stash` Tasks 1–2, run, observe timing-dependent failure when Esc lands on the skeleton, unstash.)
+Expected: PASS post-Task-1. (Green-only by declared exception — see Global Constraints; the red/green proof is Task 1's jsdom suite.)
 
 - [ ] **Step 3: Run the whole deeplink + interactions specs**
 
@@ -570,7 +561,7 @@ git add tests/e2e/published-review-modal.deeplink.spec.ts
 git commit --no-verify -m "test(admin): deeplink Esc-during-load wedge regression (MODAL-SKELETON-CLOSE-1)"
 ```
 
-### Task 4: Spec amendments + DEFERRED archive move
+### Task 3: Spec amendments + DEFERRED archive move
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-07-18-admin-show-modal.md` (§4 :73, §5 API list :79-90, §6.5 table :~147)
@@ -582,7 +573,7 @@ git commit --no-verify -m "test(admin): deeplink Esc-during-load wedge regressio
 - [ ] **Step 1: Apply the admin-show-modal amendments** — §4 "non-interactive" → "content-non-interactive" sentence (spec §3.1 wording verbatim); add `onDismissStart?: () => void` to the §5 shell prop contract with the one-shot dismiss-commit sentence; add the §6.5 skeleton-close row.
 - [ ] **Step 2: Apply the exit-anim amendments** — delete §3.1 step 0 and renumber; add `beginDismiss` idempotence + `onDismissStart` description; rewrite §3.4 as "The skeleton closes everywhere" with the historical note; update both matrices' server-fallback rows; update the §6.5 quote trailing sentence; update test-shape item 4 and the three file-table rows.
 - [ ] **Step 3: DEFERRED move** — cut the MODAL-CLOSE-EXIT-ANIM-1 resolved block (`DEFERRED.md:11-14`) and the whole MODAL-SKELETON-CLOSE-1 entry (`:16-19`) into a new `DEFERRED-archive.md` section "## Review-modal close (2026-07-19)"; mark MODAL-SKELETON-CLOSE-1 `✅ RESOLVED` with: un-defer trigger fired (this task), what shipped (onDismissStart nav at dismiss-commit + real X + prop deletion), spec/plan links, and rewrite the archived exit-anim note's "stays deferred" cross-reference to "resolved by `2026-07-19-modal-skeleton-close.md`". Update `DEFERRED.md`'s "Last reconciled" line.
-- [ ] **Step 4: Verify** — `grep -rn "closeAffordancesDisabled" docs/ DEFERRED.md` returns only historical-note mentions (the exit-anim §3.4 history sentence + archive provenance); `grep -n "MODAL-SKELETON-CLOSE-1" DEFERRED.md` returns nothing.
+- [ ] **Step 4: Verify** — `grep -rn "closeAffordancesDisabled" docs/superpowers/specs/2026-07-18-admin-show-modal.md docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md DEFERRED.md` returns only the exit-anim §3.4 historical-note mention (the 2026-07-19 spec/plan keep their intentional mentions and are out of this grep's scope); `grep -n "MODAL-SKELETON-CLOSE-1" DEFERRED.md` returns nothing.
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -590,7 +581,7 @@ git add docs/superpowers/specs/2026-07-18-admin-show-modal.md docs/superpowers/s
 git commit --no-verify -m "docs: ratify MODAL-SKELETON-CLOSE-1 amendments; archive resolved modal deferrals"
 ```
 
-### Task 5: Full local gates
+### Task 4: Full local gates
 
 - [ ] **Step 1:** `pnpm test 2>&1 | tail -5` — full unit suite green (scoped gates miss regressions).
 - [ ] **Step 2:** `pnpm typecheck 2>&1 | tail -5` — vitest strips types; typecheck is separate.
