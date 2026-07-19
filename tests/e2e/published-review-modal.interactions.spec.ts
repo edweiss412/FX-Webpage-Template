@@ -125,6 +125,33 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     return { pathname: u.pathname, params: u.searchParams, hash: u.hash };
   }
 
+  /** Deterministic hydration gate for the dashboard row Link. The old
+   *  `waitForLoadState("networkidle")` proxy hangs the full test timeout on
+   *  the CI prod-build server (background polling keeps the network busy —
+   *  networkidle never fires) and proves nothing about hydration anyway.
+   *  A gesture on a pre-hydration Link is a FULL document navigation: no
+   *  optimistic skeleton, and the shell never captures the trigger for
+   *  focus restore. React attaches component props onto the DOM node under
+   *  a `__reactProps$…` key once (and only once) the tree has hydrated —
+   *  poll for the row's onClick being present there. */
+  async function waitForRowHydration(page: Page, slug: string): Promise<void> {
+    await expect
+      .poll(
+        () =>
+          page.evaluate((tid) => {
+            const el = document.querySelector(`[data-testid="${tid}"]`) as
+              | (Element & Record<string, { onClick?: unknown }>)
+              | null;
+            if (!el) return false;
+            return Object.keys(el).some(
+              (k) => k.startsWith("__reactProps$") && typeof el[k]?.onClick === "function",
+            );
+          }, `shows-table-row-${slug}`),
+        { message: "row link hydrated (React onClick attached)", timeout: 30_000 },
+      )
+      .toBe(true);
+  }
+
   /** The panel's INLINE style props (the drag machinery writes inline only). */
   async function panelInlineStyles(page: Page) {
     return page.locator(PANEL).evaluate((el) => ({
@@ -209,10 +236,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await page.goto("/admin");
     const trigger = page.locator(`[data-testid="shows-table-row-${show.slug}"]`);
     await expect(trigger).toBeVisible({ timeout: 30_000 });
-    // Let hydration + first-paint effects settle: a post-focus hydration
-    // re-render would swap the DOM node and silently drop focus to <body>,
-    // making Enter a no-op on the wrong element.
-    await page.waitForLoadState("networkidle");
+    // Hydration gate: Enter on a pre-hydration Link is a full document
+    // navigation — the shell never captures the trigger, so the focus
+    // restore this test pins could never happen. (networkidle replaced —
+    // see waitForRowHydration.)
+    await waitForRowHydration(page, show.slug);
 
     await trigger.focus();
     await expect
@@ -319,7 +347,9 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await page.goto("/admin");
     const trigger = page.locator(`[data-testid="shows-table-row-${show.slug}"]`);
     await expect(trigger).toBeVisible({ timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    // Hydration gate: a pre-hydration click is a full navigation — no
+    // optimistic skeleton, so the stranded-overlay pin would be vacuous.
+    await waitForRowHydration(page, show.slug);
 
     await trigger.click();
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
