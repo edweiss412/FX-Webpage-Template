@@ -63,7 +63,7 @@ Behavior:
 
 0. **Non-dismissible guard.** If `closeAffordancesDisabled` (§3.4), return immediately — before any state change, inert, or animation.
 1. **Re-entrancy guard.** If `dismissingRef.current` (`:206`) is already `true`, return. One exit, one close.
-2. **Cancel any active drag.** If `dragRef.current !== null`, release its pointer capture and null it, so the pending `pointerup` early-returns at the existing guard and can never run the spring-back that would overwrite the exiting panel with `translateY(0)`. Also clear `settleTimerRef` (`:208`). Belt-and-suspenders: `handleGrabPointerEnd` early-returns when `dismissingRef.current` is `true`.
+2. **Cancel any active drag.** If `dragRef.current !== null`, release its pointer capture and null it, so the pending `pointerup` early-returns at the existing guard and can never run the spring-back that would overwrite the exiting panel with `translateY(0)`. Also clear `settleTimerRef` (`:208`). Belt-and-suspenders: `handleGrabPointerEnd` early-returns when `dismissingRef.current` is `true`. **Do NOT clear the inline `transform`** — it is the exit's start state (§3.2 start-state normalization); clearing it would snap the panel to `translateY(0)` before the exit begins.
 3. **Commit the dismiss — shared `beginDismiss()`.** Set `dismissingRef = true` and `dialogRef.current.inert = true` (the whole `role="dialog"` subtree, `:377`). **Also called by the drag-past-threshold branch** (§3.2), so every affordance inerts at dismiss-commit. This matters because `onClose` is now delayed 120–220ms by the animation while Step3's footer buttons remain wired to `handlePublish`/`handleUnpublish`/`handleApproveResolve`/`handleIgnoreResolve`; a fast click during the exit must not fire an action after dismissal. Today's instant unmount has no such window — the animation creates it, so the guard ships with it. `inert` does not block the transition or `transitionend`.
 4. **Reduced motion / null panel → immediate.** If `panelRef.current` is null, or `matchMedia("(prefers-reduced-motion: reduce)")` matches, or `matchMedia` is absent (jsdom): call `onClose()` with no animation. Byte-identical to today.
 5. **Animate.** Otherwise neutralize the entrance (`panel.style.animation = "none"`), apply the mode-appropriate exit styles (§3.2), fade the scrim, and call `onClose()` at exit-end — the panel's `transitionend` (transform) or a fallback timer, mirroring the drag path's `finish()` (`:293-299`).
@@ -78,6 +78,16 @@ Mode reads `matchMedia("(min-width: 640px)")` — the `sm` boundary the shell al
 | Desktop (`≥sm`) | `opacity: 0; transform: translateY(8px) scale(0.98)` — reverse of `step3-details-pop-in` (`app/globals.css:737`) | `--duration-fast` (120ms) | `DURATION_FAST_FALLBACK_MS` (`:52`) |
 
 `transitionend` keys on `propertyName === "transform"` (present in both modes) — the same predicate the drag path uses (`:296`).
+
+**Start-state normalization (required on EVERY exit, not only the drag-cancel path).** The panel's inline `transition` is not in a known state when `requestClose` runs: an active drag latches `transition: "none"` (`:241`), and an un-dragged panel carries whatever the entrance left. Applying the exit transform without first establishing a transition would jump the panel to its end state instantly — no interpolation, no `transform` `transitionend`, close deferred to the fallback timer. Because that still *eventually* closes, it fails silently. The order is therefore fixed, and mirrors what the two existing drag-release paths already do (`:282`, `:304` both set `transition` before mutating `transform`):
+
+1. Neutralize the entrance: `panel.style.animation = "none"`.
+2. Establish the start state: leave any existing inline `transform` in place (mid-drag position), or read the computed transform when there is none.
+3. Set the exit transition explicitly — `transform`/`opacity` over the mode's duration with `var(--ease-out-quart)`.
+4. Force a style flush between the start state and the exit values (read a layout property) so the two land in separate style resolutions; setting both in one frame collapses the transition.
+5. Apply the exit values (table above).
+
+A drag-cancelled exit therefore animates continuously from the panel's current dragged offset to `translateY(100%)` rather than teleporting.
 
 **Scrim fade (both modes):** a new `scrimRef` (`:394`) lets `requestClose` set `animation = "none"`, `transition = "opacity <dur> ease-out"`, `opacity = "0"`. Cosmetic — it does NOT gate exit-end; if its own `transitionend` never fires that is harmless.
 
@@ -168,7 +178,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
    (a) **exit-animation flip** — the existing "open→closed is an INSTANT unmount" assertions (`:23`, `:254-292`) flip: X / Esc / scrim leave an exit-animated frame (panel carries a non-identity **computed** transform/opacity, scrim opacity → 0) BEFORE the frame leaves the DOM. #485's URL-strip polling is unchanged and must stay green. Reduced-motion run collapses to instant with no exit frame.
    (b) **exit-window action suppression** (`inert` is not enforced in jsdom) — in the Step3 harness, dismiss via Esc/X **and, separately, via drag-past-threshold**; within each exit window attempt to click Publish / Approve & apply / Ignore and assert the handler is NOT invoked and the modal still closes exactly once.
    (c) **focus continuity** — `main` already pins focus returning to the trigger across the close path (`7555c0316`). Assert it still holds with the animation interposed: focus lands on the trigger after exit-end, not mid-animation.
-   (d) **compound drag-held + Esc** — hold the grab past slop, press Esc, release the pointer AFTER the fallback timer; assert one exit, one close, no `translateY(0)` snap-back frame.
+   (d) **compound drag-held + Esc** — hold the grab past slop, press Esc, release the pointer AFTER the fallback timer; assert one exit, one close, no `translateY(0)` snap-back frame. **Must assert animated progression, not just the endpoints:** sample the panel's *computed* `transform` at ≥2 points inside the exit window and assert the translateY strictly increases and is at some point strictly between the drag offset and the final `translateY(100%)` — an instant jump satisfies "eventually closed" and "never snapped back", so endpoint-only assertions pass while the regression ships. Assert the `transform` `transitionend` actually fires (exit-end reached by transition, not by the fallback timer). Same progression assertion applies to (a)'s non-drag exits, whose start state is normalized by the same §3.2 contract.
 6. **Transition-audit** — assert all four affordances resolve to `requestClose`, the §3.1 guards exist (step-0 disable, re-entrancy, drag-cancel, reduced-motion/null-panel), and `handleGrabPointerEnd` early-returns on `dismissingRef`.
 
 ## 8. Out of scope
