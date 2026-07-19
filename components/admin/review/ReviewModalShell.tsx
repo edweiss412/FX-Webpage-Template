@@ -615,7 +615,7 @@ function OpenReviewModalShell({
           ref={panelRef}
           {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
           {...entranceAttr}
-          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-hidden rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
           {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
