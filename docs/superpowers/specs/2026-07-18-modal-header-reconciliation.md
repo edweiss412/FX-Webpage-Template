@@ -232,7 +232,8 @@ this table without tooling.
 | `app/globals.css` | 335 | `--color-warning-text-runtime: #ffd68a;` |
 | `app/globals.css` | 349 | `--color-status-review-runtime: #e0b84e;` |
 | `app/globals.css` | 350 | `--color-status-review-text-runtime: #f0c860;` |
-Verification: all 102 rows resolved at the base commit; zero missing files, zero
+| `app/admin/_showReviewModal.tsx` | 270 | `const alertCount = Array.isArray(alertsForCount) ? alertsForCount.length : 0;` |
+Verification: all 103 rows resolved at the base commit; zero missing files, zero
 out-of-range lines. The test-file rows were added in round 10 and the light/dark theme-token rows in round 16 — adversarial review
 correctly applied the rule stated above: a claim citing a line absent from this
 table IS a finding, because it means the appendix is incomplete.
@@ -385,8 +386,15 @@ Add one optional prop:
  *  element, or a `cond && <X/>` that collapsed — and makes `0` / `""` a COMPILE
  *  ERROR rather than a silently-omitted band. Prose alone did not close this:
  *  adversarial review raised the falsey-ReactNode hazard three times (rounds 5,
- *  7, 9) against a documented-but-untyped contract. The type closes it. */
-subHeader?: ReactElement | false | null;
+ *  7, 9) against a documented-but-untyped contract. The type closes it.
+ *
+ *  `| undefined` is EXPLICIT, not redundant: this repo sets
+ *  `exactOptionalPropertyTypes: true` (`tsconfig.json:9`), under which an
+ *  optional property does NOT implicitly accept an explicit `undefined`. Omit it
+ *  and `subHeader={cond ? <X/> : undefined}` fails to type-check — and the
+ *  likely "fix" is widening back to `ReactNode`, reintroducing the falsey-band
+ *  bug this type exists to prevent. */
+subHeader?: ReactElement | false | null | undefined;
 ```
 
 Rendered directly after `</header>`, mirroring the existing `footer` idiom
@@ -740,6 +748,21 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   wrapper, not the button), and the absolute panels anchor to an unintended
   subtree. Required shape in overlay mode:
 
+  **`StatusStrip` owns the insertion and must not wrap it.** The call site is a
+  bare element in the strip root, immediately before `strip-copy-link`:
+
+  ```tsx
+  {/* NO wrapper div. A <div data-testid="strip-resync"> around this would make
+      the WRAPPER the flex item — breaking row alignment, the row gap, and the
+      full-band width of the absolute panels — while every focus and order test
+      still passed. The trigger already carries data-testid="admin-resync-button"
+      (ReSyncButton.tsx:140); query that, do not add a wrapper to hang a testid on. */}
+  {archived ? null : <ReSyncButton slug={slug} surface="overlay" />}
+  {copyUrl != null ? (<div data-testid="strip-copy-link" className="ml-auto shrink-0">…</div>) : null}
+  ```
+
+  which renders as:
+
   ```
   <>  {/* no box — the trigger IS the strip row item */}
     <button …trigger… />
@@ -985,7 +1008,7 @@ states it does not draw and are the highest-risk part of this change.
 | `alertCount` | `0` | Header alert pill omitted; header right slot holds close only. |
 | `alertCount` | `1` vs `>1` | "1 alert" vs "N alerts". |
 | `alertCount` | `>99` | Capped display `99+ alerts`, exact count in the accessible name (§6.6). |
-| `alertCount` | negative, non-integer, or `NaN` | **Treat as 0 — render no pill.** The value is server-derived (`app/admin/_showReviewModal.tsx:270`, an array length, so non-negative by construction), but §7 promises a stated behavior for every input and an unguarded render would produce `NaN alerts` or `-1 alerts` in the header. Guard: `Number.isInteger(alertCount) && alertCount > 0` gates the pill; anything else omits it, matching the `0` row rather than inventing an error state. |
+| `alertCount` | negative, non-integer, or `NaN` | **Treat as 0 — render no pill.** The value is server-derived (`app/admin/_showReviewModal.tsx:270` — `Array.isArray(alertsForCount) ? alertsForCount.length : 0`, so a non-negative integer by construction, with any fault degrading to 0). **The guard is therefore defensive-only, not covering a reachable input**, but §7 promises a stated behavior for every input and an unguarded render would produce `NaN alerts` or `-1 alerts` in the header. Guard: `Number.isInteger(alertCount) && alertCount > 0` gates the pill; anything else omits it, matching the `0` row rather than inventing an error state. |
 | `archived` | `true` | Strip shows `strip-archived-badge`, NO toggle, NO copy-link, NO live badge (`StatusStrip.tsx:194-211`, `221`, `144-146`). **The strip band still renders** — it is not empty (the archived badge + status line occupy it). |
 | `published` | `false` | Copy-link omitted (crew link paused). Toggle still renders, OFF. |
 | `token` | `null` | Copy-link omitted. |
