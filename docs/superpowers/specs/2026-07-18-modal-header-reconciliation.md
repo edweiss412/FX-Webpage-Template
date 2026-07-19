@@ -220,7 +220,7 @@ this table without tooling.
 | `components/admin/ReSyncButton.tsx` | 121 | `setSuccessMessage(summarizeResult(json.result));` |
 | `components/admin/ReSyncButton.tsx` | 122 | `router.refresh();` |
 
-Verification: all 120 rows resolved at the base commit; zero missing files, zero
+Verification: all 90 rows resolved at the base commit; zero missing files, zero
 out-of-range lines. The test-file rows were added in round 10 — adversarial review
 correctly applied the rule stated above: a claim citing a line absent from this
 table IS a finding, because it means the appendix is incomplete.
