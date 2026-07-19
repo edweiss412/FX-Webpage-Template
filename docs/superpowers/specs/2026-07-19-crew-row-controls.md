@@ -168,6 +168,13 @@ staged rows render **no trigger** (call/email icons only — exactly today's DOM
 - Focus: opens with **Cancel** focused (C3); Cancel/auto-revert restores focus to the row trigger
   (C5). Confirm-resolve path does not restore (outcome banner announces; matches
   PickerResetControl's restore-only-on-cancel semantics, `PickerResetControl.tsx:81-108`).
+- **Tab containment:** while the confirm popover is open, `Tab`/`Shift+Tab` cycle between its
+  only two tabbables (Cancel ⇄ Confirm; 2-stop trap on the popover's keydown) — focus can never
+  land behind the backdrop. (Menu Tab behavior differs deliberately: §4.2 closes on Tab per APG;
+  a destructive confirm must not dismiss on Tab.) Unit-tested (§8).
+- **Text containment:** the warning line and heading carry `wrap-break-word` (same utility as
+  the row name, `step3ReviewSections.tsx:1269`) so an arbitrarily long unbroken `${name}` wraps
+  inside the fixed 268px panel instead of overflowing it.
 - Auto-revert: **4s** (`ARM_REVERT_MS` harmonization, DESTRUCT-2) — timer from confirm-open;
   fires → popover closes fully (back to closed, NOT back to menu). Any of Cancel / outside click /
   Esc also closes fully. All of these close paths (incl. the auto-revert timer) are inert while
@@ -222,6 +229,7 @@ Rendered by `CrewBreakdown` above the `<ul>`, PCR-1 pattern verbatim
 | `m.phone` null/blank | `hasContent` guard | No call icon (unchanged). |
 | `m.email` null/blank | `hasContent` guard | No email icon (unchanged). |
 | `m.name` empty | existing `name \|\| "Unnamed"` | aria-labels + warning copy use "Unnamed". |
+| `m.name` very long / unbroken (no spaces) | e.g. 120-char token | Confirm warning + banners wrap via `wrap-break-word` (§4.3/§4.5); popover keeps `w-[268px]`, no horizontal overflow. |
 | `members` empty | — | "No crew parsed." (unchanged); no banner state. |
 | `members.length > CREW_CAP` | existing cap | Overflow note unchanged; menus only on shown rows. |
 | Reset while member deleted server-side | `PICKER_CREW_MEMBER_NOT_FOUND` | Error banner (4.4). |
@@ -303,7 +311,9 @@ Unit (RTL, jsdom — behavior only, no layout claims):
   resolving UI (both buttons disabled, CTA `aria-busy` + "Resetting…", Esc/outside/auto-revert
   inert while resolving — concrete failure mode: double-fire or close-drops-outcome);
   keyboard contract (open focuses first menuitem; ArrowDown/ArrowUp cycle; Home/End; Tab
-  closes; Enter activates focused item);
+  closes MENU; Enter activates focused item; confirm-popover Tab/Shift+Tab 2-stop trap
+  Cancel ⇄ Confirm — concrete failure mode: focus escaping behind the backdrop);
+  `wrap-break-word` present on confirm warning + banner text (class contract);
   C3/C5 focus (`vi.waitFor` per async-focus lesson); sr-only region receives success text; new
   confirm clears prior outcome; no-trigger render for `enabled:false` / empty crewId / staged —
   asserted against the CONCRETE committed DOM shape, not a self-comparison: the cluster
@@ -328,8 +338,12 @@ Structural/meta:
   `resetPickerEpoch` already covered); Supabase call-boundary registry (N/A — no new Supabase
   call site); sentinel-hiding (N/A); advisory-lock topology (N/A — no `pg_advisory*` in diff).
 
-Real-browser (Playwright, extends `tests/e2e/_publishedReviewModalHarness.tsx` +
-`published-review-modal.interactions.spec.ts` or a sibling spec):
+Real-browser — ALL of the following run in a LIVE spec (new sibling
+`tests/e2e/published-review-modal.crew-actions.spec.ts`, same rig as
+`published-review-modal.interactions.spec.ts`: dev server + `ADMIN_FIXTURE` auth +
+`seedShowWithCrew` + `settleDashboardAdminState`). The static
+`_publishedReviewModalHarness.tsx` is renderToStaticMarkup and cannot open popovers
+(client-only mounts hidden — known lesson), so NO new assertion lands there:
 
 - Menu popover opens inside the modal without being clipped: `getBoundingClientRect()` of
   `crew-row-menu-*` fully within viewport and intersecting the modal scroll container's visible
@@ -343,6 +357,8 @@ Real-browser (Playwright, extends `tests/e2e/_publishedReviewModalHarness.tsx` +
   reopen); a second click reopens. Same for clicking row B's trigger (closes only).
 - Esc closes with focus restored to trigger (real focus, not jsdom); backdrop click closes
   without focus restore.
+- Long-name containment: seed one crew member with a 120-char unbroken name; open its confirm;
+  assert popover `scrollWidth <= clientWidth` and width 268 (±0.5).
 - Confirm CTA visible + clickable within the modal on the LAST crew row (where
   `top: calc(100%+6px)` opens past the scrollport edge): after opening, the
   `scrollIntoView({ block: "nearest" })` mount behavior (§4.2) must leave the popover fully
