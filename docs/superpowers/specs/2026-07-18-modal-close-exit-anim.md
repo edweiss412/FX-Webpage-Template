@@ -68,6 +68,17 @@ Behavior:
 4. **Reduced motion / null panel → immediate.** If `panelRef.current` is null, or `matchMedia("(prefers-reduced-motion: reduce)")` matches, or `matchMedia` is absent (jsdom): call `onClose()` with no animation. Byte-identical to today.
 5. **Animate.** Otherwise neutralize the entrance (`panel.style.animation = "none"`), apply the mode-appropriate exit styles (§3.2), fade the scrim, and call `onClose()` at exit-end — the panel's `transitionend` (transform) or a fallback timer, mirroring the drag path's `finish()` (`:293-299`).
 
+### 3.1a `requestClose` is the ONLY close path
+
+Every close routes through `requestClose` — dismiss gestures (§3.1) **and** Step3's programmatic action-success closes (`Step3ReviewModal.tsx:236`, `:245`, `:299`, which today call `onClose()` directly after an `await`). Those handlers call `requestClose` from the §3.3 context instead.
+
+This is a single rule with no exceptions, and it is deliberately not a special-case guard: an "ignore the success close while dismissing" flag would leave two close paths and require every future close site to remember the flag. Routing everything through one entry point makes the §3.1 step 1 re-entrancy guard cover the compound case for free:
+
+- **dismiss committed, action resolves during the exit** → `requestClose` no-ops (step 1); the in-flight exit still owns the close and reaches `onClose` at exit-end. One exit, one close, animation intact.
+- **action resolves first, then dismiss** → the success close runs a normal animated exit; the later gesture no-ops on the same guard.
+
+Success closes therefore animate like every other close. That is a behavior change from main (where they are instant), but it is the same change this spec makes to all four dismiss affordances, and the alternative — an un-animated close path racing an animated one — is what produced this finding. Acceptance in §7.5(g).
+
 ### 3.2 Exit treatment (mode-aware, JS-inline)
 
 Mode reads `matchMedia("(min-width: 640px)")` — the `sm` boundary the shell already tracks. Exit is driven by **inline styles**, mirroring the drag path, not by new CSS keyframes (§5).
@@ -145,6 +156,8 @@ Contract: the shell takes `closeAffordancesDisabled?: boolean` (default `false`)
 | `requestClose` while `dismissingRef` already true (double Esc, Esc-then-X, scrim-then-Esc) | no-op — one exit, one close |
 | drag in progress when Esc/X fires | drag cancelled (step 2); the pending `pointerup` early-returns → no spring-back over the exiting panel |
 | footer button clicked DURING the exit window (120–220ms), any affordance incl. drag | no action fires — subtree `inert` from `beginDismiss` |
+| footer action clicked BEFORE dismissal, resolves DURING the exit | its close routes through `requestClose` (§3.1a) and no-ops on the re-entrancy guard; the exit is not truncated and `onClose` fires once, at exit-end. `inert` does not cover this — the click predates it |
+| footer action resolves, THEN a dismiss gesture fires | the success close already ran an animated exit; the gesture no-ops on the same guard |
 | reduced motion, or `matchMedia` absent (jsdom) | immediate `onClose()` — identical to today |
 | `panelRef.current` null at fire time | immediate `onClose()` (defensive, mirrors the drag path) |
 | Published: close push slower than the animation | irrelevant — #485 already hid the modal via `closing`; the exit plays, then `onClose` sets `closing` and pushes |
@@ -187,6 +200,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 - **drag held, then X/Esc** (S3) → drag cancelled first, so `pointerup` cannot spring back over the exiting panel. Exit animates from the drag's current transform (continuous). Acceptance in §7.5(d).
 - **spring-back in flight, then any close affordance** (S4) → settle timer cleared and `clearPanelDragStyles()` guarded by `dismissingRef`, so the pending settle can neither blank the exit styles nor consume the exit's `transitionend`. Exit animates from the panel's mid-settle position, *not* from the settle's `translateY(0px)` target. Acceptance in §7.5(e).
 - **entrance in flight, then any close affordance** (S2) → computed `transform`/`opacity` snapshotted before the entrance animation is neutralized, so the panel continues from where the entrance had reached instead of snapping to its resting style first. Both modes (desktop interpolates opacity *and* transform). Acceptance in §7.5(f).
+- **footer action pending, then dismiss, action resolves before exit-end** (§3.1a) → the resolution's `requestClose` no-ops on the step-1 re-entrancy guard; the exit animation is not truncated and `onClose` fires exactly once, at exit-end. Applies to all five affordances including drag. Acceptance in §7.5(g).
 - `requestClose` twice fast → second no-ops (S5).
 
 ## 7. Test surface
@@ -204,7 +218,9 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
    (e) **close during spring-back (S4)** — drag the grab strip *sub*-threshold (past `DRAG_SLOP_PX`, under `DRAG_DISMISS_THRESHOLD_PX`), release, then close via Esc **inside the 120ms settle window**. Assert: ≥2 computed-transform samples show continuous progression toward `translateY(100%)`; the panel never reads `translateY(0px)` after the close (proving the pending settle neither completed over the exit nor blanked it); inline `transform` is non-empty throughout the exit (proving `clearPanelDragStyles()` did not fire); exactly one `onClose`; exit-end via `transform` `transitionend`, not the fallback timer.
 
    (f) **close during entrance (S2)** — open the modal and close it inside the entrance window, in **both** sheet and desktop modes. Assert the panel's computed `transform`/`opacity` at the first post-close sample is the entrance's mid-flight value, *not* the resting style (identity transform / `opacity: 1`) — a snapshot-after-neutralize implementation snaps to resting first and fails this. Then assert continuous progression to the exit end state.
-6. **Transition-audit** — assert all four affordances resolve to `requestClose`, the §3.1 guards exist (step-0 disable, re-entrancy, drag-cancel, reduced-motion/null-panel), and `handleGrabPointerEnd` early-returns on `dismissingRef`. **Motion-state completeness (structural):** assert `clearPanelDragStyles()` early-returns on `dismissingRef.current` (the §3.2 chokepoint guard — the class defense, so it is pinned rather than left to convention), and that the §3.2 state inventory covers every motion state the shell can produce: enumerate the shell's motion-state sources (`dragRef`, `settleTimerRef`, `dismissTimerRef`, `dismissingRef`, the entrance animation) and fail if any lacks an S-row. A new motion state added without an inventory row must fail this test rather than silently inherit unnormalized exit behavior.
+
+   (g) **pending action resolves during the exit (§3.1a)** — in the Step3 harness, click Publish (and separately Approve & apply / Ignore) with a resolution deliberately delayed to land *inside* the exit window; dismiss via Esc, then via drag-past-threshold. Assert: the exit's computed-transform progression continues uninterrupted past the moment the action resolves (proving the resolution did not truncate it); `onClose` fires **exactly once**, at exit-end, not at resolution time; the panel is still mounted when the action resolves. Also assert the reverse order — action resolves first, then a dismiss gesture — produces one animated close and no second `onClose`. A test asserting only "closed exactly once" would pass against a truncated animation, so the progression assertion is load-bearing.
+6. **Transition-audit** — assert all four affordances resolve to `requestClose`, the §3.1 guards exist (step-0 disable, re-entrancy, drag-cancel, reduced-motion/null-panel), and `handleGrabPointerEnd` early-returns on `dismissingRef`. **Motion-state completeness (structural):** assert `clearPanelDragStyles()` early-returns on `dismissingRef.current` (the §3.2 chokepoint guard — the class defense, so it is pinned rather than left to convention), and that the §3.2 state inventory covers every motion state the shell can produce: enumerate the shell's motion-state sources (`dragRef`, `settleTimerRef`, `dismissTimerRef`, `dismissingRef`, the entrance animation) and fail if any lacks an S-row. A new motion state added without an inventory row must fail this test rather than silently inherit unnormalized exit behavior. **Single-close-path guard (§3.1a, structural):** source-scan both consumers and assert no call site invokes the shell's `onClose` prop directly — every close goes through `requestClose`. Behavioral tests cannot cover a *future* direct call, so this is a static scan; a new success/error path added with a bare `onClose()` fails here rather than shipping a second, un-animated close that races the exit.
 
 ## 8. Out of scope
 
@@ -214,7 +230,7 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 - **Competing navigation during an in-flight close** — likewise pre-existing post-#485.
 - Browser-Back stays an un-animated route change.
 - No new tokens — durations reuse `--duration-normal` / `--duration-fast`; both fallback constants already exist (`:48,:52`).
-- **Programmatic success-closes stay instant.** Step3's action-success closes are not dismiss gestures; they call `onClose` directly, unchanged.
+- ~~**Programmatic success-closes stay instant.**~~ **Withdrawn (Codex R3).** This carve-out was the one remaining path that could call `onClose` without going through `requestClose`, and it is reachable *during* an exit: Step3's success handlers `await` their action then call `onClose()` directly (`Step3ReviewModal.tsx:236`, `:299`, `:245`). On main that is harmless — dismissal unmounts instantly, so a late resolution closes nothing. Under this spec the modal stays mounted for the 120–220ms exit, so a fast-resolving publish/approve/ignore can call `onClose` mid-animation, truncating the exit and breaking the one-exit/one-close contract. That is strictly **worse than main**, so it is in scope (§3.1a).
 
 ## 9. Files
 
@@ -223,11 +239,11 @@ Reduced motion is read at fire time via `matchMedia` — no CSS `@media` needed.
 | `components/admin/review/ReviewModalShell.tsx` | `requestClose` + shared `beginDismiss()` (`dismissingRef` + `inert`, also called by the drag branch); `closeAffordancesDisabled?: boolean` prop gating step 0, `handleGrabPointerDown`, and `beginDismiss`; `scrimRef` + `dialogRef`; mode-aware exit styles + scrim fade; `ReviewModalCloseContext` + `useReviewModalClose` + provider wrap; scrim/Esc/grab → `requestClose`; `handleGrabPointerEnd` early-return on `dismissingRef` |
 | `components/admin/review/ModalCloseButton.tsx` | **new** shared X button (forwardRef, context consumer) |
 | `components/admin/showpage/PublishedReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef`. `closing`/`handleClose` untouched |
-| `components/admin/wizard/Step3ReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef` |
+| `components/admin/wizard/Step3ReviewModal.tsx` | X → `ModalCloseButton`; forward `closeRef`; action-success closes (`:236`, `:245`, `:299`) call `requestClose` from context instead of `onClose` directly (§3.1a) |
 | `components/admin/showpage/ShowReviewModalSkeleton.tsx` | pass `closeAffordancesDisabled={onClose === undefined}` — derived from the existing prop branch |
 | `docs/superpowers/specs/2026-07-18-admin-show-modal.md` | §6.5 row amendment (§6) |
 | `DEFERRED.md` | resolve `MODAL-CLOSE-EXIT-ANIM-1`; `MODAL-SKELETON-CLOSE-1` stays |
-| tests (§7) | shell unit, ModalCloseButton unit, skeleton dual-usage, interactions spec (a–d), transition-audit |
+| tests (§7) | shell unit, ModalCloseButton unit, skeleton dual-usage, interactions spec (a–g), transition-audit |
 
 ## 10. Invariants
 
