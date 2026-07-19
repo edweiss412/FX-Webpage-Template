@@ -1,0 +1,108 @@
+name: Modal-header layout e2e (standalone harnesses)
+# Runs the four self-contained real-browser specs that police the admin
+# published-show modal header region:
+#
+#   published-review-modal.layout   panel-column equations, band composition,
+#                                   copy right-flush, tap targets, no-orange
+#                                   enumeration, Re-sync overlay geometry
+#   skeletonBandParity              streaming skeleton vs loaded modal band
+#                                   parity (the load-time header "snap")
+#   statusStripToggleLayout         PublishedToggle containment + error banner
+#   step3-review-modal.layout       Step 3 INVARIANCE — must pass unmodified;
+#                                   it is the signal that the shared
+#                                   ReviewModalShell change did not disturb the
+#                                   wizard surface
+#
+# Each spec is FULLY self-contained: beforeAll tsx-renders the real component
+# tree out of process, compiles token CSS from app/globals.css via the Tailwind
+# CLI, and serves it over its OWN node:http server. No app boot, no Supabase, no
+# seed — so this job needs none of the :3000-:3004 webServers.
+#
+# WHY ITS OWN JOB (the #479 lesson, repeated): these specs live in
+# tests/e2e/standalone.config.ts, which NO workflow invoked. Playwright's
+# default config matches none of them either, so `pnpm exec playwright test
+# <path>` reports "No tests found" — they were runnable ONLY by a developer who
+# already knew to pass --config. Every real-browser assertion this surface
+# owns (T-LAYOUT, T-COPY-FLUSH, T-TAP, T-OVERLAY, T-NO-ORANGE, T-CONTRAST,
+# T-RESYNC-FOCUS-ORDER, T-STATUS-INLINE, skeleton A-E) was therefore dark in CI:
+# green locally once, then never run again. A dark spec rots.
+#
+# The rest of standalone.config.ts (~15 further specs) is dark for the same
+# pre-existing reason and is NOT fixed here — see BACKLOG.md
+# BL-STANDALONE-CONFIG-CI-DARK. This job covers the modal-header family only.
+#
+# workflow_dispatch so close-out can fire it via `gh workflow run` without
+# waiting for a PR.
+on:
+  pull_request:
+    paths:
+      - "tests/e2e/published-review-modal.layout.spec.ts"
+      - "tests/e2e/skeletonBandParity.spec.ts"
+      - "tests/e2e/statusStripToggleLayout.spec.ts"
+      - "tests/e2e/step3-review-modal.layout.spec.ts"
+      - "tests/e2e/_publishedReviewModalHarness.tsx"
+      - "tests/e2e/_skeletonParityHarness.tsx"
+      - "tests/e2e/_statusStripToggleHarness.tsx"
+      - "tests/e2e/_step3ReviewModalHarness.tsx"
+      - "tests/e2e/standalone.config.ts"
+      - "components/admin/showpage/**"
+      - "components/admin/review/**"
+      - "components/admin/ReSyncButton.tsx"
+      - "components/admin/wizard/Step3ReviewModal.tsx"
+      - "app/globals.css"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/modal-header-layout-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  modal-header-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The harnesses' tsx static-render imports the REAL server chain
+      # (requireAdmin -> hashForLog, lib/log, lib/supabase/server) at module
+      # load, so these must be set or a module-level guard throws at import.
+      # Verified locally: without HASH_FOR_LOG_PEPPER the harness subprocess
+      # dies with "HASH_FOR_LOG_PEPPER env var must be set to a 32+ character
+      # value" and the spec reports a layout failure that is really an env
+      # failure. NO live Supabase is needed — the render is network-free (the
+      # postgres client is lazy and never queried). Demo local keys mirror the
+      # step3-live-bundle job.
+      HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+      JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run modal-header standalone layout specs (no webServer)
+        run: pnpm test:e2e:modal-header
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-header-layout-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
