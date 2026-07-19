@@ -22,6 +22,7 @@ import { createRef, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
+  DRAG_DISMISS_THRESHOLD_PX,
   DRAG_SLOP_PX,
   useReviewModalClose,
   DURATION_FAST_FALLBACK_MS,
@@ -474,13 +475,28 @@ describe("structural guards (spec §7.6)", () => {
   // hits the compound case in production.
   it("every §3.1 guard is present inside requestClose itself", () => {
     const body = bodyOf(stripComments(SHELL_SRC), "function requestClose");
-    expect(body).toContain("closeAffordancesDisabled"); // step 0
+    // step 0 (closeAffordancesDisabled) was DELETED by MODAL-SKELETON-CLOSE-1.
     expect(body).toContain("dismissingRef.current) return"); // step 1
     expect(body).toContain("dragRef.current"); // step 2
     expect(body).toContain("settleTimerRef"); // step 2 settle neutralization
     expect(body).toContain("prefers-reduced-motion"); // step 4
     expect(stripComments(SHELL_SRC)).toMatch(
       /handleGrabPointerEnd[\s\S]{0,200}dismissingRef\.current\) return/,
+    );
+  });
+
+  // MODAL-SKELETON-CLOSE-1: the prop must not resurrect half-wired — a revived
+  // gate on one affordance but not the drag branch is the exact bug class the
+  // deletion closed.
+  it("closeAffordancesDisabled is gone from the shell source", () => {
+    expect(SHELL_SRC).not.toContain("closeAffordancesDisabled");
+  });
+
+  // beginDismiss is the single chokepoint both close paths share; its
+  // idempotence guard is what makes onDismissStart one-shot by construction.
+  it("beginDismiss early-returns when already dismissing", () => {
+    expect(bodyOf(stripComments(SHELL_SRC), "function beginDismiss")).toContain(
+      "if (dismissingRef.current) return;",
     );
   });
 
@@ -580,5 +596,85 @@ describe('ReviewModalShell — entrance="none" (§6.5 in-place swap)', () => {
   it("default (no prop) renders NO entrance attr — the stylesheet entrance stays live", () => {
     renderShell();
     expect(document.querySelector("[data-step3-review-entrance]")).toBeNull();
+  });
+});
+
+describe("onDismissStart (MODAL-SKELETON-CLOSE-1 §2.1)", () => {
+  // NOTE: the file already has a top-level `renderShell` helper — this one is
+  // deliberately named differently to avoid a duplicate declaration.
+  function renderDismissShell(onDismissStart: () => void, onClose: () => void) {
+    const DismissHost = () => {
+      const focusRef = useRef<HTMLButtonElement | null>(null);
+      return (
+        <ReviewModalShell
+          open
+          onClose={onClose}
+          onDismissStart={onDismissStart}
+          labelledBy="h"
+          dataAttrPrefix="review-modal"
+          testIdBase="odst"
+          initialFocusRef={focusRef}
+          header={<h2 id="h">t</h2>}
+        >
+          <div />
+        </ReviewModalShell>
+      );
+    };
+    return render(<DismissHost />);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("fires once at dismiss-commit for Esc, before exit-end onClose (motion enabled)", () => {
+    vi.useFakeTimers();
+    const onDismissStart = vi.fn();
+    const onClose = vi.fn();
+    renderDismissShell(onDismissStart, onClose);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDismissStart).toHaveBeenCalledTimes(1); // at commit …
+    expect(onClose).not.toHaveBeenCalled(); //           … exit still in flight
+    vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 10);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDismissStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires once at release for drag-past-threshold (the branch that bypasses requestClose)", () => {
+    vi.useFakeTimers();
+    const onDismissStart = vi.fn();
+    const onClose = vi.fn();
+    renderDismissShell(onDismissStart, onClose);
+    const grab = screen.getByTestId("odst-grab");
+    const endY = 100 + DRAG_DISMISS_THRESHOLD_PX + 30;
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: endY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: endY });
+    expect(onDismissStart).toHaveBeenCalledTimes(1); // at release, NOT at exit-end
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 10);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDismissStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not double-fire when a second affordance lands mid-exit", () => {
+    vi.useFakeTimers();
+    const onDismissStart = vi.fn();
+    renderDismissShell(onDismissStart, vi.fn());
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByTestId("odst-backdrop"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDismissStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire on spring-back (past slop, below threshold)", () => {
+    const onDismissStart = vi.fn();
+    renderDismissShell(onDismissStart, vi.fn());
+    const grab = screen.getByTestId("odst-grab");
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: 160 });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: 160 });
+    expect(onDismissStart).not.toHaveBeenCalled();
   });
 });
