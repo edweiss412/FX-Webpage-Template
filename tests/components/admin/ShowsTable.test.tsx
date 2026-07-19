@@ -23,6 +23,7 @@ import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { mkDataGaps } from "../../helpers/dataGapsFixture";
+import { withReducedMotion } from "../../helpers/reducedMotion";
 
 afterEach(cleanup);
 
@@ -131,15 +132,20 @@ describe("ShowsTable optimistic open skeleton", () => {
     expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
   });
 
+  // MODAL-CLOSE-EXIT-ANIM-1: the optimistic skeleton's cancel now plays the exit
+  // first. Reduced motion keeps the dismissal synchronous, so the #485 critique-P1
+  // guarantee (the skeleton is CANCELABLE, not a trap) stays pinned as written.
   it("critique P1: the optimistic skeleton is cancelable — scrim tap dismisses it", () => {
-    mockSearchParams = new URLSearchParams();
-    render(
-      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
-    );
-    clickRow(screen.getByTestId("shows-table-row-rpas"));
-    expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("published-show-review-backdrop"));
-    expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    withReducedMotion(() => {
+      mockSearchParams = new URLSearchParams();
+      render(
+        <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+      );
+      clickRow(screen.getByTestId("shows-table-row-rpas"));
+      expect(screen.getByTestId("published-show-review-modal")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("published-show-review-backdrop"));
+      expect(screen.queryByTestId("published-show-review-modal")).toBeNull();
+    });
   });
 
   it("popstate (browser Back cancels the in-flight open) clears the skeleton — no stuck overlay", () => {

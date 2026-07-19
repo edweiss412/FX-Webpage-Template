@@ -18,10 +18,15 @@
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { useRef } from "react";
+import { createRef, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
+  DRAG_SLOP_PX,
+  useReviewModalClose,
+  DURATION_FAST_FALLBACK_MS,
+  DURATION_NORMAL_FALLBACK_MS,
+  EXIT_FALLBACK_BUFFER_MS,
   ReviewModalShell,
   type ReviewModalShellProps,
 } from "@/components/admin/review/ReviewModalShell";
@@ -34,6 +39,7 @@ type HostProps = {
   testIdBase?: string;
   onClose?: () => void;
   footer?: React.ReactNode;
+  closeApiRef?: ReviewModalShellProps["closeApiRef"];
 };
 
 /** Consumer stand-in: owns its close button + ref inside the header slot,
@@ -44,12 +50,14 @@ function Host({
   testIdBase = "shell-under-test",
   onClose = () => {},
   footer,
+  closeApiRef,
 }: HostProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   return (
     <ReviewModalShell
       open={open}
       onClose={onClose}
+      {...(closeApiRef ? { closeApiRef } : {})}
       labelledBy="host-title-id"
       dataAttrPrefix={dataAttrPrefix}
       testIdBase={testIdBase}
@@ -68,6 +76,15 @@ function Host({
     </ReviewModalShell>
   );
 }
+
+/** Shared render entry for the close-path suites below — same prop bag the
+ *  chrome-topology suite uses, via the `Host` consumer stand-in. */
+function renderShell(props: HostProps = {}) {
+  return render(<Host {...props} />);
+}
+/** testIdBase the default `Host` renders with — the close-path suites locate
+ *  shell-owned nodes through it rather than restating the literal. */
+const SHELL_BASE = "shell-under-test";
 
 describe("ReviewModalShell — open guard (§6.2)", () => {
   it("renders nothing when open === false", () => {
@@ -129,24 +146,153 @@ describe("ReviewModalShell — chrome topology (both dataAttrPrefix values inter
   });
 });
 
+/** Force the reduced-motion branch (spec §3.1 step 4 — instant, byte-identical
+ *  to pre-animation behavior). `tests/setup.ts:70` stubs matchMedia with
+ *  `matches: false`, i.e. MOTION ENABLED, so without this override every close
+ *  here takes the animated path and resolves only on the fallback timer. */
+function withReducedMotion(run: () => void) {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  try {
+    run();
+  } finally {
+    window.matchMedia = original;
+  }
+}
+
 describe("ReviewModalShell — close paths + initial focus", () => {
-  it("Escape calls onClose", () => {
-    const onClose = vi.fn();
-    render(<Host onClose={onClose} />);
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+  // Both halves of the §3.1 contract are pinned per affordance. Asserting only
+  // the reduced-motion half would delete all unit coverage of the animated
+  // path; asserting only the animated half would drop the guarantee that
+  // reduced motion stays byte-identical to today.
+  it("Escape closes instantly under reduced motion", () => {
+    withReducedMotion(() => {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("scrim click calls onClose", () => {
-    const onClose = vi.fn();
-    render(<Host onClose={onClose} />);
-    fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("Escape plays the exit BEFORE closing when motion is enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.keyDown(document, { key: "Escape" });
+      // The exit is playing: onClose must NOT have fired yet. If it has, the
+      // animation was skipped and the close snapped — the regression this
+      // whole feature exists to remove.
+      expect(onClose).not.toHaveBeenCalled();
+      // jsdom never fires transitionend, so exit-end arrives via the fallback.
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("scrim click closes instantly under reduced motion", () => {
+    withReducedMotion(() => {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("scrim click plays the exit BEFORE closing when motion is enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      render(<Host onClose={onClose} />);
+      fireEvent.click(screen.getByTestId("shell-under-test-backdrop"));
+      expect(onClose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS + 20);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("initial focus lands on the element initialFocusRef points at (consumer close button)", () => {
     render(<Host />);
     expect(document.activeElement).toBe(screen.getByTestId("host-close"));
+  });
+});
+
+// The plan's Task 2 snippets drive these through `userEvent`; this repo has no
+// `@testing-library/user-event` (see modalCloseButton.test.tsx:11), so they use
+// `fireEvent` like the rest of the suite. Same events, no behavioral difference
+// for a document-level Esc listener and a scrim click.
+describe("requestClose guards (spec §3.1)", () => {
+  // Failure mode: two fast affordances (double-Esc, Esc-then-scrim) each fire
+  // onClose, producing a duplicate close — on Published, a duplicate router.push.
+  it("fires onClose exactly once for repeated affordances", () => {
+    const onClose = vi.fn();
+    withReducedMotion(() => {
+      renderShell({ onClose });
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.click(screen.getByTestId(`${SHELL_BASE}-backdrop`));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Failure mode: the exit window (Task 3) leaves footer buttons live, so a
+  // fast click fires a mutation against an already-dismissed modal.
+  it("inerts the dialog subtree at dismiss-commit", () => {
+    renderShell({ onClose: vi.fn() });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dialog.hasAttribute("inert")).toBe(true);
+  });
+});
+
+describe("exit start-state (spec §3.2)", () => {
+  // Failure mode: a pending spring-back's settle() fires DURING the exit and
+  // calls clearPanelDragStyles(), blanking transform/transition/animation and
+  // wiping the animation mid-flight. settle()'s only guard is
+  // `dragRef.current === null` — which is TRUE during an exit, so it fires.
+  //
+  // The drag is driven for real (not by assigning panel.style.transform and
+  // pressing Esc): only a genuine sub-threshold release arms settleTimerRef,
+  // and only a pending settle can demonstrate the chokepoint guard.
+  it("a pending settle cannot blank the exit styles", () => {
+    vi.useFakeTimers();
+    try {
+      renderShell({ onClose: vi.fn() });
+      const grab = screen.getByTestId(`${SHELL_BASE}-grab`);
+      // The panel carries no testid — the suite locates it by its entrance hook.
+      const panel = document.querySelector<HTMLElement>("[data-step3-review-panel]")!;
+
+      // Sub-threshold drag: past slop (so `wasDrag`), under the dismiss
+      // threshold (so release takes the spring-back branch, arming settleTimer).
+      const endY = 100 + DRAG_SLOP_PX + 10;
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: 100 });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: endY });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: endY });
+      expect(panel.style.transform).not.toBe(""); // spring-back is animating
+
+      // Close INSIDE the settle window, then let the pending settle fire.
+      fireEvent.keyDown(document, { key: "Escape" });
+      vi.advanceTimersByTime(DURATION_FAST_FALLBACK_MS + 20);
+
+      // The exit committed; nothing may hand the panel back to stylesheet control.
+      expect(panel.style.transform).not.toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -194,4 +340,215 @@ describe("globals.css — review-modal entrance twins mirror step3-review in eve
       expect(animationContexts(css, `data-review-modal-${part}`)).toEqual(step3);
     });
   }
+});
+
+describe("closeApiRef (spec §3.1a)", () => {
+  // Failure mode is SILENT: if the ref is unpopulated when a Step3 action
+  // resolves, the close does nothing and the modal hangs open after a
+  // successful publish.
+  it("is populated before any interaction and runs the full requestClose path", () => {
+    const onClose = vi.fn();
+    const ref = createRef<(() => void) | null>();
+    withReducedMotion(() => {
+      renderShell({ onClose, closeApiRef: ref });
+      expect(typeof ref.current).toBe("function");
+      ref.current?.();
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog")).toHaveAttribute("inert");
+    });
+  });
+
+  // Failure mode: a late resolution after unmount calls a stale close — the
+  // exact case the withdrawn `?? onClose` fallback would have broken.
+  it("is cleared on unmount", () => {
+    const ref = createRef<(() => void) | null>();
+    const { unmount } = renderShell({ onClose: vi.fn(), closeApiRef: ref });
+    expect(typeof ref.current).toBe("function");
+    unmount();
+    expect(ref.current).toBeNull();
+  });
+
+  // Failure mode (SILENT, and the whole reason closeApiRef exists): a refactor
+  // moves Step3's success closes back to a top-level context hook. That sits
+  // ABOVE the shell's provider, reads the default no-op, and the modal never
+  // closes after publish — while every other test here still passes.
+  it("a consumer-level hook read resolves to the default no-op, not requestClose", () => {
+    const onClose = vi.fn();
+    const seen: Array<() => void> = [];
+    function ConsumerAboveProvider() {
+      seen.push(useReviewModalClose()); // resolves against the DEFAULT context
+      return <Host onClose={onClose} />;
+    }
+    render(<ConsumerAboveProvider />);
+    expect(seen).toHaveLength(1);
+    seen[0]?.(); // the default no-op
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+// ── Task 6: structural guards (spec §7.6) ───────────────────────────────────
+
+const SHELL_PATH = "components/admin/review/ReviewModalShell.tsx";
+const SHELL_SRC = readFileSync(join(process.cwd(), SHELL_PATH), "utf8");
+const CONSUMERS = [
+  "components/admin/showpage/PublishedReviewModal.tsx",
+  "components/admin/wizard/Step3ReviewModal.tsx",
+];
+
+/** Remove comments before scanning: a doc-comment mentioning `onClose()` must
+ *  not fail the close-path guard. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+/** Brace-match a function body. `slice(indexOf(decl))` + `indexOf("\n}")` does
+ *  NOT work here: these are indented nested functions, so the closing brace is
+ *  "\n  }" and the search returns -1 — leaving `body` as the rest of the FILE,
+ *  which lets a required token be satisfied from unrelated code while the
+ *  function under test is missing its guard entirely. */
+function bodyOf(src: string, decl: string): string {
+  const start = src.indexOf(decl);
+  if (start < 0) throw new Error(`${decl} not found in shell`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces scanning ${decl}`);
+}
+
+describe("structural guards (spec §7.6)", () => {
+  // Failure mode: a new close site calls onClose() directly, creating a second
+  // un-animated path that races the exit. Behavioral tests cannot cover a
+  // FUTURE call site — only a static scan can.
+  it("no consumer invokes the shell's onClose prop directly", () => {
+    for (const path of CONSUMERS) {
+      const src = stripComments(readFileSync(join(process.cwd(), path), "utf8"));
+      // INVOCATIONS only — `onClose={handleClose}` (PublishedReviewModal:239)
+      // is legitimate prop wiring, not a close call.
+      const direct = src.match(/\bonClose\s*\(\s*\)/g) ?? [];
+      expect(
+        direct,
+        `${path} must route every close through requestClose/closeApiRef`,
+      ).toHaveLength(0);
+      // `const close = onClose; close();` violates the contract while reading
+      // clean, so a call-site scan alone would miss it.
+      const aliased = [...src.matchAll(/(?:const|let|var)\s+\w+\s*=\s*onClose\b(?!\s*[=(])/g)];
+      expect(aliased, `${path} aliases onClose; route the alias through requestClose`).toHaveLength(
+        0,
+      );
+    }
+  });
+
+  // Failure mode: ONE affordance regresses to a bare onClose while the others
+  // still route correctly — a repo-wide substring check passes because another
+  // affordance supplies the matching text. Each is anchored to its own site.
+  it("each affordance is anchored to requestClose at its own call site", () => {
+    const src = stripComments(SHELL_SRC);
+    const scrimAt = src.indexOf("-backdrop`");
+    expect(src.slice(scrimAt, scrimAt + 400), "scrim onClick must be requestClose").toContain(
+      "onClick={requestClose}",
+    );
+    const grabAt = src.indexOf("-grab`");
+    expect(src.slice(grabAt, grabAt + 600), "grab tap must call requestClose").toContain(
+      "requestClose()",
+    );
+    expect(bodyOf(src, "function onKeyDown"), "Escape must call requestClose").toContain(
+      "requestClose()",
+    );
+    expect(src, "the X reaches requestClose only through the provider value").toContain(
+      "<ReviewModalCloseContext.Provider value={requestClose}>",
+    );
+  });
+
+  // Failure mode: a guard is dropped and the failure is invisible until a user
+  // hits the compound case in production.
+  it("every §3.1 guard is present inside requestClose itself", () => {
+    const body = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    expect(body).toContain("closeAffordancesDisabled"); // step 0
+    expect(body).toContain("dismissingRef.current) return"); // step 1
+    expect(body).toContain("dragRef.current"); // step 2
+    expect(body).toContain("settleTimerRef"); // step 2 settle neutralization
+    expect(body).toContain("prefers-reduced-motion"); // step 4
+    expect(stripComments(SHELL_SRC)).toMatch(
+      /handleGrabPointerEnd[\s\S]{0,200}dismissingRef\.current\) return/,
+    );
+  });
+
+  // Failure mode: a pending settle blanks the exit styles mid-animation. The
+  // guard must live in clearPanelDragStyles itself — the chokepoint — not at
+  // each call site.
+  it("clearPanelDragStyles early-returns while dismissing", () => {
+    expect(bodyOf(stripComments(SHELL_SRC), "function clearPanelDragStyles")).toContain(
+      "if (dismissingRef.current) return;",
+    );
+  });
+
+  // Failure mode: a new motion state is added with no normalization row, so
+  // exits from it silently jump. DISCOVERS the shell's refs rather than
+  // checking a hard-coded list — a positive list passes for anything it does
+  // not name, which is the opposite of fail-by-default.
+  it("every motion-state source is mapped to an inventory row or exempted", () => {
+    const spec = readFileSync(
+      join(process.cwd(), "docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md"),
+      "utf8",
+    );
+    const declared = [...SHELL_SRC.matchAll(/const (\w+Ref)\s*=\s*useRef/g)]
+      .map((m) => m[1])
+      .filter((name): name is string => typeof name === "string");
+    const ROWS: Record<string, string> = {
+      dragRef: "| S3 |",
+      settleTimerRef: "| S4 |",
+      dismissTimerRef: "| S5 |",
+      dismissingRef: "| S5 |",
+    };
+    const EXEMPT: Record<string, string> = {
+      panelRef: "the element itself, not a motion state",
+      scrimRef: "cosmetic fade; does not gate exit-end (spec §3.2)",
+      dialogRef: "inert target, not a motion state",
+      grabRef: "pointer-capture target, not a motion state",
+      dragConsumedClickRef: "click-swallow latch, no panel motion",
+    };
+    for (const ref of declared) {
+      const row = ROWS[ref];
+      if (row) {
+        expect(spec, `${ref} needs its ${row} row in the §3.2 inventory`).toContain(row);
+        continue;
+      }
+      expect(
+        EXEMPT[ref],
+        `${ref} is a new shell ref: add a §3.2 inventory row or an EXEMPT entry with a reason`,
+      ).toBeTruthy();
+    }
+    // The entrance is a motion state with no ref — pinned separately (S2).
+    expect(SHELL_SRC).toContain("style.animation");
+    expect(spec, "entrance needs its | S2 | row in the §3.2 inventory").toContain("| S2 |");
+  });
+});
+
+// ── Exit ↔ entrance drift pin (impeccable critique) ─────────────────────────
+
+describe("desktop exit is the exact reverse of the entrance keyframe", () => {
+  // The exit applies `translateY(8px) scale(0.98)` from JS while
+  // `@keyframes step3-details-pop-in` declares the same values as its `from`
+  // state. Two sources, one intent: editing the keyframe silently desyncs the
+  // exit, and the result still "animates" so no behavioral test would catch
+  // it. Same CSS↔constant drift-pin pattern the warning-flash duration uses.
+  it("the JS exit values match the pop-in keyframe's from-state", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    const popIn = css.slice(css.indexOf("@keyframes step3-details-pop-in"));
+    const from = popIn.slice(popIn.indexOf("from"), popIn.indexOf("to"));
+    const keyframeTransform = from.match(/transform:\s*([^;]+);/)?.[1]?.trim();
+    expect(keyframeTransform, "pop-in from-state transform").toBe("translateY(8px) scale(0.98)");
+
+    const exit = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    expect(
+      exit,
+      `desktop exit must mirror the keyframe's from-state (${keyframeTransform})`,
+    ).toContain(`panel.style.transform = "${keyframeTransform}"`);
+  });
 });

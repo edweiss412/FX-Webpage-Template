@@ -8,10 +8,10 @@ Last reconciled: 2026-07-19 (BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 bo
 
 ---
 
-### MODAL-CLOSE-EXIT-ANIM-1 — [P1→ratified] X/Esc/scrim close is an instant unmount (no exit animation) while drag-dismiss animates out
+### ~~MODAL-CLOSE-EXIT-ANIM-1~~ — RESOLVED (exit animation shipped)
 
 From impeccable critique of the admin-show-modal branch (33/40): every non-drag close affordance funnels through `useShowModalNav().close` (a `router.push`), so the modal lingers until the RSC roundtrip returns, then unmounts with no exit transition — asymmetric with the drag-dismiss slide-out, and can read as laggy on venue cellular. **Declined as a defect: the spec's transition inventory explicitly ratifies "open → closed (X/scrim/Esc/back) | instant unmount — pattern identical to Step3 today (no exit animation)" (docs/superpowers/specs/2026-07-18-admin-show-modal.md:147), preserving Step3 chrome parity.**
-**Un-defer trigger:** user feedback that closing feels laggy/broken, or a future motion pass touching ReviewModalShell — then add an optimistic local dismiss transition (play the reverse sheet/pop animation immediately, fire `router.push` behind it) to BOTH consumers so Step3 parity holds.
+**Resolved:** the un-defer trigger fired (motion pass touching `ReviewModalShell`). `ReviewModalShell` now owns a `requestClose` that plays the mode-aware reverse of the entrance and calls `onClose` at exit-end, on all five affordances in BOTH consumers; reduced motion keeps the instant unmount. Master spec §6.5 amended at `docs/superpowers/specs/2026-07-18-admin-show-modal.md:147`. Spec + plan: `docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md`, `docs/superpowers/plans/2026-07-18-modal-close-exit-anim/`. **`MODAL-SKELETON-CLOSE-1` below stays deferred** — separate task; §3.4 of the new spec preserves the skeleton's current per-usage behavior and adds no close affordance.
 
 ### MODAL-SKELETON-CLOSE-1 — [P2] Suspense skeleton frame has a no-op onClose — Esc/scrim dead while the loader streams
 

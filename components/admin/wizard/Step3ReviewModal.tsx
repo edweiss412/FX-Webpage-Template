@@ -38,7 +38,8 @@
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
 import { useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink } from "lucide-react";
+import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
@@ -155,6 +156,10 @@ export function Step3ReviewModal({
   ).offers;
   const hasPendingArchivedOffer = archivedOffers.length > 0;
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  /** The shell writes `requestClose` here (spec §3.1a). These success handlers
+   *  are consumer-owned closures ABOVE the shell's close provider, so a
+   *  `useReviewModalClose()` call in this body would read the default no-op. */
+  const closeApiRef = useRef<(() => void) | null>(null);
   const h2Id = useId();
   const [publishState, setPublishState] = useState<PublishState>("idle");
 
@@ -235,7 +240,10 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      // No `?? onClose` fallback: a null ref means the shell already unmounted,
+      // i.e. a close already happened, so a fallback would fire a SECOND close
+      // (spec §3.1a).
+      closeApiRef.current?.();
       return; // parent unmounts us
     }
     setResolutionPending(false);
@@ -253,7 +261,7 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      closeApiRef.current?.();
       return;
     }
     setResolutionPending(false);
@@ -306,7 +314,10 @@ export function Step3ReviewModal({
       ok = false;
     }
     if (ok) {
-      onClose();
+      // No `?? onClose` fallback: a null ref means the shell already unmounted,
+      // i.e. a close already happened, so a fallback would fire a SECOND close
+      // (spec §3.1a).
+      closeApiRef.current?.();
       return; // parent unmounts us — no state write after close
     }
     setPublishState("error");
@@ -349,6 +360,7 @@ export function Step3ReviewModal({
       labelledBy={h2Id}
       dataAttrPrefix="step3-review"
       testIdBase={`wizard-step3-card-${dfid}-review`}
+      closeApiRef={closeApiRef}
       initialFocusRef={closeRef}
       header={
         <>
@@ -433,16 +445,7 @@ export function Step3ReviewModal({
                 All clean
               </span>
             )}
-            <button
-              ref={closeRef}
-              type="button"
-              data-testid={`wizard-step3-card-${dfid}-review-close`}
-              aria-label="Close"
-              onClick={onClose}
-              className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <X aria-hidden="true" className="size-5" />
-            </button>
+            <ModalCloseButton ref={closeRef} testId={`wizard-step3-card-${dfid}-review-close`} />
           </div>
         </>
       }
