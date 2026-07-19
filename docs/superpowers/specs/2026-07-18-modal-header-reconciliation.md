@@ -216,12 +216,29 @@ Rendered directly after `</header>`, mirroring the existing `footer` idiom
 {subHeader != null ? (
   <div
     data-testid={`${testIdBase}-subheader`}
-    className="relative flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-tile-pad py-2 sm:flex-nowrap"
+    className="relative shrink-0 border-b border-border bg-surface px-tile-pad py-2"
   >
     {subHeader}
   </div>
 ) : null}
 ```
+
+**The band is NOT a flex container** — deliberately. If the band were
+`flex … items-center` and `StatusStrip` stayed a plain `<div>`, the strip would
+be a row-direction flex ITEM and shrink-wrap to its contents, so `ml-auto` on
+`strip-copy-link` would push Copy only to the strip's own right edge — which
+sits wherever the content happens to end, not at the band edge. The band
+therefore supplies chrome only (surface, seam, padding, positioning) and the
+strip's own root supplies the row:
+
+```
+StatusStrip root: "flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
+```
+
+`w-full` is the invariant that makes right-flush reachable (§8). Asserted by
+comparing the Copy button's right edge to the band's content-box right edge
+(§11, T-COPY-FLUSH) — an overflow-only check cannot catch this, because a
+shrink-wrapped strip overflows nothing.
 
 `relative` is **load-bearing, not decorative**: the band is the positioned
 ancestor for the publish toggle's popover AND the relocated Re-sync overlay
@@ -239,6 +256,27 @@ the `chrome` prop this change deletes (§6.5).
 **Step 3 invariance:** `Step3ReviewModal` does not pass `subHeader`, so the
 conditional yields `null` and its rendered output is unchanged. Pinned by a test
 (§9, T-STEP3-INVARIANT).
+
+### 6.1.1 `ReviewModalShell` has THREE consumers, not two
+
+The third is the streaming loading state:
+`components/admin/showpage/ShowReviewModalSkeleton.tsx:23-85`. It renders through
+the SAME shell with the SAME identifiers as the loaded published modal —
+`dataAttrPrefix="review-modal"`, `testIdBase="published-show-review"` — and its
+header is the OLD nested two-band shape (`flex min-w-0 flex-1 flex-col gap-2`
+wrapping a title row and a strip skeleton).
+
+**It must adopt the three-band frame in this change.** Otherwise a slow
+`/admin?show=<slug>` load renders the before-state header language, then snaps to
+the after-state when content streams in — reintroducing exactly the layout this
+change removes, at exactly the moment the user is watching the header. The
+skeleton is the *only* thing on screen during that window, so the regression is
+maximally visible.
+
+Required: move the skeleton's strip placeholder out of its header into a
+`subHeader` band whose height and seam match the loaded modal's, so the
+header→subheader boundary does not shift when the real content replaces it.
+Pinned by T-SKELETON-BANDS (§11).
 
 ### 6.2 `PublishedReviewModal` — header slot
 
@@ -412,12 +450,26 @@ the positioned-ancestor requirement). Re-sync adopts the same idiom:
   overlay. `ReviewModalShell.tsx:449-456`'s footer already carries a `relative`
   for the same reason (RescanSheetButton's overlay at 390px), so this is the
   established pattern, not a new one.
-- **Two overlays must not collide.** The publish toggle's popover and the
-  Re-sync overlay share the band as anchor. They are independently triggerable.
-  Spec: they may overlap visually (both are transient, user-initiated, and
-  dismissible), but neither may trap focus behind the other, and the Re-sync
-  shrink-confirm — the one destructive-adjacent surface — must remain reachable
-  and focus-managed while a toggle popover is open. Asserted (§11, T-OVERLAY).
+- **Two overlays must not collide — deterministic stacking required.** The
+  publish toggle's popover and the Re-sync overlay share the band as anchor and
+  are independently triggerable. "They may overlap, focus must be reachable" is
+  NOT sufficient: the publish popover is `z-40` (`PublishedToggle.tsx:59`), so an
+  unspecified `z-*` on the Re-sync overlay can leave the shrink-hold confirm
+  rendered UNDERNEATH it while focus sits on "Keep current version" — focus
+  technically reachable, visually obscured, which defeats the WCAG 2.4.3 intent
+  the focus management exists for.
+
+  **Rule:** the Re-sync overlay renders ABOVE the publish popover (`z-50` vs the
+  popover's `z-40`). Rationale: it is the only one of the two that can host a
+  focus-managed, destructive-adjacent confirm; the publish popover is an
+  informational refusal message. A focused control must never be occluded.
+
+  **Assertion (T-OVERLAY):** with the publish popover already open, trigger a
+  `shrink_held` Re-sync; assert `document.activeElement` is "Keep current
+  version" AND that `elementFromPoint` at that control's center resolves to the
+  control itself (or a descendant) — i.e. it is genuinely the topmost element,
+  not merely focusable. Coordinates are viewport-relative. A test asserting only
+  `toHaveFocus()` passes while the control is fully covered.
 
 **Trigger styling — this is an accent→ghost DEMOTION, not a reskin.** Today the
 trigger is an `<AccentButton>` (`ReSyncButton.tsx:138-150`) — i.e. currently
@@ -552,8 +604,9 @@ explicitly and verified in a real browser (jsdom computes no layout).
 | `<header>` | right action group | Never compressed by a long title | `shrink-0` |
 | header right group | alert pill + close | Vertically centered relative to each other | `items-center` on the group |
 | alert pill | hit rect | ≥44px tall | `before:-inset-y-*` pseudo-element |
-| subheader band | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` |
-| subheader band | copy button | Right-flushed | `ml-auto` on `strip-copy-link` |
+| subheader band | `StatusStrip` root | Strip spans the FULL band content width | `w-full` on the strip root; band is NOT a flex container (§6.1) |
+| subheader band | strip children | Single row ≥sm, wraps <sm | `flex-wrap … sm:flex-nowrap` on the strip root |
+| strip root | copy button | Right edge == band content-box right edge | `ml-auto` on `strip-copy-link`, **conditional on the `w-full` row above** |
 | status line | dot + text | Baseline-consistent single line | `inline-flex items-center` |
 | subheader band | Re-sync trigger | Width IDENTICAL idle vs pending — no reflow mid-action | reserved min-width sized to the widest label (§6.7) |
 | subheader band | Re-sync trigger | Vertically centered with its row neighbours | band's `items-center`; `selfStart` NOT carried over |
@@ -673,6 +726,8 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-WIDTH (real browser) | Trigger `getBoundingClientRect().width` identical idle vs pending | Label swap reflows the strip and moves Copy mid-action — invisible to idle-only fixtures |
 | T-RESYNC-GHOST | Strip Re-sync carries NO `bg-accent`/`AccentButton`; folded into T-NO-ORANGE | The accent→ghost demotion silently skipped, putting a 2nd orange beside the toggle |
 | T-RESYNC-FOCUS-ORDER | Tab order: sheet link → alert pill → close → toggle → Re-sync → copy | Re-sync lands after Copy or is skipped |
+| T-COPY-FLUSH (real browser) | Copy button's right edge == band content-box right edge (±1px) | Strip shrink-wraps as a flex item, so `ml-auto` flushes to the strip's edge, not the band's — invisible to overflow-based checks |
+| T-SKELETON-BANDS | Skeleton renders a `-subheader` band; its header/subheader heights match the loaded modal's within tolerance | Loading state shows the OLD two-band header, then snaps — the before-state flashing at peak visibility |
 | T-TAP (real browser) | Alert pill hit rect ≥44px; sheet link ≥44px; Re-sync trigger ≥44px | Controls styled from the mock's sub-44px boxes |
 | T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
