@@ -456,6 +456,40 @@ disjunct MUST drop, or a show with only alerts renders a divider followed by
 nothing. New: `hasSignal = isLive || (syncLabel != null && sync != null)`.
 **This is a real bug the change would otherwise introduce.**
 
+## 7.1 Theme — the mock is dark-only, the app is not
+
+Verified 2026-07-18: every value in the mock's `:root` block is the live
+**dark-theme** runtime token, byte-for-byte —
+`--warning-bg:#3a2e14` = `--color-warning-bg-runtime` (`app/globals.css:334`),
+`--review:#e0b84e` = `--color-status-review-runtime` (`:349`),
+`--border-strong:#3a3b40` = `--color-border-strong-runtime` (`:326`),
+`--sunken:#0b0c10` = `--color-surface-sunken-runtime` (`:320`).
+Also confirmed live: `--spacing-tap-min: 44px` (`:162`), `--radius-pill: 999px`
+(`:211`), `--tracking-eyebrow: 0.12em` (`:146`), `--color-status-review` (`:93`).
+
+The app also ships a **light theme** (`globals.css:270-299`), where the same
+tokens resolve very differently — e.g. `--color-warning-bg-runtime: #fff3d6` and
+`--color-border-strong-runtime: #cfcdc7`. The mock says nothing about it.
+
+**Requirement.** Every new style in this change is expressed as a **token class**
+(`bg-warning-bg`, `text-warning-text`, `border-border-strong`,
+`text-text-subtle`, `bg-status-review`, `rounded-pill`, `size-tap-min`), never as
+a ported hex. Light mode then follows automatically. Two elements need explicit
+light-theme contrast confirmation because they are new low-contrast treatments
+introduced by this change:
+
+- the **outline Copy** button — `border-border-strong` is `#cfcdc7` on light, a
+  much weaker edge than the dark `#3a3b40`; confirm the control still reads as a
+  button and not as disabled text.
+- the **ghost Re-sync** trigger — `text-text-subtle` with no border and no
+  background is the lowest-affordance control in the strip; confirm it clears
+  contrast minimums on light.
+
+The alert pill inherits an existing, already-shipped token pair
+(`bg-warning-bg`/`text-warning-text`) and needs no new contrast work — only
+confirmation that the 8px `bg-status-review` dot is not the sole carrier of
+meaning (it is not; the count text carries it — §10).
+
 ## 8. Dimensional invariants
 
 Tailwind v4 in this project does **not** default `.flex` to `align-items:
@@ -567,6 +601,7 @@ values from fixtures; never hardcode a value the fixture cannot produce.
 | T-RESYNC-SHRINK | Shrink-hold confirm renders in the overlay; focus lands on "Keep current version" | WCAG 2.4.3 focus management lost in the relocation — destructive-adjacent |
 | T-OVERLAY (real browser) | Toggle popover + Re-sync overlay both anchor to the band; neither traps focus behind the other | Two overlays sharing one positioned ancestor |
 | T-TAP (real browser) | Alert pill hit rect ≥44px; sheet link ≥44px; Re-sync trigger ≥44px | Controls styled from the mock's sub-44px boxes |
+| T-TOKENS | No raw hex in the changed source; every new color/radius/spacing is a token class | Mock's dark-only hex ported verbatim, breaking light theme (§7.1) |
 | T-LAYOUT (real browser) | Panel = header + subheader + body; no horizontal overflow @375/390/768/1280 | Third band breaks the 2-band layout assumption |
 | T-TRANSITIONS | Every §9 pair instant / as declared; compound toggle-pending × copy-copied | Undeclared animation on a data-driven swap |
 | T-HARNESS | e2e strip harnesses build without `renderTitle`/`chrome` | Harness rot after prop deletion |
