@@ -882,7 +882,8 @@ CAUTION: the existing `<li>` is `flex items-center gap-3` (`step3ReviewSections.
 
 - [ ] **Step 1: Failing tests** (extend `publishedReviewModal.test.tsx`, reusing its fixture builder):
   - pill states: actionable>0 → button "2 to confirm" + `aria-expanded`; actionable 0 & clearing>0 → non-interactive "1 clearing" (no button role); all empty → "In sync" + `border-status-positive` ring dot; `alertsDegraded` + zero items → "Alerts unavailable"; `alertsDegraded: true` + one hold item → the ACTIONABLE "1 to confirm" button pill and the menu lists the hold (spec §5.1 degraded row: "Hold-derived count still shows if holds exist — then the To-confirm state wins and the menu lists holds only") with the Overview degraded notice card still rendered; count cap fixture 120 → "99+ to confirm" + sr-only exact.
-  - auto-open: mount with actionable>0 → menu present without click; remount not re-triggered on rerender (rerender with same props → still one menu); `alertId` non-null → menu NOT auto-opened.
+  - auto-open: mount with actionable>0 → menu present without click; rerender with same props → still one menu; **stale→fresh**: mount with `attentionItems: []` then rerender with actionable items (the revalidate-on-open reconcile path) → menu auto-opens; after the user closes it, a further rerender with MORE items does NOT reopen; `alertId` non-null → never auto-opens, including when items arrive late.
+  - archived show (spec §7 pinned reality): fixture `archived: true` + one hold + one actionable alert → items still listed in the menu, hold's Changes entry still renders its gate forms (client-side archived gating for MI-11 does not exist today — `ChangesSection.tsx:29-71` has no archived prop; server actions carry the refusals). Pin with a jsdom test so any future archived-gating change surfaces here deliberately.
   - menu row click → jump prop handed to `ShowReviewSurface` (assert via the surface receiving `attentionJump` with the item's id — mock `ShowReviewSurface` the way the file's existing tests mock it (`:606` layout pin idiom) OR assert on the real surface's scroll stub).
   - resolve flow: simulate `AttentionBanner` onResolved (fire the callback via the rendered banner's button with mocked fetch) → pill count decrements; last actionable resolved → menu closes + pill flips.
   - Overview railBadge = overview-routed actionable count (fixture: 1 overview alert + 1 crew alert → badge "1"); Changes railBadge = holds count.
@@ -912,14 +913,25 @@ const navigateTo = useCallback((item: AttentionItem) => {
   setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
 }, []);
 
-// auto-open once per mount (spec §5.2); deep link suppresses (spec §6.4)
+// auto-open once per mount (spec §5.2); deep link suppresses (spec §6.4).
+// The guard consumes only when it DECIDES (opens, or deep-link suppression) —
+// not on first render — because the modal's own revalidate-on-open
+// router.refresh() (PublishedReviewModal.tsx:137-149) can stream actionable
+// items AFTER a prefetched empty first paint; the auto-open must still fire
+// when they arrive. Once fired (or suppressed) it never re-fires: a user who
+// closed the menu is not re-opened by later refreshes.
 const autoOpenFiredRef = useRef(false);
 useEffect(() => {
   if (autoOpenFiredRef.current) return;
-  autoOpenFiredRef.current = true;
-  if (alertId == null && actionable.length > 0) setMenuOpen(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only by ref guard
-}, []);
+  if (alertId != null) {
+    autoOpenFiredRef.current = true; // deep link wins for the whole mount
+    return;
+  }
+  if (actionable.length > 0) {
+    autoOpenFiredRef.current = true;
+    setMenuOpen(true);
+  }
+}, [alertId, actionable.length]);
 
 // menu self-close when the last actionable item resolves (spec §9 compound)
 useEffect(() => {

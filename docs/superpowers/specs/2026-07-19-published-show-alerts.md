@@ -214,7 +214,7 @@ Loader keeps passing `alertId` (`_showReviewModal.tsx:85,400`). The modal maps i
 | alerts infra_error | `alertsDegraded` pill state + Overview notice card (§3.2) |
 | `alertId` with no matching item | `#overview` fallback scroll, no flash |
 | crew match beyond the rendered slice | `CrewBreakdown` renders `members.slice(0, CREW_CAP)` (30, `step3ReviewSections.tsx:145,1245`) — a matching member at index ≥ cap behaves as no-match → section-top banner. (`CREW_ROSTER_READ_CAP` blanking at `_showReviewModal.tsx:305-320` affects Preview-As/email affordances only, not row rendering.) |
-| archived show | banners render read-only reality: resolve route is not lifecycle-gated (alerts remain resolvable); holds already render read-only per ChangesSection's archived handling (plan verifies exact behavior and pins it) |
+| archived show | banners render as on live shows: the resolve route is not lifecycle-gated (alerts remain resolvable). Holds: VERIFIED — no client-side archived gating exists today (`ChangesSection.tsx:29-71` has no archived prop; `Mi11GateActions` always renders its forms; server actions carry the refusals). The attention surface preserves that behavior unchanged and pins it with a jsdom test (plan Task 6); adding client-side archived gating for MI-11 is out of scope. |
 
 ## 8. Mode boundaries
 
