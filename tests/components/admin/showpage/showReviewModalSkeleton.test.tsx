@@ -65,3 +65,16 @@ describe("ShowReviewModalSkeleton dual usage (spec §3.4)", () => {
     }
   });
 });
+
+describe("skeleton owns the closed→open entrance (§6.5)", () => {
+  // The loaded modal suppresses the shell entrance (in-place swap, §6.5:150) —
+  // which is only sound because THIS frame plays it. A suppression attr here
+  // would make the whole open sequence appear with no animation at all.
+  it("renders WITHOUT the entrance-suppression attr in both usages", () => {
+    render(<ShowReviewModalSkeleton />);
+    expect(document.querySelector("[data-review-modal-entrance]")).toBeNull();
+    cleanup();
+    render(<ShowReviewModalSkeleton onClose={() => {}} />);
+    expect(document.querySelector("[data-review-modal-entrance]")).toBeNull();
+  });
+});

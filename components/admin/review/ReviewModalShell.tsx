@@ -91,6 +91,14 @@ export type ReviewModalShellProps = {
   labelledBy: string;
   /** Interpolated into the CSS entrance hooks `data-<prefix>-scrim/panel`. */
   dataAttrPrefix: "step3-review" | "review-modal";
+  /** `"none"` stamps `data-<prefix>-entrance="none"` on scrim + panel, which
+   *  the globals.css suppression twins collapse to `animation: none`. For
+   *  frames that REPLACE an already-settled shell instance (the published
+   *  modal streaming in over its Suspense skeleton, §6.5: "in-place swap …
+   *  instant") — a fresh mount would otherwise replay the entrance keyframe
+   *  from opacity≈0 and visibly dim the open modal. The exit animation is
+   *  transition-driven and unaffected. Default: animated. */
+  entrance?: "animated" | "none";
   /** Interpolated into the shell-owned testids `<base>-modal/-backdrop/-grab/-header/-footer`. */
   testIdBase: string;
   /** Receives initial focus (useDialogFocus) — the consumer's close button. */
@@ -121,7 +129,11 @@ function OpenReviewModalShell({
   header,
   children,
   footer,
+  entrance = "animated",
 }: ReviewModalShellProps) {
+  // Spread onto scrim + panel next to their entrance hooks; empty when animated
+  // so the default DOM is byte-identical to the pre-prop shell.
+  const entranceAttr = entrance === "none" ? { [`data-${dataAttrPrefix}-entrance`]: "none" } : {};
   const panelRef = useRef<HTMLDivElement | null>(null);
   /** The `role="dialog"` root — `beginDismiss` inerts this subtree. */
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -570,6 +582,7 @@ function OpenReviewModalShell({
           type="button"
           data-testid={`${testIdBase}-backdrop`}
           {...{ [`data-${dataAttrPrefix}-scrim`]: "" }}
+          {...entranceAttr}
           aria-label="Close"
           tabIndex={-1}
           onClick={requestClose}
@@ -582,6 +595,7 @@ function OpenReviewModalShell({
         <div
           ref={panelRef}
           {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
+          {...entranceAttr}
           className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
           {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the

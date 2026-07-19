@@ -238,6 +238,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     <ReviewModalShell
       open={!closing}
       onClose={handleClose}
+      // §6.5: this frame always streams in REPLACING the settled Suspense
+      // skeleton (which owns the closed→open entrance) — an animated mount
+      // here replays the pop-in over an already-opaque modal.
+      entrance="none"
       labelledBy={h2Id}
       dataAttrPrefix="review-modal"
       testIdBase={TESTID_BASE}

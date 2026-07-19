@@ -40,6 +40,7 @@ type HostProps = {
   onClose?: () => void;
   footer?: React.ReactNode;
   closeApiRef?: ReviewModalShellProps["closeApiRef"];
+  entrance?: ReviewModalShellProps["entrance"];
 };
 
 /** Consumer stand-in: owns its close button + ref inside the header slot,
@@ -51,6 +52,7 @@ function Host({
   onClose = () => {},
   footer,
   closeApiRef,
+  entrance,
 }: HostProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   return (
@@ -58,6 +60,7 @@ function Host({
       open={open}
       onClose={onClose}
       {...(closeApiRef ? { closeApiRef } : {})}
+      {...(entrance !== undefined ? { entrance } : {})}
       labelledBy="host-title-id"
       dataAttrPrefix={dataAttrPrefix}
       testIdBase={testIdBase}
@@ -335,8 +338,10 @@ describe("globals.css — review-modal entrance twins mirror step3-review in eve
   for (const part of ["scrim", "panel"] as const) {
     it(`[data-review-modal-${part}] receives exactly the animation contexts of [data-step3-review-${part}]`, () => {
       const step3 = animationContexts(css, `data-step3-review-${part}`);
-      // Anti-vacuity: the step3 hooks are animated in base + ≥640px + reduced-motion.
-      expect(step3.length).toBe(3);
+      // Anti-vacuity: the step3 hooks are animated in base + ≥640px +
+      // reduced-motion, plus the base entrance-suppression rule (§6.5
+      // skeleton→loaded in-place swap).
+      expect(step3.length).toBe(4);
       expect(animationContexts(css, `data-review-modal-${part}`)).toEqual(step3);
     });
   }
@@ -550,5 +555,30 @@ describe("desktop exit is the exact reverse of the entrance keyframe", () => {
       exit,
       `desktop exit must mirror the keyframe's from-state (${keyframeTransform})`,
     ).toContain(`panel.style.transform = "${keyframeTransform}"`);
+  });
+});
+
+// ── Entrance suppression (§6.5 skeleton → loaded modal: in-place swap) ───────
+//
+// Failure mode: the loaded published modal is a FRESH shell instance replacing
+// the already-settled Suspense skeleton, so a stylesheet-driven entrance
+// replays the pop-in keyframe from opacity≈0 — the opaque modal visibly dims
+// and re-pops mid-open. §6.5:150 declares the swap "instant — no animation
+// needed"; `entrance="none"` is how a consumer opts its frame out while the
+// skeleton (which OWNS the closed→open entrance) keeps the default.
+describe('ReviewModalShell — entrance="none" (§6.5 in-place swap)', () => {
+  for (const prefix of ["step3-review", "review-modal"] as const) {
+    it(`prefix "${prefix}": stamps data-${prefix}-entrance="none" on scrim AND panel`, () => {
+      renderShell({ dataAttrPrefix: prefix, entrance: "none" });
+      const scrim = document.querySelector<HTMLElement>(`[data-${prefix}-scrim]`)!;
+      const panel = document.querySelector<HTMLElement>(`[data-${prefix}-panel]`)!;
+      expect(scrim.getAttribute(`data-${prefix}-entrance`)).toBe("none");
+      expect(panel.getAttribute(`data-${prefix}-entrance`)).toBe("none");
+    });
+  }
+
+  it("default (no prop) renders NO entrance attr — the stylesheet entrance stays live", () => {
+    renderShell();
+    expect(document.querySelector("[data-step3-review-entrance]")).toBeNull();
   });
 });

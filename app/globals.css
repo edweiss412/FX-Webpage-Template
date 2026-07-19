@@ -802,6 +802,21 @@ body {
     animation: none;
   }
 }
+/* Entrance suppression (§6.5 skeleton → loaded modal: "in-place swap …
+   instant"): the loaded published modal is a fresh shell instance replacing
+   the settled Suspense skeleton, so the entrance keyframes above would replay
+   from opacity≈0 and visibly dim the open modal. The shell stamps
+   `data-<prefix>-entrance="none"` (entrance="none" prop) on scrim + panel;
+   double-attribute specificity (0,2,0) beats every entrance rule above in
+   both media contexts. Adjacent twin rules per the twin-scan contract. */
+[data-review-modal-scrim][data-review-modal-entrance="none"],
+[data-review-modal-panel][data-review-modal-entrance="none"] {
+  animation: none;
+}
+[data-step3-review-scrim][data-step3-review-entrance="none"],
+[data-step3-review-panel][data-step3-review-entrance="none"] {
+  animation: none;
+}
 
 /* Re-scan result overlay (spec 2026-07-03 §G / §H N4): the modal footer's
    RescanSheetButton floats its result above the button; entrance reuses the

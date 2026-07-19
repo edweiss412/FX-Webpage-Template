@@ -18,9 +18,11 @@
  *     strips the URL; a mid-slop (60px) drag springs back (stays open, inline
  *     styles cleared); a ≤6px-slop tap falls through to the grab's click and
  *     closes.
- *   - §6.5 transition inventory: closed→open entrance animation attrs present
- *     (sheet-rise <sm / pop-in ≥sm, scrim fade); reduced motion collapses the
- *     entrance to `animation: none`; open→closed is an instant unmount;
+ *   - §6.5 transition inventory: the closed→open entrance is played by the
+ *     SKELETON frame (sheet-rise <sm / pop-in ≥sm, scrim fade — asserted with
+ *     the open-nav RSC response gated); the loaded frame's swap is in-place
+ *     (animation: none, §6.5:150); reduced motion collapses the entrance to
+ *     `animation: none`; open→closed plays the MODAL-CLOSE-EXIT-ANIM-1 exit;
  *     compound — drag started, then the viewport crosses `sm` mid-pointer →
  *     the matchMedia cleanup releases the drag (no stranded inline styles).
  *
@@ -449,24 +451,74 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
 
   // ── §6.5 transition inventory ──────────────────────────────────────────────
 
-  test("§6.5 closed→open entrance: sheet-rise + scrim fade at <sm, pop-in at ≥sm (motion on)", async ({
+  // The closed→open entrance belongs to the SKELETON frame; the loaded modal
+  // streams in over it with entrance suppressed (§6.5:150 "in-place swap when
+  // Suspense resolves; instant"). To assert the skeleton's entrance stably we
+  // GATE the open-nav RSC response, freezing the optimistic skeleton on
+  // screen; releasing the gate lets the loaded frame land, whose computed
+  // animation must be `none` — a default shell mount here would replay the
+  // pop-in from opacity≈0 and visibly dim the already-opaque modal (the
+  // frame-audit finding this pins).
+  async function openGated(page: Page, viewport: { width: number; height: number }) {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize(viewport);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route(
+      (u) => u.searchParams.get("show") === show.slug,
+      async (route) => {
+        await gate;
+        await route.continue();
+      },
+    );
+    await page.goto("/admin");
+    await page.getByTestId(`shows-table-row-${show.slug}`).click();
+    // Only the client optimistic skeleton can be mounted while the gate holds.
+    await page.locator(PANEL).waitFor({ state: "visible", timeout: 10_000 });
+    return release;
+  }
+
+  test("§6.5 closed→open entrance: the SKELETON plays sheet-rise + scrim fade at <sm; loaded swap is in-place", async ({
     page,
   }) => {
-    await openModal(page, SHEET, { reducedMotion: "no-preference" });
+    const release = await openGated(page, SHEET);
     const sheetAnim = await page
       .locator(PANEL)
       .evaluate((el) => getComputedStyle(el).animationName);
-    expect(sheetAnim, "sheet entrance is the rise keyframe").toBe("step3-details-sheet-rise");
+    expect(sheetAnim, "skeleton entrance is the rise keyframe").toBe("step3-details-sheet-rise");
     const scrimAnim = await page
       .locator(SCRIM)
       .evaluate((el) => getComputedStyle(el).animationName);
-    expect(scrimAnim, "scrim entrance is the fade keyframe").toBe("step3-details-scrim-in");
+    expect(scrimAnim, "skeleton scrim entrance is the fade keyframe").toBe(
+      "step3-details-scrim-in",
+    );
 
-    await openModal(page, POPUP, { reducedMotion: "no-preference" });
+    release();
+    const loadedPanel = page.locator(`${MODAL} ${PANEL}`);
+    await loadedPanel.waitFor({ state: "visible", timeout: 15_000 });
+    for (const [sel, label] of [
+      [`${MODAL} ${PANEL}`, "loaded panel"],
+      [`${MODAL} ${SCRIM}`, "loaded scrim"],
+    ] as const) {
+      const anim = await page.locator(sel).evaluate((el) => getComputedStyle(el).animationName);
+      expect(anim, `${label} swap must NOT replay the entrance (§6.5 in-place)`).toBe("none");
+    }
+  });
+
+  test("§6.5 closed→open entrance at ≥sm: the SKELETON plays pop-in; loaded swap is in-place", async ({
+    page,
+  }) => {
+    const release = await openGated(page, POPUP);
     const popupAnim = await page
       .locator(PANEL)
       .evaluate((el) => getComputedStyle(el).animationName);
-    expect(popupAnim, "≥sm entrance is the pop-in keyframe").toBe("step3-details-pop-in");
+    expect(popupAnim, "skeleton ≥sm entrance is the pop-in keyframe").toBe("step3-details-pop-in");
+
+    release();
+    const loadedPanel = page.locator(`${MODAL} ${PANEL}`);
+    await loadedPanel.waitFor({ state: "visible", timeout: 15_000 });
+    const anim = await loadedPanel.evaluate((el) => getComputedStyle(el).animationName);
+    expect(anim, "loaded panel swap must NOT replay the entrance (§6.5 in-place)").toBe("none");
   });
 
   test("§6.5 reduced motion collapses the entrance to animation: none", async ({ page }) => {
@@ -670,15 +722,30 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     }) => {
       await openModal(page, POPUP, { reducedMotion: "no-preference" });
       await armExitProbe(page);
+      // In-page rAF sampler ARMED BEFORE the click (armExitProbe pattern):
+      // with the entrance suppressed (§6.5 in-place swap) the exit starts from
+      // a settled panel and completes in ~one fast transition, so out-of-process
+      // sampling after the click can miss the whole window (and a locator
+      // evaluate on the unmounted panel never resolves).
+      await page.evaluate((sel) => {
+        const w = window as unknown as { __exitOpacities?: number[] };
+        w.__exitOpacities = [];
+        const tick = () => {
+          const el = document.querySelector(sel);
+          if (!el) return; // panel unmounted — exit over
+          w.__exitOpacities!.push(Number(getComputedStyle(el).opacity));
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, PANEL);
       await page.locator(CLOSE).click();
 
-      const opacity = await page
-        .locator(PANEL)
-        .evaluate((el) => Number(getComputedStyle(el).opacity))
-        .catch(() => 1);
-      expect(opacity, "desktop exit fades the panel").toBeLessThan(1);
-
       await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 3_000 });
+      const opacities = await page.evaluate(
+        () => (window as unknown as { __exitOpacities?: number[] }).__exitOpacities ?? [],
+      );
+      expect(Math.min(...opacities), "desktop exit fades the panel").toBeLessThan(1);
+
       const probe = await page.evaluate(() => {
         const w = window as unknown as { __exitEnd?: number | null };
         return w.__exitEnd ?? null;
