@@ -430,19 +430,22 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     // that node is precisely what must NOT satisfy a "visible text" claim.
     const visible = await pill.evaluate((el) => {
       const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+      clone
+        .querySelectorAll('.sr-only, [aria-hidden="true"]')
+        .forEach((n) => n.remove());
       return clone.textContent!.replace(/\s+/g, " ").trim();
     });
     expect(
       visible,
       "the UNIT stays visible past the cap — a bare '99+' is not self-explanatory",
-    ).toBe("99+ alerts");
+    ).toBe("99+ to confirm");
 
     const geom = await page.locator(HEADER).evaluate((header) => {
       const title = header.querySelector('[data-testid$="-title"]')!;
       const pillEl = header.querySelector('[data-testid$="-alert-pill"]')!;
-      // The right group is the pill's own shrink-0 cluster (pill + close).
-      const group = pillEl.parentElement!;
+      // The right group is the shrink-0 cluster (pill + close). The pill now
+      // nests in a `relative` menu-anchor wrapper, so climb to the flex group.
+      const group = pillEl.closest(".shrink-0") ?? pillEl.parentElement!;
       return {
         headerWidth: header.getBoundingClientRect().width,
         groupWidth: group.getBoundingClientRect().width,
