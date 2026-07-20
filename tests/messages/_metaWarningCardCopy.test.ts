@@ -103,9 +103,10 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
       for (const w of parsed.warnings) if (w.severity === "warn") emitted.add(w.code);
     }
     for (const code of emitted) {
-      expect(WARNING_CARD_COPY_CODES.has(code), `corpus emitted unregistered warn code ${code}`).toBe(
-        true,
-      );
+      expect(
+        WARNING_CARD_COPY_CODES.has(code),
+        `corpus emitted unregistered warn code ${code}`,
+      ).toBe(true);
     }
     expect(emitted).toEqual(EXPECTED_CORPUS_WARN_CODES);
   });

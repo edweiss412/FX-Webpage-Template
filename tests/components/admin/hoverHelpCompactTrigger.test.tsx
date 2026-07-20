@@ -33,7 +33,7 @@ describe("HoverHelp compactTrigger (spec §3.4)", () => {
     );
     const btn = screen.getByTestId("hover-help-trigger");
     expect(btn.className).toContain("size-[22px]");
-    expect(btn.className).toContain("before:-inset-[11px]");
+    expect(btn.className).toContain("before:inset-[-11px]");
     expect(btn.className).not.toContain("min-h-tap-min");
   });
 });

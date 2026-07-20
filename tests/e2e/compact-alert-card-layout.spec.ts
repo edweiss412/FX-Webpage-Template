@@ -305,51 +305,51 @@ test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
     await page.getByTestId("mount-warning-card").waitFor();
   });
 
-for (const mount of ["mount-warning-card", "mount-attention-banner"] as const) {
-  test(`compact trigger geometry - ${mount} (spec §3.4/§6/§7)`, async ({ page }) => {
-    const scope = page.getByTestId(mount);
-    const btn = scope.getByTestId(/-trigger$/);
-    const box = (await btn.boundingBox())!;
-    expect(Math.abs(box.width - 22)).toBeLessThanOrEqual(TOL);
-    expect(Math.abs(box.height - 22)).toBeLessThanOrEqual(TOL);
-    // ::before extent = exact 44×44 (spec §7c)
-    const insets = await btn.evaluate((el) => {
-      const s = getComputedStyle(el, "::before");
-      return [s.top, s.right, s.bottom, s.left];
+  for (const mount of ["mount-warning-card", "mount-attention-banner"] as const) {
+    test(`compact trigger geometry - ${mount} (spec §3.4/§6/§7)`, async ({ page }) => {
+      const scope = page.getByTestId(mount);
+      const btn = scope.getByTestId(/-trigger$/);
+      const box = (await btn.boundingBox())!;
+      expect(Math.abs(box.width - 22)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(box.height - 22)).toBeLessThanOrEqual(TOL);
+      // ::before extent = exact 44×44 (spec §7c)
+      const insets = await btn.evaluate((el) => {
+        const s = getComputedStyle(el, "::before");
+        return [s.top, s.right, s.bottom, s.left];
+      });
+      expect(insets).toEqual(["-11px", "-11px", "-11px", "-11px"]);
+      // corner probes just inside the overlay
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      const PROBES: ReadonlyArray<readonly [number, number]> = [
+        [-21.5, -21.5],
+        [21.5, -21.5],
+        [-21.5, 21.5],
+        [21.5, 21.5],
+      ];
+      for (const [dx, dy] of PROBES) {
+        const hit = await page.evaluate(
+          ([x, y]: readonly [number, number]) =>
+            document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
+          [cx + dx, cy + dy] as const,
+        );
+        expect(hit, `probe ${dx},${dy}`).toMatch(/-trigger$/);
+      }
+      // glyph centering (spec §6 fixed-dimension parent invariant, rendered)
+      const glyph = scope.getByTestId("compact-help-glyph");
+      const gbox = (await glyph.boundingBox())!;
+      expect(Math.abs(gbox.x + gbox.width / 2 - cx)).toBeLessThanOrEqual(1);
+      expect(Math.abs(gbox.y + gbox.height / 2 - cy)).toBeLessThanOrEqual(1);
     });
-    expect(insets).toEqual(["-11px", "-11px", "-11px", "-11px"]);
-    // corner probes just inside the overlay
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    const PROBES: ReadonlyArray<readonly [number, number]> = [
-      [-21.5, -21.5],
-      [21.5, -21.5],
-      [-21.5, 21.5],
-      [21.5, 21.5],
-    ];
-    for (const [dx, dy] of PROBES) {
-      const hit = await page.evaluate(
-        ([x, y]: readonly [number, number]) =>
-          document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
-        [cx + dx, cy + dy] as const,
-      );
-      expect(hit, `probe ${dx},${dy}`).toMatch(/-trigger$/);
-    }
-    // glyph centering (spec §6 fixed-dimension parent invariant, rendered)
-    const glyph = scope.getByTestId("compact-help-glyph");
-    const gbox = (await glyph.boundingBox())!;
-    expect(Math.abs(gbox.x + gbox.width / 2 - cx)).toBeLessThanOrEqual(1);
-    expect(Math.abs(gbox.y + gbox.height / 2 - cy)).toBeLessThanOrEqual(1);
-  });
-}
+  }
 
-test("trigger top-aligns with the title line WITH guidance rendered (spec §3.4)", async ({
-  page,
-}) => {
-  const scope = page.getByTestId("mount-warning-card");
-  await expect(scope.getByTestId("per-show-actionable-guidance")).toBeVisible();
-  const btn = (await scope.getByTestId(/-trigger$/).boundingBox())!;
-  const title = (await scope.getByTestId("per-show-actionable-title").boundingBox())!;
-  expect(Math.abs(btn.y - title.y)).toBeLessThanOrEqual(4);
-});
+  test("trigger top-aligns with the title line WITH guidance rendered (spec §3.4)", async ({
+    page,
+  }) => {
+    const scope = page.getByTestId("mount-warning-card");
+    await expect(scope.getByTestId("per-show-actionable-guidance")).toBeVisible();
+    const btn = (await scope.getByTestId(/-trigger$/).boundingBox())!;
+    const title = (await scope.getByTestId("per-show-actionable-title").boundingBox())!;
+    expect(Math.abs(btn.y - title.y)).toBeLessThanOrEqual(4);
+  });
 });

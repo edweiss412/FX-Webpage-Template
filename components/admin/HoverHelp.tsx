@@ -89,7 +89,7 @@ export function HoverHelp({
    * 22px visual box + 44px overlay hit area for compact card triggers
    * (spec 2026-07-20-warning-card-copy-restore §3.4). Only meaningful with a
    * custom `trigger`; the button owns the 22px box and glyph centering, and
-   * the transparent before:-inset-[11px] overlay preserves the 44px floor
+   * the transparent before:inset-[-11px] overlay preserves the 44px floor
    * with zero layout inflation (same pattern as the default "?" trigger).
    */
   compactTrigger?: boolean;
@@ -205,7 +205,7 @@ export function HoverHelp({
           {...triggerProps}
           className={
             compactTrigger
-              ? "relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:-inset-[11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+              ? "relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
               : "inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           }
         >

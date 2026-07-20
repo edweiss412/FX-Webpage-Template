@@ -424,7 +424,7 @@ describe("HoverHelp compactTrigger (spec §3.4)", () => {
     render(<HoverHelp label="Help: x" trigger={<span>?</span>} compactTrigger>body</HoverHelp>);
     const btn = screen.getByTestId("hover-help-trigger");
     expect(btn.className).toContain("size-[22px]");
-    expect(btn.className).toContain("before:-inset-[11px]");
+    expect(btn.className).toContain("before:inset-[-11px]");
     expect(btn.className).not.toContain("min-h-tap-min");
   });
 });
@@ -527,7 +527,7 @@ test("trigger top-aligns with the title line WITH guidance rendered (spec §3.4)
 ```tsx
 className={
   compactTrigger
-    ? "relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:-inset-[11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+    ? "relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
     : "inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
 }
 ```
