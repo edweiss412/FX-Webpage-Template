@@ -78,7 +78,11 @@ const FIXTURE_NEXT_ONE_HOTEL = "2026-04-asset-mgmt-cfo-coo-waldorf.md";
 const SYNTHETIC_NO_VERSION_MARKDOWN =
   "# Some Document Title\n\nThis markdown blob contains no FXAV sheet template markers.\n" +
   "It should fail version detection at the parser's first hard-error gate.\n";
-const TEMP_FIXTURE_NAME = "_temp-mi1-no-version.md";
+// Names MUST derive from CORPUS_TEMP_PREFIX — corpus readers filter this prefix
+// (spec §4.1.2; pinned by tests/cross-cutting/corpus-temp-prefix.test.ts).
+const TEMP_FIXTURE_NAME = `${CORPUS_TEMP_PREFIX}mi1-no-version.md`;
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 const FIXTURE_DIR = join(process.cwd(), "fixtures/shows/raw");
 
 beforeAll(async () => {
@@ -295,7 +299,7 @@ describe("VERSION_AMBIGUOUS routes to dev.pending_ingestions with scored message
   // Ambiguous: two markers from ONE block (gs_timing) => score 2, blocks 1 => VERSION_AMBIGUOUS.
   const SYNTHETIC_AMBIGUOUS_MARKDOWN =
     "| GS SET TIME | 10:00am |\n| GS SETUP | 9:00am |\n| Some Other Row | value |\n";
-  const TEMP_AMBIGUOUS_NAME = "_temp-version-ambiguous.md";
+  const TEMP_AMBIGUOUS_NAME = `${CORPUS_TEMP_PREFIX}version-ambiguous.md`;
 
   test("ambiguous first-seen sheet → last_error_code=VERSION_AMBIGUOUS + scored last_error_message", async () => {
     await writeFile(join(FIXTURE_DIR, TEMP_AMBIGUOUS_NAME), SYNTHETIC_AMBIGUOUS_MARKDOWN, "utf8");
@@ -351,7 +355,7 @@ describe("VERSION_AMBIGUOUS routes to dev.pending_ingestions with scored message
 // The tests below assert each direction's post-state via DIRECT db reads
 // AND via getStagedResult, so a regression in either the RPC's DELETE
 // statements OR the consumer's ordering would surface.
-const FLIP_FIXTURE_NAME = "_temp-flip-test.md";
+const FLIP_FIXTURE_NAME = `${CORPUS_TEMP_PREFIX}flip-test.md`;
 const FLIP_DRIVE_FILE_ID = `dev:fixture:${FLIP_FIXTURE_NAME}`;
 
 // Corpus-derived "valid" markdown for the pass branch of the flip tests.

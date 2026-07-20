@@ -6,6 +6,8 @@ import {
   parseFixtureDateRangeFromPath,
 } from "@/scripts/help-screenshots-fixture-range";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 const rawDir = join(process.cwd(), "fixtures/shows/raw");
 const pdfOnlyDir = join(process.cwd(), "fixtures/shows/pdf-only");
 
@@ -25,7 +27,7 @@ describe("help screenshot fixture-range parser (Task F.2 / test #14)", () => {
 
   it("parses every raw fixture without throwing", () => {
     const fixtureFiles = readdirSync(rawDir)
-      .filter((file) => file.endsWith(".md"))
+      .filter((file) => file.endsWith(".md") && !file.startsWith(CORPUS_TEMP_PREFIX))
       .sort();
 
     expect(fixtureFiles.length).toBeGreaterThan(0);

@@ -3,11 +3,13 @@ import { describe, it, expect } from "vitest";
 import { readdirSync } from "node:fs";
 import { FIXTURES } from "./fixtures";
 
+import { CORPUS_TEMP_PREFIX } from "../../helpers/corpusTemp";
+
 describe("fixture registry parity (Codex R9)", () => {
   it("registry equals the committed .md set (minus README) in both dirs", () => {
     const md = (dir: string) =>
       readdirSync(dir)
-        .filter((f) => f.endsWith(".md") && f !== "README.md")
+        .filter((f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith(CORPUS_TEMP_PREFIX))
         .sort();
     const expected = [
       ...md("fixtures/shows/exporter-xlsx").map((f) => `fixtures/shows/exporter-xlsx/${f}`),

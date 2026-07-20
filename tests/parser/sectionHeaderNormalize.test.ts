@@ -5,6 +5,8 @@ import { normalizeSectionHeaders } from "@/lib/parser/sectionHeaderNormalize";
 import { parseTransportation } from "@/lib/parser/blocks/transport";
 import { unambiguousTypos } from "@/tests/parser/_typoGenerator";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 describe("normalizeSectionHeaders — gated long-section-header typo correction", () => {
   it("corrects a typo'd TRANSPORTATION header (field-band row) and the section then parses", () => {
     const md = ["| Transportaton | NAME | PHONE |", "| Pick Up Venue | 10/6/26 @ 12pm |"].join(
@@ -52,7 +54,9 @@ describe("normalizeSectionHeaders — gated long-section-header typo correction"
 
   it("CORPUS ZERO-CHANGE: the pre-pass is a no-op on every committed fixture (false-positive guard)", () => {
     const dir = "fixtures/shows/raw";
-    for (const f of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+    for (const f of readdirSync(dir).filter(
+      (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+    )) {
       const md = readFileSync(join(dir, f), "utf8");
       const r = normalizeSectionHeaders(md);
       expect(r.corrected, `${f} should be unchanged`).toBe(md);

@@ -20,6 +20,8 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { splitRow, clean, normalizeDate, inferShowYear } from "@/lib/parser/blocks/_helpers";
 
+import { CORPUS_TEMP_PREFIX } from "../../helpers/corpusTemp";
+
 describe("splitRow — well-formed rows", () => {
   it("splits '| A | B |' into ['A', 'B'] (trimmed, outer empties dropped)", () => {
     expect(splitRow("| A | B |")).toEqual(["A", "B"]);
@@ -51,7 +53,9 @@ describe("splitRow truncation path is unreachable on the real corpus (standing a
   // behavior pinned above. If this ever fails, fix splitRow (or the exporter)
   // rather than relaxing this assertion.
   const dir = "fixtures/shows/raw";
-  for (const f of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+  for (const f of readdirSync(dir).filter(
+    (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+  )) {
     it(`${f}: every table row has a trailing pipe`, () => {
       const lines = readFileSync(`${dir}/${f}`, "utf8").split("\n");
       const unbalanced = lines

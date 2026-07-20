@@ -10,6 +10,7 @@ import {
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
+  TEST_FAST_DEFERRED,
 } from "./vitest.projects";
 import { WeightBalancedSequencer } from "./vitest.sequencer";
 
@@ -25,6 +26,13 @@ const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUN
 // sharding speedup). Project-level exclude, not CLI --exclude (vitest ignores the
 // CLI flag once a project defines its own exclude).
 const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
+
+// test:fast (scripts/test-fast.mjs) overlaps the serial and parallel projects as
+// two concurrent processes. Under VITEST_TEST_FAST=1 the parallel project
+// excludes TEST_FAST_DEFERRED (re-run in the runner's post-serial epilogue), and
+// the Vite cache moves aside so the two concurrent vitest processes never share
+// a deps-optimizer dir. Spec: docs/superpowers/specs/2026-07-20-local-suite-wallclock.md §4.1.3.
+const testFastExcludes = process.env.VITEST_TEST_FAST === "1" ? TEST_FAST_DEFERRED : [];
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -45,6 +53,7 @@ const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
 // of the unit-suite CI wall-clock). vitest runs the projects in separate
 // sequential phases, so the parallel project never overlaps the serial one.
 export default defineConfig({
+  ...(process.env.VITEST_TEST_FAST === "1" ? { cacheDir: "node_modules/.vite-testfast" } : {}),
   plugins: [
     mdx({
       jsxImportSource: "react",
@@ -91,8 +100,15 @@ export default defineConfig({
           // tests/parser/** became a parallel glob in Phase 2, which would
           // otherwise sweep the nightly mutationHarness shards (~102k mutants)
           // into every unit-suite leg — they live ONLY in the env-gated
-          // mutation project below.
-          exclude: [...configDefaults.exclude, ...nightlyExcludes],
+          // mutation project below. testFastExcludes is empty unless
+          // VITEST_TEST_FAST=1 (scripts/test-fast.mjs overlap; spec §4.1.3).
+          exclude: [...configDefaults.exclude, ...nightlyExcludes, ...testFastExcludes],
+          // Pool: the vitest default (forks). `pool: "threads"` was measured and
+          // REJECTED per the spec §4.2 decision procedure: nil local effect
+          // (57.1s vs 57.9s on a quiet box) and no CI improvement (max leg 253s
+          // vs main's 246-269s). `isolate: false` is separately DEAD — it leaks
+          // mock/DOM state across files (spec §1.1). Do not re-propose either
+          // without new measurements.
           fileParallelism: true,
         },
       },

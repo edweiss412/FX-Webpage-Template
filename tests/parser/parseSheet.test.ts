@@ -2,9 +2,13 @@ import { parseSheet, deriveSchedulePhases, type ParsedSheet } from "@/lib/parser
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 describe("parseSheet across fixture corpus (AC-1.1, AC-1.2)", () => {
   const dir = "fixtures/shows/raw";
-  for (const f of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+  for (const f of readdirSync(dir).filter(
+    (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+  )) {
     it(`${f}`, () => {
       const r: ParsedSheet = parseSheet(readFileSync(`${dir}/${f}`, "utf8"), f);
       expect(r.hardErrors).toEqual([]);
@@ -43,7 +47,9 @@ describe("parseSheet title regression — no column-header artifacts (Task 1.13)
 
   it("does not extract column headers as show.title across entire fixture corpus", () => {
     const dir = "fixtures/shows/raw";
-    for (const f of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+    for (const f of readdirSync(dir).filter(
+      (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+    )) {
       const r = parseSheet(readFileSync(`${dir}/${f}`, "utf8"), f);
       expect(
         KNOWN_COLUMN_HEADERS,
@@ -116,7 +122,9 @@ describe("parseSheet — schedule_phases derivation from dates (M1 baseline)", (
 
   it("schedule_phases is non-empty for every fixture with dates", () => {
     const dir = "fixtures/shows/raw";
-    for (const f of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+    for (const f of readdirSync(dir).filter(
+      (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+    )) {
       const r = parseSheet(readFileSync(`${dir}/${f}`, "utf8"), f);
       const phaseCount = Object.keys(r.show.schedule_phases).length;
       const hasAnyDate = !!(r.show.dates.set || r.show.dates.showDays[0] || r.show.dates.travelOut);
