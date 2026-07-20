@@ -33,6 +33,15 @@ import type { ReactNode } from "react";
  * R1). Renders nothing when `items` is empty. Shared by the per-show panel and
  * StagedReviewCard.
  */
+/** Guard: spec 2026-07-20-warning-card-copy-restore §5 - empty/whitespace/absent copy fields render nothing. */
+export function warningCardCopyFields(
+  entry: { helpfulContext?: string | null; triggerContext?: string | null } | null,
+): { guidance: string | null; trigger: string | null } {
+  const pick = (v: string | null | undefined) =>
+    typeof v === "string" && v.trim().length > 0 ? v : null;
+  return { guidance: pick(entry?.helpfulContext), trigger: pick(entry?.triggerContext) };
+}
+
 export function PerShowActionableWarnings({
   items,
   driveFileId,
@@ -69,7 +78,9 @@ export function PerShowActionableWarnings({
         // code (defense beyond the four known human-message codes).
         const humanMessage = w.message && w.message !== w.code ? w.message : null;
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
-        const context = entry?.helpfulContext ?? null;
+        // Inline guidance = condensed helpfulContext; popover = triggerContext
+        // (spec 2026-07-20-warning-card-copy-restore §3.3 - reverses #509 G2).
+        const { guidance, trigger: context } = warningCardCopyFields(entry);
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
@@ -123,7 +134,21 @@ export function PerShowActionableWarnings({
             <CompactAlertCard
               tone={tone}
               stripe="none"
-              message={<span className="text-text-strong">{renderEmphasis(title)}</span>}
+              message={
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span data-testid="per-show-actionable-title" className="text-text-strong">
+                    {renderEmphasis(title)}
+                  </span>
+                  {guidance ? (
+                    <span
+                      data-testid="per-show-actionable-guidance"
+                      className={`text-xs/relaxed font-normal ${tone === "muted" ? "text-text-subtle" : "text-warning-text"}`}
+                    >
+                      {renderEmphasis(guidance)}
+                    </span>
+                  ) : null}
+                </span>
+              }
               helpTrigger={
                 context ? (
                   <CompactAlertHelp
