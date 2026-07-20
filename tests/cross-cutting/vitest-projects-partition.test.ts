@@ -14,13 +14,15 @@ import {
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
 // (silent coverage loss) or matches it in BOTH (double-run + re-introduced DB
-// race). This walks the real tests/ tree and asserts every test file is claimed
-// by EXACTLY ONE project, and that the config is wired the way the speedup
+// race). This walks the real tests/ tree and asserts every non-nightly test
+// file is claimed by EXACTLY ONE default project (nightly harness files by
+// none), and that the config is wired the way the speedup
 // depends on (serial = fileParallelism:false for DB/FS; parallel = true).
 //
 // PARALLEL_TEST_GLOBS is the single source of truth: the parallel project's
-// `include` and the serial project's `exclude` are both built from it, so a
-// file is parallel iff it matches a parallel glob and serial otherwise.
+// `include` and the serial project's `exclude` are both built from it. A file
+// is parallel iff it matches a parallel glob and is not nightly-excluded;
+// nightly mutation-harness files live in no default project; serial otherwise.
 
 const ROOT = process.cwd();
 const TESTS_DIR = join(ROOT, "tests");
@@ -47,6 +49,26 @@ function matchesParallel(file: string): boolean {
     if (starIdx >= 0) return file.startsWith(g.slice(0, starIdx + 1));
     return file === g;
   });
+}
+
+// Three-way membership — mirrors vitest.config.ts's DEFAULT-discovery
+// construction (VITEST_EXCLUDE_ENV_BOUND unset — what local `pnpm test`
+// sees; the env-bound CI mode is pinned separately by the serialExcludeFor
+// block below). Nightly mutation-harness files live in NO default project.
+// NIGHTLY_ONLY_EXCLUDES is `**/`-prefixed with an embedded `*`, which the
+// prefix matcher above cannot express — convert to anchored regexes (same
+// helper as vitest-shard-balance.test.ts).
+function globToRegExp(glob: string): RegExp {
+  const esc = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "(?:.*/)?")
+    .replace(/\*/g, "[^/]*");
+  return new RegExp(`^${esc}$`);
+}
+const nightlyRes = NIGHTLY_ONLY_EXCLUDES.map(globToRegExp);
+function projectOf(file: string): "parallel" | "serial" | "none" {
+  if (nightlyRes.some((r) => r.test(file))) return "none";
+  return matchesParallel(file) ? "parallel" : "serial";
 }
 
 const allTestFiles = listTestFiles(TESTS_DIR);
@@ -107,13 +129,18 @@ describe("vitest projects split — partition is complete and correctly wired", 
     expect(allTestFiles.length).toBeGreaterThan(500);
   });
 
-  it("every test file is claimed by EXACTLY ONE project (no drops, no double-run)", () => {
-    // By construction: parallel iff matchesParallel; serial otherwise (serial
-    // includes base and excludes the parallel globs). So the only way a file is
-    // mis-partitioned is a glob that fails to match its intended files.
-    const parallelFiles = allTestFiles.filter(matchesParallel);
-    const serialFiles = allTestFiles.filter((f) => !matchesParallel(f));
-    expect(parallelFiles.length + serialFiles.length).toBe(allTestFiles.length);
+  it("every non-nightly test file is claimed by EXACTLY ONE default project (nightly files by NONE)", () => {
+    // By construction (DEFAULT discovery mode): parallel iff a parallel glob
+    // matches and the file is not nightly-excluded; serial otherwise; the 9
+    // nightly mutation-harness files live in NO default project (their opt-in
+    // mutation-project membership is pinned by the env-gated test above).
+    const parallelFiles = allTestFiles.filter((f) => projectOf(f) === "parallel");
+    const serialFiles = allTestFiles.filter((f) => projectOf(f) === "serial");
+    const noneFiles = allTestFiles.filter((f) => projectOf(f) === "none");
+    expect(parallelFiles.length + serialFiles.length + noneFiles.length).toBe(allTestFiles.length);
+    expect(noneFiles.length, "exactly the 9 nightly harness files live in no default project").toBe(
+      9,
+    );
     expect(parallelFiles.length, "parallel project must be non-empty").toBeGreaterThan(200);
     expect(serialFiles.length, "serial project must be non-empty").toBeGreaterThan(100);
   });
@@ -125,7 +152,6 @@ describe("vitest projects split — partition is complete and correctly wired", 
     const mustBeSerial = [
       "tests/db/advisory-lock.test.ts",
       "tests/sync/dev-routing.test.ts", // the fixture-corpus WRITER
-      "tests/parser/parseSheet.test.ts", // a fixture-corpus reader
       "tests/admin/test-auth-gate.test.ts", // env-bound (x-audits-targeted)
       "tests/cross-cutting/email-canonicalization.test.ts", // env-bound (x5-targeted)
       "tests/cross-cutting/pg-cron-coverage.test.ts", // env-bound
@@ -139,8 +165,8 @@ describe("vitest projects split — partition is complete and correctly wired", 
         : allTestFiles.filter((f) => f.startsWith(path + "/"));
       expect(files.length, `expected to find test files under ${path}`).toBeGreaterThan(0);
       for (const f of files) {
-        expect(matchesParallel(f), `${f} must be in the SERIAL project (DB/FS shared state)`).toBe(
-          false,
+        expect(projectOf(f), `${f} must be in the SERIAL project (DB/FS shared state)`).toBe(
+          "serial",
         );
       }
     }
@@ -205,7 +231,7 @@ describe("vitest projects split — partition is complete and correctly wired", 
     );
     expect(harnessFiles.length, "shard+gates files must exist").toBe(9); // 8 shards + gates
     for (const f of harnessFiles) {
-      expect(matchesParallel(f), `${f} must not be in PARALLEL`).toBe(false);
+      expect(projectOf(f), `${f} must live in NO default project`).toBe("none");
     }
   });
 
@@ -283,5 +309,38 @@ describe("vitest projects split — partition is complete and correctly wired", 
       /--exclude/.test(commands),
       "unit-suite.yml must NOT use `vitest run --exclude` — vitest ignores it with projects defined",
     ).toBe(false);
+  });
+
+  it("Phase-2 verified dirs are in PARALLEL_TEST_GLOBS (exact glob literals)", () => {
+    // Protocol-verified 2026-07-19 (spec §2.2: closed-port DB + fileParallelism,
+    // 178 passed / 2,745 tests). Bare dir strings can't satisfy the prefix
+    // matcher — pin the literal globs.
+    const PHASE2_VERIFIED_PARALLEL_DIRS = [
+      "parser",
+      "drive",
+      "cron",
+      "dataQuality",
+      "appSettings",
+      "geocoding",
+      "design",
+      "dates",
+      "showLifecycle",
+      "invariants",
+      "github",
+      "venue",
+    ];
+    for (const d of PHASE2_VERIFIED_PARALLEL_DIRS) {
+      expect(
+        PARALLEL_TEST_GLOBS,
+        `tests/${d} was protocol-verified DB-free (spec 2026-07-19 §2.2)`,
+      ).toContain(`tests/${d}/**/*.test.{ts,tsx}`);
+    }
+  });
+
+  it("parallel project excludes the nightly harness globs (else ~102k mutants join every PR leg)", () => {
+    const parallel = projects.find((p) => p.test.name === "parallel")!.test;
+    for (const g of NIGHTLY_ONLY_EXCLUDES) {
+      expect(parallel.exclude ?? [], `parallel.exclude must contain ${g}`).toContain(g);
+    }
   });
 });

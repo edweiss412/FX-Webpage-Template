@@ -39,8 +39,8 @@ const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
 //
 // The suite is split into two projects (see vitest.projects.ts for the partition
 // rationale + single source of truth): a SERIAL project (fileParallelism:false)
-// for the DB/fixture-corpus-bound suites, and a PARALLEL project for the ~300
-// verified DB-free render/unit files. This replaces the previous global
+// for the DB/fixture-corpus-bound suites, and a PARALLEL project for the
+// verified DB-free files (see vitest.projects.ts). This replaces the previous global
 // `fileParallelism: false`, which serialized the ENTIRE suite (the largest chunk
 // of the unit-suite CI wall-clock). vitest runs the projects in separate
 // sequential phases, so the parallel project never overlaps the serial one.
@@ -88,6 +88,11 @@ export default defineConfig({
         test: {
           name: "parallel",
           include: PARALLEL_TEST_GLOBS,
+          // tests/parser/** became a parallel glob in Phase 2, which would
+          // otherwise sweep the nightly mutationHarness shards (~102k mutants)
+          // into every unit-suite leg — they live ONLY in the env-gated
+          // mutation project below.
+          exclude: [...configDefaults.exclude, ...nightlyExcludes],
           fileParallelism: true,
         },
       },
