@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move the 516 spike-verified DB-free files out of the serial vitest project via a new `PARALLEL_EXTRA_FILES` list, with a regeneration script and a resolved-config partition proof.
+**Goal:** Move the spike-verified DB-free files (≈516; the audit script's measured output is authoritative) out of the serial vitest project via a new `PARALLEL_EXTRA_FILES` list, with a regeneration script and a resolved-config partition proof.
 
 **Architecture:** Extends the existing single-source membership model with one new entry type — no inversion, no new dir globs, safe-by-default preserved. The partition meta-test's synthetic sum is replaced by evaluation against the projects' real `include`/`exclude` arrays.
 
@@ -14,7 +14,7 @@
 
 - [x] Pre-draft code-verification pass (partition test read in full post-P2: helper :44-72, config-entry tests :55-127 incl. the `parallel.include` equality at :118-126, walker :133-147, mustBeSerial :149-163, mustBeParallel/env-bound :165-192, serialExcludeFor :193-217, harness :219+; `vitest.projects.ts:50-93` with the exact-file entry at :93; `vitest.config.ts` serial :68-84 / parallel :86-99)
 - [x] `pnpm spec:lint` on the spec: 0 hard
-- [ ] Snippet typecheck (Task 0 below produces the transcript)
+- [x] Snippet typecheck: the sentinel `globToRegExp` was executed against a 15-case shape matrix (terminal `/**`, nested node_modules/.git, brace alternation, exact files, leading `**/`, negatives) — 15/15 pass; the pasted test snippets are typechecked in Task 2 Step 1 (`tsc --noEmit`) once written
 - [ ] Adversarial review (cross-model) — Codex, to APPROVE, before execution
 - [ ] Execution (Tasks 0–4; whole-diff review BEFORE push)
 
@@ -33,27 +33,37 @@ EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–g)
 
 ### Task 0: Generate the list from a committed script (tooling + data; no behavior change)
 
-**TDD note (deliberate, reviewed):** this task adds NO production behavior — nothing imports `PARALLEL_EXTRA_FILES` until Task 1, so there is no behavior a failing test could describe first. Its verification is `--check` (Step 4), and it is put under permanent test in Task 1 via the §4c list-integrity block and the §4g `--check` invocation. The red→green cycle for the actual behavior change lives entirely inside Task 1.
+**Structure:** the script's two behaviors (candidate-population derivation; `--check` validation) are extracted into a PURE, importable core so they get a real failing-test-first cycle here. Only the I/O shell (spawning vitest, reading reporter JSON, printing) lives in the .mjs entry point; that shell is exercised end-to-end by Step 4 and pinned permanently by Task 1's §4g.
 
 **Files:**
-- Create (new, not yet tracked): audit-serial-files.mjs under scripts/
-- Create (new, not yet tracked): vitest.parallel-extra-files.ts at the repo root
+- Create (new, not yet tracked): serialAudit.ts under lib/test/ — the pure core (`deriveCandidatePopulation`, `checkCommittedList`)
+- Create (new, not yet tracked): serialAudit.test.ts under tests/cross-cutting/ — its failing-first unit test
+- Create (new, not yet tracked): audit-serial-files.mjs under scripts/ — the I/O shell
+- Create (new, not yet tracked): vitest.parallel-extra-files.ts at the repo root — the generated list
 
 **Interfaces:**
 - Consumes: `BASE_INCLUDE`, `PARALLEL_TEST_GLOBS`, `NIGHTLY_ONLY_EXCLUDES`, `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), `configDefaults.exclude` (vitest).
 - Produces: `PARALLEL_EXTRA_FILES: readonly string[]` consumed by Tasks 1–2.
 
-- [ ] **Step 1: Write the script** implementing spec §3.4 exactly — candidate population = `BASE_INCLUDE` matches, minus `configDefaults.exclude`, minus `NIGHTLY_ONLY_EXCLUDES`, minus `ENV_BOUND_EXCLUDES`, minus every path claimed by ANY `PARALLEL_TEST_GLOBS` entry (dir glob or exact file — iterate the constant, do not assume shape). Two modes:
+- [ ] **Step 1: Write the failing unit test** for the pure core, `tests/cross-cutting/serialAudit.test.ts`, against fixture inputs (a small synthetic file list + synthetic glob constants, NOT the live tree, so it is deterministic):
+  - `deriveCandidatePopulation(allFiles, {baseInclude, defaultExcludes, nightly, envBound, parallelGlobs})` returns exactly the files matching `baseInclude` minus every other set, where `parallelGlobs` subtraction covers BOTH a dir glob and an exact-file entry (the round-3 spec finding — assert an exact-file entry is subtracted).
+  - `checkCommittedList(committed, population, existsOnDisk)` returns a structured result flagging: not-a-subset, unsorted, duplicated, missing-on-disk — one assertion each, including a green case.
+  Run it: `pnpm exec vitest run` scoped to that new file → FAIL (module absent).
+
+- [ ] **Step 2: Write the pure core** at serialAudit.ts under lib/test/ (home of the sentinel `globToRegExp`; Task 1's partition test imports it from here rather than redefining it) until the unit test passes. Re-run → PASS.
+
+- [ ] **Step 3: Write the I/O shell** at audit-serial-files.mjs under scripts/, implementing spec §3.4 exactly on top of the pure core — candidate population = `BASE_INCLUDE` matches, minus `configDefaults.exclude`, minus `NIGHTLY_ONLY_EXCLUDES`, minus `ENV_BOUND_EXCLUDES`, minus every path claimed by ANY `PARALLEL_TEST_GLOBS` entry (dir glob or exact file — iterate the constant, do not assume shape). Two modes:
   - default (measure): writes a scratch vitest config over the candidate population with `fileParallelism: true`, runs it `--repeats N` (default 3) with `SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_URL`=`http://127.0.0.1:9` and `TEST_DATABASE_URL`/`DATABASE_URL`=`postgresql://postgres:x@127.0.0.1:9/postgres`, collects each run's JSON reporter output, and prints the sorted array body of candidates green in ALL repeats.
   - `--check`: no test execution; re-derives the population and verifies the committed `PARALLEL_EXTRA_FILES` is a subset of it, sorted, unique, all extant. Exit non-zero with the offending paths otherwise.
-- [ ] **Step 2: Run measure mode** (`node scripts/audit-serial-files.mjs --repeats 3`), capture the emitted array, and record the run summary (candidate count, per-repeat pass counts) for the PR body.
-- [ ] **Step 3: Create the new root module vitest.parallel-extra-files.ts** exporting `PARALLEL_EXTRA_FILES` = the emitted array verbatim, with a header stating: what it is, that it is GENERATED (regenerate via the script, never hand-edit), the measurement contract (closed-port + `fileParallelism:true`, 3 clean repeats), and the spec reference. Expected ≈516 entries (spec §2.3); the exact count is whatever measure mode emits — the spec's number is the expectation, the script is the authority.
-- [ ] **Step 4: Verify** `node scripts/audit-serial-files.mjs --check` exits 0 against the committed list.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4: Run measure mode** (`node scripts/audit-serial-files.mjs --repeats 3`), capture the emitted array, and record the run summary (candidate count, per-repeat pass counts) for the PR body.
+- [ ] **Step 5: Create the new root module vitest.parallel-extra-files.ts** exporting `PARALLEL_EXTRA_FILES` = the emitted array verbatim, with a header stating: what it is, that it is GENERATED (regenerate via the script, never hand-edit), the measurement contract (closed-port + `fileParallelism:true`, 3 clean repeats), and the spec reference. Expected ≈516 entries (spec §2.3); the exact count is whatever measure mode emits — the spec's number is the expectation, the script is the authority.
+- [ ] **Step 6: Publish the symbol** — add `export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";` to `vitest.projects.ts`. This is plumbing only: no project's `include`/`exclude` changes here, so membership is unchanged and every meta-test stays green. It lands in THIS task so Task 1's red run resolves the import (a missing export would fail collection instead of the two wiring assertions).
+- [ ] **Step 7: Verify** `node scripts/audit-serial-files.mjs --check` exits 0, and `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts tests/cross-cutting/serialAudit.test.ts` is green (membership genuinely unchanged).
+- [ ] **Step 8: Commit.**
 
 ```bash
-git add scripts/ vitest.parallel-extra-files.ts
-git commit --no-verify -m "infra: audit-serial-files script + generated PARALLEL_EXTRA_FILES (measured DB-free set)"
+git add lib/test/serialAudit.ts tests/cross-cutting/serialAudit.test.ts scripts/ vitest.parallel-extra-files.ts vitest.projects.ts
+git commit --no-verify -m "infra: serial-audit pure core + script + generated PARALLEL_EXTRA_FILES (measured DB-free set)"
 ```
 
 ---
@@ -62,15 +72,15 @@ git commit --no-verify -m "infra: audit-serial-files script + generated PARALLEL
 
 **Files:**
 - Modify: `tests/cross-cutting/vitest-projects-partition.test.ts`
-- Modify: `vitest.config.ts`, `vitest.projects.ts`
+- Modify: `vitest.config.ts`, `vitest.projects.ts` (header note only)
 
 **Interfaces:**
 - Consumes: Task 0's `PARALLEL_EXTRA_FILES`; the imported `vitestConfig` projects array.
 - Produces: the shipped membership change.
 
-**Decision (resolved, no implementer choice):** `vitest.projects.ts` **re-exports** `PARALLEL_EXTRA_FILES` (`export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";`) so consumers keep importing membership from the module they already import, while the generated list stays in its own regenerable file. Do NOT inline or append it into `PARALLEL_TEST_GLOBS`.
+**Prerequisite already satisfied by Task 0 Step 6:** `vitest.projects.ts` re-exports `PARALLEL_EXTRA_FILES` from the generated module (plumbing only, membership unchanged), so this task's red run resolves the import and fails on the two wiring assertions rather than on collection. Do NOT inline or append the array into `PARALLEL_TEST_GLOBS`.
 
-- [ ] **Step 1: Add the local glob matcher** (decision already made — see Global Constraints; picomatch is not importable from the root). Extend P2's `globToRegExp` in the test file to support brace alternation:
+- [ ] **Step 1: Import the matcher** from the new serialAudit module under lib/test/ (created in Task 0; single definition, no redefinition here). For reference, its implementation is:
 
 ```ts
 // Glob -> anchored RegExp for the resolved-config proof. Sentinel-based so
@@ -136,7 +146,7 @@ A companion unit test in the same file pins the matcher itself (it is now load-b
 Run: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts`
 Expected: FAIL on (§4b0-i) and (§4b0-ii) only — the list exists but is not yet in either project's arrays. List-integrity, band, matcher unit test, and `--check` PASS. Do NOT commit here.
 
-- [ ] **Step 4: Wire it — GREEN.** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling verbatim). `vitest.projects.ts`: add the re-export above, and extend the header with the §3.3 contract note — mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the audit script.
+- [ ] **Step 4: Wire it — GREEN.** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling verbatim). `vitest.projects.ts`: extend the header with the §3.3 contract note — mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the audit script.
 
 - [ ] **Step 5: Run — verify green across the meta-test suite.**
 
@@ -173,7 +183,7 @@ git commit --no-verify -m "infra: resolved-config partition proof + wire PARALLE
 
 Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (push → watch → resolve run → measure latest attempt → evaluate).
 
-- [ ] **Step 1:** Push; `gh pr create` titled `infra: CI unit-suite Phase 3 — file-granular serial set (516 measured DB-free files to parallel)`, body carrying the spike summary, the measure-mode provenance from Task 0 Step 2, and the measurement table.
+- [ ] **Step 1:** Push; `gh pr create` titled `infra: CI unit-suite Phase 3 — file-granular serial set (measured DB-free files to parallel)`, body carrying the spike summary, the measure-mode provenance from Task 0 Step 2, and the measurement table.
 - [ ] **Step 2:** Watch; `measure <run> <latest attempt>`. Record max_wall + vitest_skew vs P2's baseline (254s / 57s, run 29720857479).
 - [ ] **Step 3:** Evaluate in spec order: max_wall < 300s (regression floor — blocks merge if exceeded); vitest_skew ≤ 75s (else P1's reweight branch). Re-enter the loop after any mutation commit.
 - [ ] **Step 4:** Record in the PR body; pre-merge guards (clean tree, pushed, `headRefOid` matches, not DIRTY); delta-review any post-APPROVE repair commits.
@@ -186,4 +196,4 @@ Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (pus
 - Spec coverage: §3.1→Task 0 Step 3; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→Task 0 Steps 1-2; §3.5→Task 1 (§4c); §4a-g→Task 1 Step 2; §5→Task 4. No requirement without a task.
 - Ordering rationale: the script precedes the list (regeneration is the contract, not the artifact); the test-then-wire cycle lives INSIDE Task 1 so no commit ever contains a failing suite, and Task 1 Step 3's red state still isolates the wiring defect specifically.
 - Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4g runs the real script rather than asserting its existence.
-- Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 3 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
+- Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 2 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
