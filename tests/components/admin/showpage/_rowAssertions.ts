@@ -26,6 +26,10 @@ import { expect } from "vitest";
 
 /** Class tokens as a Set. NEVER assert against `className` directly:
  *  `.toContain("w-full")` also passes for `sm:w-full` / `max-w-full`. */
+/** Class-based hiding mechanisms. `invisible` and `collapse` hide as
+ *  thoroughly as `hidden` does; omitting them left a decidable escape. */
+const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
+
 export const tokensOf = (el: Element): Set<string> =>
   new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
 
@@ -83,10 +87,19 @@ function expectNotHidden(el: Element, root: Element, what: string): void {
   while (cur) {
     const t = tokensOf(cur);
     const where = cur === el ? what : `${what} ancestor <${cur.tagName.toLowerCase()}>`;
-    expect(t.has("sr-only"), `${where} must not be sr-only`).toBe(false);
-    expect(t.has("hidden"), `${where} must not be class-hidden`).toBe(false);
+    // Class-based hiding.
+    for (const token of HIDING_TOKENS) {
+      expect(t.has(token), `${where} must not be ${token}`).toBe(false);
+    }
     expect(cur.hasAttribute("hidden"), `${where} must not carry the hidden attribute`).toBe(false);
     expect(cur.getAttribute("aria-hidden"), `${where} must not be aria-hidden`).not.toBe("true");
+    // INLINE style hiding. jsdom cannot resolve stylesheets, but it parses the
+    // style attribute perfectly well, so `style={{ display: "none" }}` is
+    // decidable here and must not be waved off as "a rendering property".
+    const style = (cur as HTMLElement).style;
+    expect(style?.display, `${where} must not be display:none`).not.toBe("none");
+    expect(style?.visibility, `${where} must not be visibility:hidden`).not.toBe("hidden");
+    expect(style?.visibility, `${where} must not be visibility:collapse`).not.toBe("collapse");
     if (cur === root) break;
     cur = cur.parentElement;
   }

@@ -486,6 +486,10 @@ import { expect } from "vitest";
 
 /** Class tokens as a Set. NEVER assert against `className` directly:
  *  `.toContain("w-full")` also passes for `sm:w-full` / `max-w-full`. */
+/** Class-based hiding mechanisms. `invisible` and `collapse` hide as
+ *  thoroughly as `hidden` does; omitting them left a decidable escape. */
+const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
+
 export const tokensOf = (el: Element): Set<string> =>
   new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
 
@@ -543,10 +547,19 @@ function expectNotHidden(el: Element, root: Element, what: string): void {
   while (cur) {
     const t = tokensOf(cur);
     const where = cur === el ? what : `${what} ancestor <${cur.tagName.toLowerCase()}>`;
-    expect(t.has("sr-only"), `${where} must not be sr-only`).toBe(false);
-    expect(t.has("hidden"), `${where} must not be class-hidden`).toBe(false);
+    // Class-based hiding.
+    for (const token of HIDING_TOKENS) {
+      expect(t.has(token), `${where} must not be ${token}`).toBe(false);
+    }
     expect(cur.hasAttribute("hidden"), `${where} must not carry the hidden attribute`).toBe(false);
     expect(cur.getAttribute("aria-hidden"), `${where} must not be aria-hidden`).not.toBe("true");
+    // INLINE style hiding. jsdom cannot resolve stylesheets, but it parses the
+    // style attribute perfectly well, so `style={{ display: "none" }}` is
+    // decidable here and must not be waved off as "a rendering property".
+    const style = (cur as HTMLElement).style;
+    expect(style?.display, `${where} must not be display:none`).not.toBe("none");
+    expect(style?.visibility, `${where} must not be visibility:hidden`).not.toBe("hidden");
+    expect(style?.visibility, `${where} must not be visibility:collapse`).not.toBe("collapse");
     if (cur === root) break;
     cur = cur.parentElement;
   }
@@ -687,7 +700,12 @@ All row assertions below use the §7.0 helper. Where an item says "token set", i
     `pointer-events-none`; `popover().contains(caret) === false` (the §5 sibling contract);
     and **the caret follows the popover in DOM order** — assert
     `popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING`, which is
-    what actually decides paint order between two `z-40` siblings (§5). The popover's own
+    what actually decides paint order between two `z-40` siblings (§5) — AND that they are
+    genuinely siblings under the same positioned parent
+    (`caret.parentElement === popover().parentElement`, that parent carrying `relative`).
+    Order and classes alone do not prove it: a caret rendered outside the ShareHub root,
+    as a sibling of the ROOT rather than of the popover, satisfies every other assertion
+    while being positioned against the wrong ancestor. The popover's own
     tokens still include `overflow-y-auto` and `max-h-[min(70vh,32rem)]` — asserted through
     `expectClasses`, NOT `className.toContain`, per rule 7.0.1 (proving the withdrawn
     outer/inner split did not sneak back). Unmounts with the popover.

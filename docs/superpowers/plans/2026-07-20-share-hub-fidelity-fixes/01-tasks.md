@@ -179,11 +179,14 @@ it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
   const btn = screen.getByTestId("admin-rotate-share-token-button");
   // An empty described node is worse than none: SRs announce a blank description.
   expect(btn.getAttribute("aria-describedby")).toBeNull();
-  // The correct row has TWO spans when the description is absent — the flex
-  // column wrapper AND the label span. Assert the DESCRIPTION is gone, which is
-  // the actual contract, rather than a span count that the correct
-  // implementation fails.
-  expect(btn.textContent).toBe("Rotate share link"); // description text absent entirely
+  expect(btn.textContent).toBe("Rotate share link");
+  // The description NODE must be gone, not merely emptied. Without this, an
+  // implementation that omits the attribute but still renders
+  // `<span id={descId}>{rowDescription.trim()}</span>` passes: textContent is
+  // unchanged and aria-describedby is absent, yet an empty described node
+  // survives. The correct row has exactly TWO spans here (the flex column
+  // wrapper and the label span); that escape has three. Probe-verified.
+  expect(btn.querySelectorAll("span")).toHaveLength(2);
 });
 
 it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
@@ -392,6 +395,13 @@ it("renders a decorative caret OUTSIDE the popover, leaving the dialog's scroll 
   // intercept clicks in its overlap with the panel and any
   // panelRef.contains(target) check would read them as outside the dialog.
   expectClasses(caret, { has: ["pointer-events-none"] });
+
+  // Siblinghood under the SAME positioned parent. Order + classes alone do not
+  // prove it: a caret rendered outside the ShareHub root, as a sibling of the
+  // ROOT rather than of the popover, satisfies every assertion above while
+  // being positioned against the wrong ancestor.
+  expect(caret.parentElement).toBe(popover().parentElement);
+  expectClasses(caret.parentElement!, { has: ["relative"] });
 
   // The dialog still owns its own scrolling (the regression the withdrawn
   // outer/inner split would have caused). Token-exact per §7.0.1 — a
