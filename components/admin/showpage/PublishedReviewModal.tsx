@@ -192,7 +192,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const [closing, setClosing] = useState(false);
   const [closePending, startCloseTransition] = useTransition();
   const searchParams = useSearchParams();
-  const committedShow = searchParams.get("show");
+  // The standalone layout harnesses (skeletonBandParity, statusStripToggleLayout)
+  // render this tree with NO router context, where the hook really does hand back
+  // null despite its non-nullable type — guard rather than crash them. Those
+  // harnesses never navigate, so a null read simply means "no close to heal".
+  const committedShow = (searchParams as URLSearchParams | null)?.get("show") ?? null;
   const handleClose = useCallback(() => {
     setClosing(true);
     startCloseTransition(() => {
