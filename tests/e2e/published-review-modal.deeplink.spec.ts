@@ -185,9 +185,13 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
     await expect(highlighted, "exactly one highlighted alert row").toHaveCount(1);
     await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
-    // The §3 highlight ring (PerShowAlertSection's static ring treatment).
-    const cls = (await highlighted.getAttribute("class")) ?? "";
-    expect(cls, "attention banner tone stripe applied").toContain("border-l-status-review");
+    // The tone stripe now lives on the CompactAlertCard INSIDE the anchor, not on
+    // the anchor itself: the anchor stays a bare identity/positioning host so it
+    // survives the confirmed swap with no skin of its own
+    // (show-alert-compact §4.1).
+    const cardCls =
+      (await highlighted.locator('[data-testid="compact-alert-card"]').getAttribute("class")) ?? "";
+    expect(cardCls, "attention banner tone stripe applied").toContain("border-l-status-review");
 
     await expectInScrollerViewport(
       page,

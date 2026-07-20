@@ -30,6 +30,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Flatten an emphasis-rendered node tree to its visible text. */
+function renderToText(node: unknown): string {
+  const { container } = render(<>{node as never}</>);
+  const text = container.textContent ?? "";
+  cleanup();
+  return text;
+}
+
 const ADMIN_ROUTE = "/admin";
 // shouldEmitLearnMore gates on the route: a crew-facing route must not emit
 // admin help links (lib/messages/renderer-gate.ts:17-21).
@@ -49,7 +57,8 @@ describe("buildHelpPopoverBody — presence matrix (§3.2)", () => {
       route: ADMIN_ROUTE,
     });
     expect(built).not.toBeNull();
-    expect(built!.body).toBe("Check the sheet's time column.");
+    // Catalog copy is emphasis-rendered, so the body is a node tree, not a string.
+    expect(renderToText(built!.body)).toBe("Check the sheet's time column.");
     // exactOptionalPropertyTypes: the key is OMITTED, never set to undefined.
     expect("learnMore" in built!).toBe(false);
   });
@@ -72,7 +81,7 @@ describe("buildHelpPopoverBody — presence matrix (§3.2)", () => {
       helpHref: "/help/errors#X",
       route: ADMIN_ROUTE,
     });
-    expect(built!.body).toBe("Some context.");
+    expect(renderToText(built!.body)).toBe("Some context.");
     expect(built!.learnMore).toEqual({ href: "/help/errors#X" });
   });
 
@@ -118,7 +127,7 @@ describe("buildHelpPopoverBody — presence matrix (§3.2)", () => {
       helpHref: null,
       route: ADMIN_ROUTE,
     });
-    expect(built!.body).toBe("padded.");
+    expect(renderToText(built!.body)).toBe("padded.");
   });
 });
 

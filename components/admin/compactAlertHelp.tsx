@@ -22,6 +22,7 @@
  */
 import type { ReactNode } from "react";
 import { HoverHelp } from "@/components/admin/HoverHelp";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { shouldEmitLearnMore } from "@/lib/messages/renderer-gate";
 
 /**
@@ -72,7 +73,11 @@ export function buildHelpPopoverBody(input: {
 
   if (context === null && !learnMoreAllowed) return null;
 
-  const body: ReactNode = context ?? HELP_ONLY_LEARN_MORE_LEAD_IN;
+  // Catalog copy carries Markdown emphasis markers; rendering it raw would leak
+  // literal asterisks into the popover (pinned by
+  // tests/messages/_metaEmphasisRenderContract.test.ts). The lead-in is our own
+  // literal string and needs no rendering.
+  const body: ReactNode = context ? renderEmphasis(context) : HELP_ONLY_LEARN_MORE_LEAD_IN;
   return learnMoreAllowed && href !== null ? { body, learnMore: { href } } : { body };
 }
 
