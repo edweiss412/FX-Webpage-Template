@@ -92,3 +92,13 @@ export const PARALLEL_TEST_GLOBS = [
   "tests/venue/**/*.test.{ts,tsx}",
   "tests/sample.test.ts",
 ];
+
+// Parallel-set files that assert ON-DISK state a SERIAL test mutates mid-run
+// (today: lib/admin/__generated__/devPanelPresent.ts, rewritten by
+// tests/admin/withAdminDevFlagDevPanelPresent.test.ts and asserted `false` by
+// DevToolsRow.absent). test:fast excludes these from the overlapped parallel
+// phase (VITEST_TEST_FAST=1) and re-runs them in a post-serial epilogue when the
+// file is guaranteed restored. Repo-relative PATHS, not globs — triple use:
+// vitest exclude pattern, epilogue CLI filter, meta-test existsSync
+// (tests/cross-cutting/test-fast-deferred.test.ts pins all of it; spec §4.1.3).
+export const TEST_FAST_DEFERRED = ["tests/components/admin/settings/DevToolsRow.absent.test.tsx"];
