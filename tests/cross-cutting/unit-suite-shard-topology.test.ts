@@ -158,9 +158,10 @@ describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the leve
   it("soft-failure inventory: exactly two `|| true` — the load line and the save-prep trailing; pipefail present", () => {
     const soft = YAML.match(/\|\| true/g) ?? [];
     expect(soft, "exactly two `|| true` sites allowed (spec §5.2)").toHaveLength(2);
-    expect(/docker load \|\| true/.test(YAML), "one `|| true` must be on the docker-load line").toBe(
-      true,
-    );
+    expect(
+      /docker load \|\| true/.test(YAML),
+      "one `|| true` must be on the docker-load line",
+    ).toBe(true);
     expect(
       /; \} \|\| true/.test(YAML),
       "one `|| true` must trail the braced save-prep compound",
