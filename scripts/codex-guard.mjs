@@ -201,6 +201,11 @@ function freshArgv(cfg, n) {
   ];
 }
 
+function resumeArgv(cfg, sid, n) {
+  return ["exec", "resume", sid, "-c", "model_reasoning_effort=high",
+    "-o", join(cfg.out, `attempt-${n}.last-message.txt`)];
+}
+
 function killGroup(pid, signal) {
   try { process.kill(-pid, signal); } catch { /* group gone */ }
 }
@@ -358,7 +363,17 @@ function writeResult(cfg, state, patch) {
 }
 
 // ---------------------------------------------------------------------------
-// Main (single-attempt — the ladder loop arrives in Task 5)
+// Recovery ladder (§6) — Task 5 ships only the generic branch; cache (Task 6)
+// and resume (Task 7) branches are added test-first.
+// ---------------------------------------------------------------------------
+
+function selectRung(cfg, attempt, state) {
+  attempt.recovery = "retry";
+  return "retry";
+}
+
+// ---------------------------------------------------------------------------
+// Main — attempt loop with exhaustion-before-admission ordering (§6)
 // ---------------------------------------------------------------------------
 
 const cfg = buildConfig(parseArgs(process.argv.slice(2)));
@@ -372,18 +387,35 @@ async function main() {
   };
   globalThis.__guardState = state;
 
-  const attempt = await runAttempt(cfg, 1, "exec", freshArgv(cfg, 1), state);
-  state.attempts.push(attempt);
+  let nextKind = "exec";
+  for (let n = 1; ; n++) {
+    const argv = nextKind === "resume" ? resumeArgv(cfg, state.resumeSid, n) : freshArgv(cfg, n);
+    const attempt = await runAttempt(cfg, n, nextKind, argv, state);
+    state.attempts.push(attempt);
 
-  if (attempt.failureShape === null) {
-    writeResult(cfg, state, {
-      status: "verdict", verdict: attempt.parsed.verdict,
-      verdictLine: attempt.parsed.verdictLine, lastMessagePath: attempt.lastMessagePath,
-    });
-    process.exit(0);
+    if (attempt.failureShape === null) {
+      writeResult(cfg, state, {
+        status: "verdict", verdict: attempt.parsed.verdict,
+        verdictLine: attempt.parsed.verdictLine, lastMessagePath: attempt.lastMessagePath,
+      });
+      process.exit(0);
+    }
+    if (attempt.killedReason === "total_timeout") {
+      writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
+      process.exit(0);
+    }
+    if (state.attempts.length >= cfg.maxAttempts) {  // exhaustion BEFORE admission (§6)
+      writeResult(cfg, state, { failureReason: "attempts_exhausted", verdictLine: attempt.parsed?.verdictLine ?? null });
+      process.exit(0);
+    }
+    const remaining = cfg.totalMaxSecs - (nowSecs() - state.startedAt);
+    if (remaining < cfg.minAdmissionSecs) {          // admission gates rung side effects (§6)
+      writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
+      process.exit(0);
+    }
+    const rung = selectRung(cfg, attempt, state);
+    nextKind = rung === "resume" ? "resume" : "exec";
   }
-  writeResult(cfg, state, { failureReason: "attempts_exhausted", verdictLine: attempt.parsed?.verdictLine ?? null });
-  process.exit(0);
 }
 
 main().catch((e) => {

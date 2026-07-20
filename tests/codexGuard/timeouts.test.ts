@@ -74,8 +74,7 @@ describe("codex-guard timeouts (§5)", () => {
     expect(readResult(run).status).toBe("verdict");
   }, 30000);
 
-  // Multi-attempt: armed as a real `it` by Task 5 (ladder loop); it.fails until then.
-  it.fails("scenario 9: total timeout mid-attempt actively kills (pidfile dead)", async () => {
+  it("scenario 9: total timeout mid-attempt actively kills (pidfile dead)", async () => {
     const run = mkRun();
     writeScenario(run, [
       { onCall: 1, actions: [{ type: "stdout", text: "a" }, { type: "exit", code: 1 }] },
