@@ -47,27 +47,63 @@ describe("corpus temp-prefix contract", () => {
     expect(CORPUS_TEMP_PREFIX).toBe("_temp-");
   });
 
-  it("every parallel-set file that LISTS the raw corpus filters the temp prefix", () => {
-    const listers = testFiles.filter((p) => {
-      if (!matchesParallel(p)) return false;
-      const src = readFileSync(p, "utf8");
-      return src.includes(CORPUS_DIR) && /readdirSync\s*\(/.test(src);
-    });
-    // Guard the guard: if this ever hits zero the discovery arm has silently
-    // stopped finding readers (glob shape change, dir rename).
-    expect(listers.length).toBeGreaterThanOrEqual(6);
+  it("every parallel-set corpus listing site filters the temp prefix", () => {
+    // PER-SITE, not per-file: resolve each readdirSync call's argument, then
+    // require the guard inside THAT call's filter chain. A file with two listing
+    // sites and one guard fails. Argument shapes handled: an inline literal or
+    // TEMPLATE (`fixtures/shows/${d}` — two readers use exactly that, which a
+    // plain substring predicate misses), an identifier assigned such a path in
+    // the same file, and — conservatively — an unresolvable identifier (helper
+    // parameter) in a file that names the raw corpus somewhere.
+    const corpusSites = (src: string): string[] => {
+      const slices: string[] = [];
+      const mentionsRaw = src.includes(CORPUS_DIR);
+      for (const m of src.matchAll(/\breaddirSync\s*\(\s*([^,)]+)/g)) {
+        const arg = m[1]!.trim();
+        const ident = /^[A-Za-z_$][\w$]*$/.test(arg) ? arg : null;
+        const identPath = ident
+          ? (new RegExp(`\\b${ident}\\s*=([^;\n]*)`).exec(src)?.[1] ?? null)
+          : null;
 
-    for (const p of listers) {
-      const src = readFileSync(p, "utf8");
-      const filtersPrefix =
-        src.includes("CORPUS_TEMP_PREFIX") ||
-        // Equivalent broader guard: any leading-underscore fixture is excluded.
-        /startsWith\(["']_["']\)/.test(src);
-      expect(
-        filtersPrefix,
-        `${p} lists ${CORPUS_DIR} in the PARALLEL project but does not filter ` +
-          `${CORPUS_TEMP_PREFIX} — a serial test's synthetic fixture would be parsed mid-overlap`,
-      ).toBe(true);
+        const isCorpus = /fixtures\/shows/.test(arg)
+          ? // Inline literal or template. A template under fixtures/shows can
+            // resolve to raw at runtime, so it counts.
+            arg.includes(CORPUS_DIR) || /fixtures\/shows\/\$\{/.test(arg)
+          : identPath !== null
+            ? identPath.includes(CORPUS_DIR)
+            : // Unresolvable (helper param): in scope iff the file names the corpus.
+              mentionsRaw;
+        if (!isCorpus) continue;
+
+        // The site's filter chain: from the call to the end of its statement.
+        const from = m.index!;
+        const semi = src.indexOf(";", from);
+        slices.push(src.slice(from, semi === -1 ? src.length : semi));
+      }
+      return slices;
+    };
+
+    const listers = testFiles
+      .filter(matchesParallel)
+      .map((p) => [p, readFileSync(p, "utf8")] as const)
+      .map(([p, src]) => ({ p, sites: corpusSites(src) }))
+      .filter((r) => r.sites.length > 0);
+
+    // Guard the guard: PR #507 moved tests/parser/** into the parallel project,
+    // which is how this set grew from 1 file to 7. A collapse means the arm has
+    // stopped finding readers (glob change, dir rename) and must be repaired.
+    expect(listers.length).toBeGreaterThanOrEqual(7);
+
+    for (const { p, sites } of listers) {
+      for (const site of sites) {
+        const guarded = site.includes("CORPUS_TEMP_PREFIX") || /startsWith\(["']_["']\)/.test(site);
+        expect(
+          guarded,
+          `${p}: a corpus listing site in the PARALLEL project does not filter ` +
+            `${CORPUS_TEMP_PREFIX} — a serial test's synthetic fixture would be parsed ` +
+            `mid-overlap. Site: ${site.slice(0, 120).replace(/\s+/g, " ")}`,
+        ).toBe(true);
+      }
     }
   });
 
