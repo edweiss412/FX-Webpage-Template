@@ -144,7 +144,14 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
       /if \(!model \|\| \(model\.active\.length === 0 && model\.ignored\.length === 0\)\) return null;/,
     );
     expect(extras).toMatch(/ignoredWarnings\.length > 0 \? \(/);
-    expect(src("components/admin/review/AttentionBanner.tsx")).toMatch(/\{a\.dataGaps \? \(/);
+    // show-alert-compact §5.2 tightened this guard: a null summary is no longer
+    // sufficient, since a zero/negative/non-finite total must also suppress the
+    // entry. The conditional is now a derived `showDataGaps` boolean consumed by
+    // a plain ternary — still instant, still no AnimatePresence.
+    const banner = src("components/admin/review/AttentionBanner.tsx");
+    expect(banner).toMatch(/const showDataGaps =/);
+    expect(banner).toMatch(/\{showDataGaps && a\.dataGaps \? \(/);
+    expect(banner).not.toMatch(/AnimatePresence|framer-motion/);
   });
 
   // Data-quality badge + degraded notice (this feature). Failure mode: the

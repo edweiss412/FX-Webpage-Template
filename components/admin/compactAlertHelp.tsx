@@ -87,6 +87,11 @@ export function CompactAlertHelp({
   if (content === null) return null;
 
   return (
+    // A per-item testid (it interpolates an alert id or warning key) has no
+    // literal for the matrix to match, and a concrete row would break the parity
+    // gate's occurs-exactly-once rule, so this family is registered as a
+    // template-family row in app/help/_affordanceMatrix.ts instead.
+    // not-a-help-affordance: per-item popover, registered as a template-family row
     <HoverHelp
       label={HELP_TRIGGER_LABEL}
       align="right"
