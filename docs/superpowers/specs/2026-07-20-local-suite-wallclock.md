@@ -6,11 +6,12 @@
 
 ## 1. Goal
 
-Cut local full-suite wall clock without dropping coverage, via:
+Cut local full-suite wall clock without dropping coverage, via three levers. **Measured outcome (§3.0): ~17s off a ~490s suite (3.5%).** The serial project is ~420s of that wall and is untouched here by design (P2/P3 territory, in flight elsewhere) — that finding is the headline, not a shortfall.
+
 
 - **Lever A — `test:fast`:** overlap the parallel and serial vitest projects as two concurrent processes locally.
-- **Lever B — parallel-project `pool: "threads"`:** measured 2.3× on the parallel project phase, isolation intact.
-- **Lever C — pretest codegen cache:** skip the four `pre*`-hook generator scripts when their inputs are unchanged (~15s per `pnpm test`/`pnpm lint`/`pnpm typecheck`/`pnpm build` invocation).
+- **Lever B — parallel-project `pool: "threads"`:** CONDITIONAL. No measurable local effect on a quiet box (§3.0); kept only if real CI leg timings improve.
+- **Lever C — pretest codegen cache:** skip the four `pre*`-hook generator scripts when their inputs are unchanged (1.65s → 0.23s per `pnpm test`/`pnpm lint`/`pnpm typecheck`/`pnpm build` invocation, §3.0).
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -19,10 +20,10 @@ Cut local full-suite wall clock without dropping coverage, via:
 | Full autonomous ship authorized (spec+plan user gates waived) | user, in-session 2026-07-20, /ship-feature + explicit "Yes, full autonomous" |
 | P2 (serial-set audit) and P3 (DB parallelization) are OUT of scope; serial-project per-file overhead is untouched here | dispatch brief; CI program spec §2 |
 | `isolate: false` on the parallel project is a DEAD lever — measured NOT green (mass cross-file state leakage: dozens of component-test failures via shared mock/DOM globals, e.g. `Step3Review.test.tsx` 31/61 failed, `StagedReviewCard.test.tsx` 6/30 failed). Do not re-propose | spike run 2026-07-20, this spec §3.2 |
-| `pool: "threads"` lands **unconditionally** on the parallel project (not env-gated local-only); CI unit-suite legs also pick it up and the PR's real CI green is the verification | this spec §4.2 |
+| `pool: "threads"` is a **CONDITIONAL lever** (amended after quiet-box measurement, §3.0): it is a no-op locally (57.1s vs 57.9s) and is kept ONLY if real CI leg timings improve on the 2-core runners; otherwise it is reverted inside this PR. Not env-gated either way | this spec §4.2, amended 2026-07-20 |
 | `test:fast` is **opt-in** and coverage-identical to `pnpm test`; it does NOT replace the `test` script and does NOT set `VITEST_EXCLUDE_ENV_BOUND` | this spec §4.1 |
 | Cross-project shared-file conflicts are handled by exactly two mechanisms: the `_temp-` prefix contract for the fixture corpus (§4.1.2) and the `TEST_FAST_DEFERRED` epilogue set for generated-file assertions (§4.1.3). R1+R2 fs-write class-sweep of `tests/` found no third always-on surface; the env-gated `build-artifact-gate` writer is handled by the runner's `RUN_BUILD_ARTIFACT_GATE_TEST=1` refusal (§4.1 item 5) | R1/R2 reviews + sweep, this spec §2 |
-| Local serial-project baseline timing was NOT measured at spec time (two sibling autonomous runs were saturating the box, load avg 25–37, and share the local Supabase DB); a quiet-box verification run is an implementation-task gate, not a spec input | this spec §3.3 |
+| Quiet-box verification ran at implementation time and its numbers (§3.0) are AUTHORITATIVE over every spike-era figure in §3.1. Contended numbers are never a keep/drop basis | this spec §3.0 |
 | Individual `gen:*` package scripts and the x-audits workflow's direct `pnpm gen:*` calls are unchanged; only the four `pre*` hooks route through the cache wrapper | this spec §4.3 |
 | Vitest major upgrade, sharding changes, weight-model changes: out of scope | dispatch brief |
 | Codex CLI was hard-wedged for R1 (`models_cache` TTL schema error, 6 no-output attempts across 2 guarded dispatches); per AGENTS.md no_verdict ladder, R1 ran as an independent fresh-eyes agent review (findings below) with real CI as backstop. Retry Codex each subsequent round | this run, 2026-07-20 |
@@ -35,7 +36,7 @@ Cut local full-suite wall clock without dropping coverage, via:
 <!-- spec-lint: ignore — future/transient file created or produced by this feature -->
   1. **Fixture corpus:** `tests/help/fixture-range-parser.test.ts:26-28` (parallel) reads `readdirSync(fixtures/shows/raw)` filtered only by `.endsWith(".md")`, while `tests/sync/dev-routing.test.ts` (serial) writes and later removes **three** synthetic fixtures there: `_temp-mi1-no-version.md` (line 81), `_temp-version-ambiguous.md` (line 298), `_temp-flip-test.md` (line 354, rewritten during the flip test). Each would fail the reader's parse loop if listed.
   2. **Generated dev-panel flag:** `tests/admin/withAdminDevFlagDevPanelPresent.test.ts:6-16` (serial) rewrites `lib/admin/__generated__/devPanelPresent.ts` to `true` mid-test (restoring the committed `false` in `afterEach` at lines 14-17), while `tests/components/admin/settings/DevToolsRow.absent.test.tsx:17-25` (parallel) real-imports it and asserts `DEV_PANEL_PRESENT === false`. R2 sweep: this is the only parallel-set file that real-imports the constant (`DevToolsRow.test.tsx` mocks it; `tests/app/admin/` settings tests reach it only transitively and assert nothing about its value).
-- The four `pre*` hooks (`package.json:28-32` — `pretypecheck`, `prelint`, `pretest`, `prebuild`) each chain the same four generators. Measured on this box: `gen:admin-tables` 3.1s, `gen:watermark-symbols` 1.8s, `gen:email-boundaries` 2.2s, `gen:traceability` 1.6s; whole `pnpm pretest` **15.0s** (pnpm per-script overhead included).
+- The four `pre*` hooks (`package.json:28-32` — `pretypecheck`, `prelint`, `pretest`, `prebuild`) each chain the same four generators. Measured on this box: `gen:admin-tables` 3.1s, `gen:watermark-symbols` 1.8s, `gen:email-boundaries` 2.2s, `gen:traceability` 1.6s; whole `pnpm pretest` **15.0s** under contention, **1.65s** on a quiet box (§3.0 supersedes; the per-generator splits above are contended too).
 - Generator inputs (verified read-surface; none of the four reads `process.env`):
   - `generate-admin-tables.ts`: spec (`SPEC_PATH`, line 3) → `lib/audit/admin-tables.generated.ts` (line 4).
   - `extract-watermark-symbols.ts`: spec (line 4) → `lib/audit/watermark-symbols.generated.ts` (line 5).
@@ -45,26 +46,41 @@ Cut local full-suite wall clock without dropping coverage, via:
 - CI: `unit-suite.yml:80` runs `pnpm exec vitest run --shard=i/8` (no pretest hook — relies on committed artifacts); `x-audits.yml` calls `pnpm gen:*` scripts directly (15 call sites: lines 34, 40, 46, 52, 84, 87, 118, 121, 152, 180, 183, 214, 217, 222, 258). So lever C's wrapper executes on NO CI path; lever B executes on every unit-suite leg.
 - No existing test or meta-test pins the `pre*` hook strings, the parallel project's pool, or `cacheDir` (grepped `tests/cross-cutting` for `pool`, `fileParallelism`, `pretest`: only `vitest-projects-partition.test.ts` pins `fileParallelism`, which this spec does not change).
 
-## 3. Measurements (2026-07-20, arm64 macOS dev box)
+## 3. Measurements
 
-**Contention caveat:** two sibling autonomous worktree runs were executing vitest throughout (load avg 25–37). Absolute numbers are inflated; the A/B comparisons ran under the same contention, so the ratios are the signal. Quiet-box re-measurement is an acceptance task (§6).
+### 3.0 QUIET-BOX RESULTS (authoritative; supersede the contended §3.1-3.4 spike numbers)
 
-### 3.1 Parallel project, forks baseline
+Measured 2026-07-20 02:39-03:05 CDT with zero sibling vitest processes (load 4.6-7.4), after implementation:
 
-`pnpm exec vitest run --project parallel`: **174.4s** wall (Duration line: transform 108s, setup 33s, import 630s, tests 463s, environment 621s summed across workers). 4 test files flaked with timeout-shaped failures under contention (different files on re-run — starvation, not code).
+| Measurement | Result |
+| --- | --- |
+| `pnpm test` (baseline, threads pool) | **491.1s** - 1446 files, 15285 tests, 0 failures |
+| `pnpm test` with `--pool=forks` | **483.5s** - same totals |
+| `pnpm test:fast` (overlap + epilogue) | **474.9s** - 935 + 510 + 1 files = 1446; 9572 + 5711 + 2 = 15285 (exact coverage identity) |
+| parallel project alone, forks | **57.9s** |
+| parallel project alone, threads | **57.1s** |
+| four-generator chain (old `pre*` hooks) | **1.65s** |
+| `pretest-gen` wrapper, cold | **1.77s** |
+| `pretest-gen` wrapper, warm | **0.23s** |
 
-### 3.2 Parallel project, threads pool
+**Honest conclusions, replacing the spike-era claims:**
 
-- `--pool=threads --no-isolate`: 28.1s wall but **NOT green** — mass failures from cross-file state leakage (shared mock/DOM globals). Examples: `tests/components/admin/wizard/Step3Review.test.tsx` 31/61 failed, `tests/components/StagedReviewCard.test.tsx` 6/30, `tests/components/admin/BlockedRowResolver.test.tsx` 8/24, plus "Not implemented: navigation" jsdom bleed. **Dead lever** (§1.1).
-- `--pool=threads` (isolation intact): **74.2s** wall, then a confirmation run **511/511 files, 5702/5702 tests green**. 2.3× vs the forks baseline under identical contention, and none of the forks baseline's starvation flakes.
+1. **Lever A saves ~16s (3%)** of a ~490s suite, not the parallel phase's full wall. The parallel phase overlaps the serial one, but the extra CPU load slows the serial phase by roughly what the overlap saves. Coverage identity is exact.
+2. **Lever B (threads) is a NO-OP on a quiet box** (57.1s vs 57.9s, ~1%). The spike's "2.3x" (174.4s forks vs 74.2s threads) was measured at load 25-37 and reflects only that forks starves harder under contention. It is therefore a **conditional lever** (§4.2), kept only if real CI leg timings improve - CI's 2-core runners are the contended regime where the effect appeared.
+3. **Lever C saves ~1.4s per hooked invocation** (1.65s -> 0.23s warm), not the spike's 15.0s (also contention-inflated). Still worthwhile: it fires on every `pnpm test`/`lint`/`typecheck`/`build`.
+4. **The serial project is the entire local long pole** (~420s of the ~490s). No lever in this spec touches it; that is precisely P2/P3 territory (out of scope, in flight elsewhere). Anyone reading this spec expecting a large local speedup should read that as the finding, not a shortfall.
 
-### 3.3 Serial project
+### 3.1 Spike-era numbers (CONTENDED; retained for the record only)
 
-Not measured locally (sibling runs share the local Supabase DB; a concurrent serial run would race `dev_truncate_all` and pollute both sessions). CI reference: serial 821 files, 217–290s wall per 1/3-leg (program spec §3). Local serial wall is safely ≥ the parallel wall, so lever A hides the entire parallel phase.
+The measurements below ran while two sibling autonomous worktree runs saturated the box (load 25-37). They are NOT a basis for any keep/drop decision; §3.0 supersedes them.
 
-### 3.4 Pretest
+- Parallel project, forks: 174.4s wall; 4 files flaked with timeout-shaped failures (different files per run - starvation).
+- Parallel project, `--pool=threads --no-isolate`: 28.1s but NOT green - mass cross-file state leakage (`Step3Review.test.tsx` 31/61 failed, `StagedReviewCard.test.tsx` 6/30, `BlockedRowResolver.test.tsx` 8/24, jsdom "Not implemented: navigation" bleed). **Dead lever** (§1.1) - this conclusion stands independent of load.
+- Parallel project, `--pool=threads`: 74.2s, 511/511 files green.
+- `pnpm pretest` (old chain): 15.0s.
+- Serial project: not measured under contention (shares the local Supabase DB with sibling runs).
 
-15.0s per hooked invocation (§2). Warm-cache acceptance bound: <2s (expected ~0.3–0.5s; the bound is generous for slow disks — same value as AC-3).
+**Contention is symmetric across pools.** During implementation, a full parallel run under threads at load 38-53 failed 7-12 tests; a control run under **forks at the same load failed 9 with identical shapes** (5s timeouts, duplicate-DOM `Found multiple elements`, double-counted spies). Both pools flake the same way on a saturated box; neither flakes on a quiet one (§3.0: 0 failures).
 
 ## 4. Design
 
@@ -103,15 +119,23 @@ This kills the corpus race for ANY concurrent-run context (not just `test:fast`)
 <!-- spec-lint: ignore — future/transient file created or produced by this feature -->
 Also gated on `VITEST_TEST_FAST=1`: root `cacheDir` switches to `node_modules/.vite-testfast` so the two concurrent vitest processes never share a Vite cache/deps-optimizer directory (the serial child and the epilogue keep the default).
 
-### 4.2 Lever B — parallel project `pool: "threads"`
+### 4.2 Lever B — parallel project `pool: "threads"` (CONDITIONAL)
 
-Add `pool: "threads"` to the parallel project block (`vitest.config.ts:89-91`), with a comment citing the measured 2.3× and the dead `isolate:false` spike. Unconditional: local runs, `test:fast`, and every CI unit-suite leg pick it up. Serial and mutation projects keep the forks default (mutation is nightly-only and corpus-scale; not measured here — out of scope).
+Add `pool: "threads"` to the parallel project block, with a comment carrying the measured numbers and the dead `isolate:false` spike.
 
-**P2 rebase flag:** the in-flight Phase 2 serial-set audit edits project membership in `vitest.config.ts`/`vitest.projects.ts`. This lever is a one-line project-config addition and must be re-run against P2's final membership when P2 lands (whichever merges second rebases).
+**Keep/drop decision procedure (predeclared, in-PR — mirrors the CI program's conditional image-cache lever):**
 
-Risk note: any parallel-set test relying on process-level isolation (native module state, `process.chdir`, signal handlers) would break under threads. R1 sweep: no `process.chdir`/`process.on`/native-addon hits in the parallel dirs; two full green runs (511 files); real CI green on the PR is the final gate.
+- Quiet-box local effect is **nil** (57.1s threads vs 57.9s forks, §3.0), so local speed is NOT a reason to keep it.
+- The only regime where threads won is heavy contention (2.3× at load 25-37), which is what a 2-core CI runner looks like. So the decision input is **real CI `unit-suite` leg durations** on this PR versus recent `main` runs of the same 8-leg topology.
+- **Keep** if the max leg improves by ≥15s with all 8 legs green. **Revert the one-line change inside this PR** otherwise — a config change with no measured benefit is not worth the thread-safety surface (`isolate:false` already proved this suite leaks across files when isolation weakens).
+- Either outcome is in-spec and is not a scope cut.
 
-<!-- spec-lint: ignore — future file created by this feature -->
+Serial and mutation projects keep the forks default (mutation is nightly-only and corpus-scale; out of scope).
+
+**P2 rebase flag:** the in-flight Phase 2 serial-set audit edits project membership in `vitest.config.ts`/`vitest.projects.ts`; whichever merges second rebases.
+
+Risk note: any parallel-set test relying on process-level isolation (native module state, `process.chdir`, signal handlers) would break under threads. Sweep found no such hits; two full green runs (511 files) plus the quiet-box full-suite green (1446 files) back it.
+
 ### 4.3 Lever C — `scripts/pretest-gen.mjs` cache wrapper
 
 The four `pre*` hooks become `"node scripts/pretest-gen.mjs"`. The wrapper holds a **manifest**: per generator, the exact input list from §2 (spec/plan/workflow paths + the generator source + its transitive local-import closure) plus the output path. Per target:
