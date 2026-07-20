@@ -14,8 +14,8 @@ name: Unit + DB suite (full vitest gate)
 # a connection.
 #
 # Now they are separate matrix jobs:
-#   unit-suite-db   — 6 legs, boots Supabase, runs ONLY --project=serial
-#   unit-suite-nodb — 2 legs, boots NOTHING,  runs ONLY --project=parallel
+#   unit-suite-db   — 8 legs, boots Supabase, runs ONLY --project=serial
+#   unit-suite-nodb — 3 legs, boots NOTHING,  runs ONLY --project=parallel
 #
 # The no-DB legs skip supabase/setup-cli, the psql install, and the ~71s
 # bootstrap entirely, cutting their fixed overhead from ~100s to ~30s. That
@@ -28,22 +28,27 @@ name: Unit + DB suite (full vitest gate)
 # is per-leg startup and transform work, re-paid by every leg, which is why leg
 # counts past ~12 stop buying anything.
 #
-# LEG COUNTS ARE SET BY RUNNER CONCURRENCY, NOT BY THE ARITHMETIC. Three
-# topologies were measured on PR #517, all against a like-for-like PR baseline
-# (run 29754822376: 8 legs, 3s start stagger, 253s max leg, 262s wall):
+# LEG COUNTS ARE SET BY RUNNER CONCURRENCY, NOT BY THE ARITHMETIC, AND THE
+# PERFORMANCE WIN HERE IS SMALL. Four topologies were measured on PR #517
+# against a like-for-like PR baseline (run 29754822376):
 #
-#   12+4 (run 29760670825): max leg 182s -- the predicted per-leg win -- but
-#         16 legs could not all start at once. Starts staggered +0s..+171s and
-#         the WALL REGRESSED to 342s.
-#   8+3  (run 29761339451): max leg 195s, stagger still 43s, wall 246s. Only
-#         16s better than baseline; the stagger ate the per-leg gain.
-#   6+2  (this): total legs held at 8 -- the count proven to start within 3s --
-#         and rebalanced across the split instead of added to.
+#   config                      stagger  max leg  WALL
+#   8 mixed (baseline)              3s     253s   262s
+#   12+4  (run 29760670825)       171s     182s   342s  <- REGRESSED
+#   8+3   (run 29761339451)        43s     195s   246s  <- best
+#   6+2   (run 29761927532)        15s     246s   256s
 #
-# Total legs are therefore capped at 8. The split still pays at that cap because
-# the 2 no-DB legs skip the ~71s boot, so 690s of serial work spreads over 6 legs
-# that each pay ~100s while 294s of parallel work rides 2 legs paying ~30s.
-# Adding legs past 8 buys per-leg time and loses more to queueing.
+# 12+4 hit its per-leg target exactly (182s) and still lost, because 16 legs
+# cannot all start at once: the last began after the whole baseline run would
+# have finished. Shrinking to 6+2 removed the stagger but gave the per-leg gain
+# straight back. 8+3 is the measured optimum at ~6% off the wall -- far short of
+# the ~27% the arithmetic projected, because per-leg startup (~35s) and runner
+# queueing both scale against added legs.
+#
+# The durable value of this split is therefore NOT the 16s. It is that
+# unit-suite-nodb runs the whole parallel project with no database on every PR,
+# which is what catches a DB-touching file drifting into a parallel dir -- the
+# bug this change was born from.
 #
 # COVERAGE: `--project` plus `--shard` must not drop files. Two guarantees
 # compose. vitest-projects-partition.test.ts pins that every non-nightly test
@@ -92,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -110,12 +115,12 @@ jobs:
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
         # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run serial project, shard ${{ matrix.shard }}/6
+      - name: Run serial project, shard ${{ matrix.shard }}/8
         # fileParallelism:false still holds WITHIN a leg, and legs never share a
         # database (separate runners), so the serial-DB guarantee is unchanged.
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --project=serial --shard=${{ matrix.shard }}/6
+        run: pnpm exec vitest run --project=serial --shard=${{ matrix.shard }}/8
 
   unit-suite-nodb:
     name: unit-suite-nodb
@@ -124,7 +129,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -134,10 +139,10 @@ jobs:
       # moved to serial in the same change). Adding a boot here would silently
       # hand back the ~71s per leg this job exists to save, so the topology
       # meta-test asserts this job never mentions the bootstrap.
-      - name: Run parallel project, shard ${{ matrix.shard }}/2
+      - name: Run parallel project, shard ${{ matrix.shard }}/3
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --project=parallel --shard=${{ matrix.shard }}/2
+        run: pnpm exec vitest run --project=parallel --shard=${{ matrix.shard }}/3
 
   unit-suite:
     # Aggregator — PRESERVES the `unit-suite` required check-context name so

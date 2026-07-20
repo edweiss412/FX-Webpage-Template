@@ -15,7 +15,7 @@ Splitting by PROJECT lets the DB-free half skip the boot entirely.
 | Decision | Rationale |
 | --- | --- |
 | Split by project, not more file shards | A plain 8→12 file-shard bump models to ~205s; the project split reaches ~188s AND removes the boot from a third of the legs |
-| 6 DB + 2 no-DB legs | Set by RUNNER CONCURRENCY, not by the arithmetic — see §2.1. The timing floor (~100s overhead + ~30s startup + the unsplittable 54s `no-global-cursor.test.ts`) is not the binding constraint; leg-start queueing is |
+| 8 DB + 3 no-DB legs | Set by RUNNER CONCURRENCY, not by the arithmetic — see §2.1. The timing floor (~100s overhead + ~30s startup + the unsplittable 54s `no-global-cursor.test.ts`) is not the binding constraint; leg-start queueing is |
 | Two files MOVED, not exception-listed | Serial excludes each parallel dir glob wholesale, so a per-file parallel exclusion strands the file in NO project |
 | No separate drift-gate workflow | `unit-suite-nodb` already runs the whole parallel project with no database on every PR. It IS the standing gate |
 | Total legs stay near 8 | 16 legs was tried and REGRESSED the wall clock (§2.1). The pre-PR observation of 24 concurrent jobs at 11s max delay did NOT predict the ceiling at 16 unit-suite legs alongside x-audits' ~18 |
@@ -36,32 +36,36 @@ The ~280s gap is the cost of every leg re-importing and re-transforming the grap
 
 Superseded model: a back-fit projection put serial at ~900s and parallel at ~366s — both 25–30% high. The measurement is what this design uses.
 
-## 2.1 The binding constraint is runner concurrency, not leg arithmetic
+## 2.1 The binding constraint is runner concurrency — and the win is small
 
-Three topologies were measured on PR #517. The baseline is a like-for-like PR run (29754822376), not a push-to-main run — PRs fire x-audits' ~18 jobs alongside, and that neighbour load is part of what sets the ceiling.
+Four topologies were measured on PR #517, all against a like-for-like PR baseline (run 29754822376). A push-to-main baseline would flatter the result: PRs fire x-audits' ~18 jobs alongside, and that neighbour load is part of what sets the ceiling.
 
-| Topology | Start stagger | Max leg | **Workflow wall** |
+| Config | Start stagger | Max leg | **Workflow wall** |
 | --- | --- | --- | --- |
 | 8 mixed (baseline, run 29754822376) | 3s | 253s | **262s** |
 | 12+4 (run 29760670825) | **171s** | 182s | **342s** — REGRESSED |
-| 8+3 (run 29761339451) | 43s | 195s | **246s** — only 16s better |
-| 6+2 (shipped) | — | — | — |
+| 8+3 (run 29761339451) | 43s | 195s | **246s** — best |
+| 6+2 (run 29761927532) | 15s | 246s | **256s** |
 
-The 12+4 run hit its per-leg target exactly (182s against 258s) and still lost, because 16 legs could not all start at once: the last one began after the entire baseline run would have finished. At 8+3 the stagger was smaller but still consumed most of the per-leg gain.
+12+4 hit its per-leg target exactly — 182s against 258s, the full predicted win — and still lost, because 16 legs could not all start at once. The last began after the entire baseline run would have finished. Shrinking to 6+2 removed the stagger and handed the per-leg gain straight back.
 
-So total legs are capped at **8** — the count measured to start within 3s — and the split is expressed by REBALANCING that budget (6 DB + 2 no-DB) rather than adding to it. The split still pays at the cap, because the 2 no-DB legs skip the ~71s boot: 690s of serial work spreads over 6 legs paying ~100s each, while 294s of parallel work rides 2 legs paying ~30s.
+**8+3 is the measured optimum, and it is worth ~16s — about 6% — not the ~27% the arithmetic projected.** Two costs scale against added legs and cancel most of the benefit: the ~35s of per-leg startup and transform work identified in §2, and runner-acquisition queueing.
 
-**The generalizable lesson:** per-leg wall clock and workflow wall clock are different objectives, and past some leg count they move in opposite directions. Every projection in §2 optimizes the first. Only a measured run reveals the second — and the pre-flight concurrency check (24 concurrent jobs at 11s max delay) did NOT extrapolate to 16 unit-suite legs beside the same neighbours.
+### Why this still ships
+
+Not for the 16s. The `unit-suite-nodb` job runs the whole parallel project with no database on every PR, which is what catches a DB-touching file drifting into a parallel directory — the bug in §4, which was live in `main` and had been for weeks. The perf change is what makes that gate free rather than an extra job.
+
+**The generalizable lesson:** per-leg wall clock and workflow wall clock are different objectives that move in opposite directions past some leg count. Every projection in §2 optimizes the first; only a measured run reveals the second. The pre-flight concurrency check (24 concurrent jobs at 11s max delay) did not extrapolate to 16 unit-suite legs beside the same neighbours — a projection failure of exactly the kind this project has now made four times.
 
 ## 3. Topology
 
 ```
-unit-suite-db    6 legs  boots Supabase  vitest run --project=serial   --shard=i/6
-unit-suite-nodb  2 legs  boots NOTHING   vitest run --project=parallel --shard=i/2
+unit-suite-db    8 legs  boots Supabase  vitest run --project=serial   --shard=i/8
+unit-suite-nodb  3 legs  boots NOTHING   vitest run --project=parallel --shard=i/3
 unit-suite        aggregator, needs BOTH, asserts BOTH rollups == success
 ```
 
-Projected max leg at 6+2: ~215s against a measured 253s baseline.
+Measured at 8+3: max leg 195s against a 253s baseline; workflow wall 246s against 262s.
 
 **Coverage** is guaranteed by two composing invariants, not by inspection. The claim is "every file runs exactly once, EXCEPT the three env-bound files, which run zero times here and are gated by x-audits instead" — both jobs set `VITEST_EXCLUDE_ENV_BOUND=1`, and that exclusion is applied only to the serial project. A meta-test pins that all three env-bound files stay in serial dirs, since an env-bound file added to a parallel dir would NOT be excluded and would run in the no-DB leg, in the very environment it was excluded for needing.
 
