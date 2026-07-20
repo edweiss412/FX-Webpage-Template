@@ -365,7 +365,7 @@ Every existing call asserts GLOBAL behavior (they predate scope), so the migrati
 # Step 1 already added 3 show-scope calls, so the CURRENT total is 56, of
 # which 53 are the pre-existing global ones needing the new argument.
 grep -rn "deriveAlertMessageParams(" tests/ | wc -l          # expect 56
-grep -rn "deriveAlertMessageParams(" tests/ | grep -c '"show"'  # expect 3
+grep -rn "deriveAlertMessageParams(" tests/ | grep -c '"show"'  # expect 2 (Step 1 adds 2 show + 1 global)
 ```
 
 Then re-run `pnpm typecheck` — it is the only gate that sees a missed site.
@@ -540,24 +540,27 @@ describe("resolve label cross-product", () => {
     render(
       <PerShowAlertResolveButton alertId="a1" slug="s" code="ROLE_FLAGS_NOTICE" />,
     );
-    expect(screen.getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirm");
+    // EXACT text. toHaveTextContent does a SUBSTRING match, so "Confirm" also
+    // passes when the button wrongly renders "Confirming…" while idle
+    // (review R4a finding 3). Every idle assertion below uses exact matching.
+    expect(screen.getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirm$/);
   });
 
   it("PerShowAlertResolveButton reads Mark resolved for a resolve-intent code", () => {
     render(
       <PerShowAlertResolveButton alertId="a2" slug="s" code="AMBIGUOUS_EMAIL_BINDING" />,
     );
-    expect(screen.getByTestId("per-show-alert-resolve-a2")).toHaveTextContent("Mark resolved");
+    expect(screen.getByTestId("per-show-alert-resolve-a2")).toHaveTextContent(/^Mark resolved$/);
   });
 
   it("HealthAlertResolveButton reads Confirm for a confirm-intent code", () => {
     render(<HealthAlertResolveButton alertId="h1" code="ROLE_FLAGS_NOTICE" />);
-    expect(screen.getByTestId("health-alert-resolve-h1")).toHaveTextContent("Confirm");
+    expect(screen.getByTestId("health-alert-resolve-h1")).toHaveTextContent(/^Confirm$/);
   });
 
   it("HealthAlertResolveButton reads Mark resolved for a resolve-intent code", () => {
     render(<HealthAlertResolveButton alertId="h2" code="AMBIGUOUS_EMAIL_BINDING" />);
-    expect(screen.getByTestId("health-alert-resolve-h2")).toHaveTextContent("Mark resolved");
+    expect(screen.getByTestId("health-alert-resolve-h2")).toHaveTextContent(/^Mark resolved$/);
   });
 
   // ---- pending state, per surface ----
@@ -608,7 +611,12 @@ describe("resolve label cross-product", () => {
   ])("BellPanel row idle for %s reads %s", async (code, expected) => {
     const id = `bi-${code}`;
     renderBellRow(id, code);
-    await waitFor(() => expect(screen.getByTestId(`bell-resolve-${id}`)).toHaveTextContent(expected));
+    // Anchored: "Confirm" as a substring also matches "Confirming…".
+    await waitFor(() =>
+      expect(screen.getByTestId(`bell-resolve-${id}`)).toHaveTextContent(
+        new RegExp(`^${expected}$`),
+      ),
+    );
   });
 
   it.each([
@@ -843,7 +851,10 @@ describe("defense 2: variants are valid as RENDERED output", () => {
     it(`${code} renders non-empty with no leaked placeholder`, () => {
       const rendered = interpolate(e.dougFacingShowScoped!, worstCase);
       expect(rendered.trim().length, `${code} variant renders empty`).toBeGreaterThan(0);
-      expect(PLACEHOLDER_RE.test(rendered), `${code} leaked a placeholder`).toBe(false);
+      // PLACEHOLDER_RE carries /g (lib/messages/lookup.ts:12), so .test() is
+      // stateful via lastIndex and can false-negative on a later call
+      // (review R4a finding 4). Match instead of test.
+      expect(rendered.match(PLACEHOLDER_RE), `${code} leaked a placeholder`).toBeNull();
     });
 
     it(`${code} variant does not itself open with the location prefix`, () => {
@@ -851,7 +862,7 @@ describe("defense 2: variants are valid as RENDERED output", () => {
     });
 
     it(`${code} variant introduces no token the global template lacks`, () => {
-      const tokens = (t: string) => new Set(t.match(PLACEHOLDER_RE) ?? []);
+      const tokens = (t: string) => new Set(t.match(PLACEHOLDER_RE) ?? []); // match, never test
       const globalTokens = tokens(e.dougFacing ?? "");
       const extra = [...tokens(e.dougFacingShowScoped!)].filter((t) => !globalTokens.has(t));
       expect(extra, `${code} variant adds tokens the derive layer may not populate`).toEqual([]);
@@ -1208,6 +1219,8 @@ After `- uses: actions/checkout@v4` (line 62):
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 ```
 
+**Ordering note (review R4b finding 1).** The plan-wide TDD rule is test-first, and this task inverts it: the workflow edit comes before the probe. That is deliberate and is called out rather than hidden. A workflow step cannot be driven by a failing test the way a function can, because the thing under test is the CI checkout's git state, not code in this repo. The probe below establishes the red condition against a checkout that genuinely lacks the ref, which is the closest executable equivalent. Run Step 2 BEFORE Step 3's commit either way, so the evidence exists before the change is recorded.
+
 - [ ] **Step 2: Prove the red phase without needing a second install**
 
 Review R2 finding 11 is right that a fresh clone has no `node_modules` and no linked `.env.local`, so `pnpm vitest` there dies long before reaching the assertion. Probe the *condition* in a bare repo, and the *behavior* in this worktree.
@@ -1279,13 +1292,11 @@ Append to tests/messages/showScopedCopy.test.ts:
 
 ```ts
 describe("resolve-error copy is label-agnostic", () => {
-  it("the component's generic fallback does not name a button label", () => {
-    // components/admin/PerShowAlertResolveButton.tsx:46 reads "We could not
-    // mark this alert resolved.", wrong once the button says Confirm.
-    const src = readFileSync("components/admin/PerShowAlertResolveButton.tsx", "utf8");
-    expect(src).toContain("We could not resolve this alert. Refresh and try again.");
-    expect(src).not.toContain("We could not mark this alert resolved");
-  });
+  // NOTE: the component's GENERIC_ERROR fallback is asserted BEHAVIORALLY in
+  // tests/components/admin/resolveLabelCrossProduct.test.tsx (it renders the
+  // component and drives the real error path). A source scan here would pass
+  // on an unused constant (review R3 finding 7 / R4b finding 3), so it is
+  // deliberately not repeated in this file.
 
   // FROZEN LITERALS, not pattern exclusions. Review R1 finding 10: asserting
   // "does not match /Mark resolved/" plus one substring lets materially wrong
@@ -1309,8 +1320,6 @@ describe("resolve-error copy is label-agnostic", () => {
 ```
 
 **Implementer note:** if the existing §12.4 prose differs from the frozen strings above in any way other than the label references, use the EXISTING text with only those references changed, and update this test to match. The frozen literal must equal what ships; the master spec is the source for everything except the label wording.
-});
-```
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -1526,7 +1535,13 @@ Both must run; a critique without its paired audit does not satisfy the invarian
 
 - [ ] **Step 2b: Write the handoff doc**
 
-Review R2 finding 17: "put it in §12 of the handoff" named no file, so the invariant could stay unsatisfied while both commands ran. Create docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/handoff.md with a §12 section listing every critique and audit finding, its tier (P0-P3), and its disposition (fixed in commit `<sha>` / deferred via `DEFERRED.md` entry `<id>`). Commit it as part of Step 3.
+Review R2 finding 17: "put it in §12 of the handoff" named no file, so the invariant could stay unsatisfied while both commands ran. Create docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/handoff.md with a §12 section listing every critique and audit finding, its tier (P0-P3), and its disposition.
+
+**Disposition wording (review R4b finding 5):** a commit cannot contain its own SHA, so do NOT write "fixed in commit `<sha>`" for fixes landing in the same commit as the handoff. Use one of:
+
+- `fixed in this commit` — for repairs staged alongside the handoff
+- `fixed in <sha>` — only for a repair already committed earlier
+- `deferred, DEFERRED.md entry <id>` — with the entry added in the same commit
 
 - [ ] **Step 3: Commit any gate fixes**
 
@@ -1536,9 +1551,14 @@ Review R3 finding 9: the gates in Step 1 ran BEFORE any impeccable repair, so a 
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm format:check && pnpm test
+pnpm playwright test tests/e2e/resolve-label-layout.spec.ts --config tests/e2e/standalone.config.ts
 ```
 
+The Playwright run is included because an impeccable repair is by definition a UI change, and the geometry assertions in Task 8 are exactly what a spacing or layout fix can break (review R4b finding 6). `pnpm test` does not cover e2e.
+
 Expected: all PASS. If a repair broke something, fix it and re-run this step, not Step 1.
+
+**Re-run the gate pair too, if any repair changed a component.** A P1 fix can introduce a new P0. One additional critique/audit cycle on the repaired diff is the stopping condition; if that cycle produces new P0/P1 findings, repair and repeat. Record every cycle in the handoff.
 
 - [ ] **Step 4: Commit the repairs AND the handoff**
 
