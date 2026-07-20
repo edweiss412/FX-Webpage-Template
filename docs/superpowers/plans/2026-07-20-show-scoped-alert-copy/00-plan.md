@@ -347,6 +347,34 @@ Assignment at `lib/adminAlerts/deriveMessageParams.ts:358`:
   const params = deriveAlertMessageParams(row.code, row.context, null, "global");
 ```
 
+- [ ] **Step 4a: Pin each production caller's scope argument**
+
+Review R6a finding 1: the unit tests exercise `deriveAlertMessageParams` directly, so `fetchPerShowAlerts` could pass `"global"` (leaving the redundant show-page instruction in the modal) or a global surface could pass `"show"` (suppressing the pointer sentence in the bell), and every listed gate would still pass. Typecheck only proves an argument is present, not that it is the right one.
+
+Add to tests/messages/showScopedCopy.test.ts:
+
+```ts
+import { readFileSync } from "node:fs";
+
+// The three callers are a closed set (spec §2), so pin each one's literal.
+describe("production callers pass the correct scope", () => {
+  it.each([
+    ["lib/adminAlerts/fetchPerShowAlerts.ts", '"show"'],
+    ["lib/admin/bellFeed.ts", '"global"'],
+    ["components/admin/telemetry/HealthAlertsPanel.tsx", '"global"'],
+  ])("%s passes %s", (file, scope) => {
+    const src = readFileSync(file, "utf8");
+    // Match to the END of the statement, not the first ")": bellFeed.ts:293 is
+    // a multi-line call and a non-greedy \) would truncate before the scope arg.
+    const call = /deriveAlertMessageParams\(([\s\S]*?)\);/.exec(src);
+    expect(call, `${file} no longer calls deriveAlertMessageParams`).not.toBeNull();
+    expect(call![1], `${file} passes the wrong scope`).toContain(scope);
+  });
+});
+```
+
+This is a source assertion because the alternative — booting the bell feed against a live Supabase — is not a unit test. It is exact about the one thing that can silently be wrong.
+
 - [ ] **Step 4b: Migrate the existing TEST call sites (53 of them)**
 
 Review R1 finding 3 is right that making the parameter required breaks existing three-argument calls, and that `pnpm vitest` would still pass because it strips types. Verified counts:
@@ -569,7 +597,10 @@ describe("resolve label cross-product", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   // Never-settling stubs leak across tests and make results order-dependent
   // (review R5b finding 4). If this file has no global afterEach cleanup, add
-  // `afterEach(() => vi.unstubAllGlobals());` at the top of the describe. // never settles
+  // Never-settling stubs leak across tests and make results order-dependent
+  // (review R5b f4 / R6b f2). This file MUST carry the cleanup below; add it
+  // if absent:
+  //   afterEach(() => { vi.unstubAllGlobals(); });
     render(<PerShowAlertResolveButton alertId="p1" slug="s" code="ROLE_FLAGS_NOTICE" />);
     fireEvent.click(screen.getByTestId("per-show-alert-resolve-p1"));
     await waitFor(() =>
@@ -746,6 +777,34 @@ Review R1 finding 4: a required `code` prop breaks existing renders, and vitest 
 | `tests/components/healthAlertResolveButton.test.tsx` | 1 |
 
 Add `code="AMBIGUOUS_EMAIL_BINDING"` to each existing render. That code is resolve-intent, so every existing assertion expecting "Mark resolved" / "Resolving…" keeps passing — which is the point: the migration must not silently change what those tests assert.
+
+- [ ] **Step 7c: Pin that the parents forward the row's own code**
+
+Review R6a finding 2: the cross-product renders the two buttons directly, so `AttentionBanner` or `HealthAlertsPanel` could pass a constant or an unrelated string and every gate would still pass while live alerts showed the wrong verb. (`BellPanel` is already covered, since its tested branch reads `entry.code` internally.)
+
+Add to tests/components/admin/resolveLabelCrossProduct.test.tsx:
+
+```ts
+import { readFileSync } from "node:fs";
+
+describe("parents forward the alert's own code", () => {
+  it("AttentionBanner passes the item's code, not a literal", () => {
+    const src = readFileSync("components/admin/review/AttentionBanner.tsx", "utf8");
+    const el = /<PerShowAlertResolveButton([\s\S]*?)\/>/.exec(src);
+    expect(el, "AttentionBanner no longer renders the button").not.toBeNull();
+    expect(el![1]).toMatch(/code=\{[^}]*\.code\}/);
+    expect(el![1], "a hardcoded code would freeze every row's label").not.toMatch(/code="/);
+  });
+
+  it("HealthAlertsPanel passes the row's code, not a literal", () => {
+    const src = readFileSync("components/admin/telemetry/HealthAlertsPanel.tsx", "utf8");
+    const el = /<HealthAlertResolveButton([\s\S]*?)\/>/.exec(src);
+    expect(el, "HealthAlertsPanel no longer renders the button").not.toBeNull();
+    expect(el![1]).toMatch(/code=\{[^}]*\.code\}/);
+    expect(el![1], "a hardcoded code would freeze every row's label").not.toMatch(/code="/);
+  });
+});
+```
 
 - [ ] **Step 8: Run tests and typecheck**
 
@@ -1240,71 +1299,63 @@ This task has no commit step by design (see the ordering note above). Stage each
 **Files:**
 - Modify: `.github/workflows/unit-suite.yml:62`
 
-`actions/checkout@v4` defaults to `fetch-depth: 1`, so `origin/main` is **not** resolvable and Task 5's layer 2 would throw in CI. `fetch-depth: 0` would fix it but pulls full history, regressing the CI wall-clock program that took this suite from 9.1 to ~4.2 minutes. Fetch one commit of the one ref instead.
+`actions/checkout@v4` defaults to `fetch-depth: 1`, so `origin/main` is **not** resolvable and Task 5's Layer 2 would throw in CI. `fetch-depth: 0` would fix it but pulls full history, regressing the CI wall-clock program that took this suite from 9.1 to ~4.2 minutes. Fetch one commit of the one ref instead.
 
-- [ ] **Step 1: Add the fetch step**
+**This task is test-first (review R6b finding 1).** An earlier draft edited the workflow first and defended the inversion in prose; that was unnecessary, because the red condition is observable without touching the workflow at all.
 
-After `- uses: actions/checkout@v4` (line 62):
+- [ ] **Step 1: Observe the red condition, before changing anything**
 
-```yaml
-      # The resolve-intent lifecycle gate compares against origin/main
-      # (tests/adminAlerts/_metaResolveIntentLifecycle.test.ts). Depth-1 on one
-      # ref, NOT fetch-depth: 0, full history would regress the unit-suite
-      # wall-clock program.
-      - name: Fetch origin/main for the lifecycle gate
-        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
-```
-
-**Ordering note (review R4b finding 1).** The plan-wide TDD rule is test-first, and this task inverts it: the workflow edit comes before the probe. That is deliberate and is called out rather than hidden. A workflow step cannot be driven by a failing test the way a function can, because the thing under test is the CI checkout's git state, not code in this repo. The probe below establishes the red condition against a checkout that genuinely lacks the ref, which is the closest executable equivalent. Run Step 2 BEFORE Step 3's commit either way, so the evidence exists before the change is recorded.
-
-- [ ] **Step 2: Prove the red phase without needing a second install**
-
-Review R2 finding 11 is right that a fresh clone has no `node_modules` and no linked `.env.local`, so `pnpm vitest` there dies long before reaching the assertion. Probe the *condition* in a bare repo, and the *behavior* in this worktree.
-
-**Run both probes in ONE shell block**, so `$TMP` is still set and the directory still exists when 2b runs. Review R3 finding 5: the earlier split deleted `$TMP` in 2a and then referenced it in 2b.
+Run both probes in ONE shell block so `$TMP` is still set and the directory still exists.
 
 ```bash
 TMP=$(mktemp -d)
 git clone --depth 1 --single-branch --branch feat/show-scoped-alert-copy \
   file:///Users/ericweiss/FX-Webpage-Template "$TMP/probe" 2>/dev/null
 
-# 2a, the condition: a depth-1 checkout genuinely lacks the ref...
+# (a) A depth-1 checkout genuinely lacks the ref, exactly like CI today.
 git -C "$TMP/probe" rev-parse --verify origin/main   # expect: FAILS, "unknown revision"
 
-# 2b, the behavior: the test's CI branch throws when the ref is missing.
-# Run from THIS worktree (which has node_modules) but pointed at the probe repo.
+# (b) The lifecycle test's CI branch throws when the ref is missing. Run from
+#     THIS worktree (which has node_modules) with git pointed at the probe.
 CI=1 GIT_DIR="$TMP/probe/.git" GIT_WORK_TREE="$TMP/probe" \
   pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts
 # expect: FAIL, "origin/main is unresolvable in CI"
 
-# ...and the Step 1 refspec supplies it.
+# (c) The refspec from Step 2 is what supplies it.
 git -C "$TMP/probe" fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 git -C "$TMP/probe" rev-parse --verify origin/main   # expect: prints a sha
 
 rm -rf "$TMP"
 ```
 
-Then, back in this worktree with no GIT_DIR override:
+(a) and (b) are the red phase. If (b) passes, the test's CI branch is not wired as Task 5 specifies and that is the bug to fix first.
 
-```bash
-CI=1 pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts   # expect: PASS
+**Implementer note:** if `execFileSync("git", ...)` inside the test does not honor `GIT_DIR` as invoked, run (a) and (c) only, and say so in the PR body rather than claiming a red phase that did not happen.
+
+- [ ] **Step 2: Add the fetch step**
+
+After `- uses: actions/checkout@v4` (line 62):
+
+```yaml
+      # The resolve-intent lifecycle gate compares against origin/main
+      # (tests/adminAlerts/_metaResolveIntentLifecycle.test.ts). Depth-1 on one
+      # ref, NOT fetch-depth: 0, which would regress the unit-suite wall-clock.
+      - name: Fetch origin/main for the lifecycle gate
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 ```
 
-**Implementer note:** if `execFileSync("git", ...)` in the test does not honor `GIT_DIR` as invoked, skip 2b and rely on 2a plus the real CI run — but say so in the PR body rather than claiming a red phase that did not happen.
-
-- [ ] **Step 2b: Validate the workflow YAML**
-
-A malformed step would only surface on the next push. Lint it locally:
+- [ ] **Step 3: Validate the YAML and confirm green**
 
 ```bash
 actionlint .github/workflows/unit-suite.yml || npx -y actionlint .github/workflows/unit-suite.yml
+CI=1 pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts
 ```
 
-Expected: no errors. If `actionlint` is unavailable, at minimum `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/unit-suite.yml'))"` to catch a syntax break.
+Expected: no YAML errors, and the test PASSES here (this worktree resolves `origin/main`). If `actionlint` is unavailable, at minimum `python3 -c "import yaml;yaml.safe_load(open('.github/workflows/unit-suite.yml'))"`.
 
-Final proof is the real CI run on the PR, per the project's local-passes-CI-fails rule — this task is not verified until the pushed run is green.
+Final proof is the real CI run on the PR, per the project's local-passes-CI-fails rule: this task is not verified until the pushed run is green.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add .github/workflows/unit-suite.yml
@@ -1316,7 +1367,9 @@ git commit -m "ci(alerts): fetch origin/main at depth 1 for the lifecycle gate"
 ### Task 7: Error copy that names the old button (§12.4 lockstep triple)
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 prose), `lib/messages/catalog.ts:2189` plus the row below it, `lib/messages/__generated__/spec-codes.ts` (regenerated), `components/admin/PerShowAlertResolveButton.tsx:46`
+- Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 prose), `lib/messages/catalog.ts:2189` plus the row below it, `lib/messages/__generated__/spec-codes.ts` (regenerated)
+
+**Catalog only.** `components/admin/PerShowAlertResolveButton.tsx` is NOT touched here; its `GENERIC_ERROR` literal belongs to Task 4 step 7a (review R6b finding 3).
 
 This assertion renders the component, so it belongs in tests/components/admin/resolveLabelCrossProduct.test.tsx (jsdom) rather than the catalog test file. The catalog-copy assertions in this task stay in tests/messages/showScopedCopy.test.ts.
 
@@ -1360,7 +1413,7 @@ describe("resolve-error copy is label-agnostic", () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `pnpm vitest run tests/messages/showScopedCopy.test.ts`
-Expected: FAIL, both strings still open "When you clicked Mark resolved,".
+Expected: FAIL on both assertions. `ADMIN_ALERT_NOT_FOUND` still opens "When you clicked Mark resolved,"; `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE` may instead carry its button reference later in the sentence (review R6b finding 5), so read the actual diff rather than assuming both fail identically.
 
 - [ ] **Step 3: Edit the master spec §12.4 prose**
 
@@ -1387,7 +1440,7 @@ Expected: PASS. A failure means the three artifacts disagree, fix, do not weaken
 - [ ] **Step 6: Commit all three together**
 
 ```bash
-git add docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts tests/messages/showScopedCopy.test.ts components/admin/PerShowAlertResolveButton.tsx
+git add docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts tests/messages/showScopedCopy.test.ts
 git commit -m "fix(alerts): label-agnostic resolve-error copy (§12.4 lockstep)"
 ```
 
@@ -1397,7 +1450,7 @@ git commit -m "fix(alerts): label-agnostic resolve-error copy (§12.4 lockstep)"
 
 **Files:**
 - Create: tests/e2e/resolve-label-layout.spec.ts
-- Modify: `tests/components/admin/transitionAudit.test.tsx`
+- Modify: `tests/e2e/_compactAlertCardLiveEntry.tsx` (accept a `code` param, render the real button, emit `data-hydrated`), `tests/components/admin/transitionAudit.test.tsx`
 
 **Interfaces:**
 - Consumes: `resolveActionLabels` (Task 4), indirectly — the harness renders the real button and varies the alert CODE, so nothing in this task imports the label module directly.
