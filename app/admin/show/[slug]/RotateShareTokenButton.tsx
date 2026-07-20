@@ -43,6 +43,7 @@ export function RotateShareTokenButton({
   rowLabel,
   rowDescription,
   onRotated,
+  onBusyChange,
 }: {
   showId: string;
   slug: string;
@@ -63,6 +64,15 @@ export function RotateShareTokenButton({
    * surface instantly. Omitted for standalone use.
    */
   onRotated?: (newToken: string, newEpoch: number) => void;
+  /**
+   * Reports this control's in-flight state (spec §6 busy contract). ShareHub
+   * gates ALL FOUR of its dismissal paths on it, so a missing rising edge lets
+   * a dismissal unmount a rotate mid-flight — the rotation still lands, killing
+   * the crew's old link, with no confirmation rendered — and a missing falling
+   * edge wedges the popover shut. Additive and optional: every existing consumer
+   * omits it and is unaffected.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
@@ -173,6 +183,20 @@ export function RotateShareTokenButton({
   const refusedMessage =
     result && result.ok === false ? "Couldn't rotate the share link. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
+
+  // Busy contract (spec §6). Keyed on the SAME derived boolean the UI uses, so
+  // the reported state can never disagree with what is on screen — including
+  // the `isPending` tail after `ui` has already left "resolving". Reports a
+  // level, not an event: re-notifying the same value is harmless because the
+  // hub stores one flag per child rather than incrementing a shared counter.
+  // The unmount cleanup releases the flag, so a child torn down by an ancestor
+  // (which the hub's own dismissal paths forbid while busy) cannot wedge it.
+  useEffect(() => {
+    onBusyChange?.(isResolving);
+    return () => {
+      if (isResolving) onBusyChange?.(false);
+    };
+  }, [isResolving, onBusyChange]);
 
   const labelHeader =
     compact && rowLabel ? (

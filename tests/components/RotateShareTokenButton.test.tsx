@@ -216,6 +216,58 @@ describe("RotateShareTokenButton — confirmation-only success banner + onRotate
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  describe("onBusyChange (ShareHub busy contract, spec §6)", () => {
+    // The hub gates ALL FOUR dismissal paths on this signal. A missing rising
+    // edge lets a trigger click unmount a rotate mid-flight — the rotation still
+    // lands, killing the crew's old link, with no confirmation shown. A missing
+    // falling edge wedges the popover shut.
+    test("reports busy true on entering resolving and false on SUCCESS", async () => {
+      mockRotateOk();
+      const onBusyChange = vi.fn();
+      render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} onBusyChange={onBusyChange} />);
+      await clickThroughConfirm();
+      await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    test("reports busy false on a RETURNED error", async () => {
+      (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        code: "PICKER_RESOLVER_LOOKUP_FAILED",
+      });
+      const onBusyChange = vi.fn();
+      render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} onBusyChange={onBusyChange} />);
+      await clickThroughConfirm();
+      await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    test("reports busy false on a THROWN action (reachable only because T1 landed)", async () => {
+      (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("network death"),
+      );
+      const onBusyChange = vi.fn();
+      render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} onBusyChange={onBusyChange} />);
+      await clickThroughConfirm();
+      await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    test("prop-less usage is unchanged", async () => {
+      mockRotateOk();
+      render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+      await clickThroughConfirm();
+      await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
+      expect(screen.getByTestId("admin-rotate-share-token-button")).toBeTruthy();
+    });
+  });
+
   test("re-entering confirm clears a stale refused banner (no zombie state)", async () => {
     (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,

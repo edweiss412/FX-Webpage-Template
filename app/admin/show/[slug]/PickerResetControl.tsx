@@ -33,9 +33,19 @@ type Outcome = { kind: "ok"; message: string } | { kind: "error"; message: strin
 export function PickerResetControl({
   showId,
   crew,
+  onBusyChange,
 }: {
   showId: string;
   crew: PickerResetCrewRow[];
+  /**
+   * Reports this control's in-flight state (spec §6 busy contract). ShareHub
+   * gates ALL FOUR of its dismissal paths on it: a missing rising edge lets a
+   * dismissal unmount the control mid-flight (the reset still lands, with no
+   * confirmation rendered), a missing falling edge wedges the popover shut.
+   * Additive and optional — `step3ReviewSections.tsx` omits it and is
+   * unaffected.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const hasCrew = crew.length > 0;
   const [ui, setUi] = useState<UiState>("idle");
@@ -106,6 +116,18 @@ export function PickerResetControl({
   }, [outcome]);
 
   const isResolving = ui === "resolving" || isPending;
+
+  // Busy contract (spec §6). Keyed on the SAME derived boolean the confirm row
+  // already uses for `disabled`/`aria-busy`, so the reported state can never
+  // disagree with what is on screen. Reports a level, not an event: the hub
+  // stores one flag per child rather than incrementing a shared counter, so a
+  // repeated value is harmless. The unmount cleanup releases the flag.
+  useEffect(() => {
+    onBusyChange?.(isResolving);
+    return () => {
+      if (isResolving) onBusyChange?.(false);
+    };
+  }, [isResolving, onBusyChange]);
 
   const enterConfirm = () => {
     clearAutoRevert();
