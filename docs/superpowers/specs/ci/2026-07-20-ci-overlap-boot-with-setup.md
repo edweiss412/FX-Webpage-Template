@@ -61,20 +61,16 @@ Rounds 1–4 all attacked one vector: proving a CROSS-STEP coordination protocol
     set -euo pipefail
     bash scripts/ci/supabase-local-bootstrap.sh &
     boot_pid=$!
-    # If pnpm install aborts under `set -e`, the shell exits WITHOUT joining the
-    # bootstrap. The child would keep the step's stdout pipe open and stall step
-    # completion until it finished or the job cap fired. The trap reaps it so a
-    # failed install fails the leg as promptly as it does today.
-    trap 'kill "$boot_pid" 2>/dev/null || true' EXIT
     pnpm install --frozen-lockfile
     wait "$boot_pid"
-    trap - EXIT
 ```
 
 Properties that come for free, each of which needed explicit machinery in the cross-step form:
 
 - **Fail-closed.** `wait "$boot_pid"` returns the bootstrap's real exit status, and `set -e` fails the step on non-zero. No sentinel to publish atomically, no status to misread.
-- **Fail-closed on the install too, and promptly.** `pnpm install` failing aborts under `set -e` before the `wait`; the EXIT trap then kills the still-running bootstrap so the step does not linger on the child's inherited stdout pipe (round-5 finding 1 — without the trap the leg still fails, but not 'as today': it could stall to the job cap). The trap is cleared after a successful join so the normal path leaves no handler behind.
+- **Fail-closed on the install too — with one accepted, bounded cost.** `pnpm install` failing aborts under `set -e` before the `wait`, so the leg fails. The still-running bootstrap then holds the step's inherited stdout pipe until it finishes, delaying the failure report by at most one bootstrap duration (~70s, bounded by the script's own `SUPABASE_START_ATTEMPTS` retry cap and well inside the job's 20-minute timeout).
+
+  **This is a deliberate non-goal, not an oversight (rounds 5-6).** Killing the background job on install failure sounds trivial and is not: `kill "$pid"` signals one process, not the process group, while the bootstrap's real work happens in descendants (`supabase start`, docker, psql, `supabase migration up`); a correct version needs process-group termination plus an actual join plus care about PID reuse — and it must not interrupt the bootstrap's held-aside-migration restore trap mid-flight. That is a substantial correctness surface bought for a rare path (a lockfile or registry failure) whose only symptom is a slower failure report. The overlap this phase exists for is on the SUCCESS path, which needs none of it. If install failures ever become common enough for the delay to matter, revisit with process-group semantics rather than a bare `kill`.
 - **Live log.** Both processes inherit the step's stdout, so output streams exactly as it does now — the round-2/3 finding about losing diagnostics on cancellation or runner timeout evaporates, because nothing is buffered.
 - **No timeout logic.** The job's existing `timeout-minutes: 20` bounds a hung boot, as it does today. There is no second deadline to keep consistent with it.
 - **Overlap is structural, not asserted.** The `&` is on the line before a foreground command in the same shell; there is no way for it to be "secretly sequential" the way a separate start step could be.
@@ -97,7 +93,7 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none. T
 (d) **Prerequisites preserved, enumerated against the composite**: every action the `./.github/actions/setup` composite performs except the install itself still runs before the combined step — `pnpm/action-setup@v4` (pnpm binary, version from `packageManager`) and `actions/setup-node@v4` with `node-version: 20` and `cache: pnpm`. Assert all three properties, not just the action names: dropping `cache: pnpm` or the node version would leave a green but slower or differently-versioned leg.
 (e) **Install runs exactly once** in the leg: `pnpm install` appears once in the workflow, and the `./.github/actions/setup` composite is not also invoked in this job (a double install would erase the saving and could race itself).
 (f) **Bootstrap invoked exactly once**, still as `bash scripts/ci/supabase-local-bootstrap.sh` (shared-script contract).
-(g) **Soft-failure inventory**: `|| true` appears exactly once in the workflow — inside the EXIT trap's `kill`, where the child may already have exited and a failed `kill` must not mask the real failure. It never appears on the bootstrap invocation, the install, or the `wait`.
+(g) **Soft-failure inventory**: `|| true` appears zero times in the workflow, and the step contains no `trap` (rounds 5-6: cleanup-on-install-failure is an accepted non-goal, §3 — pinning its absence keeps a future partial re-introduction, e.g. a bare `kill` without process-group handling, from landing unreviewed).
 (h) **Install write-surface guard (round-5 finding 2)**: assert `package.json` declares no install-lifecycle script beyond `prepare`, and that neither `prepare`'s configuration nor `pnpm-workspace.yaml`'s `allowBuilds` names anything writing under `supabase/`. This is what keeps the disjointness premise from rotting silently when someone adds a `postinstall`.
 (i) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
 
