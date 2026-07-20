@@ -45,7 +45,7 @@ EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–g)
 - Consumes: `BASE_INCLUDE`, `PARALLEL_TEST_GLOBS`, `NIGHTLY_ONLY_EXCLUDES`, `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), `configDefaults.exclude` (vitest).
 - Produces: `PARALLEL_EXTRA_FILES: readonly string[]` consumed by Tasks 1–2.
 
-- [ ] **Step 1: Write the failing unit test** for the pure core, `tests/cross-cutting/serialAudit.test.ts`, against fixture inputs (a small synthetic file list + synthetic glob constants, NOT the live tree, so it is deterministic):
+- [ ] **Step 1: Write the failing unit test** for the pure core, at serialAudit.test.ts under tests/cross-cutting/, against fixture inputs (a small synthetic file list + synthetic glob constants, NOT the live tree, so it is deterministic):
   - `deriveCandidatePopulation(allFiles, {baseInclude, defaultExcludes, nightly, envBound, parallelGlobs})` returns exactly the files matching `baseInclude` minus every other set, where `parallelGlobs` subtraction covers BOTH a dir glob and an exact-file entry (the round-3 spec finding — assert an exact-file entry is subtracted).
   - `checkCommittedList(committed, population, existsOnDisk)` returns a structured result flagging: not-a-subset, unsorted, duplicated, missing-on-disk — one assertion each, including a green case.
   Run it: `pnpm exec vitest run` scoped to that new file → FAIL (module absent).
