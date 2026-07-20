@@ -3,15 +3,53 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// Structural guard for the matrix-shard restructure of the REQUIRED unit-suite
-// gate (PR D). String-match on the workflow YAML (no yaml dep), mirroring
-// tests/cross-cutting/ci-workflow-speedup.test.ts. Pins the load-bearing
-// properties whose silent regression would either drop test coverage or let a
-// red shard green the required `unit-suite` check.
+import { PARALLEL_TEST_GLOBS } from "@/vitest.projects";
+
+// Structural guard for the REQUIRED unit-suite gate. String-match on the workflow
+// YAML (no yaml dep), mirroring tests/cross-cutting/ci-workflow-speedup.test.ts.
+// Pins the load-bearing properties whose silent regression would either drop test
+// coverage or let a red leg green the required `unit-suite` check.
+//
+// Topology (CI probe run 29758568301 measured serial=690s, parallel=294s whole):
+// the suite is split by PROJECT across two matrix jobs, not by file across one.
+//   unit-suite-db   — 12 legs, boots Supabase, runs ONLY the serial project
+//   unit-suite-nodb —  4 legs, boots NOTHING,  runs ONLY the parallel project
+// The parallel project is DB-free (that same probe is the proof), so its legs
+// skip the ~71s Supabase boot entirely. Both feed one aggregator that keeps the
+// required check-context name.
+//
+// The coverage invariant this file CANNOT prove on its own: that the two projects
+// together cover every test file. That is vitest-projects-partition.test.ts's job
+// (every non-nightly file lands in exactly one default project). This file pins
+// that each workflow job runs exactly one project and that both jobs exist — so
+// the two guarantees compose into "every file runs exactly once."
 
 const YAML = readFileSync(join(process.cwd(), ".github", "workflows", "unit-suite.yml"), "utf8");
 
-describe("unit-suite matrix-shard topology", () => {
+const DB_LEGS = 12;
+const NODB_LEGS = 4;
+
+/**
+ * Comment-free view of a block. A forbidden-token guard that scans raw YAML also
+ * matches the prose EXPLAINING why the token is absent ("No supabase/setup-cli,
+ * no psql..."), which fails the job for saying the right thing. Strip whole-line
+ * comments so the guards read directives only.
+ */
+function directives(block: string): string {
+  return block
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
+}
+
+/** Body of a top-level job block, bounded by the next 2-space job key or EOF. */
+function jobBlock(key: string): string {
+  const m = new RegExp(`\\n {2}${key}:\\n([\\s\\S]*?)(?=\\n {2}[A-Za-z0-9_-]+:\\n|$)`).exec(YAML);
+  expect(m, `job block \`${key}:\` not found in unit-suite.yml`).not.toBeNull();
+  return m?.[1] ?? "";
+}
+
+describe("unit-suite matrix topology", () => {
   // Anti-vacuity: prove we actually read the unit-suite workflow, so a wrong
   // path or empty read fails loudly instead of vacuously passing every regex.
   it("reads the unit-suite workflow (guards against an empty/wrong-file read)", () => {
@@ -19,41 +57,78 @@ describe("unit-suite matrix-shard topology", () => {
     expect(YAML.length).toBeGreaterThan(500);
   });
 
-  it("defines a unit-suite-shard matrix job with fail-fast:false and shard:[1, 2, 3, 4, 5, 6, 7, 8]", () => {
-    const m =
-      /\n {2}unit-suite-shard:\n[\s\S]*?strategy:\n\s+fail-fast:\s*false\n\s+matrix:\n\s+shard:\s*\[\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*,\s*5\s*,\s*6\s*,\s*7\s*,\s*8\s*\]/.exec(
-        YAML,
-      );
+  it.each([
+    ["unit-suite-db", DB_LEGS],
+    ["unit-suite-nodb", NODB_LEGS],
+  ])("%s declares fail-fast:false and a matrix of %i legs", (key, legs) => {
+    const body = jobBlock(String(key));
+    const m = /strategy:\n\s+fail-fast:\s*false\n\s+matrix:\n\s+shard:\s*\[([^\]]*)\]/.exec(body);
     expect(
       m,
-      "unit-suite.yml must declare a `unit-suite-shard` job with strategy.fail-fast:false and matrix.shard:[1, 2, 3, 4, 5, 6, 7, 8]",
+      `${key} must declare strategy.fail-fast:false with a matrix.shard list`,
     ).not.toBeNull();
+    const entries = (m?.[1] ?? "")
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => !Number.isNaN(n));
+    expect(entries, `${key} matrix must be 1..${legs}`).toEqual(
+      Array.from({ length: Number(legs) }, (_, i) => i + 1),
+    );
   });
 
-  it("runs vitest with --shard=${{ matrix.shard }}/N where N equals the matrix length (8)", () => {
-    const m = /--shard=\$\{\{\s*matrix\.shard\s*\}\}\/(\d+)/.exec(YAML);
-    expect(m, "shard step must run `vitest run --shard=${{ matrix.shard }}/N`").not.toBeNull();
+  it.each([
+    ["unit-suite-db", DB_LEGS, "serial"],
+    ["unit-suite-nodb", NODB_LEGS, "parallel"],
+  ])("%s runs --shard=i/%i against ONLY the %s project", (key, legs, project) => {
+    const body = jobBlock(String(key));
+    const m = /--project=(\S+)\s+--shard=\$\{\{\s*matrix\.shard\s*\}\}\/(\d+)/.exec(body);
     expect(
-      Number(m![1]),
-      "the --shard denominator must equal the matrix length (8); a mismatch drops or double-runs files",
-    ).toBe(8);
+      m,
+      `${key} must run \`vitest run --project=<name> --shard=\${{ matrix.shard }}/N\``,
+    ).not.toBeNull();
+    expect(m?.[1], `${key} must pin --project=${project}`).toBe(project);
+    expect(
+      Number(m?.[2]),
+      `${key}'s --shard denominator must equal its matrix length (${legs}); a mismatch drops or double-runs files`,
+    ).toBe(Number(legs));
   });
 
-  it("the shard job sets VITEST_EXCLUDE_ENV_BOUND=1 and boots local Supabase", () => {
+  // The whole point of the split. If the no-DB job ever boots Supabase it silently
+  // gives back the ~71s per leg the split exists to save; if the DB job ever stops
+  // booting, every serial test fails on a closed port.
+  it("only the DB job boots Supabase — the no-DB job installs no CLI, no psql, no database", () => {
+    const db = directives(jobBlock("unit-suite-db"));
+    const nodb = directives(jobBlock("unit-suite-nodb"));
     expect(
-      YAML.includes('VITEST_EXCLUDE_ENV_BOUND: "1"'),
-      "the shard run step must keep VITEST_EXCLUDE_ENV_BOUND=1 (project-level env-bound exclude)",
+      db.includes("bash scripts/ci/supabase-local-bootstrap.sh"),
+      "unit-suite-db must boot its own local Supabase via the shared bootstrap",
     ).toBe(true);
-    expect(
-      YAML.includes("bash scripts/ci/supabase-local-bootstrap.sh"),
-      "each shard leg must boot its own local Supabase via the shared bootstrap",
-    ).toBe(true);
+    for (const forbidden of [
+      "supabase-local-bootstrap.sh",
+      "supabase/setup-cli",
+      "postgresql-client",
+    ]) {
+      expect(
+        nodb.includes(forbidden),
+        `unit-suite-nodb must not reference ${forbidden} — its legs run the DB-free project ` +
+          "and skip the boot entirely (that saving IS the split)",
+      ).toBe(false);
+    }
+  });
+
+  it("both jobs set VITEST_EXCLUDE_ENV_BOUND=1", () => {
+    for (const key of ["unit-suite-db", "unit-suite-nodb"]) {
+      expect(
+        jobBlock(key).includes('VITEST_EXCLUDE_ENV_BOUND: "1"'),
+        `${key} must keep VITEST_EXCLUDE_ENV_BOUND=1 (project-level env-bound exclude)`,
+      ).toBe(true);
+    }
   });
 
   it("never sets continue-on-error: true (would mask a failed leg as success in the rollup)", () => {
     expect(
       /continue-on-error:\s*true/.test(YAML),
-      "continue-on-error:true on a leg makes needs.unit-suite-shard.result report `success` even " +
+      "continue-on-error:true on a leg makes needs.<job>.result report `success` even " +
         "when that leg failed — a silent coverage hole that greens the required aggregator.",
     ).toBe(false);
   });
@@ -62,44 +137,47 @@ describe("unit-suite matrix-shard topology", () => {
     // The status-check CONTEXT name is the job's `name:`. The job KEY being
     // `unit-suite` is not enough: a `name: Unit suite` override would orphan the
     // required `unit-suite` context (blocking ALL PRs) while a key-only check
-    // still passes. Scope to the aggregator block (bounded by the next 2-space
-    // job key or EOF) so the shard job's `name: unit-suite-shard` can't satisfy
-    // it, and tie it to `needs: [unit-suite-shard]` to prove it's the aggregator.
-    const agg = /\n {2}unit-suite:\n([\s\S]*?)(?=\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(YAML);
-    expect(agg, "aggregator job block `unit-suite:` not found").not.toBeNull();
-    const body = agg?.[1] ?? "";
+    // still passes.
+    const body = jobBlock("unit-suite");
     expect(
       /\n {4}name:\s*unit-suite\n/.test(body),
       "the aggregator must set `name: unit-suite` so the required check-context name is preserved " +
         "(a rename like `name: Unit suite` orphans the required context and blocks all PRs)",
     ).toBe(true);
-    expect(
-      /needs:\s*\[\s*unit-suite-shard\s*\]/.test(body),
-      "the block matched must be the aggregator (it `needs: [unit-suite-shard]`), not another job",
-    ).toBe(true);
   });
 
-  it("an aggregator job named `unit-suite` needs the matrix, runs if: always(), and fails unless the rollup is success", () => {
+  // The failure this guards is the expensive one: adding a second matrix job and
+  // forgetting to gate on it. The aggregator would go green on the DB legs alone
+  // while every parallel-project test silently stopped gating merges.
+  it("the aggregator needs BOTH matrix jobs and fails unless BOTH rolled up success", () => {
+    const body = jobBlock("unit-suite");
     expect(
-      /\n {2}unit-suite:\n/.test(YAML),
-      "must keep a job keyed exactly `unit-suite` (the required check-context name)",
+      /needs:\s*\[\s*unit-suite-db\s*,\s*unit-suite-nodb\s*\]/.test(body),
+      "the aggregator must `needs: [unit-suite-db, unit-suite-nodb]` — omitting either " +
+        "stops that half of the suite from gating merge",
     ).toBe(true);
     expect(
-      /\n {2}unit-suite:\n[\s\S]*?needs:\s*\[\s*unit-suite-shard\s*\]/.test(YAML),
-      "the `unit-suite` aggregator must `needs: [unit-suite-shard]`",
+      /if:\s*always\(\)/.test(body),
+      "the aggregator must run with `if: always()` so a failed leg yields an explicit failure, not a never-reported skip",
     ).toBe(true);
+    for (const job of ["unit-suite-db", "unit-suite-nodb"]) {
+      expect(
+        body.includes(`needs.${job}.result`),
+        `the aggregator must read needs.${job}.result`,
+      ).toBe(true);
+    }
     expect(
-      /\n {2}unit-suite:\n[\s\S]*?if:\s*always\(\)/.test(YAML),
-      "the aggregator must run with `if: always()` so a failed shard yields an explicit failure, not a never-reported skip",
-    ).toBe(true);
-    expect(
-      YAML.includes("needs.unit-suite-shard.result"),
-      "the aggregator must read needs.unit-suite-shard.result",
-    ).toBe(true);
-    expect(
-      /test\s+"\$result"\s*=\s*"success"/.test(YAML),
-      "the aggregator must exit non-zero unless the rollup result is exactly `success`",
-    ).toBe(true);
+      (body.match(/=\s*"success"/g) ?? []).length,
+      "the aggregator must assert BOTH rollup results equal exactly `success`",
+    ).toBe(2);
+  });
+
+  // Ties the workflow to the partition's single source of truth: the no-DB job is
+  // only safe because PARALLEL_TEST_GLOBS is a non-trivial set of verified-DB-free
+  // dirs. If that set ever collapsed to empty, the split would be a no-op and this
+  // file's project pins would still pass.
+  it("the parallel project is a non-trivial set (the no-DB job is not vacuous)", () => {
+    expect(PARALLEL_TEST_GLOBS.length).toBeGreaterThan(10);
   });
 });
 

@@ -5,19 +5,38 @@ name: Unit + DB suite (full vitest gate)
 # unit/DB tests that implementers + reviewers rely on for "all green" were
 # NOT gated, so PRs merged with failing/stale tests undetected.
 #
-# This gate boots local Supabase (same shared bootstrap as dev-gate-e2e.yml /
-# screenshots-drift.yml) and runs the WHOLE vitest suite so any unit or
-# local-DB test failure blocks merge.
+# TOPOLOGY — split by PROJECT, not by file (2026-07-20).
 #
-# PR D — sharded for wall-clock: the suite is split across an 8-leg `shard`
-# matrix (`unit-suite-shard`). Each leg boots its OWN isolated local Supabase
-# and runs `vitest run --shard=i/8`. vitest's --shard is a clean file partition
-# (every file in exactly one leg), and each leg's serial vitest project still
-# runs fileParallelism:false, so the serial-DB guarantee holds WITHIN a leg and
-# the legs never share a database (separate runners). A tiny aggregator job
-# named `unit-suite` (the REQUIRED check-context) gates merge: it `needs` the
-# matrix and fails unless every leg succeeded — so branch protection needs NO
-# change. Topology pinned by tests/cross-cutting/unit-suite-shard-topology.test.ts.
+# The suite has two vitest projects (vitest.projects.ts): `serial`, which is
+# DB-bound and runs fileParallelism:false, and `parallel`, whose files were
+# verified to touch no database at all. Until now BOTH ran in every leg, so
+# every leg booted Supabase — including for the ~294s of work that never opens
+# a connection.
+#
+# Now they are separate matrix jobs:
+#   unit-suite-db   — 12 legs, boots Supabase, runs ONLY --project=serial
+#   unit-suite-nodb —  4 legs, boots NOTHING,  runs ONLY --project=parallel
+#
+# The no-DB legs skip supabase/setup-cli, the psql install, and the ~71s
+# bootstrap entirely, cutting their fixed overhead from ~100s to ~30s. That
+# saving is the entire point of the split; the topology meta-test fails if the
+# no-DB job so much as mentions the bootstrap.
+#
+# Measured, not modelled (CI probe run 29758568301, one runner per project,
+# whole project, no sharding): serial 690s, parallel 294s. Those two total 984s
+# against the 1,264s the previous 8 mixed legs spent on vitest — the ~280s gap
+# is per-leg startup and transform work, re-paid by every leg, which is why leg
+# counts past ~12 stop buying anything. Projection at 12+4: max leg ~188s
+# against the previous ~258s.
+#
+# COVERAGE: `--project` plus `--shard` must not drop files. Two guarantees
+# compose. vitest-projects-partition.test.ts pins that every non-nightly test
+# file lands in exactly ONE default project; unit-suite-shard-topology.test.ts
+# pins that each job runs exactly one project and that each job's --shard
+# denominator equals its own matrix length. Together: every file runs exactly
+# once. A red leg cannot green the gate — the aggregator `unit-suite` (the
+# REQUIRED check-context name) needs BOTH jobs and fails unless BOTH rolled up
+# success.
 #
 # Three files are EXCLUDED via VITEST_EXCLUDE_ENV_BOUND=1 (a project-level
 # exclude in vitest.config.ts) — they need environments this local-bootstrap
@@ -50,14 +69,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  unit-suite-shard:
-    name: unit-suite-shard
+  unit-suite-db:
+    name: unit-suite-db
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -75,27 +94,55 @@ jobs:
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
         # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run vitest shard ${{ matrix.shard }}/8 (minus the three env-bound files; see header)
-        # --shard=i/8 partitions the test FILES across the eight legs (every file
-        # runs in exactly one leg). The two-project structure is unchanged, so
-        # the serial project still runs fileParallelism:false within this leg.
+      - name: Run serial project, shard ${{ matrix.shard }}/12
+        # fileParallelism:false still holds WITHIN a leg, and legs never share a
+        # database (separate runners), so the serial-DB guarantee is unchanged.
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8
+        run: pnpm exec vitest run --project=serial --shard=${{ matrix.shard }}/12
+
+  unit-suite-nodb:
+    name: unit-suite-nodb
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # No supabase/setup-cli, no psql, no bootstrap — deliberately. The parallel
+      # project touches no database (CI probe run 29758568301 ran all 693 of its
+      # files against a runner with none installed; the only two that failed were
+      # moved to serial in the same change). Adding a boot here would silently
+      # hand back the ~71s per leg this job exists to save, so the topology
+      # meta-test asserts this job never mentions the bootstrap.
+      - name: Run parallel project, shard ${{ matrix.shard }}/4
+        env:
+          VITEST_EXCLUDE_ENV_BOUND: "1"
+        run: pnpm exec vitest run --project=parallel --shard=${{ matrix.shard }}/4
+
   unit-suite:
     # Aggregator — PRESERVES the `unit-suite` required check-context name so
-    # branch protection needs no change. Green only when EVERY shard leg passed
-    # (needs.<matrix-job>.result is `success` iff all legs succeeded). `if:
-    # always()` runs it even when a leg fails, so the required context reports
-    # an explicit failure rather than a never-reported skip.
+    # branch protection needs no change. Green only when EVERY leg of BOTH
+    # matrix jobs passed (needs.<job>.result is `success` iff all its legs
+    # succeeded). `if: always()` runs it even when a leg fails, so the required
+    # context reports an explicit failure rather than a never-reported skip.
+    #
+    # Both results are checked. Gating on only one would silently stop half the
+    # suite from blocking merges while the check still reported green.
     name: unit-suite
-    needs: [unit-suite-shard]
+    needs: [unit-suite-db, unit-suite-nodb]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every unit-suite-shard leg to have succeeded
+      - name: Require every leg of both matrix jobs to have succeeded
         run: |
-          result='${{ needs.unit-suite-shard.result }}'
-          echo "unit-suite-shard matrix rollup result: $result"
-          test "$result" = "success"
+          db='${{ needs.unit-suite-db.result }}'
+          nodb='${{ needs.unit-suite-nodb.result }}'
+          echo "unit-suite-db rollup:   $db"
+          echo "unit-suite-nodb rollup: $nodb"
+          test "$db" = "success"
+          test "$nodb" = "success"
