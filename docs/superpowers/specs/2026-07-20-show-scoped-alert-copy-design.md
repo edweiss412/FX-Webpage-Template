@@ -209,7 +209,7 @@ These are §12.4 rows, so the edit lands as the **lockstep triple in one commit*
 
 ## 7. Structural defenses
 
-Five defenses. Each fails because something is **absent** or **rendered wrong**, never because a predicate guessed.
+Six defenses. Each fails because something is **absent** or **rendered wrong**, never because a predicate guessed.
 
 1. **No un-declared prefixed template.** Scans every `dougFacing` for a literal `In <sheet-name>, ` / `In <show-name>, ` opening. Every hit must EITHER define `dougFacingShowScoped` OR carry a `PREFIX_EXEMPT` row with a written reason. Ships with 3 adopters, 2 exempt (§3.3).
 2. **Variant validity is asserted on RENDERED output, not template text.** R3 finding 3 is right that a template-level check is vacuous: `dougFacingShowScoped: "<lead-hint>"` is non-blank, prefix-free, and placeholder-subset-clean, yet renders empty because show scope resolves `lead-hint` to `""`. The test therefore **interpolates every variant under a worst-case param fixture** — null identity, empty context, show scope, so every conditionally-empty token resolves to its emptiest legal value — and asserts the result is non-empty after trim and carries no unresolved `<placeholder>`. Template-level checks (no literal prefix, placeholder set a subset of the global's) are kept as cheap additional guards, not as the primary one.
@@ -218,7 +218,24 @@ Five defenses. Each fails because something is **absent** or **rendered wrong**,
 4. **Single source for labels, enforced by source scan.** R3 finding 5 is right that an import assertion is vacuous: a component can import the module, ignore it, and reimplement the conditional locally. The test instead **scans the three component sources for the literal strings** `"Mark resolved"`, `"Confirm"`, `"Dismiss"`, `"Resolving…"`, `"Confirming…"`, `"Dismissing…"` and fails on any hit. The labels exist in exactly one module; a local reimplementation cannot avoid writing one of those literals.
 5. **Resolve-intent completeness and lifecycle.** Completeness: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9` — the registry production code cites at `lib/admin/attentionItems.ts:65`; `tests/adminAlerts/adminAlertCodes.fixture.ts:13` is a verified-identical 45-code copy) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`); every member needs an explicit `RESOLVE_INTENTS` row.
 
-   Lifecycle (R3 finding 6, tightened per R4 finding 4): "assert no code disappears across the diff" is not executable — a test sees only the final tree, and removing a code from *both* the registry and the map satisfies the completeness equation. The map is therefore **append-only against a committed baseline**: `RESOLVE_INTENTS_BASELINE` is a checked-in frozen list of every code the map has ever contained, and the test asserts `keys(RESOLVE_INTENTS) ⊇ RESOLVE_INTENTS_BASELINE`. Deleting a row fails against the baseline regardless of what happened to the producer registry; retiring a producer means marking `retired: true`, which keeps the row and therefore keeps already-persisted rows rendering "Confirm". The baseline only ever grows, and growing it is the same commit that adds the row.
+   Lifecycle (R3 finding 6; tightened per R4 finding 4, then again per R5 finding 1). Two earlier forms failed:
+
+   - "assert no code disappears across the diff" is not executable — a test sees only the final tree.
+   - `keys(RESOLVE_INTENTS) ⊇ RESOLVE_INTENTS_BASELINE` freezes the wrong thing in the wrong direction. R5 finding 1 is right on both counts: a new code can enter the map without ever entering the baseline (so a later deletion of *both* passes), and a baselined code's **intent value** can be flipped from `"confirm"` to `"resolve"` while the key-only superset still holds. Either path produces exactly the regression the defense claims to prevent: a persisted historical row silently reverting to "Mark resolved".
+
+   The oracle is therefore **exact equality over pairs**, not a superset over keys:
+
+   ```
+   RESOLVE_INTENTS  ==  RESOLVE_INTENTS_BASELINE      // same key set AND same intent per key
+   ```
+
+   `RESOLVE_INTENTS_BASELINE` is a committed frozen map of every `code → intent` the map has ever held. Consequences, each closing one of R5's paths:
+
+   - **Adding** a code fails until the baseline gains the same entry in the same commit, so nothing can enter the map unbaselined.
+   - **Deleting** a code fails against the baseline regardless of what happened to the producer registry.
+   - **Changing** an intent fails, because the pair no longer matches. A deliberate re-classification is then an explicit two-line edit whose diff shows a user-visible label change on already-persisted rows — which is the point.
+
+   Retiring a producer means setting `retired: true` on the entry, which preserves both key and intent, so historical rows keep rendering "Confirm". The baseline only grows, and growing it is always the same commit that grows the map.
 
 6. **Single-caller topology.** Asserts `safeDougFacingTemplate` has exactly one caller (`deriveAttentionItems`) and `deriveAttentionItems` exactly one caller (`app/admin/_showReviewModal.tsx`), per §3.5. A second caller fails immediately, forcing an explicit scope decision instead of silently inheriting show copy.
 
