@@ -34,6 +34,14 @@ Six TDD tasks. Each: failing test → minimal implementation → green → one c
   that the known escapes still fail. It exists because four review findings were of the
   class "this assertion would fail the CORRECT implementation," each missed by unfaithful
   probe fixtures.
+  Plus `tests/components/admin/showpage/_metaRowWrapperInert.test.ts` — a SOURCE-scanning
+  structural guard asserting the row wrappers carry no `on*` event prop. Adversarial review
+  walked the behavioral guard through `onClick`, then `onPointerDown`/`onMouseDown`, then
+  `onPointerEnter`/`onPointerOver`, then `onDoubleClick`/`onContextMenu`; each round added
+  events and the next named more. Finite event sampling cannot prove a handler is ABSENT
+  (~60 React DOM event props), so the absence is proved at the source. It is RED until Task
+  2/3 create the wrappers, which is the correct TDD state.
+
 - **EXTENDS:** none.
 - **Declared N/A with reason:**
   - `tests/auth/_metaInfraContract.test.ts` — no Supabase client call is added or moved.

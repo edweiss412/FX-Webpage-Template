@@ -30,7 +30,10 @@ import { expect } from "vitest";
  *  and `md:invisible` hide the row just as thoroughly as the bare tokens do at
  *  their breakpoint, and a bare-token check misses every one of them. */
 const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
-const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})$`);
+// Trailing `!` is Tailwind v4's important modifier: `hidden!` and `sm:hidden!`
+// hide exactly as thoroughly as the bare tokens, and an unanchored-for-`!`
+// pattern rejects neither.
+const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})!?$`);
 const hidingTokensOf = (el: Element): string[] =>
   [...tokensOf(el)].filter((t) => HIDING_RE.test(t));
 
@@ -209,7 +212,14 @@ export function expectRowText(
   expect(labelEl.tagName, "the label must be a plain span, never a heading").toBe("SPAN");
   expect([...labelEl.children], "the label must contain text only").toEqual([]);
   expectNotHidden(labelEl, scope, "row label");
+  // Resolve through the ROLE + ACCESSIBLE NAME, not the raw attribute:
+  // `aria-labelledby` OVERRIDES `aria-label`, and `role="link"` strips button
+  // semantics, both while `getAttribute("aria-label")` still reads correctly.
   expect(button.getAttribute("aria-label")).toBe(label);
+  expect(button.hasAttribute("aria-labelledby"), "aria-labelledby would override the name").toBe(
+    false,
+  );
+  expect(within(scope).getByRole("button", { name: label })).toBe(button);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
@@ -279,6 +289,10 @@ export function expectNoDescriptionNode(
   // the normal-description tests still see the right name, while a row with no
   // description silently loses its accessible name entirely.
   expect(button.getAttribute("aria-label"), "label survives an absent description").toBe(label);
+  expect(button.hasAttribute("aria-labelledby"), "aria-labelledby would override the name").toBe(
+    false,
+  );
+  expect(within(scope).getByRole("button", { name: label })).toBe(button);
   expectNotHidden(labelEl, scope, "row label");
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 

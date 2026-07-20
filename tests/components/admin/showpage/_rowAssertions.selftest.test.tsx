@@ -301,6 +301,72 @@ describe("round-21: the new escapes still fail", () => {
     expect(() => expectRowText(btn, container, { label: same, description: same })).toThrow();
   });
 
+  it("REJECTS Tailwind's important-modifier hiding (hidden! / sm:hidden!)", () => {
+    for (const cls of ["hidden!", "sm:hidden!"]) {
+      cleanup();
+      const { container } = render(
+        <div className={`w-full ${cls}`}>
+          <div className={W}>
+            <button type="button" aria-label={RL} aria-describedby="rb" className={ROW}>
+              <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+              <span className="flex min-w-0 flex-col">
+                <span className={LC}>{RL}</span>
+                <span id="rb" className={DC}>
+                  {RD}
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>,
+      );
+      const btn = container.querySelector("button")!;
+      expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
+    }
+  });
+
+  it("REJECTS aria-labelledby overriding the asserted name", () => {
+    const { container } = render(
+      <div className={W}>
+        <span id="other">Careful</span>
+        <button
+          type="button"
+          aria-label={RL}
+          aria-labelledby="other"
+          aria-describedby="rc"
+          className={ROW}
+        >
+          <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{RL}</span>
+            <span id="rc" className={DC}>
+              {RD}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
+  });
+
+  it("REJECTS role=link stripping button semantics", () => {
+    const { container } = render(
+      <div className={W}>
+        <button type="button" role="link" aria-label={RL} aria-describedby="re" className={ROW}>
+          <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{RL}</span>
+            <span id="re" className={DC}>
+              {RD}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
+  });
+
   it("still REJECTS a partial-class carrier beside the column (structurally)", () => {
     const { container } = render(
       <div className={W}>

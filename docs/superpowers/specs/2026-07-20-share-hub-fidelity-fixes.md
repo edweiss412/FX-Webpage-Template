@@ -497,7 +497,10 @@ import { expect } from "vitest";
  *  and `md:invisible` hide the row just as thoroughly as the bare tokens do at
  *  their breakpoint, and a bare-token check misses every one of them. */
 const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
-const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})$`);
+// Trailing `!` is Tailwind v4's important modifier: `hidden!` and `sm:hidden!`
+// hide exactly as thoroughly as the bare tokens, and an unanchored-for-`!`
+// pattern rejects neither.
+const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})!?$`);
 const hidingTokensOf = (el: Element): string[] =>
   [...tokensOf(el)].filter((t) => HIDING_RE.test(t));
 
@@ -676,7 +679,14 @@ export function expectRowText(
   expect(labelEl.tagName, "the label must be a plain span, never a heading").toBe("SPAN");
   expect([...labelEl.children], "the label must contain text only").toEqual([]);
   expectNotHidden(labelEl, scope, "row label");
+  // Resolve through the ROLE + ACCESSIBLE NAME, not the raw attribute:
+  // `aria-labelledby` OVERRIDES `aria-label`, and `role="link"` strips button
+  // semantics, both while `getAttribute("aria-label")` still reads correctly.
   expect(button.getAttribute("aria-label")).toBe(label);
+  expect(button.hasAttribute("aria-labelledby"), "aria-labelledby would override the name").toBe(
+    false,
+  );
+  expect(within(scope).getByRole("button", { name: label })).toBe(button);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
@@ -746,6 +756,10 @@ export function expectNoDescriptionNode(
   // the normal-description tests still see the right name, while a row with no
   // description silently loses its accessible name entirely.
   expect(button.getAttribute("aria-label"), "label survives an absent description").toBe(label);
+  expect(button.hasAttribute("aria-labelledby"), "aria-labelledby would override the name").toBe(
+    false,
+  );
+  expect(within(scope).getByRole("button", { name: label })).toBe(button);
   expectNotHidden(labelEl, scope, "row label");
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
@@ -957,11 +971,17 @@ row passes every helper end to end, and the known escapes still fail.
    open), and composed text must insert a SEPARATOR at element
    boundaries (`textContent` concatenates, so a duplicate whose gap is supplied by
    `gap-1` rather than a text node reads identically on screen yet goes uncounted).
-4. **React's `onClick` is invisible to attribute checks** — delegation produces no `onclick`
+4. **The wrapper's non-interactivity is proved at the SOURCE**, by
+   `tests/components/admin/showpage/_metaRowWrapperInert.test.ts`, because finite event
+   sampling cannot prove a handler is absent: review walked the behavioral guard through
+   `onClick`, `onPointerDown`/`onMouseDown`, `onPointerEnter`/`onPointerOver`, then
+   `onDoubleClick`/`onContextMenu`, and there are ~60 React DOM event props. The behavioral
+   guard below is kept as the complement, not the proof.
+5. **React's `onClick` is invisible to attribute checks** — delegation produces no `onclick`
    attribute — so the wrapper being non-interactive is proved BEHAVIORALLY: clicking the
    wrapper must leave the row idle, and clicking the row must still arm it (the second half
    stops the assertion passing against an entirely dead control).
-5. `expectRowBoundary` pins the component's WHOLE rendered tree, not just the button.
+6. `expectRowBoundary` pins the component's WHOLE rendered tree, not just the button.
    Every escape found from round 13 onward had one shape: a forbidden node rendered as a
    SIBLING of the button (a classless description carrier, an empty `<h5 aria-label>`, a
    second element reusing the description id). Button-scoped and class-based checks are
@@ -977,7 +997,7 @@ row passes every helper end to end, and the known escapes still fail.
    pins description-id CARDINALITY, since `getElementById`
    resolves only the first match, and scans headings by ROLE TOKEN (`role="heading
    presentation"` is a heading; an `[role='heading']` selector misses it).
-6. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts
+7. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts
    the LABEL's full contract (name, not-hidden, typography) — otherwise
    `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes, and a row with no
    description silently loses its accessible name while the normal-description tests stay
@@ -986,7 +1006,7 @@ row passes every helper end to end, and the known escapes still fail.
    description class set and otherwise survives every other check. A count of
    `<span>` elements is not: an empty `<p id={descId} class="text-xs text-text-subtle">`
    passes a span count while leaving the forbidden empty described node in the tree.
-7. **`exactly` is the default posture for every class list this spec fully prescribes** —
+8. **`exactly` is the default posture for every class list this spec fully prescribes** —
    both row buttons AND the label/description column. `has` alone lets a conflicting extra
    ride along and OVERRIDE a token that was just asserted (`sm:w-auto` beside `w-full`,
    `items-start` beside `items-center`, `px-0` beside `px-2`), which is exactly the
