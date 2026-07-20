@@ -121,33 +121,39 @@ In the bell — the same string, the same bold, the same `<ul>` split as today:
 
 > **In 'II - RIA Investment Forum - Central 2025', Doug Larson was added with LEAD + V1.** Lead changes must be confirmed in the show page.
 
-### 3.5 The data path (R3 BLOCKING — verified in code)
+### 3.5 The data path (verified end-to-end)
 
-R1, R2, and R3 each found a defect on this same vector. Per the project's three-round prose cap, the response is not another prose patch: the call chain was read end-to-end and is recorded here with citations, which is the spike this vector needed. R3's BLOCKING finding was correct — the first two drafts put scope on `deriveAlertMessageParams`, which returns **params**, so no draft ever said how a template variant would be selected.
+R1, R2, R3, and R4 each found a defect on this vector. The call chain has now been read end-to-end, and the result is smaller than every design that preceded it: **the two surfaces already use completely disjoint template sources.** No scope argument is needed for template selection at all.
 
-**The actual chain**, verified:
+| Surface | Template source | Reaches `dougFacingShowScoped`? |
+| --- | --- | --- |
+| Show modal | `safeDougFacingTemplate` (`lib/admin/attentionItems.ts:128-138`), called only from `deriveAttentionItems` (`lib/admin/attentionItems.ts:221`), whose only caller is `app/admin/_showReviewModal.tsx` | **yes** |
+| Bell | `rowCopy` (`components/admin/BellPanel.tsx:124-127`), which reads `entry.dougFacing` directly | no — cannot, by construction |
+| Telemetry | `HealthAlertsPanel.tsx:78` params + its own catalog read | no |
 
-1. `lib/admin/attentionItems.ts:221` builds each item as `{ template: safeDougFacingTemplate(row.code, row.messageParams), params: row.messageParams }`. The surfaces receive a **raw template plus params**, not a rendered string — `BellPanel.tsx:358` splits that template on `<role-changes>` to build its `<ul>`, and `renderCatalogEmphasis` needs the tokens intact to bold identities.
-2. `safeDougFacingTemplate` (`lib/admin/attentionItems.ts:128-138`) is therefore the **only** place a template is chosen. It reads `messageFor(code).dougFacing`, separately interpolates to validate no `<placeholder>` leaks (invariant 5), and returns the raw template or `null`.
-
-So scope belongs on `safeDougFacingTemplate`, not on the derive layer:
+So `safeDougFacingTemplate` **is** the show-scoped selector. It selects `entry.dougFacingShowScoped ?? entry.dougFacing` unconditionally, with no new parameter and no threading:
 
 ```ts
-safeDougFacingTemplate(code: string, params: MessageParams | undefined, scope: AlertCopyScope): string | null
+const entry = messageFor(code as MessageCode);
+const template = entry.dougFacingShowScoped ?? entry.dougFacing;
 ```
 
-Under `"show"` it selects `entry.dougFacingShowScoped ?? entry.dougFacing`; under `"global"` it reads `entry.dougFacing` exactly as today. The existing unresolved-placeholder validation runs on **whichever template was selected**, so a variant with a leaking token returns `null` through the same guard that already protects the global string — closing R3 finding 7 without new machinery.
+The existing unresolved-placeholder validation at `lib/admin/attentionItems.ts:135-136` then runs on **whichever template was selected**, so a variant that fails to interpolate returns `null` through the guard that already protects the global string.
 
-`deriveAlertMessageParams` still gains its required `scope` parameter, but only for `lead-hint` (§4). Two functions, two distinct jobs; the earlier drafts conflated them, which is what R3 finding 1 caught.
+R4's finding 2 asked how scope reaches line 221 and warned that `ROLE_FLAGS_NOTICE` could reach template selection without `"show"`. It cannot: there is no other path to that line. What the finding correctly identified is that a *future* global caller of `deriveAttentionItems` would silently receive show copy — so that assumption is pinned rather than assumed:
+
+**Structural defense 6 (§7).** A meta-test asserts `safeDougFacingTemplate` has exactly one caller (`deriveAttentionItems`) and `deriveAttentionItems` exactly one caller (`app/admin/_showReviewModal.tsx`). A second caller fails the test, forcing whoever adds it to make the scope decision explicitly at that moment. This is the same fail-by-default shape as the other defenses: it breaks on *arrival* of the ambiguity, not on a guess about it.
+
+`deriveAlertMessageParams` is genuinely shared — three callers, verified in §2 — so it keeps a **required** `scope` parameter, used only for `lead-hint` (§4). Two functions, two different problems; conflating them is what produced three dead designs.
 
 ### 3.6 Scope of the "global is untouched" claim
 
 R3 finding 2 is right that "the global path does not change, at all" was an overclaim. Precisely:
 
-- **Unchanged:** every `dougFacing` string; the template `safeDougFacingTemplate` returns under `"global"`; the bell's split, emphasis, and rendering; `interpolate`.
-- **Changed additively:** the catalog entry type gains one optional field; `safeDougFacingTemplate` and `deriveAlertMessageParams` gain a required parameter; the three call sites pass their scope literally.
+- **Unchanged:** every `dougFacing` string; `rowCopy`; the bell's split, emphasis, and rendering; `interpolate`; the telemetry read.
+- **Changed additively:** the catalog entry type gains one optional field; `safeDougFacingTemplate` prefers that field when present; `deriveAlertMessageParams` gains a required `scope` parameter and its three call sites pass it literally.
 
-The claim that survives is narrower and still load-bearing: **no global-scope render can select a different string than it does today**, because the `"global"` branch reads the same field it reads now. The bell regression tests (§8) verify that rather than assume it.
+The surviving claim is narrower and still load-bearing: **no bell or telemetry render can select a different string than it does today**, because neither reads the new field. §8's rendered-tree regression verifies rather than assumes it.
 
 ## 4. Design — lead-hint scope override
 
@@ -207,11 +213,16 @@ Five defenses. Each fails because something is **absent** or **rendered wrong**,
 
 1. **No un-declared prefixed template.** Scans every `dougFacing` for a literal `In <sheet-name>, ` / `In <show-name>, ` opening. Every hit must EITHER define `dougFacingShowScoped` OR carry a `PREFIX_EXEMPT` row with a written reason. Ships with 3 adopters, 2 exempt (§3.3).
 2. **Variant validity is asserted on RENDERED output, not template text.** R3 finding 3 is right that a template-level check is vacuous: `dougFacingShowScoped: "<lead-hint>"` is non-blank, prefix-free, and placeholder-subset-clean, yet renders empty because show scope resolves `lead-hint` to `""`. The test therefore **interpolates every variant under a worst-case param fixture** — null identity, empty context, show scope, so every conditionally-empty token resolves to its emptiest legal value — and asserts the result is non-empty after trim and carries no unresolved `<placeholder>`. Template-level checks (no literal prefix, placeholder set a subset of the global's) are kept as cheap additional guards, not as the primary one.
-3. **Paired-string drift.** R3 finding 4 is right that two authored strings drift silently and that frozen tests do not couple them. A fixture holds **both** strings for each adopting code, frozen. Editing `dougFacing` fails the fixture, and the failure message names the paired variant, so the author cannot re-bless the global string without reading the show one. This does not prove semantic agreement — nothing mechanical can — but it removes the silent path, which is the actual failure mode.
-4. **Single source for labels, enforced by source scan.** R3 finding 5 is right that an import assertion is vacuous: a component can import the module, ignore it, and reimplement the conditional locally. The test instead **scans the three component sources for the literal strings** `"Mark resolved"`, `"Confirm"`, `"Dismiss"`, `"Resolving…"`, `"Confirming…"`, `"Dismissing…"` and fails on any hit. The labels exist in exactly one module; a local reimplementation cannot avoid writing one of those literals.
-5. **Resolve-intent completeness and lifecycle.** Completeness: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9` — the registry production code cites at `lib/admin/attentionItems.ts:65`; `tests/adminAlerts/adminAlertCodes.fixture.ts:13` is a verified-identical copy, both 45 codes) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`); every member needs an explicit `RESOLVE_INTENTS` row. Lifecycle (R3 finding 6): rows are **never deleted**, only marked `retired: true`. Retiring a producer therefore cannot silently flip already-persisted rows from "Confirm" back to "Mark resolved"; the test asserts no code disappears from the map across the diff.
+3. **Paired-string drift.** R3 finding 4 is right that two authored strings drift silently. A fixture holds **both** strings for each adopting code, frozen; editing `dougFacing` fails the fixture with a message naming the paired variant, so the global string cannot be re-blessed without reading the show one. R4 finding 3 is right that the fixture's *membership* also needs pinning: the test asserts the fixture's key set **equals** the set of catalog entries defining `dougFacingShowScoped`. A new variant that skips the fixture fails on arrival rather than drifting later. This does not prove semantic agreement — nothing mechanical can — but it removes every silent path.
 
-The scope parameters need no defense: both are required, so omission is a type error (§3.5).
+4. **Single source for labels, enforced by source scan.** R3 finding 5 is right that an import assertion is vacuous: a component can import the module, ignore it, and reimplement the conditional locally. The test instead **scans the three component sources for the literal strings** `"Mark resolved"`, `"Confirm"`, `"Dismiss"`, `"Resolving…"`, `"Confirming…"`, `"Dismissing…"` and fails on any hit. The labels exist in exactly one module; a local reimplementation cannot avoid writing one of those literals.
+5. **Resolve-intent completeness and lifecycle.** Completeness: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9` — the registry production code cites at `lib/admin/attentionItems.ts:65`; `tests/adminAlerts/adminAlertCodes.fixture.ts:13` is a verified-identical 45-code copy) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`); every member needs an explicit `RESOLVE_INTENTS` row.
+
+   Lifecycle (R3 finding 6, tightened per R4 finding 4): "assert no code disappears across the diff" is not executable — a test sees only the final tree, and removing a code from *both* the registry and the map satisfies the completeness equation. The map is therefore **append-only against a committed baseline**: `RESOLVE_INTENTS_BASELINE` is a checked-in frozen list of every code the map has ever contained, and the test asserts `keys(RESOLVE_INTENTS) ⊇ RESOLVE_INTENTS_BASELINE`. Deleting a row fails against the baseline regardless of what happened to the producer registry; retiring a producer means marking `retired: true`, which keeps the row and therefore keeps already-persisted rows rendering "Confirm". The baseline only ever grows, and growing it is the same commit that adds the row.
+
+6. **Single-caller topology.** Asserts `safeDougFacingTemplate` has exactly one caller (`deriveAttentionItems`) and `deriveAttentionItems` exactly one caller (`app/admin/_showReviewModal.tsx`), per §3.5. A second caller fails immediately, forcing an explicit scope decision instead of silently inheriting show copy.
+
+The `deriveAlertMessageParams` scope parameter needs no defense: it is required, so omission is a type error (§3.5).
 
 **Unknown-code behavior through the new branch (R3 finding 7).** `safeDougFacingTemplate` returns `null` for a code absent from `MESSAGE_CATALOG` before touching either field (`lib/admin/attentionItems.ts:132`), so the show branch cannot dereference a missing entry. A test exercises an uncataloged code under `"show"` specifically, rather than relying on the existing global-scope test to cover a new branch.
 
@@ -224,6 +235,7 @@ Spec B additionally introduces a meta-test forbidding `helpfulContext: null` whe
 - **Unit — per-code, both scopes.** Each of the 3 adopting codes, fully interpolated, against frozen literals. `ROLE_FLAGS_NOTICE` global: `"In 'II - RIA Investment Forum - Central 2025', Doug Larson was added with LEAD + V1. Lead changes must be confirmed in the show page."` Show: `"Doug Larson was added with LEAD + V1."`
 - **Unit — non-adopters.** `AMBIGUOUS_EMAIL_BINDING` and `PICKER_SELECTION_RACE` render the same string under both scopes, pinning that an absent variant means fallback, not empty.
 - **Unit — guards, per code and specific (R3 finding 8).** The first draft's guard list applied identity-null and whitespace-name cases uniformly, but `PICKER_BOOTSTRAP_RPC_FAILED`'s variant has **no** placeholders and `ROLE_FLAGS_NOTICE`'s is the only one carrying `role-changes`. Each code gets the guards its own params can actually exercise: `ROLE_FLAGS_NOTICE` — empty `role-changes` (asserting the `ROLE_CHANGES_FALLBACK` text, not merely non-empty), `lead-hint` empty in show scope; `OAUTH_IDENTITY_CLAIMED` — identity null with context-supplied `crew-name`, whitespace-only `crew-name`, missing `email`, each asserting the **expected fallback text** rather than non-emptiness; `PICKER_BOOTSTRAP_RPC_FAILED` — asserts the variant is param-free and byte-stable across every param fixture.
+- **Unit — `params === undefined` (R4 finding 5).** `safeDougFacingTemplate` accepts `undefined` params, and every other guard case supplies an object with fallbacks, so an absent-params regression could return a raw variant with live tokens. Each adopting code is called with `undefined` and asserted to return `null` (the unresolved-placeholder guard firing) rather than a template containing `<crew-name>` or `<email>`. `PICKER_BOOTSTRAP_RPC_FAILED`, whose variant is param-free, is asserted to return its template unchanged — proving the guard rejects for the right reason rather than rejecting everything.
 - **Unit — label map.** `"confirm"` for `ROLE_FLAGS_NOTICE`, `"resolve"` for a declared resolve member, `"resolve"` for an unmapped code (the no-throw contract R2 finding 3 required).
 - **Component — full cross-product.** 3 buttons × 2 intents × {idle, pending} . A component that hardcodes a label, ignores its `code`, or discards the module's result fails at least one cell. Each assertion reads the button's accessible name via `data-testid` (`per-show-alert-resolve-<id>`, `health-alert-resolve-<id>`, `bell-resolve-<id>`), never a container query — this code's message body contains "confirm", so a container-scoped `getByText(/confirm/i)` passes with the label still wrong.
 - **Regression — bell rendered tree, not its string.** R2 finding 2: string baselines miss emphasis regressions. For all 5 prefix-relevant codes, assert the show/sheet name sits inside `<strong>`, the `<ul>` split still occurs for multi-change `ROLE_FLAGS_NOTICE`, and the text matches a literal frozen from `main` before the change.
