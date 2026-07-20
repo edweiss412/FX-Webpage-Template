@@ -2,27 +2,32 @@
 //
 // Files measured DB-free and concurrency-safe, moved out of the serial vitest
 // project at file granularity (spec
-// docs/superpowers/specs/ci/2026-07-20-ci-unit-suite-phase3-file-granular-serial.md).
+// docs/superpowers/specs/ci/2026-07-20-ci-unit-suite-phase3-file-granular-serial.md,
+// eligibility rules ratified in that spec's §2.6 amendment).
 //
-// Measurement contract (spec §2.2/§3.4, with the §2.6 eligibility amendment):
-// the candidate population is every BASE_INCLUDE match minus vitest's default
-// excludes, the nightly mutation-harness globs, the env-bound files, and
-// everything already claimed by a PARALLEL_TEST_GLOBS entry. That population is
-// run with `fileParallelism: true` and every DB/Supabase endpoint pointed at a
-// closed port (SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL, TEST_DATABASE_URL,
-// DATABASE_URL on TCP port 9), THREE times. A file qualifies only if it was
-// green in ALL repeats AND actually EXECUTED assertions in each — a DB-gated
-// test that self-skips when the DB is unreachable reports "passed" while
-// proving nothing, and would reach the real DB concurrently in CI. Files
-// matching the repo's DB naming convention (*.db.test.ts / *Db.test.ts) are
-// excluded as defense in depth.
+// Eligibility, in the order applied:
+//  1. Candidate population: every BASE_INCLUDE match minus vitest's default
+//     excludes, the nightly mutation-harness globs, the env-bound files, and
+//     everything already claimed by a PARALLEL_TEST_GLOBS entry (dir glob OR
+//     exact file).
+//  2. Green in ALL of three `fileParallelism: true` runs with every
+//     DB/Supabase endpoint pointed at a closed port (SUPABASE_URL,
+//     NEXT_PUBLIC_SUPABASE_URL, TEST_DATABASE_URL, DATABASE_URL on TCP port 9).
+//  3. Actually EXECUTED assertions in every repeat. A DB-gated test that
+//     self-skips when the DB is unreachable reports "passed" while proving
+//     nothing, and would reach the real DB concurrently in CI.
+//  4. Does not reference a local Postgres endpoint directly (54322,
+//     LOCAL_TEST_DATABASE_URL, 127.0.0.1:5432, localhost:5432) — such a file
+//     bypasses the closed-port redirection entirely.
+//  5. Does not match a DB naming convention: tests/db/**, *.db.test.ts,
+//     *Db.test.ts, *.realdb.test.ts, *-real-db.test.ts.
 //
 // Measured 2026-07-20: population 767; per-repeat green 591/587/589;
-// intersection 563; minus 1 already claimed by a PARALLEL_TEST_GLOBS exact-file
-// entry, minus 26 skip-tainted or DB-named = 536 listed here.
+// intersection 563; then rules 1/3/4/5 removed 1 + 26 + 21 = 48, leaving 515.
 //
-// Regeneration is a documented manual procedure today; automating it is tracked
-// by BL-CI-SERIAL-AUDIT-SCRIPT (spec §1.0 records why the tool was descoped).
+// Regeneration is a documented manual procedure today; automating it (with
+// these rules built in) is tracked by BL-CI-SERIAL-AUDIT-SCRIPT. Spec §1.0
+// records why the tool itself was descoped from this phase.
 //
 // Integrity (existence, uniqueness, sortedness, BASE_INCLUDE membership,
 // non-overlap with PARALLEL_TEST_GLOBS/nightly/env-bound/default excludes, and
@@ -102,7 +107,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/admin/telemetryFilterHref.test.ts",
   "tests/admin/telemetryRouteAudit.test.ts",
   "tests/admin/upsertAdminAlert.test.ts",
-  "tests/admin/validationDeployment.test.ts",
   "tests/admin/validationReset-developer-posture.test.ts",
   "tests/admin/validationResetAction.test.ts",
   "tests/admin/warningFixAffordance.test.tsx",
@@ -112,7 +116,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/agenda/agendaLabel.test.ts",
   "tests/agenda/agendaPurityBoundary.test.ts",
   "tests/agenda/constants.test.ts",
-  "tests/agenda/extractAgendaLease.test.ts",
   "tests/agenda/extractAgendaSchedule.test.ts",
   "tests/agenda/extractAgendaScheduleServerless.test.ts",
   "tests/agenda/normalizeAgendaExtraction.test.ts",
@@ -146,7 +149,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/api/show/unpublish-telemetry.test.ts",
   "tests/api/staged-diagram-route.defaultDeps.test.ts",
   "tests/api/staged-diagram-route.test.ts",
-  "tests/api/unignore-route.test.ts",
   "tests/api/wizard-manifest-ignore-route.test.ts",
   "tests/api/wizard-staged-apply-superseded-actor.test.ts",
   "tests/async/deferPostResponse.test.ts",
@@ -257,21 +259,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/data/transportOwnerResolve.test.ts",
   "tests/data/verifyResyncExpectedMap.test.ts",
   "tests/data/viewerContext.test.ts",
-  "tests/db/advisory-lock-env.test.ts",
-  "tests/db/backfill-validation-source-anchors.test.ts",
-  "tests/db/coerceJsonbObject.test.ts",
-  "tests/db/cutover-drop-m9-5.test.ts",
-  "tests/db/onboarding-fixups-remediation.test.ts",
-  "tests/db/pendingSyncsSourceAnchorsColumn.test.ts",
-  "tests/db/runOfShowColumn.test.ts",
-  "tests/db/schema-manifest-lib.test.ts",
-  "tests/db/schema.test.ts",
-  "tests/db/seed-restage-fixture.test.ts",
-  "tests/db/selectionsResetAtColumn.test.ts",
-  "tests/db/show-change-log-change-kind-taxonomy.test.ts",
-  "tests/db/showCacheRevalidateCoverage.test.ts",
-  "tests/db/undo-change-lock-order.test.ts",
-  "tests/db/undo-change-no-phantom-columns.test.ts",
   "tests/log/_auditableMutations.shape.test.ts",
   "tests/log/_metaAdminOutcomeContract.test.ts",
   "tests/log/_metaAppEventsWriter.test.ts",
@@ -339,8 +326,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/observe/codes.test.ts",
   "tests/observe/collect.test.ts",
   "tests/observe/crewError.test.tsx",
-  "tests/observe/dispatch.test.ts",
-  "tests/observe/env.test.ts",
   "tests/observe/errorBoundaryLayout.test.tsx",
   "tests/observe/format.test.ts",
   "tests/observe/getCronHealth.test.ts",
@@ -420,7 +405,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/scripts/validation-fixtures.test.ts",
   "tests/scripts/validation-reseed.test.ts",
   "tests/scripts/validation-smoke-base-url.test.ts",
-  "tests/scripts/validation-target.test.ts",
   "tests/show/confirmUnpublishFormBusy.test.tsx",
   "tests/show/crewShellUnmatchedViewer.test.tsx",
   "tests/show/flow8Repick.test.tsx",

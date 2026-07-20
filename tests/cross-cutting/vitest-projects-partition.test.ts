@@ -156,6 +156,37 @@ describe("vitest projects split — partition is complete and correctly wired", 
     }
   });
 
+  it("resolved config partitions correctly under VITEST_EXCLUDE_ENV_BOUND=1 too (CI mode)", async () => {
+    // The default-mode proof below cannot see the env-gated exclusions, so run
+    // the same evaluation against the CI configuration: the three env-bound
+    // files must belong to NO default project, and every other non-nightly file
+    // must still be admitted exactly once (no orphan, no double-run).
+    vi.resetModules();
+    vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "1");
+    try {
+      const cfg = (await import("@/vitest.config")).default as {
+        test?: { projects?: ProjectEntry[] };
+      };
+      const gated = (cfg.test?.projects ?? []).map((p) => p.test);
+      expect(gated.length, "gated config must still define both default projects").toBe(2);
+      const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
+      const envBoundPaths = ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, ""));
+      for (const f of allTestFiles) {
+        const admitting = gated.filter((p) => inProject(f, p)).map((p) => p.name);
+        if (nightlyRe.some((r) => r.test(f)) || envBoundPaths.includes(f)) {
+          expect(admitting, `${f} must be in NO default project under the env gate`).toEqual([]);
+        } else {
+          expect(admitting, `${f} must be admitted exactly once under the env gate`).toHaveLength(
+            1,
+          );
+        }
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("resolved config admits every discovered file exactly once (nightly files zero)", () => {
     // Evaluates each file against the projects' ACTUAL include/exclude arrays
     // rather than restating a classifier, so an extra exclusion that orphans a
