@@ -93,7 +93,6 @@ function LiveHarness() {
     document.documentElement.setAttribute("data-harness-hydrated", "true");
   }, []);
 
-
   const warningItem: ParseWarning = {
     severity: "warn",
     code: "UNKNOWN_FIELD",
