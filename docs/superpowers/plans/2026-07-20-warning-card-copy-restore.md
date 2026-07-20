@@ -577,8 +577,8 @@ The transition tests themselves were authored RED-FIRST in Task 2 (`tests/admin/
 
 **Conditional-block enumeration (adapter, post-Task-2):** `guidance ? <span/> : null` (message stack); `context ? <CompactAlertHelp/> : null` (helpTrigger slot); `rowLabel ? detailBand : null`; `href ? footerLeft : null`; `renderItemControls` presence — the first two are the §6 variant axes (tested above); the last three are pre-existing #509 bands, unchanged in this diff. No `AnimatePresence`/ternary-animation wrappers anywhere in the adapter (source-scan test).
 
-- [ ] **Step 1: Verify the audit holds.** `npx vitest run tests/admin/perShowActionableTransitions.test.tsx` — PASS (these went red→green inside Task 2; a failure here is a Task 2/3 regression — fix there, not here). Confirm with `git diff origin/main -- components/admin/HoverHelp.tsx` that the popover body classes (fade) are untouched.
-- [ ] **Step 2: Commit the audit record.** The checked boxes in this plan are the task's tracked deliverable:
+- [x] **Step 1: Verify the audit holds.** `npx vitest run tests/admin/perShowActionableTransitions.test.tsx` — PASS (these went red→green inside Task 2; a failure here is a Task 2/3 regression — fix there, not here). Confirm with `git diff origin/main -- components/admin/HoverHelp.tsx` that the popover body classes (fade) are untouched.
+- [x] **Step 2: Commit the audit record.** The checked boxes in this plan are the task's tracked deliverable:
 
 ```bash
 git add docs/superpowers/plans/2026-07-20-warning-card-copy-restore.md
