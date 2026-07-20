@@ -28,7 +28,7 @@ Cut per-leg wall clock by running the Supabase bootstrap CONCURRENTLY with the d
 | Boot local Supabase | **70** |
 | vitest shard | 154 |
 
-Boot-phase decomposition from that run's log: image pull ≈45s (first `Pulled` 12:20:31 → last 12:21:07), container start ≈11s (→ `Initialising schema...` 12:21:18), schema init ≈6s (→ `Seeding globals` 12:21:24), migrations ≈8s. Fixed overhead totals ~91s against a 245s max leg.
+Boot-phase decomposition from that run's log: image pull ≈45s (first `Pulled` 12:20:31 → last 12:21:07), container start ≈11s (→ `Initialising schema...` 12:21:18), schema init ≈6s (→ `Seeding globals` 12:21:24), migrations ≈8s. Fixed overhead on this leg totals ~91s against a 245s max leg; the leg-MEDIAN fixed overhead across all 8 legs of the same run is 101s (per-leg: 89, 96, 98, 101, 101, 103, 105, 108), and §5 gates on that median rather than on any single leg.
 
 **The observation this phase exploits:** the boot step cannot begin until `./.github/actions/setup` finishes, yet the two share no data. The boot's first ~45s is network-bound image pulling; the setup step's 16s is npm-registry-bound installing. Running them concurrently should reclaim most of the shorter one — bounded above by 16s, and possibly less under contention (§3); §5 measures rather than assumes, and the gate reverts a change that does not pay.
 
@@ -54,9 +54,14 @@ Reorder and background, changing no script. **The cross-step coordination is a c
 4. **NEW — start the bootstrap detached, writing a sentinel on completion:**
 
    ```bash
-   rm -f /tmp/supabase-boot.rc
-   nohup bash -c 'bash scripts/ci/supabase-local-bootstrap.sh; echo $? > /tmp/supabase-boot.rc' \
-     > /tmp/supabase-boot.log 2>&1 &
+   rm -f /tmp/supabase-boot.rc /tmp/supabase-boot.rc.tmp /tmp/supabase-boot.log
+   date +%s > /tmp/supabase-boot.started
+   nohup bash -c '
+     bash scripts/ci/supabase-local-bootstrap.sh
+     rc=$?
+     echo "$rc" > /tmp/supabase-boot.rc.tmp
+     mv /tmp/supabase-boot.rc.tmp /tmp/supabase-boot.rc
+   ' > /tmp/supabase-boot.log 2>&1 &
    disown
    ```
 
@@ -78,6 +83,8 @@ Reorder and background, changing no script. **The cross-step coordination is a c
      fi
      sleep 2
    done
+   # Print the log on EVERY path, before the status is consulted — a regression
+   # that logs only when rc=0 would hide the output exactly when it is needed.
    cat /tmp/supabase-boot.log
    rc=$(cat /tmp/supabase-boot.rc)
    echo "bootstrap exit status: $rc"
@@ -104,14 +111,16 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none.
    **Executed** (extract the start and join `run:` bodies from the YAML, run them in a temp dir against a stub bootstrap under `bash -euo pipefail`, matching Actions' shell):
    - stub exits 0 → join exits 0 (a successful boot lets the leg continue);
    - stub exits 7 → join exits 7 (a failed boot fails the leg — the fail-closed hinge);
-   - stub never writes a sentinel, with the deadline stubbed short → join exits non-zero and prints the timeout error (the missing-sentinel branch, invisible to the first two trials);
+   - stub never writes a sentinel, with the deadline stubbed short → join exits non-zero and prints the timeout error (the missing-sentinel branch, invisible to the first two trials). Isolation (round-3 finding 5): the trial rewrites the extracted bodies' absolute boot-file paths under /tmp to per-test temp paths so concurrent runs cannot collide, and simulates the missing sentinel by never creating it rather than by leaving a worker hanging, so no detached process is orphaned;
    - the stub's stdout appears in the join's output on the success path (log surfacing, likewise invisible to exit codes).
    Running under `-euo pipefail` closes the round-2 gap where a lax shell lets an intermediate failure precede the expected final `exit`.
 
    **Structural** (things execution in a local shell cannot prove, since it cannot reproduce runner step boundaries):
    - the start step's command contains `nohup` and a trailing `&` — without detachment the "overlap" silently becomes sequential while both exit-code trials still pass, i.e. the change would be a no-op that looks correct;
    - the start step does NOT itself wait for the bootstrap;
-   - the join publishes/reads the sentinel via the `mv` form, not a bare redirect into the read path.
+   - the START step publishes the sentinel via the `.rc.tmp` + `mv` form, not a bare redirect into the path the join reads;
+   - the START step writes the boot-start marker, and the JOIN computes its deadline from that marker rather than from its own start — a regression to `join_time + timeout` restores the job-cap defect while passing all four executed trials (round-3 finding 3);
+   - an `if: failure()` log-dump step exists after the setup composite — deleting it survives every trial and a green acceptance run (round-3 finding 4).
 (c) **The bootstrap is invoked exactly once** in the workflow, still as `bash scripts/ci/supabase-local-bootstrap.sh` (the shared-script contract other workflows depend on).
 (d) **Soft-failure inventory**: `|| true` appears exactly once, on the timeout path's diagnostic `cat` (§3.6), and never on the bootstrap invocation or the join's exit.
 (e) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
@@ -120,7 +129,7 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none.
 
 1. All 8 legs + aggregator green, and the boot log is present in each leg's job output (backgrounding must not hide it).
 2. Measure with P1's `measure()` (`LEGS=8`). The comparison is **leg-median fixed overhead** — `(job wall) − (vitest step)`, which isolates what this phase actually changes — not max leg alone, whose noise is dominated by test distribution.
-3. **Accept** if the leg-median fixed overhead drops by **≥8s** versus the main baseline (91s, run 29741812457) AND all legs are green. **Revert** otherwise. The 8s floor is deliberately half the theoretical 16s: it demands a real effect while tolerating the contention §3 predicts, and it is far enough from zero that runner noise cannot manufacture it. A one-second difference is not a gain (round-1 finding 6).
+3. **Accept** if the leg-median fixed overhead drops by **≥8s** versus the main baseline computed the SAME way AND all legs are green. **Revert** otherwise. The 8s floor is deliberately half the theoretical 16s: it demands a real effect while tolerating the contention §3 predicts, and it is far enough from zero that runner noise cannot manufacture it. A one-second difference is not a gain (round-1 finding 6).
 4. Record both the median fixed overhead and max leg in the PR body either way, so a revert is as legible as an accept.
 
 ## 6. Out of scope
