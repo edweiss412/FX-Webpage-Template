@@ -246,9 +246,10 @@ Six defenses. Each fails because something is **absent** or **rendered wrong**, 
    | --- | --- |
    | `origin/main` reachable, baseline file **exists** there | Compare. Every historical pair must still resolve identically. |
    | `origin/main` reachable, baseline file **absent** there | **Pass, vacuously.** There are no historical pairs to preserve. This is the bootstrap case — the PR that introduces the baseline — and it is a correct pass, not a skip. |
-   | `origin/main` **unreachable** (no remote-tracking ref; shallow clone without it) | Skip, with the reason logged. |
+   | `origin/main` **unreachable**, running in CI (`process.env.CI`) | **FAIL.** R8 finding 1 is right that an unconditional skip makes a "required" layer fail-open: delete a pair from both files, run CI without a resolvable ref, and Layer 1 passes while Layer 2 skips. In CI the ref is always fetchable, so an unresolvable one is a broken checkout, not an excuse. |
+   | `origin/main` **unreachable**, not in CI | Skip, with the reason logged. A developer on a shallow or remote-less clone is not blocked; CI is the enforcement point. |
 
-   The skip condition is precisely "the `origin/main` ref cannot be resolved" — **not** "HEAD is detached." R7 finding 1 is right that CI commonly runs detached while `origin/main` remains perfectly reachable; treating detachment as a skip would disable the layer exactly where it is required. Detached HEAD with a reachable `origin/main` takes the compare path like any other.
+The skip is therefore never available where the guarantee is claimed. Outside CI the condition is precisely "the `origin/main` ref cannot be resolved" — **not** "HEAD is detached." R7 finding 1 is right that CI commonly runs detached while `origin/main` remains perfectly reachable; treating detachment as a skip would disable the layer exactly where it is required. Detached HEAD with a reachable `origin/main` takes the compare path like any other.
 
    Retiring a producer means setting `retired: true`, which preserves both key and intent, so persisted historical rows keep rendering "Confirm".
 
