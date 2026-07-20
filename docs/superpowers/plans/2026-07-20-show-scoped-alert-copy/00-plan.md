@@ -1517,9 +1517,9 @@ async function measure(page: import("@playwright/test").Page, code: string) {
   const btn = page.getByTestId("per-show-alert-resolve-h1");
   await expect(btn).toBeVisible();
   // Fail loudly rather than via a non-null assertion if an element detached
-  // (review R1 finding 11). These three reads are sequential, not atomic , 
-  // the guarantee comes from the page being settled before measuring, not
-  // from Promise.all (review R2 finding 16).
+  // (review R1 finding 11). Promise.all starts the three reads together, but
+  // that is NOT an atomic layout snapshot (review R2 f16 / R8b f1): the
+  // guarantee comes from the page being settled before measuring at all.
   const boxes = await Promise.all([
     page.getByTestId("compact-alert-footer").boundingBox(),
     btn.boundingBox(),
