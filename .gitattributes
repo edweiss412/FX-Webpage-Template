@@ -1,3 +1,5 @@
 next-env.d.ts linguist-generated=true
 
 *.xlsx binary
+
+tests/specLint/fixtures/** -text

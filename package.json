@@ -24,6 +24,7 @@
     "gen:spec-codes": "tsx scripts/extract-spec-codes.ts",
     "gen:schema-manifest": "tsx scripts/generate-schema-manifest.ts",
     "observe": "tsx scripts/observe.ts",
+    "spec:lint": "tsx scripts/spec-lint.ts",
     "pretypecheck": "pnpm gen:admin-tables && pnpm gen:watermark-symbols && pnpm gen:email-boundaries && pnpm gen:traceability",
     "typecheck": "tsc --noEmit",
     "prelint": "pnpm gen:admin-tables && pnpm gen:watermark-symbols && pnpm gen:email-boundaries && pnpm gen:traceability",
