@@ -134,7 +134,7 @@ All transitions are INSTANT (project norm: pageTransitions §9); timers are the 
 | --- | --- |
 | rotate=banner ∧ reset=confirm (B+OS) | both render; independent. Reset's confirm does not clear rotate's banner |
 | rotate=banner ∧ reset=resolving (B+V) | banner stays visible; `busy` freezes dismissal |
-| reset=banner ∧ rotate=confirm/resolving | symmetric to the above |
+| reset=banner ∧ rotate=confirm/resolving | both render independently. A reset SUCCESS banner does NOT stay pinned for rotate's flight — its `SUCCESS_DISMISS_MS` timer runs regardless of `busy` and clears it via `setOutcome(null)` (`PickerResetControl.tsx:102-106`), so the operator may see the reset confirmation disappear mid-rotate. A reset ERROR banner persists. `busy` gates dismissal paths only; it pauses no timer |
 | both=confirm | permitted (§6 — single-slot deliberately not adopted); two confirm rows stack in the popover, each with its own Cancel focused on open |
 | both=resolving | permitted; `busy` stays ≥1 until BOTH settle |
 | rotate=confirm ∧ reset=resolving | permitted. `busy` is already set, so dismissal is inert — but the rotate confirm row stays interactive: its Confirm and Cancel are NOT disabled by a sibling's flight, and its auto-revert timer keeps running and may collapse the row while the sibling resolves |
@@ -144,7 +144,7 @@ All transitions are INSTANT (project norm: pageTransitions §9); timers are the 
 | any trigger/Escape/backdrop press while `busy` | no-op; Escape still `stopPropagation`s |
 | sibling armed while the other's auto-revert timer is pending | timers are per-component and independent; each fires against its own `closeConfirm`, whose functional `setUi` guard no-ops if that row is already gone (`RotateShareTokenButton.tsx:88-97`) |
 | rotate success while a Copy 2s window is open | `onRotated` swaps the context token and the URL re-renders; the stale "Copied" label self-clears on its own timer. The clipboard still holds the OLD url — which is why rotate's success copy states the old link no longer works (`RotateShareTokenButton.tsx:205-210`) |
-| hub unmounted by an ancestor (modal close) while `busy` | out of the hub's control; the mutation completes server-side and `router.refresh()` reconciles. Not a defect the hub can close — recorded so it is not mistaken for one |
+| hub unmounted by an ancestor (modal close) while `busy` | out of the hub's control; the mutation completes server-side either way, and the outcome banner is lost. Reconciliation differs by control: ROTATE calls `router.refresh()` on success (`RotateShareTokenButton.tsx:152`), so server-derived state re-reads. RESET does NOT — `PickerResetControl` imports no router and its action path (`:131-145`) ends after `setOutcome`, so a reset that lands during an ancestor unmount leaves the admin's view unreconciled until the next navigation or refresh. Neither is a defect the hub can close; recorded so it is not mistaken for one |
 
 ## 10. Dimensional invariants
 
