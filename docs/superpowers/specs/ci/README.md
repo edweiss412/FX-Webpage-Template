@@ -10,3 +10,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-06-mutation-harness-sharding.md`](./2026-07-06-mutation-harness-sharding.md) | 2026-07-06 |
 | [`2026-07-06-mutation-testing-harness.md`](./2026-07-06-mutation-testing-harness.md) | 2026-07-06 |
 | [`2026-07-19-ci-unit-suite-under-5min.md`](./2026-07-19-ci-unit-suite-under-5min.md) | 2026-07-19 |
+| [`2026-07-19-ci-unit-suite-phase2-serial-audit.md`](./2026-07-19-ci-unit-suite-phase2-serial-audit.md) | 2026-07-19 |
