@@ -233,6 +233,7 @@ export function expectNoDescriptionNode(
   button: HTMLElement,
   scope: HTMLElement,
   label: string,
+  { allowLiveRegion = false }: { allowLiveRegion?: boolean } = {},
 ): void {
   expect(button.getAttribute("aria-describedby"), "no described node when absent").toBeNull();
 
@@ -292,7 +293,7 @@ export function expectNoDescriptionNode(
   // fresh, so no banner exists.
   // The whole boundary, which is the only thing that can see a forbidden
   // SIBLING of the button (classless carrier, empty heading, duplicate id).
-  expectRowBoundary(button, { scope, descriptionId: null });
+  expectRowBoundary(button, { scope, descriptionId: null, allowLiveRegion });
 }
 
 /**
@@ -326,11 +327,29 @@ export function expectRowBoundary(
     scope,
     descriptionId,
     container,
-  }: { scope: HTMLElement; descriptionId: string | null; container?: HTMLElement },
+    allowLiveRegion = false,
+  }: {
+    scope: HTMLElement;
+    descriptionId: string | null;
+    container?: HTMLElement;
+    /** ONLY PickerResetControl renders a persistent live region (PCR-1 (a)).
+     *  Defaults to false so rotate cannot quietly grow one. */
+    allowLiveRegion?: boolean;
+  },
 ): void {
   const wrapper = button.parentElement;
   expect(wrapper, "row button must have a wrapper").not.toBeNull();
   expectClasses(wrapper!, { exactly: WRAPPER_CLASSES });
+
+  // The wrapper must be a PLAIN, non-interactive container. Nothing else pins
+  // its tag, so `<button className={WRAPPER_CLASSES}><button …/></button>` or an
+  // `<a href>` wrapper satisfies the exact classes, children, heading, and
+  // container assertions while nesting interactive controls, which is invalid
+  // HTML and breaks the one-button-per-control contract.
+  expect(wrapper!.tagName, "the row wrapper must be a plain div").toBe("DIV");
+  for (const attr of ["href", "onclick", "tabindex", "role", "disabled"]) {
+    expect(wrapper!.hasAttribute(attr), `the row wrapper must not carry ${attr}`).toBe(false);
+  }
   // The PERSISTENT live region is a legitimate wrapper sibling: PickerResetControl
   // renders `<div class="sr-only" role="status" aria-live="polite">` on EVERY
   // render, outcome or not (PCR-1 (a)), precisely so an announcement swaps into a
@@ -339,14 +358,17 @@ export function expectRowBoundary(
   // not by being merely `sr-only`.
   const isLiveRegion = (el: Element): boolean =>
     el.getAttribute("role") === "status" && el.hasAttribute("aria-live");
+  const liveRegions = [...wrapper!.children].filter(isLiveRegion);
   expect(
     [...wrapper!.children].filter((el) => !isLiveRegion(el)),
-    "the idle wrapper contains the button (and at most the live region)",
+    "the idle wrapper contains the button (and, for reset, its live region)",
   ).toEqual([button]);
+  // Gated per control: only reset legitimately renders one, so an unconditional
+  // exemption would let ROTATE quietly grow a live region it must not have.
   expect(
-    [...wrapper!.children].filter(isLiveRegion).length,
-    "at most one live region",
-  ).toBeLessThanOrEqual(1);
+    liveRegions.length,
+    allowLiveRegion ? "at most one live region" : "this row must render no live region",
+  ).toBeLessThanOrEqual(allowLiveRegion ? 1 : 0);
 
   // No heading ANYWHERE in the component boundary, not merely inside the
   // button: an empty `<h5 aria-label="…"/>` beside the button restores the

@@ -79,7 +79,12 @@ so its relationship to the triggers is unchanged. A failure there means the chan
 passing untouched — §4.2 RETAINS rotate's `aria-label` + `aria-describedby` wiring, so a
 red there means the implementation drifted. It gets exactly ONE addition (§7.2): render
 with a non-default `rowLabel` and assert `aria-label` equals THAT string, which pins the
-`aria-label={rowLabel}` binding and fails if someone re-hardcodes the literal.
+`aria-label={rowLabel}` binding and fails if someone re-hardcodes the literal — AND asserts
+the VISIBLE label is that same string, via `expectRowText`. Asserting only the accessible
+value would pass an implementation that renders a hardcoded `<span>Rotate share link</span>`
+while setting `aria-label={rowLabel}`: with `rowLabel="Regenerate access"` the visible and
+accessible labels diverge, which is precisely the WCAG 2.5.3 violation §4.2 exists to
+prevent.
 
 ### Step 0 — the shared assertion helper (ALREADY LANDED)
 
@@ -174,6 +179,18 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
 **Failure modes caught:** the split label + separate `Rotate` button; a bordered or
 background-filled row; the description surviving only as an `aria-label` fragment rather
 than visible text; a shrink-wrapped wrapper that makes `w-full` resolve short.
+
+### Cross-test hazard: cleanup is load-bearing here
+
+`expectRowText` and `expectRowBoundary` resolve the description carrier through
+`document.getElementById`, which searches the WHOLE document and returns the FIRST match.
+Without a `cleanup()` between renders, a leftover tree from an earlier test in the same file
+wins and the assertion fails against correct code. All three target files already handle
+this — `tests/components/admin/showpage/shareHub.test.tsx:75` and
+`tests/admin/pickerResetControl.test.tsx:29` call `afterEach(cleanup)`, and
+`tests/components/RotateShareTokenButton.test.tsx:33` calls `cleanup()` in its own hook — so
+no change is needed. It is recorded because a probe hit exactly this and it looks like a
+helper defect when it is not.
 
 ### Also failing first — the §4.5 whitespace guards
 
@@ -339,6 +356,9 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
   expectRowBoundary(reset, {
     scope: popover(),
     descriptionId: reset.getAttribute("aria-describedby"),
+    // ONLY reset renders a persistent sr-only live region (PCR-1 (a)). The flag
+    // defaults to false, so rotate cannot quietly grow one.
+    allowLiveRegion: true,
   });
 });
 
