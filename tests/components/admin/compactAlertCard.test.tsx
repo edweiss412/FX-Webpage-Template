@@ -100,3 +100,57 @@ describe("CompactAlertCard — band presence (§5.1)", () => {
     expect(screen.getByTestId("compact-alert-message").textContent).not.toContain("?");
   });
 });
+
+describe("CompactAlertCard — tone skins and stripe forcing (§3.1, amendment A5)", () => {
+  test("warning tone: amber skin, severity glyph, honors the stripe prop", () => {
+    render(<CompactAlertCard message="m" tone="warning" stripe="review" />);
+    const card = screen.getByTestId("compact-alert-card");
+    expect(card.className).toContain("bg-warning-bg");
+    expect(card.className).toContain("border-l-status-review");
+    expect(screen.getByTestId("compact-alert-message").textContent).toContain("!");
+  });
+
+  test("warning tone: critical alerts get the degraded stripe", () => {
+    render(<CompactAlertCard message="m" tone="warning" stripe="degraded" />);
+    expect(screen.getByTestId("compact-alert-card").className).toContain(
+      "border-l-status-degraded",
+    );
+  });
+
+  // Failure mode: a tone map that honors a caller's stripe on a non-severity
+  // card. Health rows would then be re-skinned by severity, which is exactly
+  // what amendment A5 exists to prevent (severity stays on the weight badge).
+  test.each([["muted"], ["neutral"]] as const)(
+    "%s tone forces stripe none and omits the glyph even when a stripe is passed",
+    (tone) => {
+      render(<CompactAlertCard message="m" tone={tone} stripe="degraded" />);
+      const card = screen.getByTestId("compact-alert-card");
+      expect(card.className).not.toContain("border-l-status-degraded");
+      expect(card.className).not.toContain("border-l-status-review");
+      expect(screen.getByTestId("compact-alert-message").textContent).not.toContain("!");
+    },
+  );
+
+  test("muted tone uses the sunken surface; neutral uses the plain surface", () => {
+    const { rerender } = render(<CompactAlertCard message="m" tone="muted" />);
+    expect(screen.getByTestId("compact-alert-card").className).toContain("bg-surface-sunken");
+    rerender(<CompactAlertCard message="m" tone="neutral" />);
+    const neutral = screen.getByTestId("compact-alert-card").className;
+    expect(neutral).toContain("bg-surface");
+    expect(neutral).not.toContain("bg-surface-sunken");
+  });
+
+  test("neutral and muted dividers drop the amber alpha", () => {
+    render(<CompactAlertCard message="m" tone="neutral" detailBand={<span>d</span>} />);
+    const band = screen.getByTestId("compact-alert-detail-band");
+    expect(band.className).toContain("border-border");
+    expect(band.className).not.toContain("warning-text");
+  });
+
+  test("className merges onto the root rather than replacing shell classes", () => {
+    render(<CompactAlertCard message="m" className="mt-4" />);
+    const card = screen.getByTestId("compact-alert-card");
+    expect(card.className).toContain("mt-4");
+    expect(card.className).toContain("rounded-sm");
+  });
+});
