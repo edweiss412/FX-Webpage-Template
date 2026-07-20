@@ -120,7 +120,10 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
 
   const rotate = screen.getByTestId("admin-rotate-share-token-button");
   expect(rotate.tagName).toBe("BUTTON");
-  expectClasses(rotate, { has: ROW_TOKENS, forbids: [NO_BORDER, NO_REST_BACKGROUND] });
+  // `exactly`, not `has`: the spec prescribes this list completely, so an
+  // overriding extra (sm:w-auto, items-start, px-0) must FAIL rather than ride
+  // along beside the token it overrides.
+  expectClasses(rotate, { exactly: ROW_TOKENS, forbids: [NO_BORDER, NO_REST_BACKGROUND] });
 
   // One call covers containment + exactness + uniqueness for BOTH strings
   // (spec §7.0). Uniqueness alone would miss a label left outside the button;
@@ -140,6 +143,8 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   const icon = rotate.querySelector("svg")!;
   expect(icon.getAttribute("width")).toBe("16");
   expect(icon.getAttribute("height")).toBe("16");
+  // `has` here, deliberately: lucide also stamps its own base `lucide` class,
+  // so this list is NOT complete and `exactly` would be wrong.
   expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-rotate-ccw"] });
 
   // The OLD shape must be GONE, not merely joined by the new one.
@@ -221,7 +226,7 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
   const reset = screen.getByTestId("picker-reset-all-button");
   expect(reset.tagName).toBe("BUTTON");
   expectClasses(reset, {
-    has: [
+    exactly: [
       ...ROW_TOKENS,
       // reset-ONLY: the guard against silently homogenizing the two rows' focus
       // treatment, and against a disabled row lighting up on hover (§4.7).
