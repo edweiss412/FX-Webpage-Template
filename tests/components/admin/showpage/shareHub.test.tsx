@@ -103,11 +103,14 @@ describe("ShareHub — triggers", () => {
 
   // Archived is read-only for SHARING — the crew link, Copy, Email, rotate and
   // reset are all gone — but the hub is still the one home for the lifecycle
-  // control, so the kebab (and only the kebab) survives. Dropping the whole hub
-  // here would strand Unarchive with nowhere to live.
-  it("archived: the primary Share-link trigger is gone; the kebab remains", () => {
+  // control. The primary must therefore stay LABELLED rather than degrading to
+  // a bare kebab: an archived show has never rendered a hub before, so a
+  // three-dot glyph is the operator's only clue that a way back exists
+  // (impeccable critique P1 — recognition, not recall).
+  it("archived: the primary relabels to 'Show actions' rather than disappearing", () => {
     renderHub({ archived: true });
-    expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+    expect(primary().textContent).toBe("Show actions");
+    expect(primary().textContent).not.toMatch(/share link/i);
     expect(kebab()).toBeTruthy();
   });
 
@@ -351,6 +354,7 @@ describe("ShareHub — Show section (lifecycle)", () => {
   it("archived: the Show section holds Unarchive and every share affordance is gone", () => {
     renderHub({ archived: true });
     fireEvent.click(kebab());
+    expect(popover()).toHaveAccessibleName("Show actions");
     expect(within(showSection()).getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
     // Read-only: no URL, no Copy, no email rows, no rotate, no reset.
@@ -372,10 +376,78 @@ describe("ShareHub — Show section (lifecycle)", () => {
     expect(screen.getByTestId("admin-current-share-link-url")).toBeTruthy();
   });
 
+  // impeccable audit P1. The publish axis flips from the toggle OUTSIDE the
+  // panel; the archive axis flips from a control INSIDE it, so the auto-close
+  // unmounts the subtree that currently holds focus. Bare setOpen(false) drops
+  // focus to <body> and a keyboard user restarts from the top of the modal.
+  it("a lifecycle close restores focus to the trigger, not <body>", () => {
+    const { rerender } = render(
+      <ShareTokenProvider key={SHOW_ID} initialToken={TOKEN} initialEpoch={1}>
+        <ShareHub
+          slug={SLUG}
+          showId={SHOW_ID}
+          published
+          archived={false}
+          finalizeOwned={false}
+          crewEmails={[]}
+          showTitle="T"
+          pickerCrew={CREW}
+          archiveAction={async () => ({ ok: true }) as const}
+          unarchiveAction={async () => {}}
+        />
+      </ShareTokenProvider>,
+    );
+    fireEvent.click(kebab());
+    expect(document.activeElement).toBe(popover());
+
+    rerender(
+      <ShareTokenProvider key={SHOW_ID} initialToken={TOKEN} initialEpoch={1}>
+        <ShareHub
+          slug={SLUG}
+          showId={SHOW_ID}
+          published
+          archived
+          finalizeOwned={false}
+          crewEmails={[]}
+          showTitle="T"
+          pickerCrew={CREW}
+          archiveAction={async () => ({ ok: true }) as const}
+          unarchiveAction={async () => {}}
+        />
+      </ShareTokenProvider>,
+    );
+    expect(queryPopover()).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(kebab());
+  });
+
   it("finalize-owned is ignored once archived: Unarchive still renders", () => {
     renderHub({ archived: true, finalizeOwned: true });
     fireEvent.click(kebab());
     expect(within(showSection()).getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
+  });
+});
+
+describe("ShareHub — Unarchive failure surface", () => {
+  it("a rejected unarchive renders a role=alert retry line instead of failing silently", async () => {
+    // The action returns void, so there is no result to branch on — only a
+    // rejection. Silence here would be the entire feedback: the button just
+    // reverts to "Unarchive" (impeccable audit P2).
+    renderHub({
+      archived: true,
+      unarchiveAction: async () => {
+        throw new Error("boom");
+      },
+    });
+    fireEvent.click(kebab());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`));
+    });
+    const alert = await screen.findByTestId(`unarchive-show-error-${SHOW_ID}`);
+    expect(alert).toHaveAttribute("role", "alert");
+    // Plain language, no raw code (invariant 5).
+    expect(alert.textContent).toMatch(/didn’t go through/i);
+    expect(alert.textContent).not.toMatch(/[A-Z_]{6,}/);
   });
 });
 
@@ -523,6 +595,10 @@ describe("ShareHub — busy gating (spec §6)", () => {
 
     fireEvent.click(backdrop());
     expect(queryPopover()).not.toBeNull();
+    // Inert dismissal must be ANNOUNCED, not just enforced: an SR user pressing
+    // Escape mid-archive otherwise gets no response and no explanation
+    // (impeccable audit P2).
+    expect(popover()).toHaveAttribute("aria-busy", "true");
 
     await act(async () => {
       settleArchive?.({ ok: true });

@@ -10,12 +10,14 @@
  * or the kebab; both drive the same popover.
  *
  * Two arms, selected by `archived`:
- *   - Not archived → primary + kebab; crew-link section, Careful section, and
- *     (unless finalize-owned) a Show section holding Archive.
- *   - Archived     → KEBAB ONLY, and the popover holds nothing but the Show
- *     section's Unarchive. The share half is read-only-suppressed wholesale.
- *     The hub itself must stay mounted here: it is Unarchive's only home, so
- *     the strip's group is unconditional (StatusStrip.tsx).
+ *   - Not archived → primary reads "Share link"; crew-link section, Careful
+ *     section, and (unless finalize-owned) a Show section holding Archive.
+ *   - Archived     → primary RELABELS to "Show actions" and the popover holds
+ *     nothing but the Show section's Unarchive; the share half is
+ *     read-only-suppressed wholesale. Both triggers stay: the hub is
+ *     Unarchive's only home (so the strip's group is unconditional —
+ *     StatusStrip.tsx), and degrading to a bare kebab would hide the one way
+ *     back behind a glyph in the state where it matters most.
  *
  * The lifecycle control is a busy-reporting child exactly like rotate and
  * reset — it reports through `onBusyChange`, so an in-flight archive gates
@@ -43,7 +45,7 @@
  * the review modal open.
  */
 
-import { Link2, Mail, MoreVertical } from "lucide-react";
+import { Link2, Mail, MoreHorizontal, MoreVertical } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -203,6 +205,15 @@ export function ShareHub({
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(false);
+    // Restore focus, which the publish-only version of this effect did not need
+    // to: that axis flips from the toggle OUTSIDE the panel, so focus was never
+    // inside the subtree being unmounted. The archive axis flips from a control
+    // INSIDE it — the operator confirms, the action commits, `archived` flips on
+    // the refresh, and the panel disappears out from under their focus. Without
+    // this, focus falls to <body> and a keyboard or SR user has to Tab from the
+    // top of the modal (impeccable audit P1). The primary trigger renders in
+    // both arms, so the restore target always exists.
+    openerRef.current?.focus();
   }, [published, archived, open, busy]);
 
   // When the action settles, the deferred close is CANCELLED, not applied.
@@ -275,36 +286,43 @@ export function ShareHub({
         />
       )}
 
-      {/* Archived is read-only for SHARING, so the crew-link primary is gone —
-          but the hub survives as the single home for the lifecycle control, and
-          the kebab below is what opens it. */}
-      {!archived ? (
-        <button
-          type="button"
-          ref={primaryRef}
-          data-testid="share-hub-primary"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={popoverId}
-          onClick={() => toggle("primary")}
-          // NOT bg-accent, deliberately. DESIGN.md reserves the FXAV orange for
-          // "this matters now" — and the band's accent set is contractually
-          // EXACTLY {published-toggle, status-dot-live} (T-NO-ORANGE in
-          // published-review-modal.layout.spec.ts). Share link is a routine,
-          // always-available action, not a live-state signal, so an accent fill
-          // here would both break that pin and dilute the one cue that means the
-          // show is on air. The mock drew it orange; the project invariant wins.
-          // The two arms differentiate by LABEL and weight instead.
-          className={
-            published
-              ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          }
-        >
+      {/* The primary trigger renders in BOTH lifecycles, only its label changes.
+          Archived drops the crew-link half of the popover, but it must NOT drop
+          down to a bare kebab: Unarchive would then be reachable only by
+          guessing that a three-dot glyph is its home, in the one state where
+          the operator most needs a way back — and the hub does not even appear
+          on an archived show today, so there is no learned position either
+          (impeccable critique P1). A labelled trigger keeps it recognition,
+          not recall. */}
+      <button
+        type="button"
+        ref={primaryRef}
+        data-testid="share-hub-primary"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => toggle("primary")}
+        // NOT bg-accent, deliberately. DESIGN.md reserves the FXAV orange for
+        // "this matters now" — and the band's accent set is contractually
+        // EXACTLY {published-toggle, status-dot-live} (T-NO-ORANGE in
+        // published-review-modal.layout.spec.ts). Share link is a routine,
+        // always-available action, not a live-state signal, so an accent fill
+        // here would both break that pin and dilute the one cue that means the
+        // show is on air. The mock drew it orange; the project invariant wins.
+        // The two arms differentiate by LABEL and weight instead.
+        className={
+          published && !archived
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        }
+      >
+        {archived ? (
+          <MoreHorizontal aria-hidden="true" size={15} />
+        ) : (
           <Link2 aria-hidden="true" size={15} />
-          {published ? "Share link" : "Share link · paused"}
-        </button>
-      ) : null}
+        )}
+        {archived ? "Show actions" : published ? "Share link" : "Share link · paused"}
+      </button>
 
       <button
         type="button"
@@ -330,6 +348,10 @@ export function ShareHub({
           ref={panelRef}
           tabIndex={-1}
           role="dialog"
+          // While a child is mid-flight every dismissal path is inert and
+          // Escape is swallowed. Without this, an SR user pressing Escape
+          // mid-archive gets no response and no explanation (impeccable audit).
+          aria-busy={busy}
           aria-label={archived ? "Show actions" : "Share crew link and show actions"}
           data-testid="share-hub-popover"
           onKeyDown={onPopoverKeyDown}
@@ -436,7 +458,28 @@ export function ShareHub({
               <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
                 Show
               </h3>
-              <div data-testid="share-hub-show-section" className="px-0.5">
+              {/* The armed confirm carries the ratified long consequence
+                  sentence (destructive-confirm-pass §R7 keeps it), which in a
+                  308px panel wraps to several lines and grows the section
+                  downward. In the panel's own max-h scroller that growth can
+                  push the confirm target past the fold on a 390px phone — the
+                  venue-floor case — so the section scrolls itself back into
+                  view on the arming tap. The ARMED CONFIRM is the scroll
+                  subject, not this wrapper: once the sentence wraps, the
+                  section can be taller than the remaining scroll port, and
+                  `nearest` on the wrapper then moves nothing (impeccable audit
+                  P3). Falls back to the wrapper before the confirm mounts. */}
+              <div
+                data-testid="share-hub-show-section"
+                className="px-0.5"
+                onClick={(e) => {
+                  const el = e.currentTarget;
+                  requestAnimationFrame(() => {
+                    const confirm = el.querySelector('[data-testid="archive-show-confirm-button"]');
+                    (confirm ?? el).scrollIntoView({ block: confirm ? "end" : "nearest" });
+                  });
+                }}
+              >
                 {archived ? (
                   <UnarchiveShowButton
                     showId={showId}

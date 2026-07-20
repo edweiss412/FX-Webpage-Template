@@ -155,15 +155,15 @@ describe("StatusStrip", () => {
       expect(screen.getByTestId("share-hub-primary").textContent).toMatch(/paused/i);
     });
 
-    it("archived: keeps the hub for Unarchive, but drops the share-link primary", () => {
+    it("archived: keeps the hub for Unarchive and relabels the primary", () => {
       // The hub is the lifecycle control's only home in both directions, so
       // gating the whole group on `!archived` would strand Unarchive with
-      // nowhere to live. What archived DOES drop is the share half — starting
-      // with the primary trigger that advertises a crew link this show has not
-      // got.
+      // nowhere to live. What archived DOES drop is the share half; the primary
+      // trigger stays, relabelled, so the way back is recognizable rather than
+      // hidden behind a bare kebab.
       renderStrip({ archived: true }, { token: "TOK" });
       expect(screen.getByTestId("share-hub-group")).toBeTruthy();
-      expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+      expect(screen.getByTestId("share-hub-primary").textContent).toBe("Show actions");
       expect(screen.getByTestId("share-hub-kebab")).toBeTruthy();
     });
 

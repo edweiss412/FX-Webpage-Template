@@ -29,7 +29,7 @@
  * clears automatically when the action returns (even on failure — no stuck
  * "Unarchiving…" control, no required reload).
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 type UnarchiveShowButtonProps = {
@@ -81,12 +81,44 @@ export function UnarchiveShowButton({
   unarchiveAction,
   onBusyChange,
 }: UnarchiveShowButtonProps) {
+  // The action returns void, so a failure has no result to branch on — only a
+  // rejection. Without this the button simply reverts to "Unarchive" and
+  // NOTHING is shown or announced. That was tolerable in the archived dashboard
+  // row, where the row's continued presence was itself the signal; in the hub
+  // popover this control is Unarchive's only home, so silence is the entire
+  // feedback (impeccable audit P2). Mirrors ArchiveShowButton's generic branch:
+  // plain-language retry prose, never a raw code (invariant 5).
+  const [failed, setFailed] = useState(false);
+
   // The form action is a thin closure so the button stays a child of <form>
   // (useFormStatus requires that). The closure calls the Phase-7 action with
   // this row's showId.
   return (
-    <form action={() => unarchiveAction(showId)} className="flex">
-      <SubmitButton showId={showId} {...(onBusyChange ? { onBusyChange } : {})} />
-    </form>
+    <div className="flex flex-col items-start gap-2">
+      <form
+        action={async () => {
+          setFailed(false);
+          try {
+            await unarchiveAction(showId);
+          } catch {
+            setFailed(true);
+          }
+        }}
+        className="flex"
+      >
+        <SubmitButton showId={showId} {...(onBusyChange ? { onBusyChange } : {})} />
+      </form>
+
+      {failed ? (
+        <p
+          role="alert"
+          data-testid={`unarchive-show-error-${showId}`}
+          className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
+        >
+          Unarchiving didn&rsquo;t go through. Try again in a moment; if it keeps failing, contact
+          the developer.
+        </p>
+      ) : null}
+    </div>
   );
 }

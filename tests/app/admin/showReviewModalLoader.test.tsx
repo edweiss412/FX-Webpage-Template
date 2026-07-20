@@ -538,10 +538,11 @@ describe("show review modal loader — archived read-only posture (§6)", () => 
     expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
     expect(screen.queryByTestId("strip-publish-toggle")).toBeNull();
     // archive-into-share-hub: the hub itself SURVIVES archiving (it is
-    // Unarchive's only home), but its share half does not — no "Share link"
-    // primary, and the retired Overview inactive notice is gone with the panel.
+    // Unarchive's only home), but its share half does not — the primary
+    // relabels to "Show actions" instead of advertising a crew link, and the
+    // retired Overview inactive notice is gone with the panel.
     expect(screen.getByTestId("share-hub-group")).toBeTruthy();
-    expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+    expect(screen.getByTestId("share-hub-primary").textContent).toBe("Show actions");
     expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
     // Re-sync paused on the read-only surface (no re-sync button in Overview).
     expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
