@@ -9,7 +9,7 @@ import { DEFAULT_WEIGHT, FILE_WEIGHTS } from "./lib/test/vitest.weights";
 // Pure + exported so the balance meta-test can exercise the real algorithm.
 // Operates on the ITEMS directly (never collapses by key) so it is a clean cover
 // even if two items share a tieKey. `tieKey` gives a total order on equal weights
-// → deterministic across the two separate CI runners.
+// → deterministic across the N separate CI runners.
 export function lptShard<T>(
   items: T[],
   count: number,
