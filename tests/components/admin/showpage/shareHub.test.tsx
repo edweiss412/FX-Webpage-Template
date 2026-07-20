@@ -256,17 +256,25 @@ describe("ShareHub — z-order (spec §3)", () => {
 
   it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
     renderHub();
-    // What reintroduces the defect is NOT `position` alone. Per CSS 2.1
-    // Appendix E, a positioned element at `z-index: auto` paints in the same
-    // step as z-0 contexts (step 6), which is BELOW a positive-z stacking
-    // context (step 7) — so a bare `relative` trigger still loses to the menu's
-    // z-20. The defect returns only if a trigger establishes a context at the
-    // menu's level or above: a positive z-index (`z-1`..`z-50`, or an arbitrary
-    // `z-[N]`) or `isolate`/`isolation-isolate`. Forbid exactly those, so a
-    // correct refactor that adds `relative` for an unrelated reason still passes.
+    // The AUTHORITATIVE guard for this defect is T-HUB-ZORDER in the real
+    // browser (elementFromPoint over the overlap); jsdom computes no paint
+    // order. This is a cheap belt-and-suspenders check on the ONE thing a class
+    // scan can decide: a trigger overpaints the menu only if it carries a
+    // z-index at or above the menu's level (20). Per CSS 2.1 Appendix E a
+    // positioned element at z-auto/z-0 paints BELOW a positive-z context, and
+    // z-10 < z-20, so none of `relative`, `z-0`, `z-10`, or `isolate` (a
+    // level-0 context) reintroduces it — only z >= 20 does. Parse the level and
+    // assert it, so a correct refactor adding a low z stays green.
+    const zLevel = (cls: string): number => {
+      const m = /(^|\s)(-?)z-(\[(-?\d+)\]|\d+)(\s|$)/.exec(cls);
+      if (!m) return 0;
+      const raw = m[4] ?? m[3];
+      return (m[2] === "-" ? -1 : 1) * Number(raw);
+    };
     for (const el of [primary(), kebab()]) {
-      expect(el.className).not.toMatch(/\bz-(?:\[|\d)/);
-      expect(el.className).not.toMatch(/\bisolate\b/);
+      expect(zLevel(el.className), `${el.className} must stay below the menu's z-20`).toBeLessThan(
+        20,
+      );
     }
   });
 });
