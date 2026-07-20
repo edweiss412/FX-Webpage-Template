@@ -397,8 +397,10 @@ LEGS=6   # update to 8 if the §6.4 fallback fires
 measure() { # usage: measure <run-id> <attempt>   (uses $LEGS)
   gh api "repos/{owner}/{repo}/actions/runs/$1/attempts/$2/jobs" --paginate --jq "
     [.jobs[] | select(.name|startswith(\"unit-suite-shard\"))] as \$legs |
+    ([.jobs[] | select(.name == \"unit-suite\")] | first) as \$agg |
     if (\$legs|length) != $LEGS then error(\"partial attempt: \(\$legs|length)/$LEGS legs — measure only COMPLETE attempts (all legs present)\")
     elif ([\$legs[]|select(.conclusion != \"success\")]|length) > 0 then error(\"non-green leg — not a qualifying attempt\")
+    elif (\$agg == null or \$agg.conclusion != \"success\") then error(\"aggregator not green — not a qualifying attempt (spec §6.2 requires legs AND aggregator)\")
     else [\$legs[] | {
       leg: .name,
       wall_s: ((.completed_at|fromdate)-(.started_at|fromdate)),
@@ -424,13 +426,17 @@ gh pr checks <PR#> --watch                 # wait for the pushed run
 RUN=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
 ATT=$(gh run view $RUN --json attempt --jq .attempt)   # LATEST attempt (1 normally; >1 after any rerun)
 measure $RUN $ATT                          # errors loudly if not a full green attempt
-# Evaluate IN SPEC ORDER on this output:
-#   (2) max_wall   <  300 ?  no → 8-leg fallback (fires at most ONCE) → MEASURE-LOOP;
-#                            already at 8 → keep-fastest branch (decides and CLOSES evaluation)
-#   (3) vitest_skew <= 75 ?  no → reweight branch → MEASURE-LOOP
-# Loop exits when the latest measure output satisfies (2) and (3). After the
-# keep-fastest branch has decided, criteria evaluation is CLOSED — any further
-# loop pass is a push + watch-for-green confirmation only, never a new decision.
+# Evaluate BOTH criteria on this output, act in spec order:
+#   compute (2) max_wall < 300 AND (3) vitest_skew <= 75   (always record both)
+#   if (2) fails at 6 → 8-leg fallback (fires at most ONCE) → MEASURE-LOOP, where
+#        BOTH criteria are re-evaluated at the new matrix (spec §6.4 "re-run 2-3")
+#   if (2) fails at 8 → keep-fastest branch (below)
+#   if only (3) fails → reweight branch → MEASURE-LOOP
+# Loop exits when the latest measure output satisfies (2) and (3).
+# CLOSURE RULE: evaluation closes when the keep-fastest branch completes —
+# including its sub-step-2 confirmation pass (that pass IS a decision input) and
+# any sub-step-3 skew handling. After closure, MEASURE-LOOP is never re-entered;
+# a post-closure confirmation is exactly `git push && gh pr checks <PR#> --watch`.
 ```
 
 Flake rule — the invariant is COMPLETENESS, not the rerun trigger: an attempt is measurable iff it contains all `$LEGS` legs, all green (exactly what `measure` validates). `gh run rerun $RUN --failed` after a single-leg flake produces a partial attempt (only the failed leg re-runs) — `measure` refuses it; use a full `gh run rerun $RUN` or a fresh pushed run instead. In the corner case where EVERY leg failed, a `--failed` rerun re-runs all legs and its attempt is complete — measurable like any other.
@@ -490,15 +496,15 @@ measure $RUNH 1    # this new run's attempt 1 is the cache-hit measurement
 
   **(2) Wall-clock criterion:** `max_wall < 300` on the LATEST measure output for the surviving configuration (Step-3 measure if cache kept unchanged; otherwise whatever the most recent MEASURE-LOOP pass produced). Record.
 
-  **(3) Balance criterion:** `vitest_skew ≤ 75` on the SAME (latest) measure output as (2) — the two criteria are always evaluated together on one output, never on outputs from different configurations. If exceeded: extract the outlier leg's per-file times from its log (`gh run view <run-id> --log | grep "unit-suite-shard (<n>)" | perl -pe 's/\x1b\[[0-9;]*m//g' | grep -oE "✓ +(serial|parallel) +tests/[^ ]+ \([0-9]+ tests[^)]*\) [0-9]+ms"`), update BOTH the `MEASURED_HEAVY` literal and `FILE_WEIGHTS` for the mis-weighted file (test first: edit `MEASURED_HEAVY`, run balance test → FAIL, edit map, → PASS), commit `test(infra): reweight <file> from run <id> per-leg log (spec §6.3)`. **→ MEASURE-LOOP** (re-evaluate (2) then (3) on the new output; repeat this branch until both hold or (2) triggers (4)).
+  **(3) Balance criterion:** `vitest_skew ≤ 75` on the SAME (latest) measure output as (2) — the two criteria are always evaluated together on one output, never on outputs from different configurations. If exceeded: extract the outlier leg's per-file times from its log (`gh run view <run-id> --log | grep "unit-suite-shard (<n>)" | perl -pe 's/\x1b\[[0-9;]*m//g' | grep -oE "✓ +(serial|parallel) +tests/[^ ]+ \([0-9]+ tests[^)]*\) [0-9]+ms"`), update BOTH the `MEASURED_HEAVY` literal and `FILE_WEIGHTS` for the mis-weighted file (test first: edit `MEASURED_HEAVY`, run balance test → FAIL, edit map, → PASS), commit `test(infra): reweight <file> from run <id> per-leg log (spec §6.3)`. **→ MEASURE-LOOP** (re-evaluate BOTH criteria on the new output; repeat this branch until both hold or (2) triggers (4)).
 
   **(4) 8-leg fallback** (only if (2) misses at 6): test-first edits — topology matrix literal test to `[1, 2, 3, 4, 5, 6, 7, 8]` + denominator `.toBe(8)`, balance loops `[2, 3, 6]` → `[2, 3, 8]` in BOTH loops; run both meta-tests → FAIL; workflow `shard: [1, 2, 3, 4, 5, 6, 7, 8]`, `--shard=${{ matrix.shard }}/8`, step name `/8`, header prose `6-leg`→`8-leg` / `i/6`→`i/8` / `six legs`→`eight legs`; run both meta-tests → PASS; commit `infra: 8-leg fallback per spec §6.4 (6-leg max leg <measured>s ≥300s)`; set `LEGS=8`. **→ MEASURE-LOOP** (re-evaluate (3) then (2)).
 
   **Keep-fastest floor branch (only if (2) STILL misses at 8) — spec §6.4 applied literally, "one qualifying run per configuration decides":**
 
   1. Compare `max_wall` of exactly two outputs: the 6-leg qualifying output that triggered the fallback, and the 8-leg qualifying output that just missed. No re-measurement of either configuration — the spec's no-repetition rule is the authority. (If a reweight landed between the two runs, the comparison carries that as accepted noise; record the caveat in the PR body. This deliberately descopes cross-configuration freshness choreography — three review rounds showed that state machine breeds corner cases faster than prose closes them, and this branch is unreachable under every §3.1 projection.)
-  2. If 8 was faster or equal: keep 8 (already live; no edits). If 6 was faster: revert to 6 test-first — topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix (8-leg measured slower, spec §6.4)`; set `LEGS=6`; **→ MEASURE-LOOP** (confirmation pass; in the unlikely event this confirmation output satisfies (2) AND (3), the target is MET — skip sub-step 3's residual recording and go to Step 5).
-  3. On the kept configuration's deciding qualifying output: verify `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge); append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target`; commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`; **→ MEASURE-LOOP** as a push + watch-for-green confirmation ONLY (evaluation is closed; no measurement is taken or consumed — the pass exists so the merge ref contains every commit).
+  2. If 8 was faster or equal: keep 8 (already live; no edits). If 6 was faster: revert to 6 test-first — topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix (8-leg measured slower, spec §6.4)`; set `LEGS=6`; **→ MEASURE-LOOP** one final decision pass (this is the branch's last decision input): if its output satisfies (2) AND (3), the target is MET — skip sub-step 3's residual recording and go to Step 5.
+  3. On the kept configuration's deciding qualifying output, record BOTH criteria. If (3) exceeds 75 on that output, apply the reweight branch (it is matrix-independent) and let its MEASURE-LOOP passes conclude before closing — a merged configuration must have (3) accepted, not merely (2) compared. Then verify `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge); append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target`; commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`. Evaluation is now CLOSED; push this docs-only commit via the post-closure confirmation form: `git push && gh pr checks <PR#> --watch` (no measure call — the pass exists so the merge ref contains every commit).
 
 - [ ] **Step 5: Record + merge.** All measurements + decisions in the PR body (§6 table filled). Pre-merge guards, in order:
 
