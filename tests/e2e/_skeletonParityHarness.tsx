@@ -167,7 +167,6 @@ function loadedElement(): React.ReactElement {
     // it here would make the skeleton look wrong against a header that no real
     // published show renders.
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
-    hasActionableWarnings: false,
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
     crewEmails: [],

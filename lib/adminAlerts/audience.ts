@@ -66,7 +66,10 @@ export function isAutoResolving(code: string): boolean {
 
 // Per-code auto-clear note; codes absent here fall back to the generic line. Human
 // copy only (invariant 5) — never a raw code, never interpolates untrusted context.
-const AUTO_RESOLVE_NOTES: Record<string, string> = {
+/** Exported for the copy meta-test that sweeps EVERY note for banned characters
+ *  (em dashes in user-visible copy). Iterating the real map is what makes the
+ *  sweep fail-by-default when a new note is added. */
+export const AUTO_RESOLVE_NOTES: Record<string, string> = {
   EMAIL_NOT_CONFIGURED:
     "Clears automatically once email notifications are configured on the deployment.",
   EMAIL_DELIVERY_FAILED: "Clears automatically once email deliveries recover.",
@@ -78,8 +81,11 @@ const AUTO_RESOLVE_NOTES: Record<string, string> = {
     "Clears automatically the next time the branch-protection monitor verifies the settings match the contract.",
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED:
     "Clears automatically the next time the branch-protection monitor authenticates successfully.",
-  RESYNC_QUALITY_REGRESSED:
-    "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
+  // States the CLEAR CONDITION only. The trailing "— fix the sheet to resolve
+  // it." was dropped: the alert body one line above already says to fix the
+  // sheet, so the footer was repeating it, and the em dash is banned in
+  // user-visible copy.
+  RESYNC_QUALITY_REGRESSED: "Clears automatically once the sheet's data quality recovers.",
 };
 
 /**

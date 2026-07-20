@@ -266,7 +266,6 @@ export function modalElement(
     attentionItems: harnessAttentionItems(alertCount),
     alertsDegraded: false,
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
-    hasActionableWarnings: false,
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
     crewEmails: [],

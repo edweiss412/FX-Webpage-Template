@@ -96,7 +96,6 @@ export type PublishedReviewModalProps = {
 
   // ── Overview ──
   openSheetHref: string | null;
-  hasActionableWarnings: boolean;
   archiveAction: () => Promise<LifecycleResult>;
   unarchiveAction: (showId: string) => Promise<void>;
   /** Crew addresses for the hub's batched Email-crew rows (share-hub T4). */
@@ -135,7 +134,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     attentionItems,
     alertsDegraded,
     openSheetHref,
-    hasActionableWarnings,
     archiveAction,
     unarchiveAction,
     crewEmails,
@@ -378,7 +376,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // badge and the §10 hash target only exist when there ARE alerts, which is
   // exactly when `hasAttention` is true.
   const hasAttention = degradedNotice !== null || overviewBanners.length > 0;
-  const overviewHasContent = hasAttention || archived || hasActionableWarnings;
+  // `hasActionableWarnings` is NOT a term here any more. It earned its place
+  // when actionable warnings made Overview render the correction-loop callout;
+  // that callout now lives solely in the Parse warnings panel, so warnings alone
+  // give Overview nothing to draw — keeping the term would mount an EMPTY
+  // section for a warned show that is neither alerting nor archived, which is
+  // the exact state this gate exists to suppress.
+  const overviewHasContent = hasAttention || archived;
 
   const overviewExtra: ExtraSection = {
     id: "overview",
@@ -406,7 +410,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     render: () => (
       <OverviewSection
         archived={archived}
-        hasActionableWarnings={hasActionableWarnings}
         attentionSlot={
           hasAttention ? (
             <div className="flex flex-col gap-2">

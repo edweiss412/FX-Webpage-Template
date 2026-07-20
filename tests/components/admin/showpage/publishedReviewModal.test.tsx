@@ -235,7 +235,6 @@ function baseProps(
     attentionItems: [],
     alertsDegraded: false,
     openSheetHref: SHEET_HREF,
-    hasActionableWarnings: false,
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
     unarchiveAction: vi.fn(async () => {}),
     crewEmails: [],
