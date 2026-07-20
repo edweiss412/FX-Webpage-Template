@@ -76,66 +76,137 @@ Six already have `MESSAGE_CATALOG` entries. `MI-2_EMPTY_TITLE` and `MI-3_NO_VALI
 
 Three independently shippable units, sequenced so no copy is authored twice.
 
+### 3.0 Producer registry (R1 finding 1)
+
+Eligibility claims in §2.2 rest on producer completeness, which a per-code grep cannot establish: alert writes reach the DB through FIVE distinct call shapes, and the earlier `DRIVE_FETCH_FAILED` error came from searching only the first.
+
+| Shape | Example |
+| --- | --- |
+| bare imported function | `app/api/admin/onboarding/scan/route.ts:306` |
+| tx-bound method, object arg | `lib/sync/runManualSyncForShow.ts:232` (`recoveryTx.upsertAdminAlert({...})`) |
+| tx-bound method, positional args | `lib/sync/applyStaged.ts:579` (`tx.upsertAdminAlert(showId, CODE, {...})`) |
+| injected dep resolved at call time | `lib/sync/runScheduledCronSync.ts:3384` (`requireTxBoundUpsertAdminAlert`) |
+| adapter that hard-codes the scope | `lib/drive/watch.ts:193` (`showId: null` fixed inside the adapter) |
+| raw SQL | `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:16` |
+
+<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
+
+**CREATES `tests/adminAlerts/_metaAlertProducerScope.test.ts`.** A filesystem-walked structural test that discovers every alert-write call site across all six shapes and requires each to be classified in a registry as `per-show`, `global`, or `both`. A NEW unclassified call site fails by default. The §2.2 eligibility table is then a projection of that registry rather than a hand-maintained list, so it cannot silently drift when a second producer is added later.
+
+This test is the mechanism finding 1 requires: exercising today's producers would not catch tomorrow's.
+
 ### 3.1 PR 1 — capture the failure reason
 
-**Producer.** In the hard-fail branch (`runScheduledCronSync.ts:3384-3392`), extend the `PARSE_ERROR_LAST_GOOD` context with:
+**Producer.** In the hard-fail branch (`lib/sync/runScheduledCronSync.ts:3384-3392`), extend the `PARSE_ERROR_LAST_GOOD` context with:
 
-- `error_code: string` — `phase1.code` (the routed `failedCodes[0]`)
-- `failed_codes: string[]` — `phase1.failedCodes`, capped at 4, remainder dropped
+- `error_code: string` — ONLY if it is a member of the allowlist below; otherwise the key is omitted entirely
+- `failed_codes: string[]` — allowlist members only, capped at 4, remainder dropped
 
-**`message` is deliberately NOT stored.** It is the only free-text member and can quote sheet content; the codes are a closed enum and carry no operator data. This is the whole privacy posture: we persist an enum, not a string. Stated explicitly so a future reader does not "helpfully" add the message back.
+**Persistence allowlist (R1 finding 2).** `Phase1Result.code` and `failedCodes` are typed `string`, not a union, and `code` falls back to the ninth value `PARSE_HARD_FAIL` when `failedCodes` is empty (`lib/sync/phase1.ts:395`). Type-level safety therefore does not exist, and "the eight codes look safe" is not a guarantee. The producer filters against an explicit frozen allowlist AT THE PERSISTENCE BOUNDARY:
 
-**Advisory-lock topology (invariant 2).** The producer already runs inside the locked hard-fail branch — the comment at `lib/sync/runScheduledCronSync.ts:3383` states it, and the alert is written through `requireTxBoundUpsertAdminAlert` (`lib/sync/runScheduledCronSync.ts:3386`). This change adds CONTEXT FIELDS to an existing call. It introduces no new lock holder, no new acquisition, and no new transaction. The single-holder rule is untouched.
+```
+MI-1_VERSION_DETECTION_FAILED   MI-5_NO_ROOMS
+MI-2_EMPTY_TITLE                MI-5a_DUPLICATE_CREW_NAME
+MI-3_NO_VALID_DATES             MI-5b_DUPLICATE_CREW_EMAIL
+MI-4_NO_CREW                    VERSION_AMBIGUOUS
+```
 
-**Catalog.** Author `MI-2_EMPTY_TITLE` and `MI-3_NO_VALID_DATES` rows via the three-way §12.4 lockstep (master-spec prose → `pnpm gen:spec-codes` → `lib/messages/catalog.ts`, one commit) so all eight reasons resolve to human copy.
+Anything else — `PARSE_HARD_FAIL`, a future invariant code, an interpolated string — is DROPPED, not stored. `message` is never stored under any condition. The privacy posture is therefore enforced by a filter, not by an assumption about what upstream emits. Tests feed an interpolated/sensitive-looking value through the producer and assert it does not reach the persisted context.
 
-**Rendering.** A pure helper resolves `error_code` to its catalog `title`, returning `null` for an unknown/absent code. Rendering is PR 2's job; PR 1 ships the helper plus its tests so PR 2 has one authored sentence, not two.
+**Catalog: an alias map, NOT two new §12.4 rows.** The producer spellings `MI-2_EMPTY_TITLE` and `MI-3_NO_VALID_DATES` have no catalog rows, but the SAME TWO INVARIANTS already have operator-facing rows under different names: `MI-2_TITLE_MISSING` ("Show title missing", `lib/messages/catalog.ts:705`) and `MI-3_NO_PARSEABLE_DATE` ("No readable show dates", `lib/messages/catalog.ts:717`). The producer spellings are the durable persisted values (`lib/messages/__generated__/internal-code-enums.ts:125` records both as `pending_ingestions.last_error_code` sources).
+
+Authoring new §12.4 rows would put TWO codes in the catalog for one invariant, which is a defect, not a fix. Instead PR 1 adds a small explicit alias map (producer spelling → catalog code) consumed by the reason helper. **No new §12.4 rows, no three-way lockstep, no x1 parity impact.** The pre-existing naming drift is recorded here, not silently normalized.
+
+**Reason helper.** Pure: allowlisted producer code → alias map → `MESSAGE_CATALOG` title, else `null`. Returns `null` for absent, unknown, unaliased, or uncataloged input.
+
+The eight resolved titles, reproduced so the composed copy is reviewable (R1 finding 5):
+
+| Producer code | Catalog code | Title |
+| --- | --- | --- |
+| `MI-1_VERSION_DETECTION_FAILED` | same | (`lib/messages/catalog.ts:678`) |
+| `MI-2_EMPTY_TITLE` | `MI-2_TITLE_MISSING` | Show title missing |
+| `MI-3_NO_VALID_DATES` | `MI-3_NO_PARSEABLE_DATE` | No readable show dates |
+| `MI-4_NO_CREW` | same | No crew rows |
+| `MI-5_NO_ROOMS` | same | (`lib/messages/catalog.ts:741`) |
+| `MI-5a_DUPLICATE_CREW_NAME` | same | (`lib/messages/catalog.ts:755`) |
+| `MI-5b_DUPLICATE_CREW_EMAIL` | same | (`lib/messages/catalog.ts:768`) |
+| `VERSION_AMBIGUOUS` | same | (`lib/messages/catalog.ts:691`) |
+
+**Composition contract.** The reason renders as its own sentence: `<title>.` — the title verbatim, one period appended, one space before the following sentence. No other punctuation is introduced. A test asserts the FINAL COMPOSED banner string (not the fragments) contains no em dash, for every one of the eight titles, so a catalog title acquiring one later fails here.
+
+**Advisory-lock topology (invariant 2) (R1 finding 7).** The `show:` hashkey is acquired by the JS-side wrapper `withShowLock` — `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` at `lib/db/advisoryLock.ts:58`, blocking variant `lib/db/advisoryLock.ts:66` — threaded into the cron path as a dependency (`lib/sync/runScheduledCronSync.ts:83`). The hard-fail branch runs inside `fn()` under that wrapper, and the alert write is tx-bound through `requireTxBoundUpsertAdminAlert` so it joins the same transaction. **Sole holder: the JS-side wrapper.** No in-RPC or nested SECURITY DEFINER acquisition exists for this hashkey on this path. This change adds context KEYS to an existing call inside that transaction: no new acquisition, no new holder, no nesting. `tests/auth/advisoryLockRpcDeadlock.test.ts` is unaffected.
 
 ### 3.2 PR 2 — generalize the mount; move the two parse notices
 
-**Widen the route.** `AttentionRoute.sectionId` becomes the full `RoutedSectionId`. Add an optional anchor:
+**Widen the route.**
 
 ```ts
 type AttentionRoute = {
   sectionId: RoutedSectionId;
-  anchor?: string; // content-level slot within the section
+  anchor?: AttentionAnchor; // "diagrams" | "opening_reel"
 };
 ```
 
-**Generalize the transport.** `crewAttention` becomes `sectionAttention`, keyed by `sectionId`, retaining the crew payload shape (`byCrewKey` / `sectionTop`) plus `byAnchor`. `ShowReviewSurface.tsx:919`'s `s.id === "crew"` gate becomes a per-section lookup. Crew behavior is preserved exactly; its tests are the regression proof.
+**Transport type (R1 finding 8).** `crewAttention: CrewAttention` becomes `sectionAttention: SectionAttention`:
 
-**Guard: anchor fallback.** If a route names an anchor and the section renders no such anchor, the item falls back to that section's top. An alert must never be dropped because its anchor is absent — this is what makes anchoring safe on data-gated sub-blocks (the Diagrams block is gated on having diagrams at all).
+```ts
+type SectionAttentionBucket = {
+  sectionTop: ReactNode[];              // ordered: derivation order (actionable first, then raised_at DESC)
+  byCrewKey?: Map<string, ReactNode[]>; // CREW ONLY: absent for every other section
+  byAnchor?: Map<AttentionAnchor, ReactNode[]>;
+};
+type SectionAttention = Map<RoutedSectionId, SectionAttentionBucket>;
+```
 
-**Route the two parse notices** to `warnings` and render them as a banner LINE above the list, not a `CompactAlertCard`.
+Ordering is the derivation order already produced by `deriveAttentionItems` (spec §3.1 of published-show-alerts: actionable before auto-clearing, then fetch order); no re-sorting. An empty bucket is NOT emitted — a section with no items has no map entry, so the consumer's optional-chain renders nothing and emits no wrapper element. `byCrewKey` remains crew-exclusive, preserving the in-`<li>` placement contract.
 
-**Copy — three variants** (approved from the mockup, verbatim):
+**Exhaustive rename inventory** (every provider, consumer, and fixture — verified by grep at plan time, enumerated in the plan): producer `components/admin/showpage/PublishedReviewModal.tsx:317`; type + prop `components/admin/review/ShowReviewSurface.tsx:165`; threading `components/admin/review/ShowReviewSurface.tsx:919`; context type `components/admin/wizard/step3ReviewSections.tsx:493`; consumer `components/admin/wizard/step3ReviewSections.tsx:1274`; section-top render `components/admin/wizard/step3ReviewSections.tsx:1314`; per-row `components/admin/wizard/step3ReviewSections.tsx:1330`; test fixtures `tests/components/admin/review/showReviewSurfaceAttention.test.tsx`, `tests/components/admin/review/attentionBanner.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `tests/components/admin/compactAlertCompoundTransitions.test.tsx`, `tests/e2e/published-show-attention.spec.ts`, `tests/e2e/published-review-modal.deeplink.spec.ts`.
 
-| Situation | Line |
-| --- | --- |
-| `PARSE_ERROR_LAST_GOOD`, list non-empty | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<reason sentence>` Anything listed below is from the version crew can see, not from the change that failed. |
-| `PARSE_ERROR_LAST_GOOD`, list empty | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<reason sentence>` |
-| `RESYNC_QUALITY_REGRESSED` | **This version is live for crew.** The latest changes lost some detail, and the problems below are what stopped reading. |
+**Crew-preservation contract (behavioral, not "tests still pass").** `showReviewSurfaceAttention.test.tsx` already asserts the crew section renders BYTE-IDENTICAL DOM when attention props are absent. That assertion is retained verbatim and is the rename's regression proof; additionally, an explicit test asserts crew's in-`<li>` and section-top placement is unchanged with props present.
 
-`<reason sentence>` is PR 1's resolved catalog title, or omitted entirely when `error_code` is absent (pre-existing alert rows raised before PR 1) or unresolvable. The trailing "Anything listed below…" clause is present ONLY when the list is non-empty (`warnings.length > 0`); the empty list renders "No parse warnings for this sheet." (`step3ReviewSections.tsx:2399`) and promising problems below would read as a broken render.
+**Availability and fallback (R1 finding 3).** Fallback is resolved at BUCKETING time in the loader/modal, before any render, so there is no render-then-relocate loop:
 
-**Cut `PICKER_EPOCH_RESET`** from `ATTENTION_ROUTES` participation: the derivation drops it before it becomes an `AttentionItem`. The alert row is still written (it remains the bell's and the audit trail's record) — only the per-show attention surface stops rendering it. Cutting the producer is explicitly NOT in scope.
+1. Section availability is already computed — `renderedSectionIds(publishedData)` (`components/admin/review/sectionInclusion.ts:54`), already called at `app/admin/_showReviewModal.tsx:326`. Note `rooms`, `event`, and `warnings` are unconditional members, so every target section in this spec is always present; the check exists for future routes and for `agenda`/`report`, which are conditional.
+2. Anchor availability is NEW: a pure `availableAnchors(data): Set<AttentionAnchor>` derived from the same `SectionData` the sections render from — `diagrams` present iff the Diagrams sub-block will render, `opening_reel` present iff that field will render. It is computed from the SAME predicate the section uses, so the two cannot disagree.
+3. Resolution order per item: anchor available → `byAnchor`; else section available → that section's `sectionTop`; else → Overview.
 
-**Guard test** for §2.2: the four global codes can never produce a per-show attention item.
+**Overview is the terminal fallback and is always reachable:** an item routed there sets `hasAttention`, which is a disjunct of `overviewHasContent` (`PublishedReviewModal.tsx:385`), so the Overview section mounts to receive it. An item can therefore never be dropped.
+
+**Copy — the complete state matrix (R1 finding 4).** `PARSE_ERROR_LAST_GOOD` has 2 (list empty/non-empty) × 2 (reason present/absent) = 4 states; `RESYNC_QUALITY_REGRESSED` has 2. All six are specified; none is impossible.
+
+| # | Notice | List | Reason | Rendered line |
+| --- | --- | --- | --- | --- |
+| 1 | `PARSE_ERROR_LAST_GOOD` | non-empty | present | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<Title>.` Anything listed below is from the version crew can see, not from the change that failed. |
+| 2 | `PARSE_ERROR_LAST_GOOD` | non-empty | absent | **Crew are still seeing the last good version.** Your latest changes didn't go through. Anything listed below is from the version crew can see, not from the change that failed. |
+| 3 | `PARSE_ERROR_LAST_GOOD` | empty | present | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<Title>.` |
+| 4 | `PARSE_ERROR_LAST_GOOD` | empty | absent | **Crew are still seeing the last good version.** Your latest changes didn't go through. |
+| 5 | `RESYNC_QUALITY_REGRESSED` | non-empty | n/a | **This version is live for crew.** The latest changes lost some detail, and the problems below are what stopped reading. |
+| 6 | `RESYNC_QUALITY_REGRESSED` | empty | n/a | **This version is live for crew.** The latest changes lost some detail. |
+
+State 6 is the gap R1 found: `RESYNC_QUALITY_REGRESSED` fires on a quality REGRESSION, which normally implies warnings exist — but the two are computed independently (the alert from a cross-version comparison, the list from the current parse), so a zero-warning regression is representable and must not promise "problems below." Its clause is dropped exactly as in states 3-4. `RESYNC_QUALITY_REGRESSED` carries no reason field (that is `PARSE_ERROR_LAST_GOOD`-only), hence "n/a" rather than a third dimension.
+
+**Both notices present simultaneously:** both lines render, `PARSE_ERROR_LAST_GOOD` first (it describes what crew currently see; the other describes what is live), as two sibling elements inside one container, each with its own testid.
+
+**The banner as a rendered element (R1 finding 9).** Not a prose description:
+
+- Element: `<p data-testid="parse-attention-note-<code>">` inside a `<div data-testid="parse-attention-notes">` container placed as the FIRST child of the Parse warnings panel body, ABOVE both the list and the empty-state line (`step3ReviewSections.tsx:2399`).
+- The leading sentence is `<strong>`; the remainder is normal weight in the same paragraph.
+- Type/tokens: `text-xs/relaxed`, `text-text-subtle`, container `border-b border-border pb-2 mb-1`. No card, no stripe, no background fill — the visual distinction from the cards below is the ABSENCE of card chrome.
+- Accessibility: it is static page context, not a live announcement. No `role="alert"`, no `role="status"`, no `aria-live` — the content is present at first paint and never updates in place.
+- Two simultaneous notices are two `<p>` siblings in the one container, not two containers.
+
+**Cut `PICKER_EPOCH_RESET`** from attention derivation. The alert row is still written (it remains the bell's record and the audit trail); only the per-show attention surface stops rendering it. Cutting the producer is NOT in scope.
 
 ### 3.3 PR 3 — anchors for the asset/reel codes
 
-Two anchors:
-
 | Anchor | Host | Live-code note |
 | --- | --- | --- |
-| `diagrams` | the Diagrams sub-block under Rooms & scope | It is a level-4 SUB-block with NO `sectionId` (`step3ReviewSections.tsx:658-663`), which is exactly why the route needs an anchor rather than a section |
-| `opening_reel` | the Event details field of that key | `step3ReviewSections.tsx:382` (group key), rendered `components/admin/wizard/step3ReviewSections.tsx:1839` |
+| `diagrams` | Diagrams sub-block under Rooms & scope | A level-4 SUB-block with NO `sectionId` (`components/admin/wizard/step3ReviewSections.tsx:658`), which is why the route needs an anchor rather than a section |
+| `opening_reel` | the Event details field of that key | `components/admin/wizard/step3ReviewSections.tsx:382` (group key), rendered `components/admin/wizard/step3ReviewSections.tsx:1839` |
 
 Routes: `ASSET_RECOVERY_BYTES_EXCEEDED`, `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`, `EMBEDDED_ASSET_DRIFTED` → `{ sectionId: "rooms", anchor: "diagrams" }`. `OPENING_REEL_PERMISSION_DENIED`, `OPENING_REEL_NOT_VIDEO`, `REEL_DRIFTED` → `{ sectionId: "event", anchor: "opening_reel" }`.
 
-These render as `CompactAlertCard` (unchanged shell), so they keep their stripe, footer, and resolve affordance. The stripe is what distinguishes them from surrounding content: warning cards ship `stripe="none"` (`PerShowActionableWarnings.tsx:125`) while attention cards default to the review stripe (`CompactAlertCard.tsx:17`).
-
----
+These render as `CompactAlertCard` (unchanged shell), keeping stripe, footer, and resolve affordance. The stripe is the distinction from surrounding content: warning cards ship `stripe="none"` (`components/admin/PerShowActionableWarnings.tsx:125`) while attention cards default to the review stripe (`components/admin/CompactAlertCard.tsx:17`).
 
 ## 4. Final disposition of all 18 registered codes
 
@@ -145,7 +216,6 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 | `WATCH_CHANNEL_ORPHANED` | never renders (global) | unchanged | — |
 | `SYNC_STALLED` | never renders (global) | unchanged | — |
 | `LIVE_ROW_CONFLICT` | never renders (global) | unchanged | — |
-| `DRIVE_FETCH_FAILED` | Overview card | unchanged (sync) | — |
 | `PICKER_EPOCH_RESET` | Overview card | cut from attention | 2 |
 | `PARSE_ERROR_LAST_GOOD` | Overview card | `warnings` banner line + reason | 1, 2 |
 | `RESYNC_QUALITY_REGRESSED` | Overview card | `warnings` banner line | 2 |
@@ -155,6 +225,7 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 | `OPENING_REEL_PERMISSION_DENIED` | Overview card | `event` @ `opening_reel` | 3 |
 | `OPENING_REEL_NOT_VIDEO` | Overview card | `event` @ `opening_reel` | 3 |
 | `REEL_DRIFTED` | Overview card | `event` @ `opening_reel` | 3 |
+| `DRIVE_FETCH_FAILED` | Overview card | unchanged (sync) | — |
 | `SHEET_UNAVAILABLE` | Overview card | unchanged (sync) | — |
 | `RESYNC_SHRINK_HELD` | Overview card | unchanged (sync; the fix is Re-sync, in the status band) | — |
 | `SHOW_FIRST_PUBLISHED` | Overview card | unchanged | — |
@@ -164,49 +235,60 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 
 | Input | Behavior |
 | --- | --- |
-| route names an anchor the section does not render | fall back to that section's top (§3.2) |
-| section itself renders nothing (data-gated away) | fall back to Overview, preserving today's catch-all as the floor |
-| `error_code` absent (row predates PR 1) | reason sentence omitted; the rest of the line renders |
-| `error_code` present but uncataloged | reason sentence omitted (invariant 5: never surface a raw code) |
-| `failed_codes` empty / non-array | treated as absent; `error_code` alone drives the sentence |
-| `warnings.length === 0` with a parse notice routed there | empty-list copy variant; no "below" clause |
-| both parse notices open simultaneously | both lines render, `PARSE_ERROR_LAST_GOOD` first (it describes what crew see; the other describes what is live) |
-| archived show | unchanged from today: banners render, resolve is not lifecycle-gated (`docs/superpowers/specs/2026-07-19-published-show-alerts.md` §7 row) |
+| anchor named but unavailable for this show | that section's `sectionTop` (§3.2 resolution order, decided at bucketing) |
+| section unavailable (conditional section absent) | Overview |
+| Overview receives an item | `hasAttention` is true, so `overviewHasContent` mounts the section (`PublishedReviewModal.tsx:385`) — an item is never dropped |
+| `error_code` absent (row predates PR 1) | states 2/4 of the §3.2 matrix; reason sentence omitted |
+| `error_code` present but not allowlisted | never persisted (§3.1), so indistinguishable from absent |
+| allowlisted code with no catalog row / no alias | helper returns `null`; reason sentence omitted (invariant 5: never surface a raw code) |
+| `failed_codes` empty / non-array / all non-allowlisted | key omitted; `error_code` alone drives the sentence |
+| `warnings.length === 0` | states 3/4/6; no "below" clause |
+| both parse notices open | two `<p>` siblings, `PARSE_ERROR_LAST_GOOD` first |
+| archived show | unchanged: banners render, resolve is not lifecycle-gated (`docs/superpowers/specs/2026-07-19-published-show-alerts.md` §7 row) |
 
 ## 6. Dimensional invariants / transition inventory
 
-**Dimensional invariants.** The banner line is a flow-layout text block inside the existing panel column: no fixed-dimension parent, no flex/grid child relationship to pin. Anchored cards mount into existing flow containers at their anchor point. NO new fixed-dimension parent is introduced by this spec, so no layout-dimensions task is required. The one adjacent fixed-dimension parent — the 22px `?` trigger — is introduced and pinned by `feat/warning-card-copy-restore` §6, not here; this spec's real-browser assertions must EXPECT 22px rather than the historical 44px box.
+**Dimensional invariants.** The banner is a flow-layout `<p>` inside the existing panel column; anchored cards mount into existing flow containers. NO new fixed-dimension parent with flex/grid children is introduced, so no layout-dimensions task is required. The adjacent 22px `?` trigger is introduced and pinned by `feat/warning-card-copy-restore` §6 — see §9 for why this spec asserts nothing about it.
 
-**Transition inventory.** Attention items appear and disappear on server-driven re-render (`router.refresh()` after a resolve, or a sync landing). Within a mounted panel the set is constant. States per section: (A) no attention, (B) section-top items, (C) anchored items, (D) both. All six pairs — A↔B, A↔C, A↔D, B↔C, B↔D, C↔D — are **instant, no animation**, matching the existing crew-route behavior, which animates none of these today. Compound: an anchor disappearing while its item is mounted (data-gate flips) resolves through the §5 fallback on the next render, instantly. The deep-link flash (`attentionJump` + `aria-current`) is unchanged and orthogonal.
+**Transition inventory.** Attention items appear/disappear only on server-driven re-render (`router.refresh()` after a resolve, or a sync landing); within a mounted panel the set is constant. Per-section states: (A) none, (B) section-top only, (C) anchored only, (D) both. All six pairs — A↔B, A↔C, A↔D, B↔C, B↔D, C↔D — are **instant, no animation**, matching the existing crew route, which animates none of these today. Compound: an anchor becoming unavailable while its item is mounted resolves through §5 on the next render, instantly. The deep-link flash (`attentionJump` + `aria-current`) is unchanged and orthogonal.
 
 ## 7. Meta-test inventory
 
-**EXTENDS** `tests/admin/_metaAttentionRoutes.test.ts` — set-equality against the registry still holds after the type widens; add anchor-validity (an anchor may only name a slot the target section declares).
+<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
-**CREATES** a per-show reachability guard: for every code in `ATTENTION_ROUTES`, assert that a code whose producers ALL pass `showId: null` yields no attention item. The registry is the FOUR codes in §2.2, not five: `DRIVE_FETCH_FAILED` is per-show via `recoveryTx.upsertAdminAlert` and must NOT be listed (a five-code registry would encode the very error this test exists to prevent). This is the mechanical form of §2.2 and exists specifically because routing-table membership was misread as eligibility during scoping.
+**CREATES** `tests/adminAlerts/_metaAlertProducerScope.test.ts` — the producer-scope registry (§3.0). Filesystem-walked across all six call shapes; a new unclassified alert-write call site fails by default.
 
-**EXTENDS** the §12.4 catalog parity surface via the two new rows (`x1-catalog-parity`, `tests/cross-cutting/codes.test.ts`).
+**CREATES** the reachability projection: the four §2.2 global codes yield no per-show attention item. Its registry is derived FROM the producer-scope registry, not hand-listed, so `DRIVE_FETCH_FAILED` cannot be wrongly included (a hand-listed five-code version would encode the very error this exists to prevent).
 
-**NOT extended:** `tests/auth/advisoryLockRpcDeadlock.test.ts` — no lock topology change (§3.1).
+**EXTENDS** `tests/admin/_metaAttentionRoutes.test.ts` — set-equality against the registry still holds after the type widens; adds anchor-validity (an anchor may only name a declared `AttentionAnchor`).
+
+**NOT extended:** `tests/auth/advisoryLockRpcDeadlock.test.ts` — no lock topology change (§3.1, evidenced).
+
+**No §12.4 / x1-catalog-parity impact** — the alias map replaces new catalog rows (§3.1).
 
 ## 8. Test plan
 
-- **Derivation (jsdom-free, pure):** routing for all 18 codes with expected `sectionId`/`anchor` derived from the disposition table (§4), not hardcoded mirrors; `PICKER_EPOCH_RESET` cut; unknown code still falls back to Overview.
-- **Reason helper:** all eight invariant codes resolve to non-empty copy; unknown/absent/uncataloged → `null`. Anti-tautology: expected strings read from `MESSAGE_CATALOG`, never literal.
-- **Producer:** the hard-fail branch writes `error_code` and capped `failed_codes`, and does NOT write `message`. The negative is the point — assert the persisted context has no free-text member.
-- **Banner copy:** all three variants, keyed on `warnings.length` and reason presence; the "below" clause is absent in the empty-list variant. Scope the assertion to the banner's own testid so the list underneath cannot satisfy it.
-- **Mount generalization:** crew regression (existing tests must pass untouched), plus section-top and anchored placement for a non-crew section, plus the anchor-missing fallback.
-- **Real browser (Playwright):** an anchored card renders inside its anchor's container (assert DOM ancestry, not coordinates), and the `?` trigger measures 22×22 per the sibling branch's geometry.
-- **Reachability guard:** §7.
+Each entry names the concrete failure it catches.
 
-## 8.1 Known defect NOT fixed here
+- **Producer scope (§3.0).** Catches: a new alert-write call site added in any of the six shapes without declaring its scope. This is the test that would have caught the `DRIVE_FETCH_FAILED` error.
+- **Routing.** Expected `sectionId`/`anchor` per code come from a FROZEN FIXTURE transcribed from the §4 table (the project's established pattern — the sibling warning-card spec freezes its copy table the same way). Deriving them from `ATTENTION_ROUTES` would be tautological; the fixture is an independent oracle whose diff is reviewed. Catches: a route silently changed without a spec edit.
+- **Reason allowlist.** Catches: `PARSE_HARD_FAIL`, an unknown future code, or an interpolated/sensitive string reaching the persisted context. Feeds each explicitly and asserts absence.
+- **`message` never persisted.** Catches: a future "helpful" addition of the free-text field. Asserts the persisted context has no free-text member.
+- **Reason helper.** All eight allowlisted codes resolve to non-empty copy through the alias map; unknown/unaliased/uncataloged → `null`. Expected strings read from `MESSAGE_CATALOG` via the alias, so the test proves the ALIAS is right (the thing that can be wrong) rather than that the catalog equals itself.
+- **Composed copy.** All six §3.2 states assert the FINAL rendered string, scoped to the banner's own testid so the list below cannot satisfy it. Includes the no-em-dash assertion over the composed output for all eight titles. Catches: a "below" clause surviving into an empty-list state, and a catalog title introducing a banned character.
+- **Crew preservation.** The existing byte-identity assertion is retained verbatim; plus in-`<li>` and section-top placement with props present. Catches: the rename regressing crew placement.
+- **Anchor fallback.** Anchor unavailable → section top; section unavailable → Overview. Catches: an item silently dropped when a data-gated sub-block does not render.
+- **Real browser (Playwright).** An anchored card renders INSIDE its anchor's container (asserted by DOM ancestry, not coordinates). Catches: an anchor that resolves but mounts outside the intended subtree. NO assertion about `?` trigger geometry — see §9.
 
-`DRIVE_FETCH_FAILED` copy tells the operator to "click 'Retry'" (`lib/messages/catalog.ts`, its `dougFacing`), but `AttentionBanner` renders no Retry control on that card: its footer-right slot is the auto-clear note. The same is true of `WATCH_CHANNEL_ORPHANED`'s auto-clear note ("use Retry to trigger it now"), which is a global code and out of this surface anyway. This spec does NOT fix the copy — that is admin-alert copy, owned by the sibling `feat/show-scoped-alert-copy` spec B. Recorded here so a reviewer does not raise it as a finding against this diff, and so spec B has the pointer.
+## 8.1 Known defects NOT fixed here
+
+- `DRIVE_FETCH_FAILED` copy says "click 'Retry'" and `WATCH_CHANNEL_ORPHANED`'s auto-clear note says "use Retry to trigger it now", but `AttentionBanner` renders no Retry control (footer-right is the auto-clear note). Real, but it is admin-alert COPY, owned by the sibling `feat/show-scoped-alert-copy` spec B. Recorded so a reviewer does not raise it against this diff and so spec B has the pointer.
+- The `MI-2` / `MI-3` producer-vs-catalog naming drift (§3.1) is bridged by an alias map, not normalized. Renaming either spelling would touch persisted `pending_ingestions.last_error_code` values and is out of scope.
 
 ## 9. Out of scope
 
 - `dougFacingShowScoped` authoring for the 14 per-show codes — sibling spec B. NOTE: the list handed to that session listed 13 and wrongly excluded `DRIVE_FETCH_FAILED`; §2.2 corrects it.
-- Parse-warning card copy and the `?` trigger geometry — `feat/warning-card-copy-restore`.
+- Parse-warning card copy and the `?` trigger geometry — `feat/warning-card-copy-restore`. **Branch-dependency statement (R1 finding 6):** this branch is based on `feat/show-scoped-alert-copy`, NOT on the warning-card branch, so the 22px trigger does not exist on this base. This spec therefore asserts NOTHING about trigger geometry — no 22×22 assertion, no 44px assertion. Its Playwright coverage tests only this feature's own placement, which is geometry-independent and passes under either trigger size. No merge ordering between the two branches is required.
 - Removing the `PICKER_EPOCH_RESET` producer (only its attention rendering is cut).
 - Storing or surfacing the hard-fail `message` text (§3.1, deliberate).
 - Promoting Diagrams to a real `SectionId` (mockup option C, not selected).
