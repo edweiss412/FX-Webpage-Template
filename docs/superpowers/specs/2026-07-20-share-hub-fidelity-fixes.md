@@ -22,7 +22,7 @@ RPC, migration, advisory lock, telemetry code, or `§12.4` catalog row changes.
 | Popover anchoring stays `absolute right-0 top-full` against ShareHub's OWN `relative` root — NOT the strip row, which deliberately has no `relative`. | `components/admin/showpage/ShareHub.tsx:15-23`; `components/admin/showpage/StatusStrip.tsx:175` |
 | The busy/dismissal contract (`onBusyChange` per child, 15s `BUSY_GATE_MAX_MS`, deferred-close CANCELLED on settle) is unchanged by this spec. Row restyling must not alter a single dismissal path. | `components/admin/showpage/ShareHub.tsx:55`, `components/admin/showpage/ShareHub.tsx:127-177` |
 | The two-tap `idle → confirm → resolving` state machine, its 4s `ARM_REVERT_MS` auto-revert, C3 open-focus and C5 close-focus contracts are unchanged. Only the **idle** render changes. | `app/admin/show/[slug]/RotateShareTokenButton.tsx:30`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:111-125`; `app/admin/show/[slug]/PickerResetControl.tsx:24`, `app/admin/show/[slug]/PickerResetControl.tsx:82-98` |
-| The confirm-state renders are already mock-conformant in structure and are OUT OF SCOPE. The mock's amber confirm card uses raw hexes (`#fff3d6` / `#5c3f00`); the shipped `bg-warning-bg` / `text-warning-text` tokens are the ratified equivalents and stay. | `app/admin/show/[slug]/RotateShareTokenButton.tsx:301-325` |
+| The confirm-state renders are OUT OF SCOPE. They are an **accepted divergence** from the mock, NOT verified conformity: the mock draws a bordered amber card with a warning icon and a question heading, and the shipped compact confirms lack several of those structural elements. Tokens (`bg-warning-bg` / `text-warning-text`) are the ratified equivalents of the mock's raw hexes and stay. Closing the structural gap is deferred, not done. | `app/admin/show/[slug]/RotateShareTokenButton.tsx:301-325` |
 | `RotateShareTokenButton`'s **non-compact** render has no production consumer left (only `tests/components/RotateShareTokenButton.test.tsx` and `tests/app/admin/rotateShareToken.test.tsx` mount it). Removing it is explicitly OUT OF SCOPE for this spec — it is dead-code cleanup, not a defect. | `grep -rn --include='*.tsx' '<RotateShareTokenButton' app components` returns only `ShareHub.tsx:353` |
 | Mutual exclusion between the attention menu and the share hub (one closing the other) is OUT OF SCOPE — they are sibling components with no shared state. §3.3 states what happens when both are open instead. | this spec §3.3 |
 | No new `§12.4` error code, no new `admin_alerts` code, no `logAdminOutcome` surface. Nothing in this diff mutates state. | this spec §6 |
@@ -35,12 +35,12 @@ RPC, migration, advisory lock, telemetry code, or `§12.4` catalog row changes.
 and the `AttentionMenu` panel inside it is `z-20`
 (`components/admin/showpage/AttentionMenu.tsx:99`).
 
-Both wrappers are positioned elements in the same stacking context (the modal panel).
-A positioned element with `z-index: 30` paints above a positioned element with
-`z-index: auto` regardless of DOM order and regardless of the descendant's own z-index —
-`z-20` inside a `z-auto` wrapper cannot escape its parent's paint order. So the **closed**
-share hub's "Share link" button and kebab render on top of the open attention menu,
-obscuring a menu row and stealing its clicks.
+`z-30` establishes a stacking context at level 30 on the hub's root, which paints the
+ENTIRE hub subtree — the two trigger buttons included — above the attention panel's level
+20. (The `z-auto` wrapper is NOT part of the cause: `z-index: auto` establishes no stacking
+context, so the panel's `z-20` participates directly in the shared ancestor context. See
+§3.1.) So the **closed** share hub's "Share link" button and kebab render on top of the
+open attention menu, obscuring a menu row and stealing its clicks.
 
 Observed: the "Share link" button drawn over the "Role change applied" row of the open
 "NEEDS YOUR CONFIRMATION" menu.
@@ -89,27 +89,56 @@ block, the Copy button, the paused note, the unavailable note, or the `Crew link
 
 ## 3. Design — Defect A (z-order)
 
-### 3.1 Rule
+### 3.1 Root cause, corrected
 
-**Elevation is a property of an OPEN popover, never of a trigger.** Each popover's wrapper
-elevates itself only while its own disclosure state is open, and drops back to `z-auto`
-when closed.
+An earlier draft of this section asserted that the attention panel's `z-20` was "trapped"
+inside its `z-auto` wrapper. **That is wrong and the correction changes the fix.** A
+positioned element with `z-index: auto` does NOT establish a stacking context, so the
+`z-20` panel participates directly in the nearest ancestor stacking context at level 20.
 
-- `ShareHub` root: `relative` always; `z-30` **only when `open`**
-  (`components/admin/showpage/ShareHub.tsx:221`).
-- Attention pill wrapper: `relative` always; `z-30` **only when `menuOpen`**
-  (`components/admin/showpage/PublishedReviewModal.tsx:510`).
+The panel therefore loses today for exactly one reason: `ShareHub`'s root carries
+`z-30` unconditionally (`components/admin/showpage/ShareHub.tsx:221`), which DOES establish
+a stacking context at level 30 and paints the whole hub — triggers included — above level
+20.
 
-The inner z-indexes are unchanged: ShareHub backdrop `z-20`, ShareHub popover `z-40`
-(both scoped inside the elevated root), AttentionMenu panel `z-20`.
+### 3.2 The fix is one line, in one file
 
-### 3.2 Why the attention wrapper also changes
+`ShareHub` root: `relative` always; `z-30` **only when `open`**
+(`components/admin/showpage/ShareHub.tsx:221`).
 
-Fixing only ShareHub leaves both wrappers at `z-auto` when the share hub is closed, so
-paint order falls back to DOM order — and `StatusStrip` (which hosts `ShareHub`) renders
-AFTER the header that hosts the attention pill, so the share hub's controls would STILL
-paint over the open menu. The attention wrapper must positively elevate while its menu is
-open. Both halves are required; neither alone fixes the defect.
+Once the closed hub drops to `z-index: auto`, its two trigger buttons are ordinary
+**non-positioned** in-flow content (`components/admin/showpage/ShareHub.tsx:251-255`,
+`components/admin/showpage/ShareHub.tsx:270-272` — neither carries `relative`, `absolute`,
+or `fixed`). A positioned `z-20` element paints above non-positioned in-flow content
+unconditionally, so the attention menu covers the triggers with no change to
+`PublishedReviewModal.tsx` at all.
+
+**`components/admin/showpage/PublishedReviewModal.tsx:510` is therefore NOT modified by
+this spec.** An earlier draft changed it; that change was unnecessary and has been dropped.
+
+When the hub IS open, the root's `z-30` beats the panel's `z-20`, so the share popover
+covers the attention menu — deterministic, and independent of DOM order.
+
+### 3.2b Ancestor stacking contexts do not change the analysis
+
+Verified with tooling by the implementer (the adversarial reviewer worked from an inlined
+excerpt and correctly flagged that the excerpt alone could not establish this; the
+verification below is the missing evidence, recorded so it is not re-derived).
+
+The modal panel takes an **inline** `transform` during the entrance, the exit, and an
+active sheet drag (`components/admin/review/ReviewModalShell.tsx:377`,
+`components/admin/review/ReviewModalShell.tsx:452`,
+`components/admin/review/ReviewModalShell.tsx:482`), which creates a stacking context while
+set, and is cleared back to `""` at rest (`components/admin/review/ReviewModalShell.tsx:294`).
+Either way the panel is a **common ancestor** of both the attention pill and the share hub,
+so a stacking context on it contains both equally. The scrim container is
+`fixed inset-0 z-50` (`components/admin/review/ReviewModalShell.tsx:582`) and is likewise a
+shared ancestor. Between the panel and either subtree there is no `isolation`, `filter`,
+`will-change`, or non-`1` `opacity`.
+
+Because the corrected §3.1 no longer depends on the relative DOM order of the two subtrees
+— only on positioned-beats-non-positioned within one shared context — the analysis holds
+regardless of which subtree comes first.
 
 ### 3.3 Guard: both open at once
 
@@ -119,23 +148,34 @@ document `pointerdown` outside its panel and pill
 `fixed inset-0 z-20` backdrop sits above the pill and swallows the click
 (`components/admin/showpage/ShareHub.tsx:222-233`).
 
-When both are open, both wrappers are `z-30` and DOM order decides: the share hub's popover
-(later in the DOM) paints above the attention menu. **This is the declared, accepted
-behavior** — the share hub is the surface the operator most recently interacted with in the
-keyboard sequence that produces the overlap. No mutual-exclusion logic is added (§1.1).
+When both are open the share hub's root is `z-30` and the attention panel is `z-20`, so
+**the share popover paints above the attention menu — by z-index, not by DOM order, and
+regardless of which was opened last.** This is the declared, accepted behavior. No
+mutual-exclusion logic is added (§1.1).
+
+(An earlier draft justified this as "the surface most recently interacted with." That
+rationale was unsound — a keyboard user can open the hub, Shift+Tab to the pill, and open
+the menu second — and it is withdrawn. The behavior is justified by the z-index contract
+alone.)
 
 ### 3.4 Guard conditions
 
-| State | ShareHub wrapper | Attention wrapper | Result |
-| --- | --- | --- | --- |
-| Both closed | `z-auto` | `z-auto` | No overlap possible (no panel rendered). |
-| Attention open, hub closed | `z-auto` | `z-30` | Menu above the Share link button. **Defect A fixed.** |
-| Hub open, attention closed | `z-30` | `z-auto` | Popover above the pill; backdrop intercepts pill clicks. Unchanged from today. |
-| Both open (keyboard only) | `z-30` | `z-30` | Share hub popover wins by DOM order (§3.3). |
-| `actionable.length === 0` | `z-auto` / `z-30` per `open` | wrapper not rendered at all (`components/admin/showpage/PublishedReviewModal.tsx:509` ternary) | No attention wrapper exists; nothing to collide with. |
-| Degraded-alerts branch (`alertsDegraded && clearingCount === 0`) | per `open` | renders a `<span>` pill with NO wrapper and NO menu (`components/admin/showpage/PublishedReviewModal.tsx:558-564`) | No menu exists; nothing to collide with. |
+`hasAttentionWrapper` below means the first ternary branch at
+`components/admin/showpage/PublishedReviewModal.tsx:509` is taken, i.e.
+`actionable.length > 0`. Note that branch wins **whenever `actionable.length > 0`**,
+irrespective of `alertsDegraded` — the degraded branch is reachable only when
+`actionable.length === 0 && alertsDegraded && clearingCount === 0`.
 
----
+| State | ShareHub root | Attention subtree | Result |
+| --- | --- | --- | --- |
+| Both closed | `z-auto` | wrapper `z-auto`, no panel | No overlap possible. |
+| Attention open (`entered = true`), hub closed | `z-auto` | panel `z-20`, positioned | Menu above the hub's non-positioned triggers. **Defect A fixed.** |
+| Attention open, entrance frame (`menuOpen = true`, `entered = false`, `components/admin/showpage/AttentionMenu.tsx:59-63`) | `z-auto` | panel `z-20`, `opacity-0 scale-95` | Same stacking result as above — the panel is elevated and hit-testable for that one frame even while visually transparent. Deliberate: it is the frame before the rAF flip, and the paint order is already correct there. |
+| Hub open, attention closed | `z-30` | wrapper `z-auto`, no panel | Popover above the pill; the backdrop intercepts pill clicks. Unchanged. |
+| Both open (keyboard only) | `z-30` | panel `z-20` | Share popover wins by z-index (§3.3). |
+| `actionable.length === 0`, not degraded | per `open` | neither wrapper nor panel renders (`components/admin/showpage/PublishedReviewModal.tsx:509`) | Nothing to collide with. |
+| `actionable.length === 0 && alertsDegraded && clearingCount === 0` | per `open` | a bare `<span>` pill, no wrapper and no menu (`components/admin/showpage/PublishedReviewModal.tsx:558-564`) | No menu exists; nothing to collide with. |
+
 
 ## 4. Design — Defect B (Careful menu rows)
 
@@ -154,7 +194,7 @@ Token mapping from the mock (mock hexes are never used directly — DESIGN.md to
 | --- | --- | --- |
 | `display:flex;align-items:center;gap:11px;width:100%` | `flex w-full items-center gap-2` | `gap-2` (8px) matches the popover's existing mailto row (`components/admin/showpage/ShareHub.tsx:320`), which is the row family this joins. |
 | `min-height:40px` | `min-h-tap-min` (44px) | **The 44px tap floor wins over the mock's 40px.** Same precedent as T-NO-ORANGE: project invariants beat mock geometry. |
-| `padding:8px` | `px-2` | Vertical padding is supplied by `min-h-tap-min`; `py` would compound it. Matches the mailto row. |
+| `padding:8px` | `px-2 py-2` | **Both axes are explicit.** `min-h-tap-min` supplies breathing room ONLY while the content is shorter than 44px; once the description wraps, the row grows to content height and an unpadded row would let text touch the edges. `py-2` (8px) matches the mock and holds at every content height. |
 | `border-radius:7px` | `rounded-sm` | Codebase token. |
 | `background:transparent`, hover `#f4f3f1` | (no bg class) + `hover:bg-surface-sunken` | Matches the mailto row. |
 | `text-align:left` | `text-left` | Needed because the row is a `<button>` (which centers by default). |
@@ -162,46 +202,84 @@ Token mapping from the mock (mock hexes are never used directly — DESIGN.md to
 | label 13px weight 500, `#0e0f12` | `text-sm font-medium text-text-strong` | 14px, the codebase row idiom (`components/admin/showpage/AttentionMenu.tsx:125`). |
 | description 11px line-height 1.3, `#8b8c92` | `text-xs text-text-subtle` | Matches `components/admin/showpage/AttentionMenu.tsx:129`. |
 
-Plus the codebase-standard focus ring, carried over verbatim from the existing controls:
-`focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`.
+**Focus ring — per control, NOT a shared literal.** The two controls do not ship the same
+ring today and this spec does not homogenize them:
+
+- Rotate keeps `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`
+  (`app/admin/show/[slug]/RotateShareTokenButton.tsx:223`).
+- Reset keeps that PLUS `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`
+  (`app/admin/show/[slug]/PickerResetControl.tsx:266`).
+
+Dropping reset's offset pair would be an unacknowledged focus-presentation change on a
+destructive control. It is retained verbatim. Reset also retains
+`disabled:cursor-not-allowed disabled:opacity-60`.
 
 The label/description pair is wrapped in a `min-w-0` flex column so a long description
 cannot force the row wider than the 308px panel.
 
-### 4.2 Accessible name
+### 4.2 Accessible name — `aria-label` and `aria-describedby` are RETAINED
 
-The row follows the shipped `AttentionMenu` row precedent
-(`components/admin/showpage/AttentionMenu.tsx:112-137`): **no `aria-label`, no
-`aria-describedby`** — both label and description are visible text inside the button, so
-the accessible name is the concatenation.
+An earlier draft proposed dropping both so the accessible name would become
+label + description. **That is withdrawn.** The existing pairing is deliberately correct:
+`aria-label` supplies a short, stable NAME and `aria-describedby` exposes the warning as a
+DESCRIPTION (`app/admin/show/[slug]/RotateShareTokenButton.tsx:219-220`). Flattening them
+would destroy the name/description distinction and produce a long, state-dependent control
+name. Assistive tech announces a description; it is not suppressed.
 
-- Rotate: `"Rotate share link Old link stops working immediately"`
-- Reset (crew present): `"Reset everyone's pick Make everyone pick their name again on their next visit."`
-- Reset (no crew): `"Reset everyone's pick No crew to reset yet."`
+This defect is purely **visual layout**. The a11y wiring does not change:
 
-This REPLACES the compact-mode `aria-label="Rotate share link"` +
-`aria-describedby={descId}` pair at `app/admin/show/[slug]/RotateShareTokenButton.tsx:219-220`. An `aria-label`
-would suppress the description from assistive tech, which is exactly the warning the row
-exists to deliver. Tests must therefore assert the accessible name with an **anchored
-prefix regex** (`/^Rotate share link/`), not an exact string.
+| Control | `aria-label` | `aria-describedby` | Accessible name |
+| --- | --- | --- | --- |
+| Rotate | `"Rotate share link"` | → the description span | `"Rotate share link"` |
+| Reset | `"Reset everyone's pick"` | → the description span | `"Reset everyone's pick"` |
+
+WCAG 2.5.3 (Label in Name) holds in both cases: the visible label text is exactly the
+`aria-label` string, so the accessible name contains the visible label.
+
+`PickerResetControl` gains the `aria-label` + `aria-describedby` pair it does not have
+today (its `descId` is currently rendered but unwired to the button —
+`app/admin/show/[slug]/PickerResetControl.tsx:217`). Its description id must therefore stay
+alive, not be deleted.
+
+Consequence for tests: the existing exact-name assertions
+(`tests/components/admin/showpage/shareHub.test.tsx:296`,
+`tests/components/RotateShareTokenButton.test.tsx:71`) **continue to pass unchanged** —
+which is the point. The row tests below assert the visual structure instead.
 
 ### 4.3 Deliberate reversal: PCR-1 (b) heading
 
 `PickerResetControl` renders `Reset everyone's pick` as an `<h4>`
 (`app/admin/show/[slug]/PickerResetControl.tsx:216`), ratified as "PCR-1 (b): heading
 (under the panel's `<h3>`) so the control is reachable in the screen-reader heading
-outline" (`app/admin/show/[slug]/PickerResetControl.tsx:214-215`). That contract was written when the control lived in a full-width
-**panel section** with multiple sibling headings.
+outline" (`app/admin/show/[slug]/PickerResetControl.tsx:214-215`). That contract was written
+when the control lived in a full-width **panel section**.
 
-In the popover it is one of three sibling **rows** under the `Careful` `<h3>`
-(`components/admin/showpage/ShareHub.tsx:349-351`), alongside the mailto row — which is a plain `<a>` with no
-heading. A heading per row is inconsistent with its siblings and cannot be a heading and a
-button label at the same time.
+Correcting an earlier draft's description of the DOM: the mailto rows sit under the
+`Crew link` `<h3>` and BEFORE the divider (`components/admin/showpage/ShareHub.tsx:315-327`,
+divider at `components/admin/showpage/ShareHub.tsx:348`); only rotate and reset sit under
+the `Careful` `<h3>` (`components/admin/showpage/ShareHub.tsx:349-363`). There are also
+zero-to-many mailto rows, not exactly one. And a heading and a button label CAN coexist as
+separate elements — the live control does exactly that today.
 
-**Resolution: the `<h4>` is removed.** The row is reachable via the button list and the
-`Careful` `<h3>` above it; the heading outline still names the group. This is a deliberate,
-scoped reversal of PCR-1 (b) for the ONLY consumer of the component, recorded here so a
-reviewer verifies the trade rather than re-deriving it.
+So the reversal does not rest on "impossible" or on sibling symmetry. It rests on this:
+under `Careful` there are exactly two peer actions; rotate contributes no heading, so an
+`<h4>` on reset alone makes the outline claim an asymmetry the UI does not have, and the
+heading text would duplicate the button's `aria-label` verbatim, announcing the same string
+twice in sequence. **Resolution: the `<h4>` becomes a plain `<span>` inside the row
+button.** The `Careful` `<h3>` still names the group in the outline.
+
+**Consumer check (a BLOCKING review finding, refuted with evidence):** the reviewer read
+`PickerResetControl`'s own doc comment
+(`app/admin/show/[slug]/PickerResetControl.tsx:46-47`) as naming
+`components/admin/wizard/step3ReviewSections.tsx` a consumer. It is not one.
+`grep -rn --include='*.tsx' '<PickerResetControl' app components` returns exactly one hit,
+`components/admin/showpage/ShareHub.tsx:363`; `step3ReviewSections.tsx` only MENTIONS the
+component in two comments (`components/admin/wizard/step3ReviewSections.tsx:1263`,
+`components/admin/wizard/step3ReviewSections.tsx:1284`) and carries its own parallel
+implementation. Every other import of the module is `import type { PickerResetCrewRow }`.
+**The stale comment is corrected in the same commit** so it cannot mislead a future reader
+or reviewer the same way.
+
 
 ### 4.4 What does NOT change
 
@@ -233,69 +311,97 @@ reviewer verifies the trade rather than re-deriving it.
 ### 4.6 Dimensional Invariants
 
 This project's Tailwind v4 does NOT default `.flex` to `align-items: stretch`, so every
-parent→child dimension relationship on the changed nodes is named here with the exact class
-that guarantees it. All of these are verified in a real browser (§7.3, §7.4) — jsdom
-computes no layout and can only see the class strings.
+parent→child dimension relationship is named here with the exact class that guarantees it.
 
-| Parent (fixed dimension) | Child | Invariant | Guaranteed by |
+**The width chain is three links, not two.** Each row `<button>` is NOT a direct child of
+the popover's flex column — it sits inside its component's own wrapper `<div>`
+(`app/admin/show/[slug]/RotateShareTokenButton.tsx:280` for rotate,
+`app/admin/show/[slug]/PickerResetControl.tsx:212` for reset). Those wrappers are the flex
+children. Without stretch, a wrapper shrink-wraps and `w-full` on the button then resolves
+against a too-narrow parent. **Both wrappers therefore take `w-full` in this change**, and
+the assertion in §7.4 measures the button against the panel, not against its wrapper — so
+a missing link fails the test rather than hiding inside it.
+
+| Parent | Child | Invariant | Guaranteed by |
 | --- | --- | --- | --- |
-| Popover panel, `w-[308px]` (`components/admin/showpage/ShareHub.tsx:289`) | each Careful row `<button>` | row width === panel content width | `w-full` on the row + the panel's `flex-col` (cross-axis is width; `w-full` is explicit, not inherited from stretch) |
-| Careful row `<button>`, `min-h-tap-min` | leading icon `<span>` | icon never shrinks below 16px when the label wraps | `shrink-0` on the icon |
-| Careful row `<button>` | label/description `<span>` column | column may shrink to zero basis so long text wraps instead of widening the row | `min-w-0` on the column |
-| Careful row `<button>` | label + description | both are vertically centered as one block, not baseline-split | `items-center` on the row + `flex-col` on the column |
-| Popover outer wrapper (positioned, un-clipped) | inner scroll container | inner container owns `max-h-[min(70vh,32rem)] overflow-y-auto`; the outer owns position/border/background so the caret is NOT clipped | classes split per §5; the caret is a sibling of the inner container |
-| Popover outer wrapper | caret `<span>` | caret's horizontal center === kebab's horizontal center (±0.5px) | `right-[17px]` measured from the panel's right edge, which is the trigger group's right edge via `right-0` |
-| Trigger group root (`relative`) | popover panel | panel's right edge === group's right edge | `right-0` on the panel against the group's `relative` |
+| Popover panel `w-[308px]` (`components/admin/showpage/ShareHub.tsx:289`) | each control wrapper `<div>` | wrapper width === panel content width | `w-full` added to BOTH wrappers (NOT inherited — no `items-stretch`) |
+| Control wrapper `<div>` | row `<button>` | button width === wrapper width | `w-full` on the button |
+| Popover panel | row `<button>` (transitively) | button width === panel content width | the two links above, asserted end-to-end in §7.4 |
+| Row `<button>` | leading icon | icon stays 16px when the label wraps | `shrink-0` on the icon |
+| Row `<button>` | label/description column | column may shrink to zero basis so long text wraps instead of widening the row | `min-w-0` on the column |
+| Row `<button>` | label + description | vertically centered as one block | `items-center` on the row + `flex-col` on the column |
+| Row `<button>` | its own content at any height | ≥8px padding on all sides even when the description wraps past 44px | `px-2 py-2` (explicit both axes — see §4.1) |
+| Trigger group root (`relative`) | popover panel | panel right edge === group right edge | `right-0` on the panel |
+| Trigger group root | caret | caret horizontal center === kebab horizontal center | `right-[17px]` on the caret, measured from the same right edge (§5) |
 
-Rows are NOT fixed-height (they are `min-h-`), so no child is required to match a row's
-height; that is deliberate — a wrapped description must be allowed to grow the row.
+Rows are NOT fixed-height (`min-h-`), so no child must match a row's height — deliberate,
+so a wrapped description can grow the row.
 
 ### 4.7 Transition inventory
 
-The idle row has two visual states; the control has three (`idle`, `confirm`,
-`resolving`). All pairs:
+Enumerated across every reachable visual state of a Careful row, not only the three
+state-machine values. An earlier draft's final row contradicted itself ("Prevented" and
+then "the popover DOES close"); it is corrected below.
 
 | Pair | Treatment |
 | --- | --- |
-| idle rest → idle hover | `hover:bg-surface-sunken`, `transition-colors duration-fast` (carried from the existing controls). |
-| idle rest → idle focus-visible | Instant — focus rings are never animated in this codebase. |
-| idle → confirm | Instant swap (no `AnimatePresence`, no exit). Unchanged from today; the confirm row simply replaces the idle row. |
-| confirm → resolving | Instant — same node, label text swaps (`"Confirm rotate"` → `"Rotating…"`). Unchanged. |
-| resolving → idle | Instant remount of the idle row + banner. Unchanged. |
-| confirm → idle (cancel / 4s auto-revert) | Instant. Unchanged. |
-| Compound: hover held while idle → confirm fires | The idle row unmounts mid-hover; no stranded hover style (the class is a CSS hover pseudo-class, not JS state). |
-| Compound: popover closes while row is in confirm | Prevented — dismissal is inert while `busy`, and `confirm` (pre-submit) is NOT busy, so the popover DOES close and the confirm row unmounts. Unchanged from today and out of scope. |
+| idle rest → idle hover | `hover:bg-surface-sunken`, `transition-colors duration-fast` |
+| idle rest → idle focus-visible | Instant — focus rings are never animated here |
+| idle focus-visible + hover (compound) | Both apply; ring and background are independent properties, no conflict |
+| idle enabled → idle disabled (reset only, `crew` empties) | Instant. The description text swaps in the SAME beat (`Make everyone pick…` ↔ `No crew to reset yet.`); no crossfade — a silently animated copy swap on a destructive control would be worse than an instant one |
+| idle disabled + hover | The `hover:` class remains in the class list but `disabled` buttons receive no hover state in any supported browser, so the rest background holds. Deliberate: no `disabled:hover:` override is added |
+| idle without banner → idle with success banner | Banner mounts instantly below the row; the `sr-only` live region announces (`app/admin/show/[slug]/PickerResetControl.tsx:178-180`) |
+| idle without banner → idle with error banner | Instant; `role="alert"` |
+| idle success banner → dismissed (5s `SUCCESS_DISMISS_MS`) | Instant unmount. Errors are NEVER auto-dismissed |
+| idle-with-banner → confirm | Instant; entering confirm CLEARS the outcome first (`app/admin/show/[slug]/PickerResetControl.tsx:134`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:137`) |
+| idle → confirm | Instant swap; no `AnimatePresence`, no exit |
+| confirm → resolving | Instant; same node, label text swaps |
+| resolving → idle | Instant remount of the row + banner |
+| confirm → idle (cancel / 4s auto-revert) | Instant; focus restores to the row button (C5) |
+| `rowDescription` present ↔ absent (rotate) | Instant; the description span is conditionally rendered, so the row height changes in one frame |
+| ShareHub closed ↔ open (root elevation) | Instant — `z-30` toggles with `open`; z-index is not a transitionable property here and no fade is added |
+| AttentionMenu closed → entering → entered | Existing `transition-[opacity,transform] duration-fast` fade+scale, `motion-reduce` instant (`components/admin/showpage/AttentionMenu.tsx:99-101`). Untouched by this spec |
+| Compound: hover held while idle → confirm | Idle row unmounts mid-hover; the hover style is a CSS pseudo-class, so nothing is stranded |
+| Compound: popover close attempted while row is in `confirm` (pre-submit) | The popover **DOES close** — `confirm` is not `busy`, and only `busy` makes dismissal inert. Unchanged from today and out of scope |
+| Compound: popover close attempted while `resolving` | Inert — all four dismissal paths are gated on `busy` |
+| Compound: `resolving` still in flight when the 15s `BUSY_GATE_MAX_MS` expires | `busyStuck` flips, `busy` goes false, dismissal becomes possible again while the action is still notionally in flight. Existing, deliberate (`components/admin/showpage/ShareHub.tsx:86-93`); unchanged |
 
-The caret notch (§5) is a static decoration with no state and therefore no transitions.
-The popover's own open/close remains instant (no entrance animation) — unchanged.
-
----
+The caret (§5) is static and has no transitions.
 
 ## 5. Design — Defect C (caret notch)
 
-A 10px square rotated 45°, positioned on the panel's top edge, centered under the kebab:
+A 10px square rotated 45°, rendered as a **sibling of the popover inside the ShareHub
+root**, NOT as a child of the popover.
 
-- Element: `<span aria-hidden="true">`, purely decorative.
-- Classes: `absolute -top-[5px] right-[17px] size-2.5 rotate-45 border-l border-t border-border bg-surface`.
+An earlier draft placed it inside the panel and split the panel into an un-clipped outer
+plus a scrolling inner. **That is withdrawn** — the split moved `overflow-y-auto` off the
+focused `role="dialog"` (regressing keyboard PageDown/Arrow scrolling, which belongs to the
+focused element), left the padding's participation in the height cap ambiguous, stopped
+clipping child hover backgrounds to the rounded corners, and left caret-vs-content stacking
+unspecified. Rendering the caret as a sibling avoids all four: **the popover keeps its
+current classes byte-for-byte**, including `max-h-[min(70vh,32rem)] overflow-y-auto p-2.5`.
+
+- Element: `<span aria-hidden="true" data-testid="share-hub-caret">`, purely decorative.
+- Placement: inside the ShareHub root (`components/admin/showpage/ShareHub.tsx:221`, the
+  same `relative` ancestor the popover is positioned against), rendered under the same
+  `open` guard as the popover.
+- Classes: `absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-l border-t border-border bg-surface`.
 - Geometry: the kebab is `size-tap-min` (44px) and is the rightmost element of the trigger
-  group; the panel is `right-0` against that same group, so the kebab's horizontal center
-  sits 22px from the panel's right edge. A 10px square centered there needs
-  `right: 22 − 5 = 17px`. `-top-[5px]` puts half the square above the panel edge.
-- Only `border-l` + `border-t` are drawn: after the 45° rotation those two edges form the
-  outward-facing V, and the untouched edges stay hidden behind the panel body.
-- `bg-surface` matches the panel fill so the notch reads as continuous with it.
-- The panel keeps `overflow-y-auto`; the notch is a child of the panel and would be clipped
-  by it, so the notch is rendered as a sibling INSIDE the popover's positioned wrapper —
-  i.e. the popover gains an inner scroll container so the caret can live outside the
-  clipped region. Concretely: the existing `max-h`/`overflow-y-auto`/`flex-col gap-2`
-  classes move to an inner `<div>`, and the outer popover keeps position, width, border,
-  background, radius, shadow, and the caret.
+  group; the panel is `right-0` against that group, so the kebab's horizontal center sits
+  22px from the group's right edge. A 10px square centered there needs
+  `right: 22 − 5 = 17px`.
+- Vertical: the popover is `mt-1.5` (6px) below the group; `mt-1` (4px) puts the caret's
+  10px box spanning 4px–14px below the group, so its rotated tip overlaps the panel's top
+  edge at 6px and the seam is covered.
+- Only `border-l` + `border-t` are drawn: after the 45° rotation those two form the
+  outward-facing V; the other two edges sit under the panel body.
+- `bg-surface` matches the panel fill; `z-40` matches the panel so the caret is never
+  painted under it.
 
-**Guard:** at `max-w-[calc(100vw-2rem)]` on a 390px viewport the panel is still anchored
-`right-0`, so the caret's 17px right offset remains correct at every width — it is measured
-from the panel's right edge, not its center.
+**Guard:** at `max-w-[calc(100vw-2rem)]` on a 390px viewport the panel is still `right-0`
+against the same group, and the caret's offset is measured from that same right edge, so
+the alignment holds at every width.
 
----
 
 ## 6. Out-of-scope surfaces (explicit N/A)
 
@@ -315,87 +421,150 @@ from the panel's right edge, not its center.
 
 ### 7.1 jsdom (unit) — `tests/components/admin/showpage/shareHub.test.tsx`
 
-1. **Z-order class contract.** Closed hub: root element has `relative` and NOT `z-30`.
-   Open hub: root has both. Failure caught: an unconditional `z-30` regressing in.
-   (jsdom loads no CSS, so this is a class assertion, deliberately — real paint order is
-   proved in §7.3.)
-2. **Rotate row shape.** Open the hub; the rotate control is a single `<button>` whose
-   accessible name matches `/^Rotate share link/` AND contains
-   `Old link stops working immediately`. Assert there is NO separate button whose name is
-   exactly `Rotate`. Failure caught: the split label/button layout regressing in.
-3. **Reset row shape.** Same, name matches `/^Reset everyone's pick/`; assert the popover
-   contains NO `<h4>`. Failure caught: the PCR-1 (b) heading returning.
-4. **Reset row disabled with empty crew**, description reads `No crew to reset yet.`
-5. **Row family consistency.** All three interactive rows under the panel (mailto, rotate,
-   reset) resolve `min-h-tap-min`. Scope the query to the popover and, for the mailto
-   assertion, exclude the two Careful rows so the assertion cannot pass on the wrong node
-   (anti-tautology).
+jsdom loads no CSS, so these are structure and class assertions; every geometric claim is
+proved in §7.4 instead.
+
+1. **Z-order class contract.** Closed hub: root has `relative`, NOT `z-30`. Open: has both.
+   Catches an unconditional `z-30` regressing in.
+2. **Attention wrapper is NOT touched.** Assert `PublishedReviewModal`'s attention wrapper
+   still has no `z-` class — the corrected §3.2 says it must not need one, so a future
+   "helpful" elevation there is a regression against the analysis, not a fix.
+3. **Both-open ordering.** Open the attention menu AND the hub (keyboard path), then assert
+   the hub root resolves `z-30` while the menu panel resolves `z-20` — the §3.3 contract,
+   which no other test covers.
+4. **Rotate row shape.** One `<button>` carrying: `w-full`, `min-h-tap-min`, `px-2`, `py-2`,
+   `text-left`, NO `border` class, NO `bg-` class at rest, `hover:bg-surface-sunken`, and
+   its ring classes. Its icon `<svg>` has width/height 16. The label/description column has
+   `min-w-0` and `flex-col`. **The description must be a visible descendant text node** —
+   assert `rotate.textContent` contains it, which a concatenated `aria-label` cannot fake.
+   Assert `aria-label === "Rotate share link"` and that `aria-describedby` resolves to an
+   element whose text is the description (§4.2 — retained, not removed).
+   Assert NO separate button named exactly `Rotate` exists in the popover.
+5. **Reset row shape.** Same class set PLUS `focus-visible:ring-offset-2` and
+   `focus-visible:ring-offset-surface` and the `disabled:` pair (§4.1). Description is a
+   visible descendant text node AND the `aria-describedby` target. Popover contains no
+   `<h4>`; the `Careful` `<h3>` is still present.
+6. **Reset disabled with empty crew**, description `No crew to reset yet.` and that string
+   is the `aria-describedby` target.
+7. **Width chain.** Both control wrapper `<div>`s carry `w-full` (§4.6) — the link a
+   button-only assertion would miss.
+8. **Row family consistency.** Scope to the popover; for the mailto assertion, first
+   **exclude the two Careful rows by testid** so it cannot pass on the wrong node, and
+   handle the zero-to-many mailto reality: assert over `queryAllBy…` with an explicit
+   expected batch count derived from the fixture, never an assumed single row.
+9. **Caret.** Present when open, `aria-hidden="true"`, and **NOT a descendant of the
+   popover** (`popover().contains(caret) === false`) — the §5 sibling contract. Popover
+   still carries `overflow-y-auto` and `max-h-[min(70vh,32rem)]` (proving the withdrawn
+   outer/inner split did not sneak back in).
 
 ### 7.2 jsdom — the two control test files
 
 `tests/components/RotateShareTokenButton.test.tsx` and
-`tests/admin/pickerResetControl.test.tsx` are updated where they assert the OLD idle shape
-(exact accessible name `Rotate`, the `<h4>`, the `aria-describedby` wiring). Every
-state-machine, focus, busy-contract, and banner assertion stays untouched — if any of those
-needs to change, the change is wrong.
+`tests/admin/pickerResetControl.test.tsx`. Because §4.2 RETAINS the a11y wiring, the
+accessible-name and `aria-describedby` assertions in both files stay as-is and must keep
+passing. The only edit is `tests/admin/pickerResetControl.test.tsx:38`, whose
+`getByRole("heading", …)` assertion is replaced by an assertion that the label is a visible
+text node inside the row button and that the button's `aria-label` carries the same string.
+Every state-machine, focus, busy-contract, and banner assertion is untouched — if any of
+those needs changing, the change is wrong.
 
-### 7.3 Real browser — `tests/e2e/published-review-modal.interactions.spec.ts`
+### 7.3 Real browser — z-order, `tests/e2e/published-review-modal.interactions.spec.ts`
 
-**T-HUB-ZORDER.** The hydrated app (this test clicks; the layout spec is a static harness
-and cannot open a menu — memory: static-vs-hydrated harness).
+**T-HUB-ZORDER.** The hydrated app (this spec's harness clicks; the layout spec is static
+and cannot open a menu).
 
 1. Seed a show whose derived attention list has ≥1 actionable item; open the modal.
 2. Open the attention menu via the pill.
 3. Read `getBoundingClientRect()` for the menu panel and for
    `[data-testid="share-hub-primary"]`.
-4. **Precondition assertion (fails loud, never skips):** the two rects intersect. If they
-   do not, the test is not exercising the defect and must fail so the geometry change is
-   noticed.
-5. At the intersection's center point, `document.elementFromPoint(x, y)` returns a node
-   contained by the menu panel — not by the share-hub root.
+4. **Precondition (fails loud, never skips):** the rects intersect. If they stop
+   intersecting the test no longer exercises the defect and must say so.
+5. At the intersection's center, `document.elementFromPoint(x, y)` returns a node contained
+   by the menu panel and NOT by the share hub.
 
-Failure caught: exactly the reported defect. A class-only assertion would pass against a
-wrapper that is elevated but still loses to DOM order, which is why this is
-`elementFromPoint` and not a computed-style read.
+A computed-style or class assertion would pass against a wrapper that is elevated but still
+loses in paint order, which is why this is `elementFromPoint`.
 
-Detach-safety: every `evaluate` runs against a handle resolved in the same step, with no
-sampler outliving its element.
+Detach-safety: every rect is resolved in the step that uses it; no sampler outlives its
+element and the `evaluate` receives plain numbers, not element handles.
 
-### 7.4 Real browser — caret geometry
+### 7.4 Real browser — dimensional invariants and caret
 
-Extends the existing share-hub geometry block in
-`tests/e2e/published-review-modal.layout.spec.ts` (near T-HUB-FLUSH, `tests/e2e/published-review-modal.layout.spec.ts:299`): with the
-popover open, the caret's horizontal center sits within 0.5px of the kebab's horizontal
-center. Derived from the measured kebab rect, never hardcoded to 22px.
+§4.6 claims real-browser verification; this section delivers it. With the popover open:
 
-Note: T-HUB-FLUSH itself clicks nothing today; if opening the popover is not available in
-that harness, the caret assertion moves to `tests/e2e/published-review-modal.interactions.spec.ts` alongside T-HUB-ZORDER.
-The plan resolves this by reading the harness, not by guessing.
+1. **Row width chain (end-to-end).** For BOTH rows: `row.width === panel.clientWidth − 2 × panel padding`
+   within 0.5px, measured against the PANEL — not the wrapper — so a missing `w-full` on
+   either link fails here.
+2. **Row height floor.** Both rows `height >= 44` (the tap invariant, in resolved pixels).
+3. **Padding under wrap.** Force a long description (narrow viewport / long fixture); assert
+   the row's height exceeds 44px AND the label's top is ≥8px below the row's top — the §4.5
+   wrap guard and the §4.1 `py-2` decision.
+4. **Icon dimensions.** Both leading icons resolve 16×16 and do not shrink when the label
+   wraps.
+5. **Column shrink.** The label/description column's width is ≤ the row's content width
+   (no horizontal overflow of the 308px panel; assert `panel.scrollWidth <= panel.clientWidth`).
+6. **Scroll ownership.** The `role="dialog"` element itself is the scroller: assert its
+   `scrollHeight`/`clientHeight` relationship with a tall fixture and that it is the focused
+   element on open — the regression the withdrawn outer/inner split would have caused.
+7. **Panel right edge === trigger-group right edge** within 0.5px.
+8. **Caret**, all derived from measured rects, never hardcoded:
+   - horizontal center within 0.5px of the kebab's horizontal center;
+   - `width === height === 10` (±0.5px) — catches a wrong size;
+   - it is **visible and not clipped**: its rect is fully inside the viewport and
+     `elementFromPoint` at its outer tip returns the caret (or the panel), not a node behind
+     it — catches the clipped-invisible failure the sibling placement exists to prevent;
+   - its vertical box overlaps the panel's top edge — catches a detached or misplaced caret;
+   - resolved `background-color` equals the panel's, and the two drawn borders are non-zero
+     — catches a borderless or wrong-colored caret.
+   Stable locator: `[data-testid="share-hub-caret"]`.
 
 ### 7.5 Existing gates that must stay green
 
-`T-NO-ORANGE` (the caret uses `bg-surface`, the rows use no accent), `T-HUB-FLUSH`,
-`tests/styles` (canonical Tailwind classes), `tests/help` (UI-label crosswalk, em-dash ban
-— the row copy is unchanged, so no new labels enter the crosswalk).
+`T-NO-ORANGE` (the caret is `bg-surface`; the rows carry no accent), `T-HUB-FLUSH`,
+`tests/styles` (canonical Tailwind + the destructive-confirm registry — the confirm-button
+class literals are NOT edited, so no registry row or occurrence index may shift),
+`tests/help` (UI-label crosswalk, em-dash ban — row copy is unchanged, so no new label
+enters the crosswalk).
 
 ---
 
 ## 8. Numeric sweep
 
+Every literal in this document, cross-checked against the body it describes.
+
 | Value | Where | Cross-check |
 | --- | --- | --- |
-| 44px tap floor | §4.1 `min-h-tap-min` | project invariant; overrides the mock's 40px, stated once in §4.1 |
-| 308px panel width | §4.1, §5 guard | `components/admin/showpage/ShareHub.tsx:289` `w-[308px]` — unchanged by this spec |
-| 10px caret | §5 (`size-2.5`) | drives the 17px offset below |
+| 44px tap floor | §4.1 `min-h-tap-min`, §7.4.2 | `app/globals.css:162` `--spacing-tap-min: 44px` |
+| 40px | §4.1 | the mock's row height, explicitly OVERRIDDEN by the 44px floor |
+| 8px | §4.1 `px-2 py-2`, §4.1 `gap-2`, §7.4.3 | mock `padding:8px`; `gap-2` is 8px |
+| 11px | §4.1 | mock `gap:11px`, mapped DOWN to `gap-2` (8px) to match the mailto row |
+| 7px | §4.1 | mock `border-radius:7px`, mapped to `rounded-sm` |
+| 16px | §4.1, §7.4.4 | icon size, matching the mailto row's `<Mail size={16} />` |
+| 13px / 500 | §4.1 | mock label, mapped UP to `text-sm` (14px) `font-medium` |
+| 14px | §4.1 | resolved `text-sm` |
+| 11px / 1.3 | §4.1 | mock description, mapped to `text-xs text-text-subtle` |
+| `ring-2` | §4.1 | existing focus ring on both controls; unchanged |
+| `ring-offset-2` | §4.1 | reset ONLY (`app/admin/show/[slug]/PickerResetControl.tsx:266`); retained |
+| 308px | §4.6, §5 guard, §7.4.5 | `components/admin/showpage/ShareHub.tsx:289` `w-[308px]` — unchanged |
+| `max-h-[min(70vh,32rem)]` | §5, §7.1.9 | `components/admin/showpage/ShareHub.tsx:289` — unchanged; the withdrawn split would have moved it |
+| `max-w-[calc(100vw-2rem)]` | §5 guard | `components/admin/showpage/ShareHub.tsx:289` — unchanged |
+| 10px caret (`size-2.5`) | §5, §7.4.8 | drives the 17px and 5px values below |
+| 45° | §5 | `rotate-45` |
 | 44px kebab | §5 | `components/admin/showpage/ShareHub.tsx:270` `size-tap-min` |
-| 22px kebab center from panel right edge | §5 | 44 ÷ 2 |
-| 17px caret right offset | §5 | 22 − (10 ÷ 2) |
-| 5px caret top overhang | §5 | 10 ÷ 2 |
-| `z-30` | §3.1, §3.4 | the only elevation value this spec introduces; inner `z-20` / `z-40` unchanged |
-| 0.5px tolerance | §7.4 | project standard for real-browser geometry |
-| 4s `ARM_REVERT_MS`, 15s `BUSY_GATE_MAX_MS`, 5s `SUCCESS_DISMISS_MS` | §1.1 | referenced only as unchanged constants |
-
-No other literal appears in this document.
+| 22px | §5 | 44 ÷ 2 — kebab center from the group's right edge |
+| 17px | §5 | 22 − (10 ÷ 2) |
+| 5px | §5 | 10 ÷ 2 — half the caret box |
+| 6px (`mt-1.5`) | §5 | the popover's existing top margin |
+| 4px (`mt-1`) | §5 | the caret's top margin, chosen so its box spans the panel's top edge at 6px |
+| `z-30` | §3.2, §3.4 | the ONLY elevation value this spec changes |
+| `z-20` | §3.1, §3.4 | AttentionMenu panel + ShareHub backdrop — both unchanged |
+| `z-40` | §5 | popover and caret — the caret matches the popover so it is never painted under it |
+| 390px | §5 guard | narrow-viewport clamp check |
+| 0.5px | §7.4 | project standard for real-browser geometry |
+| ≥1 actionable item | §7.3.1 | the T-HUB-ZORDER fixture requirement |
+| 1900 chars | §1.1 (by reference) | the existing mailto batching cap; NOT changed here |
+| 4s / 15s / 5s | §1.1, §4.7 | `ARM_REVERT_MS` / `BUSY_GATE_MAX_MS` / `SUCCESS_DISMISS_MS`, all referenced as unchanged |
+| 3 links | §4.6 | the width chain: panel → wrapper → button |
 
 ---
 
@@ -403,15 +572,15 @@ No other literal appears in this document.
 
 | File | Change |
 | --- | --- |
-| `components/admin/showpage/ShareHub.tsx` | conditional `z-30`; split popover into positioned outer + scrolling inner; add caret |
-| `components/admin/showpage/PublishedReviewModal.tsx` | conditional `z-30` on the attention pill wrapper (`components/admin/showpage/PublishedReviewModal.tsx:510`) |
-| `app/admin/show/[slug]/RotateShareTokenButton.tsx` | compact idle render → menu row |
-| `app/admin/show/[slug]/PickerResetControl.tsx` | idle render → menu row; `<h4>` removed |
-| `tests/components/admin/showpage/shareHub.test.tsx` | new assertions (§7.1) |
-| `tests/components/RotateShareTokenButton.test.tsx` | old-shape assertions updated (§7.2) |
-| `tests/admin/pickerResetControl.test.tsx` | old-shape assertions updated (§7.2) |
-| `tests/e2e/published-review-modal.interactions.spec.ts` | T-HUB-ZORDER (§7.3) |
-| `tests/e2e/published-review-modal.layout.spec.ts` | caret geometry (§7.4), harness permitting |
+| `components/admin/showpage/ShareHub.tsx` | conditional `z-30` on the root; caret span as a sibling of the popover. **Popover classes unchanged.** |
+| `app/admin/show/[slug]/RotateShareTokenButton.tsx` | compact idle render → menu row; wrapper gains `w-full`; `aria-label` + `aria-describedby` retained |
+| `app/admin/show/[slug]/PickerResetControl.tsx` | idle render → menu row; `<h4>` → `<span>` in the row; wrapper gains `w-full`; gains the `aria-label` + `aria-describedby` pair; stale `step3ReviewSections` doc comment corrected |
+| `tests/components/admin/showpage/shareHub.test.tsx` | §7.1 |
+| `tests/admin/pickerResetControl.test.tsx` | §7.2 (heading assertion only) |
+| `tests/e2e/published-review-modal.interactions.spec.ts` | §7.3 + §7.4 |
+
+**`components/admin/showpage/PublishedReviewModal.tsx` is NOT modified** (§3.2), and
+`tests/components/RotateShareTokenButton.test.tsx` needs no edit (§7.2).
 
 UI surface throughout ⇒ invariant 8 applies: `/impeccable critique` + `/impeccable audit`
 before cross-model review.
