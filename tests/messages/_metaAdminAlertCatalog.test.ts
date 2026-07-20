@@ -597,7 +597,7 @@ describe("META admin_alerts catalog contract", () => {
     // 2026-07-18-alert-copy-full-sweep-design.md §6) inline-identity codes
     // — a DIFFERENT mechanism than the producer-context rows above: these
     // codes' params are NOT written by the admin_alerts producer at upsert
-    // time. They are derived at READ TIME by deriveAlertMessageParams()
+    // time. They are derived at READ TIME by deriveAlertMessageParams(, "global")
     // (lib/adminAlerts/deriveMessageParams.ts), which merges sanitized
     // context with resolved-identity fallback params (sheet-name/show-name/
     // repo/file-name/role-changes/crew-name/email/crew-row-count/

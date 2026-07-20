@@ -90,7 +90,7 @@ describe("deriveAlertMessageParams — cursor advances past a pii-skipped match"
         { label: null, value: "3 crew rows" },
       ],
     };
-    const params = deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, identity);
+    const params = deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, identity, "global");
     expect(params["show-name"]).toBe("'II - East Coast 2026'");
     expect(params.email).toBe("an email address"); // pii value never surfaces here
     expect(params["crew-row-count"]).toBe("3 crew rows"); // cursor advanced past the skip

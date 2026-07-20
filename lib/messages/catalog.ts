@@ -31,6 +31,20 @@ export type MessageCatalogEntry = {
    */
   resolution?: "auto" | "manual";
   dougFacing: string | null;
+  /**
+   * Show-scoped variant of `dougFacing`, used ONLY when the alert renders
+   * inside the show it belongs to — where the modal header already names the
+   * show, so the template's "In <sheet-name>, " opening is redundant.
+   *
+   * Selected by `safeDougFacingTemplate` (lib/admin/attentionItems.ts), which
+   * is reachable only from the show modal. The bell builds its copy from
+   * `dougFacing` via `rowCopy` (components/admin/BellPanel.tsx) and never sees
+   * this field, so global rendering cannot change.
+   *
+   * Absent = the global string is used in both places (redundant, never
+   * wrong). Spec docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md §3.1.
+   */
+  dougFacingShowScoped?: string;
   crewFacing: string | null;
   followUp: string | null;
   helpfulContext: string | null;
@@ -853,6 +867,7 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     severity: "info",
     dougFacing: "In <sheet-name>, <role-changes><lead-hint>",
+    dougFacingShowScoped: "<role-changes><lead-hint>",
     crewFacing: null,
     followUp: "none (informational)",
     helpfulContext: null,
@@ -2186,10 +2201,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → refresh page",
     helpfulContext:
-      "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
     title: "Alert no longer exists",
     longExplanation:
-      "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved and cleaned up) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved and cleaned up) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
     helpHref: "/help/errors#ADMIN_ALERT_NOT_FOUND",
   },
   ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
@@ -2199,7 +2214,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → click through to show",
     helpfulContext:
-      "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
+      "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you resolve the alert, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; resolve it there.",
     title: "Alert must be resolved from show page",
     longExplanation:
       "Per-show alerts are resolved from the show's parse panel, not the global dashboard banner. We require the click-through so the resolution is recorded in the show's audit trail. The dashboard's redirect link will take you straight to the show's alert section.",
@@ -3289,6 +3304,8 @@ export const MESSAGE_CATALOG = {
       "The show-picker had trouble starting up for someone. It usually recovers on retry; the developer can check if it persists.",
     dougFacing:
       "In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.",
+    dougFacingShowScoped:
+      "Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening, contact the developer.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect claim_oauth_identity",
     helpfulContext: null,
@@ -3323,6 +3340,8 @@ export const MESSAGE_CATALOG = {
       "A sign-in identity was already linked, and the app handled it automatically. No action needed.",
     dougFacing:
       "In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
+    dougFacingShowScoped:
+      "<crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     crewFacing: null,
     followUp: "Informational",
     helpfulContext: null,

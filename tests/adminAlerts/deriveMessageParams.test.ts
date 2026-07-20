@@ -28,13 +28,14 @@ describe("deriveAlertMessageParams — identity params", () => {
         { label: "Sheet", value: "II - East Coast 2026" },
         { label: "Show", value: "II - East Coast 2026" },
       ]),
+      "global",
     );
     expect(p["sheet-name"]).toBe("'II - East Coast 2026'");
     expect(p["show-name"]).toBe("'II - East Coast 2026'");
   });
 
   it("falls back to unquoted phrases when identity is null or segment missing", () => {
-    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", null, null);
+    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", null, null, "global");
     expect(p["sheet-name"]).toBe("this sheet");
     expect(p["show-name"]).toBe("this show");
   });
@@ -44,6 +45,7 @@ describe("deriveAlertMessageParams — identity params", () => {
       "BRANCH_PROTECTION_DRIFT",
       { repo: "edweiss412/FX-Webpage-Template" },
       null,
+      "global",
     );
     expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
   });
@@ -63,6 +65,7 @@ describe("deriveAlertMessageParams — identity params", () => {
         "BRANCH_PROTECTION_DRIFT",
         { "show-name": "context-supplied" },
         identity([{ label: "Show", value: "II - East Coast 2026" }]),
+        "global",
       );
       expect(p["show-name"]).toBe("'II - East Coast 2026'");
     });
@@ -72,12 +75,13 @@ describe("deriveAlertMessageParams — identity params", () => {
         "SHEET_UNAVAILABLE",
         { sheet_name: "Validation — Normal day (R1)" },
         null,
+        "global",
       );
       expect(p["sheet-name"]).toBe("Validation — Normal day (R1)");
     });
 
     it("sheet-name: identity null, context missing → fallback phrase", () => {
-      const p = deriveAlertMessageParams("SHEET_UNAVAILABLE", null, null);
+      const p = deriveAlertMessageParams("SHEET_UNAVAILABLE", null, null, "global");
       expect(p["sheet-name"]).toBe("this sheet");
     });
 
@@ -86,6 +90,7 @@ describe("deriveAlertMessageParams — identity params", () => {
         "REPORT_LEASE_THRASHING",
         { show_name: "II - RIA Investment Forum" },
         null,
+        "global",
       );
       expect(p["show-name"]).toBe("II - RIA Investment Forum");
     });
@@ -95,6 +100,7 @@ describe("deriveAlertMessageParams — identity params", () => {
         "BRANCH_PROTECTION_DRIFT",
         { repo: "edweiss412/FX-Webpage-Template" },
         identity([{ label: "Show", value: "unrelated" }]),
+        "global",
       );
       expect(p.repo).toBe("edweiss412/FX-Webpage-Template");
     });
@@ -105,17 +111,17 @@ describe("deriveAlertMessageParams — identity params", () => {
   // EVERY placeholder these three codes' dougFacing templates use must
   // always resolve here too — not just sheet-name/show-name.
   it("repo falls back to a generic phrase when context is missing/null (BRANCH_PROTECTION_*)", () => {
-    const p = deriveAlertMessageParams("BRANCH_PROTECTION_DRIFT", null, null);
+    const p = deriveAlertMessageParams("BRANCH_PROTECTION_DRIFT", null, null, "global");
     expect(p.repo).toBe("this repository");
   });
 
   it("file_name falls back to 'this sheet' when context is missing/null (WIZARD_SESSION_SUPERSEDED_RACE)", () => {
-    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null);
+    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null, "global");
     expect(p.file_name).toBe("this sheet");
   });
 
   it("attempted_action falls back to a generic phrase when context is missing/null (WIZARD_SESSION_SUPERSEDED_RACE)", () => {
-    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null);
+    const p = deriveAlertMessageParams("WIZARD_SESSION_SUPERSEDED_RACE", null, null, "global");
     expect(p.attempted_action).toBe("a setup action");
   });
 
@@ -124,6 +130,7 @@ describe("deriveAlertMessageParams — identity params", () => {
       "WIZARD_SESSION_SUPERSEDED_RACE",
       { file_name: "II - East Coast 2026", attempted_action: "retry" },
       null,
+      "global",
     );
     expect(p.file_name).toBe("II - East Coast 2026");
     expect(p.attempted_action).toBe("retry");
@@ -172,20 +179,23 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "OAUTH_IDENTITY_CLAIMED",
         { crew_name: "Wrong Name" },
         identity,
+        "global",
       );
       expect(p["crew-name"]).toBe("'Doug Larson'");
     });
 
     it("context wins when identity null", () => {
       expect(
-        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", { crew_name: "Ann" }, null)["crew-name"],
+        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", { crew_name: "Ann" }, null, "global")[
+          "crew-name"
+        ],
       ).toBe("Ann");
     });
 
     it("fallback when both absent", () => {
-      expect(deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null)["crew-name"]).toBe(
-        "a crew member",
-      );
+      expect(
+        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null, "global")["crew-name"],
+      ).toBe("a crew member");
     });
 
     it("does not conflate ROLE_FLAGS_NOTICE's Crew-labeled contextField (role_change_crew_names) with the crewName kind", () => {
@@ -201,7 +211,7 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
           { label: null, value: "2 role changes" },
         ],
       };
-      const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", null, identity);
+      const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", null, identity, "global");
       expect(p["crew-name"]).toBe("a crew member");
     });
   });
@@ -216,22 +226,26 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "OAUTH_IDENTITY_CLAIMED",
         { email: "wrong@example.com" },
         identity,
+        "global",
       );
       expect(p["email"]).toBe("doug@example.com");
     });
 
     it("context wins when identity lacks the segment", () => {
       expect(
-        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", { email: "ann@example.com" }, null)[
-          "email"
-        ],
+        deriveAlertMessageParams(
+          "OAUTH_IDENTITY_CLAIMED",
+          { email: "ann@example.com" },
+          null,
+          "global",
+        )["email"],
       ).toBe("ann@example.com");
     });
 
     it("fallback when both absent", () => {
-      expect(deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null)["email"]).toBe(
-        "an email address",
-      );
+      expect(
+        deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, null, "global")["email"],
+      ).toBe("an email address");
     });
 
     it("pii segment never surfaces the raw value — falls through to context, then fallback", () => {
@@ -243,11 +257,17 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "OAUTH_IDENTITY_CLAIMED",
         { email: "context@example.com" },
         identity,
+        "global",
       );
       expect(withContext["email"]).toBe("context@example.com");
       expect(withContext["email"]).not.toContain("doug@example.com");
 
-      const withoutContext = deriveAlertMessageParams("OAUTH_IDENTITY_CLAIMED", null, identity);
+      const withoutContext = deriveAlertMessageParams(
+        "OAUTH_IDENTITY_CLAIMED",
+        null,
+        identity,
+        "global",
+      );
       expect(withoutContext["email"]).toBe("an email address");
     });
   });
@@ -266,6 +286,7 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "AMBIGUOUS_EMAIL_BINDING",
         { crew_row_count: "wrong" },
         identity,
+        "global",
       );
       expect(p["crew-row-count"]).toBe("2 crew rows");
     });
@@ -276,13 +297,14 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
           "AMBIGUOUS_EMAIL_BINDING",
           { crew_row_count: "3 crew rows" },
           null,
+          "global",
         )["crew-row-count"],
       ).toBe("3 crew rows");
     });
 
     it("fallback when both absent", () => {
       expect(
-        deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, null)["crew-row-count"],
+        deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, null, "global")["crew-row-count"],
       ).toBe("two or more crew rows");
     });
 
@@ -301,7 +323,7 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
           { label: null, value: "2 crew rows" },
         ],
       };
-      const p = deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, identity);
+      const p = deriveAlertMessageParams("AMBIGUOUS_EMAIL_BINDING", null, identity, "global");
       expect(p["email"]).toBe("doug@example.com");
       expect(p["crew-row-count"]).toBe("2 crew rows");
     });
@@ -317,6 +339,7 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
         "ONBOARDING_SHEET_UNREADABLE",
         { failed_sheet_names: "wrong" },
         identity,
+        "global",
       );
       expect(p["failed-sheet-names"]).toBe("Sheet1, Sheet2 +1 more");
     });
@@ -327,13 +350,16 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
           "ONBOARDING_SHEET_UNREADABLE",
           { failed_sheet_names: "Sheet3" },
           null,
+          "global",
         )["failed-sheet-names"],
       ).toBe("Sheet3");
     });
 
     it("fallback when both absent", () => {
       expect(
-        deriveAlertMessageParams("ONBOARDING_SHEET_UNREADABLE", null, null)["failed-sheet-names"],
+        deriveAlertMessageParams("ONBOARDING_SHEET_UNREADABLE", null, null, "global")[
+          "failed-sheet-names"
+        ],
       ).toBe("some sheets");
     });
   });
@@ -341,15 +367,17 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
   describe("crew-count (no identity segments — plain context ?? fallback)", () => {
     it("context wins when present", () => {
       expect(
-        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: "5" }, null)["crew-count"],
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: "5" }, null, "global")[
+          "crew-count"
+        ],
       ).toBe("5");
     });
 
     it("fallback when absent, even with an (irrelevant) identity present", () => {
       const identity: AlertIdentity = { global: true, segments: [] };
-      expect(deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, identity)["crew-count"]).toBe(
-        "some",
-      );
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, identity, "global")["crew-count"],
+      ).toBe("some");
     });
 
     // Codex whole-diff MEDIUM: the SHOW_FIRST_PUBLISHED producer writes
@@ -359,19 +387,25 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
     // the "some" fallback.
     it("context wins when crew_count is a finite number (real producer shape)", () => {
       expect(
-        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 5 }, null)["crew-count"],
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 5 }, null, "global")[
+          "crew-count"
+        ],
       ).toBe("5");
     });
 
     it("context wins when crew_count is zero (falsy-but-valid number)", () => {
       expect(
-        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 0 }, null)["crew-count"],
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: 0 }, null, "global")[
+          "crew-count"
+        ],
       ).toBe("0");
     });
 
     it("falls back when crew_count is NaN", () => {
       expect(
-        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: NaN }, null)["crew-count"],
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { crew_count: NaN }, null, "global")[
+          "crew-count"
+        ],
       ).toBe("some");
     });
 
@@ -381,6 +415,7 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
           "SHOW_FIRST_PUBLISHED",
           { crew_count: { nested: true } } as unknown as Record<string, unknown>,
           null,
+          "global",
         )["crew-count"],
       ).toBe("some");
     });
@@ -389,14 +424,16 @@ describe("deriveAlertMessageParams — identity-segment param mapping (full swee
   describe("show-date (no identity segments — plain context ?? fallback)", () => {
     it("context wins when present", () => {
       expect(
-        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { show_date: "Aug 1" }, null)["show-date"],
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", { show_date: "Aug 1" }, null, "global")[
+          "show-date"
+        ],
       ).toBe("Aug 1");
     });
 
     it("fallback when absent", () => {
-      expect(deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, null)["show-date"]).toBe(
-        "an upcoming date",
-      );
+      expect(
+        deriveAlertMessageParams("SHOW_FIRST_PUBLISHED", null, null, "global")["show-date"],
+      ).toBe("an upcoming date");
     });
   });
 });
@@ -409,6 +446,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       { changes: [change("Doug Larson", ["A1"], ["A1", "LEAD"])] },
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe("Doug Larson's role changed from A1 to A1 + LEAD.");
     expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
@@ -419,6 +457,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       { changes: [change("Jane Doe", [], ["FINANCIALS"])] },
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe("Jane Doe was added with FINANCIALS.");
     expect(p["lead-hint"]).toBe("");
@@ -429,6 +468,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       { changes: [change("Sam Roe", ["LEAD"], [])] },
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe("Sam Roe (LEAD) was removed from the crew.");
     expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
@@ -445,6 +485,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
         ],
       },
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe(
       "3 role changes:\n• Doug Larson: A1 → A1 + LEAD\n• Jane Doe: added with FINANCIALS\n• Sam Roe: LEAD → (removed)",
@@ -464,6 +505,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
         ],
       },
       sheetIdentity,
+      "global",
     );
     const lines = String(p["role-changes"]).split("\n");
     expect(lines[0]).toBe("5 role changes:");
@@ -476,6 +518,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       { changes: [change("Jane Doe", ["A1"], ["A1", "FINANCIALS"])] },
       sheetIdentity,
+      "global",
     );
     expect(p["lead-hint"]).toBe("");
   });
@@ -485,6 +528,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       { changes: [change("Doug Larson", ["LEAD", "A1"], ["A1"])] },
       sheetIdentity,
+      "global",
     );
     expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
   });
@@ -500,6 +544,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "ROLE_FLAGS_NOTICE",
       context as Record<string, unknown> | null,
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe("a crew member's role flags changed; see the show page.");
     expect(p["lead-hint"]).toBe("");
@@ -515,12 +560,13 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
         ],
       },
       sheetIdentity,
+      "global",
     );
     expect(p["role-changes"]).toBe("Doug Larson's role changed from A1 to A1 + LEAD.");
   });
 
   it("non-ROLE_FLAGS codes get no role-changes/lead-hint params", () => {
-    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", { changes: [] }, null);
+    const p = deriveAlertMessageParams("REPORT_LEASE_THRASHING", { changes: [] }, null, "global");
     expect(p["role-changes"]).toBeUndefined();
     expect(p["lead-hint"]).toBeUndefined();
   });
@@ -558,14 +604,14 @@ describe("roleChangeLines (structured multi-change helper, WI-4)", () => {
   });
 
   it("multi-change role-changes param drops the tail + em dash (via deriveAlertMessageParams)", () => {
-    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: mk(5) }, null);
+    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: mk(5) }, null, "global");
     expect(p["role-changes"]).toContain("+2 more");
     expect(p["role-changes"]).not.toContain("see show page");
     expect(p["role-changes"]).not.toContain("—");
   });
 
   it("ROLE_CHANGES_FALLBACK (0 changes) is em-dash free", () => {
-    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: [] }, null);
+    const p = deriveAlertMessageParams("ROLE_FLAGS_NOTICE", { changes: [] }, null, "global");
     expect(p["role-changes"]).not.toContain("—");
   });
 

@@ -23,7 +23,7 @@
  *   — the canonical list of every code used in a production admin_alerts.upsert
  *   call), not a hand-picked or audience-filtered subset. For each code's
  *   catalog dougFacing template, extract every `<placeholder>` token and
- *   interpolate with `deriveAlertMessageParams(code, null, null)` params —
+ *   interpolate with `deriveAlertMessageParams(code, null, null, "global")` params —
  *   the same entry point + `interpolate()` (lib/messages/lookup.ts) every
  *   admin render surface uses — and assert nothing remains unresolved.
  *
@@ -70,7 +70,7 @@ describe("_metaAdminTemplateCoverage", () => {
       const tokens = [...template.matchAll(PLACEHOLDER_RE)].map((m) => m[1]);
       if (tokens.length === 0) return; // nothing to resolve for this code
 
-      const params = deriveAlertMessageParams(code, null, null);
+      const params = deriveAlertMessageParams(code, null, null, "global");
       const rendered = interpolate(template, params);
 
       expect(

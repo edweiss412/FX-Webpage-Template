@@ -151,10 +151,12 @@ describe("BellPanel — resolve wiring (spec §7.3)", () => {
     const { getByTestId } = renderPanel();
     const panel = getByTestId("bell-panel");
     const resolve = await within(panel).findByTestId("bell-resolve-g-1");
-    // Copy is "Dismiss", matching the alert body's own "you can also dismiss it
-    // now" wording — not "Resolve" (which implied fixing the underlying issue).
-    expect(resolve.textContent).toContain("Dismiss");
-    expect(resolve.textContent).not.toContain("Resolve");
+    // Copy is now intent-driven and shared with the show modal and telemetry
+    // (lib/adminAlerts/resolveActionLabel.ts): one alert reads the same verb
+    // everywhere, where the bell used to say "Dismiss" while the other two
+    // said "Mark resolved". This code is a fault, so it reads "Mark resolved".
+    expect(resolve.textContent).toContain("Mark resolved");
+    expect(resolve.textContent).not.toContain("Dismiss");
 
     const before = feedHits;
     fireEvent.click(resolve);
