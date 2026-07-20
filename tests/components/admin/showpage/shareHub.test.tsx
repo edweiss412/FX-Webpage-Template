@@ -276,7 +276,9 @@ describe("ShareHub — z-order (spec §3)", () => {
     const maxZLevel = (cls: string): number => {
       let max = 0;
       for (const tok of cls.split(/\s+/).filter(Boolean)) {
-        const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))$/.exec(tok);
+        // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
+        // plausible way to force an elevation, so allow it before the anchor.
+        const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
         if (!m) continue;
         const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
         if (n > max) max = n;
