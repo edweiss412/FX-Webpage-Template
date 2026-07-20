@@ -117,6 +117,16 @@ export function recordedTouches(): readonly DbTouch[] {
   return touches;
 }
 
+/**
+ * Record a DB touch that did NOT go through this process's socket — a child
+ * `psql`/`supabase` subprocess seen by the subprocess probe. Port 0 marks
+ * "not a local TCP target of ours"; summarizeFile treats any `subprocess:*`
+ * host as a DB touch regardless of port.
+ */
+export function recordSubprocessTouch(host: string): void {
+  touches.push({ file: currentTestFile, host, port: 0 });
+}
+
 export function resetRecordedTouches(): void {
   touches = [];
 }

@@ -7,6 +7,7 @@ import {
   resetRecordedTouches,
 } from "./probes/dbTouchProbe";
 import { appendRow, summarizeFile } from "./probes/dbTouchReport";
+import { installSubprocessDbProbe } from "./probes/subprocessDbProbe";
 
 // lib/log default-sink teardown-safety (Phase 4 console.* → lib/log migration).
 // The default sink lazily `await import("./persist")` → `@/lib/supabase/server`
@@ -100,6 +101,7 @@ if (process.env.DB_TOUCH_PROBE === "1") {
   };
 
   installDbTouchProbe();
+  installSubprocessDbProbe();
   resetRecordedTouches();
 
   // Attribute in beforeAll rather than at module scope: setup files are

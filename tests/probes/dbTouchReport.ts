@@ -27,8 +27,11 @@ export type DbTouchRow = {
   targets: string[];
 };
 
+/** A subprocess DB touch is marked by host, not by a port we can observe. */
+const isDbTouch = (t: DbTouch): boolean => DB_PORTS.has(t.port) || t.host.startsWith("subprocess:");
+
 export function summarizeFile(file: string, touches: readonly DbTouch[]): DbTouchRow {
-  const dbTouches = touches.filter((t) => DB_PORTS.has(t.port));
+  const dbTouches = touches.filter(isDbTouch);
   const targets = [...new Set(dbTouches.map((t) => `${t.host}:${t.port}`))].sort();
 
   return { file, total: touches.length, db: dbTouches.length, targets };
