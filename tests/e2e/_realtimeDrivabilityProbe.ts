@@ -83,13 +83,21 @@ async function main(): Promise<void> {
   // wizard and IGNORES ?show= (the dark-spec #486 lesson: admin surfaces need
   // settleDashboardAdminState). Restored in the finally.
   const restoreDashboardState = await settleDashboardAdminState();
-  const seeded = await seedShowWithCrew({
-    // Default crew is EMPTY — pass rows explicitly (SeedShowWithCrewOptions.crew).
-    crew: [
-      { name: "Probe Target", role: "Probe Role Original" },
-      { name: "Probe Anchor", role: "Probe Role Anchor" },
-    ],
-  });
+  // A seed failure must still restore the settled dashboard state (whole-diff
+  // review F4 — cleanup-safety covers the pre-try window too).
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  try {
+    seeded = await seedShowWithCrew({
+      // Default crew is EMPTY — pass rows explicitly (SeedShowWithCrewOptions.crew).
+      crew: [
+        { name: "Probe Target", role: "Probe Role Original" },
+        { name: "Probe Anchor", role: "Probe Role Anchor" },
+      ],
+    });
+  } catch (err) {
+    await restoreDashboardState();
+    throw err;
+  }
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
     const target = seeded.crew[0];

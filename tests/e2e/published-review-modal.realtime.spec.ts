@@ -206,228 +206,253 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
     );
     expect(join, `ok join reply on ${wireTopic} (gate 2)`).toBeTruthy();
 
-    // Warm-up broadcasts (cold-start defense): up to 3 bounded manual
-    // publishes, each awaited via the strict frame predicate.
-    let warmupOk = false;
-    for (let attempt = 1; attempt <= 3 && !warmupOk; attempt += 1) {
-      const warmupAt = Date.now();
-      const rpcRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
-      expect(rpcRes.error, "warm-up publish rpc").toBeNull();
-      const frame = await poll(
+    // Any failure AFTER the healthy join is re-classified as environmental
+    // flake IF a socket close/error/re-join was recorded since the join — the
+    // mandated fresh-context retry then governs (whole-diff review F1: the
+    // guard covers EVERY post-join phase, not only the tail attribution check).
+    const disruptionSinceJoin = (): string | null => {
+      const d = socketEvents.find(
+        (e) => e.at > join!.at && (e.text === "close" || e.text.startsWith("error")),
+      );
+      if (d) return d.text;
+      const rj = frames.find(
+        (f) =>
+          f.at > join!.at &&
+          f.text.startsWith("SENT") &&
+          f.text.includes(wireTopic) &&
+          f.text.includes("phx_join"),
+      );
+      return rj ? "re-join" : null;
+    };
+    try {
+      // Warm-up broadcasts (cold-start defense): up to 3 bounded manual
+      // publishes, each awaited via the strict frame predicate.
+      let warmupOk = false;
+      for (let attempt = 1; attempt <= 3 && !warmupOk; attempt += 1) {
+        const warmupAt = Date.now();
+        const rpcRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+        expect(rpcRes.error, "warm-up publish rpc").toBeNull();
+        const frame = await poll(
+          () =>
+            frames.find(
+              (f) =>
+                f.at > warmupAt &&
+                !f.text.startsWith("SENT") &&
+                isInvalidationFrame(f.text, seeded.showId),
+            ),
+          INVALIDATION_FRAME_TIMEOUT_MS,
+        );
+        warmupOk = frame !== undefined;
+      }
+      expect(
+        warmupOk,
+        "broadcast pipeline undeliverable: 3 warm-up publishes produced no frame",
+      ).toBe(true);
+
+      // Gate 3: OBSERVED quiescence — no in-flight tracked request AND no topic
+      // frame for QUIET_WINDOW_MS (frames restart the timer), bounded.
+      const quietAt = await poll(() => {
+        const now = Date.now();
+        const lastFrame = frames.filter((f) => f.text.includes(wireTopic)).at(-1);
+        const lastReq = requests.at(-1);
+        const quietSince = Math.max(lastFrame?.at ?? 0, lastReq?.at ?? 0);
+        return inflight === 0 && now - quietSince >= QUIET_WINDOW_MS ? now : undefined;
+      }, QUIESCENCE_ACQUIRE_TIMEOUT_MS);
+      expect(
+        quietAt,
+        "quiescence over ?show=//version requests + topic frames (gate 3)",
+      ).toBeTruthy();
+
+      // ── Arm the §4.4 oracles ────────────────────────────────────────────────
+      const scrollerSel = `[data-testid="wizard-step3-card-${seeded.driveFileId}-review-content"]`;
+      const anchorTrigger = page.locator(`[data-testid="crew-row-menu-button-${anchor.id}"]`);
+      const anchorMenu = page.locator(`[data-testid="crew-row-menu-${anchor.id}"]`);
+      const targetRow = page
+        .locator(`li:has([data-testid="crew-row-menu-button-${target.id}"])`)
+        .first();
+
+      // Open the ⋮ popover on the UNTOUCHED anchor row; its trigger takes focus.
+      await anchorTrigger.scrollIntoViewIfNeeded();
+      await anchorTrigger.click();
+      await expect(anchorMenu).toBeVisible();
+      // Tag the focused node so identity (not equality-by-selector) is asserted.
+      const probeTagged = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!(el instanceof HTMLElement)) return false;
+        el.setAttribute("data-probe", "focus-anchor");
+        return true;
+      });
+      expect(probeTagged, "activeElement is a taggable HTMLElement after popover open").toBe(true);
+      // Retain the NODE ITSELF — the final oracle compares identity
+      // (document.activeElement === this node), not attribute presence
+      // (whole-diff review F2).
+      const focusedNode = await page.evaluateHandle(() => document.activeElement);
+
+      // Scroll oracle precondition: scrollable, mid-position ≥100px below max.
+      const scrollArm = await page.evaluate((sel) => {
+        const s = document.querySelector(sel);
+        if (!(s instanceof HTMLElement)) return null;
+        if (s.scrollHeight <= s.clientHeight) return { scrollable: false as const };
+        const mid = Math.min(150, s.scrollHeight - s.clientHeight - 10);
+        s.scrollTop = mid;
+        return { scrollable: true as const, scrollTop: s.scrollTop, scrollHeight: s.scrollHeight };
+      }, scrollerSel);
+      expect(scrollArm, "modal scroller found").not.toBeNull();
+      expect(scrollArm!.scrollable, "fixture roster must force scrolling (grow it if not)").toBe(
+        true,
+      );
+      expect(scrollArm!.scrollTop!).toBeGreaterThanOrEqual(100);
+
+      const targetGeomBefore = await targetRow.evaluate((el) => ({
+        offsetTop: (el as HTMLElement).offsetTop,
+        offsetHeight: (el as HTMLElement).offsetHeight,
+      }));
+
+      // Skeleton watch: a MutationObserver catches even a transient fallback flash.
+      await page.evaluate((tid) => {
+        const w = window as unknown as { __skeletonMounts?: number };
+        w.__skeletonMounts = 0;
+        const obs = new MutationObserver((muts) => {
+          for (const m of muts) {
+            for (const n of m.addedNodes) {
+              if (
+                n instanceof HTMLElement &&
+                (n.getAttribute("data-testid") === tid || n.querySelector(`[data-testid="${tid}"]`))
+              ) {
+                w.__skeletonMounts = (w.__skeletonMounts ?? 0) + 1;
+              }
+            }
+          }
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+      }, SKELETON_TESTID);
+
+      // Content preconditions: target row shows OLD role; NEW role appears NOWHERE.
+      await expect(targetRow).toContainText(OLD_ROLE);
+      expect(await page.locator(MODAL).getByText(NEW_ROLE).count()).toBe(0);
+
+      // ── Mutate (the pinned key-stable stimulus: role swap on ONE row) ──────
+      const commitAt = Date.now();
+      const { error: mutErr } = await admin
+        .from("crew_members")
+        .update({ role: NEW_ROLE })
+        .eq("id", target.id);
+      expect(mutErr, "service-role role UPDATE").toBeNull();
+
+      // Phase (i): the invalidation frame is RECEIVED.
+      const inval = await poll(
         () =>
           frames.find(
             (f) =>
-              f.at > warmupAt &&
+              f.at > commitAt &&
               !f.text.startsWith("SENT") &&
               isInvalidationFrame(f.text, seeded.showId),
           ),
         INVALIDATION_FRAME_TIMEOUT_MS,
       );
-      warmupOk = frame !== undefined;
+      expect(inval, "post-mutation invalidation frame (phase i)").toBeTruthy();
+
+      // Phase (ii): a ?show= RSC request whose START post-dates the frame, and
+      // its completion — the debounced router.refresh() as the frame's consequence.
+      const rsc = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > inval!.at &&
+              r.text.startsWith("REQ RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        POST_FRAME_REQUEST_TIMEOUT_MS,
+      );
+      expect(rsc, "?show= RSC request STARTED after the frame (phase ii)").toBeTruthy();
+      const rscDone = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > rsc!.at &&
+              r.text.startsWith("RESP RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        CONTENT_SWAP_TIMEOUT_MS,
+      );
+      expect(rscDone, "post-frame ?show= RSC response completed (phase ii)").toBeTruthy();
+
+      // Phase (iii): row-scoped swap, in place.
+      await expect(targetRow).toContainText(NEW_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
+      expect(new URL(page.url()).searchParams.get("show"), "URL unchanged").toBe(seeded.slug);
+
+      // Reconnect flake guard BEFORE the attribution assertion: a close/error or
+      // re-join in the window legitimately fetches /version → environmental flake.
+      const disruption = disruptionSinceJoin();
+      if (disruption) {
+        return { kind: "flake", reason: `socket disruption in window: ${disruption}` };
+      }
+      const versionReq = requests.find(
+        (r) => r.at > commitAt && r.text.startsWith("REQ") && r.text.includes("/version"),
+      );
+      expect(
+        versionReq,
+        "NO /version request post-mutation — the swap is attributable ONLY to the broadcast path",
+      ).toBeUndefined();
+
+      // Skeleton never re-entered (transient observation, whole window).
+      const skeletonMounts = await page.evaluate(
+        () => (window as unknown as { __skeletonMounts?: number }).__skeletonMounts ?? 0,
+      );
+      expect(skeletonMounts, "modal must not re-enter its Suspense fallback").toBe(0);
+
+      // Geometry stability, scroll-independent (INCONCLUSIVE on delta — fixture
+      // problem, distinct message); then the scrollTop invariant proper.
+      const geomAfter = await page.evaluate((sel) => {
+        const s = document.querySelector(sel) as HTMLElement;
+        return { scrollTop: s.scrollTop, scrollHeight: s.scrollHeight };
+      }, scrollerSel);
+      const targetGeomAfter = await targetRow.evaluate((el) => ({
+        offsetTop: (el as HTMLElement).offsetTop,
+        offsetHeight: (el as HTMLElement).offsetHeight,
+      }));
+      expect(
+        Math.abs(geomAfter.scrollHeight - scrollArm!.scrollHeight!),
+        "INCONCLUSIVE: scroller scrollHeight changed across the swap — fixture geometry unstable",
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(targetGeomAfter.offsetTop - targetGeomBefore.offsetTop),
+        "INCONCLUSIVE: target row offsetTop changed across the swap — fixture geometry unstable",
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(targetGeomAfter.offsetHeight - targetGeomBefore.offsetHeight),
+        "INCONCLUSIVE: target row offsetHeight changed across the swap — fixture geometry unstable",
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(geomAfter.scrollTop - scrollArm!.scrollTop!),
+        "§4.4 inv-3: scrollTop unchanged across the reconcile",
+      ).toBeLessThanOrEqual(1);
+
+      // §4.4 inv-1: the anchor row's popover is still open.
+      await expect(anchorMenu, "§4.4 inv-1: open popover survives the reconcile").toBeVisible();
+      // §4.4 inv-2: focus unchanged by NODE IDENTITY — compare the retained
+      // node reference itself; the data-probe attribute is only a debugging belt.
+      const focusHeld = await page.evaluate(
+        (el) => document.activeElement === el && el?.getAttribute("data-probe") === "focus-anchor",
+        focusedNode,
+      );
+      expect(focusHeld, "§4.4 inv-2: document.activeElement is the SAME node (identity)").toBe(
+        true,
+      );
+      // §4.4 inv-4: the closed attention menu stays closed.
+      await expect(page.locator(MENU), "§4.4 inv-4: attention menu stays closed").toHaveCount(0);
+
+      return { kind: "pass" };
+    } catch (err) {
+      const disruption = disruptionSinceJoin();
+      if (disruption) {
+        return {
+          kind: "flake",
+          reason: `socket disruption (${disruption}) surfaced as: ${String(err).slice(0, 160)}`,
+        };
+      }
+      throw err;
     }
-    expect(
-      warmupOk,
-      "broadcast pipeline undeliverable: 3 warm-up publishes produced no frame",
-    ).toBe(true);
-
-    // Gate 3: OBSERVED quiescence — no in-flight tracked request AND no topic
-    // frame for QUIET_WINDOW_MS (frames restart the timer), bounded.
-    const quietAt = await poll(() => {
-      const now = Date.now();
-      const lastFrame = frames.filter((f) => f.text.includes(wireTopic)).at(-1);
-      const lastReq = requests.at(-1);
-      const quietSince = Math.max(lastFrame?.at ?? 0, lastReq?.at ?? 0);
-      return inflight === 0 && now - quietSince >= QUIET_WINDOW_MS ? now : undefined;
-    }, QUIESCENCE_ACQUIRE_TIMEOUT_MS);
-    expect(
-      quietAt,
-      "quiescence over ?show=//version requests + topic frames (gate 3)",
-    ).toBeTruthy();
-
-    // ── Arm the §4.4 oracles ────────────────────────────────────────────────
-    const scrollerSel = `[data-testid="wizard-step3-card-${seeded.driveFileId}-review-content"]`;
-    const anchorTrigger = page.locator(`[data-testid="crew-row-menu-button-${anchor.id}"]`);
-    const anchorMenu = page.locator(`[data-testid="crew-row-menu-${anchor.id}"]`);
-    const targetRow = page
-      .locator(`li:has([data-testid="crew-row-menu-button-${target.id}"])`)
-      .first();
-
-    // Open the ⋮ popover on the UNTOUCHED anchor row; its trigger takes focus.
-    await anchorTrigger.scrollIntoViewIfNeeded();
-    await anchorTrigger.click();
-    await expect(anchorMenu).toBeVisible();
-    // Tag the focused node so identity (not equality-by-selector) is asserted.
-    const probeTagged = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (!(el instanceof HTMLElement)) return false;
-      el.setAttribute("data-probe", "focus-anchor");
-      return true;
-    });
-    expect(probeTagged, "activeElement is a taggable HTMLElement after popover open").toBe(true);
-
-    // Scroll oracle precondition: scrollable, mid-position ≥100px below max.
-    const scrollArm = await page.evaluate((sel) => {
-      const s = document.querySelector(sel);
-      if (!(s instanceof HTMLElement)) return null;
-      if (s.scrollHeight <= s.clientHeight) return { scrollable: false as const };
-      const mid = Math.min(150, s.scrollHeight - s.clientHeight - 10);
-      s.scrollTop = mid;
-      return { scrollable: true as const, scrollTop: s.scrollTop, scrollHeight: s.scrollHeight };
-    }, scrollerSel);
-    expect(scrollArm, "modal scroller found").not.toBeNull();
-    expect(scrollArm!.scrollable, "fixture roster must force scrolling (grow it if not)").toBe(
-      true,
-    );
-    expect(scrollArm!.scrollTop!).toBeGreaterThanOrEqual(100);
-
-    const targetGeomBefore = await targetRow.evaluate((el) => ({
-      offsetTop: (el as HTMLElement).offsetTop,
-      offsetHeight: (el as HTMLElement).offsetHeight,
-    }));
-
-    // Skeleton watch: a MutationObserver catches even a transient fallback flash.
-    await page.evaluate((tid) => {
-      const w = window as unknown as { __skeletonMounts?: number };
-      w.__skeletonMounts = 0;
-      const obs = new MutationObserver((muts) => {
-        for (const m of muts) {
-          for (const n of m.addedNodes) {
-            if (
-              n instanceof HTMLElement &&
-              (n.getAttribute("data-testid") === tid || n.querySelector(`[data-testid="${tid}"]`))
-            ) {
-              w.__skeletonMounts = (w.__skeletonMounts ?? 0) + 1;
-            }
-          }
-        }
-      });
-      obs.observe(document.body, { childList: true, subtree: true });
-    }, SKELETON_TESTID);
-
-    // Content preconditions: target row shows OLD role; NEW role appears NOWHERE.
-    await expect(targetRow).toContainText(OLD_ROLE);
-    expect(await page.locator(MODAL).getByText(NEW_ROLE).count()).toBe(0);
-
-    // ── Mutate (the pinned key-stable stimulus: role swap on ONE row) ──────
-    const commitAt = Date.now();
-    const { error: mutErr } = await admin
-      .from("crew_members")
-      .update({ role: NEW_ROLE })
-      .eq("id", target.id);
-    expect(mutErr, "service-role role UPDATE").toBeNull();
-
-    // Phase (i): the invalidation frame is RECEIVED.
-    const inval = await poll(
-      () =>
-        frames.find(
-          (f) =>
-            f.at > commitAt &&
-            !f.text.startsWith("SENT") &&
-            isInvalidationFrame(f.text, seeded.showId),
-        ),
-      INVALIDATION_FRAME_TIMEOUT_MS,
-    );
-    expect(inval, "post-mutation invalidation frame (phase i)").toBeTruthy();
-
-    // Phase (ii): a ?show= RSC request whose START post-dates the frame, and
-    // its completion — the debounced router.refresh() as the frame's consequence.
-    const rsc = await poll(
-      () =>
-        requests.find(
-          (r) =>
-            r.at > inval!.at &&
-            r.text.startsWith("REQ RSC") &&
-            r.text.includes(`show=${seeded.slug}`),
-        ),
-      POST_FRAME_REQUEST_TIMEOUT_MS,
-    );
-    expect(rsc, "?show= RSC request STARTED after the frame (phase ii)").toBeTruthy();
-    const rscDone = await poll(
-      () =>
-        requests.find(
-          (r) =>
-            r.at > rsc!.at &&
-            r.text.startsWith("RESP RSC") &&
-            r.text.includes(`show=${seeded.slug}`),
-        ),
-      CONTENT_SWAP_TIMEOUT_MS,
-    );
-    expect(rscDone, "post-frame ?show= RSC response completed (phase ii)").toBeTruthy();
-
-    // Phase (iii): row-scoped swap, in place.
-    await expect(targetRow).toContainText(NEW_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
-    expect(new URL(page.url()).searchParams.get("show"), "URL unchanged").toBe(seeded.slug);
-
-    // Reconnect flake guard BEFORE the attribution assertion: a close/error or
-    // re-join in the window legitimately fetches /version → environmental flake.
-    const disruption = socketEvents.find(
-      (e) => e.at > join!.at && (e.text === "close" || e.text.startsWith("error")),
-    );
-    const rejoin = frames.find(
-      (f) =>
-        f.at > commitAt &&
-        f.text.startsWith("SENT") &&
-        f.text.includes(wireTopic) &&
-        f.text.includes("phx_join"),
-    );
-    if (disruption || rejoin) {
-      return {
-        kind: "flake",
-        reason: `socket disruption in window: ${disruption?.text ?? "re-join"}`,
-      };
-    }
-    const versionReq = requests.find(
-      (r) => r.at > commitAt && r.text.startsWith("REQ") && r.text.includes("/version"),
-    );
-    expect(
-      versionReq,
-      "NO /version request post-mutation — the swap is attributable ONLY to the broadcast path",
-    ).toBeUndefined();
-
-    // Skeleton never re-entered (transient observation, whole window).
-    const skeletonMounts = await page.evaluate(
-      () => (window as unknown as { __skeletonMounts?: number }).__skeletonMounts ?? 0,
-    );
-    expect(skeletonMounts, "modal must not re-enter its Suspense fallback").toBe(0);
-
-    // Geometry stability, scroll-independent (INCONCLUSIVE on delta — fixture
-    // problem, distinct message); then the scrollTop invariant proper.
-    const geomAfter = await page.evaluate((sel) => {
-      const s = document.querySelector(sel) as HTMLElement;
-      return { scrollTop: s.scrollTop, scrollHeight: s.scrollHeight };
-    }, scrollerSel);
-    const targetGeomAfter = await targetRow.evaluate((el) => ({
-      offsetTop: (el as HTMLElement).offsetTop,
-      offsetHeight: (el as HTMLElement).offsetHeight,
-    }));
-    expect(
-      Math.abs(geomAfter.scrollHeight - scrollArm!.scrollHeight!),
-      "INCONCLUSIVE: scroller scrollHeight changed across the swap — fixture geometry unstable",
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(targetGeomAfter.offsetTop - targetGeomBefore.offsetTop),
-      "INCONCLUSIVE: target row offsetTop changed across the swap — fixture geometry unstable",
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(targetGeomAfter.offsetHeight - targetGeomBefore.offsetHeight),
-      "INCONCLUSIVE: target row offsetHeight changed across the swap — fixture geometry unstable",
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(geomAfter.scrollTop - scrollArm!.scrollTop!),
-      "§4.4 inv-3: scrollTop unchanged across the reconcile",
-    ).toBeLessThanOrEqual(1);
-
-    // §4.4 inv-1: the anchor row's popover is still open.
-    await expect(anchorMenu, "§4.4 inv-1: open popover survives the reconcile").toBeVisible();
-    // §4.4 inv-2: focus unchanged by NODE IDENTITY (the tagged node).
-    const focusHeld = await page.evaluate(
-      () => document.activeElement?.getAttribute("data-probe") === "focus-anchor",
-    );
-    expect(focusHeld, "§4.4 inv-2: document.activeElement is the SAME node").toBe(true);
-    // §4.4 inv-4: the closed attention menu stays closed.
-    await expect(page.locator(MENU), "§4.4 inv-4: attention menu stays closed").toHaveCount(0);
-
-    return { kind: "pass" };
   } finally {
     await admin.from("admin_alerts").delete().eq("show_id", seeded.showId);
     await deleteSeededShow(seeded.driveFileId);
