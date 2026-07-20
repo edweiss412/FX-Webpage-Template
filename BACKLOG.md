@@ -4,6 +4,16 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-TEST-FLOW8REPICK-ASYNC-LEAK — React scheduler callback fires after teardown
+
+**Status:** OPEN, surfaced 2026-07-20 by the Namespace runner trial (PR #514, run 29754822376 attempt 1).
+
+`tests/show/flow8Repick.test.tsx` leaks an async React scheduler callback past the end of the test file. On a fast enough runner the callback lands after the test environment is torn down and throws `ReferenceError: window is not defined` inside `scheduler.performWorkUntilDeadline`. Vitest reports it as an unhandled error and exits non-zero **even though every assertion passes** — the failing run showed `187 passed | 2 skipped` / `1906 passed | 3 skipped` alongside `Errors 2 errors`.
+
+**Why it matters:** `unit-suite` is a REQUIRED merge gate, so this fails PRs for reasons unrelated to the change under review, and the symptom (green tests, red job) is confusing to diagnose. It is timing-dependent, so it can occur on GitHub-hosted runners too — just less often, since the trial's faster CPUs made it reproduce within three runs.
+
+**Fix direction:** ensure the component under test is unmounted and any pending scheduler work flushed before the test completes — e.g. an explicit `cleanup()`/`unmount()` in a teardown hook, and awaiting pending timers/microtasks rather than letting the file end with work in flight. Reproducing reliably will likely need either a fast machine or artificially delayed teardown.
+
 ## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
 
 **Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)

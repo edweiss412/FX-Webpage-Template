@@ -1,7 +1,9 @@
 # Namespace runner trial — persist the Supabase images across runs
 
 **Date:** 2026-07-20
-**Status:** PREPARED, NOT ACTIVE. The workflow change is committed on `chore/ci-namespace-runner-trial` but no PR is open, because the shard jobs would queue forever against a runner profile that does not exist yet. Open the PR only after §3's setup is done.
+**Status:** TRIALLED AND REVERTED (2026-07-20). Three runs on the profile: leg-median fixed overhead 86s / 78s / 92.5s against a 101s baseline and a ≤70s accept threshold — gate criterion 2 fails. Run 3 boot (67.5s) matched the 70s baseline, i.e. the container cache does not reliably stay warm, which was the premise. Cost projected ~$19/mo, just inside the $20 ceiling; not worth it for an 8-15% median gain a third of runs do not deliver, plus a third party in the required merge path. The CPU gain was real (vitest 67-116s vs 154-164s baseline) but caching was what justified the spend. Full numbers in PR #514. The trial did surface a genuine latent bug in our suite: BL-TEST-FLOW8REPICK-ASYNC-LEAK.
+
+**Superseded status line:** PREPARED, NOT ACTIVE. The workflow change is committed on `chore/ci-namespace-runner-trial` but no PR is open, because the shard jobs would queue forever against a runner profile that does not exist yet. Open the PR only after §3's setup is done.
 **Predecessors:** #504 (8-leg matrix; image-cache lever reverted on measurement), #507 (12 dirs serial→parallel), #510 (closed unmerged, no gain), #512 (resolved-config partition proof), #513 (stale runner-spec correction).
 
 ## 1. Why this and not something else

@@ -52,17 +52,7 @@ concurrency:
 jobs:
   unit-suite-shard:
     name: unit-suite-shard
-    # TRIAL (docs/superpowers/specs/ci/2026-07-20-namespace-runner-trial.md):
-    # a Namespace runner profile whose cache volume has "Container images"
-    # enabled. That is the whole point — the profile persists the ~4.8 GB of
-    # Supabase service images across runs, so the boot's pull+extract phase
-    # (~40s of a ~70s boot, measured run 29746157908) should approach zero.
-    # GitHub-hosted runners cannot do this at any price: their VMs are ephemeral
-    # with no persistent volume, which is also why the tarball image cache in
-    # #504 measured SLOWER (docker load extracts serially).
-    # Revert = restore `runs-on: ubuntu-latest` here and drop the guard block in
-    # tests/cross-cutting/unit-suite-shard-topology.test.ts.
-    runs-on: namespace-profile-fxav-unit-suite
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -101,8 +91,6 @@ jobs:
     name: unit-suite
     needs: [unit-suite-shard]
     if: always()
-    # Deliberately NOT the paid runner: a ~3s status rollup. Pinned by the
-    # topology meta-test so a careless find/replace cannot start billing it.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
