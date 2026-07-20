@@ -18,7 +18,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't find that alert anymore. It may have been resolved already. Refresh the page to see the current state.",
     "followUp": "Doug → refresh page",
-    "helpfulContext": "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+    "helpfulContext": "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
   },
   "ADMIN_DRIVE_HEALTH_UNAVAILABLE": {
     "crewFacing": null,
@@ -156,7 +156,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This alert belongs to a specific show. Click through to the show's parse panel to resolve it from the show context, where the resolution is recorded with the show's audit trail.",
     "followUp": "Doug → click through to show",
-    "helpfulContext": "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
+    "helpfulContext": "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you resolve the alert, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; resolve it there.",
   },
   "AMBIGUOUS_EMAIL_BINDING": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",

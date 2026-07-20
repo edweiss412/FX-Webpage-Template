@@ -2201,10 +2201,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → refresh page",
     helpfulContext:
-      "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
     title: "Alert no longer exists",
     longExplanation:
-      "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved and cleaned up) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved and cleaned up) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
     helpHref: "/help/errors#ADMIN_ALERT_NOT_FOUND",
   },
   ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
@@ -2214,7 +2214,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → click through to show",
     helpfulContext:
-      "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
+      "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you resolve the alert, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; resolve it there.",
     title: "Alert must be resolved from show page",
     longExplanation:
       "Per-show alerts are resolved from the show's parse panel, not the global dashboard banner. We require the click-through so the resolution is recorded in the show's audit trail. The dashboard's redirect link will take you straight to the show's alert section.",

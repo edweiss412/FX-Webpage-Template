@@ -133,3 +133,42 @@ describe("production callers pass the correct scope", () => {
     expect(parts[parts.length - 1], `${file} passes the wrong scope`).toBe(scope);
   });
 });
+
+describe("resolve-error copy is label-agnostic", () => {
+  // NOTE: the component's GENERIC_ERROR fallback is asserted BEHAVIORALLY in
+  // tests/components/admin/resolveLabelCrossProduct.test.tsx (it renders the
+  // component and drives the real 500 path). A source scan here would pass on
+  // an unused constant, so it is deliberately not repeated.
+  //
+  // FROZEN LITERALS, not pattern exclusions: asserting "does not match
+  // /Mark resolved/" plus one substring lets materially wrong replacement copy
+  // through, and the parity gate only proves the three artifacts agree with
+  // EACH OTHER, not that the copy is right.
+  // The label reference lives in helpfulContext (the "?" popover body) and
+  // longExplanation (the help page), not dougFacing. Both are user-visible.
+  it.each(["ADMIN_ALERT_NOT_FOUND", "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE"])(
+    "%s names no specific button label in any user-visible field",
+    (code) => {
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
+      for (const field of ["dougFacing", "helpfulContext", "longExplanation"] as const) {
+        const copy = (entry as Record<string, unknown>)[field];
+        if (typeof copy !== "string") continue;
+        expect(copy, `${code}.${field} names the button label`).not.toMatch(/Mark resolved/);
+      }
+    },
+  );
+
+  it("ADMIN_ALERT_NOT_FOUND helpfulContext reads exactly the approved string", () => {
+    expect(MESSAGE_CATALOG.ADMIN_ALERT_NOT_FOUND.helpfulContext).toBe(
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+    );
+  });
+
+  it("ALERT_REQUIRES_SHOW_SCOPED_RESOLVE helpfulContext points at the action, not a label", () => {
+    // Its longExplanation never named the label; helpfulContext did, and now
+    // directs the reader by action ("resolve it there") instead.
+    expect(MESSAGE_CATALOG.ALERT_REQUIRES_SHOW_SCOPED_RESOLVE.helpfulContext).toContain(
+      "resolve it there",
+    );
+  });
+});
