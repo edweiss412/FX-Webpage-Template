@@ -169,6 +169,21 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     if (refreshFiredRef.current) return;
     refreshFiredRef.current = true;
     router.refresh();
+    // Warm the close destination while the modal is open. The open-time
+    // refresh above reconciles `/admin?show=<slug>` (the CURRENT URL), NOT the
+    // bare `/admin` the close navigates to — that entry is whatever the router
+    // cache held when the dashboard first rendered, so an un-warmed close pays
+    // a full RSC round-trip before the shell can unmount. Prefetching it means
+    // the dashboard paints from cache immediately on close (measured ~700ms →
+    // ~126ms local prod). Freshness is handled separately by the post-close
+    // refresh in `handleClose` — prefetch is a paint optimization, not a
+    // source of truth.
+    // Optional-chained: `prefetch` is always present on the real Next router,
+    // but several unit-test navigation mocks stub only { refresh, push }, and a
+    // hard call would crash every test that mounts this modal through one of
+    // them. The warm is a pure optimization, so skipping it under a partial
+    // mock is harmless.
+    router.prefetch?.("/admin");
   }, [router]);
   // Instant close: the close nav is a full RSC round-trip of the dashboard
   // (the modal is server-rendered off `?show`), so the shell would otherwise
@@ -199,8 +214,16 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     setClosing(true);
     startCloseTransition(() => {
       close();
+      // Reconcile the dashboard after the close commits. The prefetched entry
+      // (and any pre-existing router-cache entry for `/admin`) was captured
+      // before or during this modal's lifetime, so it can be stale — e.g. a
+      // lifecycle toggle here that only `revalidatePath("/admin/show/<slug>")`,
+      // or an out-of-band change. `router.refresh()` re-fetches the committed
+      // route; the instant paint comes from the cache, the correct data lands
+      // right behind it (the #497 §3.2 prefetch-then-refresh pattern).
+      router.refresh();
     });
-  }, [close]);
+  }, [close, router]);
   // Guarded setState-in-render (the ShowsTable idiom — react-hooks/set-state-in-effect
   // forbids the effect form). Self-heals only once: the guard is false on the
   // very next render. `committedShow !== slug` means the close DID commit and

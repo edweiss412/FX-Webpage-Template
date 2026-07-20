@@ -5,6 +5,7 @@ name: Published show-modal e2e (desktop-chromium)
 #   - tests/e2e/published-review-modal.interactions.spec.ts (focus/close/drag/§6.5 transitions)
 #   - tests/e2e/published-review-modal.deeplink.spec.ts     (URL-driven open contract)
 #   - tests/e2e/published-review-modal.reopen.spec.ts       (reopen after close; aborted-close race)
+#   - tests/e2e/published-review-modal.closeFreshness.spec.ts (dashboard reconciles after a prefetched close)
 #   - tests/e2e/published-review-modal.layout.spec.ts       (§6.6 dimensional invariants — standalone harness)
 #
 # Why this job exists: NO workflow ran these specs. `desktop-chromium` is invoked
@@ -50,6 +51,7 @@ on:
       - "tests/e2e/published-review-modal.crew-actions.spec.ts"
       - "tests/e2e/published-review-modal.realtime.spec.ts"
       - "tests/e2e/published-review-modal.reopen.spec.ts"
+      - "tests/e2e/published-review-modal.closeFreshness.spec.ts"
       - "components/realtime/ShowRealtimeBridge.tsx"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/wizard/CrewRowActions.tsx"
@@ -137,7 +139,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
