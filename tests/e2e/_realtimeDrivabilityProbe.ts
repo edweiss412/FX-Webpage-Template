@@ -76,8 +76,13 @@ async function main(): Promise<void> {
   const { signInAs } = await import("./helpers/signInAs");
   const { seedShowWithCrew, deleteSeededShow } = await import("./helpers/seedShowWithCrew");
   const { admin } = await import("./helpers/supabaseAdmin");
+  const { settleDashboardAdminState } = await import("./helpers/dashboardState");
   // Seed FIRST, then everything else inside try/finally — a target-validation
   // or browser-launch failure must still delete the seeded show.
+  // Settle app_settings FIRST — without it /admin renders the onboarding
+  // wizard and IGNORES ?show= (the dark-spec #486 lesson: admin surfaces need
+  // settleDashboardAdminState). Restored in the finally.
+  const restoreDashboardState = await settleDashboardAdminState();
   const seeded = await seedShowWithCrew({
     // Default crew is EMPTY — pass rows explicitly (SeedShowWithCrewOptions.crew).
     crew: [
@@ -146,9 +151,24 @@ async function main(): Promise<void> {
     // never NOT_DRIVABLE evidence; an invalidation frame must carry the
     // payload.event === "invalidate" discriminator, never bare "broadcast".
     type WireFrame = { topic?: string; event?: string; payload?: { status?: string; event?: string } };
+    // Local Supabase Realtime speaks the Phoenix V2 ARRAY serializer
+    // (socket URL carries vsn=2.0.0): [join_ref, ref, topic, event, payload].
+    // Measured 2026-07-19: join reply = ["10","10","realtime:show:<id>:invalidation",
+    // "phx_reply",{"status":"ok","response":{...}}]. Decode both shapes.
     const parseFrame = (text: string): WireFrame | null => {
       try {
-        return JSON.parse(text) as WireFrame;
+        const raw = JSON.parse(text) as unknown;
+        if (Array.isArray(raw)) {
+          const topic = raw[2];
+          const event = raw[3];
+          const payload = raw[4];
+          return {
+            topic: typeof topic === "string" ? topic : undefined,
+            event: typeof event === "string" ? event : undefined,
+            payload: (payload ?? undefined) as WireFrame["payload"],
+          };
+        }
+        return raw as WireFrame;
       } catch {
         return null;
       }
@@ -298,7 +318,11 @@ async function main(): Promise<void> {
     try {
       await deleteSeededShow(seeded.driveFileId);
     } finally {
-      await browser?.close();
+      try {
+        await restoreDashboardState();
+      } finally {
+        await browser?.close();
+      }
     }
   }
 }

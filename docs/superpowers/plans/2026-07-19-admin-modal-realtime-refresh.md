@@ -493,10 +493,16 @@ run 4: commit→frame ms: 4 → DRIVABLE
 
 Two consequences folded into Task 4: (a) the observed CHANNEL payload confirms the `payload.event === "invalidate"` discriminator; the browser-side WIRE envelope (what `page.on("websocket")` sees) is confirmed by the browser probe below. (b) The run-1 miss on a freshly started broadcast pipeline is a real cold-start hazard — CI boots supabase fresh every run — so Task 4 gains a **warm-up broadcast phase** (below) instead of relying on retry luck.
 
-- [ ] **Step 5: Commit the oracle.** (The probe file was already committed with plan r11 as spike evidence.)
+**Browser-probe execution record (post-Task-1, 2026-07-19 — Task 3 Steps 1–4 COMPLETE):** `PROBE RESULT: DRIVABLE`. Measured: goto→join-reply 1263ms; goto→open-refresh RSC response 1491ms; commit→invalidation-frame 14ms; frame→`?show=` RSC request START 109ms (the bridge's 100ms debounce, observed live); frame→content swap 554ms; warm-up publish→frame 14ms. Every floor exceeds its derivation input — ALL oracle floors stand (`realtimeOracle.ts` committed with the raw frames quoted). Three implementation-relevant discoveries, each folded in:
+
+1. **`SUPABASE_JWT_SECRET` + `SUPABASE_REALTIME_ISS` were UNSET locally** — the subscriber-token mint 500'd and the bridge failed open with zero websockets (exactly the Phase-0.F carried finding, `Phase-0.F-closeout.md:31`, now closed for local). Fixed by adding the local-demo values to the MAIN checkout `.env.local` (`SUPABASE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long`, `SUPABASE_REALTIME_ISS=supabase-demo`). **CI consequence: `published-modal-e2e.yml` ALSO lacks both vars — without them the realtime e2e fails at gate 2 in CI. Task 5 adds them to the workflow env block and pins them.**
+2. **Local Realtime speaks the Phoenix V2 ARRAY serializer** (`vsn=2.0.0`; `[join_ref, ref, topic, event, payload]`) — the oracle predicates decode the array envelope (and the object shape) with parsed-topic equality; raw frames quoted in `realtimeOracle.ts`.
+3. **The probe (and Task 4's spec) MUST `settleDashboardAdminState()` before opening `/admin?show=`** — without it the admin page renders the onboarding wizard and silently ignores `?show=` (the dark-spec #486 lesson); the probe now settles + restores it, and Task 4's fixture step already includes the settle via the prefetch-spec pattern.
+
+- [ ] **Step 5: Commit the oracle.** (The probe file was already committed with plan r11 as spike evidence; this commit carries its post-Task-1 fixes too.)
 
 ```bash
-git add tests/e2e/helpers/realtimeOracle.ts
+git add tests/e2e/helpers/realtimeOracle.ts tests/e2e/_realtimeDrivabilityProbe.ts docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md
 git commit --no-verify -m "test(admin): realtime e2e oracle constants from drivability spike"
 ```
 
@@ -624,6 +630,11 @@ describe("published-modal-e2e realtime wiring", () => {
   it("path-filters on the realtime spec file so spec edits re-run the gate", () => {
     expect(WORKFLOW).toMatch(/-\s*"tests\/e2e\/published-review-modal\.realtime\.spec\.ts"/);
   });
+
+  it("provides the subscriber-token mint env (spike finding 1: absent vars → mint 500 → gate-2 failure)", () => {
+    expect(WORKFLOW).toMatch(/SUPABASE_JWT_SECRET:/);
+    expect(WORKFLOW).toMatch(/SUPABASE_REALTIME_ISS:/);
+  });
 });
 ```
 
@@ -632,13 +643,17 @@ describe("published-modal-e2e realtime wiring", () => {
 - [ ] **Step 2: Run it — verify red.**
 
 Run: `pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts`
-Expected: **all 4 FAIL** (none of the wiring exists in the workflow yet).
+Expected: **all 5 FAIL** (none of the wiring exists in the workflow yet).
 
-- [ ] **Step 3: Edit the workflow.** (a) Add the env gate next to `MODAL_PREFETCH_E2E: "1"`:
+- [ ] **Step 3: Edit the workflow.** (a) Add the env gate next to `MODAL_PREFETCH_E2E: "1"`, plus the subscriber-token mint vars (spike finding 1 — the mint 500s without them and the bridge opens no socket):
 
 ```yaml
       # Realtime-refresh spec §8 CI wiring: the realtime e2e self-skips without it.
       MODAL_REALTIME_E2E: "1"
+      # Subscriber-token mint (local supabase demo secret — same values the CI
+      # stack's realtime container verifies against; spike finding 1).
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      SUPABASE_REALTIME_ISS: supabase-demo
 ```
 
 (b) Append `tests/e2e/published-review-modal.realtime.spec.ts` to the existing `playwright test` file list on the run line, AND add `--reporter=list` to that run line — `playwright.config.ts` sets no `reporter`, so CI defaults to the DOT reporter, which does NOT print passing test titles; Task 7's log proof greps the pinned title and needs the list reporter's per-test lines (round-14 APPROVE advisory 1). (c) Add path filters under `on.pull_request.paths`:
@@ -653,7 +668,7 @@ Expected: **all 4 FAIL** (none of the wiring exists in the workflow yet).
 - [ ] **Step 4: Green + commit (pin test and YAML land together).** The pin proves the wiring EXISTS; the Task-7 real-CI log proof remains the integration-level check that the wiring EXECUTES (both are required — neither subsumes the other).
 
 ```bash
-pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts   # all 4 PASS
+pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts   # all 5 PASS
 pnpm exec prettier --check .github/workflows/published-modal-e2e.yml
 git add tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts .github/workflows/published-modal-e2e.yml
 git commit --no-verify -m "infra: run realtime modal e2e in published-modal-e2e workflow"
