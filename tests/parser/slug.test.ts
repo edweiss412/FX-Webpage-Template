@@ -4,6 +4,8 @@ import { parseSheet } from "@/lib/parser";
 import { deriveSlug, SlugCollisionExhausted } from "@/lib/parser/slug";
 import type { ParsedSheet } from "@/lib/parser";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 // Helper: build a minimal ParsedSheet with overrideable title + dates
 function makeParseResult(opts: {
   title: string;
@@ -134,7 +136,9 @@ describe("deriveSlug", () => {
 
   it("every fixture produces a stable, unique slug", () => {
     const dir = "fixtures/shows/raw";
-    const files = readdirSync(dir).filter((n) => n.endsWith(".md"));
+    const files = readdirSync(dir).filter(
+      (n) => n.endsWith(".md") && !n.startsWith(CORPUS_TEMP_PREFIX),
+    );
     expect(files.length).toBe(10);
 
     const pass1: string[] = [];

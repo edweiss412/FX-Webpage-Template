@@ -3,6 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { parseSheet } from "@/lib/parser/index";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 // Permission-boundary corpus tripwire (spec §6): crew-visible event_details must never
 // carry a financial/internal key OR a PII/contact-metadata key, across EVERY fixture.
 // The closed-vocab form harvest (§3.4) enforces this structurally — only known canonical
@@ -13,7 +15,7 @@ const PII_KEY_RE =
 
 const files = ["raw", "exporter-xlsx"].flatMap((d) =>
   readdirSync(`fixtures/shows/${d}`)
-    .filter((f) => f.endsWith(".md") && !/readme/i.test(f))
+    .filter((f) => f.endsWith(".md") && !/readme/i.test(f) && !f.startsWith(CORPUS_TEMP_PREFIX))
     .map((f) => `${d}/${f}`),
 );
 

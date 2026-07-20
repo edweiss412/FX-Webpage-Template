@@ -38,6 +38,11 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 function vitest(args, opts) {
   const child = spawn("pnpm", ["exec", "vitest", "run", ...args], opts);
   children.add(child);
+  // A spawn failure (pnpm missing, EAGAIN) must surface as a non-zero phase,
+  // not an unhandled 'error' event that orphans the sibling child.
+  child.on("error", (err) => {
+    console.error(`[test:fast] failed to spawn vitest (${args.join(" ")}): ${err.message}`);
+  });
   return child;
 }
 
@@ -47,19 +52,32 @@ function done(child) {
       children.delete(child);
       resolve(code ?? 1);
     });
+    child.on("error", () => {
+      children.delete(child);
+      resolve(1);
+    });
   });
 }
 
 // Parallel phase: VITEST_TEST_FAST=1 (deferred excluded, cacheDir moved aside).
-let parallelBuf = "";
+const parallelChunks = [];
 const parallel = vitest(["--project", "parallel"], {
   env: { ...process.env, VITEST_TEST_FAST: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 for (const stream of [parallel.stdout, parallel.stderr]) {
   stream.on("data", (chunk) => {
-    parallelBuf += chunk;
-    appendFileSync(LOG_PATH, chunk);
+    // Collect Buffers and decode ONCE at the end: string-concatenating chunks
+    // can split a multi-byte UTF-8 sequence across a chunk boundary.
+    parallelChunks.push(chunk);
+    try {
+      appendFileSync(LOG_PATH, chunk);
+    } catch {
+      // The tee is a convenience; losing it must never kill the run.
+    }
+  });
+  stream.on("error", (err) => {
+    console.error(`[test:fast] parallel stream error: ${err.message}`);
   });
 }
 const parallelDone = done(parallel).then((code) => {
@@ -77,7 +95,7 @@ const serialDone = done(vitest(["--project", "serial"], { stdio: "inherit" }));
 const [serialCode, parallelCode] = await Promise.all([serialDone, parallelDone]);
 
 console.log("\n[test:fast] ── parallel project output ──\n");
-process.stdout.write(parallelBuf);
+process.stdout.write(Buffer.concat(parallelChunks).toString("utf8"));
 
 // A Ctrl-C during phase 1 must NOT spawn the epilogue (it would need a second
 // interrupt to stop). Interrupted runs exit non-zero without the epilogue.

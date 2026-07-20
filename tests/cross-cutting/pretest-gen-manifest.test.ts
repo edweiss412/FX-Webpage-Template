@@ -39,7 +39,8 @@ const COMPUTED_READS: Record<string, string[]> = {
   "scripts/generate-traceability.ts": ["specPath", "workflowPath", "dir", "join(dir"],
 };
 
-const READ_CALL = /\b(?:readFileSync|readdirSync|existsSync|createReadStream)\(\s*([^,)]+)/g;
+const READ_CALL =
+  /\b(?:readFileSync|readdirSync|existsSync|statSync|lstatSync|createReadStream|readFile|readdir|stat|access|open|glob|globSync)\(\s*([^,)]+)/g;
 const STATIC_IMPORT = /(?:import|export)[^;]*?from\s+["'](\.[^"']+)["']/g;
 const DYNAMIC_IMPORT_LITERAL = /import\(\s*["'](\.[^"']+)["']\s*\)/g;
 const ALIAS_IMPORT = /(?:import|export)[^;]*?from\s+["']@\//;
@@ -120,7 +121,9 @@ describe("pretest-gen manifest staleness guard", () => {
         const pinned = COMPUTED_READS[file] ?? [];
         for (const m of src.matchAll(READ_CALL)) {
           const arg = m[1]!.trim();
-          if (pinned.some((p) => arg.startsWith(p))) continue;
+          // Exact match (or exact call-prefix for a truncated nested call) — a
+          // bare startsWith would also swallow `dirname(x)`, `dirs[0]`, etc.
+          if (pinned.some((pin) => arg === pin || arg === `${pin})`)) continue;
           const literal = /^["'](.+)["']$/.exec(arg)?.[1] ?? resolveConst(src, arg);
           expect(
             literal !== null && covered(literal),
@@ -131,12 +134,27 @@ describe("pretest-gen manifest staleness guard", () => {
     },
   );
 
-  it("inputDirs enumerate with the generator's own filter", () => {
+  it("inputDirs pattern is derived from the generator's own readPlanCorpus filter", () => {
     const trace = TARGETS.find((t) => t.name === "gen:traceability")!;
     const dirs = trace.inputDirs ?? [];
     expect(dirs.length).toBe(1);
     const d = dirs[0]!;
-    expect(d.pattern).toBe("^\\d{2}-.+\\.md$");
+
+    // Read the REAL filter out of the generator instead of restating it: a
+    // widening there (a new accepted filename shape) must fail here, because
+    // the cache would otherwise miss a file the generator actually reads.
+    const gen = readFileSync("scripts/generate-traceability.ts", "utf8");
+    const corpus = gen.slice(gen.indexOf("function readPlanCorpus"));
+    const filterBody = corpus.slice(corpus.indexOf(".filter("), corpus.indexOf(".sort()"));
+    const literals = [...filterBody.matchAll(/\/([^/]+)\/\.test|entry === "([^"]+)"/g)].map(
+      (m) => m[1] ?? m[2]!,
+    );
+    // Today: the numeric-prefix regex plus the 11-cross-cutting.md special case.
+    // Both are covered by the manifest's dir row (the special-cased file matches
+    // the numeric-prefix pattern anyway); a THIRD accepted shape would not be.
+    expect(literals.length).toBeLessThanOrEqual(2);
+    expect(literals).toContain(d.pattern.replaceAll("\\\\", "\\"));
+
     expect(readdirSync(d.dir).filter((e) => new RegExp(d.pattern).test(e)).length).toBeGreaterThan(
       3,
     );

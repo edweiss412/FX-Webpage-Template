@@ -74,6 +74,14 @@ function hashTarget(target) {
   for (const file of [...files].sort()) {
     hash.update(file);
     hash.update("\0");
+    // A manifest input that no longer exists is a manifest bug, not a cache
+    // miss — say so by name instead of surfacing a bare ENOENT from a pre* hook.
+    if (!existsSync(file)) {
+      throw new Error(
+        `[pretest-gen] ${target.name}: manifest input "${file}" does not exist — ` +
+          `update MANIFEST in scripts/pretest-gen.mjs`,
+      );
+    }
     hash.update(readFileSync(file));
     hash.update("\0");
   }

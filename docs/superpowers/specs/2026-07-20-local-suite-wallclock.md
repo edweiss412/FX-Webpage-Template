@@ -6,11 +6,11 @@
 
 ## 1. Goal
 
-Cut local full-suite wall clock without dropping coverage, via three levers. **Measured outcome (§3.0): ~17s off a ~490s suite (3.5%).** The serial project is ~420s of that wall and is untouched here by design (P2/P3 territory, in flight elsewhere) — that finding is the headline, not a shortfall.
+Cut local full-suite wall clock without dropping coverage, via three levers. **Measured outcome (§3.0): ~17s off a ~490s suite (3.5%), from levers A and C; lever B was measured, rejected, and reverted (§4.2).** The serial project is ~420s of that wall and is untouched here by design (P2/P3 territory, in flight elsewhere) — that finding is the headline, not a shortfall.
 
 
 - **Lever A — `test:fast`:** overlap the parallel and serial vitest projects as two concurrent processes locally.
-- **Lever B — parallel-project `pool: "threads"`:** CONDITIONAL. No measurable local effect on a quiet box (§3.0); kept only if real CI leg timings improve.
+- **Lever B — parallel-project `pool: "threads"`: REJECTED and reverted in-PR** per the §4.2 decision procedure. Nil local effect (57.1s vs 57.9s) AND no CI improvement (max leg 253s vs main 246-269s). Recorded as a dead lever so it is not re-proposed.
 - **Lever C — pretest codegen cache:** skip the four `pre*`-hook generator scripts when their inputs are unchanged (1.65s → 0.23s per `pnpm test`/`pnpm lint`/`pnpm typecheck`/`pnpm build` invocation, §3.0).
 
 ### 1.1 Resolved scope — do not relitigate
@@ -20,7 +20,7 @@ Cut local full-suite wall clock without dropping coverage, via three levers. **M
 | Full autonomous ship authorized (spec+plan user gates waived) | user, in-session 2026-07-20, /ship-feature + explicit "Yes, full autonomous" |
 | P2 (serial-set audit) and P3 (DB parallelization) are OUT of scope; serial-project per-file overhead is untouched here | dispatch brief; CI program spec §2 |
 | `isolate: false` on the parallel project is a DEAD lever — measured NOT green (mass cross-file state leakage: dozens of component-test failures via shared mock/DOM globals, e.g. `Step3Review.test.tsx` 31/61 failed, `StagedReviewCard.test.tsx` 6/30 failed). Do not re-propose | spike run 2026-07-20, this spec §3.2 |
-| `pool: "threads"` is a **CONDITIONAL lever** (amended after quiet-box measurement, §3.0): it is a no-op locally (57.1s vs 57.9s) and is kept ONLY if real CI leg timings improve on the 2-core runners; otherwise it is reverted inside this PR. Not env-gated either way | this spec §4.2, amended 2026-07-20 |
+| `pool: "threads"` is a **DEAD lever** — the conditional gate ran and it FAILED both arms: nil quiet-box effect (57.1s vs 57.9s) and no CI gain (PR max leg 253s vs main 246/269/250s). Reverted in-PR; do not re-propose without new measurements | this spec §4.2, decided 2026-07-20 on PR #508 run 29727575689 |
 | `test:fast` is **opt-in** and coverage-identical to `pnpm test`; it does NOT replace the `test` script and does NOT set `VITEST_EXCLUDE_ENV_BOUND` | this spec §4.1 |
 | Cross-project shared-file conflicts are handled by exactly two mechanisms: the `_temp-` prefix contract for the fixture corpus (§4.1.2) and the `TEST_FAST_DEFERRED` epilogue set for generated-file assertions (§4.1.3). R1+R2 fs-write class-sweep of `tests/` found no third always-on surface; the env-gated `build-artifact-gate` writer is handled by the runner's `RUN_BUILD_ARTIFACT_GATE_TEST=1` refusal (§4.1 item 5) | R1/R2 reviews + sweep, this spec §2 |
 | Quiet-box verification ran at implementation time and its numbers (§3.0) are AUTHORITATIVE over every spike-era figure in §3.1. Contended numbers are never a keep/drop basis | this spec §3.0 |
@@ -119,22 +119,18 @@ This kills the corpus race for ANY concurrent-run context (not just `test:fast`)
 <!-- spec-lint: ignore — future/transient file created or produced by this feature -->
 Also gated on `VITEST_TEST_FAST=1`: root `cacheDir` switches to `node_modules/.vite-testfast` so the two concurrent vitest processes never share a Vite cache/deps-optimizer directory (the serial child and the epilogue keep the default).
 
-### 4.2 Lever B — parallel project `pool: "threads"` (CONDITIONAL)
+### 4.2 Lever B — parallel project `pool: "threads"` (RUN, REJECTED, REVERTED)
 
-Add `pool: "threads"` to the parallel project block, with a comment carrying the measured numbers and the dead `isolate:false` spike.
+The predeclared keep/drop procedure ran to completion; both arms failed, so the one-line change was reverted inside this PR and the parallel project keeps vitest's default `forks` pool.
 
-**Keep/drop decision procedure (predeclared, in-PR — mirrors the CI program's conditional image-cache lever):**
+| Arm | Threshold | Measured | Outcome |
+| --- | --- | --- | --- |
+| Quiet-box local | any material gain | 57.1s threads vs 57.9s forks (~1%) | FAIL |
+| Real CI max leg | ≥15s improvement, 8/8 green | 253s (PR #508 run 29727575689, 8/8 green) vs main 246s / 269s / 250s | FAIL |
 
-- Quiet-box local effect is **nil** (57.1s threads vs 57.9s forks, §3.0), so local speed is NOT a reason to keep it.
-- The only regime where threads won is heavy contention (2.3× at load 25-37), which is what a 2-core CI runner looks like. So the decision input is **real CI `unit-suite` leg durations** on this PR versus recent `main` runs of the same 8-leg topology.
-- **Keep** if the max leg improves by ≥15s with all 8 legs green. **Revert the one-line change inside this PR** otherwise — a config change with no measured benefit is not worth the thread-safety surface (`isolate:false` already proved this suite leaks across files when isolation weakens).
-- Either outcome is in-spec and is not a scope cut.
+The spike's "2.3× under load 25-37" was a contention artifact: forks starves harder than threads on a saturated box, but a 2-core CI runner did not reproduce the effect. `isolate: false` remains separately dead (cross-file mock/DOM leakage). Both are now documented in `vitest.config.ts` so the next reader does not re-derive them.
 
-Serial and mutation projects keep the forks default (mutation is nightly-only and corpus-scale; out of scope).
-
-**P2 rebase flag:** the in-flight Phase 2 serial-set audit edits project membership in `vitest.config.ts`/`vitest.projects.ts`; whichever merges second rebases.
-
-Risk note: any parallel-set test relying on process-level isolation (native module state, `process.chdir`, signal handlers) would break under threads. Sweep found no such hits; two full green runs (511 files) plus the quiet-box full-suite green (1446 files) back it.
+**Value delivered by running this lever anyway:** the measurement itself, plus the config comment that stops the next person from re-proposing it.
 
 ### 4.3 Lever C — `scripts/pretest-gen.mjs` cache wrapper
 

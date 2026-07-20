@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { parseSheet } from "@/lib/parser/index";
 
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+
 const md = (rel: string) => readFileSync(`fixtures/shows/${rel}`, "utf8");
 const allFixtures = ["raw", "exporter-xlsx"].flatMap((d) =>
   readdirSync(`fixtures/shows/${d}`)
-    .filter((f) => f.endsWith(".md") && !/readme/i.test(f))
+    .filter((f) => f.endsWith(".md") && !/readme/i.test(f) && !f.startsWith(CORPUS_TEMP_PREFIX))
     .map((f) => `${d}/${f}`),
 );
 
