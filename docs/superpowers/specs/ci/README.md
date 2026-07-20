@@ -4,6 +4,7 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 
 | Entry | Date |
 | --- | --- |
+| [`2026-07-20-namespace-runner-trial.md`](./2026-07-20-namespace-runner-trial.md) | 2026-07-20 |
 | [`2026-06-26-ci-merge-queue-design.md`](./2026-06-26-ci-merge-queue-design.md) | 2026-06-26 |
 | [`2026-06-26-ci-speedup-pr-e-design.md`](./2026-06-26-ci-speedup-pr-e-design.md) | 2026-06-26 |
 | [`2026-06-26-ci-unit-suite-matrix-shard-design.md`](./2026-06-26-ci-unit-suite-matrix-shard-design.md) | 2026-06-26 |

@@ -114,3 +114,32 @@ describe("unit-suite has no cache lever (reverted per spec 2026-07-19 §6.1)", (
     );
   });
 });
+
+describe("unit-suite runner placement (Namespace trial — delete this block on revert)", () => {
+  it("the shard job runs on the Namespace PROFILE that owns the container-image cache", () => {
+    // Anchor to a real 4-space-indented key, not the first textual match: the
+    // job's own comment mentions `runs-on: ubuntu-latest` as the revert
+    // instruction, and a loose regex happily matches that instead.
+    const m = /\n {2}unit-suite-shard:\n[\s\S]*?\n {4}runs-on:\s*(\S+)/.exec(YAML);
+    expect(m, "unit-suite-shard must declare a runs-on").not.toBeNull();
+    expect(
+      m![1],
+      "must be the profile label, not a bare nscloud-* label: a bare label still gets a fast runner " +
+        "but WITHOUT the cache volume, silently losing the container-image caching the trial exists to " +
+        "measure while still billing for the minutes",
+    ).toBe("namespace-profile-fxav-unit-suite");
+  });
+
+  it("the aggregator stays on a GitHub-hosted runner (never billed)", () => {
+    const agg = /\n {2}unit-suite:\n([\s\S]*?)(?=\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(YAML);
+    expect(agg, "aggregator job block not found").not.toBeNull();
+    expect(
+      /runs-on:\s*ubuntu-latest/.test(agg?.[1] ?? ""),
+      "the aggregator is a ~3s status rollup; billing it buys nothing",
+    ).toBe(true);
+  });
+
+  it("exactly one job sits on the paid runner", () => {
+    expect((YAML.match(/namespace-profile-/g) ?? []).length).toBe(1);
+  });
+});
