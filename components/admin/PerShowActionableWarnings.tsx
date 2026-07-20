@@ -128,7 +128,10 @@ export function PerShowActionableWarnings({
                 context ? (
                   <CompactAlertHelp
                     helpfulContext={context}
+                    // No helpHref on this surface, so the Learn-more route gate
+                    // is never consulted; the constant keeps this a server component.
                     helpHref={null}
+                    route="/admin"
                     testId={`per-show-actionable-help-${keys[i]}`}
                   />
                 ) : null

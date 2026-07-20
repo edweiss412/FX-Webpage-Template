@@ -27,6 +27,7 @@
  * tests/components/admin/class-sweep-now-utility.test.ts.
  */
 import { useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import {
   ATTENTION_FALLBACK_TITLE,
   formatRelativeRaisedAt,
@@ -95,6 +96,9 @@ export function AttentionBanner({
   onResolved,
 }: AttentionBannerProps) {
   const [confirmed, setConfirmed] = useState(false);
+  // Route feeds the Learn-more gate (spec A4); read here rather than in the
+  // shared help leaf, which is also used from a server component.
+  const route = usePathname() ?? "/";
   if (item.kind !== "alert" || !item.alert) return null;
   const a = item.alert;
 
@@ -194,6 +198,7 @@ export function AttentionBanner({
       <CompactAlertHelp
         helpfulContext={helpfulContext}
         helpHref={a.helpHref}
+        route={route}
         testId={`attention-banner-help-${a.alertId}`}
       />
     ) : null;

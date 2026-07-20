@@ -20,7 +20,6 @@
  * (lib/admin/attentionItems.ts:224), so admin help links could reach
  * crew-facing routes. `shouldEmitLearnMore` is now consulted.
  */
-import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { shouldEmitLearnMore } from "@/lib/messages/renderer-gate";
@@ -66,8 +65,14 @@ export function buildHelpPopoverBody(input: {
 export type CompactAlertHelpProps = {
   helpfulContext: string | null | undefined;
   helpHref: string | null | undefined;
-  /** Defaults to the current pathname; passed explicitly by tests. */
-  route?: string;
+  /**
+   * Route the Learn-more gate is evaluated against. Supplied by the caller
+   * rather than read from `usePathname()` here: this leaf is shared with
+   * PerShowActionableWarnings, a SERVER component, and callers that never pass
+   * a `helpHref` (so the gate cannot matter) should not be forced into a client
+   * routing dependency.
+   */
+  route: string;
   /** Trigger gets `<testId>-trigger`, body gets `<testId>-body`. */
   testId: string;
 };
@@ -78,12 +83,7 @@ export function CompactAlertHelp({
   route,
   testId,
 }: CompactAlertHelpProps) {
-  const pathname = usePathname();
-  const content = buildHelpPopoverBody({
-    helpfulContext,
-    helpHref,
-    route: route ?? pathname ?? "/",
-  });
+  const content = buildHelpPopoverBody({ helpfulContext, helpHref, route });
   if (content === null) return null;
 
   return (
