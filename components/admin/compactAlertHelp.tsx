@@ -1,0 +1,109 @@
+"use client";
+
+/**
+ * components/admin/compactAlertHelp.tsx
+ * (spec 2026-07-20-show-alert-compact §3.2)
+ *
+ * The compact card's help affordance: a quiet amber "?" that discloses the
+ * catalog's helpful context, plus a route-gated "Learn more" link. Replaces
+ * the freestanding help links the alert surfaces used to render inline.
+ *
+ * Two exports, deliberately split:
+ *   - `buildHelpPopoverBody` — pure, so the presence matrix (context / href /
+ *     route gate / whitespace) is testable without rendering.
+ *   - `CompactAlertHelp` — the trigger + popover, rendering NOTHING when the
+ *     builder returns null, so a card without help gets no trigger at all.
+ *
+ * Route gating is NEW on these surfaces (spec amendment A4): the live
+ * AttentionBanner reads `helpHref` directly (AttentionBanner.tsx:93) and
+ * `attentionItems` copies the catalog href unconditionally
+ * (lib/admin/attentionItems.ts:224), so admin help links could reach
+ * crew-facing routes. `shouldEmitLearnMore` is now consulted.
+ */
+import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
+import { HoverHelp } from "@/components/admin/HoverHelp";
+import { shouldEmitLearnMore } from "@/lib/messages/renderer-gate";
+
+/** Accessible name for every compact-card help trigger (§3.2). */
+export const HELP_TRIGGER_LABEL = "What does this mean?";
+
+/** Body copy when the only content is a Learn-more link (§4.1). */
+export const HELP_ONLY_LEARN_MORE_LEAD_IN = "More about this alert in the help pages.";
+
+export type HelpPopoverContent = {
+  body: ReactNode;
+  /** Omitted entirely — never `undefined` — for exactOptionalPropertyTypes. */
+  learnMore?: { href: string };
+};
+
+function nonEmpty(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Assemble the popover's content, or null when there is nothing to show.
+ * A trigger is rendered iff this returns non-null (§3.2).
+ */
+export function buildHelpPopoverBody(input: {
+  helpfulContext: string | null | undefined;
+  helpHref: string | null | undefined;
+  route: string;
+}): HelpPopoverContent | null {
+  const context = nonEmpty(input.helpfulContext);
+  const href = nonEmpty(input.helpHref);
+  const learnMoreAllowed =
+    href !== null && shouldEmitLearnMore({ route: input.route, helpHref: href });
+
+  if (context === null && !learnMoreAllowed) return null;
+
+  const body: ReactNode = context ?? HELP_ONLY_LEARN_MORE_LEAD_IN;
+  return learnMoreAllowed && href !== null ? { body, learnMore: { href } } : { body };
+}
+
+export type CompactAlertHelpProps = {
+  helpfulContext: string | null | undefined;
+  helpHref: string | null | undefined;
+  /** Defaults to the current pathname; passed explicitly by tests. */
+  route?: string;
+  /** Trigger gets `<testId>-trigger`, body gets `<testId>-body`. */
+  testId: string;
+};
+
+export function CompactAlertHelp({
+  helpfulContext,
+  helpHref,
+  route,
+  testId,
+}: CompactAlertHelpProps) {
+  const pathname = usePathname();
+  const content = buildHelpPopoverBody({
+    helpfulContext,
+    helpHref,
+    route: route ?? pathname ?? "/",
+  });
+  if (content === null) return null;
+
+  return (
+    <HoverHelp
+      label={HELP_TRIGGER_LABEL}
+      align="right"
+      testId={testId}
+      // placement deliberately omitted: inherit HoverHelp's shipped default
+      // rather than invent a geometry policy (spec amendment A6).
+      {...(content.learnMore ? { learnMore: content.learnMore } : {})}
+      trigger={
+        <span
+          aria-hidden="true"
+          className="grid size-[22px] place-items-center rounded-pill border border-warning-text/40 text-xs font-bold text-warning-text transition-colors duration-fast group-hover:bg-warning-text/10"
+        >
+          ?
+        </span>
+      }
+    >
+      {content.body}
+    </HoverHelp>
+  );
+}

@@ -145,10 +145,7 @@ export function CompactAlertCard({
       ) : null}
 
       {present(controlsBand) ? (
-        <div
-          data-testid="compact-alert-controls-band"
-          className={`border-t ${divider} px-3 py-2`}
-        >
+        <div data-testid="compact-alert-controls-band" className={`border-t ${divider} px-3 py-2`}>
           {controlsBand}
         </div>
       ) : null}
