@@ -1,6 +1,6 @@
 # Local test-suite wall-clock reduction (test:fast, threads pool, pretest cache)
 
-**Date:** 2026-07-20 (R1 revision — review round 1 findings incorporated)
+**Date:** 2026-07-20 (R2 revision — rounds 1-2 findings incorporated)
 **Status:** Spec (autonomous /ship-feature run; user review gates waived).
 **Relationship to the CI speedup program:** independent sibling of `docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md`. Program Phases 2 (serial-set audit) and 3 (DB-test parallelization) are in flight elsewhere and OUT of scope here. This spec targets the **local** `pnpm test` wall clock with three levers that do not move any test file between projects and do not touch serial-project isolation.
 
@@ -21,7 +21,7 @@ Cut local full-suite wall clock without dropping coverage, via:
 | `isolate: false` on the parallel project is a DEAD lever — measured NOT green (mass cross-file state leakage: dozens of component-test failures via shared mock/DOM globals, e.g. `Step3Review.test.tsx` 31/61 failed, `StagedReviewCard.test.tsx` 6/30 failed). Do not re-propose | spike run 2026-07-20, this spec §3.2 |
 | `pool: "threads"` lands **unconditionally** on the parallel project (not env-gated local-only); CI unit-suite legs also pick it up and the PR's real CI green is the verification | this spec §4.2 |
 | `test:fast` is **opt-in** and coverage-identical to `pnpm test`; it does NOT replace the `test` script and does NOT set `VITEST_EXCLUDE_ENV_BOUND` | this spec §4.1 |
-| Cross-project shared-file conflicts are handled by exactly two mechanisms: the `_temp-` prefix contract for the fixture corpus (§4.1.2) and the `TEST_FAST_DEFERRED` epilogue set for generated-file assertions (§4.1.3). R1+R2 fs-write class-sweep of `tests/` found no third always-on surface; the env-gated `build-artifact-gate` writer is handled by the runner's `RUN_BUILD_ARTIFACT_GATE_TEST=1` refusal (§4.1 item 6) | R1/R2 reviews + sweep, this spec §2 |
+| Cross-project shared-file conflicts are handled by exactly two mechanisms: the `_temp-` prefix contract for the fixture corpus (§4.1.2) and the `TEST_FAST_DEFERRED` epilogue set for generated-file assertions (§4.1.3). R1+R2 fs-write class-sweep of `tests/` found no third always-on surface; the env-gated `build-artifact-gate` writer is handled by the runner's `RUN_BUILD_ARTIFACT_GATE_TEST=1` refusal (§4.1 item 5) | R1/R2 reviews + sweep, this spec §2 |
 | Local serial-project baseline timing was NOT measured at spec time (two sibling autonomous runs were saturating the box, load avg 25–37, and share the local Supabase DB); a quiet-box verification run is an implementation-task gate, not a spec input | this spec §3.3 |
 | Individual `gen:*` package scripts and the x-audits workflow's direct `pnpm gen:*` calls are unchanged; only the four `pre*` hooks route through the cache wrapper | this spec §4.3 |
 | Vitest major upgrade, sharding changes, weight-model changes: out of scope | dispatch brief |
@@ -35,7 +35,7 @@ Cut local full-suite wall clock without dropping coverage, via:
 <!-- spec-lint: ignore — future/transient file created or produced by this feature -->
   1. **Fixture corpus:** `tests/help/fixture-range-parser.test.ts:26-28` (parallel) reads `readdirSync(fixtures/shows/raw)` filtered only by `.endsWith(".md")`, while `tests/sync/dev-routing.test.ts` (serial) writes and later removes **three** synthetic fixtures there: `_temp-mi1-no-version.md` (line 81), `_temp-version-ambiguous.md` (line 298), `_temp-flip-test.md` (line 354, rewritten during the flip test). Each would fail the reader's parse loop if listed.
   2. **Generated dev-panel flag:** `tests/admin/withAdminDevFlagDevPanelPresent.test.ts:6-16` (serial) rewrites `lib/admin/__generated__/devPanelPresent.ts` to `true` mid-test (restoring the committed `false` in `afterEach` at lines 14-17), while `tests/components/admin/settings/DevToolsRow.absent.test.tsx:17-25` (parallel) real-imports it and asserts `DEV_PANEL_PRESENT === false`. R2 sweep: this is the only parallel-set file that real-imports the constant (`DevToolsRow.test.tsx` mocks it; `tests/app/admin/` settings tests reach it only transitively and assert nothing about its value).
-- The four `pre*` hooks (`package.json:27-31` — `pretypecheck`, `prelint`, `pretest`, `prebuild`) each chain the same four generators. Measured on this box: `gen:admin-tables` 3.1s, `gen:watermark-symbols` 1.8s, `gen:email-boundaries` 2.2s, `gen:traceability` 1.6s; whole `pnpm pretest` **15.0s** (pnpm per-script overhead included).
+- The four `pre*` hooks (`package.json:28-32` — `pretypecheck`, `prelint`, `pretest`, `prebuild`) each chain the same four generators. Measured on this box: `gen:admin-tables` 3.1s, `gen:watermark-symbols` 1.8s, `gen:email-boundaries` 2.2s, `gen:traceability` 1.6s; whole `pnpm pretest` **15.0s** (pnpm per-script overhead included).
 - Generator inputs (verified read-surface; none of the four reads `process.env`):
   - `generate-admin-tables.ts`: spec (`SPEC_PATH`, line 3) → `lib/audit/admin-tables.generated.ts` (line 4).
   - `extract-watermark-symbols.ts`: spec (line 4) → `lib/audit/watermark-symbols.generated.ts` (line 5).
