@@ -128,6 +128,8 @@ jobs:
         run: |
           docker ps --filter name=realtime --format '{{.ID}}' | xargs -r docker restart
           sleep 5
+      - name: Realtime relay diagnostic (TEMPORARY — PR #505 triage)
+        run: pnpm tsx scripts/ci/realtime-relay-diagnostic.ts
       - name: Seed the corpus
         # The spec seeds its OWN shows + alerts, but /admin's dashboard branch
         # (and therefore the nav bell) needs a settled app_settings row; the spec's
