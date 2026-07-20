@@ -1,3 +1,4 @@
+import { CARD_SURFACED_LOG_ONLY } from "@/lib/messages/cardSurfacedLogOnly";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -252,9 +253,12 @@ describe("helpfulContext × dougFacing coverage", () => {
     expect(violations).toEqual([]);
   });
 
-  test("every non-admin dougFacing-null code has null helpfulContext (admin-log-only invariant)", () => {
+  test("every non-admin dougFacing-null code has null helpfulContext (admin-log-only invariant; card-surfaced carve-out)", () => {
     const violations = entries
       .filter((entry) => !ADMIN_CODES.has(entry.code))
+      // Card-surfaced admin-log-only codes render helpfulContext on the warning
+      // cards (spec 2026-07-20-warning-card-copy-restore §3.1).
+      .filter((entry) => !CARD_SURFACED_LOG_ONLY.has(entry.code))
       .filter((entry) => entry.dougFacing === null && entry.helpfulContext !== null)
       .map((entry) => entry.code);
     expect(violations).toEqual([]);

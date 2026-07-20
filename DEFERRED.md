@@ -8,6 +8,18 @@ Last reconciled: 2026-07-19 (MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-moda
 
 ---
 
+### WARNCARD-GUIDANCE-LENGTH-1 — [P2] two guidance rows read as paragraphs, not at-a-glance lines
+
+From the impeccable critique of `warning-card-copy-restore` (2026-07-20). Spec §4.2 rows 7 (CREW_COLUMN_POSITIONAL_FALLBACK, 241 ch) and 33 (PULL_SHEET_OVERRIDE_CONTENT_CHANGED, 245 ch) render ~5-6 lines at 320px; the median row (~175 ch) reads as intended. Cap is 300 so the meta-test passes; copy tightening, not a defect. Deferred because the copy table is the ratified §4.2 canonical (frozen fixture + §12.4 lockstep) and the impeccable tier is P2 (dual-gate mandates P0/P1 only).
+
+**Un-defer trigger:** any future §4.2 copy edit touching these codes — tighten both rows toward ~180 ch in that same lockstep commit.
+
+### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes
+
+Impeccable critique note (2026-07-20): the `?` popover (align="right", opens below the trigger) can cover the inline guidance while open. Acceptable tooltip behavior — spec `2026-07-20-show-alert-compact` ratified the overlap posture explicitly. Same critique, cosmetic P3s folded here: row 24's double-semicolon chain; "as-is" hyphen wrap at 400px.
+
+**Un-defer trigger:** user reports the popover hiding the guidance they were reading.
+
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
 From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.

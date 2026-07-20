@@ -84,7 +84,13 @@ export function buildHelpPopoverBody(input: {
 export type CompactAlertHelpProps = {
   /** Short plain-text subject naming THIS card, for the trigger's accessible name. */
   subject?: string | null;
-  helpfulContext: string | null | undefined;
+  /**
+   * The popover's body copy. Deliberately NOT named after any one catalog
+   * field: AttentionBanner feeds `helpfulContext`, the warning cards feed
+   * `triggerContext` (spec 2026-07-20-warning-card-copy-restore §3.3) - the
+   * leaf renders whatever copy its host surface routes here.
+   */
+  popoverCopy: string | null | undefined;
   helpHref: string | null | undefined;
   /**
    * Route the Learn-more gate is evaluated against. Supplied by the caller
@@ -100,12 +106,12 @@ export type CompactAlertHelpProps = {
 
 export function CompactAlertHelp({
   subject,
-  helpfulContext,
+  popoverCopy,
   helpHref,
   route,
   testId,
 }: CompactAlertHelpProps) {
-  const content = buildHelpPopoverBody({ helpfulContext, helpHref, route });
+  const content = buildHelpPopoverBody({ helpfulContext: popoverCopy, helpHref, route });
   if (content === null) return null;
 
   return (
@@ -117,16 +123,20 @@ export function CompactAlertHelp({
     <HoverHelp
       label={helpTriggerLabel(subject)}
       align="right"
+      compactTrigger
       testId={testId}
       // placement deliberately omitted: inherit HoverHelp's shipped default
       // rather than invent a geometry policy (spec amendment A6).
       {...(content.learnMore ? { learnMore: content.learnMore } : {})}
       trigger={
+        // The BUTTON owns the 22px box + centering (compactTrigger); this span
+        // is the full-size skin, and the inner glyph span is the independently
+        // measurable child for the §6 centering proof.
         <span
           aria-hidden="true"
-          className="grid size-[22px] place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast hover:bg-warning-text/10"
+          className="pointer-events-none grid size-full place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast group-hover:bg-warning-text/10"
         >
-          ?
+          <span data-testid="compact-help-glyph">?</span>
         </span>
       }
     >

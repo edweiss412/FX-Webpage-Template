@@ -64,6 +64,7 @@ export function HoverHelp({
   testId = "hover-help",
   rootTestId,
   learnMore,
+  compactTrigger = false,
 }: {
   /** Accessible name for the trigger (e.g., "Help: Active shows"). */
   label: string;
@@ -84,6 +85,14 @@ export function HoverHelp({
   testId?: string;
   /** M12.12 affordance-matrix test id on the root wrapper (e2e walker hook). */
   rootTestId?: string;
+  /**
+   * 22px visual box + 44px overlay hit area for compact card triggers
+   * (spec 2026-07-20-warning-card-copy-restore §3.4). Only meaningful with a
+   * custom `trigger`; the button owns the 22px box and glyph centering, and
+   * the transparent before:inset-[-11px] overlay preserves the 44px floor
+   * with zero layout inflation (same pattern as the default "?" trigger).
+   */
+  compactTrigger?: boolean;
   /**
    * Optional "Learn more →" link rendered AFTER the children. A tooltip role
    * must not contain interactive content, so when set the body drops
@@ -188,13 +197,20 @@ export function HoverHelp({
       onPointerLeave={onMouseLeave}
       onKeyDown={onRootKeyDown}
     >
-      {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min;
-          the compact "?" keeps a 20px visual but a transparent before:-inset-3
-          overlay extends the hit area to 44px without changing layout. */}
+      {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min,
+          or with compactTrigger a 22px box + before:inset-[-11px] overlay (44px
+          hit area, zero layout inflation - the same pattern as the default "?",
+          which keeps a 20px visual with a before:-inset-3 overlay). ring-offset-0
+          on the compact branch: an offset gap renders Tailwind's default white on
+          tinted cards (the DQIGNORE-5 class). */}
       {trigger ? (
         <button
           {...triggerProps}
-          className="inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          className={
+            compactTrigger
+              ? "group relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-0"
+              : "inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          }
         >
           {trigger}
         </button>

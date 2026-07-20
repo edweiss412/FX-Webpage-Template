@@ -51,6 +51,12 @@ export type MessageCatalogEntry = {
   title: string | null;
   longExplanation: string | null;
   helpHref: string | null;
+  /**
+   * Card-popover "what makes this appear" copy (catalog-internal, not §12.4
+   * prose - spec 2026-07-20-warning-card-copy-restore §3.2). Authored for every
+   * WARNING_CARD_COPY_CODES member (tests/messages/_metaWarningCardCopy.test.ts).
+   */
+  triggerContext?: string | null;
 };
 
 export const MESSAGE_CATALOG = {
@@ -1164,7 +1170,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything; we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
+      "Your sheet has a row we didn't recognize; we kept it as-is and nothing on the crew page is affected. The Report button on this card flags it to us; Ignore hides this notice.",
+    triggerContext: "Appears when a row's label doesn't match anything we know how to show.",
     title: "Unrecognized row in sheet",
     longExplanation:
       "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything; we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
@@ -1177,7 +1184,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
-      "A crew member has the `***` day-restriction flag but the sheet does not name which days they work. Add a parenthetical such as `(6/24 and 6/26 ONLY)` to the name cell so their schedule can be filtered safely.",
+      "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
+    triggerContext: "Appears when a name carries the '***' marker but no days are listed.",
     title: "Day-restricted crew with no days listed",
     longExplanation:
       "A crew member has the day-restriction flag but the sheet doesn't say which days. Add a parenthetical to their name like '(6/24 and 6/26 ONLY)'. Until you do, their schedule will show 'days unconfirmed.'",
@@ -1203,7 +1211,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → recognize role (or optional Report)",
     helpfulContext:
-      "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing; nothing else is affected. If the label is correct, you can add it right from this warning.",
+      "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
+    triggerContext: "Appears when a role label in a crew cell isn't on the known-roles list.",
     title: "Role we didn't recognize",
     longExplanation:
       "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, you can add it right from this warning.",
@@ -1229,7 +1238,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
-      "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases: Load In / Set / Show / Strike / Load Out, so their schedule can be filtered.",
+      "This role cell mixes a known work-phase with something we couldn't read, so we show this crew member the full schedule rather than hide any of it. Use the standard phases: Load In / Set / Show / Strike / Load Out.",
+    triggerContext:
+      "Appears when a role cell's phase restriction contains a word outside the standard phases.",
     title: "Stage restriction we couldn't read",
     longExplanation:
       "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases: Load In / Set / Show / Strike / Load Out, so their schedule can be filtered.",
@@ -1242,7 +1253,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix",
     helpfulContext:
-      "A stage word in this crew member's role looked misspelled (e.g. 'Strke'), so we read it as the closest real stage word ('Strike') and used that; nothing else is affected. If the spelling was intentional, update the sheet.",
+      "A stage word in this crew member's role looked misspelled, so we used the closest real one (like 'Strke' as 'Strike'). Update the sheet if the spelling was intentional.",
+    triggerContext:
+      "Appears when a work-phase word in a role cell is a letter or two off (Load In / Set / Show / Strike / Load Out).",
     title: "Auto-corrected a misspelled stage word",
     longExplanation:
       "A stage word in a crew member's role cell looked misspelled, so we read it as the closest real stage word and used that; the role and schedule still parse correctly. If the spelling was intentional, update the sheet.",
@@ -1255,7 +1268,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix",
     helpfulContext:
-      "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
+      "A role looked misspelled, so we used the closest real one (like 'Content Cretion' as 'Content Creation'). Update the sheet if the spelling was intentional.",
+    triggerContext: "Appears when a role in a crew cell is a letter or two off a known role.",
     title: "Auto-corrected a misspelled role",
     longExplanation:
       "A multi-word role in a crew member's cell looked misspelled, so we read it as the closest real role and used that; the role still parses. If the spelling was intentional, update the sheet.",
@@ -1268,7 +1282,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix",
     helpfulContext:
-      "A column header on this crew table looked misspelled (e.g. 'E-MAIL'), so we read it as the closest real header ('EMAIL') and used that column. If it was intentional, update the sheet.",
+      "A crew-table column header looked misspelled, so we used the closest real one (like 'E-MAIL' as 'EMAIL'). Fix the header in the sheet if that guess is wrong.",
+    triggerContext:
+      "Appears when a crew-table column header is a letter or two off a standard header.",
     title: "Auto-corrected a column header",
     longExplanation:
       "A column header on a crew table looked misspelled, so we read it as the closest real header and used that column; the crew rows still parse into the right fields. If it was intentional, update the sheet.",
@@ -1281,7 +1297,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → verify crew columns",
     helpfulContext:
-      "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork.",
+      "This crew table's headers were missing or unrecognized, so we read the columns by their position, and names and roles may have landed in the wrong fields. Check the crew section, and add a standard header row (Name / Role / Phone / Email).",
+    triggerContext: "Appears when a crew table has no header row we recognize.",
     title: "Guessed crew table columns by position",
     longExplanation:
       "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label.",
@@ -1294,7 +1311,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix (auto-retries)",
     helpfulContext:
-      "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city, often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
+      "We couldn't look up the venue's city from its address, so the page shows the raw address instead. Often temporary; if it keeps happening, check the address for typos.",
+    triggerContext: "Appears when the venue address doesn't resolve to a city.",
     title: "Couldn't look up the venue city",
     longExplanation:
       "We look up each venue's city from its address so the crew page can show a clean location. The lookup didn't return a city this time, usually a temporary service hiccup that clears on the next sync. The page falls back to the address. If it persists, check the venue address in the sheet.",
@@ -1307,7 +1325,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix (auto-retries)",
     helpfulContext:
-      "We work out each venue's time zone from its location so the crew page shows the right local times. This time we couldn't, so the page falls back to Eastern Time. It usually clears on the next sync once the location resolves. If it keeps happening, check the venue address in the sheet.",
+      "We couldn't work out the venue's time zone, so times show in Eastern Time for now. It usually clears on the next sync; if not, check the venue address.",
+    triggerContext: "Appears when the venue's location doesn't resolve to a time zone.",
     title: "Couldn't determine the venue's time zone",
     longExplanation:
       "We derive each venue's time zone from its location so the crew page shows the right local times. We couldn't this time, so the page falls back to Eastern Time, usually a temporary gap that clears on the next sync once the location resolves. If it persists, check the venue address in the sheet.",
@@ -1320,7 +1339,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → spot-check rooms",
     helpfulContext:
-      "A room line in this sheet could be split into a room name and its dimensions in more than one way (for example the dimensions came before the name, or there were two dimension groups), so we picked the most likely reading. The room still parsed; the name or dimensions might have landed slightly off. Check the rooms section against your sheet.",
+      "A room line could split into name and dimensions more than one way, so we picked the most likely reading. Check the rooms section; the name or dimensions might be slightly off.",
+    triggerContext: "Appears when a room line mixes its name and dimensions in an unusual order.",
     title: "Made a judgment call splitting a room line",
     longExplanation:
       "A room header could be read as name-then-dimensions in more than one way, so we picked the most likely split rather than dropping the room. The room still parsed, but the name or dimensions may have landed slightly off. Spot-check the rooms section against your sheet.",
@@ -1333,7 +1353,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → spot-check hotel guests",
     helpfulContext:
-      "A guest cell in this sheet's hotel section looked like it might contain more than one person glued together (several names in a row, or a stray number between names), so we made a judgment call about where one guest ends and the next begins. The guests still parsed; check the hotel guest list against your sheet in case two people were merged or one was split.",
+      "A hotel guest cell looked like several people glued together, so we made a judgment call splitting them. Check the guest list in case two people were merged or one was split.",
+    triggerContext: "Appears when one guest cell seems to hold more than one name.",
     title: "A hotel guest cell may hold more than one person",
     longExplanation:
       "A hotel guest cell looked like it might contain several guests glued together, so we made a judgment call about where one guest ends and the next begins. The guests still parsed; spot-check the hotel guest list in case two people were merged or one was split.",
@@ -1346,7 +1367,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → fix sheet dates",
     helpfulContext:
-      "The show dates only line up in chronological order if we read them day-first (like 10/3 meaning 3 October), but we read them month-first (10 March). That usually means the sheet was written day-first. If so, every date we parsed may be wrong; fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+      "The show dates only make sense read day-first (10/3 as 3 October), but we read them month-first, so every date may be wrong. Rewrite the dates unambiguously, like 'June 24'.",
+    triggerContext: "Appears when the sheet's dates are only in order if read day-first.",
     title: "Show dates may be written day-first",
     longExplanation:
       "The show dates only sort into order if read day-first, but we read them month-first, which usually means the sheet was written day-first. If so, every date we parsed may be wrong. Fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
@@ -1359,7 +1381,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → trim hotel list",
     helpfulContext:
-      "This sheet lists more than four hotels, and we only keep the first four. The extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
+      "Your sheet lists more than four hotels; we kept the first four and dropped the rest. Remove old or duplicate hotel blocks so the four we keep are the right ones.",
+    triggerContext: "Appears when the sheet has more than four hotel blocks.",
     title: "More than four hotels, kept the first four",
     longExplanation:
       "This sheet lists more than four hotels, and we only keep the first four; the extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
@@ -1372,7 +1395,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix",
     helpfulContext:
-      "A section header on this sheet looked misspelled (e.g. 'Transportaton'), so we read it as the closest real section ('Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
+      "A section header looked misspelled, so we read it as the closest real one (like 'Transportaton' as 'Transportation'). Update the sheet if it was intentional.",
+    triggerContext: "Appears when a section header is a letter or two off a standard section name.",
     title: "Auto-corrected a section header",
     longExplanation:
       "A section header on a sheet looked misspelled, so we read it as the closest real section and parsed that section anyway; otherwise the whole section would have been dropped. If it was intentional, update the sheet.",
@@ -1385,7 +1409,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional fix",
     helpfulContext:
-      "A field label on this sheet looked misspelled (e.g. 'Venue Adress'), so we read it as the closest real field ('Venue Address') and used that. If it was intentional, update the sheet.",
+      "A row label looked misspelled, so we used the closest real one (like 'Venue Adress' as 'Venue Address'). Fix the label in the sheet if that guess is wrong.",
+    triggerContext: "Appears when a row label is a letter or two off a standard label.",
     title: "Auto-corrected a field label",
     longExplanation:
       "A field label on a sheet looked misspelled, so we read it as the closest real field and used that; the value is recovered into the right field instead of being dropped. If it was intentional, update the sheet.",
@@ -1398,7 +1423,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+      "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text. The Report button on this card sends it to us if you'd like the format supported.",
+    triggerContext: "Appears when a pull-sheet QTY cell isn't a plain number.",
     title: "Pull sheet rows we couldn't fully read",
     longExplanation:
       "We couldn't read the QTY on some rows, usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
@@ -1411,7 +1437,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → include or ignore",
     helpfulContext:
-      "We spotted a PULL SHEET on a tab that looks archived (an older or renamed tab, not the sheet's current body) so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
+      "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, the Gear section on this page offers to include it.",
+    triggerContext:
+      "Appears when a PULL SHEET is found on a tab that looks like an older copy of the sheet, not its main tab.",
     title: "Pull sheet found on an archived tab",
     longExplanation:
       "We found a PULL SHEET on a tab that looks archived (an older or renamed tab, not the sheet's current body), so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
@@ -1424,7 +1452,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → re-confirm",
     helpfulContext:
-      "You'd previously included an archived-tab pull sheet in this show's gear, but its contents have changed since you accepted it. To avoid silently publishing gear you didn't review, we set that tab back to skipped and left the current pull sheet untouched. Re-open the review panel, check the updated tab, and include it again if it's still correct.",
+      "A pull sheet you'd chosen to include has changed since you last looked at it, so we set it back to left-out rather than publish gear you haven't seen. Check the tab, then include it again from the Gear section on this page if it's still right.",
+    triggerContext: "Appears when the contents of an included archived-tab pull sheet change.",
     title: "Included archived-tab pull sheet changed",
     longExplanation:
       "An archived-tab pull sheet you'd included in this show's gear has changed since you accepted it. To avoid silently publishing gear you didn't review, we set that tab back to skipped and left the current pull sheet untouched. Re-open the review panel, check the updated tab, and include it again if it's still correct.",
@@ -1437,7 +1466,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We couldn't find the run-of-show grid in the AGENDA tab, usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
+      "We couldn't find the run-of-show grid in the AGENDA tab, so every day shows the standard schedule. Check the tab still has its header row and its usual name.",
+    triggerContext: "Appears when the AGENDA tab is missing, renamed, or missing its header row.",
     title: "Run-of-show grid not found",
     longExplanation:
       "We couldn't find the run-of-show grid in the AGENDA tab, usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
@@ -1450,7 +1480,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Usually the AGENDA date banner is missing or shows an error (like #REF!). Other days are fine.",
+      "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Check that day's date banner in the AGENDA tab; it's usually missing or showing an error like #REF!.",
+    triggerContext: "Appears when a day in the AGENDA tab has no readable date above it.",
     title: "Run-of-show day not matched to a date",
     longExplanation:
       "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Usually the AGENDA date banner is missing or shows an error (like #REF!). Other days are fine.",
@@ -1463,7 +1494,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
-      "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
+      "This run-of-show day names only a weekday that matches two show dates, so we didn't guess and it shows the standard schedule. Add the actual date to the AGENDA banner.",
+    triggerContext:
+      "Appears when an AGENDA day banner gives only a weekday (like 'Wednesday') and the show has two of them.",
     title: "Run-of-show day matches two dates",
     longExplanation:
       "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
@@ -1476,7 +1509,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "One run-of-show day was too large and we trimmed it to keep things fast, usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
+      "This run-of-show day was too large, so crew see a trimmed list. It's almost always a stray cell; let us know if a real day genuinely needs more.",
+    triggerContext:
+      "Appears when one AGENDA day holds far more entries, or far longer text, than a day normally does.",
     title: "Run-of-show day trimmed",
     longExplanation:
       "One run-of-show day was too large and we trimmed it to keep things fast, usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
@@ -1489,7 +1524,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A run-of-show day you'd published before is now blank in the sheet, so that day went back to the standard schedule (we don't keep old content once it's removed). If you cleared it on purpose you're done; if not, put the rows back and it returns on the next sync.",
+      "A run-of-show day you'd published before is now blank in the sheet, so it went back to the standard schedule. Put the rows back if that wasn't on purpose.",
+    triggerContext:
+      "Appears when a previously published AGENDA day has been cleared out of the sheet.",
     title: "Run-of-show day cleared",
     longExplanation:
       "A run-of-show day you'd published before is now blank in the sheet, so that day went back to the standard schedule (we don't keep old content once it's removed). If you cleared it on purpose you're done; if not, put the rows back and it returns on the next sync.",
@@ -1502,7 +1539,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "One show day's TIME cell had text we couldn't read as a start time, so that day shows the standard schedule instead. Give it a clear start like '7:15am - Registration' and it'll update on the next sync.",
+      "One show day's TIME cell wasn't readable as a start time, so that day shows the standard schedule. Give it a clear start like '7:15am - Registration'.",
+    triggerContext: "Appears when a TIME cell doesn't begin with a readable time.",
     title: "Show-day time unreadable",
     longExplanation:
       "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
@@ -1515,7 +1553,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in your admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day (travel-in, set, a show day, or travel-out) and it'll appear for crew on the next sync.",
+      "A room's Strike Time is dated on a day outside the show's schedule, so it won't appear on crew schedules. Fix that cell's date to a show day.",
+    triggerContext: "Appears when a Strike Time's date isn't one of the show's days.",
     title: "Strike dated off the schedule",
     longExplanation:
       "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in the admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day and it'll appear on the next sync.",
@@ -1528,7 +1567,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check agenda link",
     helpfulContext:
-      "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured day-by-day schedule. This is usually a temporary download hiccup or an agenda whose layout we couldn't parse. Open the agenda link to confirm it still works; if it does and this keeps appearing, let us know and we'll take a look.",
+      "We couldn't read the linked agenda PDF, so crew see the agenda document but no day-by-day schedule. Check the link still opens; tell us if this keeps appearing.",
+    triggerContext:
+      "Appears when the linked agenda PDF can't be opened or its pages can't be read.",
     title: "Agenda PDF unreadable",
     longExplanation:
       "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured schedule. Confirm the agenda link still opens; if it does and this persists, let us know and we'll take a look.",
@@ -1541,7 +1582,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional check",
     helpfulContext:
-      "The agenda PDF was read, but we weren't confident enough about the session times to publish a structured schedule, so crew see the agenda document on its own. This is a safe fallback; nothing is broken. It usually means the agenda's layout is unusual; no action is needed unless the agenda format changed recently and you expected the structured times to appear.",
+      "We read the agenda PDF but weren't sure enough about the session times to publish them, so crew see the document only. Nothing is broken; no action needed unless the agenda layout recently changed.",
+    triggerContext: "Appears when the agenda PDF's times are laid out too unusually to trust.",
     title: "Agenda schedule shown as PDF only",
     longExplanation:
       "The agenda PDF was read but the session times weren't confident enough to publish a structured schedule, so crew see the agenda document only. This is a safe fallback and usually needs no action.",
@@ -1554,7 +1596,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check agenda",
     helpfulContext:
-      "While reading the agenda PDF we corrected at least one session time that looked like a typo, for example a morning session written with an evening marker. Crew see the corrected schedule alongside the original agenda document. Open the agenda to confirm the corrected time is right, and fix the source cell if the original was wrong.",
+      "We corrected at least one agenda session time that looked like a typo, like a morning session marked PM. Open the agenda to confirm; if our correction is wrong, update the agenda document.",
+    triggerContext: "Appears when an agenda time only makes sense with its AM/PM flipped.",
     title: "Agenda time adjusted",
     longExplanation:
       "At least one agenda session time was auto-corrected because it looked like a typo. Crew see the corrected schedule; confirm it against the agenda and fix the source cell if the original was wrong.",
@@ -1567,7 +1610,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check agenda link",
     helpfulContext:
-      "An agenda-link cell held text with no clickable target: a file name, note, or an unsupported link type instead of a working web link or Drive file, so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look.",
+      "The agenda cell holds text with nothing to open: a file name or a note instead of a working link. Replace it with a real web link or Drive file.",
+    triggerContext: "Appears when the agenda cell has no clickable link in it.",
     title: "Agenda link isn't clickable",
     longExplanation:
       "An agenda-link cell held text with no clickable target: a file name, note, or unsupported link type rather than a working web link or Drive file, so crew had nothing to open. Update it to a working link or the Drive file; if it already looks right and this persists, let us know and we'll take a look.",
@@ -1580,7 +1624,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "This looks like a PULL SHEET, but the columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like us to support this layout.",
+      "This looks like a PULL SHEET, but its columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like this layout supported.",
+    triggerContext: "Appears when a PULL SHEET tab's columns don't match any layout we know.",
     title: "Pull sheet columns unrecognized",
     longExplanation:
       "This looks like a PULL SHEET, but the columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like us to support this layout.",
@@ -1593,7 +1638,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We could read this case's rows but couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
+      "We could read this pull sheet's rows but not which column is which, so we used the standard column order. Check that quantities, item names, and categories landed right.",
+    triggerContext:
+      "Appears when a pull-sheet's columns don't match any layout we know for certain.",
     title: "Pull sheet layout not detected",
     longExplanation:
       "We could read this case's rows but couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
@@ -1664,8 +1711,10 @@ export const MESSAGE_CATALOG = {
     dougFacing: null,
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
-    title: null,
+    helpfulContext:
+      "A section header in your sheet has no readable rows under it, so that section is missing from the crew page. Add the rows back, or delete the leftover header.",
+    triggerContext: "Appears when a section header has no usable rows beneath it.",
+    title: "Section with nothing under it",
     longExplanation: null,
     helpHref: null,
   },
@@ -1678,8 +1727,11 @@ export const MESSAGE_CATALOG = {
     dougFacing: null,
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
-    title: null,
+    helpfulContext:
+      "A crew phone or email in your sheet couldn't work as one (a phone with no digits, or an email without an @), so that link is left off the crew page. Fix the cell in the sheet.",
+    triggerContext:
+      "Appears when a crew phone or email cell can't work as a real phone number or email address.",
+    title: "Phone or email we couldn't use",
     longExplanation: null,
     helpHref: null,
   },
@@ -1688,8 +1740,10 @@ export const MESSAGE_CATALOG = {
     dougFacing: null,
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
-    title: null,
+    helpfulContext:
+      "A header in your sheet isn't a section we know, so the rows under it aren't shown on the crew page. Rename it to a standard section, or use the Report button on this card if it should be supported.",
+    triggerContext: "Appears when a header row doesn't match any section we know.",
+    title: "Section we didn't recognize",
     longExplanation: null,
     helpHref: null,
   },
@@ -3405,7 +3459,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster.",
+      "A flight's crew name didn't match exactly one roster name, so the flight was skipped rather than mis-assigned. Fix the spelling so it matches the roster.",
+    triggerContext: "Appears when a FLIGHT DETAILS name matches zero or several crew names.",
     title: "TRAVEL flight name unmatched",
     longExplanation:
       "A flight in the TRAVEL tab couldn't be matched to any roster crew member. The flight is skipped to avoid mis-assigning it; correct the name spelling so it matches the roster.",
@@ -3418,8 +3473,9 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
-    title: "TRAVEL flight unparseable",
+      "A flight row had no readable date, so it was skipped. Start each leg with an M/D date, like '3/22 AA123 JFK - LAX'.",
+    triggerContext: "Appears when a FLIGHT DETAILS cell has no date we can read.",
+    title: "Flight we couldn't read",
     longExplanation:
       "A crew member's TRAVEL-tab flight cell had no recognizable flight date and was skipped. Check the format matches the expected pattern.",
     helpHref: "/help/errors#TRAVEL_FLIGHT_UNPARSEABLE",
@@ -3431,7 +3487,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "The parser found more than one TRAVEL flight table in the sheet export. Because the tables could represent different shows or states, flights are not attached from any of them. Remove or rename the duplicate/old table so only one remains and flights can be read.",
+      "The sheet has more than one TRAVEL flight table, so no flights were attached, since they could belong to different shows. Remove or rename the old table so only one remains.",
+    triggerContext: "Appears when the sheet holds two or more FLIGHT DETAILS tables.",
     title: "Multiple TRAVEL flight tables",
     longExplanation:
       "More than one TRAVEL flight table was found in the sheet. Flights are not attached from any of them; remove or rename the duplicate so only one remains.",
@@ -3444,7 +3501,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → fix the transport name or add the crew member",
     helpfulContext:
-      "Each transport assignment is matched to a crew member by name so that person can see their own ride details. This time an assignee name didn't clearly match one crew member, usually a typo, or two names merged into a single cell during import. Check the transport section for a misspelling or a merged name, or add the crew member if they're genuinely missing.",
+      "A transport assignee's name didn't clearly match one crew member, so that ride can't show on anyone's page. Fix the spelling, split merged names, or add the missing crew member.",
+    triggerContext: "Appears when a transport name matches zero or several crew names.",
     title: "Transport name doesn't match a crew member",
     longExplanation:
       "We match each transport assignment to a crew member by name. This name didn't clearly match one crew member, usually a typo, or two names merged into one cell, so that person won't see their transport details. Fix the transport section of the sheet, or add the crew member if they're genuinely missing.",

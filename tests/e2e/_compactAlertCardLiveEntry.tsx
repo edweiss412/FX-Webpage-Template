@@ -25,6 +25,10 @@ import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+import type { ParseWarning } from "@/lib/parser/types";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
 
 const LONG_LABEL = "Open branch settings";
@@ -89,8 +93,52 @@ function LiveHarness() {
     document.documentElement.setAttribute("data-harness-hydrated", "true");
   }, []);
 
+  const warningItem: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized CLIENT row label: 'Stage'",
+    rawSnippet: "Stage | x",
+    blockRef: { kind: "client", name: "Stage" },
+  };
+  const bannerItem: AttentionItem = {
+    id: "alert:a1",
+    kind: "alert",
+    tone: "notice",
+    sectionId: "crew",
+    crewKey: null,
+    actionable: true,
+    menuTitle: "Use-raw decision stale",
+    menuSubtitle: null,
+    alert: {
+      alertId: "a1",
+      code: "USE_RAW_DECISION_STALE",
+      template: "A saved use-raw decision went stale.",
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-07-19T10:00:00Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+    },
+  };
   return (
     <div className="flex flex-col gap-8 p-6">
+      {/* warning-card-copy-restore §3.4/§7: the two changed CompactAlertHelp
+          consumers, mounted REAL, in a 400px column for trigger geometry. */}
+      <div data-testid="mount-warning-card" style={{ width: 400 }}>
+        <PerShowActionableWarnings items={[warningItem]} driveFileId={null} />
+      </div>
+      <div data-testid="mount-attention-banner" style={{ width: 400 }}>
+        <AttentionBanner
+          item={bannerItem}
+          slug="harness-show"
+          now={new Date("2026-07-19T12:00:00Z")}
+          highlighted={false}
+          onResolved={() => {}}
+        />
+      </div>
       {/* 400px column — the design's reference card width. */}
       <div data-testid="col-400" style={{ width: 400 }} className="flex flex-col gap-4">
         <div data-testid="card-short-400">
@@ -98,7 +146,7 @@ function LiveHarness() {
             message="Doug Larson was added with LEAD."
             helpTrigger={
               <CompactAlertHelp
-                helpfulContext="Lead changes must be confirmed on the show page."
+                popoverCopy="Lead changes must be confirmed on the show page."
                 helpHref="/help/errors#X"
                 route="/admin"
                 testId="help-short-400"
@@ -150,7 +198,7 @@ function LiveHarness() {
             message={UNBROKEN_TOKEN}
             helpTrigger={
               <CompactAlertHelp
-                helpfulContext="Context for the token card."
+                popoverCopy="Context for the token card."
                 helpHref={null}
                 route="/admin"
                 testId="help-token-320"

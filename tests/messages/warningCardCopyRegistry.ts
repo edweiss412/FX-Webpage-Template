@@ -1,0 +1,135 @@
+// tests/messages/warningCardCopyRegistry.ts - fixture data for _metaWarningCardCopy.test.ts.
+// Nothing in lib/ or components/ imports this module (spec 2026-07-20-warning-card-copy-restore §3.5).
+// Copy strings are the spec §4.2 table, byte-for-byte - the frozen enforcement arm of the canonical table.
+export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
+  "AGENDA_BLOCK_UNRESOLVED",
+  "AGENDA_DAY_AMBIGUOUS",
+  "AGENDA_DAY_EMPTIED",
+  "AGENDA_DAY_TRUNCATED",
+  "AGENDA_GRID_MALFORMED",
+  "COLUMN_HEADER_AUTOCORRECTED",
+  "CREW_COLUMN_POSITIONAL_FALLBACK",
+  "DATE_ORDER_SUGGESTS_DMY",
+  "FIELD_LABEL_AUTOCORRECTED",
+  "FIELD_UNREADABLE",
+  "HOTEL_CARDINALITY_EXCEEDED",
+  "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  "PULL_SHEET_AMBIGUOUS_FORMAT",
+  "PULL_SHEET_PARSE_PARTIAL",
+  "PULL_SHEET_UNKNOWN_VARIANT",
+  "ROLE_TOKEN_AUTOCORRECTED",
+  "ROOM_HEADER_SPLIT_AMBIGUOUS",
+  "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+  "SCHEDULE_TIME_UNPARSED",
+  "SECTION_HEADER_AUTOCORRECTED",
+  "SECTION_HEADER_NO_FIELDS",
+  "STAGE_WORD_AUTOCORRECTED",
+  "UNKNOWN_DAY_RESTRICTION",
+  "UNKNOWN_FIELD",
+  "UNKNOWN_ROLE_TOKEN",
+  "UNKNOWN_SECTION_HEADER",
+  "UNKNOWN_STAGE_RESTRICTION",
+  "AGENDA_LINK_NOT_CLICKABLE",
+  "AGENDA_PDF_UNREADABLE",
+  "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+  "AGENDA_SCHEDULE_TIME_ADJUSTED",
+  "PULL_SHEET_ON_ARCHIVED_TAB",
+  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+  "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  "TRAVEL_FLIGHT_NAME_UNMATCHED",
+  "TRAVEL_FLIGHT_UNPARSEABLE",
+  "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+  "VENUE_GEOCODE_UNRESOLVED",
+  "VENUE_TIMEZONE_UNRESOLVED",
+]);
+
+export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
+  AGENDA_BLOCK_UNRESOLVED: "Appears when a day in the AGENDA tab has no readable date above it.",
+  AGENDA_DAY_AMBIGUOUS:
+    "Appears when an AGENDA day banner gives only a weekday (like 'Wednesday') and the show has two of them.",
+  AGENDA_DAY_EMPTIED:
+    "Appears when a previously published AGENDA day has been cleared out of the sheet.",
+  AGENDA_DAY_TRUNCATED:
+    "Appears when one AGENDA day holds far more entries, or far longer text, than a day normally does.",
+  AGENDA_GRID_MALFORMED:
+    "Appears when the AGENDA tab is missing, renamed, or missing its header row.",
+  COLUMN_HEADER_AUTOCORRECTED:
+    "Appears when a crew-table column header is a letter or two off a standard header.",
+  CREW_COLUMN_POSITIONAL_FALLBACK: "Appears when a crew table has no header row we recognize.",
+  DATE_ORDER_SUGGESTS_DMY: "Appears when the sheet's dates are only in order if read day-first.",
+  FIELD_LABEL_AUTOCORRECTED: "Appears when a row label is a letter or two off a standard label.",
+  FIELD_UNREADABLE:
+    "Appears when a crew phone or email cell can't work as a real phone number or email address.",
+  HOTEL_CARDINALITY_EXCEEDED: "Appears when the sheet has more than four hotel blocks.",
+  HOTEL_GUEST_SPLIT_AMBIGUOUS: "Appears when one guest cell seems to hold more than one name.",
+  PULL_SHEET_AMBIGUOUS_FORMAT:
+    "Appears when a PULL SHEET tab's columns don't match any layout we know.",
+  PULL_SHEET_PARSE_PARTIAL: "Appears when a pull-sheet QTY cell isn't a plain number.",
+  PULL_SHEET_UNKNOWN_VARIANT:
+    "Appears when a pull-sheet's columns don't match any layout we know for certain.",
+  ROLE_TOKEN_AUTOCORRECTED:
+    "Appears when a role in a crew cell is a letter or two off a known role.",
+  ROOM_HEADER_SPLIT_AMBIGUOUS:
+    "Appears when a room line mixes its name and dimensions in an unusual order.",
+  SCHEDULE_STRIKE_DATE_OFF_SCHEDULE:
+    "Appears when a Strike Time's date isn't one of the show's days.",
+  SCHEDULE_TIME_UNPARSED: "Appears when a TIME cell doesn't begin with a readable time.",
+  SECTION_HEADER_AUTOCORRECTED:
+    "Appears when a section header is a letter or two off a standard section name.",
+  SECTION_HEADER_NO_FIELDS: "Appears when a section header has no usable rows beneath it.",
+  STAGE_WORD_AUTOCORRECTED:
+    "Appears when a work-phase word in a role cell is a letter or two off (Load In / Set / Show / Strike / Load Out).",
+  UNKNOWN_DAY_RESTRICTION: "Appears when a name carries the '***' marker but no days are listed.",
+  UNKNOWN_FIELD: "Appears when a row's label doesn't match anything we know how to show.",
+  UNKNOWN_ROLE_TOKEN: "Appears when a role label in a crew cell isn't on the known-roles list.",
+  UNKNOWN_SECTION_HEADER: "Appears when a header row doesn't match any section we know.",
+  UNKNOWN_STAGE_RESTRICTION:
+    "Appears when a role cell's phase restriction contains a word outside the standard phases.",
+  AGENDA_LINK_NOT_CLICKABLE: "Appears when the agenda cell has no clickable link in it.",
+  AGENDA_PDF_UNREADABLE:
+    "Appears when the linked agenda PDF can't be opened or its pages can't be read.",
+  AGENDA_SCHEDULE_LOW_CONFIDENCE:
+    "Appears when the agenda PDF's times are laid out too unusually to trust.",
+  AGENDA_SCHEDULE_TIME_ADJUSTED:
+    "Appears when an agenda time only makes sense with its AM/PM flipped.",
+  PULL_SHEET_ON_ARCHIVED_TAB:
+    "Appears when a PULL SHEET is found on a tab that looks like an older copy of the sheet, not its main tab.",
+  PULL_SHEET_OVERRIDE_CONTENT_CHANGED:
+    "Appears when the contents of an included archived-tab pull sheet change.",
+  TRAVEL_FLIGHT_AMBIGUOUS_TABLE: "Appears when the sheet holds two or more FLIGHT DETAILS tables.",
+  TRAVEL_FLIGHT_NAME_UNMATCHED:
+    "Appears when a FLIGHT DETAILS name matches zero or several crew names.",
+  TRAVEL_FLIGHT_UNPARSEABLE: "Appears when a FLIGHT DETAILS cell has no date we can read.",
+  TRAVEL_TRANSPORT_NAME_UNMATCHED:
+    "Appears when a transport name matches zero or several crew names.",
+  VENUE_GEOCODE_UNRESOLVED: "Appears when the venue address doesn't resolve to a city.",
+  VENUE_TIMEZONE_UNRESOLVED: "Appears when the venue's location doesn't resolve to a time zone.",
+};
+
+export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
+  FIELD_UNREADABLE: "Phone or email we couldn't use",
+  SECTION_HEADER_NO_FIELDS: "Section with nothing under it",
+  UNKNOWN_SECTION_HEADER: "Section we didn't recognize",
+  TRAVEL_FLIGHT_UNPARSEABLE: "Flight we couldn't read",
+};
+
+export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([
+  "AGENDA_BLOCK_UNRESOLVED",
+  "ROOM_HEADER_SPLIT_AMBIGUOUS",
+  "SECTION_HEADER_NO_FIELDS",
+  "STAGE_WORD_AUTOCORRECTED",
+  "UNKNOWN_FIELD",
+  "UNKNOWN_SECTION_HEADER",
+]); // measured 2026-07-20 (Task 1 Step 3)
+export const EXPECTED_CORPUS_FIXTURES: ReadonlySet<string> = new Set([
+  "2024-05-east-coast-family-office.md",
+  "2025-03-dci-rpas-central.md",
+  "2025-04-asset-mgmt-cfo-coo.md",
+  "2025-05-redefining-fixed-income-private-credit.md",
+  "2025-06-ria-investment-forum.md",
+  "2025-10-consultants-roundtable.md",
+  "2025-10-fixed-income-trading-summit.md",
+  "2026-03-rpas-central-four-seasons.md",
+  "2026-04-asset-mgmt-cfo-coo-waldorf.md",
+  "2026-05-fintech-forum-cto-summit.md",
+]); // measured 2026-07-20 (Task 1 Step 3)

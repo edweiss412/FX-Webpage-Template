@@ -212,7 +212,7 @@ export function AttentionBanner({
   }) ? (
     <CompactAlertHelp
       subject={helpSubject}
-      helpfulContext={helpfulContext}
+      popoverCopy={helpfulContext}
       helpHref={a.helpHref}
       route={route}
       testId={`attention-banner-help-${a.alertId}`}
