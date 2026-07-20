@@ -1,5 +1,6 @@
 import { defineConfig, configDefaults } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
@@ -33,6 +34,20 @@ const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
 // the Vite cache moves aside so the two concurrent vitest processes never share
 // a deps-optimizer dir. Spec: docs/superpowers/specs/2026-07-20-local-suite-wallclock.md §4.1.3.
 const testFastExcludes = process.env.VITEST_TEST_FAST === "1" ? TEST_FAST_DEFERRED : [];
+
+// SPIKE-ONLY (db-touch-instrumentation): reclassification-verification lever.
+// When VITEST_MOVABLE_LIST points at a newline-delimited file of repo-relative
+// test paths, those files are ADDED to the parallel project and REMOVED from
+// serial — reproducing "move the probe-measured DB-free serial files into the
+// concurrent project" so a full `pnpm test` can prove local green. Off by
+// default; nothing to ship. NOT to be merged.
+const movableList =
+  process.env.VITEST_MOVABLE_LIST != null
+    ? readFileSync(process.env.VITEST_MOVABLE_LIST, "utf8")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+    : [];
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -86,6 +101,7 @@ export default defineConfig({
           exclude: [
             ...configDefaults.exclude,
             ...PARALLEL_TEST_GLOBS,
+            ...movableList,
             ...envBoundExcludes,
             ...nightlyExcludes,
           ],
@@ -96,7 +112,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "parallel",
-          include: PARALLEL_TEST_GLOBS,
+          include: [...PARALLEL_TEST_GLOBS, ...movableList],
           // tests/parser/** became a parallel glob in Phase 2, which would
           // otherwise sweep the nightly mutationHarness shards (~102k mutants)
           // into every unit-suite leg — they live ONLY in the env-gated
