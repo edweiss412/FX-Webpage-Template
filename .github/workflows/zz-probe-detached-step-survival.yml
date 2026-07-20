@@ -1,0 +1,59 @@
+name: PROBE detached-process step survival (temporary)
+# Throwaway probe for the boot/setup overlap spec: does a process detached in one
+# step survive into later steps on a GitHub-hosted runner, and does a filesystem
+# completion sentinel published by it become visible to a later step's shell?
+# Both are undocumented runner behaviours the design rests on. Deleted once the
+# result is recorded in the spec.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start a detached worker that writes a sentinel after 40s
+        run: |
+          rm -f /tmp/probe.rc /tmp/probe.log
+          nohup bash -c 'sleep 40; echo "worker finished"; echo 7 > /tmp/probe.rc' \
+            > /tmp/probe.log 2>&1 &
+          disown
+          echo "started detached pid $!"
+          echo "sentinel present immediately? $([ -f /tmp/probe.rc ] && echo yes || echo no)"
+
+      - name: Simulate the setup step (20s of unrelated work)
+        run: |
+          for i in $(seq 1 20); do sleep 1; done
+          echo "setup-equivalent done"
+          echo "sentinel present after 20s? $([ -f /tmp/probe.rc ] && echo yes || echo no)"
+
+      - name: Join — poll for the sentinel and adopt its status
+        run: |
+          deadline=$((SECONDS + 120))
+          until [ -f /tmp/probe.rc ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::PROBE RESULT: sentinel never appeared — detached process did NOT survive"
+              exit 1
+            fi
+            sleep 2
+          done
+          cat /tmp/probe.log
+          rc=$(cat /tmp/probe.rc)
+          echo "PROBE RESULT: sentinel visible across steps, status=$rc (expected 7)"
+          test "$rc" = "7"
+
+      - name: Probe the empty-sentinel race window
+        run: |
+          # Can a reader observe the file after creation but before the value
+          # lands? Hammer create+read to see whether `echo > file` is observably
+          # non-atomic on this filesystem.
+          empty=0
+          for i in $(seq 1 400); do
+            rm -f /tmp/race.rc
+            ( echo 0 > /tmp/race.rc ) &
+            until [ -f /tmp/race.rc ]; do :; done
+            v=$(cat /tmp/race.rc)
+            [ -z "$v" ] && empty=$((empty + 1))
+            wait
+          done
+          echo "PROBE RESULT: empty reads observed in 400 create/read races: $empty"
