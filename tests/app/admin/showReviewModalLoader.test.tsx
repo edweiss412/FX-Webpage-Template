@@ -892,10 +892,14 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
     const okOrder = childOrder(await buildLoaderElement());
     expect(okOrder[0]).toBe("PublishedReviewModal");
     expect(okOrder[okOrder.length - 1]).toBe("ShowRealtimeBridge");
-    // Fault render: same shape minus the bridge — the modal's index NEVER shifts.
+    // Fault render: SAME child-array shape with a trailing null slot — the
+    // modal's index NEVER shifts and the array never collapses to one child
+    // (whole-diff review R2 F2: a collapsed single-child shape must fail).
     state.versionTokenError = { message: "boom-token" };
     const faultOrder = childOrder(await buildLoaderElement());
     expect(faultOrder[0]).toBe("PublishedReviewModal");
     expect(faultOrder).not.toContain("ShowRealtimeBridge");
+    expect(faultOrder.length, "fault render keeps the child ARRAY shape").toBe(okOrder.length);
+    expect(faultOrder[faultOrder.length - 1], "trailing slot renders null on fault").toBe("null");
   });
 });

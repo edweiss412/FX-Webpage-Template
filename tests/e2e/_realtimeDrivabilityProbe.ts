@@ -64,7 +64,13 @@ async function poll<T>(
   }
 }
 
+let resultEmitted = false;
+/** Emits the SINGLE machine-readable terminal result — later calls are no-ops
+ *  (whole-diff review R2 F3: a cleanup failure after a DRIVABLE result must
+ *  not print a second PROBE RESULT line). */
 function finish(result: string, indeterminate = false): void {
+  if (resultEmitted) return;
+  resultEmitted = true;
   console.log(`PROBE RESULT: ${result}`);
   if (indeterminate) process.exitCode = 1;
 }
@@ -373,8 +379,10 @@ async function main(): Promise<void> {
 main().catch((err) => {
   // Any thrown path (sign-in, navigation, seed, warm-up RPC, mutation, cleanup)
   // still emits a machine-readable result — the three-state contract has no
-  // silent fourth outcome.
+  // silent fourth outcome — via the same emit-once guard (a cleanup throw
+  // after a DRIVABLE emit keeps the single-result contract; exit code still
+  // flags the fault).
   console.error(err);
-  console.log("PROBE RESULT: INDETERMINATE (unhandled fault — see error above)");
+  finish("INDETERMINATE (unhandled fault — see error above)", true);
   process.exitCode = 1;
 });

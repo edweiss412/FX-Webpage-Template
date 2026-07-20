@@ -275,14 +275,22 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       await anchorTrigger.scrollIntoViewIfNeeded();
       await anchorTrigger.click();
       await expect(anchorMenu).toBeVisible();
-      // Tag the focused node so identity (not equality-by-selector) is asserted.
-      const probeTagged = await page.evaluate(() => {
+      // Meaningful-focus precondition (whole-diff review R2 F1): the focused
+      // node must be the anchor row's trigger or a node INSIDE its popover —
+      // never <body> — or the identity oracle would be vacuous. Tag it.
+      const probeTagged = await page.evaluate((anchorId) => {
         const el = document.activeElement;
         if (!(el instanceof HTMLElement)) return false;
+        const onTrigger = el.getAttribute("data-testid") === `crew-row-menu-button-${anchorId}`;
+        const inPopover = el.closest(`[data-testid="crew-row-menu-${anchorId}"]`) !== null;
+        if (!onTrigger && !inPopover) return false;
         el.setAttribute("data-probe", "focus-anchor");
         return true;
-      });
-      expect(probeTagged, "activeElement is a taggable HTMLElement after popover open").toBe(true);
+      }, anchor.id);
+      expect(
+        probeTagged,
+        "focus rests on the anchor trigger or inside its popover (never <body>)",
+      ).toBe(true);
       // Retain the NODE ITSELF — the final oracle compares identity
       // (document.activeElement === this node), not attribute presence
       // (whole-diff review F2).
