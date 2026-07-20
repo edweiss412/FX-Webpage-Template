@@ -31,6 +31,20 @@ export type MessageCatalogEntry = {
    */
   resolution?: "auto" | "manual";
   dougFacing: string | null;
+  /**
+   * Show-scoped variant of `dougFacing`, used ONLY when the alert renders
+   * inside the show it belongs to — where the modal header already names the
+   * show, so the template's "In <sheet-name>, " opening is redundant.
+   *
+   * Selected by `safeDougFacingTemplate` (lib/admin/attentionItems.ts), which
+   * is reachable only from the show modal. The bell builds its copy from
+   * `dougFacing` via `rowCopy` (components/admin/BellPanel.tsx) and never sees
+   * this field, so global rendering cannot change.
+   *
+   * Absent = the global string is used in both places (redundant, never
+   * wrong). Spec docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md §3.1.
+   */
+  dougFacingShowScoped?: string;
   crewFacing: string | null;
   followUp: string | null;
   helpfulContext: string | null;
@@ -853,6 +867,7 @@ export const MESSAGE_CATALOG = {
     audience: "doug",
     severity: "info",
     dougFacing: "In <sheet-name>, <role-changes><lead-hint>",
+    dougFacingShowScoped: "<role-changes><lead-hint>",
     crewFacing: null,
     followUp: "none (informational)",
     helpfulContext: null,
@@ -3289,6 +3304,8 @@ export const MESSAGE_CATALOG = {
       "The show-picker had trouble starting up for someone. It usually recovers on retry; the developer can check if it persists.",
     dougFacing:
       "In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.",
+    dougFacingShowScoped:
+      "Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening, contact the developer.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect claim_oauth_identity",
     helpfulContext: null,
@@ -3323,6 +3340,8 @@ export const MESSAGE_CATALOG = {
       "A sign-in identity was already linked, and the app handled it automatically. No action needed.",
     dougFacing:
       "In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
+    dougFacingShowScoped:
+      "<crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     crewFacing: null,
     followUp: "Informational",
     helpfulContext: null,

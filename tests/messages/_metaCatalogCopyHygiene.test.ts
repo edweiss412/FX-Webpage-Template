@@ -196,6 +196,7 @@ describe("Rendered-prose copy has no em dash or double hyphen (DESIGN.md §9, EM
     resolution: "excluded-enum",
     helpHref: "excluded-url",
     dougFacing: "rendered-prose",
+    dougFacingShowScoped: "rendered-prose",
     crewFacing: "rendered-prose",
     followUp: "rendered-prose",
     helpfulContext: "rendered-prose",

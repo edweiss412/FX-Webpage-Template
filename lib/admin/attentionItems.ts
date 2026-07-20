@@ -10,7 +10,7 @@ import { resolveAlertAction, type AlertActionLink } from "@/lib/adminAlerts/aler
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import { messageFor, type MessageParams } from "@/lib/messages/lookup";
+import { messageFor, interpolate, type MessageParams } from "@/lib/messages/lookup";
 import { GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 export type RoutedSectionId = SectionId | "overview" | "changes";
@@ -120,19 +120,33 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
 /**
- * The raw catalog dougFacing template when the alert's params fully interpolate
- * it, else null (the retired PerShowAlertSection's safeDougFacingTemplate rule —
+ * The raw catalog template when the alert's params fully interpolate it, else
+ * null (the retired PerShowAlertSection's safeDougFacingTemplate rule —
  * guards uncataloged codes AND unresolved <placeholder> tokens so a leaked token
  * never reaches the UI; invariant 5).
+ *
+ * SHOW-SCOPED BY CONSTRUCTION: this prefers `dougFacingShowScoped` when the
+ * entry defines one. It needs no scope parameter because it is reachable from
+ * exactly one place — `deriveAttentionItems` below, whose only caller is the
+ * show modal (app/admin/_showReviewModal.tsx). The bell reads `dougFacing`
+ * directly through its own `rowCopy` (components/admin/BellPanel.tsx), so
+ * global rendering cannot see the variant. That topology is pinned by
+ * tests/admin/_metaAttentionItemsTopology.test.ts, so a second caller fails
+ * CI rather than silently inheriting show-scoped copy.
+ *
+ * Spec docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md §3.5.
  */
 export function safeDougFacingTemplate(
   code: string,
   params: MessageParams | undefined,
 ): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  const template = messageFor(code as MessageCode).dougFacing;
+  const entry = messageFor(code as MessageCode);
+  const template = entry.dougFacingShowScoped ?? entry.dougFacing;
   if (!template) return null;
-  const interpolated = messageFor(code as MessageCode, params).dougFacing;
+  // Validate the SELECTED template, not the global one, so a variant that
+  // fails to interpolate is rejected by the same guard.
+  const interpolated = interpolate(template, params);
   if (!interpolated || UNRESOLVED_PLACEHOLDER_RE.test(interpolated)) return null;
   return template;
 }
