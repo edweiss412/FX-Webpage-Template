@@ -63,7 +63,9 @@ unit-suite        aggregator, needs BOTH, asserts BOTH rollups == success
 
 Projected max leg at 6+2: ~215s against a measured 253s baseline.
 
-**Coverage** is guaranteed by two composing invariants, not by inspection:
+**Coverage** is guaranteed by two composing invariants, not by inspection. The claim is "every file runs exactly once, EXCEPT the three env-bound files, which run zero times here and are gated by x-audits instead" — both jobs set `VITEST_EXCLUDE_ENV_BOUND=1`, and that exclusion is applied only to the serial project. A meta-test pins that all three env-bound files stay in serial dirs, since an env-bound file added to a parallel dir would NOT be excluded and would run in the no-DB leg, in the very environment it was excluded for needing.
+
+The two invariants:
 
 1. `vitest-projects-partition.test.ts` — every non-nightly test file lands in exactly ONE default project.
 2. `unit-suite-shard-topology.test.ts` — each job runs exactly one project, and each job's `--shard` denominator equals its own matrix length.
@@ -81,7 +83,22 @@ The probe ran all 693 parallel-project files against a runner with no Supabase a
 
 (Both are cited at their post-move locations; each lived under `tests/app/admin/` when the probe caught it.)
 
-Because the probe covered every file rather than a sample, that is a census. Both moved to `tests/admin/` (a serial directory).
+Because the probe covered every file rather than a sample, that is a census **of files that fail loudly without a database**. Both moved to `tests/admin/` (a serial directory).
+
+### 4.1 What "DB-free" does and does not mean (adversarial review, finding 2)
+
+The probe establishes that no parallel-project file *fails* without PostgreSQL. That is weaker than "touches no database," and the gap is worth naming because it is not closable by re-running the probe:
+
+- a test that catches or swallows a connection error and passes anyway
+- a setup hook that returns early when the DB is unreachable
+- an availability-dependent skip, or an assertion that goes vacuous
+- a conditional DB path that this runner environment never activates
+
+Any of those turns green while exercising a FALLBACK path rather than the DB-backed behavior it was written to check. The no-DB job repeats the same observation every PR, so it inherits the same blind spot.
+
+Two things bound the risk. The original partition (2026-06-23) was verified by a stricter protocol — every Supabase endpoint pointed at a CLOSED PORT, which surfaces swallowed-error paths that a merely-absent database does not. And the parallel project's files were selected as DB-free by construction, not discovered to be.
+
+What is genuinely new is that the claim is now re-checked continuously instead of once. It is a regression detector, not a proof. A file that silently degrades to a fallback path remains invisible to it — `BL-CI-PARALLEL-DB-FALLBACK-AUDIT` tracks re-running the closed-port protocol across the whole parallel project to close that residue.
 
 **This was a correctness bug independent of CI timing.** Under `fileParallelism: true` those two raced each other against one shared database — the exact hazard the serial project exists to prevent. They passed only because nothing had yet interleaved them badly.
 

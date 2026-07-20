@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { PARALLEL_TEST_GLOBS } from "@/vitest.projects";
+import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
 // Structural guard for the REQUIRED unit-suite gate. String-match on the workflow
 // YAML (no yaml dep), mirroring tests/cross-cutting/ci-workflow-speedup.test.ts.
@@ -96,6 +96,15 @@ describe("unit-suite matrix topology", () => {
       Number(m?.[2]),
       `${key}'s --shard denominator must equal its matrix length (${legs}); a mismatch drops or double-runs files`,
     ).toBe(Number(legs));
+
+    // Matching the FIRST invocation is not enough. A job could keep this correct
+    // command and add a second, unprojected or cross-project `vitest run` after
+    // it — every assertion above would still pass while files ran twice, which is
+    // exactly what the exactly-once claim forbids.
+    expect(
+      (directives(body).match(/vitest run/g) ?? []).length,
+      `${key} must invoke \`vitest run\` exactly once; a second invocation breaks exactly-once execution`,
+    ).toBe(1);
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently
@@ -108,17 +117,24 @@ describe("unit-suite matrix topology", () => {
       db.includes("bash scripts/ci/supabase-local-bootstrap.sh"),
       "unit-suite-db must boot its own local Supabase via the shared bootstrap",
     ).toBe(true);
-    for (const forbidden of [
-      "supabase-local-bootstrap.sh",
-      "supabase/setup-cli",
-      "postgresql-client",
-    ]) {
+    // Naming three exact spellings would let `supabase start`, a docker-compose
+    // bring-up, a renamed wrapper action, or `apt-get install postgresql-16`
+    // through. Assert the CATEGORY instead: no mention of supabase or postgres in
+    // any form, and no database-ish install, anywhere in the job's directives.
+    for (const forbidden of [/supabase/i, /postgres/i, /pg_ctl|pg_isready|initdb/i]) {
       expect(
-        nodb.includes(forbidden),
-        `unit-suite-nodb must not reference ${forbidden} — its legs run the DB-free project ` +
-          "and skip the boot entirely (that saving IS the split)",
+        forbidden.test(nodb),
+        `unit-suite-nodb must not reference ${forbidden} in any form — its legs run the ` +
+          "DB-free project and skip the boot entirely (that saving IS the split)",
       ).toBe(false);
     }
+    // Only the two setup actions plus the vitest step; a new `uses:` is how a
+    // database would most plausibly sneak back in.
+    expect(
+      (nodb.match(/uses:/g) ?? []).length,
+      "unit-suite-nodb must use exactly two actions (checkout + setup); a third is how a " +
+        "database bring-up would return",
+    ).toBe(2);
   });
 
   it("both jobs set VITEST_EXCLUDE_ENV_BOUND=1", () => {
@@ -171,10 +187,52 @@ describe("unit-suite matrix topology", () => {
         `the aggregator must read needs.${job}.result`,
       ).toBe(true);
     }
-    expect(
-      (body.match(/=\s*"success"/g) ?? []).length,
-      "the aggregator must assert BOTH rollup results equal exactly `success`",
-    ).toBe(2);
+    // Counting two `= "success"` fragments is NOT the claim. An aggregator that
+    // assigns both results and then tests "$db" TWICE would satisfy a count while
+    // letting a failed no-DB rollup green the required check. Assert the two
+    // guards RELATIONALLY: each variable must be bound to its own job's result,
+    // and each must be the subject of its own equality test.
+    const bindings = new Map([
+      ["db", "unit-suite-db"],
+      ["nodb", "unit-suite-nodb"],
+    ]);
+    for (const [variable, job] of bindings) {
+      expect(
+        new RegExp(`\\b${variable}='\\$\\{\\{\\s*needs\\.${job}\\.result\\s*\\}\\}'`).test(body),
+        `the aggregator must bind \`${variable}\` to needs.${job}.result`,
+      ).toBe(true);
+      expect(
+        new RegExp(`test\\s+"\\$${variable}"\\s*=\\s*"success"`).test(body),
+        `the aggregator must assert \`${variable}\` equals "success" — without its OWN test, ` +
+          `a failed ${job} rollup still greens the REQUIRED check`,
+      ).toBe(true);
+    }
+  });
+
+  // The exactly-once claim is scoped: under VITEST_EXCLUDE_ENV_BOUND=1 (which BOTH
+  // jobs set) the env-bound files are excluded from serial and run ZERO times
+  // here. That is intended — each is gated elsewhere (x-audits runs them directly)
+  // — so the honest invariant is "exactly once, EXCEPT the env-bound three."
+  //
+  // The latent hazard the exclusion asymmetry creates: envBoundExcludes is applied
+  // only to the serial project. An env-bound file added inside a PARALLEL dir
+  // would therefore NOT be excluded — it would run in the no-DB leg, in the very
+  // environment it was excluded for needing. All three currently live in serial
+  // dirs; this pins that they stay there.
+  it("every env-bound exclude lives in a SERIAL dir (the exclusion is serial-only)", () => {
+    for (const g of ENV_BOUND_EXCLUDES) {
+      const path = g.replace(/^\*\*\//, "");
+      const inParallelDir = PARALLEL_TEST_GLOBS.some((pg) => {
+        const star = pg.indexOf("/**");
+        return star >= 0 && path.startsWith(pg.slice(0, star + 1));
+      });
+      expect(
+        inParallelDir,
+        `${path} is env-bound but sits in a PARALLEL dir. envBoundExcludes is applied ONLY to ` +
+          "the serial project, so it would still run in the no-DB leg — the exact environment " +
+          "it is excluded for needing. Move it to a serial dir.",
+      ).toBe(false);
+    }
   });
 
   // Ties the workflow to the partition's single source of truth: the no-DB job is
