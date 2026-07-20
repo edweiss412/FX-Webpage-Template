@@ -8,6 +8,16 @@
 
 Shrink the serial vitest phase to the files that genuinely need the shared local Supabase DB, by moving the **516 spike-verified DB-free files** currently trapped in mixed directories into the parallel project — at FILE granularity, which P2 deliberately descoped.
 
+### 1.0 Ratified amendment (2026-07-20, after plan review round 5)
+
+**The audit script is DESCOPED from this phase and filed as backlog.** Rationale, recorded because it overrides §3.4/§4g as originally written: five consecutive plan-review rounds identified findings on one vector — how the script's behaviors get test-bound (cross-process seams, injectable runners, adapter logic, and finally a genuine `.mjs`-cannot-import-`.ts` runtime defect). Per this project's three-round rule for design-correctness vectors, the response is to descope the vector rather than patch prose again. The script never was this phase's value: the measured list already exists (§2), the regeneration PROCEDURE is fully documented in §2.2/§3.4 and reproducible by hand, and the membership change it supports is small and independently proven.
+
+Consequences, all deliberate:
+- `PARALLEL_EXTRA_FILES` ships as a generated-by-documented-procedure artifact whose provenance is this spec §2 plus the PR body's measurement record, not a committed generator.
+- §3.4 is retained as the normative DESCRIPTION of the regeneration procedure (what a human or a future script must do), not as a deliverable.
+- §4g (the `--check` pin) is withdrawn. §4c's list-integrity assertions — which are the guard that actually matters — are unchanged and remain in scope.
+- Backlog item `BL-CI-SERIAL-AUDIT-SCRIPT` captures the tool, with this round history as its design input.
+
 ### 1.1 Resolved scope — do not relitigate
 
 | Decision | Ratification |
@@ -21,6 +31,7 @@ Shrink the serial vitest phase to the files that genuinely need the shared local
 | P2's three-way `projectOf` partition-test model stays; this phase extends it, does not replace it | #507 |
 | The audit script has TWO modes (measure = full protocol, manual; `--check` = static, CI) over a membership-independent candidate population, and the partition proof reads resolved config arrays rather than a classifier function | this spec §3.4, §4b; round-2 findings 1-5 |
 | The audit population subtracts EVERY `PARALLEL_TEST_GLOBS` entry (globs and exact files), and §4b0 proves the new list is actually spread into the parallel project | round-3 findings 1-2 |
+| The audit SCRIPT is descoped to backlog (§1.0); do not re-propose it inside this phase | §1.0, plan-review rounds 1-5 |
 | **The membership model is NOT inverted.** An earlier draft proposed a `SERIAL_ONLY_FILES` list; round-1 review proved it non-constructible in vitest and showed it would trade away safe-by-default. The ratified design keeps today's single-source model and adds `PARALLEL_EXTRA_FILES` (§3). Do not re-propose the inverted model | this spec §3, round-1 finding 1 |
 
 ## 2. Empirical spike (mandatory, run in-worktree 2026-07-20, before any design prose)
