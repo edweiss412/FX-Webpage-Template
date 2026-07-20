@@ -269,20 +269,49 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     new Promise((res) => { tErr.on("finish", res); tErr.on("error", res); }),
   ]);
 
+  // Byte counters on BOTH streams drive the §5 timers (pipes keep writing files;
+  // spec §5: "no growth in either" — stderr-only activity must reset the clocks too).
+  let bytesOut = 0;
+  child.stdout.on("data", (c) => { bytesOut += c.length; });
+  child.stderr.on("data", (c) => { bytesOut += c.length; });
+
   const prompt = kind === "resume"
     ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
     : cfg.prompt; // composed + cap-validated once at startup
   child.stdin.on("error", () => {});
   child.stdin.end(prompt);
 
-  let exitInfo;
-  try {
-    exitInfo = await Promise.race([exited, streamErr]);
-  } catch (e) {
-    killGroup(child.pid, "SIGKILL"); // stream error while child live: never orphan the group
-    state.currentAttempt = null;
-    state.liveChild = null;
-    throw e;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let exitInfo = null;
+  exited.then((v) => { exitInfo = v; });
+  // (streamFailure latch already declared above, next to streamErr)
+
+  let firstByteAt = null, lastGrowthAt = t0, lastBytes = 0;
+  while (exitInfo === null) {
+    if (streamFailure) { killGroup(child.pid, "SIGKILL"); state.currentAttempt = null; state.liveChild = null; throw streamFailure; }
+    await sleep(cfg.pollIntervalSecs * 1000);
+    if (exitInfo !== null) break;
+    const now = nowSecs();
+    if (bytesOut > lastBytes) {
+      lastBytes = bytesOut; lastGrowthAt = now;
+      if (firstByteAt === null) firstByteAt = now;
+    }
+    let reason = null;                                     // §5 precedence
+    if (now - state.startedAt > cfg.totalMaxSecs) reason = "total_timeout";
+    else if (now - t0 > cfg.attemptMaxSecs) reason = "attempt_timeout";
+    else if (firstByteAt !== null && now - lastGrowthAt > cfg.stallSecs) reason = "stall";
+    else if (firstByteAt === null && now - t0 > cfg.firstOutputSecs) reason = "no_output";
+    if (reason) {
+      attempt.killedReason = reason;
+      killGroup(child.pid, "SIGTERM");
+      const graceEnd = nowSecs() + cfg.killGraceSecs;
+      while (exitInfo === null && nowSecs() < graceEnd) await sleep(50);
+      killGroup(child.pid, "SIGKILL");                     // UNCONDITIONAL group sweep (helpers may survive leader)
+      const reapEnd = nowSecs() + cfg.reapAfterKillSecs;
+      while (exitInfo === null && nowSecs() < reapEnd) await sleep(50);
+      if (exitInfo === null) throw fail("unkillable child");
+      break;
+    }
   }
   await closed;      // stdio flushed
   await finished;    // files durable (or errored — settled either way)
