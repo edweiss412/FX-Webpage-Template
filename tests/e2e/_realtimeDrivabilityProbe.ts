@@ -116,18 +116,30 @@ async function main(): Promise<void> {
       const kind = r.headers()["rsc"] ? "RSC" : "DOC";
       requests.push({ at: Date.now(), text: `REQ ${kind} ${r.method()} ${u.pathname}${u.search}` });
     });
-    const settle = (r: { url(): string; request(): { headers(): Record<string, string> } }, status: string) => {
-      if (!isTracked(r.url())) return;
+    // Settle a request EXACTLY once, and only when its response BODY finished —
+    // Playwright's "response" event fires at headers, while an RSC body can
+    // still be streaming; settling there would declare quiescence early.
+    const settledReqs = new Set<unknown>();
+    const settleOnce = (req: unknown, entry: string) => {
+      if (settledReqs.has(req)) return;
+      settledReqs.add(req);
       inflight -= 1;
+      requests.push({ at: Date.now(), text: entry });
+    };
+    page.on("response", (r) => {
+      if (!isTracked(r.url())) return;
       const u = new URL(r.url());
       const kind = r.request().headers()["rsc"] ? "RSC" : "DOC";
-      requests.push({ at: Date.now(), text: `RESP ${kind} ${status} ${u.pathname}${u.search}` });
-    };
-    page.on("response", (r) => settle(r, String(r.status())));
+      void r
+        .finished()
+        .then(() =>
+          settleOnce(r.request(), `RESP ${kind} ${r.status()} ${u.pathname}${u.search}`),
+        )
+        .catch(() => settleOnce(r.request(), `RESPERR ${kind} ${u.pathname}${u.search}`));
+    });
     page.on("requestfailed", (r) => {
       if (!isTracked(r.url())) return;
-      inflight -= 1;
-      requests.push({ at: Date.now(), text: `FAILED ${r.url()}` });
+      settleOnce(r, `FAILED ${r.url()}`);
     });
     // Parsed frame predicates (mirror the oracle's contract): a join reply must
     // carry status "ok" — an ERROR reply is a stack/auth fault (INDETERMINATE),
@@ -141,20 +153,27 @@ async function main(): Promise<void> {
         return null;
       }
     };
+    // Topic is compared by PARSED equality (p.topic === topic), never substring —
+    // a different frame merely containing the topic string must not match.
     const isJoinReplyOk = (f: Stamped): boolean => {
-      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      if (f.text.startsWith("SENT")) return false;
       const p = parseFrame(f.text);
-      return p?.event === "phx_reply" && p.payload?.status === "ok";
+      return p?.topic === topic && p.event === "phx_reply" && p.payload?.status === "ok";
     };
     const isJoinReplyError = (f: Stamped): boolean => {
-      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      if (f.text.startsWith("SENT")) return false;
       const p = parseFrame(f.text);
-      return p?.event === "phx_reply" && p.payload?.status !== undefined && p.payload.status !== "ok";
+      return (
+        p?.topic === topic &&
+        p.event === "phx_reply" &&
+        p.payload?.status !== undefined &&
+        p.payload.status !== "ok"
+      );
     };
     const isInvalidation = (f: Stamped): boolean => {
-      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      if (f.text.startsWith("SENT")) return false;
       const p = parseFrame(f.text);
-      return p?.event === "broadcast" && p.payload?.event === "invalidate";
+      return p?.topic === topic && p.event === "broadcast" && p.payload?.event === "invalidate";
     };
     // Standalone context has no Playwright baseURL — pass it explicitly.
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE });
@@ -199,7 +218,18 @@ async function main(): Promise<void> {
       console.log(`warm-up attempt ${attempt}: ${frame ? `frame in ${frame.at - warmupAt}ms` : "no frame"}`);
     }
     if (!warmupOk) {
-      finish("NOT_DRIVABLE (healthy join; manual publish frames undeliverable after 3 attempts)");
+      // NOT_DRIVABLE requires a HEALTHY socket throughout the warm-up window —
+      // a close/error after the join means the frames may simply have been
+      // missed, which is a fault, not pipeline-undeliverable evidence.
+      const disruption = socketEvents.find(
+        (e) => e.at > join.at && (e.text === "close" || e.text.startsWith("error")),
+      );
+      if (disruption) {
+        console.log("socket disruption during warm-up:", disruption);
+        finish("INDETERMINATE (socket close/error during warm-up — frames may have been missed)", true);
+      } else {
+        finish("NOT_DRIVABLE (healthy join + healthy socket; manual publish frames undeliverable after 3 attempts)");
+      }
       return;
     }
     // OBSERVED quiescence (not a fixed sleep): no in-flight tracked request AND
