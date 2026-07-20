@@ -17,15 +17,16 @@ The REQUIRED `unit-suite` check is the CI wall-clock long pole: **~9.1 min avera
 | Phase 1 = config levers only: shard count, image caching, weight refresh. NO test-file moves (Phase 2), NO DB-test parallelization (Phase 3) | in-session design approval |
 | Shard count 6 primary, 8 as the predeclared in-PR fallback if the accept gate misses (§6) — not relitigated per-round | this spec §5.1 |
 | node_modules-cache and psql-install levers are DEAD — measured already-free (§3, setup=17s, psql=0s). Do not re-propose | measured run 29710814674 |
-| Docker image cache is a **conditional** lever: kept only if the measured cache-hit boot saving is ≥15s (§5.2). A revert of that lever inside this PR is in-spec, not a scope cut | this spec §5.2 |
+| Docker image cache is a **conditional** lever: kept only per the §6 decision procedure. A revert of that lever inside this PR is in-spec, not a scope cut | this spec §5.2/§6 |
 | `DEFAULT_WEIGHT` stays 1500; only heavy-file entries refresh (§5.3). Wall-model reweighting (per-file overhead constant) is deferred to Phase 2 where the serial set changes anyway | this spec §5.3 |
 | Serial-project `fileParallelism: false` guarantee within a leg is untouched (invariant since PR B/D) | `vitest.config.ts:83`, `2026-06-26-ci-unit-suite-matrix-shard-design.md` §3.4 |
 | Per-file fork/transform overhead (~560ms/serial file, §3) is Phase 2/3 material (isolation strategy), NOT addressed here | in-session design approval |
 | The three env-bound excludes stay excluded via `VITEST_EXCLUDE_ENV_BOUND=1` (each gated elsewhere; `unit-suite.yml` header documents all three) | `unit-suite.yml:24-40` |
+| The balance meta-test's file-set model gains the nightly-excludes subtraction (§5.4 item 3) — an in-scope correctness fix to a test this PR already edits, not scope creep | R1 finding 5 |
 
 ## 2. Program overview (phases 2–3 are commitments, not designs)
 
-1. **Phase 1 (this PR):** shard matrix 3→6, conditional Supabase-image docker cache, `FILE_WEIGHTS` refresh from measured CI timings, meta-test updates. Expected ≈4.3–4.7 min.
+1. **Phase 1 (this PR):** shard matrix 3→6, conditional Supabase-image docker cache, `FILE_WEIGHTS` refresh from measured CI timings, meta-test updates. Expected ≈4.3–4.9 min.
 2. **Phase 2 (own spec):** serial-set audit — the serial project is the default bucket (`vitest.config.ts:75-76` "New dirs default here"); audit which files are actually DB-bound, move DB-free files to the parallel project, and revisit the weight model (per-file overhead constant, §3). Input: Phase 1's measured per-leg timings.
 3. **Phase 3 (own spec + mandatory empirical spike):** DB-test parallelization. Spike compares per-worker Postgres databases (+ per-worker PostgREST exposure), per-worker Supabase stacks, and shard-count escalation as the control. Known risk to prove/kill in the spike, not in prose: schema-per-worker behind one PostgREST conflicts with `public`-pinned SECURITY DEFINER functions and search_path pins. Per AGENTS.md ("Empirical spike before speccing stateful/race/framework surfaces"), no Phase 3 prose design before the spike runs.
 
@@ -49,7 +50,7 @@ Inside the vitest step (log-timestamp analysis, ANSI-stripped `✓ <project> <fi
 - **Projects run sequentially** (parallel first, then serial — vitest phases per project).
 - Parallel project: 488 files total across legs (~162/leg), ~107s wall per leg, 51–68s summed test time (multi-worker).
 - Serial project: 821 files total (~260–283/leg), 217–290s wall per leg, 83–130s summed test time. The gap is **~560ms per-file** fork/transform/setup overhead — about half the serial wall is isolation cost, not tests. (Phase 2/3 material; see §1.1.)
-- Full suite: 1,309 completed files + a handful of env-skips. File counts are derived dynamically by the meta-tests, never hardcoded.
+- Full suite: 1,309 files completed in that run; the on-disk sequencer-visible set is 1,447 (completed + runtime-skipped — the two counts measure different things and both appear in this spec). File counts are derived dynamically by the meta-tests, never hardcoded.
 
 Heavy files measured (test-time ms, threshold ≥8,000ms) vs the committed `lib/test/vitest.weights.ts:9-14` map:
 
@@ -70,17 +71,20 @@ Earlier design arithmetic assumed ~2.2 min fixed overhead per leg; measurement s
 
 ## 4. What changes (Phase 1 diff surface)
 
-1. `.github/workflows/unit-suite.yml` — matrix `[1..6]`, `--shard=i/6`, image-cache steps (§5.2).
-2. `lib/test/vitest.weights.ts` — `FILE_WEIGHTS` refresh (§5.3).
-3. `tests/cross-cutting/unit-suite-shard-topology.test.ts` — regex updates: matrix literal + denominator `3` → `6` (`unit-suite-shard-topology.test.ts:22-39`), plus new cache-step pins (§5.4).
-4. `tests/cross-cutting/vitest-shard-balance.test.ts` — extend both `for (const N of [2, 3])` loops (`vitest-shard-balance.test.ts:64,88`) to `[2, 3, 6]`.
-5. No source-code changes. No UI (invariant 8 N/A). No DB/migrations (validation-parity N/A). No `pg_advisory*` (lock topology N/A).
+1. `.github/workflows/unit-suite.yml` — matrix `[1..6]`, `--shard=i/6`, image-cache steps (§5.2), AND every prose/label reference to the 3-leg topology: header comment lines 12 ("3-leg"), 14 (`--shard=i/3`), 17 ("three legs"), step name line 74 (`shard ${{ matrix.shard }}/3`), step comment line 75 ("across the three legs"), run line 80 (`--shard=${{ matrix.shard }}/3`), matrix line 56.
+2. `lib/test/vitest.weights.ts` — `FILE_WEIGHTS` refresh (§5.3) + header-comment threshold alignment (the current `>~10s` note at `vitest.weights.ts:3` becomes `≥8s` to match §3's threshold).
+3. `tests/cross-cutting/unit-suite-shard-topology.test.ts` — matrix + denominator updates (test titles and regexes at lines 22, 24, 29, 33, 38, 39) and new cache-step pins (§5.4).
+4. `tests/cross-cutting/vitest-shard-balance.test.ts` — N loops `[2, 3]` → `[2, 3, 6]` (`vitest-shard-balance.test.ts:64,88`); file-set model fix (§5.4 item 3); measured-heavy-set assertion (§5.4 item 2).
+5. `vitest.sequencer.ts:12` comment "the two separate CI runners" — stale since the 3rd leg; update to leg-count-neutral wording ("the N separate CI runners") so it can never drift again.
+6. No source-code behavior changes. No UI (invariant 8 N/A). No DB/migrations (validation-parity N/A). No `pg_advisory*` (lock topology N/A).
+
+Historical documents (predecessor specs, `DEFERRED-archive.md`) are records, not live pins — deliberately untouched.
 
 ## 5. Design
 
 ### 5.1 Shard count 3 → 6
 
-- `matrix: shard: [1, 2, 3, 4, 5, 6]` and `--shard=${{ matrix.shard }}/6` in `unit-suite.yml:56,80`. The `WeightBalancedSequencer` already reads `count` from `config.shard` (`vitest.sequencer.ts:57`, generalized N per PR E §3.1) — **no sequencer code change**.
+- `matrix: shard: [1, 2, 3, 4, 5, 6]` and `--shard=${{ matrix.shard }}/6` in `unit-suite.yml:56,80`. The `WeightBalancedSequencer` already reads `count` from `config.shard` (`vitest.sequencer.ts:57`, generalized N per PR E §3.1) — **no sequencer code change** (comment wording only, §4.5).
 - Aggregator (`unit-suite` required context, `unit-suite.yml:82-100`) unchanged: `needs.unit-suite-shard.result` rolls up any matrix size. Branch protection untouched.
 - Serial-DB guarantee: unchanged — each leg boots its own Supabase on its own runner; `--shard` selects files, never changes project membership or intra-leg order (PR E §3.1 "Serial-DB guarantee preserved").
 - Runner-minutes cost: ~6×5 = 30 min/run vs current ~3×8 = 24. Accepted (in-session).
@@ -88,37 +92,53 @@ Earlier design arithmetic assumed ~2.2 min fixed overhead per leg; measurement s
 
 ### 5.2 Conditional lever — Supabase docker-image cache
 
-Pull is ~38s of the 71s boot. Mechanism:
+Pull is ~38s of the 71s boot. Mechanism (three new steps around the boot step):
 
-- `actions/cache@v4` step before boot: `path: ~/supabase-images.tar.zst`, `key: supabase-images-${{ runner.os }}-<CLI version literal>` (image tags derive from the pinned CLI version — `unit-suite.yml:66` pins `2.107.0`; the key embeds the same literal so a CLI bump rolls the cache).
-- On cache hit: `zstd -d --stdout ~/supabase-images.tar.zst | docker load` before the bootstrap (zstd is preinstalled on ubuntu-latest).
-- On miss: after the bootstrap succeeds, `docker save $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'supabase|kong|postgrest') | zstd -T0 > ~/supabase-images.tar.zst`; the cache action's post-step uploads it.
-- The bootstrap script (`scripts/ci/supabase-local-bootstrap.sh:87`, `supabase start -x imgproxy,mailpit,studio,postgres-meta,edge-runtime,vector,logflare`) is **unchanged**: `supabase start` skips pulling images already present. Note: the `-x` list in the script is the source of truth; this spec does not restate it normatively.
-- **Keep-or-revert gate:** on the PR's first cache-hit run, compare the boot step against the 71s baseline. Saving ≥15s → keep. Saving <15s (docker load can cost what pull cost) → revert the cache steps in the same PR and record the measurement in the PR body. Either outcome is in-spec (§1.1).
-- Risk bound: `docker load` failure or corrupt cache must not fail the leg — the load step is `continue-on-error`-free but written defensively (`|| true` on the load; a failed load just means `supabase start` pulls as today). **This is the only permitted soft-failure**: the topology meta-test continues to assert no `continue-on-error: true` anywhere in the workflow (`unit-suite-shard-topology.test.ts:53-58`), and the `|| true` is scoped to the load command line only, never the boot or vitest steps.
+1. **Restore** (`actions/cache@v4`, before boot): `path: ~/supabase-images.tar.zst`, `key: supabase-images-${{ runner.os }}-2.107.0-${{ hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh') }}`. Key inputs and why each is there: `runner.os` (arch/OS); the CLI version **literal** duplicated from the `supabase/setup-cli` pin at `unit-suite.yml:66` (image tags derive from CLI version; topology meta-test pins the two literals equal, §5.4); `hashFiles` over `supabase/config.toml` (covers `db.major_version` — `supabase/config.toml:36` — and service enablement, which select images independently of CLI version) and over the bootstrap script (covers the `-x` exclude list at `supabase-local-bootstrap.sh:87`, which determines which images are needed at all). GitHub caches are immutable per key, so every input that can change the required image set must be in the key — a stale entry cannot heal in place.
+2. **Load** (plain step, cache-hit only via `if: steps.supabase-image-cache.outputs.cache-hit == 'true'`): `zstd -d --stdout ~/supabase-images.tar.zst | docker load || true`. The `|| true` makes a corrupt/failed load degrade to today's behavior (`supabase start` pulls whatever is missing) instead of failing a required check.
+3. **Save-prep** (after the vitest step, miss-only via `if: steps.supabase-image-cache.outputs.cache-hit != 'true'`): `command -v zstd || sudo apt-get install -y zstd` (zstd ships on current ubuntu-latest but the image rolls weekly — same guarded-install pattern as the psql step at `unit-suite.yml:67-68`; if the runner image someday drops zstd the LOAD side would fail too, which the `|| true` degrades to a plain pull), then `docker save $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'supabase|kong|postgrest') | zstd -T0 -o ~/supabase-images.tar.zst || true`. The `|| true` means a failed save (enumeration, disk, zstd) costs only the cache entry, never the leg. The `actions/cache` post-step uploads the file if present.
+
+- The bootstrap script itself is **unchanged**; `supabase start` skips pulling images already present, and the `SUPABASE_START_ATTEMPTS` retry loop is unaffected.
+- **Soft-failure inventory (exhaustive):** exactly two `|| true` sites — the load command (step 2) and the save pipeline (step 3). The boot step and the vitest step carry none. The topology meta-test enforces this inventory (§5.4), alongside the existing no-`continue-on-error` guard (`unit-suite-shard-topology.test.ts:53-58`).
+- **Cache-save timing caveat:** a cache entry is uploaded only when the job completes; the first fully-green run with these steps creates the entry, and the next run on the same PR restores it (GitHub scopes PR caches to the PR's merge ref with fallback to base). So the cache-hit measurement run is "the first run after a green run," not unconditionally "run 2."
+- The keep-or-revert decision and its measurement definition live in §6 (single source of truth — no threshold is restated here).
 
 ### 5.3 `FILE_WEIGHTS` refresh
 
-Replace the 4-entry map (`lib/test/vitest.weights.ts:9-14`) with the 8 measured entries from §3 (values = measured ms, rounded to the nearest 1,000). Comment each row `// measured 2026-07-20 run 29710814674`. `DEFAULT_WEIGHT` stays `1500` (§1.1). The existing balance meta-test guards (no stale keys, ≤1.25× mean bin weight — `vitest-shard-balance.test.ts:73,113`) apply unchanged at the new N.
+Replace the 4-entry map (`lib/test/vitest.weights.ts:9-14`) with the 8 measured entries from §3 (values = measured ms, rounded to the nearest 1,000). Comment each row `// measured 2026-07-20 run 29710814674`. `DEFAULT_WEIGHT` stays `1500` (§1.1). Update the file's header comment so the entry threshold reads ≥8s (§4.2).
 
-Balance floor check at N=6: heaviest single file 54s ≪ per-bin mean (~2,300k ms total weight / 6 ≈ 390k), so LPT balance is not floor-limited.
+**TDD anchor (this is the failing-test-first hook for the refresh):** the balance meta-test gains a `MEASURED_HEAVY` literal — the 8 §3 file paths — and asserts `MEASURED_HEAVY ⊆ keys(FILE_WEIGHTS)`. This fails against the committed 4-entry map (4 files absent) and passes after the refresh. Without it, no existing guard notices the refresh at all: with the stale map, N=6 LPT already balances to ~1.0015× mean, far inside the 1.25× guard (verified this session by running greedy LPT over the live 1,447-file list with the stale 4-entry map; same figure at N=8), so `[2, 3, 6]` alone is not a failing test.
+
+Balance floor check at N=6 and N=8: heaviest single file 54s ≪ per-bin mean (~2,300k ms total weight / 6 ≈ 390k), so LPT balance is not floor-limited at either count.
 
 ### 5.4 Meta-test updates (inventory — mandatory declaration)
 
 This phase **extends** two existing structural meta-tests; it creates none:
 
-- `tests/cross-cutting/unit-suite-shard-topology.test.ts` — matrix literal `[1, 2, 3]` → `[1, 2, 3, 4, 5, 6]`; denominator assertion `3` → `6`; NEW pins: (a) the cache step's `key` contains the same CLI version literal as the `supabase/setup-cli` step (drift = stale images silently reused across CLI bumps), (b) if the cache steps are reverted per §5.2, pin (a) is dropped in the same commit (the test never asserts steps that don't exist).
-- `tests/cross-cutting/vitest-shard-balance.test.ts` — N loops `[2, 3]` → `[2, 3, 6]` (both `:64` and `:88`); all existing guards (clean cover, 1.25× mean, stale keys, sequencer wiring) run at N=6 automatically.
-- Unaffected and must stay green: `tests/cross-cutting/vitest-projects-partition.test.ts` (project membership untouched), `tests/cross-cutting/ci-workflow-speedup.test.ts` (`ci-workflow-speedup.test.ts:34` pins `unit-suite.yml` in `PR_FIRING_WORKFLOWS` — still true).
+1. `tests/cross-cutting/unit-suite-shard-topology.test.ts` —
+   - matrix literal `[1, 2, 3]` → `[1, 2, 3, 4, 5, 6]` and denominator `3` → `6` (titles + regexes, §4.3);
+   - NEW pin: the cache-restore step's `key` expression contains BOTH the same CLI version literal as the `supabase/setup-cli` step (extract both via regex, assert equal — drift = stale images silently reused across CLI bumps) AND `hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh')`;
+   - NEW pin: step ordering — restore before load, load (with its `cache-hit == 'true'` guard) before the boot step, save-prep (with its `cache-hit != 'true'` guard) after the vitest step;
+   - NEW pin: soft-failure inventory — `|| true` appears exactly twice in the workflow, on the `docker load` line and the `docker save` pipeline line; the boot and vitest `run:` blocks contain no `|| true` (closes the gap where the existing no-`continue-on-error` guard would accept `bootstrap || true`);
+   - if the cache lever is reverted per §6, these cache pins are dropped in the same commit (the test never asserts steps that don't exist; the `[1..6]`/`/6` and soft-failure-count-zero forms remain).
+2. `tests/cross-cutting/vitest-shard-balance.test.ts` — N loops `[2, 3]` → `[2, 3, 6]` (`:64`, `:88`); NEW `MEASURED_HEAVY ⊆ FILE_WEIGHTS` assertion (§5.3).
+3. `tests/cross-cutting/vitest-shard-balance.test.ts` file-set model fix (R1 finding 5): the derivation at `vitest-shard-balance.test.ts:28-34` subtracts only `ENV_BOUND_EXCLUDES`, but the serial project ALSO unconditionally excludes `NIGHTLY_ONLY_EXCLUDES` (`vitest.config.ts:77-82`, `vitest.projects.ts:48` — the 9 `tests/parser/mutationHarness.*.test.ts` files), so the test models 9 files the unit-suite sequencer never sees. Fix: subtract `NIGHTLY_ONLY_EXCLUDES` the same way `ENV_BOUND_EXCLUDES` is subtracted. Exhaustive sweep of other set-model gaps (R1 class-sweep): the mutation project is env-gated out of unit-suite discovery (`vitest.config.ts:98`), and the parallel project is include-only — no other unconditional excludes exist in `vitest.config.ts`/`vitest.projects.ts`.
+4. Unaffected and must stay green: `tests/cross-cutting/vitest-projects-partition.test.ts` (project membership untouched), `tests/cross-cutting/ci-workflow-speedup.test.ts` (`ci-workflow-speedup.test.ts:34` pins `unit-suite.yml` in `PR_FIRING_WORKFLOWS` — still true).
 
 ## 6. Accept gate (real CI, authoritative — PR-D empirical-gate pattern)
 
-On the PR's Actions runs (the second run gives the cache-hit measurement):
+Definitions used below:
 
-1. All 6 legs green, aggregator green, and **max leg wall clock < 5 min** on a cache-hit run.
-2. Legs within ~75s of each other (balance sanity; if skew exceeds this, re-estimate the outlier file's weight from the run's own log and re-push — still within this PR).
-3. Cache lever keep-or-revert decided per §5.2's ≥15s rule, measurement recorded in the PR body.
-4. If (1) misses at 6 legs with the cache decision applied: execute the predeclared 8-leg fallback (§5.1) and re-measure. If it STILL misses at 8, merge whatever configuration measured fastest (it strictly dominates baseline) and record the residual gap as Phase 2's opening number — the 5-min target then rides on Phase 2, which was always the plan for the serial-overhead half of the wall.
+- **Leg wall clock** = the GitHub job duration (startedAt→completedAt) of a `unit-suite-shard` leg, excluding queue time.
+- **Boot path** = the summed durations of the cache-restore step + load step + boot step on a leg (comparable to the 71s baseline boot step, which had no restore/load).
+- **Median-of-6** = median across the six legs of one run.
+
+Ordered decision procedure:
+
+1. **Cache decision (first):** on the first cache-hit run (= first run after a green run, §5.2), compute median-of-6 boot path. **Keep** the lever iff it is ≤56s (i.e., ≥15s better than the 71s baseline). Otherwise revert the three cache steps (and their meta-test pins) in the same PR. Record the measurement and decision in the PR body either way.
+2. **Wall-clock criterion (on the final configuration):** max leg wall clock < 5 min, measured on a run of the surviving configuration — a cache-hit run if kept, a plain run if reverted. All 6 legs and the aggregator green.
+3. **Balance criterion:** max−min **vitest-step** duration across the six legs ≤ 75s. (Vitest-step, not job: bootstrap/cache variance is not a file-balance signal.) If exceeded: re-estimate the outlier file's weight from that run's own per-file log and re-push — still within this PR.
+4. **Fallback:** if criterion 2 misses at 6 legs, execute the predeclared 8-leg bump (§5.1) and re-run steps 2–3. If it still misses at 8: merge the configuration with the lower measured max leg wall clock (6 vs 8, each from its step-2 measurement run) **provided** that value beats the 3-leg baseline's 8-minute max leg — which every projection clears by minutes — and record the residual gap as Phase 2's opening number. The 5-min target then rides on Phase 2, which was always the plan for the serial-overhead half of the wall. No repeated-measurement protocol: one qualifying run per configuration decides; a run failed by unrelated flake (e.g. a docker-pull retry) is re-run, not counted.
 
 Local `pnpm test` / x-audits `vitest run <file>` behavior: unchanged — the sequencer's `shard()` only runs under `--shard` (`vitest.sequencer.ts` / PR E §3.1), and no vitest project or exclude changes ship in this phase.
 
@@ -132,4 +152,4 @@ Local `pnpm test` / x-audits `vitest run <file>` behavior: unchanged — the seq
 
 ## 8. Numeric self-consistency register
 
-Single sources of truth for numbers repeated in this document: baseline avg 9.1 min (§1); leg overhead 95s and per-file serial overhead ~560ms (§3); pull 38s / start 32s / boot 71s (§3); vitest legs 325/383/399 sum 1107s (§3); projection ~4.9 uncached / 4.4–4.6 cached (§3.1); heavy-file table 8 rows ≥8,000ms (§3); cache keep threshold 15s (§5.2); skew tolerance 75s (§6); shard counts 3→6, fallback 8 (§5.1).
+Single sources of truth for numbers repeated in this document: baseline avg 9.1 min (§1); leg overhead 95s and per-file serial overhead ~560ms (§3); pull 38s / start 32s / boot 71s (§3); vitest legs 325/383/399 sum 1107s (§3); heavy-file table 8 rows, threshold ≥8,000ms (§3); projection ~4.9 uncached / 4.4–4.6 cached (§3.1); cache keep rule median boot path ≤56s = 71−15 (§6.1, sole statement of the threshold); balance skew ≤75s on vitest-step durations (§6.3); shard counts 3→6, fallback 8 (§5.1); soft-failure count exactly 2 (§5.2/§5.4); nightly-excluded mutation files 9 (§5.4.3).
