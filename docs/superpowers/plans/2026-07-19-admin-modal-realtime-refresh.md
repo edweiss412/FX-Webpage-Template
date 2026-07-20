@@ -24,7 +24,7 @@
 
 - EXTENDS `tests/app/admin/showReviewModalLoader.test.tsx` (loader behavior).
 - EXTENDS `tests/admin/_showReviewReadPathPin.test.ts` (new single-caller pin for `viewer_version_token` in the loader + never-cached source pin).
-- CONFIRMS `tests/admin/_metaInfraContract.test.ts` §B proximity guard passes over the new call boundary (registry row only if the guard demands one — the read is an inline loader closure like `readToken`, which carries no standalone registry row).
+- EXTENDS `tests/admin/_metaInfraContract.test.ts` — a `readBridgeVersionToken` registry row (spec §8.3; Task 1 Step 6).
 - EXTENDS `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES`.
 - Advisory locks: NOT touched (spec §9 declaration; no `pg_advisory*` anywhere in the diff).
 
@@ -70,7 +70,7 @@ In the `createSupabaseServerClient` mock's `rpc` handler, add a branch BEFORE th
       }
 ```
 
-(Change the mock signature to `rpc: async (fn: string, args?: unknown)`.) Add `state.readOrder.push("finalize")` inside the `readfinalizeowned_b2` branch, and `state.readOrder.push("snapshot" | "feed" | "token" | "ignored" | "alerts")` at the top of each corresponding module mock (`readShowReviewSnapshot`, `readShowChangeFeed`, `loadShowShareToken`, `loadIgnoredWarnings`, `fetchPerShowAlerts`). Reset `state.readOrder = []` and `state.versionTokenArgs = null` in the suite's `beforeEach`.
+(Change the mock signature to `rpc: async (fn: string, args?: unknown)`.) Also add to `state`: `versionTokenGate: null as Promise<void> | null`, and inside the `viewer_version_token` branch, after the push: `if (state.versionTokenGate) await state.versionTokenGate;` (mirrors the existing `snapshotGate` pattern — used by the settlement test below). Add `state.readOrder.push("finalize")` inside the `readfinalizeowned_b2` branch, and `state.readOrder.push("snapshot" | "feed" | "token" | "ignored" | "alerts")` at the top of each corresponding module mock (`readShowReviewSnapshot`, `readShowChangeFeed`, `loadShowShareToken`, `loadIgnoredWarnings`, `fetchPerShowAlerts`). In the suite's `beforeEach`, reset EVERY new field: `state.versionToken = "vt-1"; state.versionTokenError = null; state.versionTokenThrows = false; state.versionTokenGate = null; state.versionTokenArgs = null; state.readOrder = [];` (leaked fault state between tests is exactly the contamination the existing fields' resets prevent).
 
 Mock the bridge so tree assertions are cheap (top of file with the other `vi.mock`s):
 
@@ -148,7 +148,13 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
       (c) => (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
     );
     expect(call).toBeTruthy();
-    expect(call![1]).toMatchObject({ source: "admin.show", slug: "rpas", showId: "s1" });
+    expect(call![1]).toMatchObject({
+      source: "admin.show",
+      code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+      slug: "rpas",
+      showId: "s1",
+    });
+    expect((call![1] as { error?: unknown }).error).toBeDefined(); // §8.5.3 full field set on BOTH paths
   });
 
   it("non-string rpc data → bridge mounts with renderVersion '' (getShowForViewer coercion parity)", async () => {
@@ -159,20 +165,50 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
     expect((bridge!.props as { renderVersion: string }).renderVersion).toBe("");
   });
 
-  it("read-order: token rpc settles before EVERY wave reader starts (token-first, spec §4.1)", async () => {
-    await buildLoaderElement();
+  it("read-order: token rpc SETTLES before ANY wave reader starts (token-first, spec §4.1 — settlement, not mere entry order)", async () => {
+    // Deferred-token proof: while the token rpc is BLOCKED, no wave reader may
+    // have started. Entry-order alone would pass a Promise.all that merely
+    // invokes the token first; this gate test cannot.
+    let releaseToken!: () => void;
+    state.versionTokenGate = new Promise<void>((r) => (releaseToken = r));
+    const pending = buildLoaderElement();
+    // Let microtasks run so the loader reaches (and blocks on) the token rpc.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(state.readOrder).toEqual(["versionToken"]); // token entered, NOTHING else
+    releaseToken();
+    await pending;
     const tokenIdx = state.readOrder.indexOf("versionToken");
-    expect(tokenIdx).toBeGreaterThanOrEqual(0);
     for (const reader of ["snapshot", "finalize", "feed", "token", "ignored", "alerts"]) {
-      const idx = state.readOrder.indexOf(reader);
-      expect(idx, `${reader} must start AFTER the version-token read`).toBeGreaterThan(tokenIdx);
+      expect(
+        state.readOrder.indexOf(reader),
+        `${reader} must start AFTER the version-token read settled`,
+      ).toBeGreaterThan(tokenIdx);
     }
   });
 
-  it("lifecycle variants: archived AND unpublished shows still mount the bridge (unconditional, §4.3)", async () => {
-    state.snapshot = baseSnapshot({ archived: true, published: false });
+  it("lifecycle: archived-but-published show still mounts the bridge (§4.3)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
     const ui = await buildLoaderElement();
     expect(bridgeChild(ui)).not.toBeNull();
+  });
+
+  it("lifecycle: unpublished-but-unarchived show still mounts the bridge (§4.3)", async () => {
+    // Split from the archived case deliberately: a mount gated on EITHER
+    // `!archived` OR `published` alone must fail exactly one of these two.
+    state.snapshot = baseSnapshot({ archived: false, published: false });
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).not.toBeNull();
+  });
+
+  it("child-order stability: the modal's child INDEX is identical in with-bridge and fault renders", async () => {
+    state.versionToken = "vt-live";
+    const okOrder = childOrder(await buildLoaderElement());
+    state.versionTokenError = { message: "down" };
+    const faultOrder = childOrder(await buildLoaderElement());
+    // Same modal index in both renders — the reconciliation precondition
+    // (§4.3): the bridge's presence/absence must never shift the modal.
+    expect(okOrder.indexOf("PublishedReviewModal")).toBe(faultOrder.indexOf("PublishedReviewModal"));
+    expect(okOrder.indexOf("PublishedReviewModal")).toBeGreaterThanOrEqual(0);
   });
 });
 ```
@@ -204,29 +240,34 @@ Immediately after `const showId = showIdRow.id;` (line ~135), BEFORE `readFinali
   // meta-test). Fault posture (§4.2): fail OPEN — log the forensic code and
   // render this pass without the bridge; the modal's revalidate-on-open
   // refresh re-runs the loader and recovers the bridge when the read heals.
-  let versionToken: string | null = null;
-  try {
-    const { data, error } = await supabase.rpc("viewer_version_token", { p_show_id: showId });
-    if (error) {
-      void log.warn("viewer version token read failed:", {
+  // Named closure (not inline try/catch) so the invariant-9 registry row in
+  // tests/admin/_metaInfraContract.test.ts can grep the helper by name.
+  const readBridgeVersionToken = async (): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.rpc("viewer_version_token", { p_show_id: showId });
+      if (error) {
+        void log.warn("viewer version token read failed:", {
+          source: "admin.show",
+          code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+          slug,
+          showId,
+          error: error.message,
+        });
+        return null;
+      }
+      return typeof data === "string" ? data : "";
+    } catch (err) {
+      void log.warn("viewer version token read threw:", {
         source: "admin.show",
         code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
         slug,
         showId,
-        error: error.message,
+        error: err,
       });
-    } else {
-      versionToken = typeof data === "string" ? data : "";
+      return null;
     }
-  } catch (err) {
-    void log.warn("viewer version token read threw:", {
-      source: "admin.show",
-      code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
-      slug,
-      showId,
-      error: err,
-    });
-  }
+  };
+  const versionToken = await readBridgeVersionToken();
 ```
 
 In the return, inside `ShareTokenProvider`, AFTER `<PublishedReviewModal …/>` (strictly last child — spec §4.3 position pin):
@@ -247,15 +288,30 @@ In the return, inside `ShareTokenProvider`, AFTER `<PublishedReviewModal …/>` 
   "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
 ```
 
-- [ ] **Step 6: Run the new tests — verify they PASS, then the full adjacent suites.**
+- [ ] **Step 6: Add the invariant-9 registry row (spec §8.3 — MANDATORY, not conditional).** In `tests/admin/_metaInfraContract.test.ts`, append to `infraRegistry`:
+
+```ts
+  {
+    // Realtime-refresh (2026-07-19): the modal loader's viewer_version_token
+    // fence read for the ShowRealtimeBridge mount.
+    helper: "readBridgeVersionToken",
+    path: "app/admin/_showReviewModal.tsx",
+    contract:
+      "viewer_version_token rpc ({ data, error } destructure); returned {error} AND thrown await are distinct paths, BOTH emit ADMIN_SHOW_VERSION_TOKEN_READ_FAILED (source admin.show, slug, showId, error) and return null → the loader renders WITHOUT the bridge (fail-open, realtime-refresh spec §4.2); recovery on any later loader re-run",
+  },
+```
+
+Follow the registry's existing per-row assertion pattern (a "helper exists" grep against the path; behavioral coverage lives in the loader suite's returned-error/throw tests from Step 2 — reference them if the registry's row schema wants a pointer).
+
+- [ ] **Step 7: Run the new tests — verify they PASS, then the full adjacent suites.**
 
 Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx tests/log tests/admin`
-Expected: PASS (all files). If `_metaInfraContract.test.ts`'s §B proximity guard flags the new await, satisfy it the way the guard demands (it scans for `{ data, error }` destructuring proximity — the implementation above complies; if it requires a registry row for a named helper, the read is an inline closure like `readToken` and carries a `// not-subject-to-meta:` inline comment ONLY if the guard's error message says so — never silence it any other way).
+Expected: PASS (all files), including `_metaInfraContract.test.ts` with the new row resolving.
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 8: Commit.**
 
 ```bash
-git add app/admin/_showReviewModal.tsx tests/app/admin/showReviewModalLoader.test.tsx tests/log/_auditableMutations.ts
+git add app/admin/_showReviewModal.tsx tests/app/admin/showReviewModalLoader.test.tsx tests/log/_auditableMutations.ts tests/admin/_metaInfraContract.test.ts
 git commit --no-verify -m "feat(admin): mount realtime bridge in show-review modal loader (token-first read, fail-open)"
 ```
 
@@ -372,7 +428,14 @@ export function isInvalidationFrame(frameText: string, showId: string): boolean 
 }
 ```
 
-Adjust the two predicates to the ACTUAL observed frame shapes — the shapes above are the expected Phoenix envelope; the spike output is authoritative. If the probe shows local Realtime broadcast is NOT drivable (no frame ever arrives on a plain `crew_members` UPDATE), STOP: implement the spec's ratified fallback (module-stubbed Supabase client harness injecting through the bridge's broadcast callback) instead of Task 4's DB-driven scenario, and record the finding in the PR body.
+Adjust the two predicates to the ACTUAL observed frame shapes — the shapes above are the expected Phoenix envelope; the spike output is authoritative.
+
+**Fallback branch (only if the probe shows local Realtime broadcast is NOT drivable — no frame arrives on a plain `crew_members` UPDATE):** replace Task 4's DB-driven scenario with the spec-ratified stub harness, concretely:
+
+1. Create `tests/e2e/_realtimeBridgeHarness.tsx` — a standalone real-browser harness (the `reference_step3_modal_realbrowser_harnesses` esbuild pattern used by `tests/e2e/_publishedReviewModalHarness.tsx`) that renders `<ShowRealtimeBridge showId slug renderVersion>` with TWO esbuild aliases in its build script: `@/lib/realtime/subscribeToShow` → a stub module that captures `onInvalidate` and exposes `window.__driveInvalidation = (token) => capturedOnInvalidate(token)` (plus a resolved `subscribed` Promise and a no-op channel), and `next/navigation` → a stub whose `useRouter().refresh` increments `window.__refreshCount`. The harness test asserts: `__driveInvalidation()` bursts coalesce through the REAL bridge debounce to exactly one `__refreshCount` increment ≥100ms later — the stimulus traverses subscribe→debounce→refresh, never calling refresh directly.
+2. Keep Task 4's modal-side invariants (§4.4 1–4, skeleton, geometry) but drive the mid-open reconcile through a REAL mechanism the app owns: perform an admin server action that revalidates (e.g. the ignore-warning toggle used by `published-review-modal.interactions.spec.ts`) and assert the invariants across THAT reconcile.
+3. CI wiring (Task 5) then registers the harness spec instead of the realtime spec; the PR body records the drivability finding verbatim.
+4. The fallback is itself TDD: harness assertion written first, run to fail (stub not wired), wire, pass, commit `test(admin): realtime bridge conduction harness (local realtime not drivable)`.
 
 - [ ] **Step 5: Commit.**
 
@@ -487,9 +550,40 @@ pnpm lint
 pnpm format:check
 ```
 
-Expected: all green. Fix anything that isn't; commit fixes as `fix(admin): …`.
+Expected: all green. **Failure protocol (bounded — no generic residue commits):** a BEHAVIORAL failure gets a failing regression test first (in the suite that missed it), then the minimal fix, then its own scoped commit `fix(<scope>): <what>` — one failure class per commit. A pure formatting failure: `pnpm format` + commit `chore: format`. A type-only failure with no behavior change: fix + commit `fix(<scope>): typecheck — <what>`. Never batch unrelated fixes into one commit.
 
-- [ ] **Step 3: Commit any residue and update the ship marker** to `stage: "4 — close-out"`.
+- [ ] **Step 3: Update the ship marker** to `stage: "4 — close-out"`.
+
+---
+
+### Task 7: Close-out — push, PR, REAL CI green, merge
+
+- [ ] **Step 1: Whole-diff cross-model adversarial review** (fresh-eyes, REVIEWER ONLY, Codex) to APPROVE; findings triaged land-now / `DEFERRED.md` / `BACKLOG.md`.
+- [ ] **Step 2: Push + open the PR.**
+
+```bash
+git push -u origin feat/admin-modal-realtime-refresh
+gh pr create --title "feat(admin): live realtime refresh for the published show modal" --body "<summary + spec/plan links + spike findings>"
+```
+
+- [ ] **Step 3: Verify REAL CI green — by PR number, not SHA** (the `gh pr checks --watch` SHA-form false-green lesson):
+
+```bash
+gh pr checks <PR#> --watch
+gh pr view <PR#> --json mergeStateStatus --jq .mergeStateStatus   # must be CLEAN, not DIRTY/BEHIND
+```
+
+The `published-modal-e2e` run MUST appear and pass on the PR (its path filters match this diff). If it did not trigger, `gh workflow run published-modal-e2e.yml --ref feat/admin-modal-realtime-refresh` and watch that run. If the PR is BEHIND/DIRTY, rebuild on `origin/main` first (merge-ref CI lesson).
+
+- [ ] **Step 4: Merge + sync (same turn as CI-green — never park a green PR):**
+
+```bash
+gh pr merge <PR#> --merge
+cd /Users/ericweiss/FX-Webpage-Template && git pull --ff-only
+git rev-list --left-right --count main...origin/main   # MUST print "0  0"
+```
+
+Then set the ship marker `stage: "done"` and `CronDelete` the nudge job.
 
 ---
 
