@@ -128,7 +128,7 @@ export function CompactAlertHelp({
         // measurable child for the §6 centering proof.
         <span
           aria-hidden="true"
-          className="pointer-events-none grid size-full place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast hover:bg-warning-text/10"
+          className="pointer-events-none grid size-full place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast group-hover:bg-warning-text/10"
         >
           <span data-testid="compact-help-glyph">?</span>
         </span>
