@@ -21,9 +21,14 @@
 //     bypasses the closed-port redirection entirely.
 //  5. Does not match a DB naming convention: tests/db/**, *.db.test.ts,
 //     *Db.test.ts, *.realdb.test.ts, *-real-db.test.ts.
+//  6. Does not write to a repo-tracked path. A test that writes a tracked file
+//     races parallel readers importing that file across workers; writers that
+//     confine themselves to mkdtemp/tmpdir are fine and stay eligible.
+//  7. Does not reference a loopback Supabase REST endpoint on port 54321 —
+//     same bypass class as rule 4, different port.
 //
 // Measured 2026-07-20: population 767; per-repeat green 591/587/589;
-// intersection 563; then rules 1/3/4/5 removed 1 + 26 + 21 = 48, leaving 515.
+// intersection 563; then rules 1/3/4/5/6/7 removed 1 + 26 + 21 + 6 = 54, leaving 509.
 //
 // Regeneration is a documented manual procedure today; automating it (with
 // these rules built in) is tracked by BL-CI-SERIAL-AUDIT-SCRIPT. Spec §1.0
@@ -110,7 +115,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/admin/validationReset-developer-posture.test.ts",
   "tests/admin/validationResetAction.test.ts",
   "tests/admin/warningFixAffordance.test.tsx",
-  "tests/admin/withAdminDevFlagDevPanelPresent.test.ts",
   "tests/admin/withAdminDevFlagLockLocation.test.ts",
   "tests/agenda/agendaAdminPreview.test.ts",
   "tests/agenda/agendaLabel.test.ts",
@@ -194,12 +198,8 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/auth/validateGoogleSession.test.ts",
   "tests/auth/validateNextParam.test.ts",
   "tests/codexGuard/fixture.test.ts",
-  "tests/codexGuard/happyPath.test.ts",
-  "tests/codexGuard/ladder.test.ts",
-  "tests/codexGuard/lock.test.ts",
   "tests/codexGuard/signals.test.ts",
   "tests/codexGuard/timeouts.test.ts",
-  "tests/codexGuard/usage.test.ts",
   "tests/cross-cutting/_canonicalEmailCheckContract.test.ts",
   "tests/cross-cutting/ci-workflow-speedup.test.ts",
   "tests/cross-cutting/codes.test.ts",
@@ -419,7 +419,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/show/unpublishRoutePrecedence.test.ts",
   "tests/specLint/_metaPureCore.test.ts",
   "tests/specLint/citations.test.ts",
-  "tests/specLint/cli.test.ts",
   "tests/specLint/copyRules.test.ts",
   "tests/specLint/numerics.test.ts",
   "tests/specLint/parse.test.ts",

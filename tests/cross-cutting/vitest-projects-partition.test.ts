@@ -187,24 +187,40 @@ describe("vitest projects split — partition is complete and correctly wired", 
     }
   });
 
-  it("resolved config admits every discovered file exactly once (nightly files zero)", () => {
-    // Evaluates each file against the projects' ACTUAL include/exclude arrays
-    // rather than restating a classifier, so an extra exclusion that orphans a
-    // file fails here. Nightly harness files belong to no default project by
-    // design (their opt-in mutation-project membership is pinned above).
-    const defaults = projects.map((p) => p.test);
-    const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
-    let nightlyCount = 0;
-    for (const f of allTestFiles) {
-      const admitting = defaults.filter((p) => inProject(f, p)).map((p) => p.name);
-      if (nightlyRe.some((r) => r.test(f))) {
-        nightlyCount++;
-        expect(admitting, `${f} is nightly-only and must be in NO default project`).toEqual([]);
-      } else {
-        expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
+  it("resolved config admits every discovered file exactly once (nightly files zero)", async () => {
+    // Import with the env-bound flag explicitly CLEARED: CI sets
+    // VITEST_EXCLUDE_ENV_BOUND=1, which would gate the top-level import and make
+    // this default-mode proof expect the three env-bound files in a project they
+    // deliberately leave. The gated variant is proven by the test above.
+    vi.resetModules();
+    vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "");
+    const defaultCfg = (await import("@/vitest.config")).default as {
+      test?: { projects?: ProjectEntry[] };
+    };
+    const defaults = (defaultCfg.test?.projects ?? []).map((p) => p.test);
+    try {
+      // Evaluates each file against the projects' ACTUAL include/exclude arrays
+      // rather than restating a classifier, so an extra exclusion that orphans a
+      // file fails here. Nightly harness files belong to no default project by
+      // design (their opt-in mutation-project membership is pinned above).
+      const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
+      let nightlyCount = 0;
+      for (const f of allTestFiles) {
+        const admitting = defaults.filter((p) => inProject(f, p)).map((p) => p.name);
+        if (nightlyRe.some((r) => r.test(f))) {
+          nightlyCount++;
+          expect(admitting, `${f} is nightly-only and must be in NO default project`).toEqual([]);
+        } else {
+          expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
+        }
       }
+      expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(
+        9,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
     }
-    expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(9);
   });
 
   it("keeps the DB/FS-heavy dirs in the SERIAL project", () => {
