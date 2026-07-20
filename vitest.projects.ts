@@ -9,13 +9,16 @@
 // concurrently. EVERYTHING ELSE runs in the SERIAL project (fileParallelism:
 // false) because it shares mutable global state — the local Supabase DB
 // (tests/db, tests/admin, tests/api, tests/sync, tests/onboarding, …) or the
-// fixtures/shows/raw corpus (tests/parser readers + the tests/sync/dev-routing
-// writer). vitest runs the two projects in SEPARATE sequential phases, so the
-// parallel project never overlaps the serial one — a fixture-corpus reader in
-// the parallel set (tests/help/fixture-range-parser) never races the serial
+// fixtures/shows/raw corpus WRITER (tests/sync/dev-routing — the corpus
+// READERS in tests/parser moved to the parallel project in Phase 2, 2026-07-19;
+// phases never overlap, so readers never race the serial writer). vitest runs
+// the two projects in SEPARATE sequential phases, so the parallel project
+// never overlaps the serial one — a fixture-corpus reader in the parallel set
+// (e.g. tests/help/fixture-range-parser, tests/parser) never races the serial
 // writer. New directories default to SERIAL (safe): add to this list ONLY after
 // verifying the dir is DB-free. The vitest-projects-partition meta-test pins the
-// invariant that every test file lands in exactly one project.
+// invariant that every non-nightly test file lands in exactly one default
+// project (the nightly mutation-harness files land in none by design).
 
 export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
 
@@ -68,5 +71,24 @@ export const PARALLEL_TEST_GLOBS = [
   "tests/validation/**/*.test.{ts,tsx}",
   "tests/adminAlerts/**/*.test.{ts,tsx}",
   "tests/fixtures/**/*.test.{ts,tsx}",
+  // Phase 2 (spec 2026-07-19-ci-unit-suite-phase2-serial-audit §2): verified
+  // via the same closed-port + fileParallelism protocol on 2026-07-19
+  // (178 passed / 2,745 tests green). tests/parser are fixture-corpus READERS —
+  // safe in the parallel phase because the corpus WRITER
+  // (tests/sync/dev-routing.test.ts) stays serial and the two phases never
+  // overlap. The nightly mutationHarness.* files match tests/parser/** but are
+  // excluded from BOTH default projects (see vitest.config.ts).
+  "tests/parser/**/*.test.{ts,tsx}",
+  "tests/drive/**/*.test.{ts,tsx}",
+  "tests/cron/**/*.test.{ts,tsx}",
+  "tests/dataQuality/**/*.test.{ts,tsx}",
+  "tests/appSettings/**/*.test.{ts,tsx}",
+  "tests/geocoding/**/*.test.{ts,tsx}",
+  "tests/design/**/*.test.{ts,tsx}",
+  "tests/dates/**/*.test.{ts,tsx}",
+  "tests/showLifecycle/**/*.test.{ts,tsx}",
+  "tests/invariants/**/*.test.{ts,tsx}",
+  "tests/github/**/*.test.{ts,tsx}",
+  "tests/venue/**/*.test.{ts,tsx}",
   "tests/sample.test.ts",
 ];
