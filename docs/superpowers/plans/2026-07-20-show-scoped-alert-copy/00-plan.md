@@ -368,7 +368,14 @@ describe("production callers pass the correct scope", () => {
     // a multi-line call and a non-greedy \) would truncate before the scope arg.
     const call = /deriveAlertMessageParams\(([\s\S]*?)\);/.exec(src);
     expect(call, `${file} no longer calls deriveAlertMessageParams`).not.toBeNull();
-    expect(call![1], `${file} passes the wrong scope`).toContain(scope);
+    // Assert the scope is the FINAL argument, not merely present somewhere in
+    // the argument text (review R7a finding 2): a comment or an earlier
+    // argument containing the word would otherwise satisfy a `toContain`.
+    const args = call![1]
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "")
+      .split(",");
+    expect(args[args.length - 1]!.trim(), `${file} passes the wrong scope`).toBe(scope);
   });
 });
 ```
@@ -408,7 +415,8 @@ Expected: PASS. Typecheck is the real gate here, it proves no call site was miss
 ```bash
 git add lib/adminAlerts/deriveMessageParams.ts lib/adminAlerts/fetchPerShowAlerts.ts lib/admin/bellFeed.ts components/admin/telemetry/HealthAlertsPanel.tsx \
   tests/adminAlerts/deriveMessageParams.test.ts tests/adminAlerts/_metaAdminTemplateCoverage.test.ts \
-  tests/messages/_metaAdminAlertCatalog.test.ts tests/adminAlerts/_metaInlineIdentityContract.test.ts
+  tests/messages/_metaAdminAlertCatalog.test.ts tests/adminAlerts/_metaInlineIdentityContract.test.ts \
+  tests/messages/showScopedCopy.test.ts
 git commit -m "feat(alerts): empty lead-hint in show scope via a required scope arg"
 ```
 
@@ -546,10 +554,17 @@ Expected: PASS.
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
 import { renderBellRow } from "./_bellRowFixture";
+
+// Never-settling fetch stubs leak across tests and make the suite
+// order-dependent (review R5b f4 / R6b f2 / R7a f3). Executable cleanup, not
+// a note.
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // 3 buttons x 2 intents. A component that hardcodes a label, ignores its
 // `code`, or calls the module and discards the result fails at least one cell.
@@ -563,6 +578,9 @@ import { renderBellRow } from "./_bellRowFixture";
 // confirm, so either could hardcode "Confirming…" for every pending state.
 // pending is driven per surface: PerShow and Bell via a hanging fetch, Health
 // via a mocked form action, since useFormStatus tracks the action.
+// EVERY assertion below, idle and pending, is an anchored regex: substring
+// matching would let "Still Confirming…" or "Dismiss / Resolving…" pass
+// (review R7a finding 5).
 describe("resolve label cross-product", () => {
   it("PerShowAlertResolveButton reads Confirm for a confirm-intent code", () => {
     render(
@@ -594,17 +612,11 @@ describe("resolve label cross-product", () => {
   // ---- pending state, per surface ----
 
   it("PerShowAlertResolveButton pending reads Confirming… for confirm intent", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
-  // Never-settling stubs leak across tests and make results order-dependent
-  // (review R5b finding 4). If this file has no global afterEach cleanup, add
-  // Never-settling stubs leak across tests and make results order-dependent
-  // (review R5b f4 / R6b f2). This file MUST carry the cleanup below; add it
-  // if absent:
-  //   afterEach(() => { vi.unstubAllGlobals(); });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {}))); // never settles
     render(<PerShowAlertResolveButton alertId="p1" slug="s" code="ROLE_FLAGS_NOTICE" />);
     fireEvent.click(screen.getByTestId("per-show-alert-resolve-p1"));
     await waitFor(() =>
-      expect(screen.getByTestId("per-show-alert-resolve-p1")).toHaveTextContent("Confirming…"),
+      expect(screen.getByTestId("per-show-alert-resolve-p1")).toHaveTextContent(/^Confirming…$/),
     );
   });
 
@@ -613,7 +625,7 @@ describe("resolve label cross-product", () => {
     render(<PerShowAlertResolveButton alertId="p2" slug="s" code="AMBIGUOUS_EMAIL_BINDING" />);
     fireEvent.click(screen.getByTestId("per-show-alert-resolve-p2"));
     await waitFor(() =>
-      expect(screen.getByTestId("per-show-alert-resolve-p2")).toHaveTextContent("Resolving…"),
+      expect(screen.getByTestId("per-show-alert-resolve-p2")).toHaveTextContent(/^Resolving…$/),
     );
   });
 
@@ -633,7 +645,7 @@ describe("resolve label cross-product", () => {
     render(<HealthAlertResolveButton alertId={`hp-${code}`} code={code} />);
     fireEvent.submit(screen.getByTestId(`health-alert-resolve-form-hp-${code}`));
     await waitFor(() =>
-      expect(screen.getByTestId(`health-alert-resolve-hp-${code}`)).toHaveTextContent(expected),
+      expect(screen.getByTestId(`health-alert-resolve-hp-${code}`)).toHaveTextContent(new RegExp(`^${expected}$`)),
     );
   });
 
@@ -661,7 +673,9 @@ describe("resolve label cross-product", () => {
     renderBellRow(id, code, { resolveNeverSettles: true });
     const btn = await screen.findByTestId(`bell-resolve-${id}`);
     fireEvent.click(btn);
-    await waitFor(() => expect(screen.getByTestId(`bell-resolve-${id}`)).toHaveTextContent(expected));
+    await waitFor(() =>
+      expect(screen.getByTestId(`bell-resolve-${id}`)).toHaveTextContent(new RegExp(`^${expected}$`)),
+    );
   });
 });
 ```
@@ -792,7 +806,10 @@ describe("parents forward the alert's own code", () => {
     const src = readFileSync("components/admin/review/AttentionBanner.tsx", "utf8");
     const el = /<PerShowAlertResolveButton([\s\S]*?)\/>/.exec(src);
     expect(el, "AttentionBanner no longer renders the button").not.toBeNull();
-    expect(el![1]).toMatch(/code=\{[^}]*\.code\}/);
+    // EXACT expression, not "contains some .code" (review R7a finding 4):
+    // `code={unrelated.code}` or a conditional returning a literal would pass
+    // a loose match while shipping the wrong label.
+    expect(el![1]).toMatch(/code=\{item\.alert\.code\}/);
     expect(el![1], "a hardcoded code would freeze every row's label").not.toMatch(/code="/);
   });
 
@@ -800,7 +817,7 @@ describe("parents forward the alert's own code", () => {
     const src = readFileSync("components/admin/telemetry/HealthAlertsPanel.tsx", "utf8");
     const el = /<HealthAlertResolveButton([\s\S]*?)\/>/.exec(src);
     expect(el, "HealthAlertsPanel no longer renders the button").not.toBeNull();
-    expect(el![1]).toMatch(/code=\{[^}]*\.code\}/);
+    expect(el![1]).toMatch(/code=\{row\.code\}/);
     expect(el![1], "a hardcoded code would freeze every row's label").not.toMatch(/code="/);
   });
 });
@@ -1539,7 +1556,16 @@ Expected: PASS. A failing negative control means the harness ignored the param, 
 
 - [ ] **Step 3: Extend the transition audit**
 
-Add to `tests/components/admin/transitionAudit.test.tsx`. **Imports:** this fragment uses `render`, `screen`, `fireEvent`, `waitFor`, `vi`, and `PerShowAlertResolveButton`; add any the file does not already import.
+Add to `tests/components/admin/transitionAudit.test.tsx`. **Imports:** this fragment uses `render`, `screen`, `fireEvent`, `waitFor`, `afterEach`, `vi`, and `PerShowAlertResolveButton`; add any the file does not already import.
+
+**Cleanup is mandatory, not advisory** (review R6b f2 / R7b f1). If the file does not already unstub globals after each test, add this to the describe block, because a never-settling `fetch` stub otherwise leaks and leaves later tests hanging:
+
+```ts
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+```
+
 
 ```tsx
 // Two cards of DIFFERING intent, resolved in quick succession, observed
@@ -1555,7 +1581,7 @@ function TwoCardFixture() {
   );
 }
 
-it("each card's label is fixed from mount through unmount", async () => {
+it("concurrent pending cards keep their own verbs", async () => {
   // BOTH resolves hang, so both cards sit in pending simultaneously and
   // neither label can vanish before it is observed. Review R2 finding 13:
   // an already-resolved second promise could clear "Resolving…" before
@@ -1564,23 +1590,23 @@ it("each card's label is fixed from mount through unmount", async () => {
   vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
 
   const { getByTestId, unmount } = render(<TwoCardFixture />);
-  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirm");
-  expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent("Mark resolved");
+  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirm$/);
+  expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent(/^Mark resolved$/);
 
   fireEvent.click(getByTestId("per-show-alert-resolve-a1"));
   await waitFor(() =>
-    expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirming…"),
+    expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirming…$/),
   );
 
   // B transitions while A is mid-flight: the compound case from spec §10.
   fireEvent.click(getByTestId("per-show-alert-resolve-b1"));
   await waitFor(() =>
-    expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent("Resolving…"),
+    expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent(/^Resolving…$/),
   );
 
   // A never adopted B's verb despite both being in flight together.
-  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirming…");
-  expect(getByTestId("per-show-alert-resolve-a1")).not.toHaveTextContent("Resolving…");
+  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirming…$/);
+  expect(getByTestId("per-show-alert-resolve-a1")).not.toHaveTextContent(/^Resolving…$/);
 
   // Observe the label through an actual removal. Review R2 finding 14: with a
   // never-settling request, "no post-unmount warning" was vacuous ,  nothing
@@ -1593,11 +1619,24 @@ it("each card's label is fixed from mount through unmount", async () => {
   expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirming…$/);
   expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent(/^Resolving…$/);
 
+  // Scope honesty (review R7b finding 3): RTL's unmount() necessarily removes
+  // both nodes, so this is a teardown smoke check, NOT proof of label
+  // lifetime. The real content of this test is the interleaving above: two
+  // cards in flight at once, each holding its own verb.
   unmount();
   expect(screen.queryByTestId("per-show-alert-resolve-a1")).toBeNull();
-  expect(screen.queryByTestId("per-show-alert-resolve-b1")).toBeNull();
 });
 ```
+
+- [ ] **Step 3b: Re-run the harness's existing consumer**
+
+Steps 0-1 modify `tests/e2e/_compactAlertCardLiveEntry.tsx`, which `tests/e2e/compact-alert-card-layout.spec.ts` already depends on, and `pnpm test` excludes e2e (review R7b finding 2). Run it:
+
+```bash
+pnpm playwright test tests/e2e/compact-alert-card-layout.spec.ts --config tests/e2e/standalone.config.ts
+```
+
+Expected: PASS. A failure means the harness change broke the existing layout gate; fix the harness, not that spec.
 
 - [ ] **Step 4: Run and commit**
 
@@ -1646,7 +1685,9 @@ Review R2 finding 17: "put it in §12 of the handoff" named no file, so the inva
 
 - [ ] **Step 2c: Apply gate fixes (do not commit yet)**
 
-Make the P0/P1 repairs here. They are committed in Step 4 together with the handoff, so that "fixed in this commit" dispositions are accurate (review R5b finding 5).
+Make the P0/P1 repairs here. They are committed in Step 4 together with the handoff, so "fixed in this commit" dispositions stay accurate (review R5b finding 5).
+
+**TDD still applies to gate repairs** (review R7b finding 4). A finding that describes wrong BEHAVIOR — a mislabeled control, a broken focus order, an unreadable state — gets a failing test first, exactly like any other bugfix. Re-running the existing gates afterward does not substitute, because by definition those gates did not cover the finding. A purely presentational finding with no assertable behavior (a spacing value, a token swap) is exempt. State which category each finding fell into in the handoff.
 
 - [ ] **Step 3: Re-run every gate AFTER the repairs**
 
@@ -1661,7 +1702,7 @@ The Playwright run is included because an impeccable repair is by definition a U
 
 Expected: all PASS. If a repair broke something, fix it and re-run this step, not Step 1.
 
-**Re-run the gate pair too, if any repair changed a component.** A P1 fix can introduce a new P0. One additional critique/audit cycle on the repaired diff is the stopping condition; if that cycle produces new P0/P1 findings, repair and repeat. Record every cycle in the handoff.
+**Re-run the gate pair if any repair touched a UI surface.** Not just `components/**` (review R7b finding 5): the invariant-8 surface is any file under `app/` except `app/api/**`, any file under `components/`, `app/globals.css` `@theme` blocks, `DESIGN.md`, and `tailwind.config.*`. A P1 fix can introduce a new P0. One additional critique/audit cycle on the repaired diff is the stopping condition; if it produces new P0/P1 findings, repair and repeat. Record every cycle in the handoff.
 
 - [ ] **Step 4: Commit the repairs AND the handoff**
 
