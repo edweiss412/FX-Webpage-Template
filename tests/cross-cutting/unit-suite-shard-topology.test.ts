@@ -163,7 +163,10 @@ describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the leve
     // `- name:` to the next step or EOF) — a `set -o pipefail` elsewhere in the
     // workflow, or a direct write to the cache path with no tmp+mv, must not
     // satisfy these assertions.
-    const save = /- name: Save Supabase images for cache[\s\S]*?(?=\n {6}- name: |$)/.exec(YAML);
+    const save =
+      /- name: Save Supabase images for cache[\s\S]*?(?=\n {6}- name: |\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(
+        YAML,
+      );
     expect(save, "save-prep step block not found").not.toBeNull();
     const saveBody = save![0];
     expect(
