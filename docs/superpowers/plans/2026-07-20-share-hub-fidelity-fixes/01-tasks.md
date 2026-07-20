@@ -431,6 +431,13 @@ it("clicking the wrapper itself does nothing - only the button is interactive", 
   // with `onPointerDown={enterConfirm}` would pass a click-only assertion while
   // a real pointer interaction activates it.
   expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+  // Enter/over FIRST: `fireEvent.pointerDown` does not synthesize them, so a
+  // wrapper wired with `onPointerEnter`/`onPointerOver`/`onMouseEnter` would
+  // otherwise pass while a real pointer merely ENTERING it arms the control.
+  fireEvent.pointerOver(wrapper);
+  fireEvent.pointerEnter(wrapper);
+  fireEvent.mouseOver(wrapper);
+  fireEvent.mouseEnter(wrapper);
   fireEvent.pointerDown(wrapper);
   fireEvent.mouseDown(wrapper);
   fireEvent.pointerUp(wrapper);

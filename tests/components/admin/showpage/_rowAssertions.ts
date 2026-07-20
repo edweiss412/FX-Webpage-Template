@@ -93,6 +93,10 @@ function expectNotHidden(el: Element, root: Element, what: string): void {
     // Class-based hiding, variant-prefixed forms included.
     expect(hidingTokensOf(cur), `${where} must not carry a hiding class`).toEqual([]);
     expect(cur.hasAttribute("hidden"), `${where} must not carry the hidden attribute`).toBe(false);
+    // `inert` removes the whole subtree from interaction and the a11y tree.
+    // jsdom does not ENFORCE it, so a behavioral guard cannot see it either;
+    // the attribute is decidable, so it is rejected here.
+    expect(cur.hasAttribute("inert"), `${where} must not be inert`).toBe(false);
     expect(cur.getAttribute("aria-hidden"), `${where} must not be aria-hidden`).not.toBe("true");
     // INLINE style hiding. jsdom cannot resolve stylesheets, but it parses the
     // style attribute perfectly well, so `style={{ display: "none" }}` is
@@ -188,6 +192,15 @@ export function expectRowText(
   scope: HTMLElement,
   { label, description }: { label: string; description: string },
 ): void {
+  // CONTRACT, asserted rather than assumed: a row's label and description are
+  // DISTINCT strings. A row whose description merely repeats its label conveys
+  // nothing and would announce the same sentence twice; the uniqueness checks
+  // below cannot express "exactly one of each" when the two are identical.
+  // Narrowing the contract is the fix, rather than teaching every assertion to
+  // handle a degenerate input no caller should produce.
+  expect(normalize(label), "row label and description must be distinct").not.toBe(
+    normalize(description),
+  );
   // The button must itself be inside the scope, or the visibility walk below
   // would terminate without ever reaching the scope boundary.
   expect(scope.contains(button), "row button must be inside the asserted scope").toBe(true);
@@ -369,7 +382,15 @@ export function expectRowBoundary(
   // container assertions while nesting interactive controls, which is invalid
   // HTML and breaks the one-button-per-control contract.
   expect(wrapper!.tagName, "the row wrapper must be a plain div").toBe("DIV");
-  for (const attr of ["href", "onclick", "tabindex", "role", "disabled", "contenteditable"]) {
+  for (const attr of [
+    "href",
+    "onclick",
+    "tabindex",
+    "role",
+    "disabled",
+    "contenteditable",
+    "inert",
+  ]) {
     expect(wrapper!.hasAttribute(attr), `the row wrapper must not carry ${attr}`).toBe(false);
   }
   // The PERSISTENT live region is a legitimate wrapper sibling: PickerResetControl

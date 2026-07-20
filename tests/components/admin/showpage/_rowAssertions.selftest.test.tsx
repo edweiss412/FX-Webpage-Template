@@ -263,6 +263,44 @@ describe("round-21: the new escapes still fail", () => {
     expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
   });
 
+  it("REJECTS an inert ancestor (jsdom does not enforce inert, so behavior cannot see it)", () => {
+    const { container } = render(
+      <div className={W} inert>
+        <button type="button" aria-label={RL} aria-describedby="ri" className={ROW}>
+          <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{RL}</span>
+            <span id="ri" className={DC}>
+              {RD}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
+    expect(() => expectRowBoundary(btn, { scope: container, descriptionId: "ri" })).toThrow();
+  });
+
+  it("REJECTS a label identical to its description (narrowed contract)", () => {
+    const same = "Old link stops working immediately";
+    const { container } = render(
+      <div className={W}>
+        <button type="button" aria-label={same} aria-describedby="rq" className={ROW}>
+          <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{same}</span>
+            <span id="rq" className={DC}>
+              {same}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() => expectRowText(btn, container, { label: same, description: same })).toThrow();
+  });
+
   it("still REJECTS a partial-class carrier beside the column (structurally)", () => {
     const { container } = render(
       <div className={W}>
