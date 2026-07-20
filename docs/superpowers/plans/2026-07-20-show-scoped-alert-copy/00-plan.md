@@ -941,11 +941,31 @@ describe("attention-items call topology", () => {
     ]);
   });
 
-  it("deriveAttentionItems is referenced exactly once outside its own module", () => {
+  it("deriveAttentionItems is referenced exactly once, from the show modal", () => {
+    // Its declaration is stripped before counting, and it makes no recursive
+    // call, so the defining module contributes ZERO (review R3 finding 2).
     expect(callSites("deriveAttentionItems")).toEqual([
       { file: "app/admin/_showReviewModal.tsx", count: 1 },
-      { file: "lib/admin/attentionItems.ts", count: 1 },
     ]);
+  });
+
+  // Aliasing check. The counter matches the symbol by name, so
+  // `import { safeDougFacingTemplate as choose }` would evade it (review R3
+  // finding 3). Rather than teach the counter to resolve aliases, forbid the
+  // alias form outright for these two symbols.
+  it("neither symbol is imported under an alias", () => {
+    for (const dir of SOURCE_DIRS) {
+      for (const file of walk(join(ROOT, dir))) {
+        if (!/\.tsx?$/.test(file)) continue;
+        const src = stripComments(readFileSync(file, "utf8"));
+        for (const sym of ["safeDougFacingTemplate", "deriveAttentionItems"]) {
+          expect(
+            new RegExp(`\\b${sym}\\s+as\\s+\\w+`).test(src),
+            `${file} aliases ${sym}; the topology gate matches by name`,
+          ).toBe(false);
+        }
+      }
+    }
   });
 });
 ```
@@ -968,6 +988,7 @@ An import assertion is vacuous, a component can import the module, ignore it, an
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { stripComments } from "../../styles/_classScanUtils";
 
 // Every label string, matched as WORDS in comment-stripped source so a JSX
 // text node (<button>Confirm</button>) is caught as readily as a quoted
@@ -1026,8 +1047,9 @@ Expected: PASS after Task 4's edits. If `BellPanel.tsx` still trips on `"Dismiss
 
 The baseline is **JSON, not TypeScript**. Review R1 finding 12 is right that parsing a TS literal out of a git blob with a formatting-sensitive regex is fragile: quoted keys, reindentation, or a prettier pass could drop rows while `historical.length > 0` still passes. JSON parses exactly.
 
+File: tests/adminAlerts/resolveIntentsBaseline.json — copy the body below verbatim. JSON permits no comments (review R3 finding 4), so the provenance note lives in the `_comment` key.
+
 ```json
-// tests/adminAlerts/resolveIntentsBaseline.json
 {
   "_comment": "Every code->intent pair RESOLVE_INTENTS has ever held. APPEND-ONLY: never remove a row, never change an intent. admin_alerts rows persist, so deleting a retired producer's row would silently flip already-stored rows from Confirm back to Mark resolved. Retiring a producer means retired:true in RESOLVE_INTENTS, which keeps this pair. Enforced against origin/main by _metaResolveIntentLifecycle.test.ts, because no single-tree assertion can enforce append-only.",
   "intents": {
@@ -1188,31 +1210,34 @@ After `- uses: actions/checkout@v4` (line 62):
 
 Review R2 finding 11 is right that a fresh clone has no `node_modules` and no linked `.env.local`, so `pnpm vitest` there dies long before reaching the assertion. Probe the *condition* in a bare repo, and the *behavior* in this worktree.
 
-**2a — the condition.** Prove a depth-1 checkout genuinely lacks the ref, and that the Step 1 refspec creates it:
+**Run both probes in ONE shell block**, so `$TMP` is still set and the directory still exists when 2b runs. Review R3 finding 5: the earlier split deleted `$TMP` in 2a and then referenced it in 2b.
 
 ```bash
 TMP=$(mktemp -d)
 git clone --depth 1 --single-branch --branch feat/show-scoped-alert-copy \
   file:///Users/ericweiss/FX-Webpage-Template "$TMP/probe" 2>/dev/null
+
+# 2a, the condition: a depth-1 checkout genuinely lacks the ref...
 git -C "$TMP/probe" rev-parse --verify origin/main   # expect: FAILS, "unknown revision"
+
+# 2b, the behavior: the test's CI branch throws when the ref is missing.
+# Run from THIS worktree (which has node_modules) but pointed at the probe repo.
+CI=1 GIT_DIR="$TMP/probe/.git" GIT_WORK_TREE="$TMP/probe" \
+  pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts
+# expect: FAIL, "origin/main is unresolvable in CI"
+
+# ...and the Step 1 refspec supplies it.
 git -C "$TMP/probe" fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 git -C "$TMP/probe" rev-parse --verify origin/main   # expect: prints a sha
+
 rm -rf "$TMP"
 ```
 
-That is the whole claim Task 6 makes: the default checkout lacks the ref, and this refspec supplies it.
-
-**2b — the behavior.** Prove the test's CI branch throws when the ref is missing, without leaving this worktree. Point git at the probe repo for one run:
+Then, back in this worktree with no GIT_DIR override:
 
 ```bash
-CI=1 GIT_DIR="$TMP/probe/.git" GIT_WORK_TREE="$TMP/probe" \
-  pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts
+CI=1 pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts   # expect: PASS
 ```
-
-Expected: **FAIL** with "origin/main is unresolvable in CI". Run 2b BEFORE the `rm -rf` in 2a.
-
-Then plain `CI=1 pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` in this worktree.
-Expected: PASS, because `origin/main` resolves here.
 
 **Implementer note:** if `execFileSync("git", ...)` in the test does not honor `GIT_DIR` as invoked, skip 2b and rely on 2a plus the real CI run — but say so in the PR body rather than claiming a red phase that did not happen.
 
@@ -1242,7 +1267,7 @@ git commit -m "ci(alerts): fetch origin/main at depth 1 for the lifecycle gate"
 **Files:**
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 prose), `lib/messages/catalog.ts:2189` plus the row below it, `lib/messages/__generated__/spec-codes.ts` (regenerated), `components/admin/PerShowAlertResolveButton.tsx:46`
 
-Add `import { readFileSync } from "node:fs";` to the test file for the component-literal assertion.
+This assertion renders the component, so it belongs in tests/components/admin/resolveLabelCrossProduct.test.tsx (jsdom) rather than the catalog test file. The catalog-copy assertions in this task stay in tests/messages/showScopedCopy.test.ts.
 
 Two error strings quote the button label verbatim. Renaming the button falsifies them. All three artifacts land in **one commit** or the `x1-catalog-parity` gate blocks merge. **Never run prettier on the master spec.**
 
@@ -1278,8 +1303,10 @@ describe("resolve-error copy is label-agnostic", () => {
       "Per-show alerts are tied to a specific show and resolved from that show's parse panel, not from the global dashboard banner. We require the click-through to the show's page so that when you resolve the alert, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; resolve it there.",
     );
   });
+});
+```
 
-**Implementer note:** if the existing §12.4 prose differs from the frozen string above in any way other than the two label references, use the EXISTING text with only those references changed, and update this test to match. The frozen literal must equal what ships, and the master spec is the source for everything except the label wording.
+**Implementer note:** if the existing §12.4 prose differs from the frozen strings above in any way other than the label references, use the EXISTING text with only those references changed, and update this test to match. The frozen literal must equal what ships; the master spec is the source for everything except the label wording.
 });
 ```
 
@@ -1501,7 +1528,22 @@ Review R2 finding 17: "put it in §12 of the handoff" named no file, so the inva
 
 - [ ] **Step 3: Commit any gate fixes**
 
+- [ ] **Step 3: Re-run every gate AFTER the repairs**
+
+Review R3 finding 9: the gates in Step 1 ran BEFORE any impeccable repair, so a fix that introduces a type error, a formatting violation, or a test regression would reach the end of the plan unverified. Re-run the full set on the repaired tree:
+
 ```bash
-git add -A docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/handoff.md
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm test
+```
+
+Expected: all PASS. If a repair broke something, fix it and re-run this step, not Step 1.
+
+- [ ] **Step 4: Commit the repairs AND the handoff**
+
+Review R3 finding 8: `git add -A <one path>` stages only that path, so P0/P1 source fixes would have been left uncommitted behind a message claiming them.
+
+```bash
+git status --short   # confirm every intended file is listed
+git add -A
 git commit -m "fix(admin): impeccable gate findings + handoff dispositions"
 ```
