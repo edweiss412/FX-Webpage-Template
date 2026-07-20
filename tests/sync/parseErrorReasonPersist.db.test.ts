@@ -19,7 +19,10 @@ describe("producer wiring", () => {
 // in this worktree points at the remote pooler and must NOT be used here.
 const DB =
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const loopback = /(@127\.0\.0\.1|@localhost|@postgres)/.test(DB);
+// Full host-boundary match (the block does destructive cleanup): the host must be
+// exactly a loopback name, followed by a port/path delimiter or end-of-string, so a
+// remote like `postgres.example.com` is NOT accepted.
+const loopback = /@(127\.0\.0\.1|localhost|postgres)([:/?]|$)/.test(DB);
 const d = loopback ? describe : describe.skip;
 
 d("upsert_admin_alert replaces context whole (latest error_code wins)", () => {
