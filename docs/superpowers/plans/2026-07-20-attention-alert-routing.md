@@ -478,12 +478,17 @@ describe("_metaAlertProducerScope", () => {
     // (a) no dynamic:true on an AST-static site.
     const wrongDynamic = staticRows.filter((r) => r.dynamic).map((r) => `${r.site}::${r.code}`);
     expect(wrongDynamic, "dynamic:true on AST-static sites").toEqual([]);
-    // (b) no exact-duplicate (site,code) rows (Set dedup would hide them).
+    // (b) no exact-duplicate (site,code) STATIC rows (a global dupe check follows).
     const rawPairs = staticRows.map((r) => `${r.site}::${r.code}`);
     const dupes = rawPairs.filter((v, i) => rawPairs.indexOf(v) !== i);
     expect(dupes, "duplicate registry rows").toEqual([]);
     // (c) the deduped set equals the AST literals (phantom / missing codes).
     expect([...new Set(rawPairs)].sort()).toEqual(astPairs);
+  });
+  it("no exact-duplicate (site,code) rows anywhere in the registry (dynamic + discoverable:false included)", () => {
+    const all = PRODUCER_SCOPE.map((r) => `${r.site}::${r.code}`);
+    const dupes = all.filter((v, i) => all.indexOf(v) !== i);
+    expect(dupes, "duplicate registry rows").toEqual([]);
   });
   it("dynamic rows are flagged dynamic:true with a provenance note", () => {
     const dynamicSites = new Set(tsHits().filter((h) => h.code == null).map((h) => h.site));
