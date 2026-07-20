@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-Shrink the serial vitest phase to the files that genuinely need the shared local Supabase DB, by moving the **509 spike-verified DB-free files** currently trapped in mixed directories into the parallel project — at FILE granularity, which P2 deliberately descoped.
+Shrink the serial vitest phase to the files that must stay there — those that need the shared local Supabase DB, plus those retained by the other §2.6 eligibility rules — by moving the **509 spike-verified DB-free files** currently trapped in mixed directories into the parallel project — at FILE granularity, which P2 deliberately descoped.
 
 ### 1.0 Ratified amendment (2026-07-20, after plan review round 5)
 
@@ -100,7 +100,7 @@ The P1 balance/topology meta-tests and P2's three-way model stay green.
 
 - Per-worker DB/schema/stack infrastructure — KILLED by the spike (§1.1), not deferred.
 - Shard-count or workflow changes; `isolate:false`; weight-model rework (P2 §1.1 rationale stands: measured skew is inside the gate).
-- Making the 254 serial files DB-free (test refactoring) — a future opportunity, not this phase.
+- Making the retained serial files (258 as shipped) eligible for the parallel phase — whether by removing a DB dependency, replacing a tracked-file write with a tmpdir write, or dropping a hardcoded local endpoint — is a future opportunity, not this phase.
 
 ## 7. Numeric self-consistency register
 
