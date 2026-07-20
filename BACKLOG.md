@@ -4,6 +4,16 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-CI-P3-FILE-GRANULAR-SERIAL — file-granular serial set (built, measured, NOT merged)
+
+**Status:** OPEN — implemented and reviewed on `chore/ci-unit-suite-phase3-db-parallel` (PR #510, closed unmerged 2026-07-20). Do not redo the analysis; read it first.
+
+Phase 3 of the CI-speedup program moved 509 measured DB-free files from the serial vitest project to the parallel one at file granularity. It passed every gate — spec APPROVE (4 Codex rounds), plan APPROVE (9), whole-diff APPROVE (6), meta-tests green in both env modes — and was **not merged because real CI measured no benefit**: max leg wall 260s versus P2's shipped 254s (flat to slightly worse), while shard 3 failed on the first attempt with timing-sensitive realtime/crew tests (`showRealtimeBridge`, `crewShell`) that were ALREADY parallel before the change, then passed on rerun. Net: added contention and flake exposure on a REQUIRED merge gate for no wall-clock gain.
+
+**Why the gain did not materialize:** after P1 (8-leg matrix) and P2 (12 whole dirs), a leg's wall is dominated by ~95s fixed overhead plus the total work in the leg. Moving files between phases redistributes work inside the leg rather than removing it; the multi-worker parallel phase was already absorbing most of the win P2 had unlocked.
+
+**If revisited:** the branch carries the spec (incl. the §2.6 eligibility rules, which are reusable and non-obvious — self-skipping DB-gated tests, direct local-endpoint references, tracked-file writers), the plan, the generated list, the dependency-free glob matcher, and the resolved-config partition proof. The partition proof and matcher are independently valuable and could be landed alone. Real levers for further wall-clock reduction are the ~95s per-leg fixed overhead (setup 17s + Supabase boot 71s), not phase membership.
+
 ## BL-CI-SERIAL-AUDIT-SCRIPT — automate PARALLEL_EXTRA_FILES regeneration
 
 **Status:** OPEN (filed 2026-07-20 during CI-speedup Phase 3).
