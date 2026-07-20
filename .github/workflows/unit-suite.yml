@@ -21,8 +21,12 @@ name: Unit + DB suite (full vitest gate)
 #
 # Three files are EXCLUDED via VITEST_EXCLUDE_ENV_BOUND=1 (a project-level
 # exclude in vitest.config.ts) — they need environments this local-bootstrap
-# runner cannot provide, or starve under full-suite concurrency on the 2-core
-# runner. Each is gated elsewhere, so excluding them here is not a regression:
+# runner cannot provide, or starve under full-suite concurrency. (That rationale
+# once said "the 2-core runner"; measured 2026-07-20, these runners are 4-core /
+# 15.6 GiB AMD EPYC — public-repo runners were upgraded. The starvation reason
+# stands on its own; the core count was stale and had already been cited as
+# grounds for a since-retracted optimization proposal.) Each excluded file is
+# gated elsewhere, so excluding them here is not a regression:
 #   - tests/cross-cutting/pg-cron-coverage.test.ts — live-DB cron.job
 #     introspection; runs against the validation project (like
 #     validation-schema-parity). The bootstrap holds aside the GUC-guarded
