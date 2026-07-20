@@ -85,9 +85,11 @@ The existing confirm/resolving/banner UI of both controls is kept functionally; 
 
 ## 6. Interaction & a11y contracts
 
-- Open/close: click either trigger toggles. Backdrop (`fixed inset-0 z-20`, UserMenu idiom per `CrewRowActions.tsx:17-19`) closes without focus restore. Escape inside popover: `preventDefault` + **`stopPropagation`** (required — §2 shell contract), close, focus the last-used trigger. While either child control is `resolving`: Escape/backdrop close is inert (mirror `CrewRowActions.tsx:148-157`).
+- Open/close: click either trigger toggles. Backdrop (`fixed inset-0 z-20`, UserMenu idiom per `CrewRowActions.tsx:17-19`) closes without focus restore. Escape inside popover: `preventDefault` + **`stopPropagation`** (required — §2 shell contract), close, focus the last-used trigger.
+- **Dismissal is inert while `busy > 0` — ALL FOUR paths, no exceptions:** primary trigger, kebab trigger, Escape, backdrop. The triggers are included explicitly because a "toggle" that ignores busy would unmount a child mid-flight: the mutation still completes, but its outcome banner is lost and the child's focus-restoration contract is skipped — for rotate, that means invalidating the crew's link with no confirmation it happened. Escape while busy still calls `stopPropagation` (otherwise it closes the whole review modal instead, which is strictly worse).
 - NOT a `role="menu"` (mixed content: code block, note, composite rows). Popover is a labelled region (`role="dialog"` non-modal, `aria-label="Share crew link"`); no focus trap; Tab follows document order. Child controls keep their own focus contracts (C3 open-focus on Cancel, C5 restore — unchanged components).
-- Only one confirm armed at a time: arming rotate cancels an armed reset and vice versa (both components already auto-revert; ShareHub additionally closes the other's confirm via their existing cancel paths — mock `confirming` single-slot parity).
+- **Busy contract (the one child-component change).** Both `RotateShareTokenButton` and `PickerResetControl` gain ONE additive optional prop, `onBusyChange?: (busy: boolean) => void`, invoked when the control enters and leaves `resolving`. Default-undefined, so every existing consumer is unaffected (`RotateShareTokenButton`'s only consumer is the deleted `ShareLinkBody`; `PickerResetControl` is also used by `components/admin/wizard/step3ReviewSections.tsx`, which passes nothing and behaves exactly as today). ShareHub keeps a busy count; `busy > 0` makes EVERY dismissal path inert — both triggers, Escape, and backdrop — and defers the lifecycle-driven close (§4). This is required, not optional: without it the hub cannot know a child is mid-flight, and §4/§6's guarantees would be unimplementable while claiming the children are untouched.
+- **Two confirms may be armed simultaneously — deliberate.** The mock's single-slot `confirming` state is NOT adopted: enforcing it needs an imperative cancel API on both children (state and cancel paths are private today), which is a far larger change than the risk warrants. Both-armed is safe: each confirm requires its own explicit Confirm click, each auto-reverts on its own timer, and each opens with focus on its own Cancel. Explicit divergence from the mock; do not "fix" it by reaching into child internals.
 - Token secrecy: URL only ever in props/clipboard/mailto href (existing watchpoints, `ShareLinkCopyButton.tsx:10-14`); telemetry stays `epoch_<n>` (invariant 10, unchanged actions).
 
 ## 7. `#share-access` anchor relocation
@@ -108,21 +110,36 @@ Test fan-out (page-rebuild registry sweep applies):
 
 ## 9. Transition inventory
 
-ShareHub states: closed (C), open-idle (O), open-rotate-confirm (OR), open-reset-confirm (OS), open-resolving (V), open-banner (B). All transitions INSTANT (project norm: pageTransitions §9 "every conditional instant"); timers are the only scheduled changes.
+The hub's visual state is NOT a single enum — it is a **vector**, because the two child controls run independent machines and a banner can persist while the sibling is confirming or resolving. Modeling it as six exclusive states (an earlier draft) hid exactly the compounds that matter.
 
-| Pair | Treatment |
+**State vector:** `hub ∈ {closed, open}` × `rotate ∈ {idle, confirm, resolving, banner}` × `reset ∈ {idle, confirm, resolving, banner}`. Derived: `busy = (rotate=resolving) ∨ (reset=resolving)`.
+
+All transitions are INSTANT (project norm: pageTransitions §9); timers are the only scheduled changes. Per-axis inventory:
+
+| Axis / pair | Treatment |
 | --- | --- |
-| C↔O | instant mount/unmount |
-| O↔OR, O↔OS | instant swap (existing two-tap machines) |
-| OR↔OS | instant — arming one cancels the other (single confirm slot) |
-| OR/OS→V | instant; close paths inert during V |
-| V→B | instant; banner `role="status"`; PickerResetControl banner auto-dismisses (existing PCR-1 5s) |
-| B→O / B→C | instant; existing components' settle paths (rotate settles in place; reset closes per its shipped behavior — components unchanged) |
-| any open NON-resolving state → C via publish toggle / archived swap | instant unmount (popover closes on lifecycle change) |
-| V → C via publish toggle / archived swap | DEFERRED — the close waits for the action to settle, then applies (§4); never an unmount mid-flight |
-| Copied feedback | existing 2s reset inside ShareLinkCopyButton |
+| hub closed↔open (either trigger) | instant mount/unmount; **inert while `busy`** (§6) |
+| rotate idle↔confirm, reset idle↔confirm | instant (existing two-tap machines, own auto-revert timers) |
+| confirm→resolving (either) | instant; sets `busy`, freezing all four dismissal paths |
+| resolving→banner (either) | instant; rotate banner persists in place (`role="status"`), reset banner auto-dismisses at 5s (PCR-1) |
+| banner→idle (either) | instant; rotate clears its banner when the confirm is re-armed (`setResult(null)`, `RotateShareTokenButton.tsx:125-128`); reset clears on its 5s timer |
+| hub open→closed via publish toggle / archived swap, `busy = false` | instant unmount |
+| hub open→closed via publish toggle / archived swap, `busy = true` | DEFERRED until settle (§4); never an unmount mid-flight |
+| Copied label | existing 2s reset inside `ShareLinkCopyButton` |
 
-Compound: publish toggle while V — close is DEFERRED (§4), because unmount-during-resolve loses the outcome banner even though the timers are cleanup-guarded (`RotateShareTokenButton.tsx:85-96`). Confirm armed while auto-revert timer pending + backdrop click — timers cleared on close (existing `clearAutoRevert` idiom, and `closeConfirm`'s functional `setUi` guard no-ops for a timer that fires after the row is gone, `RotateShareTokenButton.tsx:88-97`). Rotate success while a Copy 2s window is open — `onRotated` swaps the context token, the URL re-renders, and the stale "Copied" label self-clears on its own timer; the clipboard holds the OLD url, which is why the rotate success copy explicitly says the old link no longer works (`RotateShareTokenButton.tsx:205-210`).
+**Compound states — each is reachable and each is specified:**
+
+| Compound | Behavior |
+| --- | --- |
+| rotate=banner ∧ reset=confirm (B+OS) | both render; independent. Reset's confirm does not clear rotate's banner |
+| rotate=banner ∧ reset=resolving (B+V) | banner stays visible; `busy` freezes dismissal |
+| reset=banner ∧ rotate=confirm/resolving | symmetric to the above |
+| both=confirm | permitted (§6 — single-slot deliberately not adopted) |
+| both=resolving | permitted; `busy` count is ≥1 until BOTH settle |
+| any trigger/Escape/backdrop press while `busy` | no-op; Escape still `stopPropagation`s |
+| sibling armed while the other's auto-revert timer is pending | timers are per-component and independent; each fires against its own `closeConfirm`, whose functional `setUi` guard no-ops if that row is already gone (`RotateShareTokenButton.tsx:88-97`) |
+| rotate success while a Copy 2s window is open | `onRotated` swaps the context token and the URL re-renders; the stale "Copied" label self-clears on its own timer. The clipboard still holds the OLD url — which is why rotate's success copy states the old link no longer works (`RotateShareTokenButton.tsx:205-210`) |
+| hub unmounted by an ancestor (modal close) while `busy` | out of the hub's control; the mutation completes server-side and `router.refresh()` reconciles. Not a defect the hub can close — recorded so it is not mistaken for one |
 
 ## 10. Dimensional invariants
 
