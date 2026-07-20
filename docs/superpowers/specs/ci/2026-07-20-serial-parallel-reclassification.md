@@ -1,6 +1,6 @@
 # CI unit-suite serial→parallel reclassification
 
-**Goal:** Move the 552 measured-DB-free files out of the boot-heavy serial vitest
+**Goal:** Move the 533 measured-DB-free files out of the boot-heavy serial vitest
 project into the boot-free parallel project, rebalance the CI shard topology to
 match the new work distribution, and confirm a real CI wall-clock improvement —
 merging only if CI actually improves.
@@ -11,13 +11,21 @@ the plan, and the whole diff.
 
 ## 1.1 Resolved scope — do not relitigate
 
-- **The 552-file movable set is authoritative and empirically verified.** It is
-  the output of the DB-touch instrumentation spike (`spike/db-touch-instrumentation`,
-  findings at `docs/superpowers/specs/ci/2026-07-20-db-touch-instrumentation-spike.md`),
-  which composed a runtime socket probe with a static subprocess-DB scan. The set
-  was verified by a clean-DB controlled `pnpm test`: **0 DB-corruption failures**
-  vs the naive set's ~20. Do not re-derive "is this file DB-free" from first
-  principles; the committed list `tests/probes/db-free-movable.txt` is the record.
+- **The 533-file movable set is a committed ALLOWLIST, and that is the primary
+  safety mechanism.** It began as the DB-touch instrumentation spike output
+  (`spike/db-touch-instrumentation`, findings at
+  `docs/superpowers/specs/ci/2026-07-20-db-touch-instrumentation-spike.md`) — a
+  runtime socket probe + static subprocess-DB scan, verified by a clean-DB
+  `pnpm test` (0 DB-corruption failures vs the naive set's ~20). The spike's
+  runtime probe under-counted 19 files that connect to a local DB via a lazy
+  postgres.js pool whose async connect the per-file attribution raced (Codex spec
+  R1); those 19 were removed by a static DB-binding sweep (driver import, a
+  `*DATABASE_URL` env read, or a `*.db.test.ts`/`*real-db*` filename), taking the
+  set from 552 to **533**. Because the set is a closed allowlist and every new or
+  edited file defaults to serial, no file joins the parallel project without an
+  explicit measured addition — the meta-tests below are TRIPWIRES against a stale
+  allowlist, not the sole guarantee. The committed list
+  `tests/probes/db-free-movable.txt` is the record; do not re-derive membership.
 - **Partition model is an explicit committed FILE LIST, not whole-dir globs.**
   Deliberate: a file-list makes a newly-added test default to SERIAL (safe) until
   it is explicitly measured and added, extending the existing "new dirs default
@@ -35,9 +43,9 @@ the plan, and the whole diff.
   criterion is in scope.
 - **CI-wall improvement is UNPROVEN until measured on real runners.** Local
   movability ≠ CI wall gain (the program has rejected six levers on exactly this
-  gap). A real-CI measurement is a hard gate: if the rebalanced topology does not
-  improve the wall vs the pre-change baseline, the reclassification is NOT
-  merged. A regression is a blocker, not a shipped churn.
+  gap). The merge gate is numeric and defined in §4: merge requires the candidate
+  wall to beat baseline by a margin that clears measurement noise; equality or
+  regression is a blocker, not a shipped churn.
 
 ## 2. Current state (live-code citations)
 
@@ -59,9 +67,14 @@ the plan, and the whole diff.
   `--project=serial --shard=i/8`, lines 93-123); `unit-suite-nodb` (3 shards,
   boots nothing, runs `--project=parallel --shard=i/3`, lines 125-145);
   `unit-suite` rollup requires both matrix results `success` (`if: always()`).
-- The `unit-suite-nodb` job is the standing CI guard for criterion 4: it runs the
+- The `unit-suite-nodb` job is a SECONDARY guard for criterion 4: it runs the
   entire parallel project on a runner with no Supabase and no psql, so an
-  in-process DB touch by a moved file fails immediately.
+  in-process DB touch that throws an unhandled error fails the job. It is NOT
+  sufficient on its own (Codex spec R2): a file can catch the connection failure,
+  set a `dbUp=false` flag, and `skipIf` its DB assertions — going green while its
+  DB coverage silently vanishes (exactly the 19 files removed in §1.1). The
+  PRIMARY criterion-4/5 guard is the static DB-binding meta-test in §3.2, which
+  runs in every CI leg without a DB and deterministically rejects the class.
 
 ## 3. Design
 
@@ -69,7 +82,7 @@ the plan, and the whole diff.
 
 Replace the spike's ad-hoc `VITEST_MOVABLE_LIST` env lever with a committed
 default: `vitest.projects.ts` reads `tests/probes/db-free-movable.txt` at config
-load and exports `DB_FREE_MOVABLE` (a `readonly string[]` of 552 repo-relative
+load and exports `DB_FREE_MOVABLE` (a `readonly string[]` of 533 repo-relative
 paths). `vitest.config.ts` adds `DB_FREE_MOVABLE` to the parallel project's
 `include` and to the serial project's `exclude` (replacing the env-gated
 `movableList`). No env var required; the move is the committed default.
@@ -83,25 +96,44 @@ paths). `vitest.config.ts` adds `DB_FREE_MOVABLE` to the parallel project's
 2. **No listed file is in a `PARALLEL_TEST_GLOBS` directory** — it must be a
    currently-serial file (else the move is a no-op or a double-include).
 3. **No duplicates**, list is sorted (stable diffs).
-4. **Disjoint from the DB-touching record** — none of the 552 appears in the
-   committed `tests/probes/db-touching-serial.txt` (the 167 must-stay-serial
-   files, committed as the negative record).
+4. **Disjoint from the DB-touching record** — none of the 533 appears in the
+   committed `tests/probes/db-touching-serial.txt` (the 186 must-stay-serial
+   files, the negative record).
 5. **The held starver is NOT in the list.**
-6. **Complete-partition invariant preserved:** every non-nightly test file still
+6. **Disjoint from `ENV_BOUND_EXCLUDES`** (Codex spec R5) — an env-bound file
+   excluded from serial must not survive in parallel via the movable list.
+7. **Complete-partition invariant preserved:** every non-nightly test file still
    lands in exactly one default project (the existing assertion, now accounting
    for the file list).
 
-A new subprocess-guard meta-test under `tests/cross-cutting/` (created in the
-plan, criterion 5 CI guard): for every file in `db-free-movable.txt`, assert it
-does NOT both
-import `node:child_process` AND reference a DB token (`psql`, `databaseUrl`, a
-`postgres://` URL, `_validation-cleanup-helpers`, `supabase db`). This catches a
-future edit that adds subprocess DB access to a moved file — the class the
-`unit-suite-nodb` job cannot catch (a child psql with no DB just errors).
+A new static-guard meta-test under `tests/cross-cutting/` (created in the plan,
+named `db-free-movable-static-guard`) — the PRIMARY criterion-4/5 guard, a source
+scan run in every CI leg (no DB needed). For every file in `db-free-movable.txt`,
+assert it does NOT match any DB-binding signal:
+
+- imports the `postgres` driver (`from "postgres"`) — the class that under-counted
+  in the runtime probe (§1.1, Codex spec R1);
+- reads a DB URL env (`process.env.TEST_DATABASE_URL` / `LOCAL_TEST_DATABASE_URL`);
+- constructs a client (`postgres(` call) or references a local pg URL literal
+  (loopback host with a Postgres/PostgREST port — 5432, 54321, or 54322);
+- imports `child_process` (with OR without the `node:` prefix — Codex spec R4)
+  AND references a DB token (`psql`, `databaseUrl`, `postgres://`,
+  `_validation-cleanup-helpers`, `supabase db`);
+- has a `*.db.test.ts` or `*real-db*` filename.
+
+This deterministically rejects the DB-binding class at CI time in a DB-free leg —
+closing the class that the `unit-suite-nodb` job cannot (a caught/skipped DB
+access stays green there). **Acknowledged residual (Codex spec R4):** a file that
+reaches a DB purely through a dynamically-assembled command, or a bespoke helper
+that shells out with no DB token in either file, evades a source scan. Two
+backstops bound that residual: (a) the allowlist is closed — such a file only
+runs in parallel if a human explicitly added it after a measured probe run; and
+(b) the periodic re-measurement (§3.4) re-runs the full instrumented suite and
+diffs the classification, catching any drift the static scan missed.
 
 ### 3.3 CI topology rebalance
 
-Moving 552 files shifts work from the 8 boot-heavy db legs to the 3 boot-free
+Moving 533 files shifts work from the 8 boot-heavy db legs to the 3 boot-free
 nodb legs:
 
 - Serial project: ~772 → ~220 files. 8 Supabase-booting shards for 220 files is
@@ -117,25 +149,43 @@ not assertion (§4). The `unit-suite` rollup and the topology meta-test
 (`tests/cross-cutting/unit-suite-shard-topology.test.ts`) are updated to the
 chosen counts.
 
+### 3.4 Re-measurement / regeneration
+
+The committed lists are regenerated by re-running the DB-touch probe
+(`DB_TOUCH_PROBE=1 pnpm test` on a fresh DB, then `scripts/movable-serial.mjs` +
+the static DB-binding sweep). A `pnpm ci:regen-db-free` script wraps this and is
+the documented authority for any future change to the two lists — mirroring
+`pnpm gen:schema-manifest`. Not run in CI (needs a full DB run); it is the manual
+step that keeps the allowlist honest.
+
 ## 4. Verification (hard CI-wall gate)
 
 1. Local: full `pnpm test` on a fresh DB with the committed move — must match the
    clean baseline (1 known flake: `email-canonicalization`), 0 DB corruption.
 2. Local: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and the two
    affected meta-tests green.
-3. **Real CI:** push and read `unit-suite` wall clock (`max(completedAt) −
-   min(startedAt)` across both matrix jobs) and start stagger, against a
-   like-for-like PR baseline run. Report both numbers.
-4. **Gate:** merge only if the rebalanced wall clock is **≤ the baseline** (a
-   material improvement is the goal; a regression is a blocker per §1.1). If the
-   first shard split regresses, try one alternative within the 8-leg ceiling; if
-   neither improves, STOP, report the measurement, and do not merge the churn.
+3. **Real CI baseline (Codex spec R3 — deterministic protocol):**
+   - **Baseline** = the `unit-suite` wall of the tip-of-`main` run this branch
+     forked from, taken as the median of **2** runs (re-run via
+     `workflow_dispatch` on `main` if only one exists). Record the run IDs.
+   - **Candidate** = the median of **2** `unit-suite` runs on this PR's head.
+   - **Wall** of a run = `max(completedAt) − min(startedAt)` across both matrix
+     jobs; also record start stagger.
+4. **Gate (Codex spec R3 — no equality ambiguity):** merge **iff**
+   `candidate_median ≤ 0.95 × baseline_median` (a ≥5 % improvement, chosen to
+   clear the observed run-to-run stagger noise of ~15–25 s on a ~245 s wall).
+   `candidate_median > 0.95 × baseline_median` — including equality and any
+   regression — is a **blocker**: do not merge. If the first shard split fails the
+   gate, try exactly one alternative split within the 8-leg ceiling; if it also
+   fails, STOP, report both measurements, and do not merge the churn.
 
 ## 11. Numeric authority
 
-- Movable files: **552** (`tests/probes/db-free-movable.txt`, line count).
-- Must-stay-serial (DB-touching): **167** (`tests/probes/db-touching-serial.txt`).
+- Movable files: **533** (`tests/probes/db-free-movable.txt`, line count).
+- Must-stay-serial (DB-touching): **186** (`tests/probes/db-touching-serial.txt`);
+  = the 167 probe-detected + 19 static-DB-binding removals (Codex spec R1).
 - Held serial (criterion 3): **1** (`no-global-cursor.test.ts`).
 - DB-free criteria: **5**.
 - Current CI legs: **11** (8 db + 3 nodb). Target: **≤ 8** (admission ceiling).
 - Candidate rebalance: **3 db + 5 nodb**, finalized by §4 measurement.
+- Merge gate: `candidate_median ≤ 0.95 × baseline_median` (≥ **5 %** wall win).
