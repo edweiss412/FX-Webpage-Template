@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -69,5 +70,34 @@ describe("TEST_FAST_DEFERRED contract", () => {
     );
     expect(config).toMatch(/exclude:\s*\[[^\]]*\.\.\.testFastExcludes/s);
     expect(config).toMatch(/VITEST_TEST_FAST[^;]*cacheDir:\s*"node_modules\/\.vite-testfast"/s);
+  });
+});
+
+describe("test-fast runner", () => {
+  const runner = readFileSync("scripts/test-fast.mjs", "utf8");
+
+  it("package.json test:fast chains pretest then the runner", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts["test:fast"]).toBe("pnpm pretest && node scripts/test-fast.mjs");
+    expect(pkg.scripts["pretest:fast"]).toBeUndefined();
+  });
+
+  it("runner mirror of TEST_FAST_DEFERRED equals the vitest.projects.ts export", () => {
+    const m = /const TEST_FAST_DEFERRED = \[([^\]]*)\]/.exec(runner);
+    expect(m, "runner must declare its TEST_FAST_DEFERRED mirror").not.toBeNull();
+    const mirror = [...m![1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]!);
+    expect(mirror).toEqual(TEST_FAST_DEFERRED);
+  });
+
+  it("runner refuses RUN_BUILD_ARTIFACT_GATE_TEST=1 before spawning anything", () => {
+    const res = spawnSync("node", ["scripts/test-fast.mjs"], {
+      env: { ...process.env, RUN_BUILD_ARTIFACT_GATE_TEST: "1" },
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("RUN_BUILD_ARTIFACT_GATE_TEST=1 is not supported");
   });
 });
