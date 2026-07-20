@@ -96,6 +96,12 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     ["claimStamp.ts", 1],
     ["seedShowWithCrew.ts", 3],
     ["picker-flow.spec.ts", 1],
+    // realtime-refresh (2026-07-19): the drivability probe + realtime e2e drive a
+    // crew_members.role UPDATE via the SERVICE-ROLE admin client — the PINNED
+    // broadcast stimulus (statement trigger + bump_last_changed_at fence; spec
+    // §8.4). Same elevated-seed class as claimStamp/seedShowWithCrew above.
+    ["_realtimeDrivabilityProbe.ts", 1],
+    ["published-review-modal.realtime.spec.ts", 1],
     // crew-layout-dimensions.spec.ts: the unified show-day timeline (Today Mode A)
     // needs a high-confidence agenda for the seeded show day so the MERGED timeline
     // mounts. Its beforeAll seeds shows.agenda_links and afterAll restores it — 2

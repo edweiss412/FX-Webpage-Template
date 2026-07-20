@@ -60,6 +60,17 @@ const state = vi.hoisted(() => ({
     ignored: false,
     alerts: false,
   },
+  // viewer_version_token RPC (realtime-refresh plan Task 1).
+  versionToken: "vt-1" as string | number | null, // number → exercises the non-string coercion
+  versionTokenError: null as { message: string } | null,
+  versionTokenThrows: false as boolean,
+  versionTokenGate: null as Promise<void> | null,
+  versionTokenEntered: null as (() => void) | null,
+  // Ordered read log: every mocked read pushes its name on ENTRY. The
+  // read-order test asserts "versionToken" precedes EVERY wave reader.
+  readOrder: [] as string[],
+  // Captured rpc args for the arg-binding pin.
+  versionTokenArgs: null as unknown,
 }));
 
 const logSpy = vi.hoisted(() => ({
@@ -70,6 +81,13 @@ const logSpy = vi.hoisted(() => ({
 vi.mock("@/lib/log", () => ({ log: logSpy }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
+// Realtime-refresh Task 1: null-render client bridge — mocked so tree
+// assertions are cheap and no realtime machinery loads in jsdom.
+vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
+  ShowRealtimeBridge: (props: Record<string, unknown>) => (
+    <div data-testid="mock-realtime-bridge" data-props={JSON.stringify(props)} />
+  ),
+}));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-14T18:00:00.000Z") }));
 // D8: `redirect` throws a sentinel (Next semantics — redirect() never returns);
 // the client hooks back the modal shell + useShowModalNav consume in jsdom.
@@ -96,9 +114,19 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.maybeSingle = async () => ({ data: state.showIdRow, error: state.showIdError });
       return builder;
     },
-    rpc: async (fn: string) => {
+    rpc: async (fn: string, args?: unknown) => {
+      if (fn === "viewer_version_token") {
+        state.readOrder.push("versionToken");
+        state.versionTokenArgs = args;
+        // Deterministic entry handshake for the settlement test (no fixed sleep).
+        state.versionTokenEntered?.();
+        if (state.versionTokenGate) await state.versionTokenGate;
+        if (state.versionTokenThrows) throw new Error("META: version token rpc await fault");
+        return { data: state.versionToken, error: state.versionTokenError };
+      }
       if (fn === "readfinalizeowned_b2") {
         state.started.finalize = true;
+        state.readOrder.push("finalize");
         if (state.finalizeThrows) throw new Error("META: finalize rpc await fault");
         return { data: state.finalizeOwned, error: state.finalizeError };
       }
@@ -110,6 +138,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
   readShowReviewSnapshot: async () => {
     state.started.snapshot = true;
+    state.readOrder.push("snapshot");
     if (state.snapshotGate) await state.snapshotGate;
     if (state.snapshotKind === "not_admin_or_missing") return { kind: "not_admin_or_missing" };
     if (state.snapshotKind === "infra_error") return { kind: "infra_error", message: "boom" };
@@ -120,6 +149,7 @@ vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
 vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => {
     state.started.token = true;
+    state.readOrder.push("token");
     if (state.tokenThrows) throw new Error("META: token read fault");
     return { token: state.token, epoch: 7 };
   },
@@ -130,6 +160,7 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
   return {
     readShowChangeFeed: async () => {
       state.started.feed = true;
+      state.readOrder.push("feed");
       if (state.feedThrows)
         throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
       return state.feed;
@@ -140,6 +171,7 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
 vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
   loadIgnoredWarnings: async () => {
     state.started.ignored = true;
+    state.readOrder.push("ignored");
     return state.ignoredInfraError
       ? { kind: "infra_error", message: "boom" }
       : { kind: "ok", fingerprints: new Set(state.ignoredFingerprints) };
@@ -151,6 +183,7 @@ vi.mock("@/lib/admin/loadIgnoredWarnings", () => ({
 vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => {
     state.started.alerts = true;
+    state.readOrder.push("alerts");
     if (state.alertsInfraError) return { kind: "infra_error", message: "simulated" };
     return state.alerts;
   },
@@ -256,7 +289,10 @@ async function renderLoader() {
 // distinguish "withheld from the payload" from "hidden client-side", since
 // OverviewSection hides the slot for ineligible shows either way).
 function modalProps(ui: ReactElement): Record<string, unknown> {
-  const shell = (ui.props as { children: ReactElement }).children;
+  // Realtime-refresh Task 1: the provider's children became an ARRAY
+  // [modal, bridge|null] — the modal shell is always the FIRST child.
+  const kids = (ui.props as { children: ReactElement | ReactElement[] }).children;
+  const shell = Array.isArray(kids) ? (kids[0] as ReactElement) : kids;
   return shell.props as Record<string, unknown>;
 }
 function shareSlotProp(ui: ReactElement): unknown {
@@ -282,6 +318,13 @@ beforeEach(() => {
   state.ignoredInfraError = false;
   state.alerts = [];
   state.snapshotGate = null;
+  state.versionToken = "vt-1";
+  state.versionTokenError = null;
+  state.versionTokenThrows = false;
+  state.versionTokenGate = null;
+  state.versionTokenEntered = null;
+  state.versionTokenArgs = null;
+  state.readOrder = [];
   state.started = {
     snapshot: false,
     finalize: false,
@@ -703,5 +746,160 @@ describe("show review modal loader — ADMIN_SHOW_* emits all carry slug (struct
       offenders,
       `these ADMIN_SHOW_* emits are missing a slug field: ${offenders.join(", ")}`,
     ).toEqual([]);
+  });
+});
+
+// ── Realtime bridge mount (realtime-refresh spec §4) ─────────────────────────
+// The loader samples viewer_version_token TOKEN-FIRST (serially, before the
+// wave) and mounts <ShowRealtimeBridge> as the LAST child inside
+// ShareTokenProvider; a token-read fault fails OPEN (log + render without the
+// bridge for that pass). Failure modes caught: missing/wrong p_show_id binding,
+// data-then-token reordering (stuck-stale hazard), a published-only mount
+// condition, a child-order change that would reset the modal's client state,
+// and a silent (unlogged) fault path.
+
+describe("show review modal loader — realtime bridge (realtime-refresh spec §4)", () => {
+  function providerChildren(ui: ReactElement): unknown[] {
+    const kids = (ui.props as { children: unknown }).children;
+    return Array.isArray(kids) ? kids : [kids];
+  }
+  function bridgeChild(ui: ReactElement): ReactElement | null {
+    const bridges = providerChildren(ui).filter(
+      (c) =>
+        isValidElement(c) &&
+        typeof c.type === "function" &&
+        (c.type as { name?: string }).name === "ShowRealtimeBridge",
+    );
+    return (bridges[0] as ReactElement) ?? null;
+  }
+  /** Element child names in order (null/holes preserved as "null"). */
+  function childOrder(ui: ReactElement): string[] {
+    return providerChildren(ui).map((c) => {
+      if (!isValidElement(c)) return "null";
+      const t = c.type as { name?: string };
+      return typeof c.type === "function" ? (t.name ?? "anonymous") : String(c.type);
+    });
+  }
+
+  it("token read ok: bridge mounts with { showId, slug, renderVersion } and the rpc binds p_show_id exactly", async () => {
+    const ui = await buildLoaderElement();
+    const bridge = bridgeChild(ui);
+    expect(bridge, "ShowRealtimeBridge must render when the token read succeeds").not.toBeNull();
+    expect(bridge!.props).toEqual({ showId: "s1", slug: "rpas", renderVersion: "vt-1" });
+    expect(state.versionTokenArgs).toEqual({ p_show_id: "s1" });
+  });
+
+  it("rpc returned-error: fail-open — no bridge, full-field ADMIN_SHOW_VERSION_TOKEN_READ_FAILED warn", async () => {
+    state.versionTokenError = { message: "boom-token" };
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).toBeNull();
+    expect(logSpy.warn).toHaveBeenCalledWith(
+      expect.stringContaining("version token"),
+      expect.objectContaining({
+        source: "admin.show",
+        code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+        slug: "rpas",
+        showId: "s1",
+        error: "boom-token",
+      }),
+    );
+  });
+
+  it("rpc throw: fail-open — no bridge, full-field ADMIN_SHOW_VERSION_TOKEN_READ_FAILED warn", async () => {
+    state.versionTokenThrows = true;
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).toBeNull();
+    expect(logSpy.warn).toHaveBeenCalledWith(
+      expect.stringContaining("version token"),
+      expect.objectContaining({
+        source: "admin.show",
+        code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+        slug: "rpas",
+        showId: "s1",
+        error: expect.any(Error),
+      }),
+    );
+  });
+
+  it('null data coerces to renderVersion "" (bridge still mounts)', async () => {
+    state.versionToken = null;
+    const ui = await buildLoaderElement();
+    const bridge = bridgeChild(ui);
+    expect(bridge).not.toBeNull();
+    expect((bridge!.props as { renderVersion: string }).renderVersion).toBe("");
+  });
+
+  it('non-string (number) data coerces to renderVersion "" (bridge still mounts)', async () => {
+    state.versionToken = 42;
+    const ui = await buildLoaderElement();
+    const bridge = bridgeChild(ui);
+    expect(bridge).not.toBeNull();
+    expect((bridge!.props as { renderVersion: string }).renderVersion).toBe("");
+  });
+
+  it("read-order: token rpc SETTLES before ANY wave reader starts (token-first, spec §4.1 — settlement, not mere entry order)", async () => {
+    // Deferred-token proof: while the token rpc is BLOCKED, no wave reader may
+    // have started. Entry-order alone would pass a Promise.all that merely
+    // invokes the token first; this gate test cannot.
+    let releaseToken!: () => void;
+    state.versionTokenGate = new Promise<void>((r) => (releaseToken = r));
+    // Deterministic ENTRY handshake (no fixed sleep): the mock resolves this
+    // promise when the loader ENTERS the token rpc.
+    const entered = new Promise<void>((r) => (state.versionTokenEntered = r));
+    const pending = buildLoaderElement();
+    // Bounded entry await: pre-implementation the loader NEVER calls the token
+    // rpc — reject with a precise message instead of vitest's opaque timeout.
+    await Promise.race([
+      entered,
+      new Promise<never>((_, rej) =>
+        setTimeout(
+          () => rej(new Error("loader never entered viewer_version_token — token read missing")),
+          2_000,
+        ),
+      ),
+    ]);
+    expect(state.readOrder).toEqual(["versionToken"]); // token entered, NOTHING else
+    releaseToken();
+    await pending;
+    const tokenIdx = state.readOrder.indexOf("versionToken");
+    for (const reader of ["snapshot", "finalize", "feed", "token", "ignored", "alerts"]) {
+      expect(
+        state.readOrder.indexOf(reader),
+        `${reader} must start AFTER the version-token read settled`,
+      ).toBeGreaterThan(tokenIdx);
+    }
+  });
+
+  it("lifecycle: archived + published show still mounts the bridge (§4.3 unconditional)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: true });
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).not.toBeNull();
+  });
+
+  it("lifecycle: unpublished show still mounts the bridge (§4.3 unconditional)", async () => {
+    state.snapshot = baseSnapshot({ published: false });
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).not.toBeNull();
+  });
+
+  it("lifecycle: archived + unpublished show still mounts the bridge (§4.3 unconditional)", async () => {
+    state.snapshot = baseSnapshot({ archived: true, published: false });
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).not.toBeNull();
+  });
+
+  it("child-order pin: bridge is strictly LAST after PublishedReviewModal; the fault render removes only the trailing sibling", async () => {
+    const okOrder = childOrder(await buildLoaderElement());
+    expect(okOrder[0]).toBe("PublishedReviewModal");
+    expect(okOrder[okOrder.length - 1]).toBe("ShowRealtimeBridge");
+    // Fault render: SAME child-array shape with a trailing null slot — the
+    // modal's index NEVER shifts and the array never collapses to one child
+    // (whole-diff review R2 F2: a collapsed single-child shape must fail).
+    state.versionTokenError = { message: "boom-token" };
+    const faultOrder = childOrder(await buildLoaderElement());
+    expect(faultOrder[0]).toBe("PublishedReviewModal");
+    expect(faultOrder).not.toContain("ShowRealtimeBridge");
+    expect(faultOrder.length, "fault render keeps the child ARRAY shape").toBe(okOrder.length);
+    expect(faultOrder[faultOrder.length - 1], "trailing slot renders null on fault").toBe("null");
   });
 });

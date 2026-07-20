@@ -189,4 +189,23 @@ describe("published-review read-path pin", () => {
       ).toBe(false);
     }
   });
+
+  test("the loader calls viewer_version_token exactly once (realtime-refresh §4.1 single caller)", () => {
+    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
+    const matches = source.match(/\.rpc\(\s*["']viewer_version_token["']/g) ?? [];
+    expect(matches).toHaveLength(1);
+    // Arg binding is part of the pin: the call must pass p_show_id.
+    expect(source).toMatch(/\.rpc\(\s*["']viewer_version_token["']\s*,\s*\{\s*p_show_id:/);
+  });
+
+  test("the loader's token read is NEVER cached (realtime-refresh §4.1 / §8.5.2)", () => {
+    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
+    // A cached fence re-serves a stale token forever → infinite refresh loop
+    // (getShowForViewer.ts:874-876 hazard). Scan IMPORT + CALL sites only, so a
+    // prose comment can never trip it: the loader must not import next/cache
+    // nor invoke a cache wrapper.
+    expect(source).not.toMatch(/from\s+["']next\/cache["']/);
+    expect(source).not.toMatch(/unstable_cache\s*\(/);
+    expect(source).not.toMatch(/["']use cache["']/);
+  });
 });

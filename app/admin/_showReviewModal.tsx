@@ -63,6 +63,7 @@ import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { CurrentShareLinkPanel } from "@/app/admin/show/[slug]/CurrentShareLinkPanel";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
+import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import {
   PickerResetControl,
   type PickerResetCrewRow,
@@ -133,6 +134,49 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   }
   if (!showIdRow) redirect("/admin");
   const showId = showIdRow.id;
+
+  // Realtime-refresh spec §4.1: viewer_version_token, TOKEN-FIRST — sampled
+  // serially BEFORE the data wave (the getShowForViewer.ts:920-935 read-order
+  // precedent, audit idx19): data-then-token lets a write committing between
+  // the reads yield fresh-token + stale-data, which suppresses the bridge's
+  // catch-up refresh → stuck stale. NEVER cached (a cache wrapper would
+  // re-serve a stale fence forever → refresh loop; pinned by the read-path
+  // meta-test — which is also why this comment avoids naming the wrapper).
+  // Fault posture (§4.2): fail OPEN — log the forensic code and render this
+  // pass without the bridge; the modal's revalidate-on-open refresh re-runs
+  // the loader and recovers the bridge when the read heals. Named closure
+  // (not inline try/catch) so the invariant-9 registry row in
+  // tests/admin/_metaInfraContract.test.ts can grep the helper by name.
+  const readBridgeVersionToken = async (): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.rpc("viewer_version_token", { p_show_id: showId });
+      if (error) {
+        void log.warn("viewer version token read failed:", {
+          source: "admin.show",
+          code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+          slug,
+          showId,
+          error: error.message,
+        });
+        return null;
+      }
+      // Non-string payload coerces to "" DELIBERATELY (spec §5 guard table):
+      // the bridge mounts and its catch-up compares "" vs live — one extra
+      // refresh worst case, then converges. Fail-open (null) is reserved for
+      // read FAULTS, not malformed-but-successful payloads.
+      return typeof data === "string" ? data : "";
+    } catch (err) {
+      void log.warn("viewer version token read threw:", {
+        source: "admin.show",
+        code: "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
+        slug,
+        showId,
+        error: err,
+      });
+      return null;
+    }
+  };
+  const versionToken = await readBridgeVersionToken();
 
   // §3.2 finalize-owned ("Publishing…") — same SECURITY DEFINER predicate the
   // dashboard uses. Invariant 9: the RPC boundary destructures { data, error }
@@ -403,6 +447,14 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         rejectAction={mi11RejectAction}
         alertId={alertId}
       />
+      {/* Realtime-refresh §4.3: strictly the LAST child — appending/omitting a
+          trailing sibling never shifts PublishedReviewModal's child index, so
+          the fault render (bridge absent) cannot reset the modal's client
+          state. A `{null}` trailing slot keeps the child ARRAY shape stable
+          across fault/ok renders. */}
+      {versionToken !== null ? (
+        <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={versionToken} />
+      ) : null}
     </ShareTokenProvider>
   );
 }

@@ -234,6 +234,14 @@ const infraRegistry = [
       "Flow-4 auto-applied strip (spec §6.1): show_change_log un-dispositioned auto-apply read (service-role; source='auto_apply', status='applied', acknowledged_at IS NULL, change_kind ∈ 5 strip kinds) + roster_shift_counts RPC keyed on publishedShowIds. Every await destructures { data, error }; service-role construction throw + show_change_log returned {error}/await throw + rpc returned {error}/await throw → { kind: 'infra_error' }.",
   },
   {
+    // Realtime-refresh (2026-07-19): the modal loader's viewer_version_token
+    // fence read for the ShowRealtimeBridge mount.
+    helper: "readBridgeVersionToken",
+    path: "app/admin/_showReviewModal.tsx",
+    contract:
+      "viewer_version_token rpc ({ data, error } destructure); returned {error} AND thrown await are distinct paths, BOTH emit ADMIN_SHOW_VERSION_TOKEN_READ_FAILED (source admin.show, slug, showId, error) and return null → the loader renders WITHOUT the bridge (fail-open, realtime-refresh spec §4.2); recovery on any later loader re-run. Closure (not importable) — behavioral coverage lives in tests/app/admin/showReviewModalLoader.test.tsx's returned-error/throw cases.",
+  },
+  {
     helper: "readShowReviewSnapshot",
     path: "lib/admin/readShowReviewSnapshot.ts",
     contract:

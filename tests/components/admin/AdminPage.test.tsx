@@ -33,6 +33,14 @@ const onboardingWizardSpy = vi.fn();
 const readAppSettingsRowMock = vi.fn();
 const readScanManifestCountMock = vi.fn();
 
+// Realtime-refresh: the loader now mounts ShowRealtimeBridge (null-render
+// client island). Unmocked, its effect calls getSupabaseBrowserClient() in
+// jsdom (no NEXT_PUBLIC env) and throws inside React's commit phase. This
+// suite does not exercise realtime — mock it out.
+vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
+  ShowRealtimeBridge: () => null,
+}));
+
 vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   const actual = await vi.importActual<typeof import("@/lib/onboarding/sessionLifecycle")>(
     "@/lib/onboarding/sessionLifecycle",

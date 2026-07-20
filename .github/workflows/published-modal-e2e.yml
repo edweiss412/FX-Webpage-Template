@@ -47,6 +47,8 @@ on:
       - "tests/e2e/published-review-modal.layout.spec.ts"
       - "tests/e2e/published-review-modal.prefetch.spec.ts"
       - "tests/e2e/published-review-modal.crew-actions.spec.ts"
+      - "tests/e2e/published-review-modal.realtime.spec.ts"
+      - "components/realtime/ShowRealtimeBridge.tsx"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/wizard/CrewRowActions.tsx"
       - "tests/e2e/_publishedReviewModalHarness.tsx"
@@ -94,6 +96,13 @@ jobs:
       # prefetch spec's gate (it self-skips without this flag; dev servers
       # never prefetch).
       MODAL_PREFETCH_E2E: "1"
+      # Realtime-refresh spec §8 CI wiring: the realtime e2e self-skips without it.
+      MODAL_REALTIME_E2E: "1"
+      # Subscriber-token mint (local supabase demo secret — the CI stack's
+      # realtime container verifies against the same demo JWT secret; without
+      # these the mint 500s and the bridge opens no socket — spike finding).
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      SUPABASE_REALTIME_ISS: supabase-demo
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -126,7 +135,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
