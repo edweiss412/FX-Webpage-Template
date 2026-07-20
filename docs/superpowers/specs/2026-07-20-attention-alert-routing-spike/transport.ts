@@ -95,27 +95,35 @@ export function composeNote(
   const alert = item.alert;
   const hasList = warningCount > 0;
 
-  if (alert.code === "PARSE_ERROR_LAST_GOOD") {
-    // `errorCode` is the NEW payload field added by PR 1 (§3.1 transport row).
-    const reason = resolveReason(alert.errorCode);
-    const parts = ["Your latest changes didn't go through."];
-    if (reason) parts.push(`${reason}.`);
-    if (hasList) {
-      parts.push(
-        "Anything listed below is from the version crew can see, not from the change that failed.",
-      );
+  switch (alert.code) {
+    case "PARSE_ERROR_LAST_GOOD": {
+      // `errorCode` is the NEW payload field added by PR 1 (§3.1 transport row).
+      const reason = resolveReason(alert.errorCode);
+      const parts = ["Your latest changes didn't go through."];
+      if (reason) parts.push(`${reason}.`);
+      if (hasList) {
+        parts.push(
+          "Anything listed below is from the version crew can see, not from the change that failed.",
+        );
+      }
+      return { lead: "Crew are still seeing the last good version.", rest: parts.join(" ") };
     }
-    return { lead: "Crew are still seeing the last good version.", rest: parts.join(" ") };
+    case "RESYNC_QUALITY_REGRESSED": {
+      return {
+        lead: "This version is live for crew.",
+        rest: hasList
+          ? "The latest changes lost some detail, and the problems below are what stopped reading."
+          : "The latest changes lost some detail.",
+      };
+    }
+    default: {
+      // EXHAUSTIVENESS (R5#1). An earlier version used `if (...) {...} return {resync}`,
+      // which silently gave a third code the resync copy. This never-assignment is
+      // what actually makes adding a NoteCode member a compile error, at this line.
+      const exhaustive: never = alert.code;
+      return exhaustive;
+    }
   }
-
-  // Exhaustive: NoteCode has exactly two members, so there is no fallthrough
-  // and no null return. A third note code becomes a COMPILE error here.
-  return {
-    lead: "This version is live for crew.",
-    rest: hasList
-      ? "The latest changes lost some detail, and the problems below are what stopped reading."
-      : "The latest changes lost some detail.",
-  };
 }
 
 /* ------------------------------------------------------------------------ *
@@ -140,5 +148,11 @@ const _noteWithoutAlert: NoteItem = { id: "x", kind: "alert", tone: "notice" } a
   AttentionItem,
   "alert"
 >;
+
+// NoteCode is CLOSED: a future code is not assignable without editing the union,
+// and editing the union breaks the `never` assignment above. The two together are
+// the "third code = compile error" claim (R5#1).
+// @ts-expect-error "SOME_FUTURE_NOTE_CODE" is not a NoteCode
+const _thirdCodeRejected: NoteCode = "SOME_FUTURE_NOTE_CODE";
 
 export type { NoteItem, SpikeAttentionRoute as _RouteExport };

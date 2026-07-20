@@ -87,7 +87,7 @@ Eligibility claims in §2.2 rest on producer completeness, which a per-code grep
 | field | meaning |
 | --- | --- |
 | `site` | `file:line` of the call |
-| `code` | ONE literal code. A site emitting several yields several rows; a site with a non-literal code argument MUST enumerate its codes as separate rows, and the test fails on an unenumerated dynamic site rather than guessing |
+| `code` | ONE literal code. A site emitting several yields several rows. A site with a non-literal code argument must enumerate its codes as separate rows; the test fails when such a site has NO rows at all (it is unregistered), but cannot tell whether an existing row set is complete — see the residual risk below |
 | `scope` | `per-show` \| `global` — the scope FOR THAT CODE AT THAT SITE (R3#3). A dynamic site that passes `showId: null` with code A and a real id with code B produces two rows with different scopes, which a site-level `both` would have wrongly collapsed |
 
 A code can legitimately be per-show at one site and global at another; that is two rows, not a `both` value. §2.2's table and §7's reachability projection read this relation, so neither can drift from the call sites.
@@ -191,7 +191,9 @@ type SectionAttention = Map<RoutedSectionId, SectionAttentionBucket>;
 
 **This is proved, not asserted.** The transport type drew a finding in all three review rounds, so per the AGENTS.md three-round prose cap the fourth pass is a spike rather than another paragraph: `docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts` declares the types, the ordering function, and the composition function, and COMPILES under the repo's strict tsconfig. It also encodes the PR ordering constraint — it must model `errorCode` explicitly because the field does not exist until PR 1, which is exactly the dependency PR 2 carries.
 
-**The spike proves REJECTION, not just acceptance (R4#3).** Compiling valid examples says nothing about invalid ones, and two holes were real: the no-anchor union arm allowed an excess `anchor` property on a non-fresh value (structural typing only applies excess-property checks to fresh literals), and the note channel accepted any alert code, so `composeNote` had a silent `null` path that could drop a note. Both are closed: the no-anchor arm declares `anchor?: never`, and the note channel is narrowed to `NoteCode` with a REQUIRED payload, which makes `composeNote` total (no `null` return, and a third note code becomes a compile error). Three `@ts-expect-error` negative cases pin the rejections; because an unused directive is itself a type error, the file fails if the types ever loosen enough to accept them.
+**The spike proves REJECTION, not just acceptance (R4#3).** Compiling valid examples says nothing about invalid ones, and two holes were real: the no-anchor union arm allowed an excess `anchor` property on a non-fresh value (structural typing only applies excess-property checks to fresh literals), and the note channel accepted any alert code, so `composeNote` had a silent `null` path that could drop a note. Both are closed: the no-anchor arm declares `anchor?: never`, and the note channel is narrowed to `NoteCode` with a REQUIRED payload, which makes `composeNote` total (no `null` return).
+
+The "third code is a compile error" claim needed a mechanism, not just an assertion (R5#1): an `if (parse) {...} return {resync}` shape silently hands a third code the resync copy. `composeNote` is therefore an exhaustive `switch` whose `default` assigns `alert.code` to `never`, so widening `NoteCode` breaks at that line. FOUR `@ts-expect-error` negative cases pin the rejections — invalid section/anchor pairing, wrong anchor for a section, alert-less note item, and a non-member note code. Because an unused directive is itself a type error, the file fails if the types ever loosen enough to accept any of them.
 
 Bucket arrays preserve `deriveAttentionItems` order (actionable before auto-clearing, then fetch order); no re-sorting. An empty bucket is NOT emitted, so a section with no items renders no wrapper element.
 
@@ -289,7 +291,7 @@ These render as `CompactAlertCard` (unchanged shell), keeping stripe, footer, an
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
-**CREATES** `tests/adminAlerts/_metaAlertProducerScope.test.ts` — the producer-scope registry (§3.0). Discovery is shape-agnostic (any `upsertAdminAlert` callee, plus `upsert_admin_alert(` in SQL); rows are per (call site × emitted code); a new unclassified site, or a dynamic-code site with unenumerated codes, fails by default.
+**CREATES** `tests/adminAlerts/_metaAlertProducerScope.test.ts` — the producer-scope registry (§3.0). Discovery is shape-agnostic (any `upsertAdminAlert` callee, plus `upsert_admin_alert(` in SQL); rows are per (call site × emitted code). **A new unclassified SITE fails by default. A new CODE from an already-registered dynamic site does NOT** — that guarantee was withdrawn in §3.0 as statically unprovable, and this entry must not re-promise it (R5#2).
 
 **CREATES** the reachability projection. A code is per-show-reachable iff **(a)** any producer row emitting it has scope `per-show`, AND **(b)** it is not in `HEALTH_CODES` — `fetchPerShowAlerts` filters health codes independently of scope (`lib/adminAlerts/fetchPerShowAlerts.ts:17`), so a scope-only equation would call a per-show-produced health code reachable when it is not (R3#2). Both conjuncts are required to reproduce the §2.2 set. Derived from the registry relation, never hand-listed, so `DRIVE_FETCH_FAILED` cannot be wrongly excluded (a hand-listed five-code version would encode the very error this exists to prevent).
 
@@ -303,7 +305,7 @@ These render as `CompactAlertCard` (unchanged shell), keeping stripe, footer, an
 
 Each entry names the concrete failure it catches.
 
-- **Producer scope (§3.0).** Catches: a new alert-write call site, in ANY call shape, added without declaring its scope; and a dynamic-code site whose emitted codes are not enumerated. This is the test that would have caught the `DRIVE_FETCH_FAILED` error.
+- **Producer scope (§3.0).** Catches: a new alert-write call site, in ANY call shape, added without declaring its scope. Does NOT catch a new code emitted from an already-registered dynamic site — §3.0's stated residual risk, bounded by plan-time enumeration rather than by this test (R5#2). This is the test that would have caught the `DRIVE_FETCH_FAILED` error.
 - **Routing.** Expected `sectionId`/`anchor` per code come from a FROZEN FIXTURE transcribed from the §4 table (the project's established pattern — the sibling warning-card spec freezes its copy table the same way). Deriving them from `ATTENTION_ROUTES` would be tautological; the fixture is an independent oracle whose diff is reviewed. Catches: a route silently changed without a spec edit.
 - **Reason allowlist.** Catches: `PARSE_HARD_FAIL`, an unknown future code, or an interpolated/sensitive string reaching the persisted context. Feeds each explicitly and asserts absence.
 - **Transport spike parity.** The shipped types match the spike's shape (`docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts`). Catches: the notes channel silently collapsing back into `ReactNode[]`, which is the R3#1 defect.
