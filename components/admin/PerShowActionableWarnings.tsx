@@ -5,6 +5,8 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
+import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
+import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
 import type { ReactNode } from "react";
 
 /**
@@ -12,6 +14,18 @@ import type { ReactNode } from "react";
  * UNKNOWN_DAY_RESTRICTION, FIELD_UNREADABLE) with a source-sheet deep link when
  * the scan resolved the offending cell/region. Renders the catalog TITLE (else
  * the human .message) — NEVER the bare code (invariant 5).
+ *
+ * Laid out as `CompactAlertCard` (spec 2026-07-20-show-alert-compact §4.2):
+ * the offending row label collapses into the detail band, the sheet deep link
+ * sits in the footer bar, and the catalog's helpful context moved into the `?`
+ * popover. Item controls render in the CONTROLS BAND below the footer, never in
+ * the footer's right cluster — `renderItemControls` returns a full cluster
+ * (Report/Ignore, the use-raw radio interface, the role editor), which a
+ * single-row footer cannot host (spec §3.3, amendment A1).
+ *
+ * These cards carry no stripe: the live surface never had one, so the shell's
+ * `review` default is overridden explicitly on the warning path as well as the
+ * muted one.
  *
  * Pure presentational: `items` are ALREADY filtered + deduped + stable-ordered by
  * `operatorActionableWarnings` at the data boundary (the per-show page and the
@@ -38,10 +52,6 @@ export function PerShowActionableWarnings({
   // Order-independent keys so an ignore-driven refresh does not remount surviving
   // cards (which would drop an open Report modal). See lib/dataQuality/warningIdentity.
   const keys = stableWarningKeys(items);
-  const cardClass =
-    tone === "muted"
-      ? "flex flex-col gap-0.5 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
-      : "flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text";
   // The "Open in Sheet" link's focus ring-offset must match the card background it sits on,
   // or the 2px gap renders Tailwind v4's default (white) on the tinted card (same class the
   // DQIGNORE-5 button ringOffset work fixed; impeccable audit class-sweep). Full literal
@@ -60,47 +70,73 @@ export function PerShowActionableWarnings({
         const humanMessage = w.message && w.message !== w.code ? w.message : null;
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
         const context = entry?.helpfulContext ?? null;
+        // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
+        // null driveFileId still yields no link (spec §5.2).
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
+
+        // The offending row label (from rawSnippet "<label> | <value>"): the
+        // catalog title is generic, so this identifies the row even when the
+        // deep link is absent (legacy/ambiguous anchor).
+        //
+        // ONLY UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>` shape
+        // (lib/parser/warnings.ts emitUnknownField). Other
+        // OPERATOR_ACTIONABLE_ANCHORED codes — PULL_SHEET_AMBIGUOUS_FORMAT /
+        // PULL_SHEET_PARSE_PARTIAL — carry a RAW pipe-delimited markdown ROW as
+        // rawSnippet, so labelFromRawSnippet would render a garbled first-cell
+        // fragment as a fake field label. Gate the muted label on UNKNOWN_FIELD
+        // (audit idx46/#217).
+        const rawLabel = w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+        const rowLabel = rawLabel && rawLabel.trim().length > 0 ? rawLabel.trim() : null;
+
+        const detailBand: ReactNode = rowLabel ? (
+          <span
+            className="inline-flex items-center gap-1.5"
+            data-testid="per-show-actionable-row-label"
+          >
+            <span className="text-[10px] font-semibold tracking-wider text-warning-text/70 uppercase">
+              Sheet row
+            </span>
+            <span
+              className="font-mono text-xs text-text"
+              data-testid="per-show-actionable-row-label-value"
+            >
+              {rowLabel}
+            </span>
+          </span>
+        ) : null;
+
+        const footerLeft: ReactNode = href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none ${linkOffsetClass}`}
+          >
+            Open in Sheet <span aria-hidden="true">↗</span>
+          </a>
+        ) : null;
+
+        const controls = renderItemControls ? renderItemControls(w, i) : null;
+
         return (
-          <li key={keys[i]} data-testid="per-show-actionable-item" className={cardClass}>
-            <span className="font-medium text-text-strong">{renderEmphasis(title)}</span>
-            {(() => {
-              // The offending row label (from rawSnippet "<label> | <value>"): the
-              // catalog title is generic, so this identifies the row even when the
-              // deep link is absent (legacy/ambiguous anchor).
-              //
-              // ONLY UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>` shape
-              // (lib/parser/warnings.ts emitUnknownField). Other
-              // OPERATOR_ACTIONABLE_ANCHORED codes — PULL_SHEET_AMBIGUOUS_FORMAT /
-              // PULL_SHEET_PARSE_PARTIAL — carry a RAW pipe-delimited markdown ROW as
-              // rawSnippet, so labelFromRawSnippet would render a garbled first-cell
-              // fragment as a fake field label. Gate the muted label on UNKNOWN_FIELD
-              // (audit idx46/#217).
-              const rowLabel =
-                w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
-              return rowLabel ? (
-                <span
-                  data-testid="per-show-actionable-row-label"
-                  className="text-xs text-text-subtle"
-                >
-                  {rowLabel}
-                </span>
-              ) : null;
-            })()}
-            {context ? (
-              <span className="text-xs text-text-subtle">{renderEmphasis(context)}</span>
-            ) : null}
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${linkOffsetClass}`}
-              >
-                Open in Sheet <span aria-hidden="true">↗</span>
-              </a>
-            ) : null}
-            {renderItemControls ? renderItemControls(w, i) : null}
+          <li key={keys[i]} data-testid="per-show-actionable-item">
+            <CompactAlertCard
+              tone={tone}
+              stripe="none"
+              message={<span className="text-text-strong">{renderEmphasis(title)}</span>}
+              helpTrigger={
+                context ? (
+                  <CompactAlertHelp
+                    helpfulContext={context}
+                    helpHref={null}
+                    testId={`per-show-actionable-help-${keys[i]}`}
+                  />
+                ) : null
+              }
+              detailBand={detailBand}
+              footerLeft={footerLeft}
+              controlsBand={controls}
+            />
           </li>
         );
       })}
