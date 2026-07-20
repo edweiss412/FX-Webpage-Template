@@ -1,6 +1,8 @@
 # CI unit-suite — overlap the Supabase boot with dependency setup
 
 **Date:** 2026-07-20
+**Status:** NOT IMPLEMENTED. Stopped after eight adversarial rounds without reaching implementation; tracked as BL-CI-OVERLAP-BOOT-WITH-SETUP. The single-step design in §3 is review-confirmed correct and the §2.1 probe data is durable, but §3 and §4h contain a KNOWN FACTUAL ERROR: the allowBuilds inventory is five keys, not one, so the write-surface audit must be redone before this ships.
+
 **Predecessors:** P1 #504 (8-leg matrix, image-cache lever reverted on measurement), P2 #507 (12 dirs serial→parallel), P3 #510 (closed unmerged — file-granular membership measured no gain), #512 (resolved-config partition proof). Program doc: `docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md`.
 
 ## 1. Goal

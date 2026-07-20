@@ -4,6 +4,22 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (specced, not built)
+
+**Status:** OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
+
+The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXED overhead (leg-median; per-leg 89-108s on run 29741812457), of which ~70s is the Supabase boot and ~16s is `pnpm install`. They share no data but run sequentially, so overlapping them should reclaim up to ~16s per leg — roughly 6.5% of a 245s leg.
+
+**What is already established, and is worth keeping:**
+
+- **Probe (run 29743206592, real CI).** A process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09, observed 12:42:49, status 7 written and read). `echo N > file` produced 0 empty reads in 400 create/read races. These are durable runner facts.
+- **The final design is one step, not a cross-step protocol:** background the bootstrap, capture the PID, run `pnpm install --frozen-lockfile` in the foreground, `wait` on the PID, under `set -euo pipefail`. Native `wait` on a real child makes it fail-closed with no sentinel, no deadline arithmetic, and live log streaming. Adversarial review confirmed this success path correct and the overlap real.
+- **Accepted non-goal:** if the install fails, the still-running bootstrap holds the step's stdout pipe and delays the failure report (typically ~70s; the only hard bound is the job's `timeout-minutes: 20`). Correct cleanup needs process-group termination plus a join plus PID-reuse care, and must not interrupt the bootstrap's held-aside-migration restore trap — a large surface for a rare path.
+
+**Why it stopped.** Eight spec rounds without reaching implementation, on a ≤16s gain, with the correctness surface still expanding each round. The final round also caught a factual error in the spec's own write-surface audit: it claimed `pnpm-workspace.yaml`'s `allowBuilds` contained only `@sentry/cli`, when it contains five keys (`@sentry/cli`, `esbuild`, `sharp`, `unrs-resolver` enabled; `simple-git-hooks` deliberately false). The disjointness premise — that concurrent install writes never touch `supabase/` — is probably still true, but it has no audited basis until someone checks those four build scripts.
+
+**If revisited:** start from the single-step design (skip rounds 1-4, which died on a cross-step protocol), redo the write-surface audit against all of `allowBuilds`, and decide up front whether ~16s justifies the failure-path tradeoff. A larger adjacent lever is the boot itself: a pre-baked Postgres image would remove the ~14s schema-init + migration phase, at the cost of a publish pipeline and a staleness contract.
+
 ## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
 
 **Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)
