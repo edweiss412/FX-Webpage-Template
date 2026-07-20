@@ -178,7 +178,7 @@ Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (pus
 
 ## Self-review notes
 
-- Spec coverage: §3.1→Task 0 Step 4; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→retained as the documented regeneration PROCEDURE (spec §1.0 descope), referenced from the generated module's header in Task 0 Step 3; §3.5→Task 0 Step 3 (the §4c assertions); §4a/§4b0/§4b/§4e/§4f→Task 1 Step 2; §4c/§4d→Task 0 Step 3; §4g withdrawn by spec §1.0; §5→Task 4. No requirement without a task.
+- Spec coverage: §3.1→Task 0 Step 4; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→retained as the documented regeneration PROCEDURE (spec §1.0 descope), referenced from the generated module's header in Task 0 Step 4; §3.5→Task 0 Step 3 (the §4c assertions); §4a/§4b0/§4b/§4e/§4f→Task 1 Step 2; §4c/§4d→Task 0 Step 3; §4g withdrawn by spec §1.0; §5→Task 4. No requirement without a task.
 - Ordering rationale: Task 0 lands the matcher and the list, each test-first (matcher Steps 1-2; list + re-export Steps 3-5); Task 1's test-then-wire cycle lives inside one task so no commit ever contains a failing suite, and its red state isolates the wiring defect specifically.
 - Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4c asserts the list against the live tree and the real config constants rather than restating it.
 - Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 2 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
