@@ -30,6 +30,14 @@ const state = vi.hoisted(() => ({
   finalizeOwned: false as boolean,
 }));
 
+// Realtime-refresh: the loader now mounts ShowRealtimeBridge (null-render
+// client island). Unmocked, its effect calls getSupabaseBrowserClient() in
+// jsdom (no NEXT_PUBLIC env) and throws inside React's commit phase. This
+// suite does not exercise realtime — mock it out.
+vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
+  ShowRealtimeBridge: () => null,
+}));
+
 vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => [],
 }));
