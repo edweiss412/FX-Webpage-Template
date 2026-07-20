@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -157,6 +157,38 @@ describe("StatusStrip", () => {
       renderStrip({ archived: true }, { token: "TOK" });
       expect(screen.queryByTestId("share-hub-group")).toBeNull();
       expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+    });
+
+    it("THREADS crewEmails / showTitle / pickerCrew all the way into the hub", () => {
+      // The prop chain is _showReviewModal → PublishedReviewModal → StatusStrip
+      // → ShareHub, and every downstream unit test supplies its own fixture. A
+      // dropped prop anywhere in that chain would leave the email rows absent
+      // and the reset control disabled with the whole suite still green, so the
+      // threading is asserted end-to-end HERE, through the real hub.
+      renderStrip(
+        {
+          published: true,
+          archived: false,
+          crewEmails: ["ann@example.com"],
+          showTitle: "East Coast Broadcast Summit",
+          pickerCrew: [{ id: "c1", name: "Ann", role: "A1" }],
+        },
+        { token: "TOK" },
+      );
+      fireEvent.click(screen.getByTestId("share-hub-primary"));
+
+      const mailto = decodeURIComponent(
+        screen.getByTestId("admin-current-share-link-email-button").getAttribute("href") ?? "",
+      );
+      expect(mailto, "crewEmails reached the builder").toContain("ann@example.com");
+      expect(mailto, "showTitle reached the mailto subject").toContain(
+        "East Coast Broadcast Summit",
+      );
+      // A non-empty roster leaves the everyone-reset ENABLED; an empty one
+      // disables it, so this distinguishes threaded from dropped.
+      expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(
+        false,
+      );
     });
 
     it("the retired strip-copy-link testid no longer renders in ANY lifecycle", () => {

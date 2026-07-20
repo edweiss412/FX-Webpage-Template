@@ -163,8 +163,10 @@ describe("ShareHub — open/close semantics", () => {
     renderHub();
     fireEvent.click(primary()); // the backdrop only exists while open
     const group = primary().parentElement!;
-    expect(group.className).toContain("z-30");
-    expect(screen.getByTestId("share-hub-backdrop").className).toContain("z-20");
+    // Word-boundary, not substring: `toContain("z-30")` also passes on `z-300`
+    // or `not-z-30`, neither of which emits the stacking rule this pins.
+    expect(group.className).toMatch(/(^|\s)z-30(\s|$)/);
+    expect(screen.getByTestId("share-hub-backdrop").className).toMatch(/(^|\s)z-20(\s|$)/);
   });
 
   it("caps the popover height so destructive controls cannot be pushed off-screen", () => {
@@ -221,8 +223,18 @@ describe("ShareHub — published arm content", () => {
     const rows = screen.getAllByTestId("admin-current-share-link-email-button");
     expect(rows.length).toBeGreaterThanOrEqual(1);
     for (const r of rows) expect(r.getAttribute("href")).toMatch(/^mailto:/);
+    // Both recipients must survive the batching — dropping one would otherwise
+    // pass every assertion above.
+    const allHrefs = rows.map((r) => decodeURIComponent(r.getAttribute("href") ?? "")).join(" ");
+    expect(allHrefs).toContain("a@example.com");
+    expect(allHrefs).toContain("b@example.com");
+    // The multi-batch note is present iff there is more than one batch.
     if (rows.length === 1) {
       expect(screen.queryByTestId("admin-current-share-link-email-note")).toBeNull();
+    } else {
+      expect(screen.getByTestId("admin-current-share-link-email-note").textContent).toContain(
+        String(rows.length),
+      );
     }
   });
 
@@ -236,6 +248,9 @@ describe("ShareHub — published arm content", () => {
     renderHub({ showTitle: "", crewEmails: ["a@example.com"] });
     fireEvent.click(primary());
     const rows = screen.queryAllByTestId("admin-current-share-link-email-button");
+    // Anti-vacuity: without this the loop below asserts nothing if an empty
+    // title suppressed every row.
+    expect(rows.length, "empty title must still emit rows").toBeGreaterThan(0);
     for (const r of rows) {
       const href = r.getAttribute("href") ?? "";
       expect(href).toMatch(/^mailto:/);
@@ -250,6 +265,11 @@ describe("ShareHub — published arm content", () => {
     expect(screen.getByTestId("admin-current-share-link-unavailable").textContent).toMatch(
       /share-link is unavailable right now/i,
     );
+    // Rotate is the documented recovery from a missing token ("rotate to mint a
+    // new link"), so a token-null hub that hid the Careful rows would strand
+    // the operator with advice they cannot act on.
+    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeTruthy();
+    expect(screen.getByTestId("picker-reset-all-button")).toBeTruthy();
   });
 });
 
@@ -429,6 +449,17 @@ describe("ShareHub — lifecycle close (spec §4)", () => {
     </ShareTokenProvider>
   );
 
+  it("UNPUBLISHED → published while OPEN and IDLE also closes (both directions)", () => {
+    // The contract is "a lifecycle change closes it", not "unpublishing closes
+    // it". An implementation keyed only on the true→false edge would leave the
+    // paused popover open over freshly-published content.
+    const { rerender } = render(<Harness published={false} hang={false} />);
+    fireEvent.click(primary());
+    expect(queryPopover()).not.toBeNull();
+    rerender(<Harness published hang={false} />);
+    expect(queryPopover()).toBeNull();
+  });
+
   it("published flip while OPEN and IDLE closes the popover immediately", () => {
     // Without this the popover survives the published/unpublished content swap,
     // showing the wrong arm over a stale state.
@@ -439,7 +470,7 @@ describe("ShareHub — lifecycle close (spec §4)", () => {
     expect(queryPopover()).toBeNull();
   });
 
-  it("published flip while BUSY defers the close until the action settles", async () => {
+  it("published flip while BUSY keeps the popover OPEN so the outcome stays readable", async () => {
     let resolveRotate: ((v: unknown) => void) | null = null;
     rotateMock.mockImplementation(
       () =>
@@ -461,6 +492,44 @@ describe("ShareHub — lifecycle close (spec §4)", () => {
     await act(async () => {
       resolveRotate?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
     });
-    await waitFor(() => expect(queryPopover()).toBeNull());
+
+    // And still open AFTER the settle. Closing here was self-defeating: `busy`
+    // clearing is the same transition that mounts the outcome banner, so an
+    // auto-close unmounted it after ~one paint and could swallow its
+    // live-region announcement — the exact harm the deferral exists to
+    // prevent. A completed destructive action outranks the convenience of
+    // auto-closing, so the operator dismisses it.
+    expect(queryPopover()).not.toBeNull();
+    expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeTruthy();
+  });
+
+  it("a never-settling action does not wedge the popover shut forever", async () => {
+    // Without a bound, a hung action (network hang, or a proxy that drops the
+    // response after the mutation commits) leaves busy true forever: all four
+    // dismissal paths inert AND Escape swallowed, so the operator can never
+    // close the popover. Being unable to dismiss is worse than losing a banner.
+    vi.useFakeTimers();
+    try {
+      rotateMock.mockImplementation(() => new Promise(() => {}));
+      render(<Harness published hang />);
+      fireEvent.click(primary());
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+      });
+
+      // Gated while the action is plausibly in flight.
+      fireEvent.click(primary());
+      expect(queryPopover()).not.toBeNull();
+
+      // Past the bound, the operator gets control back.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      fireEvent.click(primary());
+      expect(queryPopover()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

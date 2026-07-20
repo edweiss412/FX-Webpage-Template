@@ -370,15 +370,17 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       });
       expect(geo, "hub popover + group present").not.toBeNull();
 
-      // Width: 308 exactly, unless the mobile clamp is doing its job.
-      const clamped = geo!.viewportWidth - 32 < 308;
-      if (!clamped) {
-        expect(geo!.popWidth, `popover is 308px @ ${width}`).toBeCloseTo(308, 0);
-      } else {
-        expect(geo!.popWidth, `clamped popover fits the viewport @ ${width}`).toBeLessThanOrEqual(
-          geo!.viewportWidth - 32 + 1,
-        );
-      }
+      // Width is min(308, viewport - 2rem) at EVERY width — one expression that
+      // is exercised on both bands rather than a branch that never runs. The
+      // earlier `if (clamped)` arm was dead: both tested widths (375, 1280)
+      // exceed the 340px threshold, so deleting `max-w-[calc(100vw-2rem)]`
+      // outright would still have passed and let the panel overflow on a
+      // narrower phone.
+      const expectedWidth = Math.min(308, geo!.viewportWidth - 32);
+      expect(
+        geo!.popWidth,
+        `popover width is min(308, viewport-2rem) = ${expectedWidth} @ ${width}`,
+      ).toBeCloseTo(expectedWidth, 0);
 
       // Below the triggers — never covering them (top-full).
       expect(

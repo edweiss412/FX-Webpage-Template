@@ -49,6 +49,11 @@ import { ShareLinkCopyButton } from "@/app/admin/show/[slug]/ShareLinkCopyButton
 import { useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 
+/** How long dismissal stays gated on an in-flight action before the operator
+ *  gets control back (see the `busyStuck` rationale below). Deliberately longer
+ *  than any healthy round-trip on this surface. */
+const BUSY_GATE_MAX_MS = 15_000;
+
 export type ShareHubProps = {
   slug: string;
   showId: string;
@@ -76,7 +81,27 @@ export function ShareHub({
   // drift a count into a permanently-inert popover.
   const [rotateBusy, setRotateBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
-  const busy = rotateBusy || resetBusy;
+  // A server action that never settles (network hang, a proxy that drops the
+  // response after the mutation commits) would otherwise leave `busy` true
+  // forever: all four dismissal paths inert AND Escape swallowed, so the
+  // operator could not close the popover at all. Being unable to dismiss is a
+  // worse failure than losing an outcome banner, so the gate is time-bounded —
+  // past this window the operator gets control back even though the action is
+  // still notionally in flight.
+  const [busyStuck, setBusyStuck] = useState(false);
+  const inFlight = rotateBusy || resetBusy;
+  const busy = inFlight && !busyStuck;
+
+  useEffect(() => {
+    if (!inFlight) return;
+    const t = setTimeout(() => setBusyStuck(true), BUSY_GATE_MAX_MS);
+    // Cleanup runs when the action settles (or the hub unmounts), which is
+    // exactly when the bound should be re-armed for the next action.
+    return () => {
+      clearTimeout(t);
+      setBusyStuck(false);
+    };
+  }, [inFlight]);
 
   const primaryRef = useRef<HTMLButtonElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
@@ -137,11 +162,18 @@ export function ShareHub({
     setOpen(false);
   }, [published, open, busy]);
 
-  // The deferred close lands the moment the last in-flight action settles.
+  // When the action settles, the deferred close is CANCELLED, not applied.
+  //
+  // Applying it here was self-defeating: `busy` clearing is the SAME transition
+  // that mounts the outcome banner, so closing on it unmounted the banner after
+  // roughly one paint and could swallow its live-region announcement — exactly
+  // the harm the deferral exists to prevent. A completed destructive action
+  // (a rotated link is already dead for the whole crew) outranks the
+  // convenience of auto-closing on a lifecycle change, so the popover stays
+  // open with its outcome visible and the operator dismisses it.
   useEffect(() => {
-    if (busy || !deferredCloseRef.current) return;
+    if (busy) return;
     deferredCloseRef.current = false;
-    setOpen(false);
   }, [busy]);
 
   // Escape safety net. The panel's own onKeyDown only fires while focus is
