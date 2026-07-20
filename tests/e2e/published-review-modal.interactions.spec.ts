@@ -800,11 +800,15 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     );
   });
 
-  test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → copy, in DOM order", async ({ page }) => {
+  test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({
+    page,
+  }) => {
     await openModal(page, POPUP);
-    // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
-    // still LOOKS correct while producing toggle → Copy → Re-sync. §10 makes
-    // DOM order the contract precisely because tab order follows it.
+    // share-hub T4: the band's right-flushed control is now the hub trigger
+    // group, not the retired standalone copy button (Copy moved inside the
+    // popover). The hub group is right-flushed by `ml-auto`, so a hub-then-
+    // Re-sync DOM order still LOOKS correct while producing toggle → hub →
+    // Re-sync. §10 makes DOM order the contract because tab order follows it.
     const order = await page.evaluate((subSel) => {
       const band = document.querySelector(subSel)!;
       const focusables = Array.from(
@@ -813,10 +817,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       return focusables.map((el) => el.getAttribute("data-testid"));
     }, SUBHEADER);
     const resync = order.indexOf("admin-resync-button");
-    const copy = order.indexOf("admin-current-share-link-copy-button");
+    const copy = order.indexOf("share-hub-primary");
     const toggle = order.findIndex((t) => t !== null && t.startsWith("published-toggle"));
     expect(resync, "Re-sync is focusable in the band").toBeGreaterThanOrEqual(0);
-    expect(copy, "copy is focusable in the band").toBeGreaterThan(resync);
+    expect(copy, "the share-hub trigger is focusable in the band").toBeGreaterThan(resync);
+    // The kebab follows its primary; both live in the same right-flushed group.
+    expect(order.indexOf("share-hub-kebab"), "kebab follows the primary trigger").toBeGreaterThan(
+      copy,
+    );
     expect(toggle, "the publish toggle precedes Re-sync").toBeGreaterThanOrEqual(0);
     expect(resync).toBeGreaterThan(toggle);
   });
@@ -851,14 +859,15 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       }, SUBHEADER);
 
       const resync = order.indexOf("admin-resync-button");
-      const copy = order.indexOf("admin-current-share-link-copy-button");
+      // share-hub T4: the trailing band control is the hub trigger, not Copy.
+      const copy = order.indexOf("share-hub-primary");
       expect(resync, "Re-sync present").toBeGreaterThanOrEqual(0);
-      expect(copy, "Copy present").toBeGreaterThanOrEqual(0);
+      expect(copy, "share-hub trigger present").toBeGreaterThanOrEqual(0);
       for (const id of expected[branch]) {
         const idx = order.indexOf(id);
         expect(idx, `${id} present in the band`).toBeGreaterThanOrEqual(0);
         expect(idx, `${id} follows Re-sync`).toBeGreaterThan(resync);
-        expect(idx, `${id} precedes Copy`).toBeLessThan(copy);
+        expect(idx, `${id} precedes the share-hub trigger`).toBeLessThan(copy);
       }
     });
   }
