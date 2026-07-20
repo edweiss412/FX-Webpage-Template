@@ -19,6 +19,7 @@ import { describe, it, expect } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { parseSheet } from "@/lib/parser";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
@@ -94,7 +95,7 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
 
   it("corpus oracle: fixture list + emitted warn-code set frozen; every emitted code registered (spec §3.5.4)", () => {
     const files = readdirSync(CORPUS_DIR)
-      .filter((f) => f.endsWith(".md") && !f.startsWith("_temp-"))
+      .filter((f) => f.endsWith(".md") && !f.startsWith(CORPUS_TEMP_PREFIX))
       .sort();
     expect(new Set(files)).toEqual(EXPECTED_CORPUS_FIXTURES);
     const emitted = new Set<string>();
