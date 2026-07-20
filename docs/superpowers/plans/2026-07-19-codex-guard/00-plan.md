@@ -704,10 +704,16 @@ async function main() {
     } else if (a.type === "writeFile") {
       writeFileSync(a.path.replace("$CODEX_HOME", process.env.CODEX_HOME ?? ""), a.text);
     } else if (a.type === "grandchild") {
-      const gc = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e6)"], {
-        detached: false, stdio: "ignore",
-      });
-      writeFileSync(join(recordDir, `grandchild-pid-${callN}.txt`), String(gc.pid));
+      // Grandchild writes its own pid file AFTER registering the SIGTERM handler — the
+      // file's existence proves the handler is live. (A fixture-side write races the
+      // grandchild's V8 boot; an early SIGTERM would then kill it via the default action.
+      // Caught red in Task 1: the SIGTERM-immunity self-test failed on exactly that race.)
+      const gc = spawn(process.execPath, [
+        "-e",
+        "process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(()=>{},1e6)",
+        join(recordDir, `grandchild-pid-${callN}.txt`),
+      ], { detached: false, stdio: "ignore" });
+      void gc;
     } else if (a.type === "exit") process.exit(a.code);
   }
   process.exit(0);
