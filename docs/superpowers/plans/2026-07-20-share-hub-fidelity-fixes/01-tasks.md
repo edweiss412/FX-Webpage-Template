@@ -104,7 +104,7 @@ ADD (do not replace) alongside the existing wiring test at
 
 ```tsx
 import {
-  expectClasses, expectNoDescriptionNode, expectRowText,
+  expectClasses, expectNoDescriptionNode, expectRowBoundary, expectRowText,
   NO_BORDER, NO_REST_BACKGROUND, WRAPPER_CLASSES,
 } from "./_rowAssertions";
 
@@ -153,6 +153,14 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   // because this list is fully prescribed too — a stale `py-3`, a missing
   // `flex-col`, or a conflicting `w-auto` must fail here.
   expectClasses(rotate.parentElement!, { exactly: WRAPPER_CLASSES });
+
+  // The whole component boundary: exactly one wrapper, the wrapper holding only
+  // the button, NO heading anywhere (an empty <h5 aria-label> beside the button
+  // restores the outline entry while adding no text), and exactly one element
+  // carrying the description id (getElementById hides a duplicate).
+  expectRowBoundary(rotate.closest("[data-rowroot]") ?? rotate.parentElement!.parentElement!, rotate, {
+    descriptionId: rotate.getAttribute("aria-describedby"),
+  });
 });
 ```
 

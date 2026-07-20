@@ -136,15 +136,21 @@ export const WRAPPER_CLASSES = ["flex", "w-full", "flex-col", "gap-2"] as const;
  *  Asserting the pieces individually is not enough: label and description can
  *  each be correct while sitting as DIRECT children of the button, an unstacked
  *  flex row that satisfies every per-element check. */
+/** Every heading in a subtree, root INCLUSIVE. `role` is a token LIST, so
+ *  `role="heading presentation"` is still a heading and a `[role='heading']`
+ *  attribute selector would miss it. */
+function headingsIn(root: Element): Element[] {
+  return [root, ...root.querySelectorAll("*")].filter(
+    (el) =>
+      /^h[1-6]$/i.test(el.tagName) ||
+      (el.getAttribute("role") ?? "").split(/\s+/).includes("heading"),
+  );
+}
+
 function expectRowTopology(button: HTMLElement, column: Element): void {
-  // §4.3: the row contributes NO heading-outline entry. Rejecting only <h4>
-  // leaves <h5> (and every other level) as a trivial bypass that satisfies the
-  // label's typography and text assertions while restoring the asymmetric
-  // outline entry this change exists to remove.
-  expect(
-    [...button.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']")],
-    "the row must contribute no heading",
-  ).toEqual([]);
+  // §4.3: the row contributes NO heading-outline entry, at ANY level.
+  expect(headingsIn(button), "the row must contribute no heading").toEqual([]);
+
   // An implicit or `submit` type would SUBMIT AN ENCLOSING FORM when the row is
   // clicked. Cheap to assert, expensive to discover in production.
   expect(button.getAttribute("type"), "row must be type=button").toBe("button");
@@ -273,16 +279,51 @@ export function expectNoDescriptionNode(
   // Precondition: call this only on an idle row with no outcome banner mounted.
   // A banner is a legitimate wrapper sibling. The guard tests render the control
   // fresh, so no banner exists.
-  const wrapper = button.parentElement;
-  expect(wrapper, "row button must have a wrapper").not.toBeNull();
+  // The whole boundary, which is the only thing that can see a forbidden
+  // SIBLING of the button (classless carrier, empty heading, duplicate id).
+  expectRowBoundary(scope, button, { descriptionId: null });
+}
+
+/**
+ * Asserts the component's WHOLE rendered boundary, not just the button.
+ *
+ * Every escape found from round 13 onward had the same shape: a forbidden node
+ * rendered as a SIBLING of the button: a classless description carrier, an
+ * empty `<h5>`, a second element reusing the description id. Button-scoped and
+ * class-based checks are structurally unable to see those. So instead of adding
+ * another spot-check per round, this pins the entire tree the component may
+ * render.
+ *
+ * `container` is Testing Library's render container (or the popover scope).
+ * Call on an IDLE row with no outcome banner mounted; a banner is a legitimate
+ * wrapper sibling and callers with one should assert it explicitly instead.
+ */
+export function expectRowBoundary(
+  container: HTMLElement,
+  button: HTMLElement,
+  { descriptionId }: { descriptionId: string | null },
+): void {
+  expect([...container.children], "the component renders exactly one wrapper").toEqual([
+    button.parentElement,
+  ]);
+  expectClasses(button.parentElement!, { exactly: WRAPPER_CLASSES });
   expect(
-    [...wrapper!.children],
-    "the idle row wrapper must contain the button and nothing else",
+    [...button.parentElement!.children],
+    "the idle wrapper contains the button and nothing else",
   ).toEqual([button]);
-  // …and the wrapper must still BE the prescribed wrapper. A branch that
-  // returns the bare button when the description is absent would otherwise
-  // pass: the render container becomes the parent and trivially contains only
-  // the button, while the unconditional `flex w-full flex-col gap-2` contract
-  // is silently dropped for that path.
-  expectClasses(wrapper!, { exactly: WRAPPER_CLASSES });
+
+  // No heading ANYWHERE in the boundary, not merely inside the button: an empty
+  // `<h5 aria-label="…"/>` beside the button restores the outline entry while
+  // adding no composed text and touching nothing the row-level checks inspect.
+  expect(headingsIn(container), "the component must contribute no heading").toEqual([]);
+
+  // Description-id CARDINALITY. `getElementById` resolves only the first match,
+  // so a duplicate id elsewhere in the boundary is otherwise invisible: exactly
+  // one carrier when a description is expected, zero when it is not.
+  const carriers = descriptionId
+    ? [...container.querySelectorAll(`[id="${CSS.escape(descriptionId)}"]`)]
+    : [];
+  if (descriptionId) {
+    expect(carriers, `exactly one element may carry id ${descriptionId}`).toHaveLength(1);
+  }
 }
