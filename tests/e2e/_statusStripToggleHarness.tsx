@@ -70,6 +70,8 @@ function stripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps
     crewEmails: [],
     showTitle: "Harness Show",
     pickerCrew: [],
+    archiveAction: async () => ({ ok: true }) as const,
+    unarchiveAction: async () => {},
     slug: TOGGLE_SLUG,
     archived: false,
     published: true,

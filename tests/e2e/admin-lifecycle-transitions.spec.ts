@@ -55,6 +55,16 @@ const REPO_ROOT = resolve(__dirname, "../..");
 const LOADED_REVIEW_MODAL =
   '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
 
+/**
+ * The Archive/Unarchive control lives in the status band's ShareHub popover
+ * ("Show" section) — the kebab is what opens it. Returns once the popover is
+ * mounted, so the caller can query the lifecycle control directly.
+ */
+async function openShowActions(modal: import("@playwright/test").Locator) {
+  await modal.getByTestId("share-hub-kebab").click();
+  await expect(modal.getByTestId("share-hub-popover")).toBeVisible();
+}
+
 // The components changed/created by Phase 6–8 whose §3.4 pairs must stay instant.
 const CHANGED_COMPONENTS = [
   "components/admin/DashboardBucketSegmentedControl.tsx",
@@ -126,11 +136,12 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("archive confirm resting↔armed is an instant ternary swap (no crossfade)", async ({
     page,
   }) => {
-    // admin-show-modal: the per-show surface is now the dashboard modal; the
-    // archive control lives in the modal's Overview section.
+    // admin-show-modal: the per-show surface is the dashboard modal; the
+    // archive control lives in the status band's ShareHub popover.
     await page.goto(`/admin?show=${held.slug}`);
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
+    await openShowActions(modal);
     const resting = modal.getByTestId("archive-show-button");
     await expect(resting).toBeVisible();
 
@@ -156,6 +167,7 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     await page.goto(`/admin?show=${held.slug}`);
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
+    await openShowActions(modal);
     await modal.getByTestId("archive-show-button").click();
     await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 
@@ -217,7 +229,8 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
 
-    // Arm Archive.
+    // Arm Archive (inside the hub popover, its only home).
+    await openShowActions(modal);
     await modal.getByTestId("archive-show-button").click();
     await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 

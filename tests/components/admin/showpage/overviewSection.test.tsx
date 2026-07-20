@@ -45,17 +45,11 @@ afterEach(() => {
 });
 
 const SHOW_ID = "22222222-2222-2222-2222-222222222222";
-const SHEET_HREF = "https://docs.google.com/spreadsheets/d/DRIVE_PUB/edit";
 
 function baseProps(overrides: Partial<OverviewSectionProps> = {}): OverviewSectionProps {
   return {
-    showId: SHOW_ID,
     archived: false,
-    finalizeOwned: false,
-    openSheetHref: SHEET_HREF,
     hasActionableWarnings: false,
-    archiveAction: vi.fn(async () => ({ ok: true }) as const),
-    unarchiveAction: vi.fn(async () => {}),
     attentionSlot: <div data-testid="mock-attention-slot">alert</div>,
     ...overrides,
   };
@@ -79,8 +73,6 @@ describe("OverviewSection", () => {
     for (const overrides of [
       {},
       { hasActionableWarnings: true },
-      { published: false },
-      { finalizeOwned: true },
       { archived: true },
     ] as Partial<OverviewSectionProps>[]) {
       cleanup();
@@ -102,32 +94,10 @@ describe("OverviewSection", () => {
     expect(callout.querySelector("button")).toBeNull();
   });
 
-  // §6.7 post-move shape: the third arm empties to `null`, but the
-  // `overview-sheet-sync` WRAPPER stays — it still hosts the Open-sheet link,
-  // so deleting it because its first child can now be null would silently drop
-  // `openSheetHref`.
-  it("the sheet/sync wrapper survives the move and still hosts the Open sheet link", () => {
-    render(<OverviewSection {...baseProps({ hasActionableWarnings: false })} />);
-    const wrapper = screen.getByTestId("overview-sheet-sync");
-    expect(within(wrapper).getByTestId("overview-open-sheet")).toBeTruthy();
-    // Non-archived + no warnings → the first arm is genuinely empty, not an
-    // empty element standing in for the deleted button.
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-    expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
-  });
-
-  it("published + active: relocates alert, Archive, and open-sheet link", () => {
+  it("published + active: relocates the alert slot; no lifecycle control of its own", () => {
     render(<OverviewSection {...baseProps()} />);
     expect(screen.getByTestId("mock-attention-slot")).toBeTruthy();
-    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
-    const openSheet = screen.getByTestId("overview-open-sheet");
-    expect(openSheet.getAttribute("href")).toBe(SHEET_HREF);
-    // Standalone block affordance (own row in the sheet/sync cluster), NOT an inline-in-prose
-    // link, so it is subject to the PRODUCT 44px tap-min floor for Doug-on-the-floor.
-    expect(openSheet.className).toContain("min-h-tap-min");
-    // Not archived, not unpublished → none of the read-only / paused states.
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
-    expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
   });
 
   it("published + actionable warnings: the correction-loop callout renders as bare guidance", () => {
@@ -140,23 +110,29 @@ describe("OverviewSection", () => {
     expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
   });
 
-  it("archived: read-only — Unarchive shown; Archive hidden", () => {
+  it("archived: the Re-sync-paused notice replaces the callout", () => {
     render(<OverviewSection {...baseProps({ archived: true })} />);
-    expect(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
-    // Every mutating affordance is gone.
-    expect(screen.queryByTestId("archive-show-button")).toBeNull();
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-    // The Re-sync-paused notice replaces the button.
     expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
+    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
   });
 
-  // share-hub T4: the share panel, its inactive notice and the #share-access
-  // anchor left Overview for the status band's hub. Overview must not resurrect
-  // any of them — a second share surface is exactly the duplicate-control state
-  // the relocation removed.
-  it("renders NO share surface in any lifecycle (relocated to the status band)", () => {
-    for (const props of [{ archived: false }, { archived: false }, { archived: true }]) {
+  // share-hub T4 moved the share cluster to the status band; this change moved
+  // the OPEN-SHEET link and the ARCHIVE/UNARCHIVE lifecycle controls out too —
+  // the link duplicated the header's sheet anchor
+  // (PublishedReviewModal.tsx `*-sheetlink`), and the lifecycle controls now
+  // live in the band's hub popover. Overview must not resurrect any of them: a
+  // second copy is exactly the duplicate-control state each relocation removed.
+  it("renders NO share, sheet-link or lifecycle control in ANY lifecycle", () => {
+    for (const props of [
+      { archived: false },
+      { archived: false, hasActionableWarnings: true },
+      { archived: true },
+    ]) {
       const { unmount } = render(<OverviewSection {...baseProps(props)} />);
+      expect(screen.queryByTestId("overview-open-sheet")).toBeNull();
+      expect(screen.queryByTestId("overview-archive-row")).toBeNull();
+      expect(screen.queryByTestId("archive-show-button")).toBeNull();
+      expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
       expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
       expect(screen.queryByTestId("admin-current-share-link-url")).toBeNull();
       expect(screen.queryByTestId("admin-rotate-share-token-button")).toBeNull();
@@ -164,35 +140,5 @@ describe("OverviewSection", () => {
       expect(document.querySelector("#share-access")).toBeNull();
       unmount();
     }
-  });
-
-  it("unpublished (held): Archive + Re-sync still available", () => {
-    render(<OverviewSection {...baseProps({ archived: false })} />);
-    // Held is not archived → still archivable (Re-sync now lives in the strip).
-    expect(screen.getByTestId("archive-show-button")).toBeTruthy();
-    expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
-    expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
-  });
-
-  it("Publishing… (finalize-owned, !archived): Archive suppressed; the rest stays", () => {
-    render(<OverviewSection {...baseProps({ finalizeOwned: true })} />);
-    // Immutable window (spec §6): the Archive control is hidden — not merely disabled.
-    expect(screen.queryByTestId("archive-show-button")).toBeNull();
-    // The row wrapper still renders (empty), and no Unarchive leaks in (show is not archived).
-    expect(screen.getByTestId("overview-archive-row")).toBeTruthy();
-    expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
-    // Every other affordance is unaffected by the finalize window.
-    expect(screen.getByTestId("overview-open-sheet")).toBeTruthy();
-  });
-
-  it("finalize-owned is ignored once archived: Unarchive shown, Archive still absent", () => {
-    render(<OverviewSection {...baseProps({ archived: true, finalizeOwned: true })} />);
-    expect(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
-    expect(screen.queryByTestId("archive-show-button")).toBeNull();
-  });
-
-  it("null open-sheet href: the open-sheet link is omitted (no dead link)", () => {
-    render(<OverviewSection {...baseProps({ openSheetHref: null })} />);
-    expect(screen.queryByTestId("overview-open-sheet")).toBeNull();
   });
 });

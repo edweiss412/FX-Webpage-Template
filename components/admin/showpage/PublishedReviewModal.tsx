@@ -382,13 +382,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       : {}),
     render: () => (
       <OverviewSection
-        showId={showId}
         archived={archived}
-        finalizeOwned={finalizeOwned}
-        openSheetHref={openSheetHref}
         hasActionableWarnings={hasActionableWarnings}
-        archiveAction={archiveAction}
-        unarchiveAction={unarchiveAction}
         attentionSlot={
           degradedNotice || overviewBanners.length > 0 ? (
             <div className="flex flex-col gap-2">
@@ -611,6 +606,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           crewEmails={crewEmails}
           showTitle={title ?? slug}
           pickerCrew={pickerCrew}
+          archiveAction={archiveAction}
+          unarchiveAction={unarchiveAction}
         />
       }
     >

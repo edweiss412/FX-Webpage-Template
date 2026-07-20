@@ -60,9 +60,20 @@ export type ArchiveShowButtonProps = {
    * in the Held lifecycle section (pinned by admin-lifecycle-layout.spec).
    */
   compact?: boolean;
+  /**
+   * share-hub: reports the SUBMIT-pending level (not the armed state) to a host
+   * that gates its own dismissal on in-flight children — the ShareHub popover,
+   * where an unmount mid-archive would land the mutation and lose its outcome
+   * banner. A LEVEL, not an edge: a repeated value is harmless (spec §6).
+   */
+  onBusyChange?: (busy: boolean) => void;
 };
 
-export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveShowButtonProps) {
+export function ArchiveShowButton({
+  archiveAction,
+  compact = false,
+  onBusyChange,
+}: ArchiveShowButtonProps) {
   const router = useRouter();
   const [armed, setArmed] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -136,7 +147,11 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
           }}
           className="flex flex-col items-start gap-2"
         >
-          <ConfirmButton onConfirmClick={clearAutoRevert} compact={compact} />
+          <ConfirmButton
+            onConfirmClick={clearAutoRevert}
+            compact={compact}
+            {...(onBusyChange ? { onBusyChange } : {})}
+          />
         </form>
       )}
 
@@ -183,11 +198,22 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
 function ConfirmButton({
   onConfirmClick,
   compact = false,
+  onBusyChange,
 }: {
   onConfirmClick: () => void;
   compact?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const { pending } = useFormStatus();
+  // Reported from inside the form (useFormStatus only reads here). The cleanup
+  // clears the flag on unmount too — a host that gates dismissal on it would
+  // otherwise stay inert forever if this subtree went away mid-flight.
+  useEffect(() => {
+    onBusyChange?.(pending);
+    return () => {
+      if (pending) onBusyChange?.(false);
+    };
+  }, [pending, onBusyChange]);
   return (
     <button
       type="submit"

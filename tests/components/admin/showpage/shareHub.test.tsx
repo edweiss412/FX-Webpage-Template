@@ -35,18 +35,26 @@ const CREW = [
 
 type Opts = {
   published?: boolean;
+  archived?: boolean;
+  finalizeOwned?: boolean;
   token?: string | null;
   crewEmails?: readonly string[];
   showTitle?: string;
   pickerCrew?: typeof CREW;
+  archiveAction?: () => Promise<{ ok: true } | { ok: false; code: string }>;
+  unarchiveAction?: (showId: string) => Promise<void>;
 };
 
 function renderHub({
   published = true,
+  archived = false,
+  finalizeOwned = false,
   token = TOKEN,
   crewEmails = ["alice@example.com"],
   showTitle = "Aurora Fall Tour",
   pickerCrew = CREW,
+  archiveAction = async () => ({ ok: true }) as const,
+  unarchiveAction = async () => {},
 }: Opts = {}) {
   return render(
     <ShareTokenProvider key={SHOW_ID} initialToken={token} initialEpoch={1}>
@@ -54,9 +62,13 @@ function renderHub({
         slug={SLUG}
         showId={SHOW_ID}
         published={published}
+        archived={archived}
+        finalizeOwned={finalizeOwned}
         crewEmails={crewEmails}
         showTitle={showTitle}
         pickerCrew={pickerCrew}
+        archiveAction={archiveAction}
+        unarchiveAction={unarchiveAction}
       />
     </ShareTokenProvider>,
   );
@@ -86,7 +98,17 @@ describe("ShareHub — triggers", () => {
 
   it("kebab carries its accessible name", () => {
     renderHub();
-    expect(kebab()).toHaveAccessibleName("More share actions");
+    expect(kebab()).toHaveAccessibleName("More show actions");
+  });
+
+  // Archived is read-only for SHARING — the crew link, Copy, Email, rotate and
+  // reset are all gone — but the hub is still the one home for the lifecycle
+  // control, so the kebab (and only the kebab) survives. Dropping the whole hub
+  // here would strand Unarchive with nowhere to live.
+  it("archived: the primary Share-link trigger is gone; the kebab remains", () => {
+    renderHub({ archived: true });
+    expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+    expect(kebab()).toBeTruthy();
   });
 
   it("BOTH triggers report aria-expanded false→true and point at the popover", () => {
@@ -114,7 +136,7 @@ describe("ShareHub — open/close semantics", () => {
 
     fireEvent.click(primary());
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(popover()).toHaveAccessibleName("Share crew link");
+    expect(popover()).toHaveAccessibleName("Share crew link and show actions");
     fireEvent.click(primary());
     expect(queryPopover()).toBeNull();
 
@@ -310,6 +332,53 @@ describe("ShareHub — Careful section wiring", () => {
   });
 });
 
+describe("ShareHub — Show section (lifecycle)", () => {
+  const showSection = () => screen.getByTestId("share-hub-show-section");
+
+  it("live/held: the Show section holds Archive, in its own section below Careful", () => {
+    renderHub();
+    fireEvent.click(kebab());
+    const section = showSection();
+    expect(within(section).getByTestId("archive-show-button")).toBeTruthy();
+    // Its own section, NOT folded into Careful: the rotate/reset rows are
+    // share-scoped, the lifecycle control is not.
+    expect(within(section).queryByTestId("admin-rotate-share-token-button")).toBeNull();
+    expect(within(section).queryByTestId("picker-reset-all-button")).toBeNull();
+    // Archive is the lifecycle arm for a non-archived show — never both.
+    expect(screen.queryByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeNull();
+  });
+
+  it("archived: the Show section holds Unarchive and every share affordance is gone", () => {
+    renderHub({ archived: true });
+    fireEvent.click(kebab());
+    expect(within(showSection()).getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    // Read-only: no URL, no Copy, no email rows, no rotate, no reset.
+    expect(screen.queryByTestId("admin-current-share-link-url")).toBeNull();
+    expect(screen.queryByTestId("admin-current-share-link-email-button")).toBeNull();
+    expect(screen.queryByTestId("admin-rotate-share-token-button")).toBeNull();
+    expect(screen.queryByTestId("picker-reset-all-button")).toBeNull();
+  });
+
+  it("Publishing… (finalize-owned, !archived): NO Show section at all — not an empty heading", () => {
+    // The show is immutable during the finalize window (consolidated-admin-show-page
+    // §6), so the control is hidden rather than disabled. A heading with nothing
+    // under it is the defect this catches.
+    renderHub({ finalizeOwned: true });
+    fireEvent.click(kebab());
+    expect(screen.queryByTestId("share-hub-show-section")).toBeNull();
+    expect(screen.queryByTestId("archive-show-button")).toBeNull();
+    // The share half is untouched by the finalize window.
+    expect(screen.getByTestId("admin-current-share-link-url")).toBeTruthy();
+  });
+
+  it("finalize-owned is ignored once archived: Unarchive still renders", () => {
+    renderHub({ archived: true, finalizeOwned: true });
+    fireEvent.click(kebab());
+    expect(within(showSection()).getByTestId(`unarchive-show-button-${SHOW_ID}`)).toBeTruthy();
+  });
+});
+
 describe("ShareHub — §9 composition rules", () => {
   const openHub = () => {
     renderHub();
@@ -433,21 +502,71 @@ describe("ShareHub — busy gating (spec §6)", () => {
       document.removeEventListener("keydown", shellSpy);
     }
   });
+
+  // The lifecycle control is a busy-reporting child like rotate and reset.
+  // Without its own report, a backdrop tap mid-archive unmounts the form: the
+  // mutation still lands (the crew link is dead) but its refusal/outcome banner
+  // never renders — the exact harm §6 exists to prevent.
+  it("an in-flight ARCHIVE gates dismissal the same way rotate does", async () => {
+    let settleArchive: ((v: { ok: true }) => void) | null = null;
+    renderHub({
+      archiveAction: () =>
+        new Promise<{ ok: true }>((res) => {
+          settleArchive = res;
+        }),
+    });
+    fireEvent.click(kebab());
+    fireEvent.click(screen.getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("archive-show-confirm-button"));
+    });
+
+    fireEvent.click(backdrop());
+    expect(queryPopover()).not.toBeNull();
+
+    await act(async () => {
+      settleArchive?.({ ok: true });
+    });
+  });
 });
 
 describe("ShareHub — lifecycle close (spec §4)", () => {
-  const Harness = ({ published, hang }: { published: boolean; hang: boolean }) => (
+  const Harness = ({
+    published,
+    hang,
+    archived = false,
+  }: {
+    published: boolean;
+    hang: boolean;
+    archived?: boolean;
+  }) => (
     <ShareTokenProvider key={SHOW_ID} initialToken={TOKEN} initialEpoch={1}>
       <ShareHub
         slug={SLUG}
         showId={SHOW_ID}
         published={published}
+        archived={archived}
+        finalizeOwned={false}
         crewEmails={[]}
         showTitle="T"
         pickerCrew={hang ? CREW : CREW}
+        archiveAction={async () => ({ ok: true }) as const}
+        unarchiveAction={async () => {}}
       />
     </ShareTokenProvider>
   );
+
+  // The lifecycle the popover now hosts is BOTH axes. Keyed on `published`
+  // alone, a successful Archive would leave the popover open across the
+  // Archive→Unarchive content swap, so the operator's next tap lands on a
+  // different control than the one they aimed at.
+  it("ARCHIVED flip while OPEN and IDLE closes the popover", () => {
+    const { rerender } = render(<Harness published hang={false} />);
+    fireEvent.click(kebab());
+    expect(queryPopover()).not.toBeNull();
+    rerender(<Harness published hang={false} archived />);
+    expect(queryPopover()).toBeNull();
+  });
 
   it("UNPUBLISHED → published while OPEN and IDLE also closes (both directions)", () => {
     // The contract is "a lifecycle change closes it", not "unpublishing closes

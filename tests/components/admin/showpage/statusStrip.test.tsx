@@ -75,6 +75,8 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     crewEmails: [],
     showTitle: "East Coast Broadcast Summit",
     pickerCrew: [],
+    archiveAction: async () => ({ ok: true }) as const,
+    unarchiveAction: async () => {},
     ...overrides,
   };
 }
@@ -153,10 +155,16 @@ describe("StatusStrip", () => {
       expect(screen.getByTestId("share-hub-primary").textContent).toMatch(/paused/i);
     });
 
-    it("omits the hub entirely when archived (read-only)", () => {
+    it("archived: keeps the hub for Unarchive, but drops the share-link primary", () => {
+      // The hub is the lifecycle control's only home in both directions, so
+      // gating the whole group on `!archived` would strand Unarchive with
+      // nowhere to live. What archived DOES drop is the share half — starting
+      // with the primary trigger that advertises a crew link this show has not
+      // got.
       renderStrip({ archived: true }, { token: "TOK" });
-      expect(screen.queryByTestId("share-hub-group")).toBeNull();
+      expect(screen.getByTestId("share-hub-group")).toBeTruthy();
       expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+      expect(screen.getByTestId("share-hub-kebab")).toBeTruthy();
     });
 
     it("THREADS crewEmails / showTitle / pickerCrew all the way into the hub", () => {

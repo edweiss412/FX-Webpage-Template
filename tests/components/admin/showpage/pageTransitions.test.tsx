@@ -131,11 +131,17 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7
   // brings it back to 7 when the Re-sync slot lands. Verified by RUNNING the
   // scanner, not by reasoning.
-  "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / re-sync / copy-link
-  // share-hub T4: 4 → 3. The share/inactive-notice head left with the
-  // relocated cluster; sheet-sync, open-sheet and archive-row remain. Count
-  // captured by RUNNING the scanner.
-  "components/admin/showpage/OverviewSection.tsx": 3, // sheet-sync / open-sheet / archive-row (heads)
+  // archive-into-share-hub: 7 → 6. The hub group's `{!archived ? (` head went
+  // away when the group became UNCONDITIONAL (the hub is now Unarchive's only
+  // home, so an archived show must still mount it). Verified by RUNNING the
+  // scanner.
+  "components/admin/showpage/StatusStrip.tsx": 6, // archived / control-divider / live / sync / edited / re-sync
+  // share-hub T4: 4 → 3 (the share/inactive-notice head left with the relocated
+  // cluster). archive-into-share-hub: 3 → 1 — the open-sheet link (a duplicate
+  // of the header's sheet anchor) and the archive row (relocated into the hub's
+  // Show section) both left, leaving only the sheet-sync head. Count captured by
+  // RUNNING the scanner.
+  "components/admin/showpage/OverviewSection.tsx": 1, // sheet-sync (head)
   // share-hub §9: the ONE conditional the scanner's regexes see is the
   // `{linkActive ? (` crew-link arm head. The popover's `{open && (` mounts
   // (backdrop + panel) and `{mailtos.length > 1 && (` use the multi-line
@@ -144,7 +150,12 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // above. Count captured by RUNNING the scanner, not by reasoning. The
   // popover's instantness is additionally pinned behaviorally in
   // tests/components/admin/showpage/shareHub.test.tsx.
-  "components/admin/showpage/ShareHub.tsx": 1, // linkActive arm (see note)
+  // archive-into-share-hub: 1 → 5. Four heads joined the `{linkActive ? (` arm:
+  // the primary trigger's `{!archived ? (`, the share half's `{!archived ? (`,
+  // the Show section's `{archived || !finalizeOwned ? (`, and its inner
+  // `{archived ? (` lifecycle arm. All instant omit/mounts that follow
+  // lifecycle data. Count captured by RUNNING the scanner, not by reasoning.
+  "components/admin/showpage/ShareHub.tsx": 5, // linkActive + 2 archived heads + show-section head + lifecycle arm
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
 };
@@ -369,6 +380,8 @@ function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripP
     crewEmails: [],
     showTitle: "Harness Show",
     pickerCrew: [],
+    archiveAction: async () => ({ ok: true }) as const,
+    unarchiveAction: async () => {},
     slug: "east-coast-summit",
     archived: false,
     published: true,

@@ -29,11 +29,18 @@
  * clears automatically when the action returns (even on failure — no stuck
  * "Unarchiving…" control, no required reload).
  */
+import { useEffect } from "react";
 import { useFormStatus } from "react-dom";
 
 type UnarchiveShowButtonProps = {
   /** `shows.id` of the archived show this button unarchives. */
   showId: string;
+  /**
+   * share-hub: reports the submit-pending LEVEL to a host that gates its own
+   * dismissal on in-flight children (the ShareHub popover). Optional — the
+   * archived dashboard row passes nothing.
+   */
+  onBusyChange?: (busy: boolean) => void;
   /**
    * Phase-7 server action, already scoped to this show. Called with `showId`
    * on submit. Typed as a no-arg-or-showId thunk so the row can pass either a
@@ -42,8 +49,20 @@ type UnarchiveShowButtonProps = {
   unarchiveAction: (showId: string) => Promise<void>;
 };
 
-function SubmitButton({ showId }: { showId: string }) {
+function SubmitButton({
+  showId,
+  onBusyChange,
+}: {
+  showId: string;
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const { pending } = useFormStatus();
+  useEffect(() => {
+    onBusyChange?.(pending);
+    return () => {
+      if (pending) onBusyChange?.(false);
+    };
+  }, [pending, onBusyChange]);
   return (
     <button
       type="submit"
@@ -57,13 +76,17 @@ function SubmitButton({ showId }: { showId: string }) {
   );
 }
 
-export function UnarchiveShowButton({ showId, unarchiveAction }: UnarchiveShowButtonProps) {
+export function UnarchiveShowButton({
+  showId,
+  unarchiveAction,
+  onBusyChange,
+}: UnarchiveShowButtonProps) {
   // The form action is a thin closure so the button stays a child of <form>
   // (useFormStatus requires that). The closure calls the Phase-7 action with
   // this row's showId.
   return (
     <form action={() => unarchiveAction(showId)} className="flex">
-      <SubmitButton showId={showId} />
+      <SubmitButton showId={showId} {...(onBusyChange ? { onBusyChange } : {})} />
     </form>
   );
 }
