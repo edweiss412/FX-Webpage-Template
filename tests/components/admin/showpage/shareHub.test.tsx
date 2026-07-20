@@ -410,6 +410,54 @@ describe("ShareHub — Careful section wiring", () => {
     );
   });
 
+  it("reset idle state is ONE menu row, contributes no heading, keeps its ring offset", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const reset = screen.getByTestId("picker-reset-all-button");
+    expect(reset.tagName).toBe("BUTTON");
+    expectClasses(reset, {
+      exactly: [
+        ...ROW_TOKENS,
+        // reset-ONLY: the guard against silently homogenizing the two rows'
+        // focus treatment, and against a disabled row lighting up on hover
+        // (a disabled button still matches :hover).
+        "focus-visible:ring-offset-2",
+        "focus-visible:ring-offset-surface",
+        "disabled:cursor-not-allowed",
+        "disabled:opacity-60",
+        "disabled:hover:bg-transparent",
+      ],
+      forbids: [NO_BORDER, NO_REST_BACKGROUND],
+    });
+
+    expectRowText(reset, popover(), {
+      label: "Reset everyone's pick",
+      description: "Make everyone pick their name again on their next visit.",
+    });
+
+    const icon = reset.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    // Identity, not just dimensions: a wrong glyph passes a size-only check.
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-refresh-cw"] });
+
+    // §4.3: the PCR-1 (b) heading is deliberately gone at EVERY level
+    // (expectRowText rejects any heading inside the row); the `Careful` <h3>
+    // still stands.
+    expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
+    expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
+
+    expectClasses(reset.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(reset, {
+      scope: popover(),
+      descriptionId: reset.getAttribute("aria-describedby"),
+      // ONLY reset renders a persistent sr-only live region (PCR-1 (a)); the
+      // flag defaults to false so rotate cannot quietly grow one.
+      allowLiveRegion: true,
+    });
+  });
+
   it("GUARD empty pickerCrew: reset row renders its empty-roster copy and is disabled", () => {
     renderHub({ pickerCrew: [] });
     fireEvent.click(primary());

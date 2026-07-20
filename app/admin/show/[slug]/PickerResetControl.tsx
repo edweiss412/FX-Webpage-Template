@@ -42,8 +42,12 @@ export function PickerResetControl({
    * gates ALL FOUR of its dismissal paths on it: a missing rising edge lets a
    * dismissal unmount the control mid-flight (the reset still lands, with no
    * confirmation rendered), a missing falling edge wedges the popover shut.
-   * Additive and optional — `step3ReviewSections.tsx` omits it and is
-   * unaffected.
+   * Additive and optional. (NOTE: `step3ReviewSections.tsx` is NOT a consumer of
+   * this component - it carries its own parallel implementation and only
+   * mentions this file in comments. An earlier version of this line implied
+   * otherwise and produced a BLOCKING false positive in adversarial review.
+   * `grep -rn --include='*.tsx' '<PickerResetControl' app components` returns
+   * exactly one hit: components/admin/showpage/ShareHub.tsx.)
    */
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -208,19 +212,12 @@ export function PickerResetControl({
 
   const inConfirm = ui === "confirm" || ui === "resolving";
 
-  return (
-    <div className="flex flex-col gap-2 py-3" data-testid="picker-reset-control">
-      <div className="min-w-0">
-        {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
-            in the screen-reader heading outline. */}
-        <h4 className="text-sm font-medium text-text-strong">{"Reset everyone's pick"}</h4>
-        <p id={descId} className="text-xs text-text-subtle">
-          {hasCrew
-            ? "Make everyone pick their name again on their next visit."
-            : "No crew to reset yet."}
-        </p>
-      </div>
+  const description = hasCrew
+    ? "Make everyone pick their name again on their next visit."
+    : "No crew to reset yet.";
 
+  return (
+    <div className="flex w-full flex-col gap-2" data-testid="picker-reset-control">
       {inConfirm ? (
         <div
           ref={confirmRowRef}
@@ -257,16 +254,34 @@ export function PickerResetControl({
           </div>
         </div>
       ) : (
+        /* One borderless full-width menu row (spec 2026-07-20-share-hub-fidelity-fixes
+           §4.1), matching rotate and the popover's mailto rows.
+
+           PCR-1 (b)'s <h4> is deliberately GONE (§4.3): under `Careful` there are
+           exactly two peer actions, rotate contributes no heading, and the heading
+           text duplicated this button's own label verbatim - announcing the same
+           string twice. The `Careful` <h3> still names the group in the outline.
+
+           `disabled:hover:bg-transparent` is load-bearing: a disabled button still
+           matches CSS :hover, so without it the row lights up and implies an
+           affordance it does not have. */
         <button
           type="button"
           ref={triggerRef}
           onClick={enterConfirm}
           disabled={!hasCrew}
           data-testid="picker-reset-all-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="Reset everyone's pick"
+          aria-describedby={descId}
+          className="flex min-h-tap-min w-full items-center gap-2 rounded-sm p-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
         >
-          <RefreshCw aria-hidden="true" size={14} />
-          {"Reset everyone's pick"}
+          <RefreshCw aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className="text-sm font-medium text-text-strong">{"Reset everyone's pick"}</span>
+            <span id={descId} className="text-xs text-text-subtle">
+              {description}
+            </span>
+          </span>
         </button>
       )}
 

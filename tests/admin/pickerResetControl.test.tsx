@@ -33,12 +33,23 @@ const confirmGo = () => screen.getByTestId("picker-reset-confirm-button") as HTM
 const cancelBtn = () => screen.getByTestId("picker-reset-cancel-button") as HTMLButtonElement;
 
 describe("PickerResetControl (everyone-only)", () => {
-  it("renders heading, description, and NO per-member surface", () => {
+  it("renders the row label, description, and NO per-member surface", () => {
     render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
-    expect(screen.getByRole("heading", { name: /Reset everyone[’']s pick/ })).toBeTruthy();
-    expect(
-      screen.getByText("Make everyone pick their name again on their next visit."),
-    ).toBeTruthy();
+
+    // The PCR-1 (b) <h4> is deliberately gone (share-hub-fidelity-fixes §4.3):
+    // the label now lives INSIDE the row button, so it is visible text and the
+    // button's own accessible name rather than a heading-outline entry that
+    // duplicated that name verbatim. The `Careful` <h3> in the popover still
+    // names the group.
+    const btn = screen.getByTestId("picker-reset-all-button");
+    expect(btn.textContent).toContain("Reset everyone's pick");
+    expect(btn.getAttribute("aria-label")).toBe("Reset everyone's pick");
+    expect(screen.queryByRole("heading")).toBeNull();
+
+    const desc = document.getElementById(btn.getAttribute("aria-describedby") ?? "");
+    expect(btn.contains(desc)).toBe(true);
+    expect(desc?.textContent).toBe("Make everyone pick their name again on their next visit.");
+
     expect(screen.queryByTestId("picker-reset-member-select")).toBeNull();
     expect(screen.queryByTestId("picker-reset-member-button")).toBeNull();
   });
