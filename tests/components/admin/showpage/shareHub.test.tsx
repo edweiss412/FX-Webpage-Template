@@ -265,16 +265,26 @@ describe("ShareHub — z-order (spec §3)", () => {
     // z-10 < z-20, so none of `relative`, `z-0`, `z-10`, or `isolate` (a
     // level-0 context) reintroduces it — only z >= 20 does. Parse the level and
     // assert it, so a correct refactor adding a low z stays green.
-    const zLevel = (cls: string): number => {
-      const m = /(^|\s)(-?)z-(\[(-?\d+)\]|\d+)(\s|$)/.exec(cls);
-      if (!m) return 0;
-      const raw = m[4] ?? m[3];
-      return (m[2] === "-" ? -1 : 1) * Number(raw);
+    // The MAX positive z across ALL tokens, variant prefixes stripped. Not a
+    // single .exec: `z-10 z-30` must read as 30, and `sm:z-30` / `hover:z-40`
+    // must not slip past. Negatives never raise the max (they are safe), so a
+    // trigger with only `-z-10` reads 0 and passes.
+    const maxZLevel = (cls: string): number => {
+      let max = 0;
+      for (const raw of cls.split(/\s+/).filter(Boolean)) {
+        const tok = raw.replace(/^(?:[a-z0-9-]+:)+/, ""); // strip sm: / hover: / dark: …
+        const m = /^(-?)z-(?:\[(-?\d+)\]|(\d+))$/.exec(tok);
+        if (!m) continue;
+        const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
+        if (n > max) max = n;
+      }
+      return max;
     };
     for (const el of [primary(), kebab()]) {
-      expect(zLevel(el.className), `${el.className} must stay below the menu's z-20`).toBeLessThan(
-        20,
-      );
+      expect(
+        maxZLevel(el.className),
+        `${el.className} must stay below the menu's z-20`,
+      ).toBeLessThan(20);
     }
   });
 });
