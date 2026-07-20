@@ -21,7 +21,9 @@
  * render). compact-alert-card-layout.spec.ts bundles this out-of-process with a
  * version-pinned esbuild and serves it, mirroring _collapsePanelMorphLiveEntry.
  */
+import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
+import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
 
@@ -31,6 +33,23 @@ const LONG_LABEL = "Open branch settings";
 const UNBREAKABLE_LABEL = "OpenBranchSettingsAndReviewTheSyncConfiguration";
 const UNBROKEN_TOKEN = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+/**
+ * The resolve control. Its LABEL comes from the production module
+ * (lib/adminAlerts/resolveActionLabel.ts) keyed on a `?code=` query param, so
+ * the string under measurement travels the real code -> intent -> label path
+ * rather than being typed into the harness.
+ *
+ * The real <PerShowAlertResolveButton> cannot mount here: this bundle has no
+ * Next runtime, and that component calls useRouter. Its classes are mirrored
+ * verbatim from components/admin/PerShowAlertResolveButton.tsx, and
+ * tests/components/admin/_metaResolveLabelSingleSource.test.ts keeps the label
+ * strings themselves in exactly one module.
+ */
+function harnessCode(): string {
+  const fromQuery = new URLSearchParams(window.location.search).get("code");
+  return fromQuery && fromQuery.length > 0 ? fromQuery : "AMBIGUOUS_EMAIL_BINDING";
+}
+
 function ResolveButton() {
   return (
     <button
@@ -38,7 +57,7 @@ function ResolveButton() {
       data-testid="harness-resolve"
       className="inline-flex min-h-tap-min items-center rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong"
     >
-      Mark resolved
+      {resolveActionLabels(harnessCode()).idle}
     </button>
   );
 }
@@ -62,6 +81,14 @@ function FooterLeft({ label, testId }: { label: string; testId: string }) {
 }
 
 function LiveHarness() {
+  // Readiness marker for specs that navigate between renders and compare
+  // geometry across the two: waiting on load alone can measure a pre-mount
+  // frame. Paired with document.fonts.ready on the spec side, since a font
+  // landing between navigations would move a sub-pixel comparison.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-harness-hydrated", "true");
+  }, []);
+
   return (
     <div className="flex flex-col gap-8 p-6">
       {/* 400px column — the design's reference card width. */}
