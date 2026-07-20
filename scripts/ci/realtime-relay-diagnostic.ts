@@ -148,6 +148,66 @@ async function main(): Promise<void> {
       console.log(
         `[diag] RELAY RESULT (minted admin JWT): ${frame2At ? "DELIVERED" : "UNDELIVERED"}`,
       );
+
+      // Third subscriber — the BROWSER-EQUIVALENT shape: ANON-key SOCKET +
+      // minted channel token. If this one is undelivered while the two
+      // service-key-socket subscribers deliver, the stack authorizes DELIVERY
+      // from the socket apikey rather than the channel access_token.
+      const anonKey =
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+        "";
+      console.log("[diag] anon key present:", anonKey.length > 0);
+      const client3 = createClient(url, anonKey, {
+        realtime: { transport: WS as unknown as typeof WebSocket },
+      });
+      try {
+        await client3.realtime.setAuth(mintedJwt);
+        let frame3At: number | undefined;
+        const channel3 = client3.channel(`show:${seeded.showId}:invalidation`, {
+          config: { private: true, broadcast: { self: false } },
+        });
+        channel3.on("broadcast", { event: "invalidate" }, () => {
+          frame3At = Date.now();
+        });
+        await new Promise<void>((resolve, reject) => {
+          const t3 = setTimeout(() => reject(new Error("anon-socket subscribe timeout")), 15_000);
+          channel3.subscribe((status) => {
+            console.log("[diag] anon-socket channel status:", status);
+            if (status === "SUBSCRIBED") {
+              clearTimeout(t3);
+              resolve();
+            } else if (
+              status === "CHANNEL_ERROR" ||
+              status === "TIMED_OUT" ||
+              status === "CLOSED"
+            ) {
+              clearTimeout(t3);
+              reject(new Error(`anon-socket subscribe failed: ${status}`));
+            }
+          });
+        });
+        const commit3At = Date.now();
+        const rpc3 = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+        console.log("[diag] publish#3 rpc error:", rpc3.error?.message ?? "none");
+        const deadline3 = Date.now() + 10_000;
+        while (!frame3At && Date.now() < deadline3) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        console.log(
+          "[diag] anon-socket frame delivered:",
+          frame3At ? `${frame3At - commit3At}ms` : "NO FRAME in 10s",
+        );
+        console.log(
+          `[diag] RELAY RESULT (anon socket + minted token): ${frame3At ? "DELIVERED" : "UNDELIVERED"}`,
+        );
+      } finally {
+        try {
+          await client3.realtime.disconnect();
+        } catch {
+          // teardown noise is irrelevant to the diagnostic
+        }
+      }
     } finally {
       try {
         await client2.realtime.disconnect();
