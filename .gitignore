@@ -90,3 +90,6 @@ sdd/
 .superpowers/
 
 .impeccable/
+
+# DB-touch probe output (tests/probes) — measurement artifacts, never committed
+.db-touch-probe/

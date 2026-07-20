@@ -1,5 +1,12 @@
-import { vi } from "vitest";
+import { vi, expect, beforeAll, afterAll } from "vitest";
 import * as logModule from "@/lib/log";
+import {
+  installDbTouchProbe,
+  setCurrentTestFile,
+  recordedTouches,
+  resetRecordedTouches,
+} from "./probes/dbTouchProbe";
+import { appendRow, summarizeFile } from "./probes/dbTouchReport";
 
 // lib/log default-sink teardown-safety (Phase 4 console.* → lib/log migration).
 // The default sink lazily `await import("./persist")` → `@/lib/supabase/server`
@@ -79,6 +86,42 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
       removeListener: () => {},
       dispatchEvent: () => false,
     }) as unknown as MediaQueryList;
+}
+
+// DB-touch instrumentation. OFF unless DB_TOUCH_PROBE=1, so the normal suite
+// pays nothing: without the flag no socket is wrapped and no hook is registered.
+// With it, every test file emits one JSONL row — including files that opened no
+// socket at all, which are the rows the measurement is actually after.
+// See tests/probes/dbTouchProbe.ts for the rationale.
+if (process.env.DB_TOUCH_PROBE === "1") {
+  const relativeTestPath = (absolute: string): string => {
+    const root = `${process.cwd()}/`;
+    return absolute.startsWith(root) ? absolute.slice(root.length) : absolute;
+  };
+
+  installDbTouchProbe();
+  resetRecordedTouches();
+
+  // Attribute in beforeAll rather than at module scope: setup files are
+  // evaluated before vitest has populated testPath for the file being set up.
+  beforeAll(() => {
+    const testPath = expect.getState().testPath ?? "<unknown>";
+    setCurrentTestFile(relativeTestPath(testPath));
+  });
+
+  afterAll(() => {
+    const testPath = expect.getState().testPath ?? "<unknown>";
+    const file = relativeTestPath(testPath);
+    appendRow(
+      process.env.DB_TOUCH_PROBE_DIR ?? ".db-touch-probe",
+      process.env.VITEST_WORKER_ID ?? "0",
+      summarizeFile(
+        file,
+        recordedTouches().filter((t) => t.file === file),
+      ),
+    );
+    resetRecordedTouches();
+  });
 }
 
 export {};
