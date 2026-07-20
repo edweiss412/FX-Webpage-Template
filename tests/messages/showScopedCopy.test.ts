@@ -8,6 +8,7 @@
  * these tests (spec §8).
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { safeDougFacingTemplate } from "@/lib/admin/attentionItems";
 
@@ -79,5 +80,56 @@ describe("safeDougFacingTemplate selects the show-scoped variant", () => {
     expect(safeDougFacingTemplate("PICKER_BOOTSTRAP_RPC_FAILED", undefined)).toBe(
       MESSAGE_CATALOG.PICKER_BOOTSTRAP_RPC_FAILED.dougFacingShowScoped,
     );
+  });
+});
+
+/**
+ * Extract the argument text of the first `deriveAlertMessageParams(...)` call
+ * by walking to its matching close paren. A regex cannot do this: the call in
+ * bellFeed.ts is multi-line, contains a nested `get(...)`, and sits inside an
+ * object literal so it ends with ")," rather than ");".
+ */
+function callArgs(src: string): string | null {
+  const needle = "deriveAlertMessageParams(";
+  const start = src.indexOf(needle);
+  if (start < 0) return null;
+  let i = start + needle.length;
+  let depth = 1;
+  let inString: string | null = null;
+  for (; i < src.length && depth > 0; i++) {
+    const c = src[i]!;
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === inString) inString = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") inString = c;
+    else if (c === "(") depth++;
+    else if (c === ")") depth--;
+  }
+  return depth === 0 ? src.slice(start + needle.length, i - 1) : null;
+}
+
+describe("production callers pass the correct scope", () => {
+  // The three callers are a closed set (spec §2), so pin each one's literal.
+  // Unit tests exercise deriveAlertMessageParams directly, so without this a
+  // caller could pass the wrong scope and every other gate would still pass:
+  // typecheck proves an argument EXISTS, not that it is the right one.
+  it.each([
+    ["lib/adminAlerts/fetchPerShowAlerts.ts", '"show"'],
+    ["lib/admin/bellFeed.ts", '"global"'],
+    ["components/admin/telemetry/HealthAlertsPanel.tsx", '"global"'],
+  ])("%s passes %s", (file, scope) => {
+    const args = callArgs(readFileSync(file, "utf8"));
+    expect(args, `${file} no longer calls deriveAlertMessageParams`).not.toBeNull();
+    // The scope must be the FINAL argument, not merely present somewhere in the
+    // argument text: a comment or an earlier argument could otherwise satisfy it.
+    const parts = args!
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    expect(parts[parts.length - 1], `${file} passes the wrong scope`).toBe(scope);
   });
 });

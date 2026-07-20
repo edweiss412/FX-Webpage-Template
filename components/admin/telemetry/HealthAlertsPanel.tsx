@@ -75,7 +75,7 @@ function HealthAlertRowItem({
   // Identity-less derived params (spec 2026-07-17 §4.2): this panel has no
   // identity resolution, so sheet/show params take their fallback phrases —
   // never a literal <placeholder> (invariant 5).
-  const params = deriveAlertMessageParams(row.code, row.context, null);
+  const params = deriveAlertMessageParams(row.code, row.context, null, "global");
   // title is pinned marker-free; dougFacing carries the developer detail.
   const headingTemplate = raw?.title ?? raw?.dougFacing ?? null;
   const detailTemplate = raw?.title ? raw.dougFacing : null;
