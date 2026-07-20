@@ -186,7 +186,8 @@ git commit --no-verify -m "feat(admin): warning-card copy sweep — condensed he
 
 **Files:**
 - Modify: `components/admin/PerShowActionableWarnings.tsx:63-145`
-- Test: `tests/admin/perShowActionableRenderControls.test.tsx` (extend), `tests/parser/parseWarningDeepLinkRender.test.tsx` (re-point popover expectations)
+<!-- spec-lint: ignore — new test file created by this plan -->
+- Test: `tests/admin/perShowActionableRenderControls.test.tsx` (extend), `tests/admin/perShowActionableTransitions.test.tsx` (NEW), `tests/parser/parseWarningDeepLinkRender.test.tsx` (re-point popover expectations)
 
 **Interfaces:**
 - Consumes: `MessageCatalogEntry.triggerContext` (Task 1), `renderEmphasis`, `CompactAlertCard` slots (unchanged), `isMessageCode`/`messageFor` (unchanged).
@@ -206,6 +207,10 @@ describe("warningCardCopyFields guard matrix (spec §5)", () => {
     [{ helpfulContext: "   ", triggerContext: "   " }, null, null],
     [{}, null, null], // both fields absent
     [{ helpfulContext: "guide", triggerContext: "trig" }, "guide", "trig"],
+    [{ helpfulContext: "guide", triggerContext: null }, "guide", null], // variant B: independent
+    [{ helpfulContext: "guide" }, "guide", null], // variant B, trigger field absent
+    [{ helpfulContext: null, triggerContext: "trig" }, null, "trig"], // variant C: independent
+    [{ helpfulContext: "   ", triggerContext: "trig" }, null, "trig"], // whitespace-mixed
   ])("entry %j → guidance %j trigger %j", (entry, guidance, trigger) => {
     expect(warningCardCopyFields(entry as never)).toEqual({ guidance, trigger });
   });
@@ -239,12 +244,100 @@ it("unknown code: no guidance node, no trigger, title falls back to human messag
   );
   expect(screen.queryByTestId("per-show-actionable-guidance")).toBeNull();
   expect(screen.queryByTestId(/per-show-actionable-help-.*-trigger/)).toBeNull();
+  expect(screen.getByTestId("per-show-actionable-title").textContent).toBe("human text"); // §5 title fallback
 });
 ```
 
+<!-- spec-lint: ignore — new test file created by this plan -->
+Also create `tests/admin/perShowActionableTransitions.test.tsx` (separate file because it MOCKS the catalog lookup module — the main suite must keep the real catalog). It authors, RED-FIRST, the full spec §6 variant/transition matrix:
+
+<!-- spec-lint: ignore — new test file created by this plan -->
+
+```tsx
+// tests/admin/perShowActionableTransitions.test.tsx - spec §6 transition inventory pins.
+// Mocks @/lib/messages/lookup so variants B (guidance-only) and C (trigger-only) are
+// reachable: post-sweep, every real registry code carries BOTH fields, so the two
+// independent-condition variants exist only for synthetic entries.
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi } from "vitest";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import type { ParseWarning } from "@/lib/parser/types";
+
+vi.mock("@/lib/messages/lookup", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/messages/lookup")>();
+  const SYNTH: Record<string, { title: string; helpfulContext: string | null; triggerContext: string | null }> = {
+    SYN_B: { title: "B title", helpfulContext: "B guidance", triggerContext: null },
+    SYN_C: { title: "C title", helpfulContext: null, triggerContext: "C trigger" },
+    SYN_D: { title: "D title", helpfulContext: "D guidance", triggerContext: "D trigger" },
+  };
+  return {
+    ...real,
+    isMessageCode: (c: string) => c in SYNTH || real.isMessageCode(c),
+    messageFor: (c: string) => (c in SYNTH ? { ...real.messageFor("UNKNOWN_FIELD" as never), ...SYNTH[c] } : real.messageFor(c as never)),
+  };
+});
+
+const warn = (code: string): ParseWarning => ({
+  severity: "warn",
+  code,
+  message: "human text",
+  rawSnippet: null,
+  blockRef: { kind: "client" },
+} as unknown as ParseWarning);
+
+const VARIANTS = {
+  A: { code: "SYN_A", guidance: false, trigger: false }, // unknown code
+  B: { code: "SYN_B", guidance: true, trigger: false },
+  C: { code: "SYN_C", guidance: false, trigger: true },
+  D: { code: "SYN_D", guidance: true, trigger: true },
+} as const;
+
+function expectVariant(v: keyof typeof VARIANTS) {
+  const { guidance, trigger } = VARIANTS[v];
+  expect(!!screen.queryByTestId("per-show-actionable-guidance"), `${v} guidance`).toBe(guidance);
+  expect(!!screen.queryByTestId(/per-show-actionable-help-.*-trigger/), `${v} trigger`).toBe(trigger);
+}
+
+describe("transition inventory (spec §6): every pair instant, both directions", () => {
+  const PAIRS: ReadonlyArray<readonly [keyof typeof VARIANTS, keyof typeof VARIANTS]> = [
+    ["A", "B"], ["A", "C"], ["A", "D"], ["B", "C"], ["B", "D"], ["C", "D"],
+  ];
+  it.each(PAIRS)("%s↔%s swaps synchronously with no residue", (x, y) => {
+    const { rerender } = render(<PerShowActionableWarnings items={[warn(VARIANTS[x].code)]} driveFileId={null} />);
+    expectVariant(x);
+    rerender(<PerShowActionableWarnings items={[warn(VARIANTS[y].code)]} driveFileId={null} />);
+    expectVariant(y);
+    rerender(<PerShowActionableWarnings items={[warn(VARIANTS[x].code)]} driveFileId={null} />);
+    expectVariant(x);
+  });
+
+  it.each([["D", "B"], ["C", "A"]] as const)(
+    "compound %s→%s: open popover unmounts with its trigger (spec §6)",
+    async (from, to) => {
+      const user = userEvent.setup();
+      const { rerender } = render(<PerShowActionableWarnings items={[warn(VARIANTS[from].code)]} driveFileId={null} />);
+      await user.click(screen.getByTestId(/per-show-actionable-help-.*-trigger/));
+      expect(screen.getByTestId(/per-show-actionable-help-.*-body/).className).not.toContain("hidden");
+      rerender(<PerShowActionableWarnings items={[warn(VARIANTS[to].code)]} driveFileId={null} />);
+      expect(screen.queryByTestId(/per-show-actionable-help-.*-body/)).toBeNull();
+      expect(screen.queryByTestId(/per-show-actionable-help-.*-trigger/)).toBeNull();
+    },
+  );
+
+  it("adapter source declares no animation wrappers (instant contract)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/admin/PerShowActionableWarnings.tsx", "utf8");
+    expect(src).not.toMatch(/AnimatePresence|framer-motion|motion\./);
+  });
+});
+```
+
+These are part of THIS task's red set: against pre-change code the guidance testid does not exist (B/D fail) and the popover carries helpfulContext semantics (C variant renders no trigger only after the re-point). Run red in Step 2, green after Step 3.
+
 In `tests/parser/parseWarningDeepLinkRender.test.tsx`: grep the file for `helpfulContext` and re-point every popover-content assertion to `triggerContext` (keep assertions catalog-derived).
 
-- [ ] **Step 2: Run red.** `npx vitest run tests/admin/perShowActionableRenderControls.test.tsx` — FAIL: `warningCardCopyFields` not exported; guidance testid absent; popover still helpfulContext.
+- [ ] **Step 2: Run red.** `npx vitest run tests/admin/perShowActionableRenderControls.test.tsx tests/admin/perShowActionableTransitions.test.tsx` — FAIL: `warningCardCopyFields` not exported; guidance testid absent; popover still helpfulContext; variant B/D transition cases fail on the missing guidance node.
 
 - [ ] **Step 3: Implement.** In `PerShowActionableWarnings.tsx` — add above the component:
 
@@ -287,12 +380,12 @@ message={
 
 (`CompactAlertHelp` keeps its `helpfulContext` prop NAME; it now receives `context` = trigger copy. No other adapter change.)
 
-- [ ] **Step 4: Verify green.** `npx vitest run tests/admin/perShowActionableRenderControls.test.tsx tests/parser/parseWarningDeepLinkRender.test.tsx tests/admin tests/components` PASS; `pnpm typecheck` PASS.
+- [ ] **Step 4: Verify green.** `npx vitest run tests/admin/perShowActionableRenderControls.test.tsx tests/admin/perShowActionableTransitions.test.tsx tests/parser/parseWarningDeepLinkRender.test.tsx tests/admin tests/components` PASS; `pnpm typecheck` PASS.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add components/admin/PerShowActionableWarnings.tsx tests/admin/perShowActionableRenderControls.test.tsx tests/parser/parseWarningDeepLinkRender.test.tsx
+git add components/admin/PerShowActionableWarnings.tsx tests/admin/perShowActionableRenderControls.test.tsx tests/admin/perShowActionableTransitions.test.tsx tests/parser/parseWarningDeepLinkRender.test.tsx
 git commit --no-verify -m "feat(admin): inline guidance line on warning cards; popover shows trigger context"
 ```
 
@@ -350,7 +443,27 @@ describe("unchanged custom-trigger callers never opt in (spec §7 regression pin
 
 - [ ] **Step 2: Author ALL failing tests first — real browser.** Extend `_compactAlertCardLiveEntry.tsx` with two additional mounts (the harness never references `compactTrigger` — the prop stays internal to `CompactAlertHelp` after Step 4, so these fixtures compile against CURRENT code and the assertions run red before any implementation):
   - `<div data-testid="mount-warning-card">` mounting the REAL `PerShowActionableWarnings` with one warning: `{ severity: "warn", code: "UNKNOWN_FIELD", message: "Unrecognized CLIENT row label: 'Stage'", rawSnippet: "Stage | x", blockRef: { kind: "client", name: "Stage" } }` and `driveFileId={null}`.
-  - `<div data-testid="mount-attention-banner">` mounting the REAL `AttentionBanner` with a `makeItem`-shaped fixture (copy the builder from `attentionBanner.test.tsx:28-42`) whose alert code has non-empty `helpfulContext` so the trigger renders.
+  - `<div data-testid="mount-attention-banner">` mounting the REAL `AttentionBanner`. Full prop signature (`AttentionBanner.tsx:44-51`): `{ item, slug, now, highlighted, onResolved }`. Exact mount (fixture shape copied from `attentionBanner.test.tsx:28-56`; code = `USE_RAW_DECISION_STALE`, verified the ONLY doug-audience catalog code with non-null `helpfulContext`, so the trigger renders):
+
+```tsx
+<AttentionBanner
+  item={{
+    id: "alert:a1", kind: "alert", tone: "notice", sectionId: "crew", crewKey: null,
+    actionable: true, menuTitle: "Use-raw decision stale", menuSubtitle: null,
+    alert: {
+      alertId: "a1", code: "USE_RAW_DECISION_STALE", template: "A saved use-raw decision went stale.",
+      params: {}, action: null, helpHref: null, raisedAt: "2026-07-19T10:00:00Z",
+      occurrenceCount: 1, autoClearNote: null, failedKeys: null, dataGaps: null,
+    },
+  }}
+  slug="harness-show"
+  now={new Date("2026-07-19T12:00:00Z")}
+  highlighted={false}
+  onResolved={() => {}}
+/>
+```
+
+  (If `AttentionItem` gains fields, TypeScript fails the harness build loudly — the fixture is object-literal-typed, not `as`-cast.)
   - Create the stub module (path below):
 
 <!-- spec-lint: ignore — new test files created by this plan -->
@@ -378,10 +491,13 @@ for (const mount of ["mount-warning-card", "mount-attention-banner"] as const) {
     });
     expect(insets).toEqual(["-11px", "-11px", "-11px", "-11px"]);
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
-    for (const [dx, dy] of [[-21.5, -21.5], [21.5, -21.5], [-21.5, 21.5], [21.5, 21.5]]) {
+    const PROBES: ReadonlyArray<readonly [number, number]> = [
+      [-21.5, -21.5], [21.5, -21.5], [-21.5, 21.5], [21.5, 21.5],
+    ];
+    for (const [dx, dy] of PROBES) {
       const hit = await page.evaluate(
-        ([x, y]) => document.elementFromPoint(x!, y!)?.closest("button")?.getAttribute("data-testid") ?? null,
-        [cx + dx, cy + dy],
+        ([x, y]: readonly [number, number]) => document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
+        [cx + dx, cy + dy] as const,
       );
       expect(hit, `probe ${dx},${dy}`).toMatch(/-trigger$/);
     }
@@ -445,61 +561,24 @@ git commit --no-verify -m "feat(admin): compact 22px help trigger with overlay h
 
 ---
 
-### Task 4: Transition audit (spec §6 inventory — mandatory dedicated task)
+### Task 4: Transition audit (spec §6 inventory — mandatory dedicated task; verification-only)
 
-**Files:**
-- Test: `tests/admin/perShowActionableRenderControls.test.tsx` (extend with a transition block)
+<!-- spec-lint: ignore — new test file created by this plan -->
+The transition tests themselves were authored RED-FIRST in Task 2 (`tests/admin/perShowActionableTransitions.test.tsx`) to honor TDD-per-task — this task is the AUDIT: it verifies the shipped suite pins the full inventory and enumerates every conditional block, per the transition-audit rule.
 
-Spec §6 declares 4 variants (A title-only, B +guidance, C +trigger, D +both), all 6 pairs instant, and the compound case (popover open while a re-render removes the trigger). These tests PIN that inventory.
+**Inventory → test map (all six pairs + compound, from spec §6):**
 
-- [ ] **Step 1: Write the audit tests:**
+| Pair | Treatment | Pinned by |
+| --- | --- | --- |
+| A↔B, A↔C, A↔D, B↔C, B↔D, C↔D | instant, both directions | `it.each(PAIRS)` round-trip cases |
+| D→B compound (popover open, trigger removed) | instant unmount | compound `it.each` case 1 |
+| C→A compound (popover open, trigger removed) | instant unmount | compound `it.each` case 2 |
+| Popover open/close fade | untouched (`transition-discrete`, `HoverHelp.tsx` body) | source-scan + no HoverHelp body-class edits in the diff |
 
-```tsx
-import userEvent from "@testing-library/user-event";
-import { readFileSync } from "node:fs";
+**Conditional-block enumeration (adapter, post-Task-2):** `guidance ? <span/> : null` (message stack); `context ? <CompactAlertHelp/> : null` (helpTrigger slot); `rowLabel ? detailBand : null`; `href ? footerLeft : null`; `renderItemControls` presence — the first two are the §6 variant axes (tested above); the last three are pre-existing #509 bands, unchanged in this diff. No `AnimatePresence`/ternary-animation wrappers anywhere in the adapter (source-scan test).
 
-describe("transition inventory (spec §6): variant changes instant, no animation wrappers", () => {
-  it("adapter source declares no animation for variant changes (instant contract)", () => {
-    const src = readFileSync("components/admin/PerShowActionableWarnings.tsx", "utf8");
-    expect(src).not.toMatch(/AnimatePresence|framer-motion|motion\./);
-  });
-
-  it("A→D→A: rerender between unknown-code and full-copy variants swaps content synchronously", () => {
-    const { rerender } = render(
-      <PerShowActionableWarnings items={[{ ...unknownFieldWarning, code: "NOT_A_CODE", message: "human" }]} driveFileId={null} />,
-    );
-    expect(screen.queryByTestId("per-show-actionable-guidance")).toBeNull();
-    rerender(<PerShowActionableWarnings items={[unknownFieldWarning]} driveFileId={null} />);
-    expect(screen.getByTestId("per-show-actionable-guidance")).toBeInTheDocument();
-    rerender(
-      <PerShowActionableWarnings items={[{ ...unknownFieldWarning, code: "NOT_A_CODE", message: "human" }]} driveFileId={null} />,
-    );
-    expect(screen.queryByTestId("per-show-actionable-guidance")).toBeNull(); // no exit-animation residue
-  });
-
-  it("compound D→A: open popover unmounts with its trigger on rerender (spec §6)", async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(<PerShowActionableWarnings items={[unknownFieldWarning]} driveFileId={null} />);
-    await user.click(screen.getByTestId(/per-show-actionable-help-.*-trigger/));
-    expect(screen.getByTestId(/per-show-actionable-help-.*-body/).className).not.toContain("hidden");
-    rerender(
-      <PerShowActionableWarnings items={[{ ...unknownFieldWarning, code: "NOT_A_CODE", message: "human" }]} driveFileId={null} />,
-    );
-    expect(screen.queryByTestId(/per-show-actionable-help-.*-body/)).toBeNull();
-  });
-});
-```
-
-(jsdom is sufficient: the contract is mount/unmount synchronicity and absence of animation wrappers, not rendered pixels. Class assertions, not `toBeVisible` — jsdom loads no CSS.)
-
-- [ ] **Step 2: Run.** `npx vitest run tests/admin/perShowActionableRenderControls.test.tsx` — expected PASS (pins the inventory; a failure indicates a Task 2/3 defect — fix it before committing).
-
-- [ ] **Step 3: Commit.**
-
-```bash
-git add tests/admin/perShowActionableRenderControls.test.tsx
-git commit --no-verify -m "test(admin): transition-inventory audit for warning-card variants (spec §6)"
-```
+- [ ] **Step 1: Verify the audit holds.** `npx vitest run tests/admin/perShowActionableTransitions.test.tsx` — PASS (these went red→green inside Task 2; a failure here is a Task 2/3 regression — fix there, not here). Confirm with `git diff origin/main -- components/admin/HoverHelp.tsx` that the popover body classes (fade) are untouched.
+- [ ] **Step 2: Check the box in this plan and proceed.** No commit (no new files in this task).
 
 ---
 
