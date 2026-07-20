@@ -30,7 +30,19 @@ Cut per-leg wall clock by running the Supabase bootstrap CONCURRENTLY with the d
 
 Boot-phase decomposition from that run's log: image pull ≈45s (first `Pulled` 12:20:31 → last 12:21:07), container start ≈11s (→ `Initialising schema...` 12:21:18), schema init ≈6s (→ `Seeding globals` 12:21:24), migrations ≈8s. Fixed overhead totals ~91s against a 245s max leg.
 
-**The observation this phase exploits:** the boot step cannot begin until `./.github/actions/setup` finishes, yet the two share no data. The boot's first ~45s is network-bound image pulling; the setup step's 16s is npm-registry-bound installing. Running them concurrently costs nothing and reclaims the shorter of the two.
+**The observation this phase exploits:** the boot step cannot begin until `./.github/actions/setup` finishes, yet the two share no data. The boot's first ~45s is network-bound image pulling; the setup step's 16s is npm-registry-bound installing. Running them concurrently should reclaim most of the shorter one — bounded above by 16s, and possibly less under contention (§3); §5 measures rather than assumes, and the gate reverts a change that does not pay.
+
+### 2.1 Empirical probe (run 29743206592, 2026-07-20) — the design's undocumented premises, measured
+
+Whether a process detached in one step survives into later steps on a GitHub-hosted runner is undocumented runner behaviour, and the whole design rests on it. Per this project's spike rule it was PROBED, not assumed, before this design was written down. A throwaway workflow started a detached worker that slept 40s then published a status, ran a 20s step in between, and joined:
+
+| Probe question | Result |
+| --- | --- |
+| Detached process survives across step boundaries? | **YES** — worker started 12:42:09, its output and sentinel appeared at 12:42:49, read by a later step's shell |
+| Sentinel status propagates to the joining step? | **YES** — status 7 written, 7 observed |
+| Is `echo N > file` observably non-atomic to a concurrent reader? | **0 empty reads in 400 create/read races** |
+
+The first two make the design viable. The third says the empty-read race is not observable in practice — but 0/400 is not proof of impossibility, and the fix is free, so §3 publishes the sentinel with a `mv` (atomic rename within one filesystem) rather than relying on it.
 
 ## 3. Design
 
@@ -48,16 +60,19 @@ Reorder and background, changing no script. **The cross-step coordination is a c
    disown
    ```
 
-   The inner `echo $?` records the bootstrap's real exit status. Background processes survive step boundaries: steps are separate shells inside ONE job on ONE runner VM, and the runner does not reap a job's background processes between steps.
+   The inner capture records the bootstrap's real exit status, published by `mv` so the join can never observe a created-but-empty sentinel (§2.1 probe question 3). Background survival across steps is not an assumption here — it is measured in §2.1.
 
 5. `./.github/actions/setup` runs while images pull.
 6. **NEW — join: wait for the sentinel, surface the log, adopt the status.**
 
    ```bash
-   deadline=$((SECONDS + 900))
-   until [ -f /tmp/supabase-boot.rc ]; do
-     if [ "$SECONDS" -ge "$deadline" ]; then
-       echo "::error::supabase bootstrap did not finish within 900s"
+   # Anchor the deadline to when the BOOT started, not when the join did, so a
+   # slow setup step cannot push the effective timeout past the 20-minute job cap.
+   started=$(cat /tmp/supabase-boot.started)
+   deadline=$(( started + 600 ))
+   while [ ! -f /tmp/supabase-boot.rc ]; do
+     if [ "$(date +%s)" -ge "$deadline" ]; then
+       echo "::error::supabase bootstrap did not finish within 600s of starting"
        cat /tmp/supabase-boot.log || true
        exit 1
      fi
@@ -69,13 +84,13 @@ Reorder and background, changing no script. **The cross-step coordination is a c
    exit "$rc"
    ```
 
-   `exit "$rc"` is the fail-closed hinge: a non-zero bootstrap fails the leg and therefore the REQUIRED aggregate, exactly as the foreground form does. The timeout bounds the pathological case where the detached process dies before writing the sentinel (leg fails rather than hangs to the 20-minute job cap). The single `|| true` is on the diagnostic `cat` in the timeout path ONLY, where the log may legitimately not exist yet; it can never mask a bootstrap failure because that path exits 1 unconditionally.
+   `exit "$rc"` is the fail-closed hinge: a non-zero bootstrap fails the leg and therefore the REQUIRED aggregate, exactly as the foreground form does. The start step records the boot start time (date +%s) to a started-marker file under /tmp; the join's 600s deadline is measured from THAT, so a slow setup cannot push the effective timeout past the job's 20-minute cap (round-2 finding 6). The single `|| true` is on the diagnostic `cat` in the timeout path ONLY, where the log may legitimately not exist yet; it can never mask a bootstrap failure because that path exits 1 unconditionally.
 
 7. vitest step unchanged.
 
-**Diagnostics on failure paths (round-1 finding 7).** Today the boot log streams live; buffering it until the join would hide it whenever setup fails, the job is cancelled, or the runner times out before the join. Both new steps therefore run under `if: always()`-style availability at the job level via an additional **`if: failure()` log dump** appended to the setup composite's step list, so a setup failure still prints whatever the boot has produced. The join prints the log on both its success and timeout paths.
+**Diagnostics on failure paths (round-1 finding 7).** Today the boot log streams live; buffering it until the join would hide it whenever setup fails, the job is cancelled, or the runner times out before the join. An **`if: failure()` log-dump step** placed after the setup composite prints whatever the boot has produced when SETUP fails. Honest limits (round-2 finding 6): it cannot help on job cancellation or a runner-level timeout, where no later step runs at all — those paths lose the buffered log, which is a real if narrow regression versus today's streaming. The join prints the log on both its success and timeout paths.
 
-**Working-tree interleaving (round-1 finding 3).** The bootstrap moves two migration files aside and restores them via `trap restore EXIT`, while `pnpm install` runs concurrently. These touch disjoint paths (`supabase/migrations/*.sql` vs `node_modules/`), so the interleaving is safe. If the job dies between the move and the trap, the mutated tree is discarded with the ephemeral runner — no persistence risk, and no other step reads those files before the join.
+**Working-tree interleaving (round-1 finding 3).** The bootstrap moves two migration files aside and restores them via `trap restore EXIT`, while `pnpm install` runs concurrently. Disjointness is AUDITED, not inferred from the top-level command (round-2 finding 5): `package.json` defines exactly one install-lifecycle script, `prepare: simple-git-hooks`, whose configuration is `{"pre-commit": "pnpm exec lint-staged"}` — it writes `.git/hooks/` only. No `preinstall`, `install`, `postinstall`, or `prepack` exists. So the concurrent writes are `node_modules/` plus `.git/hooks/` against `supabase/migrations/*.sql`: disjoint. If the job dies between the move and the trap, the mutated tree is discarded with the ephemeral runner — no persistence risk, and no other step reads those files before the join.
 
 **Expected saving — bounded, not asserted.** Contention-free, `16 + 70` becomes `max(16, 70)`, i.e. 16s. But the setup step is not purely network-bound: with `cache: pnpm` it also restores a cache, links/extracts packages, and runs package scripts, competing with Docker layer extraction for disk and CPU. **16s is an upper bound; the realized saving may be materially less.** §5 measures rather than assumes.
 
@@ -84,10 +99,19 @@ Reorder and background, changing no script. **The cross-step coordination is a c
 EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none.
 
 (a) **Step ordering**: checkout → setup-cli → psql → background-start → setup composite → join → vitest, by index comparison.
-(b) **Executable behavioral proof of the join — this is the assertion that matters, and shape-matching cannot replace it.** Round-1 review established that a structural check would happily accept a join that always fails (or always passes). The meta-test therefore EXTRACTS the start and join `run:` bodies from the workflow YAML and EXECUTES them in a temp directory against a stub bootstrap, twice:
-   - stub exits 0 → the join exits 0 (a successful boot permits the leg to continue);
-   - stub exits 7 → the join exits 7 (a failed boot blocks vitest and fails the leg).
-   Running the real extracted commands is what makes this non-tautological: any regression that decouples the join from the bootstrap's status — `set +e`, a conditional `wait`, an overwritten status variable, an unconditional `exit 0`, reading the wrong sentinel — changes one of those two observed exit codes. Enumerating soft-failure syntaxes could not.
+(b) **Executable behavioral proof of the join, plus structural pins for what execution cannot observe.** Round-2 review showed two exit-code trials are necessary but NOT sufficient — several regressions preserve both codes while destroying the point of the change. The proof is therefore layered:
+
+   **Executed** (extract the start and join `run:` bodies from the YAML, run them in a temp dir against a stub bootstrap under `bash -euo pipefail`, matching Actions' shell):
+   - stub exits 0 → join exits 0 (a successful boot lets the leg continue);
+   - stub exits 7 → join exits 7 (a failed boot fails the leg — the fail-closed hinge);
+   - stub never writes a sentinel, with the deadline stubbed short → join exits non-zero and prints the timeout error (the missing-sentinel branch, invisible to the first two trials);
+   - the stub's stdout appears in the join's output on the success path (log surfacing, likewise invisible to exit codes).
+   Running under `-euo pipefail` closes the round-2 gap where a lax shell lets an intermediate failure precede the expected final `exit`.
+
+   **Structural** (things execution in a local shell cannot prove, since it cannot reproduce runner step boundaries):
+   - the start step's command contains `nohup` and a trailing `&` — without detachment the "overlap" silently becomes sequential while both exit-code trials still pass, i.e. the change would be a no-op that looks correct;
+   - the start step does NOT itself wait for the bootstrap;
+   - the join publishes/reads the sentinel via the `mv` form, not a bare redirect into the read path.
 (c) **The bootstrap is invoked exactly once** in the workflow, still as `bash scripts/ci/supabase-local-bootstrap.sh` (the shared-script contract other workflows depend on).
 (d) **Soft-failure inventory**: `|| true` appears exactly once, on the timeout path's diagnostic `cat` (§3.6), and never on the bootstrap invocation or the join's exit.
 (e) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
@@ -108,4 +132,4 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none.
 
 ## 7. Numeric self-consistency register
 
-Baseline run 29741812457 leg 1: setup 16s, setup-cli 2s, boot 70s, vitest 154s, fixed overhead 91s, max leg 245s (§2); boot decomposition pull ≈45s / start ≈11s / schema ≈6s / migrations ≈8s (§2); theoretical upper-bound saving 16s → overhead ~75s (§3); accept threshold ≥8s median fixed-overhead reduction vs the 91s baseline (§5.3); join timeout 900s (§3.6).
+Baseline run 29741812457 leg 1: setup 16s, setup-cli 2s, boot 70s, vitest 154s, leg-1 fixed overhead 91s, leg-median fixed overhead 101s, max leg 245s (§2); boot decomposition pull ≈45s / start ≈11s / schema ≈6s / migrations ≈8s (§2); theoretical upper-bound saving 16s → overhead ~75s (§3); accept threshold ≥8s median fixed-overhead reduction vs the 101s median baseline (§5.3); join deadline 600s from boot start (§3.6); probe run 29743206592, 0/400 empty reads (§2.1).
