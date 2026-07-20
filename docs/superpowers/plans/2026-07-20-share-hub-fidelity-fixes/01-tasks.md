@@ -425,8 +425,16 @@ it("clicking the wrapper itself does nothing - only the button is interactive", 
   const row = screen.getByTestId("picker-reset-all-button");
   const wrapper = row.parentElement!;
 
-  // Idle before, idle after: no confirm row appears.
+  // Idle before, idle after. Fire the POINTER PRECURSORS too, not just click:
+  // React's `onClick` is delegated, but so are `onPointerDown` / `onMouseDown`,
+  // and `fireEvent.click` does NOT emit the pointer sequence — a wrapper wired
+  // with `onPointerDown={enterConfirm}` would pass a click-only assertion while
+  // a real pointer interaction activates it.
   expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+  fireEvent.pointerDown(wrapper);
+  fireEvent.mouseDown(wrapper);
+  fireEvent.pointerUp(wrapper);
+  fireEvent.mouseUp(wrapper);
   fireEvent.click(wrapper);
   expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
   // …and the row itself still works, so the test cannot pass by the control

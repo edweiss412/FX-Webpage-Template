@@ -106,12 +106,33 @@ function expectNotHidden(el: Element, root: Element, what: string): void {
   }
 }
 
-/** Counts occurrences of `needle` in the scope's COMPOSED text. Testing
- *  Library's exact getAllByText only matches text held by a single element, so
- *  a duplicate split across siblings (<p><span>Old link</span><span> stops…</span></p>)
- *  slips past it. Composed counting catches that. */
+/**
+ * Counts how many ELEMENTS in the scope render exactly `needle` as their own
+ * composed text.
+ *
+ * Not a raw substring count over the scope's text: with `rowLabel="Old link"`
+ * and `rowDescription="Old link stops working immediately"` (both legal per
+ * §4.2, which supports an arbitrary `rowLabel`), the label occurs twice as a
+ * SUBSTRING and a correct row would be reported as a duplicate.
+ *
+ * Element-equality keeps the escape it was introduced for: a duplicate split
+ * across siblings (`<p><span>Old link </span><span>stops working</span></p>`)
+ * still has a parent whose COMPOSED text equals the needle, so it is counted.
+ */
 function countComposed(scope: HTMLElement, needle: string): number {
-  return normalize(composedText(scope)).split(normalize(needle)).length - 1;
+  const target = normalize(needle);
+  const matches = [scope, ...scope.querySelectorAll("*")].filter(
+    (el) => normalize(composedText(el)) === target,
+  );
+  // Keep only the DEEPEST match in each chain. An element whose sole text is the
+  // needle propagates the match to every ancestor that adds no other text. With
+  // no description rendered, the label span, its column, AND the button all
+  // compose to the label, which would count 3 for a CORRECT row. (The self-test
+  // caught exactly this.) The split-duplicate escape survives: in
+  // `<p><span>Old link </span><span>stops working</span></p>` neither child
+  // matches alone, so the `<p>` itself is the deepest match and is counted.
+  return matches.filter((el) => !matches.some((other) => other !== el && el.contains(other)))
+    .length;
 }
 
 /**
@@ -376,6 +397,13 @@ export function expectRowBoundary(
     expect(region.getAttribute("aria-hidden"), "the live region must not be aria-hidden").not.toBe(
       "true",
     );
+    // INLINE style and `inert` hide it just as completely as the attributes
+    // above, and both are decidable here. `display:none` on a live region means
+    // the announcement never reaches the a11y tree.
+    const rs = (region as HTMLElement).style;
+    expect(rs.display, "the live region must not be display:none").not.toBe("none");
+    expect(rs.visibility, "the live region must not be visibility:hidden").not.toBe("hidden");
+    expect(region.hasAttribute("inert"), "the live region must not be inert").toBe(false);
     expect(
       [...region.children],
       "the live region carries announcement TEXT, never elements",

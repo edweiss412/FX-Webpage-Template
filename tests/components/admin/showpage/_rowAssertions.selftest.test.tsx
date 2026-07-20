@@ -103,6 +103,29 @@ describe("round-21: the CORRECT implementation passes end to end", () => {
     expectRowBoundary(btn, { scope: container, descriptionId: null, container });
   });
 
+  it("OVERLAPPING label and description pass (label is a substring of the description)", () => {
+    // §4.2 supports an arbitrary `rowLabel`. With rowLabel="Old link" the label
+    // occurs TWICE as a raw substring of the scope text, so a substring-count
+    // uniqueness check would report a duplicate and fail this CORRECT row.
+    const label = "Old link";
+    const { container } = render(
+      <div className={W}>
+        <button type="button" aria-label={label} aria-describedby="ov" className={ROW}>
+          <RotateCcw aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{label}</span>
+            <span id="ov" className={DC}>
+              {RD}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expectRowText(btn, container, { label, description: RD });
+    expectRowBoundary(btn, { scope: container, descriptionId: "ov", container });
+  });
+
   it("reset WITH its live region passes every assertion", () => {
     const { container } = render(<ResetRow />);
     const btn = container.querySelector("button")!;
@@ -164,6 +187,80 @@ describe("round-21: the new escapes still fail", () => {
     );
     const btn = container.querySelector("button")!;
     expect(() => expectRowBoundary(btn, { scope: container, descriptionId: "rd3" })).toThrow();
+  });
+
+  it("REJECTS a display:none live region", () => {
+    const { container } = render(
+      <div className={W}>
+        <button type="button" aria-label={SL} aria-describedby="sd3" className={RESET_ROW}>
+          <RefreshCw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{SL}</span>
+            <span id="sd3" className={DC}>
+              {SD}
+            </span>
+          </span>
+        </button>
+        <div className="sr-only" role="status" aria-live="polite" style={{ display: "none" }} />
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() =>
+      expectRowBoundary(btn, {
+        scope: container,
+        descriptionId: "sd3",
+        container,
+        allowLiveRegion: true,
+      }),
+    ).toThrow();
+  });
+
+  it("REJECTS an inert live region", () => {
+    const { container } = render(
+      <div className={W}>
+        <button type="button" aria-label={SL} aria-describedby="sd4" className={RESET_ROW}>
+          <RefreshCw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{SL}</span>
+            <span id="sd4" className={DC}>
+              {SD}
+            </span>
+          </span>
+        </button>
+        <div className="sr-only" role="status" aria-live="polite" inert />
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() =>
+      expectRowBoundary(btn, {
+        scope: container,
+        descriptionId: "sd4",
+        container,
+        allowLiveRegion: true,
+      }),
+    ).toThrow();
+  });
+
+  it("STILL REJECTS a duplicate split across siblings (element-equality keeps this)", () => {
+    const { container } = render(
+      <div className={W}>
+        <p>
+          <span>{"Old link "}</span>
+          <span>{"stops working immediately"}</span>
+        </p>
+        <button type="button" aria-label={RL} aria-describedby="rd9" className={ROW}>
+          <RotateCcw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{RL}</span>
+            <span id="rd9" className={DC}>
+              {RD}
+            </span>
+          </span>
+        </button>
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() => expectRowText(btn, container, { label: RL, description: RD })).toThrow();
   });
 
   it("still REJECTS a partial-class carrier beside the column (structurally)", () => {
