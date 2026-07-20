@@ -214,9 +214,12 @@ function readFailedKeys(code: string, context: Record<string, unknown> | null): 
   return (context.failedKeys as unknown[]).filter((k): k is string => typeof k === "string");
 }
 
-// Read-layer defense: only an allowlisted persisted code reaches the payload, so a
-// context value outside the allowlist renders no reason (attention-alert-routing §3.1).
-function readErrorCode(context: Record<string, unknown> | null): string | null {
+// Read-layer defense: the reason belongs ONLY to PARSE_ERROR_LAST_GOOD, and only an
+// allowlisted persisted code survives (attention-alert-routing §3.1). Gating on the
+// alert code too prevents an unrelated alert whose context happens to carry an
+// `error_code` from surfacing a parse reason on the wrong card.
+function readErrorCode(code: string, context: Record<string, unknown> | null): string | null {
+  if (code !== "PARSE_ERROR_LAST_GOOD") return null;
   const v = context?.error_code;
   return typeof v === "string" && PARSE_FAILURE_ALLOWLIST.has(v) ? v : null;
 }
@@ -252,7 +255,7 @@ function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
       autoClearNote,
       failedKeys: readFailedKeys(row.code, row.context),
       dataGaps: row.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(row.context) : null,
-      errorCode: readErrorCode(row.context),
+      errorCode: readErrorCode(row.code, row.context),
     },
   };
 }
