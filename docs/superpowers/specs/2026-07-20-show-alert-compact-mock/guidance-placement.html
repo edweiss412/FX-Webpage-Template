@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif; background: #0f1014; color: #e8e6e0; -webkit-font-smoothing: antialiased; }
+  time { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div style="min-height:100vh; background:#0f1014; padding:56px 48px 96px;">
+
+  <div style="max-width:1180px; margin:0 auto;">
+    <div style="font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#74736d; font-weight:600; margin-bottom:10px;">FXAV · Admin · Compact alert — guidance (helpfulContext) placement</div>
+    <h1 style="font-size:30px; line-height:1.2; letter-spacing:-0.015em; font-weight:700; color:#f5f3ee; margin:0 0 12px;">Where does the guidance sentence live?</h1>
+    <p style="font-size:15px; line-height:1.55; color:#9c9a93; max-width:62ch; margin:0 0 8px;">Same parse warning three ways. Guidance = "Fix the time in the sheet and re-sync, or ignore if the blank is fine."</p>
+  </div>
+
+  <section style="max-width:1180px; margin:36px auto 0;">
+    <div style="display:flex; flex-wrap:wrap; gap:36px 28px; align-items:flex-start;">
+
+      <!-- G1: plain line in body -->
+      <div style="width:400px;">
+        <div style="font-size:12px; font-weight:600; color:#74736d; margin-bottom:10px;">G1 · Plain line in body, always visible</div>
+        <div style="display:flex; flex-direction:column; border-radius:6px; border:1px solid #2a2b30; border-left:3px solid #e0b84e; background:#3a2e14;">
+          <div style="display:flex; gap:10px; padding:12px 14px 11px;">
+            <span aria-hidden="true" style="flex:none; width:16px; height:16px; margin-top:1px; border-radius:999px; background:#e0b84e; color:#3a2e14; font-size:12px; font-weight:700; line-height:16px; text-align:center;">!</span>
+            <div style="flex:1 1 auto; min-width:0;">
+              <p style="margin:0; font-size:13px; line-height:1.45; font-weight:600; color:#f5f3ee; overflow-wrap:break-word;">Schedule time for <span style="color:#ffd68a;">'Load-in — Hall C'</span> could not be read. The row was kept but its start time is blank.</p>
+              <p style="margin:6px 0 0; font-size:11px; line-height:1.5; color:#9c9a93;">Fix the time in the sheet and re-sync, or ignore if the blank is fine.</p>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:7px 14px 9px; border-top:1px dashed rgba(224,184,78,0.22);">
+            <span style="font-size:11px; color:#9c9a93; white-space:nowrap;"><span style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600; color:#a08a4d; margin-right:5px;">Sheet row</span><span style="font-weight:500; color:#e8dcc0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">Load in | 8a-ish??</span></span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-top:1px solid rgba(224,184,78,0.18);">
+            <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#74736d; white-space:nowrap;">
+              <a href="#" style="font-size:12px; font-weight:500; color:#f5f3ee; text-decoration:underline; text-underline-offset:2px;">Open in Sheet <span aria-hidden="true">↗</span></a>
+              <span style="opacity:0.5;">·</span>
+              <span>4h ago</span>
+            </div>
+            <button type="button" style="display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 12px; border-radius:6px; border:1px solid #3a3b40; background:#0f1014; font:inherit; font-size:13px; font-weight:500; color:#f5f3ee; cursor:pointer; white-space:nowrap;">Ignore</button>
+          </div>
+        </div>
+        <p style="margin:10px 0 0; font-size:12px; line-height:1.5; color:#74736d;">No ? icon needed when guidance is the only help content. Tallest card.</p>
+      </div>
+
+      <!-- G2: behind ? popover (shown open) -->
+      <div style="width:400px;">
+        <div style="font-size:12px; font-weight:600; color:#74736d; margin-bottom:10px;">G2 · Behind ? popover (shown open)</div>
+        <div style="position:relative; display:flex; flex-direction:column; border-radius:6px; border:1px solid #2a2b30; border-left:3px solid #e0b84e; background:#3a2e14;">
+          <div style="display:flex; gap:10px; padding:12px 14px 11px;">
+            <span aria-hidden="true" style="flex:none; width:16px; height:16px; margin-top:1px; border-radius:999px; background:#e0b84e; color:#3a2e14; font-size:12px; font-weight:700; line-height:16px; text-align:center;">!</span>
+            <p style="margin:0; flex:1 1 auto; font-size:13px; line-height:1.45; font-weight:600; color:#f5f3ee; overflow-wrap:break-word;">Schedule time for <span style="color:#ffd68a;">'Load-in — Hall C'</span> could not be read. The row was kept but its start time is blank.</p>
+            <button type="button" title="What does this mean?" aria-label="What does this mean?" aria-expanded="true" style="flex:none; width:22px; height:22px; margin-top:-1px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; border:1px solid #c9a24a; background:#2a1e10; color:#c9a24a; font:inherit; font-size:12px; font-weight:700; cursor:pointer;">?</button>
+          </div>
+          <!-- popover -->
+          <div role="dialog" aria-label="What does this mean?" style="position:absolute; top:38px; right:10px; z-index:10; width:280px; border-radius:8px; border:1px solid #3a3b40; background:#16171c; box-shadow:0 12px 32px rgba(0,0,0,0.5); padding:12px 14px;">
+            <p style="margin:0 0 6px; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600; color:#74736d;">What does this mean?</p>
+            <p style="margin:0; font-size:12px; line-height:1.55; color:#c9c7c0;">Fix the time in the sheet and re-sync, or ignore if the blank is fine.</p>
+            <a href="#" style="display:inline-block; margin-top:8px; font-size:12px; font-weight:500; color:#ffa047; text-decoration:underline; text-underline-offset:2px;">Learn more</a>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:7px 14px 9px; border-top:1px dashed rgba(224,184,78,0.22);">
+            <span style="font-size:11px; color:#9c9a93; white-space:nowrap;"><span style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600; color:#a08a4d; margin-right:5px;">Sheet row</span><span style="font-weight:500; color:#e8dcc0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">Load in | 8a-ish??</span></span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-top:1px solid rgba(224,184,78,0.18);">
+            <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#74736d; white-space:nowrap;">
+              <a href="#" style="font-size:12px; font-weight:500; color:#f5f3ee; text-decoration:underline; text-underline-offset:2px;">Open in Sheet <span aria-hidden="true">↗</span></a>
+              <span style="opacity:0.5;">·</span>
+              <span>4h ago</span>
+            </div>
+            <button type="button" style="display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 12px; border-radius:6px; border:1px solid #3a3b40; background:#0f1014; font:inherit; font-size:13px; font-weight:500; color:#f5f3ee; cursor:pointer; white-space:nowrap;">Ignore</button>
+          </div>
+        </div>
+        <p style="margin:10px 0 0; font-size:12px; line-height:1.5; color:#74736d;">Shortest card; guidance one click away. Popover holds guidance + Learn more link. Matches the committed ?-popover decision — one home for all help.</p>
+      </div>
+
+      <!-- G3: hybrid -->
+      <div style="width:400px;">
+        <div style="font-size:12px; font-weight:600; color:#74736d; margin-bottom:10px;">G3 · Hybrid: first sentence inline, rest in popover</div>
+        <div style="display:flex; flex-direction:column; border-radius:6px; border:1px solid #2a2b30; border-left:3px solid #e0b84e; background:#3a2e14;">
+          <div style="display:flex; gap:10px; padding:12px 14px 11px;">
+            <span aria-hidden="true" style="flex:none; width:16px; height:16px; margin-top:1px; border-radius:999px; background:#e0b84e; color:#3a2e14; font-size:12px; font-weight:700; line-height:16px; text-align:center;">!</span>
+            <div style="flex:1 1 auto; min-width:0;">
+              <p style="margin:0; font-size:13px; line-height:1.45; font-weight:600; color:#f5f3ee; overflow-wrap:break-word;">Schedule time for <span style="color:#ffd68a;">'Load-in — Hall C'</span> could not be read. The row was kept but its start time is blank.</p>
+              <p style="margin:6px 0 0; font-size:11px; line-height:1.5; color:#9c9a93;">Fix the time in the sheet and re-sync.</p>
+            </div>
+            <button type="button" title="What does this mean?" aria-label="What does this mean?" style="flex:none; width:22px; height:22px; margin-top:-1px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; border:1px solid #5c4a1e; background:transparent; color:#c9a24a; font:inherit; font-size:12px; font-weight:700; cursor:pointer;">?</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:7px 14px 9px; border-top:1px dashed rgba(224,184,78,0.22);">
+            <span style="font-size:11px; color:#9c9a93; white-space:nowrap;"><span style="font-size:10px; letter-spacing:0.08em; text-transform:uppercase; font-weight:600; color:#a08a4d; margin-right:5px;">Sheet row</span><span style="font-weight:500; color:#e8dcc0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">Load in | 8a-ish??</span></span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-top:1px solid rgba(224,184,78,0.18);">
+            <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#74736d; white-space:nowrap;">
+              <a href="#" style="font-size:12px; font-weight:500; color:#f5f3ee; text-decoration:underline; text-underline-offset:2px;">Open in Sheet <span aria-hidden="true">↗</span></a>
+              <span style="opacity:0.5;">·</span>
+              <span>4h ago</span>
+            </div>
+            <button type="button" style="display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 12px; border-radius:6px; border:1px solid #3a3b40; background:#0f1014; font:inherit; font-size:13px; font-weight:500; color:#f5f3ee; cursor:pointer; white-space:nowrap;">Ignore</button>
+          </div>
+        </div>
+        <p style="margin:10px 0 0; font-size:12px; line-height:1.5; color:#74736d;">Action cue stays visible, education folds away. Needs copy split per catalog code — editorial work across ~45 codes.</p>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
