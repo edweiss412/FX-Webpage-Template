@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import {
   BASE_INCLUDE,
+  PARALLEL_DB_FREE_FILES,
   PARALLEL_TEST_GLOBS,
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
@@ -86,6 +87,9 @@ export default defineConfig({
           exclude: [
             ...configDefaults.exclude,
             ...PARALLEL_TEST_GLOBS,
+            // Measured DB-free files that live in serial DIRS (see
+            // vitest.projects.ts for the two probe runs behind this list).
+            ...PARALLEL_DB_FREE_FILES,
             ...envBoundExcludes,
             ...nightlyExcludes,
           ],
@@ -96,7 +100,9 @@ export default defineConfig({
         extends: true,
         test: {
           name: "parallel",
-          include: PARALLEL_TEST_GLOBS,
+          // Directory globs PLUS the exact files measured DB-free inside serial
+          // dirs. Directories still default to serial; only listed paths move.
+          include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_DB_FREE_FILES],
           // tests/parser/** became a parallel glob in Phase 2, which would
           // otherwise sweep the nightly mutationHarness shards (~102k mutants)
           // into every unit-suite leg — they live ONLY in the env-gated

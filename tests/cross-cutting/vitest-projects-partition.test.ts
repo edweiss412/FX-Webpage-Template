@@ -7,7 +7,9 @@ import vitestConfig from "@/vitest.config";
 import {
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
+  MEASURED_MOVABLE_BUT_HELD_SERIAL,
   NIGHTLY_ONLY_EXCLUDES,
+  PARALLEL_DB_FREE_FILES,
   PARALLEL_TEST_GLOBS,
 } from "@/vitest.projects";
 import { globToRegExp as globRe } from "@/lib/test/serialAudit";
@@ -127,10 +129,13 @@ describe("vitest projects split — partition is complete and correctly wired", 
     ).toBe(true);
   });
 
-  it("parallel.include IS PARALLEL_TEST_GLOBS and serial.exclude CONTAINS every parallel glob (single source of truth)", () => {
+  it("parallel.include IS the globs PLUS the measured files, and serial.exclude CONTAINS every parallel glob (single source of truth)", () => {
     const serial = projects.find((p) => p.test.name === "serial")!.test;
     const parallel = projects.find((p) => p.test.name === "parallel")!.test;
-    expect(parallel.include).toEqual(PARALLEL_TEST_GLOBS);
+    // Two sources compose: DIRECTORY globs (dirs verified DB-free wholesale) and
+    // exact FILE paths (files measured DB-free inside serial dirs). Concatenation
+    // order is pinned so neither source can be silently dropped.
+    expect(parallel.include).toEqual([...PARALLEL_TEST_GLOBS, ...PARALLEL_DB_FREE_FILES]);
     // serial must exclude every parallel glob (alongside defaults + nightly)
     // so the partition can't double-run
     for (const g of PARALLEL_TEST_GLOBS) {
@@ -471,6 +476,102 @@ describe("empirically DB-dependent files live in the serial project", () => {
     ]) {
       expect(inProject(old, parallel), `${old} must have been a parallel member`).toBe(true);
       expect(allTestFiles, `${old} must no longer exist — it was moved`).not.toContain(old);
+    }
+  });
+});
+
+// 556 files that live in SERIAL directories but were MEASURED to be DB-free and
+// parallel-safe (no-DB run 29765228945 vs with-DB control 29765796899; a file
+// qualifies only on an identical, non-zero passing-assertion count in both).
+describe("measured DB-free files run in the parallel project", () => {
+  const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
+  const parallel = projects.find((p) => p.test.name === "parallel")!.test;
+  const serial = projects.find((p) => p.test.name === "serial")!.test;
+
+  it("the list is the measured size and free of duplicates", () => {
+    // 556 measured movable, minus no-global-cursor.test.ts which is held serial
+    // for CPU-starvation reasons (see MEASURED_MOVABLE_BUT_HELD_SERIAL).
+    expect(PARALLEL_DB_FREE_FILES.length).toBe(555);
+    expect(new Set(PARALLEL_DB_FREE_FILES).size).toBe(555);
+  });
+
+  it("every entry names a test file that still exists", () => {
+    for (const f of PARALLEL_DB_FREE_FILES) {
+      expect(allTestFiles, `${f} is a stale entry — no such test file`).toContain(f);
+    }
+  });
+
+  it("every entry resolves to parallel and NOT serial, against the real config", () => {
+    for (const f of PARALLEL_DB_FREE_FILES) {
+      expect(inProject(f, parallel), `${f} must be in the parallel project`).toBe(true);
+      expect(inProject(f, serial), `${f} must NOT be in the serial project`).toBe(false);
+    }
+  });
+
+  // Anti-tautology: these files sit in SERIAL directories, so if the list were
+  // dropped they must fall back to serial. If they resolved to parallel anyway,
+  // the assertions above would pass for reasons unrelated to this list.
+  it("the list is what moves them — without it they are serial", () => {
+    const asList = PARALLEL_DB_FREE_FILES as readonly string[];
+    const withoutList = {
+      ...parallel,
+      include: (parallel.include ?? []).filter((g) => !asList.includes(g)),
+    };
+    const serialWithout = {
+      ...serial,
+      exclude: (serial.exclude ?? []).filter((g) => !asList.includes(g)),
+    };
+    for (const f of PARALLEL_DB_FREE_FILES) {
+      expect(inProject(f, withoutList), `${f} must lose parallel membership`).toBe(false);
+      expect(inProject(f, serialWithout), `${f} must fall back to serial`).toBe(true);
+    }
+  });
+
+  // The control disqualified 71 files. These five are the subtle class — they
+  // passed WITHOUT a database while silently running fewer assertions. Pinning
+  // them by name keeps a future well-meaning "these look DB-free" sweep from
+  // re-adding exactly the files the measurement rejected.
+  it("the measurement-rejected files are absent (they degrade silently)", () => {
+    const rejected = [
+      "tests/api/wizard-approve-route.test.ts",
+      "tests/api/wizard-unapprove-route.test.ts",
+      "tests/api/unignore-route.test.ts",
+      "tests/api/admin/onboarding/resolveBlocker.test.ts",
+      "tests/sync/qualityRegressionLifecycle.test.ts",
+    ];
+    // Fail loudly rather than vacuously if a rename empties this guard.
+    for (const f of rejected) {
+      expect(allTestFiles, `${f} no longer exists — re-derive this list from the probes`).toContain(
+        f,
+      );
+    }
+    for (const f of rejected) {
+      expect(
+        (PARALLEL_DB_FREE_FILES as readonly string[]).includes(f),
+        `${f} ran FEWER assertions without a database while still reporting green — ` +
+          "it must stay serial",
+      ).toBe(false);
+    }
+  });
+});
+
+// Held-serial-by-choice files are DB-free but starve under concurrency. They must
+// stay OUT of the parallel list and IN the serial project — a future sweep that
+// sees "measured DB-free" and moves them would reintroduce the timeout.
+describe("files held serial for CPU reasons stay serial", () => {
+  const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
+  const parallel = projects.find((p) => p.test.name === "parallel")!.test;
+  const serial = projects.find((p) => p.test.name === "serial")!.test;
+
+  it("each is absent from the parallel list and resolves to serial", () => {
+    for (const f of MEASURED_MOVABLE_BUT_HELD_SERIAL) {
+      expect(allTestFiles, `${f} no longer exists`).toContain(f);
+      expect(
+        (PARALLEL_DB_FREE_FILES as readonly string[]).includes(f),
+        `${f} is DB-free but starves under fileParallelism — it must NOT be in the parallel list`,
+      ).toBe(false);
+      expect(inProject(f, parallel), `${f} must not be a parallel member`).toBe(false);
+      expect(inProject(f, serial), `${f} must be a serial member`).toBe(true);
     }
   });
 });
