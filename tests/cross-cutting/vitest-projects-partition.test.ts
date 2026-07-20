@@ -418,3 +418,59 @@ describe("vitest projects split — partition is complete and correctly wired", 
     }
   });
 });
+
+// The parallel project's contract is that its files touch no database — that is
+// what lets a CI leg run them with no Supabase booted at all. But membership is
+// by DIRECTORY glob, so any file added to a parallel dir inherits the claim with
+// nothing re-verifying it. Two files did exactly that: layoutIdentityFault
+// predates the 2026-06-23 split and its dir audit missed it; extractAgenda landed
+// 2026-06-29, six days after, into an already-parallel dir.
+//
+// Census, not sample: CI probe run 29758568301 ran all 693 parallel-project files
+// against a runner with no Supabase and no psql installed. These two failed with
+// `connect ECONNREFUSED 127.0.0.1:54322`; the other 691 passed.
+//
+// The fix is a MOVE, not an exception list: serial excludes each parallel dir
+// glob wholesale, so a per-file exclusion would strand the file in NO project.
+// Under a directory-keyed partition the honest repair is to put a DB-touching
+// file in a DB directory. Landing them in serial is also the correctness fix --
+// under fileParallelism:true they raced each other on one shared database, the
+// exact hazard the serial project exists to prevent.
+const PROBE_DB_DEPENDENT = [
+  "tests/admin/extractAgenda.test.ts",
+  "tests/admin/layoutIdentityFault.test.tsx",
+] as const;
+
+describe("empirically DB-dependent files live in the serial project", () => {
+  const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
+  const parallel = projects.find((p) => p.test.name === "parallel")!.test;
+  const serial = projects.find((p) => p.test.name === "serial")!.test;
+
+  it("each resolves to serial and NOT parallel, against the real config", () => {
+    for (const f of PROBE_DB_DEPENDENT) {
+      expect(inProject(f, parallel), `${f} must NOT be in the parallel project`).toBe(false);
+      expect(inProject(f, serial), `${f} must be in the serial project`).toBe(true);
+    }
+  });
+
+  // Guards a rename or delete silently emptying this list of meaning.
+  it("each is a real file that still exists", () => {
+    for (const f of PROBE_DB_DEPENDENT) {
+      expect(allTestFiles, `${f} is stale — no such test file`).toContain(f);
+    }
+  });
+
+  // Anti-tautology: the assertion above must be sensitive to WHERE the file sits,
+  // not merely true of every path. The pre-move locations were parallel members;
+  // if they still resolve to parallel, the partition is what it always was and
+  // the serial assertions above would pass for reasons unrelated to the move.
+  it("the pre-move locations were genuinely parallel members", () => {
+    for (const old of [
+      "tests/app/admin/extractAgenda.test.ts",
+      "tests/app/admin/layoutIdentityFault.test.tsx",
+    ]) {
+      expect(inProject(old, parallel), `${old} must have been a parallel member`).toBe(true);
+      expect(allTestFiles, `${old} must no longer exist — it was moved`).not.toContain(old);
+    }
+  });
+});
