@@ -232,6 +232,30 @@ describe("ShareHub — open/close semantics", () => {
   });
 });
 
+describe("ShareHub — z-order (spec §3)", () => {
+  it("elevates its root ONLY while open, so a closed hub cannot paint over the attention menu", () => {
+    renderHub();
+    const root = primary().parentElement as HTMLElement;
+    expect(root.className).toContain("relative");
+    expect(root.className).not.toContain("z-30");
+
+    fireEvent.click(primary());
+    expect(root.className).toContain("z-30");
+
+    fireEvent.click(primary());
+    expect(root.className).not.toContain("z-30");
+  });
+
+  it("keeps BOTH triggers non-positioned, which is what lets the z-20 menu win", () => {
+    renderHub();
+    // A `relative` here would recreate the defect in a subtler form: a positioned
+    // trigger at z-auto still paints above the menu's z-20 by tree order.
+    for (const el of [primary(), kebab()]) {
+      expect(el.className).not.toMatch(/\b(relative|absolute|fixed|sticky)\b/);
+    }
+  });
+});
+
 describe("ShareHub — published arm content", () => {
   it("renders the crew URL derived from origin+slug+token, plus Copy", () => {
     renderHub();

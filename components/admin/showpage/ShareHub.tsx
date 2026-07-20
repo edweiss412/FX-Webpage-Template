@@ -37,6 +37,17 @@
  * the strip's hub group, so `right-0` aligns the panel to that same edge.
  * `max-w-[calc(100vw-2rem)]` keeps it inside the modal at 390px.
  *
+ * Elevation (spec 2026-07-20-share-hub-fidelity-fixes §3): the root is `relative`
+ * always but `z-30` ONLY while open. `z-index: auto` establishes no stacking
+ * context, so the header attention menu's `z-20` panel
+ * (AttentionMenu.tsx:99) participates directly in the shared ancestor context;
+ * an unconditional `z-30` here therefore painted this hub's two NON-POSITIONED
+ * trigger buttons above that menu and stole its clicks. Gating the class on
+ * `open` is the whole fix — PublishedReviewModal's attention wrapper is
+ * deliberately left as a bare `relative`. Keep the triggers non-positioned: a
+ * `relative` on either would beat the menu by tree order and bring the defect
+ * back in a subtler form.
+ *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
  * button that closes without focus restore, and Escape that closes WITH focus
  * restore and calls stopPropagation — ReviewModalShell.tsx:238-245 listens for
@@ -272,7 +283,7 @@ export function ShareHub({
   };
 
   return (
-    <div className="relative z-30 flex items-center gap-2">
+    <div className={`relative flex items-center gap-2 ${open ? "z-30" : ""}`}>
       {open && (
         <button
           type="button"
