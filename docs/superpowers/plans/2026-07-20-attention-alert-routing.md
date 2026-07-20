@@ -832,7 +832,7 @@ Depends on PR2 merged (the anchor field and `byAnchor` channel exist). Rebases o
 
 - [ ] **Step 1: Write the failing test** — `hasDiagrams` true iff resolved diagram list non-empty (`null`/`undefined`/`[]` false); `hasOpeningReel` true iff the field after `stripOpeningReelText().trim()` is non-empty (`null`/`""`/whitespace false); `availableAnchors` returns the set of the two.
 
-- [ ] **Step 2-4:** fail → implement pure predicates over `SectionData` (verify the exact diagram-list accessor and the opening-reel field key at implementation time against `step3ReviewSections.tsx:382,1839` and the diagram resolver) → pass.
+- [ ] **Step 2-4:** fail → implement. `hasDiagrams` MUST reuse the already-exported `hasDiagramSignal` (`components/admin/wizard/step3ReviewSections.tsx:3564`), which is the SAME gate the sub-block render uses (`:3239`, `if (!hasDiagramSignal(resolveCurrentDiagrams(diagrams))) return null`) and the badge uses (`:3719`) — this is the spec §3.3 "single shared predicate so availability and render cannot disagree". `hasOpeningReel` reads the `opening_reel` group key (`:382`, rendered `:1839`) and applies `stripOpeningReelText().trim()` non-empty. Do NOT write a divergent diagram predicate. → pass.
 
 - [ ] **Step 5: Commit** `feat(admin): anchor-availability predicates (diagrams, opening_reel)`.
 
