@@ -566,7 +566,10 @@ describe("resolve label cross-product", () => {
   // ---- pending state, per surface ----
 
   it("PerShowAlertResolveButton pending reads Confirming… for confirm intent", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {}))); // never settles
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  // Never-settling stubs leak across tests and make results order-dependent
+  // (review R5b finding 4). If this file has no global afterEach cleanup, add
+  // `afterEach(() => vi.unstubAllGlobals());` at the top of the describe. // never settles
     render(<PerShowAlertResolveButton alertId="p1" slug="s" code="ROLE_FLAGS_NOTICE" />);
     fireEvent.click(screen.getByTestId("per-show-alert-resolve-p1"));
     await waitFor(() =>
@@ -686,7 +689,13 @@ export function renderBellRow(
 }
 ```
 
-**Implementer note:** `tests/components/bellPanelRedesign.test.tsx:89-107` has the working `routeFetch` + `renderPanel` pair and a `makeEntry` factory. If the entry shape above disagrees with `makeEntry`, **use `makeEntry`** — it is the maintained reference, and `BellEntry` (`lib/admin/bellFeed.ts:41-52`) is the record type. Export the helper from the new file so both test files can share it; do not add a production prop to `BellPanel` for a test.
+**Implementer note (review R5a finding 4).** `tests/components/bellPanelRedesign.test.tsx:89-107` has a working `routeFetch` + `renderPanel` pair and a `makeEntry` factory, but they are local to that file. Do NOT refactor it to share them: that file is not in this task's scope or commit list. Instead:
+
+- If the entry shape above disagrees with its `makeEntry`, copy `makeEntry`'s shape into `bellFeedBody`. `makeEntry` is the maintained reference and `BellEntry` (`lib/admin/bellFeed.ts:41-52`) is the record type.
+- Keep the new fixture self-contained in tests/components/admin/_bellRowFixture.tsx, used only by this task's new test file.
+- Never add a production prop to `BellPanel` to make a test easier.
+
+If `BellEntry` turns out to have required fields the sketch omits, add them with obviously inert values; `pnpm typecheck` is the arbiter.
 
 - [ ] **Step 6: Run it and watch it fail**
 
@@ -716,6 +725,16 @@ Expected: FAIL, `code` is not a prop on either component, and both render "Mark 
 ```
 
 Update every call site that renders these buttons to pass `code` (`components/admin/review/AttentionBanner.tsx:193` passes `item.alert.code`; `HealthAlertsPanel.tsx` passes `row.code`). `pnpm typecheck` finds them all.
+
+- [ ] **Step 7a: Fix the generic error fallback**
+
+`components/admin/PerShowAlertResolveButton.tsx:46` currently reads `const GENERIC_ERROR = "We could not mark this alert resolved. Refresh and try again.";`, which names the old button label and is wrong the moment this button says "Confirm". Change it to:
+
+```ts
+const GENERIC_ERROR = "We could not resolve this alert. Refresh and try again.";
+```
+
+Its oracle is the behavioral assertion already in this task's test file (the one stubbing a 500 and checking the rendered error text): it FAILS before this edit and PASSES after. Write that assertion first if you have not already.
 
 - [ ] **Step 7b: Migrate the existing component test renders (4 of them)**
 
@@ -908,6 +927,8 @@ Expected: PASS. If defense 1 lists codes, either author a variant or add an exem
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// Both verified exports: walk at tests/styles/_classScanUtils.ts:7,
+// stripComments at tests/styles/_classScanUtils.ts:15.
 import { walk, stripComments } from "../styles/_classScanUtils";
 
 const ROOT = process.cwd();
@@ -986,7 +1007,7 @@ describe("attention-items call topology", () => {
 - [ ] **Step 4: Run it**
 
 Run: `pnpm vitest run tests/admin/_metaAttentionItemsTopology.test.ts`
-Expected: PASS. If `walk` is not exported from `tests/styles/_classScanUtils`, use `node:fs` `readdirSync` recursion inline instead, do not change the shared util's API for a new consumer.
+Expected: PASS. Both `walk` (`tests/styles/_classScanUtils.ts:7`) and `stripComments` (`tests/styles/_classScanUtils.ts:15`) are verified exports, so no fallback should be needed; if either is missing, inline a `node:fs` `readdirSync` recursion rather than changing the shared util's API for a new consumer.
 
 - [ ] **Step 4b: Write defense 4 (label single-source, by source scan)**
 
@@ -1110,17 +1131,22 @@ describe("defense 5a: completeness", () => {
     ]);
   });
 
-  it("every error-shaped code is resolve intent", () => {
-    // Catalog severity "warning" plus a followUp means a fault, never an
-    // approval. Guards the whole class rather than the one example.
-    for (const code of ADMIN_ALERTS_CODES) {
-      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
-        | { severity?: string }
-        | undefined;
-      if (entry?.severity === "warning" && code in RESOLVE_INTENTS) {
-        expect(RESOLVE_INTENTS[code]!.intent, `${code} is a fault, not an approval`).toBe("resolve");
-      }
-    }
+  // Review R5a finding 2: the earlier version claimed a severity+followUp
+  // predicate but checked only severity, and was redundant with the exact
+  // confirm-set assertion above for every code except ROLE_FLAGS_NOTICE
+  // (which is severity:"info", lib/messages/catalog.ts:853, so it never
+  // collided). The exact-set assertion is the real guard; what it cannot
+  // express is the DIRECTION of a future edit, so pin that instead.
+  it("a warning-severity code is never confirm intent", () => {
+    const wrong = Object.entries(RESOLVE_INTENTS)
+      .filter(([code, row]) => {
+        const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
+          | { severity?: string }
+          | undefined;
+        return row.intent === "confirm" && entry?.severity === "warning";
+      })
+      .map(([code]) => code);
+    expect(wrong, "a fault cannot be approved; use resolve intent").toEqual([]);
   });
 });
 
@@ -1192,6 +1218,16 @@ describe("defense 5c: layer 2, history", () => {
 
 Run: `pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts`
 Expected: completeness may FAIL and name missing codes, add a row per named code to `RESOLVE_INTENTS` **and** the baseline, then re-run. Layer 2 passes vacuously (the baseline does not exist on `origin/main` yet).
+
+- [ ] **Step 6b: Typecheck the final staged contents**
+
+Review R5a finding 3: defenses are written here but committed by Tasks 1/2/4, so each owning task's last `pnpm typecheck` ran BEFORE these files existed, and vitest strips types. Run it on the tree about to be committed:
+
+```bash
+pnpm typecheck
+```
+
+Expected: clean. Re-run immediately before each owning task's commit if anything changed since.
 
 - [ ] **Step 7: Do NOT commit here**
 
@@ -1328,7 +1364,7 @@ Expected: FAIL, both strings still open "When you clicked Mark resolved,".
 
 - [ ] **Step 3: Edit the master spec §12.4 prose**
 
-Also change the component fallback at `components/admin/PerShowAlertResolveButton.tsx:46` to `const GENERIC_ERROR = "We could not resolve this alert. Refresh and try again.";`, it is a component literal, not a catalog row, so it is not part of the parity triple, but it names the old label just as loudly.
+**`GENERIC_ERROR` is NOT part of this task.** Review R5b finding 1: this task runs only tests/messages/showScopedCopy.test.ts, which cannot exercise a component fallback, so changing it here would have no red phase and no oracle. The component literal at `components/admin/PerShowAlertResolveButton.tsx:46` is changed in **Task 4**, where the button is already being edited and where the behavioral assertion lives. This task is catalog-only.
 
 In `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, replace the opening clause in both rows:
 
@@ -1366,15 +1402,24 @@ git commit -m "fix(alerts): label-agnostic resolve-error copy (§12.4 lockstep)"
 **Interfaces:**
 - Consumes: `resolveActionLabels` (Task 4), indirectly — the harness renders the real button and varies the alert CODE, so nothing in this task imports the label module directly.
 
-- [ ] **Step 0: Add the harness capability FIRST, then watch the spec fail**
+- [ ] **Step 0: Two red phases**
 
-Review R2 finding 15: the first draft wrote the spec and changed the harness in one step, then expected PASS, which has no red phase. Split it.
+This task makes two claims, so it needs two failures. Review R4b finding 4 and R5b finding 2 both landed here: withholding only the hydration marker proves only the marker.
 
-Extend `tests/e2e/_compactAlertCardLiveEntry.tsx` to read a `code` query param and render a real `PerShowAlertResolveButton` with it, but **do not** add the `data-hydrated` marker yet. Write the spec (Step 1) and run it.
+First extend `tests/e2e/_compactAlertCardLiveEntry.tsx` to read a `code` query param, render a real `PerShowAlertResolveButton` with it, and set `data-hydrated="true"` on the card in a mount effect. Write the spec (Step 1). Then:
 
-Expected: **FAIL** at `waitForSelector('[data-testid="compact-alert-card"][data-hydrated="true"]')` — the gate the spec depends on does not exist yet. That is the red phase, and it proves the readiness gate is load-bearing rather than decorative.
+**Red phase A, the geometry claim.** Temporarily constrain the footer-right wrapper so the button is no longer flush with its container edge:
 
-Then add the marker: set `data-hydrated="true"` on the card inside a mount effect.
+```tsx
+// TEMPORARY, remove after observing the failure.
+<div data-testid="compact-alert-footer-right" className="ml-auto shrink-0" style={{ width: 160 }}>
+```
+
+Run the spec. Expected: **FAIL** on the right-edge assertion. This proves the geometry assertions catch a real layout defect rather than passing on anything that renders. Remove the temporary width and confirm green.
+
+**Red phase B, the readiness gate.** Comment out the `data-hydrated` marker and re-run. Expected: **FAIL** at `waitForSelector(...)`, proving the gate is load-bearing. Restore the marker.
+
+If either failure does not occur, the spec is not testing what it claims and this task is not done.
 
 - [ ] **Step 1: Write the layout spec**
 
@@ -1489,12 +1534,15 @@ it("each card's label is fixed from mount through unmount", async () => {
   // could have updated state anyway. Instead capture the live text, unmount,
   // and assert the node is gone while the captured labels are still the ones
   // each card was born with.
-  const finalA = getByTestId("per-show-alert-resolve-a1").textContent;
-  const finalB = getByTestId("per-show-alert-resolve-b1").textContent;
+  // Read the LIVE nodes after the interleaving, not strings captured earlier.
+  // Review R5b finding 3: comparing immutable captures after unmount cannot
+  // detect anything, because a string cannot change.
+  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent(/^Confirming…$/);
+  expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent(/^Resolving…$/);
+
   unmount();
   expect(screen.queryByTestId("per-show-alert-resolve-a1")).toBeNull();
-  expect(finalA).toBe("Confirming…"); // never became Resolving…
-  expect(finalB).toBe("Resolving…"); // never became Confirming…
+  expect(screen.queryByTestId("per-show-alert-resolve-b1")).toBeNull();
 });
 ```
 
@@ -1543,7 +1591,9 @@ Review R2 finding 17: "put it in §12 of the handoff" named no file, so the inva
 - `fixed in <sha>` — only for a repair already committed earlier
 - `deferred, DEFERRED.md entry <id>` — with the entry added in the same commit
 
-- [ ] **Step 3: Commit any gate fixes**
+- [ ] **Step 2c: Apply gate fixes (do not commit yet)**
+
+Make the P0/P1 repairs here. They are committed in Step 4 together with the handoff, so that "fixed in this commit" dispositions are accurate (review R5b finding 5).
 
 - [ ] **Step 3: Re-run every gate AFTER the repairs**
 
