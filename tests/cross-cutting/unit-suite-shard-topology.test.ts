@@ -102,3 +102,76 @@ describe("unit-suite matrix-shard topology", () => {
     ).toBe(true);
   });
 });
+
+describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the lever is reverted per §6.1, REPLACE this block with the zero-count guard in plan Task 6 step 4.1)", () => {
+  it("restore step declares the exact id its guards reference", () => {
+    expect(
+      /- name: Restore Supabase image cache\n {8}id: supabase-image-cache\n/.test(YAML),
+      "cache-restore must declare `id: supabase-image-cache` — an id/guard mismatch silently disables load AND save",
+    ).toBe(true);
+  });
+
+  it("cache key embeds the setup-cli version literal (equal) and the config+bootstrap hashFiles", () => {
+    const cli = /uses: supabase\/setup-cli@v1\n[\s\S]*?version:\s*(\d+\.\d+\.\d+)/.exec(YAML);
+    expect(cli, "pinned supabase/setup-cli version not found").not.toBeNull();
+    const key =
+      /key:\s*supabase-images-\$\{\{ runner\.os \}\}-(\d+\.\d+\.\d+)-\$\{\{ hashFiles\('supabase\/config\.toml', 'scripts\/ci\/supabase-local-bootstrap\.sh'\) \}\}/.exec(
+        YAML,
+      );
+    expect(
+      key,
+      "cache key must be supabase-images-<os>-<cli literal>-<hashFiles(config.toml, bootstrap)>",
+    ).not.toBeNull();
+    expect(
+      key![1],
+      "cache-key CLI literal must equal the setup-cli pin (drift = stale images across CLI bumps)",
+    ).toBe(cli![1]);
+  });
+
+  it("step ordering: restore -> load -> boot -> vitest -> save-prep", () => {
+    const idx = [
+      YAML.indexOf("- name: Restore Supabase image cache"),
+      YAML.indexOf("- name: Load cached Supabase images"),
+      YAML.indexOf("- name: Boot local Supabase"),
+      YAML.indexOf("Run vitest shard"),
+      YAML.indexOf("- name: Save Supabase images for cache"),
+    ];
+    for (const i of idx) expect(i, "every cache/boot/vitest step must exist").toBeGreaterThan(-1);
+    for (let i = 1; i < idx.length; i++) {
+      expect(idx[i], `step ${i} must come after step ${i - 1}`).toBeGreaterThan(idx[i - 1]!);
+    }
+  });
+
+  it("load is hit-only, save-prep is miss-only", () => {
+    expect(
+      /- name: Load cached Supabase images[\s\S]{0,200}?if: steps\.supabase-image-cache\.outputs\.cache-hit == 'true'/.test(
+        YAML,
+      ),
+    ).toBe(true);
+    expect(
+      /- name: Save Supabase images for cache[\s\S]{0,200}?if: steps\.supabase-image-cache\.outputs\.cache-hit != 'true'/.test(
+        YAML,
+      ),
+    ).toBe(true);
+  });
+
+  it("soft-failure inventory: exactly two `|| true` — the load line and the save-prep trailing; pipefail present", () => {
+    const soft = YAML.match(/\|\| true/g) ?? [];
+    expect(soft, "exactly two `|| true` sites allowed (spec §5.2)").toHaveLength(2);
+    expect(/docker load \|\| true/.test(YAML), "one `|| true` must be on the docker-load line").toBe(
+      true,
+    );
+    expect(
+      /; \} \|\| true/.test(YAML),
+      "one `|| true` must trail the braced save-prep compound",
+    ).toBe(true);
+    expect(
+      YAML.includes("set -o pipefail"),
+      "save-prep must set pipefail — without it a mid-stream docker-save death publishes a truncated archive",
+    ).toBe(true);
+    expect(
+      /run: bash scripts\/ci\/supabase-local-bootstrap\.sh\n/.test(YAML),
+      "the boot step must remain hard-failing (no suffix after the bootstrap invocation)",
+    ).toBe(true);
+  });
+});
