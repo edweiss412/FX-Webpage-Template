@@ -14,8 +14,8 @@
  *
  * Geometry (added in T4, alongside the Playwright assertions that verify it —
  * jsdom computes no layout, so none of this is provable in a unit test):
- * the popover is `absolute top-full right-0 w-[308px]`, positioned against the
- * `relative` wrapper below rather than the strip row. The row deliberately has
+ * the popover is `absolute top-full right-0 w-[308px]`, positioned against this
+ * component's own `relative` root rather than the strip row. The row deliberately has
  * NO `relative` (StatusStrip.tsx: the band owns the positioned ancestor, and
  * re-anchoring it would break the Re-sync overlay's `inset-x-0` full-band
  * width). The wrapper's right edge is the band's content edge via `ml-auto` on
@@ -31,7 +31,15 @@
  */
 
 import { Link2, Mail, MoreVertical } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
 import { buildCrewLinkMailtos } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { PickerResetControl } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -72,6 +80,7 @@ export function ShareHub({
 
   const primaryRef = useRef<HTMLButtonElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   /** Which trigger opened it — Escape restores focus there specifically. */
   const openerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -82,7 +91,13 @@ export function ShareHub({
   // The crew link is live only for a published show; an unpublished one keeps
   // its token but must not surface a copyable URL (spec §4).
   const linkActive = published && url != null;
-  const mailtos = linkActive ? buildCrewLinkMailtos({ emails: crewEmails, url, showTitle }) : [];
+  // Gated on `open`: the strip re-renders on every loader pass (relative-time
+  // props churn), and batching the roster into mailto hrefs is real work that
+  // nothing can observe while the popover is closed.
+  const mailtos = useMemo(
+    () => (open && linkActive ? buildCrewLinkMailtos({ emails: crewEmails, url, showTitle }) : []),
+    [open, linkActive, crewEmails, url, showTitle],
+  );
 
   const toggle = (which: "primary" | "kebab") => {
     // §6: every dismissal path is inert while a child is mid-flight. Closing
@@ -129,6 +144,35 @@ export function ShareHub({
     setOpen(false);
   }, [busy]);
 
+  // Escape safety net. The panel's own onKeyDown only fires while focus is
+  // INSIDE it, and this popover deliberately has no focus trap — so after
+  // tabbing past the last control, Escape would reach the shell's document
+  // listener (ReviewModalShell.tsx:238-245), which closes the ENTIRE review
+  // modal on any Escape without checking defaultPrevented. Capture phase is
+  // what makes the hub win: it runs before the shell's bubble-phase handler.
+  useEffect(() => {
+    if (!open) return;
+    const onDocKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (busy) return;
+      setOpen(false);
+      openerRef.current?.focus();
+    };
+    document.addEventListener("keydown", onDocKeyDown, true);
+    return () => document.removeEventListener("keydown", onDocKeyDown, true);
+  }, [open, busy]);
+
+  // A role="dialog" must RECEIVE focus when it opens; without this, Tab from
+  // the primary trigger reaches the kebab before the panel's own controls, and
+  // screen-reader users are never moved into the dialog they just opened.
+  // The panel itself takes focus (tabIndex={-1}) rather than the first control,
+  // so the label is announced before the first action.
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
+
   const onPopoverKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Escape") return;
     // stopPropagation is the load-bearing call: the shell's document listener
@@ -142,7 +186,7 @@ export function ShareHub({
   };
 
   return (
-    <div className="relative flex items-center gap-2">
+    <div className="relative z-30 flex items-center gap-2">
       {open && (
         <button
           type="button"
@@ -166,8 +210,8 @@ export function ShareHub({
         onClick={() => toggle("primary")}
         className={
           published
-            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm bg-accent px-3 text-sm font-semibold text-accent-contrast transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm bg-accent px-3 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         }
       >
         <Link2 aria-hidden="true" size={15} />
@@ -193,15 +237,20 @@ export function ShareHub({
       {open && (
         <div
           id={popoverId}
+          ref={panelRef}
+          tabIndex={-1}
           role="dialog"
           aria-label="Share crew link"
           data-testid="share-hub-popover"
           onKeyDown={onPopoverKeyDown}
-          className="absolute right-0 top-full z-30 mt-1.5 flex w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border border-border bg-surface p-2.5 shadow-lg"
+          // max-h + overflow: the email rows are batched per 1900-char mailto
+          // cap with no row limit, so a large roster could otherwise push the
+          // destructive controls below the fold on a 390px phone.
+          className="absolute right-0 top-full z-40 mt-1.5 flex max-h-[min(70vh,32rem)] w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
         >
-          <p className="px-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle">
+          <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
             Crew link
-          </p>
+          </h3>
 
           {linkActive ? (
             <>
@@ -228,7 +277,7 @@ export function ShareHub({
                   key={m.batch}
                   href={m.href}
                   data-testid="admin-current-share-link-email-button"
-                  className="inline-flex min-h-tap-min items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 >
                   <Mail aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
                   {m.batchCount === 1
@@ -249,7 +298,7 @@ export function ShareHub({
           ) : (
             <p
               data-testid="share-hub-paused-note"
-              className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed  text-text-subtle"
+              className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
             >
               The crew link is paused while this show is unpublished. Publish to share it — you can
               still rotate or reset below.
@@ -257,9 +306,9 @@ export function ShareHub({
           )}
 
           <div className="h-px bg-border" />
-          <p className="px-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle">
+          <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
             Careful
-          </p>
+          </h3>
 
           <RotateShareTokenButton
             showId={showId}

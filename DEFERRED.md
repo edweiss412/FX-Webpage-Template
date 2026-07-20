@@ -23,3 +23,13 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 **Accepted, not fixed, and the tolerance was NOT widened** (the plan explicitly forbids that). The plan nominated skeleton bar heights as the lever, but they cannot close this: the wrap point is a function of rendered DATA, since the status line's width depends on its relative-time strings. Sizing placeholders to reproduce one fixture's 3-row wrap was rejected as overfitting — it would go green while asserting nothing about any real show. The 390px case therefore asserts an honest weaker clause (band reserves ≥ one tap row + `py-2`, never exceeds the loaded band) and the ≤4px strictness is kept at ≥sm where its "single control row" premise actually holds.
 
 **Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
+
+### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub have different shapes
+
+From the impeccable critique of `share-hub` (Assessment A, heuristic 4 "Consistency and standards", scored 2/4). Inside one 308px popover, the two irreversible controls render with different anatomies: `RotateShareTokenButton` in `compact` mode is label-left / button-right (`RotateShareTokenButton.tsx:281-284`), while `PickerResetControl` is a heading over a full-width button (`PickerResetControl.tsx:212-270`). The user-approved mock drew both as the same icon + title + subtitle row (`ActionBarMenu-1d.dc.html:111,123).
+
+**Deferred, not accepted as correct.** The fix is a new compact row variant on `PickerResetControl`, which is NOT hub-local: `components/admin/wizard/step3ReviewSections.tsx` renders the same component in the onboarding wizard, where the current full-width anatomy is right for a wider column. Doing it properly means a variant axis plus its own tests on both surfaces — a larger change than this PR's remaining scope, and one that touches a shipped surface the share-hub work otherwise does not.
+
+Both rows individually satisfy the §15 tier-2 guard ladder (two-tap, 4s auto-revert, safe-control focus, busy-gated dismissal), so this is a visual-consistency defect, not a safety one.
+
+**Un-defer trigger:** the next change that touches `PickerResetControl`'s presentation for any reason, or user feedback that the hub's Careful section reads as two unrelated controls. The fix is a `compact` variant matching the rotate row, applied in the hub only, with `step3ReviewSections` explicitly opting out.

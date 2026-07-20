@@ -124,6 +124,58 @@ describe("ShareHub — open/close semantics", () => {
     expect(queryPopover()).toBeNull();
   });
 
+  it("swallows Escape even when focus has LEFT the panel (impeccable audit P1)", () => {
+    // The panel's own onKeyDown only fires while focus is inside it, and this
+    // popover deliberately has no focus trap. After tabbing past the last
+    // control, Escape would otherwise reach the shell's document listener,
+    // which closes the ENTIRE review modal on any Escape without checking
+    // defaultPrevented — while the hub is still open, possibly mid-rotate.
+    const shellSpy = vi.fn();
+    document.addEventListener("keydown", shellSpy);
+    try {
+      renderHub();
+      fireEvent.click(primary());
+      // Move focus somewhere outside the panel, as Tab-out would.
+      document.body.focus();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(queryPopover()).toBeNull();
+      expect(shellSpy, "shell must never see the Escape").not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", shellSpy);
+    }
+  });
+
+  it("moves focus INTO the dialog on open (impeccable critique P0)", () => {
+    // A role="dialog" must receive focus when it opens. Without this, Tab from
+    // the primary trigger reaches the kebab before any control inside the
+    // panel, and a screen-reader user is never moved into the dialog they
+    // just opened.
+    renderHub();
+    fireEvent.click(primary());
+    expect(document.activeElement).toBe(popover());
+  });
+
+  it("keeps both triggers clickable above the backdrop (impeccable critique P1)", () => {
+    // The backdrop is `fixed inset-0 z-20`. If the trigger group does not sit
+    // above it, a second click on the trigger lands on the overlay instead —
+    // the toggle path becomes dead code and jsdom cannot catch it (no
+    // z-index hit-testing), so this pins the stacking contract in source.
+    renderHub();
+    fireEvent.click(primary()); // the backdrop only exists while open
+    const group = primary().parentElement!;
+    expect(group.className).toContain("z-30");
+    expect(screen.getByTestId("share-hub-backdrop").className).toContain("z-20");
+  });
+
+  it("caps the popover height so destructive controls cannot be pushed off-screen", () => {
+    // Email rows are batched by mailto length with no row cap, so a large
+    // roster could otherwise push Rotate/Reset below the fold at 390px.
+    renderHub();
+    fireEvent.click(primary());
+    expect(popover().className).toMatch(/max-h-\[min\(70vh,32rem\)\]/);
+    expect(popover().className).toContain("overflow-y-auto");
+  });
+
   it("backdrop click closes WITHOUT restoring trigger focus", () => {
     renderHub();
     fireEvent.click(primary());

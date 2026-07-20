@@ -300,7 +300,7 @@ export function StatusStrip({
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
       {!archived ? (
-        <div data-testid="share-hub-group" className="relative ml-auto flex shrink-0 items-center">
+        <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center">
           <ShareHub
             slug={slug}
             showId={showId}
