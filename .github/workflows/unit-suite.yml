@@ -74,14 +74,15 @@ jobs:
       # derive from CLI version — topology test pins the two literals equal);
       # hashFiles over config.toml (db.major_version selects the postgres
       # image) + the bootstrap script (its -x list selects which services'
-      # images are needed at all). Caches are immutable per key — every input
-      # that can change the image set must be in the key.
+      # images are needed at all) + this workflow file (the docker-save
+      # image-selection grep lives below). Caches are immutable per key —
+      # every input that can change the image set must be in the key.
       - name: Restore Supabase image cache
         id: supabase-image-cache
         uses: actions/cache@v4
         with:
           path: ~/supabase-images.tar.zst
-          key: supabase-images-${{ runner.os }}-2.107.0-${{ hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh') }}
+          key: supabase-images-${{ runner.os }}-${{ runner.arch }}-2.107.0-${{ hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh', '.github/workflows/unit-suite.yml') }}
       - name: Load cached Supabase images (hit only)
         if: steps.supabase-image-cache.outputs.cache-hit == 'true'
         # Trailing soft-fail operator (NOT repeated in this comment — the

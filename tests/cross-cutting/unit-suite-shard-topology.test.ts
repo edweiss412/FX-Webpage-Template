@@ -115,12 +115,13 @@ describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the leve
     const cli = /uses: supabase\/setup-cli@v1\n[\s\S]*?version:\s*(\d+\.\d+\.\d+)/.exec(YAML);
     expect(cli, "pinned supabase/setup-cli version not found").not.toBeNull();
     const key =
-      /key:\s*supabase-images-\$\{\{ runner\.os \}\}-(\d+\.\d+\.\d+)-\$\{\{ hashFiles\('supabase\/config\.toml', 'scripts\/ci\/supabase-local-bootstrap\.sh'\) \}\}/.exec(
+      /key:\s*supabase-images-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-(\d+\.\d+\.\d+)-\$\{\{ hashFiles\('supabase\/config\.toml', 'scripts\/ci\/supabase-local-bootstrap\.sh', '\.github\/workflows\/unit-suite\.yml'\) \}\}/.exec(
         YAML,
       );
     expect(
       key,
-      "cache key must be supabase-images-<os>-<cli literal>-<hashFiles(config.toml, bootstrap)>",
+      "cache key must be supabase-images-<os>-<arch>-<cli literal>-<hashFiles(config.toml, bootstrap, this workflow)> — " +
+        "arch: same-OS different-arch runners produce incompatible images; workflow self-hash: the image-selection grep lives in this file",
     ).not.toBeNull();
     expect(
       key![1],
