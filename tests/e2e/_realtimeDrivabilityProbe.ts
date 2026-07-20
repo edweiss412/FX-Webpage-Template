@@ -304,6 +304,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  // Any thrown path (sign-in, navigation, seed, warm-up RPC, mutation, cleanup)
+  // still emits a machine-readable result — the three-state contract has no
+  // silent fourth outcome.
   console.error(err);
+  console.log("PROBE RESULT: INDETERMINATE (unhandled fault — see error above)");
   process.exitCode = 1;
 });
