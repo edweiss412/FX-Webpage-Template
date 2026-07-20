@@ -491,7 +491,8 @@ import { expect } from "vitest";
  *  their breakpoint, and a bare-token check misses every one of them. */
 const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
 const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})$`);
-const hidingTokensOf = (el: Element): string[] => [...tokensOf(el)].filter((t) => HIDING_RE.test(t));
+const hidingTokensOf = (el: Element): string[] =>
+  [...tokensOf(el)].filter((t) => HIDING_RE.test(t));
 
 export const tokensOf = (el: Element): Set<string> =>
   new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
@@ -584,6 +585,22 @@ function countComposed(scope: HTMLElement, needle: string): number {
  *  row that renders the right STRINGS at the wrong size/weight/colour fails. */
 export const LABEL_CLASSES = ["text-sm", "font-medium", "text-text-strong"] as const;
 export const DESCRIPTION_CLASSES = ["text-xs", "text-text-subtle"] as const;
+/** The stacked label/description column (spec §4.6). `flex` AND `flex-col`:
+ *  `flex-col` alone sets flex-direction but establishes no flex context. */
+export const COLUMN_CLASSES = ["flex", "min-w-0", "flex-col"] as const;
+
+/** The prescribed row topology: an icon, then the column, and nothing else.
+ *  Asserting the pieces individually is not enough: label and description can
+ *  each be correct while sitting as DIRECT children of the button, an unstacked
+ *  flex row that satisfies every per-element check. */
+function expectRowTopology(button: HTMLElement, column: Element): void {
+  expect(
+    [...button.children].map((c) => c.tagName.toLowerCase()),
+    "row children must be exactly [icon, column]",
+  ).toEqual(["svg", "span"]);
+  expect(button.children[1], "the column must be the row's second child").toBe(column);
+  expectClasses(column, { exactly: COLUMN_CLASSES });
+}
 
 export function expectRowText(
   button: HTMLElement,
@@ -610,6 +627,15 @@ export function expectRowText(
     `description "${description}" must appear exactly once`,
   ).toBe(1);
   expectClasses(descEl!, { exactly: DESCRIPTION_CLASSES });
+
+  // Both strings must be STACKED IN THE COLUMN, not merely present. As direct
+  // children of the button they would be flex ROW siblings of the icon and read
+  // as one line, while satisfying every assertion above.
+  expect(labelEl.parentElement, "label and description must share one parent").toBe(
+    descEl!.parentElement,
+  );
+  expect(labelEl.parentElement, "label must not be a direct child of the row").not.toBe(button);
+  expectRowTopology(button, labelEl.parentElement!);
 }
 
 /**
@@ -640,6 +666,10 @@ export function expectNoDescriptionNode(
   expectNotHidden(labelEl, scope, "row label");
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
+  // The label must still be unique in the scope: a conditional
+  // absent-description branch could leave a duplicate label outside the button.
+  expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
+
   const column = labelEl.parentElement;
   expect(column, "label must sit in the row column").not.toBeNull();
   expect(
@@ -647,15 +677,10 @@ export function expectNoDescriptionNode(
     "the column must hold the label and NOTHING else - any tag, not just a span",
   ).toBe(1);
 
-  // Exact row topology. A class-set filter is not enough on its own: an empty
-  // `<p id={descId} class="text-xs">` sits OUTSIDE the column, carries only PART
-  // of the description class set, leaves textContent untouched, and still
-  // survives. The prescribed row has exactly two element children, the icon and
-  // the column, so anything else is the escape.
-  expect(
-    [...button.children].map((c) => c.tagName.toLowerCase()),
-    "row children must be exactly [icon, column]",
-  ).toEqual(["svg", "span"]);
+  // Same topology as the with-description case, including the column's own
+  // prescribed classes: an absent-description branch must not quietly drop
+  // `flex min-w-0 flex-col` just because there is nothing left to stack.
+  expectRowTopology(button, column!);
 
   // Belt and braces: nothing anywhere in the row carries the description
   // styling, in whole or in part.
@@ -726,10 +751,11 @@ All row assertions below use the §7.0 helper. Where an item says "token set", i
    tokens (`focus-visible:outline-none`, `focus-visible:ring-2`,
    `focus-visible:ring-focus-ring`); and includes NO token matching `/^border/` and none
    matching `/^bg-/` (rule 7.0.2).
-6. **Rotate row internals.** Exactly one descendant column, asserted with
-   `exactly: ["flex", "min-w-0", "flex-col"]` — `exactly`, not `has`, so a conflicting
-   extra like `items-start` or `w-max` fails (§4.6: `flex-col` without `flex` establishes
-   no flex formatting context). The `<svg>` has `width` AND `height` `"16"` and tokens
+6. **Rotate row internals.** The column, its exact class set, and the `[icon, column]` row
+   topology are all asserted INSIDE `expectRowText` — including that the label and
+   description are STACKED IN the column rather than being direct children of the button,
+   which would make them flex-ROW siblings of the icon reading as one line while satisfying
+   every per-element check. The `<svg>` has `width` AND `height` `"16"` and tokens
    `shrink-0`, `text-text-subtle`.
 7. **Rotate label/description contract.** `expectRowText(rotate, popover(), {...})` — one
    call covering: the label is rendered INSIDE the button, `aria-label` equals it, the

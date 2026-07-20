@@ -125,6 +125,22 @@ function countComposed(scope: HTMLElement, needle: string): number {
  *  row that renders the right STRINGS at the wrong size/weight/colour fails. */
 export const LABEL_CLASSES = ["text-sm", "font-medium", "text-text-strong"] as const;
 export const DESCRIPTION_CLASSES = ["text-xs", "text-text-subtle"] as const;
+/** The stacked label/description column (spec §4.6). `flex` AND `flex-col`:
+ *  `flex-col` alone sets flex-direction but establishes no flex context. */
+export const COLUMN_CLASSES = ["flex", "min-w-0", "flex-col"] as const;
+
+/** The prescribed row topology: an icon, then the column, and nothing else.
+ *  Asserting the pieces individually is not enough: label and description can
+ *  each be correct while sitting as DIRECT children of the button, an unstacked
+ *  flex row that satisfies every per-element check. */
+function expectRowTopology(button: HTMLElement, column: Element): void {
+  expect(
+    [...button.children].map((c) => c.tagName.toLowerCase()),
+    "row children must be exactly [icon, column]",
+  ).toEqual(["svg", "span"]);
+  expect(button.children[1], "the column must be the row's second child").toBe(column);
+  expectClasses(column, { exactly: COLUMN_CLASSES });
+}
 
 export function expectRowText(
   button: HTMLElement,
@@ -151,6 +167,15 @@ export function expectRowText(
     `description "${description}" must appear exactly once`,
   ).toBe(1);
   expectClasses(descEl!, { exactly: DESCRIPTION_CLASSES });
+
+  // Both strings must be STACKED IN THE COLUMN, not merely present. As direct
+  // children of the button they would be flex ROW siblings of the icon and read
+  // as one line, while satisfying every assertion above.
+  expect(labelEl.parentElement, "label and description must share one parent").toBe(
+    descEl!.parentElement,
+  );
+  expect(labelEl.parentElement, "label must not be a direct child of the row").not.toBe(button);
+  expectRowTopology(button, labelEl.parentElement!);
 }
 
 /**
@@ -181,6 +206,10 @@ export function expectNoDescriptionNode(
   expectNotHidden(labelEl, scope, "row label");
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
+  // The label must still be unique in the scope: a conditional
+  // absent-description branch could leave a duplicate label outside the button.
+  expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
+
   const column = labelEl.parentElement;
   expect(column, "label must sit in the row column").not.toBeNull();
   expect(
@@ -188,15 +217,10 @@ export function expectNoDescriptionNode(
     "the column must hold the label and NOTHING else - any tag, not just a span",
   ).toBe(1);
 
-  // Exact row topology. A class-set filter is not enough on its own: an empty
-  // `<p id={descId} class="text-xs">` sits OUTSIDE the column, carries only PART
-  // of the description class set, leaves textContent untouched, and still
-  // survives. The prescribed row has exactly two element children, the icon and
-  // the column, so anything else is the escape.
-  expect(
-    [...button.children].map((c) => c.tagName.toLowerCase()),
-    "row children must be exactly [icon, column]",
-  ).toEqual(["svg", "span"]);
+  // Same topology as the with-description case, including the column's own
+  // prescribed classes: an absent-description branch must not quietly drop
+  // `flex min-w-0 flex-col` just because there is nothing left to stack.
+  expectRowTopology(button, column!);
 
   // Belt and braces: nothing anywhere in the row carries the description
   // styling, in whole or in part.

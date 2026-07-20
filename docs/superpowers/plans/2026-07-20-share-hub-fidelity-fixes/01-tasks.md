@@ -104,7 +104,7 @@ ADD (do not replace) alongside the existing wiring test at
 
 ```tsx
 import {
-  expectClasses, expectRowText, tokensOf, NO_BORDER, NO_REST_BACKGROUND,
+  expectClasses, expectNoDescriptionNode, expectRowText, NO_BORDER, NO_REST_BACKGROUND,
 } from "./_rowAssertions";
 
 const ROW_TOKENS = [
@@ -133,12 +133,10 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
     description: "Old link stops working immediately",
   });
 
-  // Exactly one column, asserted with `exactly` so a conflicting extra
-  // (items-start, w-max) fails rather than riding along.
-  const cols = rotate.querySelectorAll(":scope > span");
-  const flexCols = [...cols].filter((c) => tokensOf(c).has("flex"));
-  expect(flexCols).toHaveLength(1);
-  expectClasses(flexCols[0]!, { exactly: ["flex", "min-w-0", "flex-col"] });
+  // The column, its exact classes, and the [icon, column] row topology are all
+  // asserted INSIDE expectRowText (§7.0) — including that label and description
+  // are STACKED IN the column rather than being direct flex-row children of the
+  // button, which would satisfy every per-element check while reading as one line.
 
   const icon = rotate.querySelector("svg")!;
   expect(icon.getAttribute("width")).toBe("16");
@@ -292,12 +290,6 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
     label: "Reset everyone's pick",
     description: "Make everyone pick their name again on their next visit.",
   });
-
-  const flexCols = [...reset.querySelectorAll(":scope > span")].filter((c) =>
-    tokensOf(c).has("flex"),
-  );
-  expect(flexCols).toHaveLength(1);
-  expectClasses(flexCols[0]!, { exactly: ["flex", "min-w-0", "flex-col"] });
 
   const icon = reset.querySelector("svg")!;
   expect(icon.getAttribute("width")).toBe("16");
