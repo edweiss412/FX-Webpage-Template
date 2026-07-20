@@ -38,7 +38,7 @@ export function warningCardCopyFields(
   entry: { helpfulContext?: string | null; triggerContext?: string | null } | null,
 ): { guidance: string | null; trigger: string | null } {
   const pick = (v: string | null | undefined) =>
-    typeof v === "string" && v.trim().length > 0 ? v : null;
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
   return { guidance: pick(entry?.helpfulContext), trigger: pick(entry?.triggerContext) };
 }
 

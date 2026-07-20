@@ -197,15 +197,18 @@ export function HoverHelp({
       onPointerLeave={onMouseLeave}
       onKeyDown={onRootKeyDown}
     >
-      {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min;
-          the compact "?" keeps a 20px visual but a transparent before:-inset-3
-          overlay extends the hit area to 44px without changing layout. */}
+      {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min,
+          or with compactTrigger a 22px box + before:inset-[-11px] overlay (44px
+          hit area, zero layout inflation - the same pattern as the default "?",
+          which keeps a 20px visual with a before:-inset-3 overlay). ring-offset-0
+          on the compact branch: an offset gap renders Tailwind's default white on
+          tinted cards (the DQIGNORE-5 class). */}
       {trigger ? (
         <button
           {...triggerProps}
           className={
             compactTrigger
-              ? "group relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+              ? "group relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-0"
               : "inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           }
         >
