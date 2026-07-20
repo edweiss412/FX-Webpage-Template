@@ -6,6 +6,8 @@ name: PROBE detached-process step survival (temporary)
 # result is recorded in the spec.
 on:
   workflow_dispatch:
+  push:
+    branches: [chore/ci-overlap-boot-with-setup]
 
 jobs:
   probe:
