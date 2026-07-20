@@ -38,6 +38,7 @@
 - Modify: `tests/app/admin/showReviewModalLoader.test.tsx` (mock extension + new describe block)
 - Modify: `tests/log/_auditableMutations.ts` (one string in `NEW_FORENSIC_CODES`, `ADMIN_SHOW_*` cluster at `:627-631`)
 - Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row — verified schema `{ helper, path, contract }`, rows at `:170-235`; each row gets the registry's standard helper-exists grep, no other schema fields)
+- Modify: `tests/admin/_showReviewReadPathPin.test.ts` (the two structural pins — written in the RED set below, since the single-caller pin genuinely fails before the implementation exists)
 
 **Verified helper facts (this session):** `buildLoaderElement()` returns the RAW loader output — the `ShareTokenProvider` element (`showReviewModalLoader.test.tsx:244-247`), so the `bridgeChild`/`childOrder` helpers below operate on `ui.props.children` directly; `isValidElement` and `type ReactElement` are ALREADY imported at `:23`.
 
@@ -242,8 +243,31 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
 
 - [ ] **Step 3: Run the new tests — verify the red phase precisely.**
 
-Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx -t "realtime bridge"`
-Expected: **9 of the 10 new tests FAIL** (ok/args, returned-error, throw, success-null, number-coercion, read-order settlement, and all three lifecycle tests — no bridge in tree, no `versionToken` in `readOrder`, no log emit; the fault cases fail on the LOG assertion even though `bridgeChild` is already null). The **child-order-stability test passes vacuously** pre-implementation (both renders identically bridge-less) — its red-phase proof is deferred to Step 7's negative verification, which breaks the implementation to prove the test can fail.
+**Also write the two structural pins NOW** (part of the red set — this is why they live in Task 1, not a later task: the single-caller pin is genuinely red-first). Append to `tests/admin/_showReviewReadPathPin.test.ts`'s test block:
+
+```ts
+  test("the loader calls viewer_version_token exactly once (realtime-refresh §4.1 single caller)", () => {
+    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
+    const matches = source.match(/\.rpc\(\s*["']viewer_version_token["']/g) ?? [];
+    expect(matches).toHaveLength(1);
+    // Arg binding is part of the pin: the call must pass p_show_id.
+    expect(source).toMatch(/\.rpc\(\s*["']viewer_version_token["']\s*,\s*\{\s*p_show_id:/);
+  });
+
+  test("the loader's token read is NEVER cached (realtime-refresh §4.1 / §8.5.2)", () => {
+    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
+    // A cached fence re-serves a stale token forever → infinite refresh loop
+    // (getShowForViewer.ts:874-876 hazard). Scan IMPORT + CALL sites only, so a
+    // prose comment can never trip it (round-6 F2): the loader must not import
+    // next/cache nor invoke a cache wrapper.
+    expect(source).not.toMatch(/from\s+["']next\/cache["']/);
+    expect(source).not.toMatch(/unstable_cache\s*\(/);
+    expect(source).not.toMatch(/["']use cache["']/);
+  });
+```
+
+Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx -t "realtime bridge"` AND `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts`
+Expected: **9 of the 10 new loader tests FAIL** (ok/args, returned-error, throw, success-null, number-coercion, read-order settlement, and all three lifecycle tests — no bridge in tree, no `versionToken` in `readOrder`, no log emit; the fault cases fail on the LOG assertion even though `bridgeChild` is already null), AND the **single-caller pin FAILS** (`toHaveLength(1)` vs 0 matches — the rpc call doesn't exist yet). Two vacuous-passes pre-implementation, each with an explicit later proof: the **child-order-stability test** (both renders identically bridge-less; broken-and-proven in Step 9) and the **never-cached pin** (no cache import exists yet; broken-and-proven in Step 9).
 
 - [ ] **Step 4: Implement in `app/admin/_showReviewModal.tsx`.**
 
@@ -260,9 +284,10 @@ Immediately after `const showId = showIdRow.id;` (line ~135), BEFORE `readFinali
   // serially BEFORE the data wave (the getShowForViewer.ts:920-935 read-order
   // precedent, audit idx19): data-then-token lets a write committing between
   // the reads yield fresh-token + stale-data, which suppresses the bridge's
-  // catch-up refresh → stuck stale. NEVER cached (unstable_cache would
+  // catch-up refresh → stuck stale. NEVER cached (a cache wrapper would
   // re-serve a stale fence forever → refresh loop; pinned by the read-path
-  // meta-test). Fault posture (§4.2): fail OPEN — log the forensic code and
+  // meta-test — which is also why this comment avoids naming the wrapper).
+  // Fault posture (§4.2): fail OPEN — log the forensic code and
   // render this pass without the bridge; the modal's revalidate-on-open
   // refresh re-runs the loader and recovers the bridge when the read heals.
   // Named closure (not inline try/catch) so the invariant-9 registry row in
@@ -328,73 +353,30 @@ In the return, inside `ShareTokenProvider`, AFTER `<PublishedReviewModal …/>` 
 
 Follow the registry's existing per-row assertion pattern (a "helper exists" grep against the path; behavioral coverage lives in the loader suite's returned-error/throw tests from Step 2 — reference them if the registry's row schema wants a pointer).
 
-- [ ] **Step 7: Green + negative verification.**
+- [ ] **Step 7: Green.**
 
 Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx tests/log tests/admin`
-Expected: PASS (all files), including `_metaInfraContract.test.ts` with the new row resolving.
+Expected: PASS (all files), including `_metaInfraContract.test.ts` with the new row resolving and both read-path pins green.
 
-Negative verifications (all uncommitted breakages, reverted via `git checkout --` after each):
-
-1. Vacuous-pass test (Step 3): temporarily swap the ORDER of the two children — move the ENTIRE `{versionToken !== null ? (…) : null}` conditional block ABOVE `<PublishedReviewModal …/>` (a complete, syntactically valid JSX reorder — never delete just the inner element, which leaves an empty ternary branch and fails the BUILD instead of the test) → rerun the child-order-stability + "bridge rendered LAST" tests → both must FAIL behaviorally → revert.
-2. Forensic-code row (Step 5) — **enforcement character stated honestly (verified this session):** `NEW_FORENSIC_CODES` is consumed ONLY as a LEAK-GUARD (`tests/log/_metaAdminOutcomeContract.test.ts:69-73` — asserts these codes stay OUT of the §12.4 producer scan); deleting the row fails nothing, so there is NO meaningful delete-the-row negative verification and the plan does not pretend one. The row is the established convention registration (peers `ADMIN_SHOW_LOOKUP_FAILED`, `ADMIN_SHOW_TOKEN_READ_FAILED` are registered the same way) plus the leak-guard. The EMIT's enforcement is the loader suite's log-spy assertions (Step 2's returned-error/throw tests), whose red phase Step 3 already proves.
-3. Invariant-9 row (Step 6): temporarily rename the loader closure `readBridgeVersionToken` → `readBridgeVersionTokenX` → run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` → the row's helper-exists grep must FAIL → revert.
-
-- [ ] **Step 8: Commit.**
+- [ ] **Step 8: Commit FIRST (so the negative verifications run against committed state and `git checkout --` restores the real implementation, never erases it).**
 
 ```bash
-git add app/admin/_showReviewModal.tsx tests/app/admin/showReviewModalLoader.test.tsx tests/log/_auditableMutations.ts tests/admin/_metaInfraContract.test.ts
+git add app/admin/_showReviewModal.tsx tests/app/admin/showReviewModalLoader.test.tsx tests/log/_auditableMutations.ts tests/admin/_metaInfraContract.test.ts tests/admin/_showReviewReadPathPin.test.ts
 git commit --no-verify -m "feat(admin): mount realtime bridge in show-review modal loader (token-first read, fail-open)"
 ```
 
+- [ ] **Step 9: Negative verifications (post-commit; each breakage is uncommitted and reverted via `git checkout -- <file>`, which now restores the COMMITTED implementation):**
+
+1. Child-order-stability + "bridge rendered LAST" (the Step-3 vacuous-pass): temporarily swap the ORDER of the two children — move the ENTIRE `{versionToken !== null ? (…) : null}` conditional block ABOVE `<PublishedReviewModal …/>` (a complete, syntactically valid JSX reorder — never delete just the inner element, which leaves an empty ternary branch and fails the BUILD instead of the test) → rerun → both must FAIL behaviorally → `git checkout -- app/admin/_showReviewModal.tsx`.
+2. Never-cached pin (the other Step-3 vacuous-pass): temporarily add `import { unstable_cache } from "next/cache";` to the loader → `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts` → the pin must FAIL on the import scan → revert. Then temporarily duplicate the `.rpc("viewer_version_token"` line → rerun → the single-caller pin must FAIL → revert.
+3. Invariant-9 row (Step 6): temporarily rename the loader closure `readBridgeVersionToken` → `readBridgeVersionTokenX` → run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` → the row's helper-exists grep must FAIL → revert.
+4. Forensic-code row (Step 5) — **enforcement character stated honestly (verified this session):** `NEW_FORENSIC_CODES` is consumed ONLY as a LEAK-GUARD (`tests/log/_metaAdminOutcomeContract.test.ts:69-73` — asserts these codes stay OUT of the §12.4 producer scan); deleting the row fails nothing, so there is NO meaningful delete-the-row negative verification and the plan does not pretend one. The row is the established convention registration (peers `ADMIN_SHOW_LOOKUP_FAILED`, `ADMIN_SHOW_TOKEN_READ_FAILED` are registered the same way) plus the leak-guard. The EMIT's enforcement is the loader suite's log-spy assertions, whose red phase Step 3 already proved.
+
 ---
 
-### Task 2: Read-path pin extensions (single-caller + never-cached)
+### Task 2: (FOLDED INTO TASK 1)
 
-**Files:**
-
-- Modify: `tests/admin/_showReviewReadPathPin.test.ts`
-
-**Interfaces:**
-
-- Consumes: the loader source from Task 1 (`.rpc("viewer_version_token"` present exactly once; no cache wrappers).
-- Produces: structural pins later refactors can't silently break.
-
-**TDD note (declared, not waived):** these are STRUCTURAL meta-test pins over Task 1's already-TDD'd implementation — the repo's established red-phase equivalent for this class is the explicit negative verification (Step 3 breaks the source to prove each pin can fail), the same discipline every `_meta*` registry test in `tests/` uses. Behavioral TDD happened in Task 1.
-
-- [ ] **Step 1: Write the pins.** Append to the file's test block:
-
-```ts
-  test("the loader calls viewer_version_token exactly once (realtime-refresh §4.1 single caller)", () => {
-    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
-    const matches = source.match(/\.rpc\(\s*["']viewer_version_token["']/g) ?? [];
-    expect(matches).toHaveLength(1);
-    // Arg binding is part of the pin: the call must pass p_show_id.
-    expect(source).toMatch(/\.rpc\(\s*["']viewer_version_token["']\s*,\s*\{\s*p_show_id:/);
-  });
-
-  test("the loader's token read is NEVER cached (realtime-refresh §4.1 / §8.5.2)", () => {
-    const source = readFileSync(join(REPO_ROOT, "app/admin/_showReviewModal.tsx"), "utf8");
-    // A cached fence re-serves a stale token forever → infinite refresh loop
-    // (getShowForViewer.ts:874-876 hazard). The loader must not import or use
-    // any cache wrapper around its reads.
-    expect(source).not.toMatch(/unstable_cache/);
-    expect(source).not.toMatch(/["']use cache["']/);
-  });
-```
-
-- [ ] **Step 2: Run them.**
-
-Run: `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts`
-Expected: PASS.
-
-- [ ] **Step 3: Negative verification (anti-tautology).** Temporarily duplicate the `.rpc("viewer_version_token"` line in the loader → rerun → expect the single-caller pin FAILS; revert. Temporarily add `import { unstable_cache } from "next/cache";` → rerun → expect the never-cached pin FAILS; revert. (Do not commit the breakages.)
-
-- [ ] **Step 4: Commit.**
-
-```bash
-git add tests/admin/_showReviewReadPathPin.test.ts
-git commit --no-verify -m "test(admin): pin viewer_version_token single-caller + never-cached in modal loader"
-```
+The two read-path pins (single-caller, never-cached) are written in Task 1's RED set and negative-verified in Task 1 Step 9 — the single-caller pin is genuinely failing-test-first there (round-6 F3 resolution). No separate task remains.
 
 ---
 
@@ -454,7 +436,11 @@ export function isJoinReplyOk(frameText: string, showId: string): boolean {
 export function isInvalidationFrame(frameText: string, showId: string): boolean {
   try {
     const f = JSON.parse(frameText) as { topic?: string; event?: string };
-    return f.topic === `realtime:show:${showId}:invalidation` && f.event === "broadcast";
+    return (
+      f.topic === `realtime:show:${showId}:invalidation` &&
+      f.event === "broadcast" &&
+      (f as { payload?: { event?: string } }).payload?.event === "invalidate" // discriminator — an unrelated broadcast must NOT satisfy the oracle (round-6 F4)
+    );
   } catch {
     return false;
   }
@@ -469,7 +455,7 @@ Adjust the two predicates to the ACTUAL observed frame shapes — the shapes abo
 
 - Files: Create `tests/e2e/_realtimeBridgeLiveEntry.tsx` (client entry rendering `<ShowRealtimeBridge showId="harness-show" slug="harness" renderVersion="v0"/>`); Create `tests/e2e/_realtimeBridgeBundle.mjs` (esbuild bundler — a COPY of the verified live-bundle precedent `tests/e2e/_step3ReviewModalBundle.mjs`, keeping its use-server-elision plugin, with the entry swapped and TWO aliases added); Create `tests/e2e/_stubs/supabaseBrowserStub.ts` + `tests/e2e/_stubs/nextNavigationStub.ts` (the alias targets); Create `tests/e2e/realtime-bridge-conduction.spec.ts`; Modify `playwright.config.ts` (register `realtime-bridge-conduction` in the desktop-chromium testMatch INSTEAD of `published-review-modal\.realtime`); Modify `.github/workflows/published-modal-e2e.yml` (run line + path filters reference the conduction spec + `_realtimeBridgeLiveEntry.tsx` + `_realtimeBridgeBundle.mjs` + `tests/e2e/_stubs/**` — the bundler owns the alias wiring, so it MUST be path-filtered; NO `MODAL_REALTIME_E2E` env var); Modify `tests/e2e/published-review-modal.interactions.spec.ts` (the appended reconcile-invariants test, TDD cycle below).
 - Alias 1 — `@/lib/supabase/browser` → stub module (spec §8.4 contract: the STUB IS THE SUPABASE CLIENT, so the REAL `subscribeToShow` runs — its channel setup, its broadcast-event registration, its readiness Promise). The stub's `getSupabaseBrowserClient()` returns a fake whose `.channel(topic, opts)` returns an object capturing the handler registered via `.on("broadcast", { event: "invalidate" }, handler)` and whose `.subscribe(cb)` synchronously calls `cb("SUBSCRIBED")`; `realtime.setAuth` no-op; `removeChannel` resolves. Expose `window.__driveInvalidation = (payload) => capturedHandler({ payload })`; stub `fetch` for the mint/version endpoints (fixed jwt/version). Alias 2 — `next/navigation` → `useRouter().refresh` increments `window.__refreshCount`.
-- **Stub contracts (defined by the REAL `subscribeToShow`'s verified usage, `lib/realtime/subscribeToShow.ts` — `setAuth` before channel open at `:153`, `.channel(topic, {config:{private:true,broadcast:{self:false}}})`, `.on("broadcast", { event: "invalidate" }, handler)`, `.subscribe(statusCb)`):** `supabaseBrowserStub.ts` exports `getSupabaseBrowserClient()` returning `{ realtime: { setAuth() {} }, channel: (topic, opts) => fakeChannel, removeChannel: async () => {} }` where `fakeChannel.on(type, filter, handler)` captures `handler` when `type === "broadcast" && filter.event === "invalidate"` (and returns the channel for chaining), and `fakeChannel.subscribe(cb)` calls `cb("SUBSCRIBED")` and returns the channel; the module also sets `window.__driveInvalidation = (payload) => capturedHandler?.({ payload })` and stubs `globalThis.fetch` for `/api/realtime/subscriber-token` (`{ jwt: "harness-jwt", exp: 9999999999 }`) and `/api/show/*/version` (`{ version_token: "v0" }`). `nextNavigationStub.ts` exports `useRouter()` returning `{ refresh: () => { window.__refreshCount = (window.__refreshCount ?? 0) + 1; } }`. The captured-handler ARGUMENT shape `{ payload }` mirrors what `subscribeToShow`'s handler destructures — verify against `subscribeToShow.ts`'s `.on` callback at implementation time and match exactly.
+- **Stub contracts (defined by the REAL `subscribeToShow`'s verified usage, `lib/realtime/subscribeToShow.ts` — `setAuth` before channel open at `:153`, `.channel(topic, {config:{private:true,broadcast:{self:false}}})`, `.on("broadcast", { event: "invalidate" }, handler)`, `.subscribe(statusCb)`):** `supabaseBrowserStub.ts` exports `getSupabaseBrowserClient()` returning `{ realtime: { setAuth() {} }, channel: (topic, opts) => fakeChannel, removeChannel: async () => {} }` where `fakeChannel.on(type, filter, handler)` captures `handler` when `type === "broadcast" && filter.event === "invalidate"` (and returns the channel for chaining), and `fakeChannel.subscribe(cb)` calls `cb("SUBSCRIBED")`, sets `window.__subscribed = true` (the READINESS SIGNAL — the spec awaits `expect.poll(() => window.__subscribed)` before driving ANY invalidation, so a burst can never race the bridge's subscription effect; round-6 F6), and returns the channel; the module also sets `window.__driveInvalidation = (payload) => capturedHandler?.({ payload })` and stubs `globalThis.fetch` for `/api/realtime/subscriber-token` (`{ jwt: "harness-jwt", exp: 9999999999 }`) and `/api/show/*/version` (`{ version_token: "v0" }`). `nextNavigationStub.ts` exports `useRouter()` returning `{ refresh: () => { window.__refreshCount = (window.__refreshCount ?? 0) + 1; } }`. The captured-handler ARGUMENT shape `{ payload }` mirrors what `subscribeToShow`'s handler destructures — verify against `subscribeToShow.ts`'s `.on` callback at implementation time and match exactly.
 - **Bundle invocation + serving (deterministic):** the SPEC's `beforeAll` spawns the bundler out-of-process — `execFileSync(node, ["tests/e2e/_realtimeBridgeBundle.mjs", outDir])` where `outDir` is a `mkdtempSync` temp dir (the exact spawn pattern of the layout harness, `published-review-modal.layout.spec.ts:103-116`). The bundler writes `<outDir>/bundle.js` (esbuild output) and `<outDir>/index.html` (`<div id="root"></div><script src="./bundle.js"></script>`); the test `page.goto(pathToFileURL(join(outDir, "index.html")).href)`. No web server, no gitignore concerns (temp dir).
 - Conduction spec TDD (executable, alias-attributable): commit sequence is spec + entry + bundler WITHOUT the two alias entries first. Red: `pnpm exec playwright test --project=desktop-chromium tests/e2e/realtime-bridge-conduction.spec.ts` → FAIL (`window.__driveInvalidation` undefined — the un-aliased bundle imports the REAL `@/lib/supabase/browser`, which throws on missing env / never defines the hook). Green: add the two alias entries to `_realtimeBridgeBundle.mjs`, rerun the SAME command → PASS. The delta between red and green is exactly the aliases. Assertions: (a) `__driveInvalidation` burst of 8 within 50ms → exactly ONE `__refreshCount` increment, ≥100ms after the last call (REAL bridge debounce conducted it — never call refresh directly); (b) two invalidations 300ms apart → two increments (negative regression, mirrors the bridge's pinned debounce tests).
 - Reconcile-invariants test TDD (executable): append the test to `published-review-modal.interactions.spec.ts` driving a REAL app-owned reconcile (the ignore-warning server action that spec already exercises) with the §4.4 1–4 + skeleton + geometry oracles. Red-phase equivalence: run once (`pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts -g "reconcile invariants"`); if green on first run, perform ONE negative verification — inside a throwaway copy of the test, programmatically `scroller.scrollTop = 0` mid-window and assert the scrollTop oracle FAILS — then delete the throwaway; commit.
@@ -620,7 +606,7 @@ gh pr checks <PR#> --watch
 gh pr view <PR#> --json mergeStateStatus --jq .mergeStateStatus   # must be CLEAN, not DIRTY/BEHIND
 ```
 
-The `published-modal-e2e` run MUST appear and pass on the PR (its path filters match this diff). If it did not trigger, `gh workflow run published-modal-e2e.yml --ref feat/admin-modal-realtime-refresh` and watch that run. If the PR is BEHIND/DIRTY, rebuild on `origin/main` first (merge-ref CI lesson).
+The `published-modal-e2e` run MUST appear and pass on the PR (its path filters match this diff), AND its log must PROVE the new spec actually executed — `gh run view <runId> --log | grep -c "published-review-modal.realtime"` (or `realtime-bridge-conduction` on the fallback branch) must show ≥1 executed-test line; a green run whose log lacks the spec name means the run-line/env-gate wiring was dropped and the gate is DARK (round-6 F5 — green-without-running is the failure mode). If it did not trigger, `gh workflow run published-modal-e2e.yml --ref feat/admin-modal-realtime-refresh` and watch that run. If the PR is BEHIND/DIRTY, rebuild on `origin/main` first (merge-ref CI lesson).
 
 - [ ] **Step 4: Merge + sync (same turn as CI-green — never park a green PR):**
 
