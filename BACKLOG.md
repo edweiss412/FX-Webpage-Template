@@ -4,6 +4,18 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
+
+**Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)
+
+`HoverHelp` positions its popover body absolutely IN FLOW rather than portaling it (components/admin/HoverHelp.tsx:193). Inside a scrolling surface the popover can be visually clipped by an ancestor, and `getBoundingClientRect()` does not reveal it (it reports the unclipped box, so a naive assertion passes). The concrete case: `AttentionBanner` cards sit in an `overflow-y-auto` scroll container (components/admin/review/ShowReviewSurface.tsx:869) nested in an `overflow-clip` panel (components/admin/review/ReviewModalShell.tsx:614), so a popover opened near the bottom of the scroll viewport is cut off until the user scrolls.
+
+Pre-existing for every HoverHelp consumer inside a scrolling admin surface; NOT introduced by show-alert-compact, whose spec explicitly descopes placement policy to the shipped default (amendment A6) rather than inventing an unmeasurable geometry rule. Fixing it means portaling the body to `document.body` with anchored positioning (or adopting CSS anchor positioning with a polyfill), then asserting popover containment against BOTH clipping ancestors in a real-browser test.
+
+**Status:** open.
+
+---
+
 ## BL-SPEC-LINT — mechanize the checkable subset of spec/plan pre-review passes
 
 **Filed:** 2026-07-19 (round-burn retrospective, PRs #470–#500) · **Class:** review-round reduction (tooling) · **Effort:** M (script + wiring into review-dispatch discipline)
