@@ -178,7 +178,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // ~126ms local prod). Freshness is handled separately by the post-close
     // refresh in `handleClose` — prefetch is a paint optimization, not a
     // source of truth.
-    router.prefetch("/admin");
+    // Optional-chained: `prefetch` is always present on the real Next router,
+    // but several unit-test navigation mocks stub only { refresh, push }, and a
+    // hard call would crash every test that mounts this modal through one of
+    // them. The warm is a pure optimization, so skipping it under a partial
+    // mock is harmless.
+    router.prefetch?.("/admin");
   }, [router]);
   // Instant close: the close nav is a full RSC round-trip of the dashboard
   // (the modal is server-rendered off `?show`), so the shell would otherwise
