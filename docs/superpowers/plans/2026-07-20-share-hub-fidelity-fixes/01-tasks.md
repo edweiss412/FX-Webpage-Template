@@ -178,15 +178,12 @@ it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
   );
   const btn = screen.getByTestId("admin-rotate-share-token-button");
   // An empty described node is worse than none: SRs announce a blank description.
-  expect(btn.getAttribute("aria-describedby")).toBeNull();
   expect(btn.textContent).toBe("Rotate share link");
-  // The description NODE must be gone, not merely emptied. Without this, an
-  // implementation that omits the attribute but still renders
-  // `<span id={descId}>{rowDescription.trim()}</span>` passes: textContent is
-  // unchanged and aria-describedby is absent, yet an empty described node
-  // survives. The correct row has exactly TWO spans here (the flex column
-  // wrapper and the label span); that escape has three. Probe-verified.
-  expect(btn.querySelectorAll("span")).toHaveLength(2);
+  // Tag-agnostic structural absence (§7.0). A span COUNT is not enough: an
+  // empty `<p id={descId} class="text-xs text-text-subtle">` survives it while
+  // leaving the forbidden empty described node in the tree. This helper asserts
+  // the column holds the label and nothing else, whatever tag the escape uses.
+  expectNoDescriptionNode(btn, "Rotate share link");
 });
 
 it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
@@ -205,8 +202,8 @@ it("GUARD rowDescription absent: row renders, no described node", () => {
     <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="Rotate share link" />,
   );
   const btn = screen.getByTestId("admin-rotate-share-token-button");
-  expect(btn.getAttribute("aria-describedby")).toBeNull();
   expect(btn.textContent).toBe("Rotate share link");
+  expectNoDescriptionNode(btn, "Rotate share link");
 });
 ```
 

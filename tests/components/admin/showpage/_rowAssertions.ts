@@ -151,3 +151,34 @@ export function expectRowText(
   ).toBe(1);
   expectClasses(descEl!, { exactly: DESCRIPTION_CLASSES });
 }
+
+/**
+ * Asserts a row renders NO description carrier at all: the §4.5 contract for an
+ * absent or whitespace-only `rowDescription`.
+ *
+ * Structural and TAG-AGNOSTIC by design. A span count is neither: an empty
+ * `<p id={descId} class="text-xs text-text-subtle">` survives a
+ * `querySelectorAll("span")` check while still leaving the forbidden empty
+ * described node in the tree. The column holds the label and nothing else, so
+ * `childElementCount === 1` is the contract regardless of what tag the escape
+ * reaches for.
+ */
+export function expectNoDescriptionNode(button: HTMLElement, label: string): void {
+  expect(button.getAttribute("aria-describedby"), "no described node when absent").toBeNull();
+
+  const labelEl = within(button).getByText(label);
+  const column = labelEl.parentElement;
+  expect(column, "label must sit in the row column").not.toBeNull();
+  expect(
+    column!.childElementCount,
+    "the column must hold the label and NOTHING else - any tag, not just a span",
+  ).toBe(1);
+
+  // Belt and braces: nothing anywhere in the row carries the description styling.
+  expect(
+    [...button.querySelectorAll("*")].filter((el) =>
+      DESCRIPTION_CLASSES.every((c) => tokensOf(el).has(c)),
+    ),
+    "no element may carry the description class set",
+  ).toEqual([]);
+}
