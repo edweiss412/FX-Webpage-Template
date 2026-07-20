@@ -265,15 +265,18 @@ describe("ShareHub — z-order (spec §3)", () => {
     // z-10 < z-20, so none of `relative`, `z-0`, `z-10`, or `isolate` (a
     // level-0 context) reintroduces it — only z >= 20 does. Parse the level and
     // assert it, so a correct refactor adding a low z stays green.
-    // The MAX positive z across ALL tokens, variant prefixes stripped. Not a
-    // single .exec: `z-10 z-30` must read as 30, and `sm:z-30` / `hover:z-40`
-    // must not slip past. Negatives never raise the max (they are safe), so a
-    // trigger with only `-z-10` reads 0 and passes.
+    // The MAX positive z across ALL tokens. Not a single .exec (`z-10 z-30` must
+    // read as 30), and NOT by stripping the variant prefix (its grammar is
+    // open-ended — `sm:`, `dark:`, `data-[state=open]:`, `[&:hover]:`,
+    // `supports-[display:grid]:` …). Instead the z-utility is matched as a
+    // SUFFIX: every Tailwind z token ends in `z-<n>` / `z-[<n>]` at token start
+    // or immediately after a colon, whatever precedes it. That closes the whole
+    // prefix class rather than enumerating spellings. Negatives never raise the
+    // max, so a trigger with only `-z-10` reads 0 and passes.
     const maxZLevel = (cls: string): number => {
       let max = 0;
-      for (const raw of cls.split(/\s+/).filter(Boolean)) {
-        const tok = raw.replace(/^(?:[a-z0-9-]+:)+/, ""); // strip sm: / hover: / dark: …
-        const m = /^(-?)z-(?:\[(-?\d+)\]|(\d+))$/.exec(tok);
+      for (const tok of cls.split(/\s+/).filter(Boolean)) {
+        const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))$/.exec(tok);
         if (!m) continue;
         const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
         if (n > max) max = n;
