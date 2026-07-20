@@ -68,11 +68,11 @@ Trigger group (container carries `id="share-access"`, §7):
 | Overview share-access div | removed | removed | removed |
 | Strip copy-link button | removed (superseded by hub) | — | — |
 
-Publish toggling while the popover is open: popover CLOSES on lifecycle change commit (matches mock `setLc`/`togglePublish` closing the menu; avoids mid-flight arm-state across a content swap). `finalizeOwned` does not gate the hub (parity with current shareSlot, which never gated on it).
+Publish toggling while the popover is open: popover CLOSES on lifecycle change commit (matches mock `setLc`/`togglePublish` closing the menu; avoids mid-flight arm-state across a content swap) — **EXCEPT while a child control is `resolving`**, where the close is deferred until the action settles. Rationale (verified, `RotateShareTokenButton.tsx:139-153`): the rotate promise is not tied to mount, so unmounting mid-flight still completes the rotation server-side and still fires `onRotated`, but `setResult` lands on an unmounted component and the success banner is LOST — the operator would silently rotate a share link and see no confirmation that the old link is dead. Deferring the close is the only treatment that keeps the destructive action's outcome observable; the same rule already covers Escape and backdrop (§6). `finalizeOwned` does not gate the hub (parity with current shareSlot, which never gated on it).
 
 ## 5. Popover content — reuse map
 
-Single popover panel, one instance in the DOM, anchored `absolute top-full right-0` of the band's positioned container, `mt-1.5 w-[308px]` desktop, clamped `max-w-[calc(100vw-2*edge-gutter)]` on narrow viewports.
+Single popover panel, one instance in the DOM, `absolute top-full right-0 mt-1.5 w-[308px]`, positioned against **the trigger group's own `relative` wrapper** (see §10 — NOT the band and NOT the strip row), clamped on narrow viewports so it stays inside the modal.
 
 - Header label "Crew link" (uppercase micro-label).
 - Published arm: `<code>` URL from `useShareToken()` + `resolveOrigin()` (same derivation as `ShareLinkBody.tsx:40`) + `ShareLinkCopyButton url variant="accent"`; mailto anchors via `buildCrewLinkMailtos` incl. multi-batch note (`ShareLinkBody.tsx:56-82` behavior preserved).
@@ -118,14 +118,15 @@ ShareHub states: closed (C), open-idle (O), open-rotate-confirm (OR), open-reset
 | OR/OS→V | instant; close paths inert during V |
 | V→B | instant; banner `role="status"`; PickerResetControl banner auto-dismisses (existing PCR-1 5s) |
 | B→O / B→C | instant; existing components' settle paths (rotate settles in place; reset closes per its shipped behavior — components unchanged) |
-| any open state → C via publish toggle / archived swap | instant unmount (popover closes on lifecycle change) |
+| any open NON-resolving state → C via publish toggle / archived swap | instant unmount (popover closes on lifecycle change) |
+| V → C via publish toggle / archived swap | DEFERRED — the close waits for the action to settle, then applies (§4); never an unmount mid-flight |
 | Copied feedback | existing 2s reset inside ShareLinkCopyButton |
 
-Compound: publish toggle while V — the popover unmounts; both machines already handle unmount-during-resolve (cleanup-guarded timers, `RotateShareTokenButton.tsx:90-96`). Confirm armed while auto-revert timer pending + backdrop click — timers cleared on close (existing `clearAutoRevert` idiom).
+Compound: publish toggle while V — close is DEFERRED (§4), because unmount-during-resolve loses the outcome banner even though the timers are cleanup-guarded (`RotateShareTokenButton.tsx:85-96`). Confirm armed while auto-revert timer pending + backdrop click — timers cleared on close (existing `clearAutoRevert` idiom, and `closeConfirm`'s functional `setUi` guard no-ops for a timer that fires after the row is gone, `RotateShareTokenButton.tsx:88-97`). Rotate success while a Copy 2s window is open — `onRotated` swaps the context token, the URL re-renders, and the stale "Copied" label self-clears on its own timer; the clipboard holds the OLD url, which is why the rotate success copy explicitly says the old link no longer works (`RotateShareTokenButton.tsx:205-210`).
 
 ## 10. Dimensional invariants
 
-- Popover: fixed `w-[308px]`; parent anchor is the band's positioned container (`relative` on the band wrapper — NOT on the strip row, which deliberately has no `relative` per `StatusStrip.tsx:166-168`; the popover anchor must therefore be a new positioned wrapper around the trigger group, so the Re-sync overlay contract is untouched).
+- Popover: fixed `w-[308px]`. Its positioned ancestor is a NEW `relative` wrapper around the trigger group inside `ShareHub` — deliberately not the strip row (which must stay unpositioned: `StatusStrip.tsx:166-168` states the band owns the positioned ancestor, and adding `relative` to the row would re-anchor the Re-sync overlay and break its `inset-x-0` full-band width). Because the wrapper's right edge is the band's content-box right edge (via `ml-auto`), `right-0` on the popover aligns it to that same edge.
 - Triggers: `min-h-tap-min` (project token) ≥ mock's 38px; kebab square (`w`=`min-h`).
 - Right-flush: trigger group `ml-auto` inside the `w-full` strip row (`StatusStrip.tsx:151-168` guarantee unchanged) — real-browser assertion (plan layout task) that group right edge ≈ band content edge within 0.5px, and popover right edge aligns to the same edge.
 - Clamp: popover `max-w` must keep it inside the modal on 390px viewport (real-browser assertion).
