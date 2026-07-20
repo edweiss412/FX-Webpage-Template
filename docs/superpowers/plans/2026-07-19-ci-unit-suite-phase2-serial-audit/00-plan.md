@@ -153,7 +153,7 @@ Expected: FAIL — 2 tests; the rest pass.
 ```ts
   // Phase 2 (spec 2026-07-19-ci-unit-suite-phase2-serial-audit §2): verified
   // via the same closed-port + fileParallelism protocol on 2026-07-19
-  // (178 files / 2,745 tests green). tests/parser are fixture-corpus READERS —
+  // (178 passed / 2,745 tests green; 1 env-skip). tests/parser are fixture-corpus READERS —
   // safe in the parallel phase because the corpus WRITER
   // (tests/sync/dev-routing.test.ts) stays serial and the two phases never
   // overlap. The nightly mutationHarness.* files match tests/parser/** but are
