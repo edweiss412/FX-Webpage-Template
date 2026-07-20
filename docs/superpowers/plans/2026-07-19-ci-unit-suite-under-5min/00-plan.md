@@ -390,25 +390,47 @@ git commit --no-verify -m "infra: conditional Supabase image cache on unit-suite
 
 **Files:** conditional — `.github/workflows/unit-suite.yml`, both meta-tests, `lib/test/vitest.weights.ts`, `BACKLOG.md` (only on the revert / reweight / 8-leg / residual-gap branches below).
 
-**Measurement helper (used by every step below).** GitHub reruns KEEP the run's database ID and increment its `attempt` — a rerun never creates a new run ID. Always measure an explicit attempt via the attempts API (snake_case fields):
+**Measurement helper (used by every step below).** GitHub reruns KEEP the run's database ID and increment its `attempt` — a rerun never creates a new run ID. Always measure an explicit attempt via the attempts API (snake_case fields). The helper SELF-VALIDATES: an attempt-scoped jobs listing contains only the jobs that ran IN that attempt, so a `--failed` rerun produces a partial attempt — the helper hard-errors on leg-count mismatch or any non-green leg instead of silently aggregating a subset:
 
 ```bash
-measure() { # usage: measure <run-id> <attempt>
-  gh api "repos/{owner}/{repo}/actions/runs/$1/attempts/$2/jobs" --paginate --jq '
-    [.jobs[] | select(.name|startswith("unit-suite-shard")) | {
+LEGS=6   # update to 8 if the §6.4 fallback fires
+measure() { # usage: measure <run-id> <attempt>   (uses $LEGS)
+  gh api "repos/{owner}/{repo}/actions/runs/$1/attempts/$2/jobs" --paginate --jq "
+    [.jobs[] | select(.name|startswith(\"unit-suite-shard\"))] as \$legs |
+    if (\$legs|length) != $LEGS then error(\"partial attempt: \(\$legs|length)/$LEGS legs — measure only FULL attempts (never a --failed rerun's attempt)\")
+    elif ([\$legs[]|select(.conclusion != \"success\")]|length) > 0 then error(\"non-green leg — not a qualifying attempt\")
+    else [\$legs[] | {
       leg: .name,
       wall_s: ((.completed_at|fromdate)-(.started_at|fromdate)),
-      boot_path_s: ([.steps[]|select(.name|test("Restore Supabase|Load cached|Boot local"))|((.completed_at|fromdate)-(.started_at|fromdate))]|add),
-      vitest_s: ([.steps[]|select(.name|test("Run vitest shard"))|((.completed_at|fromdate)-(.started_at|fromdate))]|add)
+      boot_path_s: ([.steps[]|select(.name|test(\"Restore Supabase|Load cached|Boot local\"))|((.completed_at|fromdate)-(.started_at|fromdate))]|add),
+      vitest_s: ([.steps[]|select(.name|test(\"Run vitest shard\"))|((.completed_at|fromdate)-(.started_at|fromdate))]|add)
     }] |
     { legs: .,
       max_wall: ([.[].wall_s]|max),
       boot_median: ([.[].boot_path_s]|sort|if length%2==1 then .[length/2|floor] else ((.[length/2-1]+.[length/2])/2) end),
-      vitest_skew: (([.[].vitest_s]|max)-([.[].vitest_s]|min)) }'
+      vitest_skew: (([.[].vitest_s]|max)-([.[].vitest_s]|min)) }
+    end"
 }
 ```
 
-(`boot_median` is a true median — even-length lists average the two middle values; a pick-upper-middle index would misdecide the ≤56s boundary. `vitest_skew`/`max_wall` are the §6.2/§6.3 inputs. A "qualifying" attempt = one where every leg is green and no leg died before its vitest step; a flake-failed attempt is rerun via `gh run rerun <id> --failed` and never measured.)
+(`boot_median` is a true median — even-length lists average the two middle values; a pick-upper-middle index would misdecide the ≤56s boundary. `vitest_skew`/`max_wall` are the §6.2/§6.3 inputs.)
+
+**Canonical measurement loop (structural fix after 3 review rounds on this vector — EVERY branch below re-enters this loop; no branch ever ends at a commit):**
+
+```bash
+# MEASURE-LOOP: run after EVERY mutation commit, and to (re)evaluate criteria.
+git push                                   # no-op if nothing local; NEVER skip
+gh pr checks <PR#> --watch                 # wait for the pushed run
+RUN=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
+measure $RUN 1                             # errors loudly if not a full green attempt
+# Evaluate IN ORDER on this output:
+#   (3) vitest_skew <= 75 ?  no → reweight branch → MEASURE-LOOP
+#   (2) max_wall   <  300 ?  no → 8-leg fallback (once) → MEASURE-LOOP; at 8 already → keep-fastest branch → MEASURE-LOOP
+# Loop exits ONLY when the latest measure output satisfies (2) and (3), or the
+# keep-fastest floor branch has confirmed its configuration on a measured run.
+```
+
+Flake rule: `gh run rerun $RUN --failed` is fine for turning the CHECK green, but its attempt is partial by construction and `measure` will refuse it — for a measurement, always use a FULL attempt (a fresh pushed run, or a full `gh run rerun $RUN` whose new attempt reruns all legs).
 
 - [ ] **Step 1: Push + PR.**
 
@@ -425,7 +447,7 @@ RUN1=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-p
 measure $RUN1 1
 ```
 
-Expected: all legs + aggregator green; each leg's restore ~0s (miss) and load skipped. Verify `gh pr view <PR#> --json mergeStateStatus` is not DIRTY. On unrelated flake: `gh run rerun $RUN1 --failed`, then measure the NEW attempt number (`gh run view $RUN1 --json attempt --jq .attempt`) once green.
+Expected: all legs + aggregator green; each leg's restore ~0s (miss) and load skipped. Verify `gh pr view <PR#> --json mergeStateStatus` is not DIRTY. On unrelated flake: `gh run rerun $RUN1 --failed` turns the check green, but that attempt is partial and `measure` will refuse it — for the measurement, follow with a FULL `gh run rerun $RUN1`, `gh run watch $RUN1 --exit-status`, `ATTEMPT=$(gh run view $RUN1 --json attempt --jq .attempt)`, `measure $RUN1 $ATTEMPT`.
 
 - [ ] **Step 3: Run 2 (cache hit) — rerun the SAME run id, measure the new attempt.**
 
@@ -436,7 +458,17 @@ ATTEMPT=$(gh run view $RUN1 --json attempt --jq .attempt)
 measure $RUN1 $ATTEMPT    # boot_median here is the §6.1 input
 ```
 
-(A `workflow_dispatch` run would execute on `refs/heads/<branch>` — a different cache scope, always a miss; never use it here. If `gh run rerun` is refused: `git commit --allow-empty --no-verify -m "chore: retrigger PR CI for cache-hit measurement (spec §6.1)" && git push`, then treat the new run's attempt 1 as the hit run.)
+(A `workflow_dispatch` run would execute on `refs/heads/<branch>` — a different cache scope, always a miss; never use it here. If `gh run rerun` is refused:
+
+```bash
+git commit --allow-empty --no-verify -m "chore: retrigger PR CI for cache-hit measurement (spec §6.1)"
+git push
+gh pr checks <PR#> --watch
+RUNH=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
+measure $RUNH 1    # this new run's attempt 1 is the cache-hit measurement
+```
+
+)
 
 - [ ] **Step 4: §6 ordered decision (each conditional mutation is TDD'd + committed like Tasks 1–3):**
 
@@ -451,24 +483,25 @@ measure $RUN1 $ATTEMPT    # boot_median here is the §6.1 input
   });
   ```
 
-  Run `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts` — expect FAIL (steps still present); delete the three workflow steps; run again — expect PASS; commit `infra: revert image-cache lever (measured saving <15s, spec §6.1)` with the measurement in the body. Then:
+  Run `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts` — expect FAIL (steps still present); delete the three workflow steps; run again — expect PASS; commit `infra: revert image-cache lever (measured saving <15s, spec §6.1)` with the measurement in the body. **→ MEASURE-LOOP** (its measure output is the surviving cacheless configuration's §6.2/§6.3 input).
 
-  ```bash
-  git push
-  gh pr checks <PR#> --watch
-  RUNS=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
-  measure $RUNS 1   # the surviving (cacheless) configuration's qualifying run → §6.2/§6.3 inputs
-  ```
+  **(2) Wall-clock criterion:** `max_wall < 300` on the LATEST measure output for the surviving configuration (Step-3 measure if cache kept unchanged; otherwise whatever the most recent MEASURE-LOOP pass produced). Record.
 
-  **(2) Wall-clock criterion:** `max_wall < 300` on the surviving configuration's qualifying attempt (Step-3 measure if cache kept; the post-revert measure above if not). Record.
+  **(3) Balance criterion:** `vitest_skew ≤ 75` on the SAME (latest) measure output as (2) — the two criteria are always evaluated together on one output, never on outputs from different configurations. If exceeded: extract the outlier leg's per-file times from its log (`gh run view <run-id> --log | grep "unit-suite-shard (<n>)" | perl -pe 's/\x1b\[[0-9;]*m//g' | grep -oE "✓ +(serial|parallel) +tests/[^ ]+ \([0-9]+ tests[^)]*\) [0-9]+ms"`), update BOTH the `MEASURED_HEAVY` literal and `FILE_WEIGHTS` for the mis-weighted file (test first: edit `MEASURED_HEAVY`, run balance test → FAIL, edit map, → PASS), commit `test(infra): reweight <file> from run <id> per-leg log (spec §6.3)`. **→ MEASURE-LOOP** (re-evaluate (3) AND (2) on the new output; repeat this branch until both hold or (2) triggers (4)).
 
-  **(3) Balance criterion:** `vitest_skew ≤ 75` from the same measure output. If exceeded: extract the outlier leg's per-file times from its log (`gh run view <run-id> --log | grep "unit-suite-shard (<n>)" | perl -pe 's/\x1b\[[0-9;]*m//g' | grep -oE "✓ +(serial|parallel) +tests/[^ ]+ \([0-9]+ tests[^)]*\) [0-9]+ms"`), update BOTH the `MEASURED_HEAVY` literal and `FILE_WEIGHTS` for the mis-weighted file (test first: edit `MEASURED_HEAVY`, run balance test → FAIL, edit map, → PASS), commit `test(infra): reweight <file> from run <id> per-leg log (spec §6.3)`, push, watch, `measure <new-run> 1` again.
+  **(4) 8-leg fallback** (only if (2) misses at 6): test-first edits — topology matrix literal test to `[1, 2, 3, 4, 5, 6, 7, 8]` + denominator `.toBe(8)`, balance loops `[2, 3, 6]` → `[2, 3, 8]` in BOTH loops; run both meta-tests → FAIL; workflow `shard: [1, 2, 3, 4, 5, 6, 7, 8]`, `--shard=${{ matrix.shard }}/8`, step name `/8`, header prose `6-leg`→`8-leg` / `i/6`→`i/8` / `six legs`→`eight legs`; run both meta-tests → PASS; commit `infra: 8-leg fallback per spec §6.4 (6-leg max leg <measured>s ≥300s)`; set `LEGS=8`. **→ MEASURE-LOOP** (re-evaluate (3) then (2)).
 
-  **(4) 8-leg fallback** (only if (2) misses at 6): test-first edits — topology matrix literal test to `[1, 2, 3, 4, 5, 6, 7, 8]` + denominator `.toBe(8)`, balance loops `[2, 3, 6]` → `[2, 3, 8]` in BOTH loops; run both meta-tests → FAIL; workflow `shard: [1, 2, 3, 4, 5, 6, 7, 8]`, `--shard=${{ matrix.shard }}/8`, step name `/8`, header prose `6-leg`→`8-leg` / `i/6`→`i/8` / `six legs`→`eight legs`; run both meta-tests → PASS; commit `infra: 8-leg fallback per spec §6.4 (6-leg max leg <measured>s ≥300s)`; push; watch; `measure <new-run> 1`; re-apply (2)–(3).
+  **Keep-fastest floor branch (only if (2) STILL misses at 8):** compare `max_wall` of the 6-leg and 8-leg qualifying measure outputs (if reweighting happened at 8 legs only, the old 6-leg number is stale — note that in the comparison; a stale-vs-fresh comparison favoring the stale side requires a fresh 6-leg measurement via the revert below before deciding). If 8 won: keep it, no edits. If 6 won: revert to 6 test-first — topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, run both meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix (8-leg measured slower, spec §6.4)`; set `LEGS=6`; **→ MEASURE-LOOP** (confirms the reverted configuration on a fresh measured run). Then, on the kept configuration's latest measure output: verify `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge); append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target`; commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`; **→ MEASURE-LOOP** (pushes the BACKLOG commit and confirms the final tree green — docs-only, so the measure numbers are unchanged but the merge ref must contain every commit).
 
-  **If STILL ≥300 at 8:** compare `max_wall` of the 6-leg and 8-leg qualifying attempts. If 8 won: keep it, no further edits. If 6 won: revert to 6 test-first — topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, run both meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix (8-leg measured slower, spec §6.4)`. Either way, verify the kept configuration's `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge), then append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target` and commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`.
+- [ ] **Step 5: Record + merge.** All measurements + decisions in the PR body (§6 table filled). Pre-merge guards, in order:
 
-- [ ] **Step 5: Record + merge.** All measurements + decisions in the PR body (§6 table filled). If any repair commits landed after Task 5's APPROVE, re-dispatch a delta cross-model review of those commits to APPROVE. Then: real CI green on the final configuration → `gh pr merge <PR#> --merge` in the same turn → `cd /Users/ericweiss/FX-Webpage-Template && git pull --ff-only && git rev-list --left-right --count main...origin/main` → expect `0	0`.
+```bash
+test -z "$(git -C /Users/ericweiss/FX-worktrees/ci-unit-suite-5min-phase1 status --porcelain)"   # no uncommitted work
+git -C /Users/ericweiss/FX-worktrees/ci-unit-suite-5min-phase1 push                              # no unpushed commits (no-op if clean)
+gh pr view <PR#> --json headRefOid,mergeStateStatus                                              # headRefOid == local HEAD; status not DIRTY
+```
+
+If any repair commits landed after Task 5's APPROVE, re-dispatch a delta cross-model review of those commits to APPROVE. Then: real CI green on the final configuration (the run the last MEASURE-LOOP pass watched) → `gh pr merge <PR#> --merge` in the same turn → `cd /Users/ericweiss/FX-Webpage-Template && git pull --ff-only && git rev-list --left-right --count main...origin/main` → expect `0	0`.
 
 ---
 
