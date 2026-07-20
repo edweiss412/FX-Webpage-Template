@@ -4,16 +4,22 @@
 // project at file granularity (spec
 // docs/superpowers/specs/ci/2026-07-20-ci-unit-suite-phase3-file-granular-serial.md).
 //
-// Measurement contract (spec §2.2/§3.4): the candidate population is every
-// BASE_INCLUDE match minus vitest's default excludes, the nightly
-// mutation-harness globs, the env-bound files, and everything already claimed
-// by a PARALLEL_TEST_GLOBS entry. That population is run with
-// `fileParallelism: true` and every DB/Supabase endpoint pointed at a closed
-// port (SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL, TEST_DATABASE_URL, DATABASE_URL
-// on TCP port 9), THREE times; only files green in ALL repeats are listed here.
-// Measured 2026-07-20: population 767, per-repeat green 591/587/589,
-// intersection 563, of which 1 was already claimed by a PARALLEL_TEST_GLOBS exact-file entry and removed, leaving 562. The per-repeat spread is why the intersection — not any
-// single run — is the contract.
+// Measurement contract (spec §2.2/§3.4, with the §2.6 eligibility amendment):
+// the candidate population is every BASE_INCLUDE match minus vitest's default
+// excludes, the nightly mutation-harness globs, the env-bound files, and
+// everything already claimed by a PARALLEL_TEST_GLOBS entry. That population is
+// run with `fileParallelism: true` and every DB/Supabase endpoint pointed at a
+// closed port (SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL, TEST_DATABASE_URL,
+// DATABASE_URL on TCP port 9), THREE times. A file qualifies only if it was
+// green in ALL repeats AND actually EXECUTED assertions in each — a DB-gated
+// test that self-skips when the DB is unreachable reports "passed" while
+// proving nothing, and would reach the real DB concurrently in CI. Files
+// matching the repo's DB naming convention (*.db.test.ts / *Db.test.ts) are
+// excluded as defense in depth.
+//
+// Measured 2026-07-20: population 767; per-repeat green 591/587/589;
+// intersection 563; minus 1 already claimed by a PARALLEL_TEST_GLOBS exact-file
+// entry, minus 26 skip-tainted or DB-named = 536 listed here.
 //
 // Regeneration is a documented manual procedure today; automating it is tracked
 // by BL-CI-SERIAL-AUDIT-SCRIPT (spec §1.0 records why the tool was descoped).
@@ -36,7 +42,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/admin/bellFeed.test.ts",
   "tests/admin/bellTriage.test.ts",
   "tests/admin/bellValidation.test.ts",
-  "tests/admin/build-artifact-gate.test.ts",
   "tests/admin/crewLinkMailto.test.ts",
   "tests/admin/dev-requires-developer.test.ts",
   "tests/admin/dev-route-prod-classification.test.ts",
@@ -253,11 +258,9 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/data/verifyResyncExpectedMap.test.ts",
   "tests/data/viewerContext.test.ts",
   "tests/db/advisory-lock-env.test.ts",
-  "tests/db/b3-notify-cron-idempotency.test.ts",
   "tests/db/backfill-validation-source-anchors.test.ts",
   "tests/db/coerceJsonbObject.test.ts",
   "tests/db/cutover-drop-m9-5.test.ts",
-  "tests/db/driveFileIdNonblank.db.test.ts",
   "tests/db/onboarding-fixups-remediation.test.ts",
   "tests/db/pendingSyncsSourceAnchorsColumn.test.ts",
   "tests/db/runOfShowColumn.test.ts",
@@ -300,17 +303,13 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/notify/digestSyncProblemCompat.test.ts",
   "tests/notify/escapeHtml.test.ts",
   "tests/notify/idempotencyKey.test.ts",
-  "tests/notify/monitorDigest.autoApplied.db.test.ts",
   "tests/notify/monitorDigest.autoApplied.test.ts",
-  "tests/notify/monitorDigest.autofix.db.test.ts",
   "tests/notify/monitorDigest.autofix.test.ts",
   "tests/notify/monitorDigest.autofixAnchors.test.ts",
-  "tests/notify/monitorDigest.drift.db.test.ts",
   "tests/notify/monitorDigest.drift.test.ts",
   "tests/notify/monitorDigest.filterParity.test.ts",
   "tests/notify/monitorDigest.infra.test.ts",
   "tests/notify/monitorDigest.window.test.ts",
-  "tests/notify/monitorNewShowGaps.db.test.ts",
   "tests/notify/monitorNewShowGaps.test.ts",
   "tests/notify/monitorWatermark.infra.test.ts",
   "tests/notify/notify-route.test.ts",
@@ -351,7 +350,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/observe/parseSampleRate.test.ts",
   "tests/observe/queryAlerts.test.ts",
   "tests/observe/queryChangeLog.test.ts",
-  "tests/observe/queryCore.db.test.ts",
   "tests/observe/queryDeferred.test.ts",
   "tests/observe/queryEvents.test.ts",
   "tests/observe/queryFailures.test.ts",
@@ -370,29 +368,20 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/onboarding/applyRescanDecisionUnderLock.test.ts",
   "tests/onboarding/blockerDisplayName.test.ts",
   "tests/onboarding/cleanupAbandonedFinalize.test.ts",
-  "tests/onboarding/cleanupRecoveryConcurrency.db.test.ts",
   "tests/onboarding/cleanupStuckEligibility.test.ts",
-  "tests/onboarding/discardStagedCasRaceDb.test.ts",
   "tests/onboarding/enrichAgendaIntegration.test.ts",
   "tests/onboarding/finalize-cas.test.ts",
   "tests/onboarding/finalize.test.ts",
   "tests/onboarding/finalizeApprovalRace.test.ts",
   "tests/onboarding/finalizeCasStream.test.ts",
-  "tests/onboarding/finalizeCleanupOverlap.db.test.ts",
-  "tests/onboarding/finalizeD10PreservesCreatedShow.db.test.ts",
-  "tests/onboarding/finalizeFirstSeenFullApply.db.test.ts",
   "tests/onboarding/finalizeInlineRescan.test.ts",
   "tests/onboarding/finalizeNoDriveExport.test.ts",
   "tests/onboarding/finalizeOverrideConsistencyGate.test.ts",
   "tests/onboarding/finalizeProgress.test.ts",
-  "tests/onboarding/finalizeReadsSourceAnchors.db.test.ts",
   "tests/onboarding/finalizeRevalidate.test.ts",
   "tests/onboarding/finalizeStream.test.ts",
   "tests/onboarding/firstSeenLiveStaged.test.ts",
   "tests/onboarding/firstSeenStagedWarnings.test.ts",
-  "tests/onboarding/heldShowCleanupSafety.db.test.ts",
-  "tests/onboarding/onboardingApplyRevisionRaceDb.test.ts",
-  "tests/onboarding/onboardingFinalizePublishDb.test.ts",
   "tests/onboarding/pendingIngestionsWizardActions.test.ts",
   "tests/onboarding/prepareOnboardingFilesXlsxBytes.test.ts",
   "tests/onboarding/prepareRoleMappingOverlay.test.ts",
@@ -400,7 +389,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/onboarding/prepareSourceCellAnchors.test.ts",
   "tests/onboarding/pullSheetOverridePropagation.test.ts",
   "tests/onboarding/reapStaleSessions.test.ts",
-  "tests/onboarding/reapStaleSessionsDb.test.ts",
   "tests/onboarding/reapStaleSessionsRoute.test.ts",
   "tests/onboarding/rescanCheckpointReopen.test.ts",
   "tests/onboarding/rescanDecision.test.ts",
@@ -493,7 +481,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/sync/cronDriveClientTimeout.test.ts",
   "tests/sync/cronSyncEscapedFailureAlert.test.ts",
   "tests/sync/cronSyncThrowAttribution.test.ts",
-  "tests/sync/def1-cron-resync-clear.db.test.ts",
   "tests/sync/def2-archived-guard.test.ts",
   "tests/sync/def3-manual-resync.test.ts",
   "tests/sync/def4-archived-skip.test.ts",
@@ -520,14 +507,11 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/sync/feed/readShowChangeFeed.parallel.test.ts",
   "tests/sync/firstPublishedAlertContextNoToken.meta.test.ts",
   "tests/sync/firstSeenPendingIngestion.test.ts",
-  "tests/sync/firstSeenSlugConflictDb.test.ts",
   "tests/sync/flowCLivePendingApplyGate.test.ts",
   "tests/sync/heartbeat-write.test.ts",
   "tests/sync/holds/undoChange.infra.test.ts",
   "tests/sync/identityLinkRenames.test.ts",
-  "tests/sync/ignoredWarningsOrphanGc.db.test.ts",
   "tests/sync/jsonbBoundaryRepresentation.meta.test.ts",
-  "tests/sync/lastCheckedAt.db.test.ts",
   "tests/sync/lockedShowTx.test.ts",
   "tests/sync/manual-sync-producer-parity.test.ts",
   "tests/sync/mi11GateActions.test.ts",
@@ -535,7 +519,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/sync/mockDriveClient.test.ts",
   "tests/sync/no-direct-drive-folder-env.test.ts",
   "tests/sync/no-unpinned-drive-export-callers.test.ts",
-  "tests/sync/onboarding-alert-heal.db.test.ts",
   "tests/sync/onboarding.test.ts",
   "tests/sync/parse-error-last-good-producer.test.ts",
   "tests/sync/parseSheetCallSiteGuard.test.ts",
@@ -557,12 +540,10 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/sync/recovery-resolution-syncpath.test.ts",
   "tests/sync/reelColumnsContract.test.ts",
   "tests/sync/resync-shrink-held-producer.test.ts",
-  "tests/sync/resyncShrinkHold.db.test.ts",
   "tests/sync/revisionTimesMatch.test.ts",
   "tests/sync/roleMappingOverlay.test.ts",
   "tests/sync/roleMappingThreading.test.ts",
   "tests/sync/roleVocabDriftDatabaseUrlResolver.test.ts",
-  "tests/sync/roleVocabDriftResync.db.test.ts",
   "tests/sync/roleVocabDriftResync.test.ts",
   "tests/sync/runManualStageForFirstSeen.test.ts",
   "tests/sync/runManualSyncForShow.test.ts",
@@ -577,7 +558,6 @@ export const PARALLEL_EXTRA_FILES: readonly string[] = [
   "tests/sync/syncLogSink.persistence.test.ts",
   "tests/sync/syntheticDriveFileId.test.ts",
   "tests/sync/timestampInstantSafety.meta.test.ts",
-  "tests/sync/transportationLoadoutRoundTrip.db.test.ts",
   "tests/sync/unexpectedParentLog.test.ts",
   "tests/sync/unpublishBinding.test.ts",
   "tests/sync/unpublishShow.test.ts",

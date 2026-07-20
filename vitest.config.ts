@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import {
   BASE_INCLUDE,
+  PARALLEL_EXTRA_FILES,
   PARALLEL_TEST_GLOBS,
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
@@ -77,6 +78,7 @@ export default defineConfig({
           exclude: [
             ...configDefaults.exclude,
             ...PARALLEL_TEST_GLOBS,
+            ...PARALLEL_EXTRA_FILES,
             ...envBoundExcludes,
             ...nightlyExcludes,
           ],
@@ -87,7 +89,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "parallel",
-          include: PARALLEL_TEST_GLOBS,
+          include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES],
           // tests/parser/** became a parallel glob in Phase 2, which would
           // otherwise sweep the nightly mutationHarness shards (~102k mutants)
           // into every unit-suite leg — they live ONLY in the env-gated

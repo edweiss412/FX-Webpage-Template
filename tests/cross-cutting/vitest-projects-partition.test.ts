@@ -8,8 +8,10 @@ import {
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
+  PARALLEL_EXTRA_FILES,
   PARALLEL_TEST_GLOBS,
 } from "@/vitest.projects";
+import { globToRegExp as globRe } from "@/lib/test/serialAudit";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -44,11 +46,23 @@ function listTestFiles(dir: string): string[] {
 // A parallel glob is either a dir glob ("tests/x/**/*.test.{ts,tsx}") or an
 // exact file ("tests/sample.test.ts"). Reduce to a matcher without a glob lib.
 function matchesParallel(file: string): boolean {
+  if (PARALLEL_EXTRA_FILES.includes(file)) return true;
   return PARALLEL_TEST_GLOBS.some((g) => {
     const starIdx = g.indexOf("/**");
     if (starIdx >= 0) return file.startsWith(g.slice(0, starIdx + 1));
     return file === g;
   });
+}
+
+// Resolved-config membership: a file is in project P iff some P.include glob
+// matches it AND no P.exclude glob does. This reads the REAL arrays off the
+// imported config, so an exclusion added anywhere (including
+// configDefaults.exclude) is honoured — unlike a classifier function, which can
+// only restate the partition it was written from.
+function inProject(file: string, p: ProjectEntry["test"]): boolean {
+  const included = (p.include ?? []).some((g) => globRe(g).test(file));
+  if (!included) return false;
+  return !(p.exclude ?? []).some((g) => globRe(g).test(file));
 }
 
 // Three-way membership — mirrors vitest.config.ts's DEFAULT-discovery
@@ -118,10 +132,11 @@ describe("vitest projects split — partition is complete and correctly wired", 
   it("parallel.include IS PARALLEL_TEST_GLOBS and serial.exclude CONTAINS every parallel glob (single source of truth)", () => {
     const serial = projects.find((p) => p.test.name === "serial")!.test;
     const parallel = projects.find((p) => p.test.name === "parallel")!.test;
-    expect(parallel.include).toEqual(PARALLEL_TEST_GLOBS);
-    // serial must exclude every parallel glob (alongside defaults + nightly)
-    // so the partition can't double-run
-    for (const g of PARALLEL_TEST_GLOBS) {
+    expect(parallel.include).toEqual([...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]);
+    // serial must exclude every parallel-claimed entry — globs AND the
+    // file-granular extras (alongside defaults + nightly) — so the partition
+    // can't double-run
+    for (const g of [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]) {
       expect(serial.exclude ?? [], `serial.exclude must contain ${g}`).toContain(g);
     }
   });
@@ -130,20 +145,35 @@ describe("vitest projects split — partition is complete and correctly wired", 
     expect(allTestFiles.length).toBeGreaterThan(500);
   });
 
-  it("every non-nightly test file is claimed by EXACTLY ONE default project (nightly files by NONE)", () => {
-    // By construction (DEFAULT discovery mode): parallel iff a parallel glob
-    // matches and the file is not nightly-excluded; serial otherwise; the 9
-    // nightly mutation-harness files live in NO default project (their opt-in
-    // mutation-project membership is pinned by the env-gated test above).
-    const parallelFiles = allTestFiles.filter((f) => projectOf(f) === "parallel");
-    const serialFiles = allTestFiles.filter((f) => projectOf(f) === "serial");
-    const noneFiles = allTestFiles.filter((f) => projectOf(f) === "none");
-    expect(parallelFiles.length + serialFiles.length + noneFiles.length).toBe(allTestFiles.length);
-    expect(noneFiles.length, "exactly the 9 nightly harness files live in no default project").toBe(
-      9,
-    );
-    expect(parallelFiles.length, "parallel project must be non-empty").toBeGreaterThan(200);
-    expect(serialFiles.length, "serial project must be non-empty").toBeGreaterThan(100);
+  it("every PARALLEL_EXTRA_FILES entry resolves to the PARALLEL project specifically", () => {
+    // Not merely "exactly one project": an unwired list would leave all of them
+    // serial and still satisfy the partition, so assert the intended side.
+    const parallel = projects.find((p) => p.test.name === "parallel")!.test;
+    const serial = projects.find((p) => p.test.name === "serial")!.test;
+    for (const f of PARALLEL_EXTRA_FILES) {
+      expect(inProject(f, parallel), `${f} must be admitted by the PARALLEL project`).toBe(true);
+      expect(inProject(f, serial), `${f} must be excluded from the SERIAL project`).toBe(false);
+    }
+  });
+
+  it("resolved config admits every discovered file exactly once (nightly files zero)", () => {
+    // Evaluates each file against the projects' ACTUAL include/exclude arrays
+    // rather than restating a classifier, so an extra exclusion that orphans a
+    // file fails here. Nightly harness files belong to no default project by
+    // design (their opt-in mutation-project membership is pinned above).
+    const defaults = projects.map((p) => p.test);
+    const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
+    let nightlyCount = 0;
+    for (const f of allTestFiles) {
+      const admitting = defaults.filter((p) => inProject(f, p)).map((p) => p.name);
+      if (nightlyRe.some((r) => r.test(f))) {
+        nightlyCount++;
+        expect(admitting, `${f} is nightly-only and must be in NO default project`).toEqual([]);
+      } else {
+        expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
+      }
+    }
+    expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(9);
   });
 
   it("keeps the DB/FS-heavy dirs in the SERIAL project", () => {
@@ -156,9 +186,14 @@ describe("vitest projects split — partition is complete and correctly wired", 
       "tests/admin/test-auth-gate.test.ts", // env-bound (x-audits-targeted)
       "tests/cross-cutting/email-canonicalization.test.ts", // env-bound (x5-targeted)
       "tests/cross-cutting/pg-cron-coverage.test.ts", // env-bound
-      "tests/onboarding", // whole dir
-      "tests/api",
-      "tests/notify",
+      // These dirs are genuinely MIXED after Phase 3 — assert their DB-bound
+      // members by exact path rather than claiming the whole directory.
+      "tests/onboarding/finalizeGateStaged.db.test.ts",
+      "tests/onboarding/rescanWizardSheetFlowB.db.test.ts",
+      "tests/api/wizard-approve-route.test.ts",
+      "tests/api/show-unpublish-route.realdb.test.ts",
+      "tests/notify/monitorDigest.drift.db.test.ts",
+      "tests/notify/auto-publish-undo-live-probe-real-db.test.ts",
     ];
     for (const path of mustBeSerial) {
       const files = path.endsWith(".ts")
@@ -197,6 +232,10 @@ describe("vitest projects split — partition is complete and correctly wired", 
       expect(matchesParallel(path), `${path} must be SERIAL so the env gate can exclude it`).toBe(
         false,
       );
+      expect(
+        PARALLEL_EXTRA_FILES,
+        `${path} is env-bound and must never appear in PARALLEL_EXTRA_FILES`,
+      ).not.toContain(path);
     }
   });
 
