@@ -154,3 +154,55 @@ describe("CompactAlertCard — tone skins and stripe forcing (§3.1, amendment A
     expect(card.className).toContain("rounded-sm");
   });
 });
+
+describe("CompactAlertCard — defaults and message-row structure", () => {
+  // Failure mode: explicit-tone tests pass while the DEFAULTS are wrong, so
+  // every adapter that omits the props gets a silently different card.
+  test("omitted tone defaults to warning (amber skin + glyph)", () => {
+    render(<CompactAlertCard message="m" />);
+    const card = screen.getByTestId("compact-alert-card");
+    expect(card.className).toContain("bg-warning-bg");
+    expect(screen.getByTestId("compact-alert-message").textContent).toContain("!");
+  });
+
+  test("omitted stripe defaults to review", () => {
+    render(<CompactAlertCard message="m" />);
+    expect(screen.getByTestId("compact-alert-card").className).toContain("border-l-status-review");
+  });
+
+  // The `none` case is what PerShowActionableWarnings depends on: its cards
+  // carry no stripe today, and passing "none" must actually suppress it
+  // rather than fall through to the review default.
+  test("warning tone honors every stripe value including none", () => {
+    const { rerender } = render(<CompactAlertCard message="m" tone="warning" stripe="none" />);
+    let card = screen.getByTestId("compact-alert-card");
+    expect(card.className).not.toContain("border-l-status-review");
+    expect(card.className).not.toContain("border-l-status-degraded");
+    rerender(<CompactAlertCard message="m" tone="warning" stripe="review" />);
+    card = screen.getByTestId("compact-alert-card");
+    expect(card.className).toContain("border-l-status-review");
+    rerender(<CompactAlertCard message="m" tone="warning" stripe="degraded" />);
+    card = screen.getByTestId("compact-alert-card");
+    expect(card.className).toContain("border-l-status-degraded");
+  });
+
+  // Failure mode: an always-rendered trigger wrapper leaves an empty flex
+  // child that eats gap space on every card without help.
+  test("absent helpTrigger renders no trigger wrapper element at all", () => {
+    render(<CompactAlertCard message={<span>msg</span>} />);
+    const row = screen.getByTestId("compact-alert-message");
+    // message block only (glyph is a span sibling, so count element children
+    // that are wrappers around slot content).
+    expect(row.querySelectorAll(":scope > div").length).toBe(1);
+  });
+
+  // The glyph is decorative: severity reaches assistive tech through the
+  // message text and, on health rows, the weight badge (spec §8).
+  test("severity glyph is aria-hidden", () => {
+    render(<CompactAlertCard message="m" />);
+    const glyph = screen.getByTestId("compact-alert-message").querySelector("span[aria-hidden]");
+    expect(glyph).not.toBeNull();
+    expect(glyph).toHaveAttribute("aria-hidden", "true");
+    expect(glyph!.textContent).toBe("!");
+  });
+});
