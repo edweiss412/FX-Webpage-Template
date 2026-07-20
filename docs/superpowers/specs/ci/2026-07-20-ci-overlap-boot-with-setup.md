@@ -61,17 +61,25 @@ Rounds 1–4 all attacked one vector: proving a CROSS-STEP coordination protocol
     set -euo pipefail
     bash scripts/ci/supabase-local-bootstrap.sh &
     boot_pid=$!
+    # If pnpm install aborts under `set -e`, the shell exits WITHOUT joining the
+    # bootstrap. The child would keep the step's stdout pipe open and stall step
+    # completion until it finished or the job cap fired. The trap reaps it so a
+    # failed install fails the leg as promptly as it does today.
+    trap 'kill "$boot_pid" 2>/dev/null || true' EXIT
     pnpm install --frozen-lockfile
     wait "$boot_pid"
+    trap - EXIT
 ```
 
 Properties that come for free, each of which needed explicit machinery in the cross-step form:
 
 - **Fail-closed.** `wait "$boot_pid"` returns the bootstrap's real exit status, and `set -e` fails the step on non-zero. No sentinel to publish atomically, no status to misread.
-- **Fail-closed on the install too.** `pnpm install` failing aborts under `set -e` before the `wait`; the leg fails, as today.
+- **Fail-closed on the install too, and promptly.** `pnpm install` failing aborts under `set -e` before the `wait`; the EXIT trap then kills the still-running bootstrap so the step does not linger on the child's inherited stdout pipe (round-5 finding 1 — without the trap the leg still fails, but not 'as today': it could stall to the job cap). The trap is cleared after a successful join so the normal path leaves no handler behind.
 - **Live log.** Both processes inherit the step's stdout, so output streams exactly as it does now — the round-2/3 finding about losing diagnostics on cancellation or runner timeout evaporates, because nothing is buffered.
 - **No timeout logic.** The job's existing `timeout-minutes: 20` bounds a hung boot, as it does today. There is no second deadline to keep consistent with it.
 - **Overlap is structural, not asserted.** The `&` is on the line before a foreground command in the same shell; there is no way for it to be "secretly sequential" the way a separate start step could be.
+
+**Working-tree concurrency (audited, not asserted).** Single-shell execution removes the cross-step protocol but NOT concurrent filesystem access: the bootstrap still moves two tracked migrations aside and restores them via an exit trap (`scripts/ci/supabase-local-bootstrap.sh` held-aside block) while the install runs. The install's write surface, audited rather than inferred: the root `prepare: simple-git-hooks` lifecycle, whose config is `{"pre-commit": "pnpm exec lint-staged"}` and which writes `.git/hooks/` only; the dependency build scripts enumerated in `pnpm-workspace.yaml`'s `allowBuilds`; and `node_modules/`. None writes under `supabase/`, so the sets are disjoint today — and §4 adds a guard so a future lifecycle addition cannot silently invalidate that premise.
 
 The remaining steps are unchanged and keep their order: `checkout` → `supabase/setup-cli@v1` (moved up; the bootstrap needs the CLI on PATH) → psql guard (moved up, same reason) → **this combined step** → vitest.
 
@@ -86,11 +94,12 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none. T
 (a) **Step ordering**: checkout → setup-cli → psql guard → pnpm/setup-node prerequisites → combined boot+install step → vitest, by index comparison.
 (b) **The combined step's shape**, which is the whole contract: its `run:` body contains the bootstrap invocation suffixed with `&`, captures the PID, runs `pnpm install --frozen-lockfile` in the foreground, and ends with `wait` on that captured PID. Assert all four, plus `set -euo pipefail`.
 (c) **Fail-closed**: the `wait` is the step's last command and carries no `|| true`, no `set +e`, and no trailing `exit 0`.
-(d) **Prerequisites preserved**: `pnpm/action-setup` and `actions/setup-node` (with `cache: pnpm`) still run before the combined step — inlining the install must not lose the pnpm binary or the warm cache.
+(d) **Prerequisites preserved, enumerated against the composite**: every action the `./.github/actions/setup` composite performs except the install itself still runs before the combined step — `pnpm/action-setup@v4` (pnpm binary, version from `packageManager`) and `actions/setup-node@v4` with `node-version: 20` and `cache: pnpm`. Assert all three properties, not just the action names: dropping `cache: pnpm` or the node version would leave a green but slower or differently-versioned leg.
 (e) **Install runs exactly once** in the leg: `pnpm install` appears once in the workflow, and the `./.github/actions/setup` composite is not also invoked in this job (a double install would erase the saving and could race itself).
 (f) **Bootstrap invoked exactly once**, still as `bash scripts/ci/supabase-local-bootstrap.sh` (shared-script contract).
-(g) **Soft-failure inventory**: `|| true` appears zero times in the workflow.
-(h) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
+(g) **Soft-failure inventory**: `|| true` appears exactly once in the workflow — inside the EXIT trap's `kill`, where the child may already have exited and a failed `kill` must not mask the real failure. It never appears on the bootstrap invocation, the install, or the `wait`.
+(h) **Install write-surface guard (round-5 finding 2)**: assert `package.json` declares no install-lifecycle script beyond `prepare`, and that neither `prepare`'s configuration nor `pnpm-workspace.yaml`'s `allowBuilds` names anything writing under `supabase/`. This is what keeps the disjointness premise from rotting silently when someone adds a `postinstall`.
+(i) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
 
 No executable behavioral harness is specified, and that is a deliberate consequence of the simplification rather than a gap: the earlier design needed one because its correctness lived in a hand-rolled protocol; here it lives in `wait` and `set -e`, which are shell semantics, and the real proof is the accept gate in §5 (all 8 legs green means both the boot and the install succeeded and were joined).
 
