@@ -49,7 +49,9 @@ describe("codex-guard timeouts (§5)", () => {
       },
     ]);
     const res = await runGuard(run, [], {
-      ...ONE_ATTEMPT, CODEX_GUARD_ATTEMPT_MAX_SECS: "15", CODEX_GUARD_TOTAL_MAX_SECS: "18",
+      ...ONE_ATTEMPT,
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "15",
+      CODEX_GUARD_TOTAL_MAX_SECS: "18",
     });
     expect(res.code).toBe(0);
     expect(readResult(run).status).toBe("verdict");
@@ -68,7 +70,9 @@ describe("codex-guard timeouts (§5)", () => {
       },
     ]);
     const res = await runGuard(run, [], {
-      CODEX_GUARD_MAX_ATTEMPTS: "1", CODEX_GUARD_ATTEMPT_MAX_SECS: "15", CODEX_GUARD_TOTAL_MAX_SECS: "18",
+      CODEX_GUARD_MAX_ATTEMPTS: "1",
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "15",
+      CODEX_GUARD_TOTAL_MAX_SECS: "18",
     });
     expect(res.code).toBe(0);
     expect(readResult(run).status).toBe("verdict");
@@ -77,12 +81,20 @@ describe("codex-guard timeouts (§5)", () => {
   it("scenario 9: total timeout mid-attempt actively kills (pidfile dead)", async () => {
     const run = mkRun();
     writeScenario(run, [
-      { onCall: 1, actions: [{ type: "stdout", text: "a" }, { type: "exit", code: 1 }] },
+      {
+        onCall: 1,
+        actions: [
+          { type: "stdout", text: "a" },
+          { type: "exit", code: 1 },
+        ],
+      },
       { onCall: 2, actions: [{ type: "emitEvery", ms: 200, times: 100, text: "t" }] },
     ]);
     const res = await runGuard(run, [], {
-      CODEX_GUARD_TOTAL_MAX_SECS: "3", CODEX_GUARD_ATTEMPT_MAX_SECS: "10",
-      CODEX_GUARD_STALL_SECS: "8", CODEX_GUARD_FIRST_OUTPUT_SECS: "8",
+      CODEX_GUARD_TOTAL_MAX_SECS: "3",
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "10",
+      CODEX_GUARD_STALL_SECS: "8",
+      CODEX_GUARD_FIRST_OUTPUT_SECS: "8",
     });
     expect(res.code).toBe(0);
     const r = readResult(run);
@@ -93,10 +105,14 @@ describe("codex-guard timeouts (§5)", () => {
 
   it("scenario 17a: continuous output past attempt-max → attempt_timeout", async () => {
     const run = mkRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "emitEvery", ms: 200, times: 200, text: "t" }] }]);
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "emitEvery", ms: 200, times: 200, text: "t" }] },
+    ]);
     const res = await runGuard(run, [], {
-      ...ONE_ATTEMPT, CODEX_GUARD_ATTEMPT_MAX_SECS: "2",
-      CODEX_GUARD_STALL_SECS: "1.5", CODEX_GUARD_FIRST_OUTPUT_SECS: "1.5",
+      ...ONE_ATTEMPT,
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "2",
+      CODEX_GUARD_STALL_SECS: "1.5",
+      CODEX_GUARD_FIRST_OUTPUT_SECS: "1.5",
       CODEX_GUARD_TOTAL_MAX_SECS: "30",
     });
     expect(res.code).toBe(0);
@@ -105,10 +121,15 @@ describe("codex-guard timeouts (§5)", () => {
 
   it("scenario 17b: attempt-max and total-max expire together → total_timeout wins", async () => {
     const run = mkRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "emitEvery", ms: 200, times: 200, text: "t" }] }]);
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "emitEvery", ms: 200, times: 200, text: "t" }] },
+    ]);
     const res = await runGuard(run, [], {
-      ...ONE_ATTEMPT, CODEX_GUARD_ATTEMPT_MAX_SECS: "2", CODEX_GUARD_TOTAL_MAX_SECS: "2",
-      CODEX_GUARD_STALL_SECS: "1.5", CODEX_GUARD_FIRST_OUTPUT_SECS: "1.5",
+      ...ONE_ATTEMPT,
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "2",
+      CODEX_GUARD_TOTAL_MAX_SECS: "2",
+      CODEX_GUARD_STALL_SECS: "1.5",
+      CODEX_GUARD_FIRST_OUTPUT_SECS: "1.5",
     });
     expect(res.code).toBe(0);
     expect(readResult(run).attempts[0]!.killedReason).toBe("total_timeout");

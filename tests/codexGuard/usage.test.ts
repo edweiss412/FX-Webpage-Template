@@ -2,22 +2,40 @@ import { afterAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GUARD, cleanupRuns, guardEnv, mkRun, runGuard, writeScenario, type GuardExit, type Run } from "./harness";
+import {
+  GUARD,
+  cleanupRuns,
+  guardEnv,
+  mkRun,
+  runGuard,
+  writeScenario,
+  type GuardExit,
+  type Run,
+} from "./harness";
 
 afterAll(cleanupRuns);
 
 // Raw invocation with fully caller-controlled argv (runGuard always passes the
 // required trio; the missing-flag rows need it absent).
-function rawGuard(run: Run, argv: string[], envOverrides: Record<string, string> = {}): Promise<GuardExit> {
+function rawGuard(
+  run: Run,
+  argv: string[],
+  envOverrides: Record<string, string> = {},
+): Promise<GuardExit> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [GUARD, ...argv],
-      { env: guardEnv(run, envOverrides), maxBuffer: 16 * 1024 * 1024, timeout: 25000, killSignal: "SIGTERM" },
+      {
+        env: guardEnv(run, envOverrides),
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 25000,
+        killSignal: "SIGTERM",
+      },
       (err, stdout, stderr) => {
         const code = err
           ? typeof (err as { code?: unknown }).code === "number"
-            ? (((err as { code?: number }).code) ?? null)
+            ? ((err as { code?: number }).code ?? null)
             : null
           : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) });

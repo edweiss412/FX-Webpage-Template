@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 // scripts/codex-guard.mjs — watchdog wrapper for direct Codex CLI dispatches.
 // Spec: docs/superpowers/specs/2026-07-19-codex-guard.md (canonical; §11 = numeric authority).
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -9,13 +19,22 @@ import { spawn } from "node:child_process";
 const GUARD_VERSION = 1;
 
 const DEFAULTS = {
-  MAX_ATTEMPTS: 3, ATTEMPT_MAX_SECS: 1200, TOTAL_MAX_SECS: 1500,
-  STALL_SECS: 420, FIRST_OUTPUT_SECS: 120, POLL_INTERVAL_SECS: 10,
-  KILL_GRACE_SECS: 5, MIN_ADMISSION_SECS: 120, CACHE_LOCK_STALE_SECS: 600,
+  MAX_ATTEMPTS: 3,
+  ATTEMPT_MAX_SECS: 1200,
+  TOTAL_MAX_SECS: 1500,
+  STALL_SECS: 420,
+  FIRST_OUTPUT_SECS: 120,
+  POLL_INTERVAL_SECS: 10,
+  KILL_GRACE_SECS: 5,
+  MIN_ADMISSION_SECS: 120,
+  CACHE_LOCK_STALE_SECS: 600,
   REAP_AFTER_KILL_SECS: 10,
 };
 const BOUNDS = {
-  ATTEMPT_MAX_SECS: 1380, POLL_INTERVAL_SECS: 30, KILL_GRACE_SECS: 30, REAP_AFTER_KILL_SECS: 10,
+  ATTEMPT_MAX_SECS: 1380,
+  POLL_INTERVAL_SECS: 30,
+  KILL_GRACE_SECS: 30,
+  REAP_AFTER_KILL_SECS: 10,
 };
 const PROMPT_MAX_BYTES = 2000000;
 const KNOWN_OUTCOMES = ["APPROVE", "NEEDS-ATTENTION", "BLOCKING"];
@@ -32,7 +51,8 @@ function expandPath(p) {
 
 function num(name, raw, { integer = false } = {}) {
   const v = Number(raw);
-  if (!Number.isFinite(v) || v <= 0) usageError(`${name} must be a positive ${integer ? "integer" : "number"}: ${raw}`);
+  if (!Number.isFinite(v) || v <= 0)
+    usageError(`${name} must be a positive ${integer ? "integer" : "number"}: ${raw}`);
   if (integer && !Number.isInteger(v)) usageError(`${name} must be a positive integer: ${raw}`);
   return v;
 }
@@ -47,13 +67,23 @@ function parseArgs(argv) {
   if (argv[0] !== "review") usageError(`unknown subcommand: ${argv[0] ?? "(none)"} (only: review)`);
   const flags = { artifacts: [] };
   const takesValue = new Set([
-    "--brief", "--cwd", "--out", "--artifact", "--label",
-    "--max-attempts", "--attempt-max-secs", "--total-max-secs",
-    "--stall-secs", "--first-output-secs",
+    "--brief",
+    "--cwd",
+    "--out",
+    "--artifact",
+    "--label",
+    "--max-attempts",
+    "--attempt-max-secs",
+    "--total-max-secs",
+    "--stall-secs",
+    "--first-output-secs",
   ]);
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--fallback") { flags.fallback = true; continue; }
+    if (a === "--fallback") {
+      flags.fallback = true;
+      continue;
+    }
     if (!takesValue.has(a)) usageError(`unknown flag: ${a}`);
     const v = argv[++i];
     if (v === undefined) usageError(`${a} requires a value`);
@@ -91,7 +121,8 @@ function buildConfig(flags) {
     if (cfg[key] > max) usageError(`${name} exceeds max ${max}: ${cfg[key]}`);
   }
   if (cfg.stallSecs >= cfg.attemptMaxSecs) usageError(`STALL_SECS must be < ATTEMPT_MAX_SECS`);
-  if (cfg.firstOutputSecs >= cfg.attemptMaxSecs) usageError(`FIRST_OUTPUT_SECS must be < ATTEMPT_MAX_SECS`);
+  if (cfg.firstOutputSecs >= cfg.attemptMaxSecs)
+    usageError(`FIRST_OUTPUT_SECS must be < ATTEMPT_MAX_SECS`);
   if (cfg.label !== null && !/^[A-Za-z0-9_-]{1,64}$/.test(cfg.label)) usageError(`invalid --label`);
 
   if (!flags.brief) usageError("--brief is required");
@@ -103,15 +134,22 @@ function buildConfig(flags) {
   cfg.artifacts = flags.artifacts.map(expandPath);
   cfg.codexHome = expandPath(process.env.CODEX_HOME || join(homedir(), ".codex"));
 
-  try { cfg.briefText = readFileSync(cfg.brief, "utf8"); }
-  catch (e) { usageError(`--brief unreadable: ${e.message}`); }
+  try {
+    cfg.briefText = readFileSync(cfg.brief, "utf8");
+  } catch (e) {
+    usageError(`--brief unreadable: ${e.message}`);
+  }
   if (cfg.briefText.length === 0) usageError(`--brief is empty`);
-  if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory()) usageError(`--cwd is not a directory: ${cfg.cwd}`);
+  if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory())
+    usageError(`--cwd is not a directory: ${cfg.cwd}`);
   if (cfg.artifacts.length > 0 && !cfg.fallback) usageError("--artifact requires --fallback");
   cfg.artifactTexts = [];
   for (const a of cfg.artifacts) {
-    try { cfg.artifactTexts.push(readFileSync(a, "utf8")); }
-    catch (e) { usageError(`--artifact unreadable: ${e.message}`); }
+    try {
+      cfg.artifactTexts.push(readFileSync(a, "utf8"));
+    } catch (e) {
+      usageError(`--artifact unreadable: ${e.message}`);
+    }
   }
   try {
     mkdirSync(cfg.out, { recursive: true });
@@ -121,14 +159,16 @@ function buildConfig(flags) {
   } catch (e) {
     usageError(`--out not writable: ${e.message}`);
   }
-  if (existsSync(join(cfg.out, "result.json"))) usageError(`--out already contains result.json (any size): refuse reuse`);
+  if (existsSync(join(cfg.out, "result.json")))
+    usageError(`--out already contains result.json (any size): refuse reuse`);
 
   const cmd = process.env.CODEX_GUARD_BIN || "codex";
   let leadingArgs = [];
   if (process.env.CODEX_GUARD_BIN_ARGS) {
     try {
       leadingArgs = JSON.parse(process.env.CODEX_GUARD_BIN_ARGS);
-      if (!Array.isArray(leadingArgs) || !leadingArgs.every((s) => typeof s === "string")) throw new Error("not a string array");
+      if (!Array.isArray(leadingArgs) || !leadingArgs.every((s) => typeof s === "string"))
+        throw new Error("not a string array");
     } catch (e) {
       usageError(`CODEX_GUARD_BIN_ARGS must be a JSON string array: ${e.message}`);
     }
@@ -195,27 +235,57 @@ const nowSecs = () => Date.now() / 1000;
 
 function freshArgv(cfg, n) {
   return [
-    "exec", "--skip-git-repo-check", "-s", "read-only", "-C", cfg.cwd,
-    "-c", "model_reasoning_effort=high",
-    "-o", join(cfg.out, `attempt-${n}.last-message.txt`),
+    "exec",
+    "--skip-git-repo-check",
+    "-s",
+    "read-only",
+    "-C",
+    cfg.cwd,
+    "-c",
+    "model_reasoning_effort=high",
+    "-o",
+    join(cfg.out, `attempt-${n}.last-message.txt`),
   ];
 }
 
 function resumeArgv(cfg, sid, n) {
-  return ["exec", "resume", sid, "-c", "model_reasoning_effort=high",
-    "-o", join(cfg.out, `attempt-${n}.last-message.txt`)];
+  return [
+    "exec",
+    "resume",
+    sid,
+    "-c",
+    "model_reasoning_effort=high",
+    "-o",
+    join(cfg.out, `attempt-${n}.last-message.txt`),
+  ];
 }
 
 function killGroup(pid, signal) {
-  try { process.kill(-pid, signal); } catch { /* group gone */ }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    /* group gone */
+  }
 }
 
 function classifyAttempt(attempt) {
-  if (attempt.killedReason !== null) { attempt.failureShape = "killed"; return; }
-  if (attempt.exitCode !== 0) { attempt.failureShape = "nonzero_exit"; return; }
-  if (!existsSync(attempt.lastMessagePath)) { attempt.failureShape = "no_o_file"; return; }
+  if (attempt.killedReason !== null) {
+    attempt.failureShape = "killed";
+    return;
+  }
+  if (attempt.exitCode !== 0) {
+    attempt.failureShape = "nonzero_exit";
+    return;
+  }
+  if (!existsSync(attempt.lastMessagePath)) {
+    attempt.failureShape = "no_o_file";
+    return;
+  }
   const msg = readFileSync(attempt.lastMessagePath, "utf8");
-  if (msg.trim() === "") { attempt.failureShape = "empty_o_file"; return; }
+  if (msg.trim() === "") {
+    attempt.failureShape = "empty_o_file";
+    return;
+  }
   const parsed = parseVerdict(msg);
   attempt.parsed = parsed;
   if (parsed.shape !== "ok") attempt.failureShape = parsed.shape;
@@ -225,14 +295,27 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   const transcriptPath = join(cfg.out, `attempt-${n}.transcript.txt`);
   const stderrPath = join(cfg.out, `attempt-${n}.stderr.txt`);
   const lastMessagePath = join(cfg.out, `attempt-${n}.last-message.txt`);
-  const attempt = { n, kind, pid: null, exitCode: null, signal: null,
-    killedReason: null, failureShape: null, recovery: null,
-    transcriptPath, stderrPath, lastMessagePath, durationSecs: 0 };
+  const attempt = {
+    n,
+    kind,
+    pid: null,
+    exitCode: null,
+    signal: null,
+    killedReason: null,
+    failureShape: null,
+    recovery: null,
+    transcriptPath,
+    stderrPath,
+    lastMessagePath,
+    durationSecs: 0,
+  };
   const t0 = nowSecs();
   const fail = (msg) => Object.assign(new Error(msg), { attempt });
 
   const child = spawn(cfg.bin.cmd, [...cfg.bin.leadingArgs, ...argvAfterExec], {
-    cwd: cfg.cwd, detached: true, stdio: ["pipe", "pipe", "pipe"],
+    cwd: cfg.cwd,
+    detached: true,
+    stdio: ["pipe", "pipe", "pipe"],
   });
   // On a successful spawn, child.pid is set SYNCHRONOUSLY by spawn(); register the live
   // attempt BEFORE the first await so a signal landing in the spawn-confirmation window
@@ -265,43 +348,66 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     tErr.on("error", (e) => rej(fail(`stderr write failed: ${e.message}`)));
   });
   let streamFailure = null;
-  streamErr.catch((e) => { streamFailure = e; }); // latch: also swallows post-race rejection
+  streamErr.catch((e) => {
+    streamFailure = e;
+  }); // latch: also swallows post-race rejection
   child.stdout.pipe(tOut);
   child.stderr.pipe(tErr);
   // settle on finish OR error — an errored stream never emits "finish" (no deadlock)
   const finished = Promise.all([
-    new Promise((res) => { tOut.on("finish", res); tOut.on("error", res); }),
-    new Promise((res) => { tErr.on("finish", res); tErr.on("error", res); }),
+    new Promise((res) => {
+      tOut.on("finish", res);
+      tOut.on("error", res);
+    }),
+    new Promise((res) => {
+      tErr.on("finish", res);
+      tErr.on("error", res);
+    }),
   ]);
 
   // Byte counters on BOTH streams drive the §5 timers (pipes keep writing files;
   // spec §5: "no growth in either" — stderr-only activity must reset the clocks too).
   let bytesOut = 0;
-  child.stdout.on("data", (c) => { bytesOut += c.length; });
-  child.stderr.on("data", (c) => { bytesOut += c.length; });
+  child.stdout.on("data", (c) => {
+    bytesOut += c.length;
+  });
+  child.stderr.on("data", (c) => {
+    bytesOut += c.length;
+  });
 
-  const prompt = kind === "resume"
-    ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
-    : cfg.prompt; // composed + cap-validated once at startup
+  const prompt =
+    kind === "resume"
+      ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
+      : cfg.prompt; // composed + cap-validated once at startup
   child.stdin.on("error", () => {});
   child.stdin.end(prompt);
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let exitInfo = null;
-  exited.then((v) => { exitInfo = v; });
+  exited.then((v) => {
+    exitInfo = v;
+  });
   // (streamFailure latch already declared above, next to streamErr)
 
-  let firstByteAt = null, lastGrowthAt = t0, lastBytes = 0;
+  let firstByteAt = null,
+    lastGrowthAt = t0,
+    lastBytes = 0;
   while (exitInfo === null) {
-    if (streamFailure) { killGroup(child.pid, "SIGKILL"); state.currentAttempt = null; state.liveChild = null; throw streamFailure; }
+    if (streamFailure) {
+      killGroup(child.pid, "SIGKILL");
+      state.currentAttempt = null;
+      state.liveChild = null;
+      throw streamFailure;
+    }
     await sleep(cfg.pollIntervalSecs * 1000);
     if (exitInfo !== null) break;
     const now = nowSecs();
     if (bytesOut > lastBytes) {
-      lastBytes = bytesOut; lastGrowthAt = now;
+      lastBytes = bytesOut;
+      lastGrowthAt = now;
       if (firstByteAt === null) firstByteAt = now;
     }
-    let reason = null;                                     // §5 precedence
+    let reason = null; // §5 precedence
     if (now - state.startedAt > cfg.totalMaxSecs) reason = "total_timeout";
     else if (now - t0 > cfg.attemptMaxSecs) reason = "attempt_timeout";
     else if (firstByteAt !== null && now - lastGrowthAt > cfg.stallSecs) reason = "stall";
@@ -311,15 +417,15 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
       killGroup(child.pid, "SIGTERM");
       const graceEnd = nowSecs() + cfg.killGraceSecs;
       while (exitInfo === null && nowSecs() < graceEnd) await sleep(50);
-      killGroup(child.pid, "SIGKILL");                     // UNCONDITIONAL group sweep (helpers may survive leader)
+      killGroup(child.pid, "SIGKILL"); // UNCONDITIONAL group sweep (helpers may survive leader)
       const reapEnd = nowSecs() + cfg.reapAfterKillSecs;
       while (exitInfo === null && nowSecs() < reapEnd) await sleep(50);
       if (exitInfo === null) throw fail("unkillable child");
       break;
     }
   }
-  await closed;      // stdio flushed
-  await finished;    // files durable (or errored — settled either way)
+  await closed; // stdio flushed
+  await finished; // files durable (or errored — settled either way)
   // Late stream failure — child exited BEFORE/WITH the write-stream error, so the race
   // above resolved on `exited` and never threw. Rethrow here: an attempt must never be
   // classified (least of all as success) against a torn transcript/stderr file.
@@ -331,7 +437,8 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   }
   attempt.exitCode = exitInfo.code;
   attempt.signal = exitInfo.signal;
-  if (attempt.killedReason === null && exitInfo.signal !== null) attempt.killedReason = "external_signal";
+  if (attempt.killedReason === null && exitInfo.signal !== null)
+    attempt.killedReason = "external_signal";
   attempt.durationSecs = nowSecs() - t0;
   try {
     classifyAttempt(attempt);
@@ -350,12 +457,19 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
 // ---------------------------------------------------------------------------
 
 function writeResult(cfg, state, patch) {
-  const attempts = state.attempts.map(({ parsed, ...a }) => a);
+  const attempts = state.attempts.map(({ parsed: _parsed, ...a }) => a);
   const body = {
-    guardVersion: GUARD_VERSION, label: cfg.label,
-    status: "no_verdict", verdict: null, verdictLine: null, lastMessagePath: null,
-    attempts, failureReason: null, error: null,
-    startedAt: state.startedAtIso, endedAt: new Date().toISOString(),
+    guardVersion: GUARD_VERSION,
+    label: cfg.label,
+    status: "no_verdict",
+    verdict: null,
+    verdictLine: null,
+    lastMessagePath: null,
+    attempts,
+    failureReason: null,
+    error: null,
+    startedAt: state.startedAtIso,
+    endedAt: new Date().toISOString(),
     ...patch,
   };
   writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
@@ -367,29 +481,49 @@ function writeResult(cfg, state, patch) {
 // ---------------------------------------------------------------------------
 
 const TTL_SIGNATURE = /codex_models_manager::manager: failed to renew cache TTL/;
-const SESSION_ID_RE = /session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+const SESSION_ID_RE =
+  /session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
 // §6 rung 1. Advisory lock; matched-or-skipped consumes the cap.
 function tryCacheRung(cfg, attempt, state) {
   state.cacheRungUsed = true;
   const lockDir = join(cfg.codexHome, ".codex-guard-cache-lock");
   const cachePath = join(cfg.codexHome, "models_cache.json");
-  const skip = () => { attempt.recovery = "cache_ttl_skipped"; return "cache_ttl_skipped"; };
+  const skip = () => {
+    attempt.recovery = "cache_ttl_skipped";
+    return "cache_ttl_skipped";
+  };
 
   if (!existsSync(cfg.codexHome) || !existsSync(cachePath)) return skip();
 
   if (existsSync(lockDir)) {
     let ageSecs = 0;
-    try { ageSecs = (Date.now() - statSync(lockDir).mtimeMs) / 1000; } catch { return skip(); }
+    try {
+      ageSecs = (Date.now() - statSync(lockDir).mtimeMs) / 1000;
+    } catch {
+      return skip();
+    }
     if (ageSecs > cfg.cacheLockStaleSecs) {
-      const tomb = join(cfg.codexHome, `.codex-guard-cache-lock.stale-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
-      try { renameSync(lockDir, tomb); rmSync(tomb, { recursive: true, force: true }); } catch { /* sibling broke it */ }
+      const tomb = join(
+        cfg.codexHome,
+        `.codex-guard-cache-lock.stale-${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
+      );
+      try {
+        renameSync(lockDir, tomb);
+        rmSync(tomb, { recursive: true, force: true });
+      } catch {
+        /* sibling broke it */
+      }
       return skip(); // break-then-defer (§6)
     }
     return skip(); // fresh lock = live sibling
   }
 
-  try { mkdirSync(lockDir); } catch { return skip(); }
+  try {
+    mkdirSync(lockDir);
+  } catch {
+    return skip();
+  }
   state.heldLockDir = lockDir;
   try {
     writeFileSync(join(lockDir, "owner"), String(process.pid));
@@ -409,19 +543,35 @@ function releaseOwnLock(state, lockDir) {
   try {
     const owner = readFileSync(join(lockDir, "owner"), "utf8");
     if (owner === String(process.pid)) rmSync(lockDir, { recursive: true, force: true });
-  } catch { /* owner-less or foreign: leave for stale-break */ }
+  } catch {
+    /* owner-less or foreign: leave for stale-break */
+  }
   if (state.heldLockDir === lockDir) state.heldLockDir = null;
 }
 
 function selectRung(cfg, attempt, state) {
   let stderrText = "";
-  try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error */ }
-  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);
+  try {
+    stderrText = readFileSync(attempt.stderrPath, "utf8");
+  } catch {
+    /* spawn_error */
+  }
+  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText))
+    return tryCacheRung(cfg, attempt, state);
 
-  if (!state.resumeRungUsed && attempt.exitCode === 0 &&
-      ["no_o_file", "empty_o_file", "no_marker", "unrecognized_verdict"].includes(attempt.failureShape)) {
+  if (
+    !state.resumeRungUsed &&
+    attempt.exitCode === 0 &&
+    ["no_o_file", "empty_o_file", "no_marker", "unrecognized_verdict"].includes(
+      attempt.failureShape,
+    )
+  ) {
     let transcript = "";
-    try { transcript = readFileSync(attempt.transcriptPath, "utf8"); } catch { /* none */ }
+    try {
+      transcript = readFileSync(attempt.transcriptPath, "utf8");
+    } catch {
+      /* none */
+    }
     const m = SESSION_ID_RE.exec(transcript); // THIS attempt's transcript only (§6 wrong-source guard)
     if (m) {
       state.resumeRungUsed = true;
@@ -443,9 +593,15 @@ cfg.prompt = composePrompt(cfg);
 
 async function main() {
   const state = {
-    startedAt: nowSecs(), startedAtIso: new Date().toISOString(),
-    attempts: [], liveChild: null, currentAttempt: null,
-    cacheRungUsed: false, resumeRungUsed: false, resumeSid: null, heldLockDir: null,
+    startedAt: nowSecs(),
+    startedAtIso: new Date().toISOString(),
+    attempts: [],
+    liveChild: null,
+    currentAttempt: null,
+    cacheRungUsed: false,
+    resumeRungUsed: false,
+    resumeSid: null,
+    heldLockDir: null,
   };
   globalThis.__guardState = state;
 
@@ -457,22 +613,35 @@ async function main() {
 
     if (attempt.failureShape === null) {
       writeResult(cfg, state, {
-        status: "verdict", verdict: attempt.parsed.verdict,
-        verdictLine: attempt.parsed.verdictLine, lastMessagePath: attempt.lastMessagePath,
+        status: "verdict",
+        verdict: attempt.parsed.verdict,
+        verdictLine: attempt.parsed.verdictLine,
+        lastMessagePath: attempt.lastMessagePath,
       });
       process.exit(0);
     }
     if (attempt.killedReason === "total_timeout") {
-      writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
+      writeResult(cfg, state, {
+        failureReason: "total_timeout",
+        verdictLine: attempt.parsed?.verdictLine ?? null,
+      });
       process.exit(0);
     }
-    if (state.attempts.length >= cfg.maxAttempts) {  // exhaustion BEFORE admission (§6)
-      writeResult(cfg, state, { failureReason: "attempts_exhausted", verdictLine: attempt.parsed?.verdictLine ?? null });
+    if (state.attempts.length >= cfg.maxAttempts) {
+      // exhaustion BEFORE admission (§6)
+      writeResult(cfg, state, {
+        failureReason: "attempts_exhausted",
+        verdictLine: attempt.parsed?.verdictLine ?? null,
+      });
       process.exit(0);
     }
     const remaining = cfg.totalMaxSecs - (nowSecs() - state.startedAt);
-    if (remaining < cfg.minAdmissionSecs) {          // admission gates rung side effects (§6)
-      writeResult(cfg, state, { failureReason: "total_timeout", verdictLine: attempt.parsed?.verdictLine ?? null });
+    if (remaining < cfg.minAdmissionSecs) {
+      // admission gates rung side effects (§6)
+      writeResult(cfg, state, {
+        failureReason: "total_timeout",
+        verdictLine: attempt.parsed?.verdictLine ?? null,
+      });
       process.exit(0);
     }
     const rung = selectRung(cfg, attempt, state);
@@ -484,7 +653,10 @@ function onSignal(sig) {
   const state = globalThis.__guardState;
   try {
     const pid = state?.liveChild?.pid;
-    if (pid) { killGroup(pid, "SIGTERM"); killGroup(pid, "SIGKILL"); }  // emergency: no grace window
+    if (pid) {
+      killGroup(pid, "SIGTERM");
+      killGroup(pid, "SIGKILL");
+    } // emergency: no grace window
     if (state?.heldLockDir) releaseOwnLock(state, state.heldLockDir);
     if (state) {
       // snapshot the live attempt so the interrupted result preserves history (scenario 16 / 14b pin)
@@ -493,7 +665,9 @@ function onSignal(sig) {
       }
       writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
     }
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
   process.exit(3);
 }
 process.on("SIGINT", () => onSignal("SIGINT"));
@@ -502,17 +676,35 @@ process.on("SIGTERM", () => onSignal("SIGTERM"));
 main().catch((e) => {
   const state = globalThis.__guardState;
   const attempts = [
-    ...(state?.attempts ?? []).map(({ parsed, ...a }) => a),
-    ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt) ? [(({ parsed, ...a }) => a)(e.attempt)] : []),
+    ...(state?.attempts ?? []).map(({ parsed: _parsed, ...a }) => a),
+    ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt)
+      ? [(({ parsed: _parsed, ...a }) => a)(e.attempt)]
+      : []),
   ];
   try {
-    writeFileSync(join(cfg.out, "result.json"), JSON.stringify({
-      guardVersion: GUARD_VERSION, label: cfg.label, status: "no_verdict",
-      verdict: null, verdictLine: null, lastMessagePath: null,
-      attempts, failureReason: "wrapper_error", error: String(e?.message ?? e),
-      startedAt: state?.startedAtIso ?? null, endedAt: new Date().toISOString(),
-    }, null, 2) + "\n");
-  } catch { /* stderr only */ }
+    writeFileSync(
+      join(cfg.out, "result.json"),
+      JSON.stringify(
+        {
+          guardVersion: GUARD_VERSION,
+          label: cfg.label,
+          status: "no_verdict",
+          verdict: null,
+          verdictLine: null,
+          lastMessagePath: null,
+          attempts,
+          failureReason: "wrapper_error",
+          error: String(e?.message ?? e),
+          startedAt: state?.startedAtIso ?? null,
+          endedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+  } catch {
+    /* stderr only */
+  }
   process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
   process.exit(3);
 });

@@ -1,13 +1,34 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { cleanupRuns, mkRun, readResult, runGuard, writeScenario } from "./harness";
 
 afterAll(cleanupRuns);
 
-const TTL_LINE = "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
-const TTL_FAIL = { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] };
-const THEN_OK = { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] };
+const TTL_LINE =
+  "ERROR codex_models_manager::manager: failed to renew cache TTL: missing field 'supports_reasoning_summaries'\n";
+const TTL_FAIL = {
+  onCall: 1,
+  actions: [
+    { type: "stderr", text: TTL_LINE },
+    { type: "exit", code: 0 },
+  ],
+};
+const THEN_OK = {
+  onCall: 2,
+  actions: [
+    { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+    { type: "exit", code: 0 },
+  ],
+};
 
 describe("codex-guard cache lock lifecycle (§6)", () => {
   it("18a: unreadable cache → backup fails → skipped, cache intact, lock released", async () => {
@@ -39,7 +60,9 @@ describe("codex-guard cache lock lifecycle (§6)", () => {
     expect(res.code).toBe(0);
     expect(readResult(run).attempts[0]!.recovery).toBe("cache_ttl_skipped");
     expect(existsSync(lock)).toBe(false);
-    expect(readdirSync(run.codexHome).filter((f) => f.startsWith(".codex-guard-cache-lock.stale-"))).toEqual([]);
+    expect(
+      readdirSync(run.codexHome).filter((f) => f.startsWith(".codex-guard-cache-lock.stale-")),
+    ).toEqual([]);
   });
 
   it("18c: fresh foreign lock → skipped, cap consumed, lock survives wrapper exit", async () => {

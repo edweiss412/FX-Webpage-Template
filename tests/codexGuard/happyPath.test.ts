@@ -27,9 +27,16 @@ describe("codex-guard happy path", () => {
     expect(calls).toHaveLength(1);
     const c0 = calls[0]!;
     expect(c0.argv).toEqual([
-      "exec", "--skip-git-repo-check", "-s", "read-only", "-C", run.cwdDir,
-      "-c", "model_reasoning_effort=high",
-      "-o", join(run.outDir, "attempt-1.last-message.txt"),
+      "exec",
+      "--skip-git-repo-check",
+      "-s",
+      "read-only",
+      "-C",
+      run.cwdDir,
+      "-c",
+      "model_reasoning_effort=high",
+      "-o",
+      join(run.outDir, "attempt-1.last-message.txt"),
     ]);
     expect(c0.cwd).toBe(run.cwdDir);
     const briefText = readFileSync(run.briefPath, "utf8");
@@ -47,8 +54,13 @@ describe("codex-guard happy path", () => {
     expect(result.attempts).toHaveLength(1);
     const a = result.attempts[0]!;
     expect(a).toMatchObject({
-      n: 1, kind: "exec", exitCode: 0, signal: null,
-      killedReason: null, failureShape: null, recovery: null,
+      n: 1,
+      kind: "exec",
+      exitCode: 0,
+      signal: null,
+      killedReason: null,
+      failureShape: null,
+      recovery: null,
     });
     expect(typeof a.pid).toBe("number");
     expect(typeof a.durationSecs).toBe("number");
@@ -68,7 +80,13 @@ describe("codex-guard happy path", () => {
       "",
     ].join("\n");
     writeScenario(run, [
-      { onCall: 1, actions: [{ type: "lastMessage", text: lastMessage }, { type: "exit", code: 0 }] },
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: lastMessage },
+          { type: "exit", code: 0 },
+        ],
+      },
     ]);
     const res = await runGuard(run);
     expect(res.code).toBe(0);
@@ -83,7 +101,13 @@ describe("codex-guard happy path", () => {
     const art = join(run.dir, "spec-artifact.md");
     writeFileSync(art, "SPEC BODY CONTENT\n");
     writeScenario(run, [
-      { onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
     ]);
     const res = await runGuard(run, ["--fallback", "--artifact", art]);
     expect(res.code).toBe(0);

@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,7 +30,13 @@ export interface AttemptRecord {
   pid: number | null;
   exitCode: number | null;
   signal: string | null;
-  killedReason: "no_output" | "stall" | "attempt_timeout" | "total_timeout" | "external_signal" | null;
+  killedReason:
+    | "no_output"
+    | "stall"
+    | "attempt_timeout"
+    | "total_timeout"
+    | "external_signal"
+    | null;
   failureShape:
     | "no_o_file"
     | "empty_o_file"
@@ -102,7 +116,10 @@ export function mkRun(): Run {
   mkdirSync(run.recordDir, { recursive: true });
   mkdirSync(run.codexHome, { recursive: true });
   mkdirSync(run.cwdDir, { recursive: true });
-  writeFileSync(run.briefPath, "Review this artifact. End with VERDICT: APPROVE or VERDICT: NEEDS-ATTENTION.\n");
+  writeFileSync(
+    run.briefPath,
+    "Review this artifact. End with VERDICT: APPROVE or VERDICT: NEEDS-ATTENTION.\n",
+  );
   writeFileSync(join(run.codexHome, "models_cache.json"), JSON.stringify({ stub: true }));
   return run;
 }
@@ -144,14 +161,29 @@ export function runGuard(
   return new Promise((resolve) => {
     execFile(
       process.execPath,
-      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir, ...extraArgs],
+      [
+        GUARD,
+        "review",
+        "--brief",
+        run.briefPath,
+        "--cwd",
+        run.cwdDir,
+        "--out",
+        run.outDir,
+        ...extraArgs,
+      ],
       // timeout: a hung guard (red-state TDD runs!) is SIGTERMed — its own handler cleans the
       // child group — instead of leaking past a vitest timeout. SIGTERM, not SIGKILL, on purpose.
-      { env: guardEnv(run, envOverrides), maxBuffer: 16 * 1024 * 1024, timeout: 25000, killSignal: "SIGTERM" },
+      {
+        env: guardEnv(run, envOverrides),
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 25000,
+        killSignal: "SIGTERM",
+      },
       (err, stdout, stderr) => {
         const code = err
           ? typeof (err as { code?: unknown }).code === "number"
-            ? (((err as { code?: number }).code) ?? null)
+            ? ((err as { code?: number }).code ?? null)
             : null
           : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) });

@@ -41,7 +41,7 @@ function runFixture(
       (err, stdout, stderr) => {
         const code = err
           ? typeof (err as { code?: unknown }).code === "number"
-            ? (((err as { code?: number }).code) ?? null)
+            ? ((err as { code?: number }).code ?? null)
             : null
           : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) });
@@ -102,7 +102,13 @@ describe("fake-codex fixture", () => {
       JSON.stringify({
         steps: [
           { onCall: 1, actions: [{ type: "exit", code: 0 }] },
-          { onCall: 2, actions: [{ type: "stderr", text: "second call\n" }, { type: "exit", code: 7 }] },
+          {
+            onCall: 2,
+            actions: [
+              { type: "stderr", text: "second call\n" },
+              { type: "exit", code: 7 },
+            ],
+          },
         ],
       }),
     );
@@ -128,7 +134,11 @@ describe("fake-codex fixture", () => {
           {
             onCall: 1,
             actions: [
-              { type: "writeFile", path: "$CODEX_HOME/models_cache.json", text: '{"recreated":true}' },
+              {
+                type: "writeFile",
+                path: "$CODEX_HOME/models_cache.json",
+                text: '{"recreated":true}',
+              },
               { type: "exit", code: 0 },
             ],
           },
@@ -141,7 +151,9 @@ describe("fake-codex fixture", () => {
       CODEX_HOME: ch,
     });
     expect(res.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(ch, "models_cache.json"), "utf8"))).toEqual({ recreated: true });
+    expect(JSON.parse(readFileSync(join(ch, "models_cache.json"), "utf8"))).toEqual({
+      recreated: true,
+    });
   });
 
   it("grandchild ignores SIGTERM (pin for scenario 16's KILL-fallback proof)", async () => {
@@ -153,7 +165,10 @@ describe("fake-codex fixture", () => {
         steps: [{ onCall: 1, actions: [{ type: "grandchild" }, { type: "exit", code: 0 }] }],
       }),
     );
-    const res = await runFixture(["exec"], { FAKE_CODEX_SCENARIO: scenario, FAKE_CODEX_RECORD_DIR: dir });
+    const res = await runFixture(["exec"], {
+      FAKE_CODEX_SCENARIO: scenario,
+      FAKE_CODEX_RECORD_DIR: dir,
+    });
     expect(res.code).toBe(0);
     // The grandchild writes its own pid file after registering its SIGTERM handler —
     // wait for it (the fixture may exit before the grandchild finishes booting).
