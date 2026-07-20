@@ -310,7 +310,7 @@ describe("show review modal loader — post-lookup parallel wave", () => {
     render((await pending) as ReactElement);
     // getByRole throws when absent — truthiness is the render-completed pin.
     expect(screen.getByRole("dialog")).toBeTruthy();
-  });
+  }, 15000); // dynamic import of the loader module graph can exceed the 5s default on a starved 2-core CI runner (failed 2× on PR #502's shard layout)
 
   it("archived show: an unconditionally-fired finalize RPC can never mark it finalize-owned", async () => {
     // The wave fires the finalize read before `archived` is known — the
