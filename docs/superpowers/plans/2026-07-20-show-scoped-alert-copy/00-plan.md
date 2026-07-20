@@ -751,10 +751,10 @@ Review R2 finding 1 is right that describing the move is not making it: Task 5 s
 
 | Defense file | Written in | Committed by |
 | --- | --- | --- |
-| `tests/messages/_metaShowScopedTemplates.test.ts` | Task 5 steps 1-2 | **Task 1 step 7** |
-| `tests/admin/_metaAttentionItemsTopology.test.ts` | Task 5 steps 3-4 | **Task 2 step 5** |
-| `tests/components/admin/_metaResolveLabelSingleSource.test.ts` | Task 5 step 4b | **Task 4 step 9** |
-| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` + `resolveIntentsBaseline.json` | Task 5 steps 5-6 | **Task 4 step 9** |
+| tests/messages/_metaShowScopedTemplates.test.ts | Task 5 steps 1-2 | **Task 1 step 7** |
+| tests/admin/_metaAttentionItemsTopology.test.ts | Task 5 steps 3-4 | **Task 2 step 5** |
+| tests/components/admin/_metaResolveLabelSingleSource.test.ts | Task 5 step 4b | **Task 4 step 9** |
+| tests/adminAlerts/_metaResolveIntentLifecycle.test.ts + resolveIntentsBaseline.json | Task 5 steps 5-6 | **Task 4 step 9** |
 
 **Execution order:** do Task 5's writing steps for a given defense BEFORE running the owning task's commit step. In practice: Task 1 steps 1-6, then Task 5 steps 1-2, then Task 1 step 7. The commit commands in Tasks 1, 2, and 4 already list these files.
 
