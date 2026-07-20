@@ -331,8 +331,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   }
   attempt.exitCode = exitInfo.code;
   attempt.signal = exitInfo.signal;
-  // NOTE: external_signal classification (exitInfo.signal !== null → killedReason) is
-  // deliberately NOT set here — Task 7 adds that line when scenario 13 (its owning test) lands.
+  if (attempt.killedReason === null && exitInfo.signal !== null) attempt.killedReason = "external_signal";
   attempt.durationSecs = nowSecs() - t0;
   try {
     classifyAttempt(attempt);
@@ -368,6 +367,7 @@ function writeResult(cfg, state, patch) {
 // ---------------------------------------------------------------------------
 
 const TTL_SIGNATURE = /codex_models_manager::manager: failed to renew cache TTL/;
+const SESSION_ID_RE = /session id:?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
 // §6 rung 1. Advisory lock; matched-or-skipped consumes the cap.
 function tryCacheRung(cfg, attempt, state) {
@@ -418,6 +418,18 @@ function selectRung(cfg, attempt, state) {
   try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error */ }
   if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);
 
+  if (!state.resumeRungUsed && attempt.exitCode === 0 &&
+      ["no_o_file", "empty_o_file", "no_marker", "unrecognized_verdict"].includes(attempt.failureShape)) {
+    let transcript = "";
+    try { transcript = readFileSync(attempt.transcriptPath, "utf8"); } catch { /* none */ }
+    const m = SESSION_ID_RE.exec(transcript); // THIS attempt's transcript only (§6 wrong-source guard)
+    if (m) {
+      state.resumeRungUsed = true;
+      state.resumeSid = m[1];
+      attempt.recovery = "resume";
+      return "resume";
+    }
+  }
   attempt.recovery = "retry";
   return "retry";
 }
@@ -467,6 +479,25 @@ async function main() {
     nextKind = rung === "resume" ? "resume" : "exec";
   }
 }
+
+function onSignal(sig) {
+  const state = globalThis.__guardState;
+  try {
+    const pid = state?.liveChild?.pid;
+    if (pid) { killGroup(pid, "SIGTERM"); killGroup(pid, "SIGKILL"); }  // emergency: no grace window
+    if (state?.heldLockDir) releaseOwnLock(state, state.heldLockDir);
+    if (state) {
+      // snapshot the live attempt so the interrupted result preserves history (scenario 16 / 14b pin)
+      if (state.currentAttempt && !state.attempts.includes(state.currentAttempt)) {
+        state.attempts.push(state.currentAttempt);
+      }
+      writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
+    }
+  } catch { /* best-effort */ }
+  process.exit(3);
+}
+process.on("SIGINT", () => onSignal("SIGINT"));
+process.on("SIGTERM", () => onSignal("SIGTERM"));
 
 main().catch((e) => {
   const state = globalThis.__guardState;

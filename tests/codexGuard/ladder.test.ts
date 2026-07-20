@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupRuns, mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
 
@@ -63,9 +63,45 @@ describe("codex-guard recovery ladder (§6)", () => {
     expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
   });
 
-  // Resume branch lands in Task 7 — attempt 2's rung reads `retry` until then; same
-  // it.fails staging as scenario 9 (flip to `it` in Task 7 Step 1).
-  it.fails("scenario 11: absent cache → cache_ttl_skipped consumes cap; resume still reachable", async () => {
+  it("scenario 4: resume argv exact, cwd=--cwd, decoy sid in EARLIER attempt ignored", async () => {
+    const run = mkRun();
+    const decoySid = "00000000-0000-4000-8000-000000000000";
+    const realSid = "12345678-90ab-4cde-8f01-234567890abc";
+    mkdirSync(join(run.codexHome, "sessions", "zzz"), { recursive: true }); // decoy sessions dir
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: `session id: ${decoySid}\n` }, { type: "stderr", text: "transient\n" }, { type: "exit", code: 1 }] },
+      { onCall: 2, actions: [{ type: "stdout", text: `session id: ${realSid}\n` }, { type: "exit", code: 0 }] },
+      { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    const calls = readCalls(run);
+    expect(calls).toHaveLength(3);
+    const c2 = calls[2]!;
+    expect(c2.argv).toEqual([
+      "exec", "resume", realSid, "-c", "model_reasoning_effort=high",
+      "-o", join(run.outDir, "attempt-3.last-message.txt"),
+    ]);
+    expect(c2.cwd).toBe(run.cwdDir);
+    expect(c2.stdin).toContain("mandatory final line");
+  });
+
+  it("scenario 10: ordered ladder cache_ttl → resume in one run; kinds exec,exec,resume", async () => {
+    const run = mkRun();
+    const sid = "deadbeef-dead-4bee-8f00-deadbeef0001";
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] },
+      { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] },
+      { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    const r = readResult(run);
+    expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl", "resume", null]);
+    expect(r.attempts.map((a) => a.kind)).toEqual(["exec", "exec", "resume"]);
+  });
+
+  it("scenario 11: absent cache → cache_ttl_skipped consumes cap; resume still reachable", async () => {
     const run = mkRun();
     rmSync(join(run.codexHome, "models_cache.json"));
     const sid = "aaaabbbb-cccc-4ddd-8eee-ffff00001111";
