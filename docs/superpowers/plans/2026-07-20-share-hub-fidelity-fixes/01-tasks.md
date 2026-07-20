@@ -104,7 +104,8 @@ ADD (do not replace) alongside the existing wiring test at
 
 ```tsx
 import {
-  expectClasses, expectNoDescriptionNode, expectRowText, NO_BORDER, NO_REST_BACKGROUND,
+  expectClasses, expectNoDescriptionNode, expectRowText,
+  NO_BORDER, NO_REST_BACKGROUND, WRAPPER_CLASSES,
 } from "./_rowAssertions";
 
 const ROW_TOKENS = [
@@ -151,7 +152,7 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   // §4.6 width chain link 1: the wrapper, not just the button. `exactly`,
   // because this list is fully prescribed too — a stale `py-3`, a missing
   // `flex-col`, or a conflicting `w-auto` must fail here.
-  expectClasses(rotate.parentElement!, { exactly: ["flex", "w-full", "flex-col", "gap-2"] });
+  expectClasses(rotate.parentElement!, { exactly: WRAPPER_CLASSES });
 });
 ```
 
@@ -303,10 +304,13 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
   // Identity, not just dimensions: a wrong glyph passes a size-only check.
   expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-refresh-cw"] });
 
-  // §4.3: the PCR-1 (b) <h4> is deliberately gone; `Careful` <h3> still stands.
+  // §4.3: the PCR-1 (b) heading is deliberately gone. NOT level-4-only —
+  // expectRowText already rejects a heading of ANY level inside the row (an
+  // <h5> was a trivial bypass); this pins the popover-level view of the same
+  // contract, and that `Careful` <h3> survives.
   expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
   expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
-  expectClasses(reset.parentElement!, { exactly: ["flex", "w-full", "flex-col", "gap-2"] });
+  expectClasses(reset.parentElement!, { exactly: WRAPPER_CLASSES });
 });
 
 it("GUARD empty crew: reset row is disabled and its empty copy IS the described text", () => {

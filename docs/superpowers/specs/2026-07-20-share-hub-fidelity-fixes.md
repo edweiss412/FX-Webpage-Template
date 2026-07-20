@@ -588,12 +588,23 @@ export const DESCRIPTION_CLASSES = ["text-xs", "text-text-subtle"] as const;
 /** The stacked label/description column (spec §4.6). `flex` AND `flex-col`:
  *  `flex-col` alone sets flex-direction but establishes no flex context. */
 export const COLUMN_CLASSES = ["flex", "min-w-0", "flex-col"] as const;
+/** The row's outer wrapper (spec §4.6 width chain link 1). Unconditional: it
+ *  does not vary with whether a description is present. */
+export const WRAPPER_CLASSES = ["flex", "w-full", "flex-col", "gap-2"] as const;
 
 /** The prescribed row topology: an icon, then the column, and nothing else.
  *  Asserting the pieces individually is not enough: label and description can
  *  each be correct while sitting as DIRECT children of the button, an unstacked
  *  flex row that satisfies every per-element check. */
 function expectRowTopology(button: HTMLElement, column: Element): void {
+  // §4.3: the row contributes NO heading-outline entry. Rejecting only <h4>
+  // leaves <h5> (and every other level) as a trivial bypass that satisfies the
+  // label's typography and text assertions while restoring the asymmetric
+  // outline entry this change exists to remove.
+  expect(
+    [...button.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']")],
+    "the row must contribute no heading",
+  ).toEqual([]);
   // An implicit or `submit` type would SUBMIT AN ENCLOSING FORM when the row is
   // clicked. Cheap to assert, expensive to discover in production.
   expect(button.getAttribute("type"), "row must be type=button").toBe("button");
@@ -615,6 +626,7 @@ export function expectRowText(
   expect(scope.contains(button), "row button must be inside the asserted scope").toBe(true);
   const labelEl = within(button).getByText(label);
   expect(button.contains(labelEl)).toBe(true);
+  expect(labelEl.tagName, "the label must be a plain span, never a heading").toBe("SPAN");
   expectNotHidden(labelEl, scope, "row label");
   expect(button.getAttribute("aria-label")).toBe(label);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
@@ -668,6 +680,7 @@ export function expectNoDescriptionNode(
   expect(button.getAttribute("aria-describedby"), "no described node when absent").toBeNull();
 
   const labelEl = within(button).getByText(label);
+  expect(labelEl.tagName, "the label must be a plain span, never a heading").toBe("SPAN");
 
   // The LABEL's own contract must survive the description being absent. Without
   // this, `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes:
@@ -726,6 +739,12 @@ export function expectNoDescriptionNode(
     [...wrapper!.children],
     "the idle row wrapper must contain the button and nothing else",
   ).toEqual([button]);
+  // …and the wrapper must still BE the prescribed wrapper. A branch that
+  // returns the bare button when the description is absent would otherwise
+  // pass: the render container becomes the parent and trivially contains only
+  // the button, while the unconditional `flex w-full flex-col gap-2` contract
+  // is silently dropped for that path.
+  expectClasses(wrapper!, { exactly: WRAPPER_CLASSES });
 }
 ```
 
@@ -812,7 +831,11 @@ All row assertions below use the §7.0 helper. Where an item says "token set", i
 10. **Reset label/description contract.** The same `expectRowText` call, against
     `"Reset everyone's pick"` and its exact description. This is a NEW assertion — reset
     has NEITHER attribute today (§4.2), so unlike rotate this one starts red.
-11. **Reset heading removed.** Popover has no `<h4>`; the `Careful` `<h3>` is still there.
+11. **Reset heading removed.** The row contributes NO heading of ANY level — `expectRowText`
+    rejects `h1`-`h6` and `[role="heading"]` inside the row, and the label element must be a
+    `<span>`. Rejecting only `<h4>` left `<h5>` as a trivial bypass that satisfied every
+    other assertion while restoring the outline entry §4.3 removes. The `Careful` `<h3>`
+    still stands.
 12. **Reset empty-crew guard.** `disabled` is true, and `expectRowText` passes against
     the description `"No crew to reset yet."` — the same containment + exactness +
     uniqueness triple, so the empty-roster copy cannot be duplicated or left outside
