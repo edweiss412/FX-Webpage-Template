@@ -26,6 +26,7 @@ import {
 } from "@/lib/parser/dataGaps";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
+import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
 import { databaseUrl } from "@/lib/sync/_databaseUrl";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
@@ -3385,10 +3386,11 @@ export async function processOneFile_unlocked(
       await upsertAdminAlert({
         showId: show.showId,
         code: "PARSE_ERROR_LAST_GOOD",
-        context: {
-          drive_file_id: driveFileId,
-          sheet_name: show.priorParseResult.show.title,
-        },
+        context: buildParseErrorContext({
+          driveFileId,
+          sheetName: show.priorParseResult.show.title,
+          failureCode: phase1.code,
+        }),
       });
       await resolveStaleSyncProblemAlerts_unlocked(
         tx,
