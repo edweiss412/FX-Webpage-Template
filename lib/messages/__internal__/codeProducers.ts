@@ -19,6 +19,12 @@ export function codeProducerLiterals(): Set<string> {
     if (file === "lib/messages/catalog.ts" || file.startsWith("lib/messages/__generated__/")) {
       continue;
     }
+    // lib/specLint/** emits spec-lint Finding.code diagnostics (CITATION_*, COPY_*,
+    // SECTION_*, WAIVER_*) — dev-tool output for docs authors, never rendered on a
+    // user-facing surface, so they are not §12.4 producers.
+    if (file.startsWith("lib/specLint/")) {
+      continue;
+    }
     const source = stripLogEmissionCalls(readFileSync(file, "utf8"));
     for (const match of source.matchAll(PRODUCER_RE)) {
       if (match[1]) codes.add(match[1]);
