@@ -358,18 +358,13 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
           ),
         INVALIDATION_FRAME_TIMEOUT_MS,
       );
-      if (!inval) {
-        // Healthy socket + warm-up frames delivered, yet the trigger-driven
-        // frame missed: measured intermittent LOCAL realtime delivery loss
-        // (the plan-time probe saw the same class once in five runs). The
-        // bounded fresh-seed retry distinguishes it from a genuinely broken
-        // trigger, which misses on BOTH attempts and still fails the test.
-        return {
-          kind: "flake",
-          reason:
-            "post-mutation invalidation frame not received (socket healthy, warm-up delivered — intermittent local delivery loss)",
-        };
-      }
+      // A missing frame with NO observed transport disruption FAILS — it is the
+      // primary behavior under test, and the spec's in-test retry contract is
+      // reconnect-only (whole-diff review R3 F1). Silent local delivery loss
+      // (measured ~1-in-5) is absorbed by the RUNNER-level retry budget
+      // instead: playwright.config.ts sets retries:2 in CI, and each runner
+      // retry re-enters runScenario with a FRESH seed + context.
+      expect(inval, "post-mutation invalidation frame (phase i)").toBeTruthy();
 
       // Phase (ii): a ?show= RSC request whose START post-dates the frame, and
       // its completion — the debounced router.refresh() as the frame's consequence.
