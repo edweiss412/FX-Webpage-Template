@@ -438,6 +438,7 @@ export function expectRowBoundary(
     const rs = (region as HTMLElement).style;
     expect(rs.display, "the live region must not be display:none").not.toBe("none");
     expect(rs.visibility, "the live region must not be visibility:hidden").not.toBe("hidden");
+    expect(rs.visibility, "the live region must not be visibility:collapse").not.toBe("collapse");
     expect(region.hasAttribute("inert"), "the live region must not be inert").toBe(false);
     expect(
       [...region.children],

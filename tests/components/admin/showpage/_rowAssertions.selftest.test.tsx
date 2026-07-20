@@ -215,6 +215,37 @@ describe("round-21: the new escapes still fail", () => {
     ).toThrow();
   });
 
+  it("REJECTS a visibility:collapse live region", () => {
+    const { container } = render(
+      <div className={W}>
+        <button type="button" aria-label={SL} aria-describedby="sc" className={RESET_ROW}>
+          <RefreshCw size={16} className="shrink-0 text-text-subtle" />
+          <span className="flex min-w-0 flex-col">
+            <span className={LC}>{SL}</span>
+            <span id="sc" className={DC}>
+              {SD}
+            </span>
+          </span>
+        </button>
+        <div
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          style={{ visibility: "collapse" }}
+        />
+      </div>,
+    );
+    const btn = container.querySelector("button")!;
+    expect(() =>
+      expectRowBoundary(btn, {
+        scope: container,
+        descriptionId: "sc",
+        container,
+        allowLiveRegion: true,
+      }),
+    ).toThrow();
+  });
+
   it("REJECTS an inert live region", () => {
     const { container } = render(
       <div className={W}>

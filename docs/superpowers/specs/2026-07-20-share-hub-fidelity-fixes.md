@@ -905,6 +905,7 @@ export function expectRowBoundary(
     const rs = (region as HTMLElement).style;
     expect(rs.display, "the live region must not be display:none").not.toBe("none");
     expect(rs.visibility, "the live region must not be visibility:hidden").not.toBe("hidden");
+    expect(rs.visibility, "the live region must not be visibility:collapse").not.toBe("collapse");
     expect(region.hasAttribute("inert"), "the live region must not be inert").toBe(false);
     expect(
       [...region.children],
@@ -976,7 +977,12 @@ row passes every helper end to end, and the known escapes still fail.
    sampling cannot prove a handler is absent: review walked the behavioral guard through
    `onClick`, `onPointerDown`/`onMouseDown`, `onPointerEnter`/`onPointerOver`, then
    `onDoubleClick`/`onContextMenu`, and there are ~60 React DOM event props. The behavioral
-   guard below is kept as the complement, not the proof.
+   guard below is kept as the complement, not the proof. The scan also rejects JSX SPREADS on
+   the wrapper (`const p = { onDoubleClick: fn }; <div {...p}>` hides a handler from any
+   prop-name scan), and it depends on a documented SOURCE-FORM contract: the wrapper's class
+   list is written as a literal string, never assembled, so the scan can find it. The scanner
+   is a pure function, unit-tested against the correct shape and each escape, because a
+   scanner that silently matches nothing is worse than none.
 5. **React's `onClick` is invisible to attribute checks** — delegation produces no `onclick`
    attribute — so the wrapper being non-interactive is proved BEHAVIORALLY: clicking the
    wrapper must leave the row idle, and clicking the row must still arm it (the second half
