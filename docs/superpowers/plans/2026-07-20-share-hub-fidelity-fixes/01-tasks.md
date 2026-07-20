@@ -291,9 +291,15 @@ the wrapper carries NO JSX spread and NO `ref`. `_metaRowWrapperInert.test.ts` p
 behavior-absence by PARSING the source (TypeScript AST, not a regex): an assembled class
 expression makes the scan find nothing, a spread (`const p = { onDoubleClick: fn };
 <div {...p}>`) smuggles a handler past an attribute-name check, and a
-`ref={(n) => n?.addEventListener(…)}` attaches a native listener with neither. The
-file-level test fails LOUD when it finds no wrapper rather than passing vacuously, and the
-scanner is itself unit-tested against the correct shape and every one of those escapes.
+`ref={(n) => n?.addEventListener(…)}` attaches a native listener with neither. Two further
+rules make the contract self-enforcing rather than merely relied upon: the ASSEMBLED
+spelling is FLAGGED wherever it appears (otherwise a dead `false ? literal : assembled`
+branch supplies a clean decoy while the rendered wrapper goes unscanned), and
+`addEventListener` is banned outright in these two files (they attach every listener through
+React props, and an effect can reach the wrapper indirectly via
+`buttonRef.current?.parentElement` without touching its opening tag). The file-level test
+fails LOUD when it finds no wrapper rather than passing vacuously, and the scanner is itself
+unit-tested against the correct shape and every one of those escapes.
 
 `aria-label` is **bound to `rowLabel`**, never re-hardcoded to a literal — §4.2: a caller
 passing a different `rowLabel` would otherwise violate WCAG 2.5.3 silently. Both attributes

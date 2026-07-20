@@ -73,12 +73,60 @@ describe("the scanner itself", () => {
       [],
     );
   });
+
+  it("FLAGS the assembled spelling, so a dead-branch decoy cannot mask the real wrapper", () => {
+    // Without this, `false ? <div className="literal…"/> : <div className={WRAPPER_CLASSES.join(" ")} onDoubleClick={f}/>`
+    // reports one CLEAN wrapper while the rendered one is unscanned.
+    const src = [
+      "const C = () => (false ? (",
+      `  <div className="${WRAPPER_CLASS_VALUE}">{b}</div>`,
+      ") : (",
+      '  <div className={WRAPPER_CLASSES.join(" ")} onDoubleClick={f}>{b}</div>',
+      "));",
+    ].join("\n");
+    const scan = scanRowWrappers(src);
+    expect(scan.found).toHaveLength(1);
+    expect(scan.found[0]!.offending).toEqual([]);
+    expect(scan.assembledClassName, "the assembled decoy must be flagged").toHaveLength(1);
+  });
+
+  it("FLAGS addEventListener, which can reach the wrapper indirectly", () => {
+    const src = [
+      "const C = () => {",
+      "  useEffect(() => {",
+      "    buttonRef.current?.parentElement?.addEventListener('contextmenu', arm);",
+      "  }, []);",
+      `  return <div className="${WRAPPER_CLASS_VALUE}"><button ref={buttonRef} /></div>;`,
+      "};",
+    ].join("\n");
+    const scan = scanRowWrappers(src);
+    expect(scan.found[0]!.offending, "the opening itself is clean").toEqual([]);
+    expect(scan.imperativeListeners, "the indirect attachment must be flagged").toHaveLength(1);
+  });
 });
 
 describe("Careful row wrappers attach no behavior (spec §4.1, §7.0)", () => {
   for (const file of FILES) {
     it(`${file}: wrapper present, with no on* prop, spread, or ref`, () => {
-      const { found } = scanRowWrappers(readFileSync(file, "utf8"), file);
+      const { found, assembledClassName, imperativeListeners } = scanRowWrappers(
+        readFileSync(file, "utf8"),
+        file,
+      );
+      // The source-form contract is ENFORCED, not merely relied upon: an
+      // assembled className would be invisible to the wrapper scan, so a dead
+      // branch could supply a clean literal decoy while the rendered wrapper
+      // went unchecked.
+      expect(
+        assembledClassName,
+        `${file}: the wrapper class list must be a literal, never assembled`,
+      ).toEqual([]);
+      // These components attach every listener through React props, so ANY
+      // addEventListener is an imperative attachment - and it can reach the
+      // wrapper indirectly via parentElement without touching its opening tag.
+      expect(
+        imperativeListeners,
+        `${file}: must not call addEventListener (React props only)`,
+      ).toEqual([]);
       expect(
         found.length,
         `no row wrapper found in ${file}. It must be written with the literal ` +

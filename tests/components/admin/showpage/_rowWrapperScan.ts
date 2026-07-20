@@ -33,6 +33,16 @@ export type WrapperFinding = {
 export type WrapperScan = {
   /** One entry per wrapper element found in the parsed source. */
   found: WrapperFinding[];
+  /** JSX elements whose `className` is an EXPRESSION mentioning the wrapper
+   *  class constant. The source-form contract forbids the assembled spelling;
+   *  without flagging it, a dead branch can supply a clean literal decoy while
+   *  the real wrapper is assembled and therefore unscanned. */
+  assembledClassName: number[];
+  /** Lines calling `addEventListener`. These components attach every listener
+   *  through React props, so any occurrence is an imperative attachment — and
+   *  it can reach the wrapper indirectly (`buttonRef.current?.parentElement`)
+   *  without placing anything on the wrapper's own opening tag. */
+  imperativeListeners: number[];
 };
 
 const isWrapperOpening = (node: ts.JsxOpeningLikeElement): boolean =>
@@ -66,20 +76,39 @@ function offendingAttributes(node: ts.JsxOpeningLikeElement): string[] {
 export function scanRowWrappers(src: string, fileName = "probe.tsx"): WrapperScan {
   const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const found: WrapperFinding[] = [];
+  const assembledClassName: number[] = [];
+  const imperativeListeners: number[] = [];
+  const lineOf = (node: ts.Node): number =>
+    sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
 
   const visit = (node: ts.Node): void => {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      if (isWrapperOpening(node)) {
+        found.push({ line: lineOf(node), offending: offendingAttributes(node) });
+      } else {
+        for (const attr of node.attributes.properties) {
+          if (
+            ts.isJsxAttribute(attr) &&
+            attr.name.getText() === "className" &&
+            attr.initializer !== undefined &&
+            ts.isJsxExpression(attr.initializer) &&
+            /WRAPPER_CLASSES/.test(attr.initializer.getText())
+          ) {
+            assembledClassName.push(lineOf(node));
+          }
+        }
+      }
+    }
     if (
-      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-      isWrapperOpening(node)
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.getText() === "addEventListener"
     ) {
-      found.push({
-        line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
-        offending: offendingAttributes(node),
-      });
+      imperativeListeners.push(lineOf(node));
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
 
-  return { found };
+  return { found, assembledClassName, imperativeListeners };
 }
