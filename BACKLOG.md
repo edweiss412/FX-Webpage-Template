@@ -4,6 +4,12 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-SPEC-LINT — mechanize the checkable subset of spec/plan pre-review passes
+
+**Filed:** 2026-07-19 (round-burn retrospective, PRs #470–#500) · **Class:** review-round reduction (tooling) · **Effort:** M (script + wiring into review-dispatch discipline)
+
+R1–R3 adversarial rounds are dominated by non-compliance with passes AGENTS.md already mandates, not rule gaps. A `pnpm spec:lint <doc>` script closes the mechanizable subset: (a) every `file:line` citation resolves and the line matches the claimed symbol; (b) numeric-literal cross-check (each count/duration appears consistently everywhere the doc repeats it); (c) copy-rule scan on quoted user-visible strings (em-dash ban, apostrophe literals); (d) presence check for the mandatory §1.1 "Resolved scope — do not relitigate" section and, for UI specs, Dimensional Invariants + Transition Inventory sections. Until it exists, the attached citation-grep/numeric-sweep transcript is the compliance artifact (AGENTS.md spec self-review additions, 2026-07-19).
+
 ## BL-CASP2-STRIP-POLISH — StatusStrip finalize-popover persistent overlay — ✅ RESOLVED (2026-07-17)
 
 **Filed:** 2026-07-17 (CASP2-4 residual, `DEFERRED.md` CASP2-4) · **Resolved:** 2026-07-17, branch `feat/casp2-finalize-inflow` · **Class:** UI polish (transient-state overlay) · **Effort:** S
