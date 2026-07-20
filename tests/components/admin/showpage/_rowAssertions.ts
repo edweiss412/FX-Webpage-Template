@@ -236,12 +236,18 @@ export function expectNoDescriptionNode(
   // `flex min-w-0 flex-col` just because there is nothing left to stack.
   expectRowTopology(button, column!);
 
-  // Belt and braces: nothing anywhere in the row carries the description
-  // styling, in whole or in part.
+  // Scanned across the whole SCOPE, not just the button. A button-scoped scan
+  // misses a carrier rendered as the button's SIBLING inside the row wrapper:
+  //   <div className="flex w-full flex-col gap-2">
+  //     <button>…correct icon + label-only column…</button>
+  //     <p id={descId} className="text-xs text-text-subtle">{rowDescription}</p>
+  //   </div>
+  // which leaves the button pristine while the forbidden empty description node
+  // survives in the DOM, the precise failure this guard exists to exclude.
   expect(
-    [...button.querySelectorAll("*")].filter((el) =>
+    [...scope.querySelectorAll("*")].filter((el) =>
       DESCRIPTION_CLASSES.some((c) => tokensOf(el).has(c)),
     ),
-    "no element may carry any description class",
+    "no element in the row scope may carry any description class",
   ).toEqual([]);
 }
