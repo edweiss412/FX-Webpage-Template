@@ -201,7 +201,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "PARSE_ERROR_LAST_GOOD",
-      context: { drive_file_id: "drive-file-1", sheet_name: "FXAV Spring Tour" },
+      context: { drive_file_id: "drive-file-1", sheet_name: "FXAV Spring Tour", error_code: "MI-1_VERSION_DETECTION_FAILED" },
     });
   });
 

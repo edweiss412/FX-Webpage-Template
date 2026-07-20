@@ -23,6 +23,7 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
 import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import { log } from "@/lib/log";
 
@@ -252,6 +253,7 @@ async function markManualDriveError_unlocked(
 async function emitManualParseErrorAlert_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
+  failureCode: string | null | undefined,
 ): Promise<void> {
   const show = await tx.readShowForPhase1(driveFileId);
   if (!show?.showId) return;
@@ -259,10 +261,13 @@ async function emitManualParseErrorAlert_unlocked(
   await recoveryTx.upsertAdminAlert({
     showId: show.showId,
     code: "PARSE_ERROR_LAST_GOOD",
-    context: {
-      drive_file_id: driveFileId,
-      sheet_name: show.priorParseResult.show.title,
-    },
+    // Companion surface to the cron producer (runScheduledCronSync PARSE_ERROR_LAST_GOOD):
+    // the manual re-sync path raises the same alert and must carry the same reason.
+    context: buildParseErrorContext({
+      driveFileId,
+      sheetName: show.priorParseResult.show.title,
+      failureCode,
+    }),
   });
   await resolveStaleSyncProblemAlerts_unlocked(
     tx,
@@ -457,7 +462,7 @@ export async function runManualSyncForShow(
           await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
         }
         if (usesInjectedProcessOneFile && "outcome" in result && result.outcome === "hard_fail") {
-          await emitManualParseErrorAlert_unlocked(tx, driveFileId);
+          await emitManualParseErrorAlert_unlocked(tx, driveFileId, result.code);
         }
         return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,
