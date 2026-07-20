@@ -69,6 +69,25 @@ describe("attention-items call topology", () => {
     ]);
   });
 
+  // Whole-diff review finding 1: the two symbol counts above do not stop a NEW
+  // global surface from reading `dougFacingShowScoped` straight off
+  // MESSAGE_CATALOG / messageFor and rendering show-only copy globally, with
+  // every other gate still green. Pin the field's readers too.
+  it("dougFacingShowScoped is read in exactly one place", () => {
+    const readers: string[] = [];
+    for (const file of sourceFiles()) {
+      const rel = file.replace(`${ROOT}/`, "");
+      // The catalog DECLARES the field; attentionItems is its one consumer.
+      if (rel === "lib/messages/catalog.ts") continue;
+      const src = stripComments(readFileSync(file, "utf8"));
+      if (src.includes("dougFacingShowScoped")) readers.push(rel);
+    }
+    expect(
+      readers,
+      "show-scoped copy must not be readable from a global surface; route it through safeDougFacingTemplate",
+    ).toEqual(["lib/admin/attentionItems.ts"]);
+  });
+
   it("neither symbol is imported under an alias", () => {
     // The counter matches by name, so `import { x as y }` would evade it.
     // Rather than teach it to resolve aliases, forbid the alias form.

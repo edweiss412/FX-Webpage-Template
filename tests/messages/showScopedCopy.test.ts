@@ -89,9 +89,24 @@ describe("safeDougFacingTemplate selects the show-scoped variant", () => {
  * bellFeed.ts is multi-line, contains a nested `get(...)`, and sits inside an
  * object literal so it ends with ")," rather than ");".
  */
-function callArgs(src: string): string | null {
+function allCallArgs(src: string): string[] {
   const needle = "deriveAlertMessageParams(";
-  const start = src.indexOf(needle);
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const one = callArgsAt(src, from, needle);
+    if (!one) return out;
+    out.push(one.args);
+    from = one.end;
+  }
+}
+
+function callArgsAt(
+  src: string,
+  from: number,
+  needle: string,
+): { args: string; end: number } | null {
+  const start = src.indexOf(needle, from);
   if (start < 0) return null;
   let i = start + needle.length;
   let depth = 1;
@@ -107,7 +122,7 @@ function callArgs(src: string): string | null {
     else if (c === "(") depth++;
     else if (c === ")") depth--;
   }
-  return depth === 0 ? src.slice(start + needle.length, i - 1) : null;
+  return depth === 0 ? { args: src.slice(start + needle.length, i - 1), end: i } : null;
 }
 
 describe("production callers pass the correct scope", () => {
@@ -120,17 +135,22 @@ describe("production callers pass the correct scope", () => {
     ["lib/admin/bellFeed.ts", '"global"'],
     ["components/admin/telemetry/HealthAlertsPanel.tsx", '"global"'],
   ])("%s passes %s", (file, scope) => {
-    const args = callArgs(readFileSync(file, "utf8"));
-    expect(args, `${file} no longer calls deriveAlertMessageParams`).not.toBeNull();
-    // The scope must be the FINAL argument, not merely present somewhere in the
-    // argument text: a comment or an earlier argument could otherwise satisfy it.
-    const parts = args!
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/[^\n]*/g, "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    expect(parts[parts.length - 1], `${file} passes the wrong scope`).toBe(scope);
+    // EVERY call in the file, not just the first (whole-diff review finding 2):
+    // a correct first call could otherwise mask a second one with the wrong
+    // scope, silently suppressing the bell's lead hint.
+    const calls = allCallArgs(readFileSync(file, "utf8"));
+    expect(calls.length, `${file} no longer calls deriveAlertMessageParams`).toBeGreaterThan(0);
+    for (const args of calls) {
+      // The scope must be the FINAL argument, not merely present somewhere in
+      // the argument text: a comment or an earlier argument could satisfy that.
+      const parts = args
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      expect(parts[parts.length - 1], `${file} passes the wrong scope`).toBe(scope);
+    }
   });
 });
 
