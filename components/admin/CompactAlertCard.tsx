@@ -101,7 +101,7 @@ export function CompactAlertCard({
         {isSeverity ? (
           <span
             aria-hidden="true"
-            className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-pill bg-status-review text-[10px] font-bold text-warning-bg"
+            className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-pill bg-warning-text text-[10px] font-bold text-warning-bg"
           >
             !
           </span>

@@ -37,7 +37,7 @@ import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
-import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
+import { buildHelpPopoverBody, CompactAlertHelp } from "@/components/admin/compactAlertHelp";
 import { isMessageCode, lookupHelpfulContext } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 
@@ -116,6 +116,13 @@ export function AttentionBanner({
     ? lookupHelpfulContext(a.code as MessageCode, a.params)
     : null;
 
+  // Plain-text subject for the help trigger's accessible name, so one card's
+  // trigger is distinguishable from the next in a screen reader's button list.
+  const helpSubject =
+    template.length > 0 && hasVisibleText(template)
+      ? template.replace(/[*_`]/g, "").trim().slice(0, 60)
+      : ATTENTION_FALLBACK_TITLE;
+
   const failedKeys = usableFailedKeys(a.failedKeys);
   const shownKeys = failedKeys ? failedKeys.slice(0, FAILED_KEYS_CAP) : null;
   const overflowKeys = failedKeys && shownKeys ? failedKeys.length - shownKeys.length : 0;
@@ -193,15 +200,23 @@ export function AttentionBanner({
     />
   );
 
-  const helpTrigger: ReactNode =
-    helpfulContext || a.helpHref ? (
-      <CompactAlertHelp
-        helpfulContext={helpfulContext}
-        helpHref={a.helpHref}
-        route={route}
-        testId={`attention-banner-help-${a.alertId}`}
-      />
-    ) : null;
+  // Ask the builder rather than guessing: `CompactAlertHelp` returns null when the
+  // context is empty AND the route gate blocks the Learn-more link, and a
+  // null-rendering child still counts as a present slot at the shell boundary —
+  // which would leave an empty flex child and its gap in the message row.
+  const helpTrigger: ReactNode = buildHelpPopoverBody({
+    helpfulContext,
+    helpHref: a.helpHref,
+    route,
+  }) ? (
+    <CompactAlertHelp
+      subject={helpSubject}
+      helpfulContext={helpfulContext}
+      helpHref={a.helpHref}
+      route={route}
+      testId={`attention-banner-help-${a.alertId}`}
+    />
+  ) : null;
 
   return (
     <div

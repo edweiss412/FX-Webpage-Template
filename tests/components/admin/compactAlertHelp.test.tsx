@@ -146,9 +146,30 @@ describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
     expect(trigger.className).toContain("focus-visible:ring-2");
   });
 
-  test('trigger accessible name is "What does this mean?"', () => {
-    render(<CompactAlertHelp {...props} />);
-    expect(screen.getByRole("button", { name: "What does this mean?" })).toBeInTheDocument();
+  // The accessible name carries a "Help: " prefix and a per-card subject. Both are
+  // load-bearing (impeccable audit): HoverHelp strips exactly that prefix to name
+  // the Learn-more link, so without it the link announces "Learn more about what
+  // does this mean?"; and a constant name makes every card's trigger identical in
+  // a screen reader's button list.
+  test("trigger accessible name carries the Help prefix and the card's subject", () => {
+    render(<CompactAlertHelp {...props} subject="Doug Larson was added with LEAD" />);
+    expect(
+      screen.getByRole("button", { name: "Help: Doug Larson was added with LEAD" }),
+    ).toBeInTheDocument();
+  });
+
+  test("no subject → a generic but still prefixed name", () => {
+    render(<CompactAlertHelp {...props} subject={null} />);
+    expect(screen.getByRole("button", { name: "Help: what this alert means" })).toBeInTheDocument();
+  });
+
+  // The consequence the prefix exists for.
+  test("Learn more link is named from the subject, not from the raw label", () => {
+    render(<CompactAlertHelp {...props} subject="Doug Larson was added with LEAD" />);
+    const link = screen.getByTestId("demo-help-body").querySelector("a")!;
+    expect(link.getAttribute("aria-label")).toBe(
+      "Learn more about doug Larson was added with LEAD",
+    );
   });
 
   // §9.1: assert STATE, not visibility. The body is mounted while closed, so a

@@ -24,8 +24,22 @@ import type { ReactNode } from "react";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { shouldEmitLearnMore } from "@/lib/messages/renderer-gate";
 
-/** Accessible name for every compact-card help trigger (§3.2). */
-export const HELP_TRIGGER_LABEL = "What does this mean?";
+/**
+ * Accessible name for a compact-card help trigger.
+ *
+ * Two constraints shape this, both found by the impeccable audit:
+ *   - the "Help: " prefix is load-bearing. `HoverHelp` derives the Learn-more
+ *     link's accessible name by stripping exactly that prefix and lowercasing
+ *     what remains (HoverHelp.tsx:249-252). Without it the link announces as
+ *     "Learn more about what does this mean?".
+ *   - the `subject` disambiguates. A constant label gives every card in a stack
+ *     an identical button name, which makes a screen reader's button list
+ *     useless on the multi-alert modal.
+ */
+export function helpTriggerLabel(subject: string | null | undefined): string {
+  const topic = typeof subject === "string" ? subject.trim() : "";
+  return topic.length > 0 ? `Help: ${topic}` : "Help: what this alert means";
+}
 
 /** Body copy when the only content is a Learn-more link (§4.1). */
 export const HELP_ONLY_LEARN_MORE_LEAD_IN = "More about this alert in the help pages.";
@@ -63,6 +77,8 @@ export function buildHelpPopoverBody(input: {
 }
 
 export type CompactAlertHelpProps = {
+  /** Short plain-text subject naming THIS card, for the trigger's accessible name. */
+  subject?: string | null;
   helpfulContext: string | null | undefined;
   helpHref: string | null | undefined;
   /**
@@ -78,6 +94,7 @@ export type CompactAlertHelpProps = {
 };
 
 export function CompactAlertHelp({
+  subject,
   helpfulContext,
   helpHref,
   route,
@@ -93,7 +110,7 @@ export function CompactAlertHelp({
     // template-family row in app/help/_affordanceMatrix.ts instead.
     // not-a-help-affordance: per-item popover, registered as a template-family row
     <HoverHelp
-      label={HELP_TRIGGER_LABEL}
+      label={helpTriggerLabel(subject)}
       align="right"
       testId={testId}
       // placement deliberately omitted: inherit HoverHelp's shipped default

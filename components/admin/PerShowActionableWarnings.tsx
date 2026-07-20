@@ -127,6 +127,7 @@ export function PerShowActionableWarnings({
               helpTrigger={
                 context ? (
                   <CompactAlertHelp
+                    subject={typeof title === "string" ? title : null}
                     helpfulContext={context}
                     // No helpHref on this surface, so the Learn-more route gate
                     // is never consulted; the constant keeps this a server component.
