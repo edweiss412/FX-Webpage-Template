@@ -5,13 +5,16 @@
  * browser, records the realtime websocket frames + the ?show=/version requests
  * around a service-role crew_members.role UPDATE, prints raw frames + timings,
  * and ends with one of three machine-readable results:
- *   PROBE RESULT: DRIVABLE       — join reply observed, quiescence reached, broadcast
- *                                  frame arrived AND the row text swapped in place
- *   PROBE RESULT: NOT_DRIVABLE   — join reply observed (subscription healthy) but NO
- *                                  broadcast frame within FRAME_WAIT_MS of the UPDATE
- *   PROBE RESULT: INDETERMINATE  — anything else (no join reply, no quiescence, frame
- *                                  without swap): a stack/auth/app fault, NOT evidence
- *                                  about broadcast drivability — diagnose; select NO branch
+ *   PROBE RESULT: DRIVABLE       — ok join reply, warm-up frame delivered, quiescence
+ *                                  reached, trigger-mutation frame arrived AND the row
+ *                                  text swapped in place
+ *   PROBE RESULT: NOT_DRIVABLE   — ok join reply (subscription healthy) but the manual
+ *                                  publish_show_invalidation warm-up frames never
+ *                                  delivered across 3 bounded attempts
+ *   PROBE RESULT: INDETERMINATE  — anything else (no/error join reply, no quiescence,
+ *                                  warm-up delivered but trigger frame absent, frame
+ *                                  without swap): a stack/auth/trigger/app fault, NOT
+ *                                  drivability evidence — diagnose; select NO branch
  *
  * Measurement notes (plan round-10 findings):
  * - RSC requests are discriminated from the document navigation via the `rsc`
@@ -126,18 +129,49 @@ async function main(): Promise<void> {
       inflight -= 1;
       requests.push({ at: Date.now(), text: `FAILED ${r.url()}` });
     });
+    // Parsed frame predicates (mirror the oracle's contract): a join reply must
+    // carry status "ok" — an ERROR reply is a stack/auth fault (INDETERMINATE),
+    // never NOT_DRIVABLE evidence; an invalidation frame must carry the
+    // payload.event === "invalidate" discriminator, never bare "broadcast".
+    type WireFrame = { topic?: string; event?: string; payload?: { status?: string; event?: string } };
+    const parseFrame = (text: string): WireFrame | null => {
+      try {
+        return JSON.parse(text) as WireFrame;
+      } catch {
+        return null;
+      }
+    };
+    const isJoinReplyOk = (f: Stamped): boolean => {
+      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      const p = parseFrame(f.text);
+      return p?.event === "phx_reply" && p.payload?.status === "ok";
+    };
+    const isJoinReplyError = (f: Stamped): boolean => {
+      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      const p = parseFrame(f.text);
+      return p?.event === "phx_reply" && p.payload?.status !== undefined && p.payload.status !== "ok";
+    };
+    const isInvalidation = (f: Stamped): boolean => {
+      if (f.text.startsWith("SENT") || !f.text.includes(topic)) return false;
+      const p = parseFrame(f.text);
+      return p?.event === "broadcast" && p.payload?.event === "invalidate";
+    };
     // Standalone context has no Playwright baseURL — pass it explicitly.
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE });
     const gotoAt = Date.now(); // navigation start — anchors goto→join and goto→open-refresh
     await page.goto(`${BASE}/admin?show=${seeded.slug}`);
     const join = await poll(
-      () => frames.find((f) => !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("phx_reply")),
+      () => frames.find((f) => isJoinReplyOk(f) || isJoinReplyError(f)),
       JOIN_WAIT_MS,
     );
-    if (!join) {
-      console.log(`no join reply on ${topic} within ${JOIN_WAIT_MS}ms — socket events:`, socketEvents);
-      console.log("(no subscription means broadcast drivability was NOT tested — diagnose auth/stack first)");
-      finish("INDETERMINATE (no join reply)", true);
+    if (!join || isJoinReplyError(join)) {
+      console.log(
+        join
+          ? `join reply ERROR on ${topic}: ${join.text}`
+          : `no join reply on ${topic} within ${JOIN_WAIT_MS}ms — socket events: ${JSON.stringify(socketEvents)}`,
+      );
+      console.log("(no healthy subscription means broadcast drivability was NOT tested — diagnose auth/stack first)");
+      finish("INDETERMINATE (no ok join reply)", true);
       return;
     }
     // Open-refresh completion (MODAL_OPEN_TIMEOUT_MS input): first RSC-tagged
@@ -149,6 +183,25 @@ async function main(): Promise<void> {
         ),
       JOIN_WAIT_MS,
     );
+    // Warm-up broadcast (cold-start defense — the plan-time node probe measured
+    // the FIRST broadcast after a fresh stack getting dropped once): up to 3
+    // bounded manual publishes; each awaits its frame via the STRICT predicate.
+    // Warm-up undeliverable after 3 healthy-join attempts IS the NOT_DRIVABLE
+    // evidence; a later trigger-mutation miss with warm-up delivered is a
+    // TRIGGER fault (INDETERMINATE), not a broadcast-pipeline fault.
+    let warmupOk = false;
+    for (let attempt = 1; attempt <= 3 && !warmupOk; attempt += 1) {
+      const warmupAt = Date.now();
+      const rpcRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+      if (rpcRes.error) throw new Error(`warm-up publish failed: ${rpcRes.error.message}`);
+      const frame = await poll(() => frames.find((f) => f.at > warmupAt && isInvalidation(f)), 5_000);
+      warmupOk = frame !== undefined;
+      console.log(`warm-up attempt ${attempt}: ${frame ? `frame in ${frame.at - warmupAt}ms` : "no frame"}`);
+    }
+    if (!warmupOk) {
+      finish("NOT_DRIVABLE (healthy join; manual publish frames undeliverable after 3 attempts)");
+      return;
+    }
     // OBSERVED quiescence (not a fixed sleep): no in-flight tracked request AND
     // no topic frame for QUIET_FLOOR_MS, achieved within QUIESCE_ACQUIRE_MS.
     const quietAt = await poll(() => {
@@ -170,11 +223,7 @@ async function main(): Promise<void> {
       .eq("id", target.id);
     if (error) throw new Error(`probe mutation failed: ${error.message}`);
     const inval = await poll(
-      () =>
-        frames.find(
-          (f) =>
-            f.at > commitAt && !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("broadcast"),
-        ),
+      () => frames.find((f) => f.at > commitAt && isInvalidation(f)),
       FRAME_WAIT_MS,
     );
     // Content swap, TIMESTAMPED via poll — a frame with no swap is INDETERMINATE.
@@ -207,7 +256,9 @@ async function main(): Promise<void> {
     if (inval && swapAt) {
       finish("DRIVABLE");
     } else if (!inval) {
-      finish("NOT_DRIVABLE");
+      // Warm-up frames DID deliver, so the broadcast pipeline is healthy — a
+      // missing trigger-mutation frame is a TRIGGER/DB fault, not fallback evidence.
+      finish("INDETERMINATE (warm-up delivered but no frame from the crew_members UPDATE — trigger fault, diagnose)", true);
     } else {
       // Frame arrived but the content never swapped: realtime IS drivable but the
       // refresh pipeline is broken — neither branch may be selected until diagnosed.
