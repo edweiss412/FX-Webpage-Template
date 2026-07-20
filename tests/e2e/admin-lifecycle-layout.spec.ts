@@ -211,45 +211,56 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       }
     });
 
-    test(`per-show Held @ ${width}px: Archive two-tap confirm causes no layout shift (${
+    test(`per-show Held @ ${width}px: Archive two-tap confirm stays inside the hub popover (${
       isMobile ? "mobile" : "desktop"
     })`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
-      // admin-show-modal: the per-show surface is now the dashboard modal; the
-      // archive control lives in the modal's Overview section.
+      // admin-show-modal: the per-show surface is the dashboard modal; the
+      // archive control lives in the status band's ShareHub popover.
       await page.goto(`/admin?show=${held.slug}`);
       const modal = page.locator(LOADED_REVIEW_MODAL);
       await expect(modal).toBeVisible({ timeout: 30_000 });
 
-      // The Held show renders both Publish and Archive. Archive is the two-tap
-      // confirm under test.
-      const restingBtn = modal.getByTestId("archive-show-button");
+      // The lifecycle control moved into the status band's ShareHub popover
+      // ("Show" section), so it is reachable only after opening the hub.
+      await modal.getByTestId("share-hub-kebab").click();
+      const popover = modal.getByTestId("share-hub-popover");
+      await expect(popover).toBeVisible();
+
+      const restingBtn = popover.getByTestId("archive-show-button");
       await expect(restingBtn).toBeVisible();
 
-      // ── INVARIANT 4: tap 1 morphs the label (resting → armed/Confirm) but the
-      // button BOX height does NOT change (fixed min-h/min-w sized to the longer
-      // confirm label). Measure the resting button rect, tap to arm, then measure
-      // the confirm button rect; assert the HEIGHT is unchanged within 0.5px (no
-      // layout shift). The confirm label is longer than "Archive show", so the
-      // min-w guarantee keeps the width from shrinking below the resting width;
-      // assert the armed width >= resting width - TOL (it never collapses). ──
-      const before = await rect(page, "archive-show-button");
+      // ── INVARIANT 4 (REVISED for the popover host): the two-tap morph must
+      // stay INSIDE the popover's content box. The old form of this invariant
+      // asserted a zero-shift box height across the morph — that was written for
+      // the wide Overview host, where the confirm sentence fit on one line. In a
+      // 308px popover the (deliberately long) confirm copy wraps to several
+      // lines and the popover grows downward, which is correct behavior, not a
+      // shift. What must still hold is containment: the armed confirm never
+      // overflows the popover horizontally, and the popover keeps its own
+      // max-height scroller rather than pushing the confirm off-screen. ──
+      const beforeBox = await rect(page, "share-hub-popover");
       await restingBtn.click();
 
-      const confirmBtn = page.getByTestId("archive-show-confirm-button");
+      const confirmBtn = popover.getByTestId("archive-show-confirm-button");
       await expect(confirmBtn).toBeVisible();
-      const after = await rect(page, "archive-show-confirm-button");
+      const confirm = await rect(page, "archive-show-confirm-button");
+      const afterBox = await rect(page, "share-hub-popover");
 
       expect(
-        Math.abs(after.height - before.height),
-        `archive confirm: button height unchanged on arm @ ${width}px (resting ${before.height} vs armed ${after.height})`,
-      ).toBeLessThanOrEqual(TOL);
-      // The armed box does not collapse narrower than the resting box (shared
-      // min-w-[18rem]); it may grow (the longer label wraps within max-w-full).
+        confirm.left,
+        `archive confirm: armed left within popover @ ${width}px`,
+      ).toBeGreaterThanOrEqual(beforeBox.left - TOL);
       expect(
-        after.width,
-        `archive confirm: armed width does not collapse below resting @ ${width}px`,
-      ).toBeGreaterThanOrEqual(before.width - TOL);
+        confirm.right,
+        `archive confirm: armed right within popover @ ${width}px (no horizontal overflow)`,
+      ).toBeLessThanOrEqual(afterBox.right + TOL);
+      // The popover itself stays on-screen: its own max-h clamp owns the
+      // overflow, so the armed state never pushes the panel past the viewport.
+      expect(
+        afterBox.bottom,
+        `share hub popover stays within the viewport when armed @ ${width}px`,
+      ).toBeLessThanOrEqual(1000 + TOL);
     });
 
     // NOTE (consolidated-admin-show-page rebuild → admin-show-modal): the

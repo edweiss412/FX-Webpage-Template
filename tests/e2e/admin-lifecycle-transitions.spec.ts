@@ -15,7 +15,10 @@
  *     change (server re-render); no crossfade |
  *   | Archive confirm: resting ↔ armed (tap 1) | instant label/treatment morph;
  *     fixed box (no layout shift) |
- *   | Archive confirm: armed → resting (4s idle) | instant revert |
+ *   | Archive confirm: armed → resting | instant revert. The hub popover's ROW
+ *     variant reverts on explicit Cancel rather than the 4s idle timer
+ *     (owner-ratified 2026-07-20); the legacy variants keep the timer. Instant
+ *     either way — the pair's §3.4 treatment is unchanged. |
  *   | Row: Live/Held → Archived (after action + refresh) | instant (full
  *     re-render); row relocates Active→Archived segment |
  *   | Held pill ↔ Published pill ↔ Archived pill | instant — pill is a
@@ -29,7 +32,7 @@
  *       not a state animation). This is the structural guard that every §3.4
  *       pair stays "instant".
  *   (B) REAL-BROWSER BEHAVIOR — the resting↔armed morph appears/reverts
- *       instantly with the fixed box; the 4s-idle revert fires; the compound
+ *       instantly with the fixed box; Cancel reverts it; the compound
  *       confirm-during-refresh produces no torn state (the confirm form is the
  *       only Archive control on screen at a time; arming then refreshing leaves
  *       a single, consistent control).
@@ -54,6 +57,16 @@ const REPO_ROOT = resolve(__dirname, "../..");
 // renders no title node) so the twin never trips Playwright strict mode.
 const LOADED_REVIEW_MODAL =
   '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+
+/**
+ * The Archive/Unarchive control lives in the status band's ShareHub popover
+ * ("Show" section) — the kebab is what opens it. Returns once the popover is
+ * mounted, so the caller can query the lifecycle control directly.
+ */
+async function openShowActions(modal: import("@playwright/test").Locator) {
+  await modal.getByTestId("share-hub-kebab").click();
+  await expect(modal.getByTestId("share-hub-popover")).toBeVisible();
+}
 
 // The components changed/created by Phase 6–8 whose §3.4 pairs must stay instant.
 const CHANGED_COMPONENTS = [
@@ -126,11 +139,12 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("archive confirm resting↔armed is an instant ternary swap (no crossfade)", async ({
     page,
   }) => {
-    // admin-show-modal: the per-show surface is now the dashboard modal; the
-    // archive control lives in the modal's Overview section.
+    // admin-show-modal: the per-show surface is the dashboard modal; the
+    // archive control lives in the status band's ShareHub popover.
     await page.goto(`/admin?show=${held.slug}`);
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
+    await openShowActions(modal);
     const resting = modal.getByTestId("archive-show-button");
     await expect(resting).toBeVisible();
 
@@ -147,20 +161,27 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     expect(opacity, "confirm button is fully opaque on arm (no fade-in)").toBe("1");
   });
 
-  // ── (B2) Archive confirm armed → resting (4s idle): the AUTO_REVERT_MS=4000
-  // timer reverts to resting with no animation. Assert the resting button
-  // returns after the idle window (poll with a margin beyond 4s). ──
-  test("archive confirm reverts armed→resting after the 4s idle window (instant)", async ({
+  // ── (B2) Archive confirm armed → resting. In the hub popover the control
+  // renders the ROW idiom (owner-ratified 2026-07-20), which cancels
+  // EXPLICITLY rather than on a 4s timer: the consequence is prose the operator
+  // is meant to read, and a timer shorter than the reading punished exactly the
+  // people who read it. The dismissal is instant either way — no animation. ──
+  test("archive confirm reverts armed→resting via explicit Cancel (instant, no timer)", async ({
     page,
   }) => {
     await page.goto(`/admin?show=${held.slug}`);
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
+    await openShowActions(modal);
     await modal.getByTestId("archive-show-button").click();
     await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 
-    // After 4s idle the component setStates back to resting. Allow margin.
-    await expect(modal.getByTestId("archive-show-button")).toBeVisible({ timeout: 6000 });
+    // The old 4s auto-revert must NOT fire here — the armed row survives it.
+    await page.waitForTimeout(5000);
+    await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
+
+    await modal.getByTestId("archive-show-cancel-button").click();
+    await expect(modal.getByTestId("archive-show-button")).toBeVisible();
     await expect(modal.getByTestId("archive-show-confirm-button")).toHaveCount(0);
   });
 
@@ -217,7 +238,8 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     const modal = page.locator(LOADED_REVIEW_MODAL);
     await expect(modal).toBeVisible({ timeout: 30_000 });
 
-    // Arm Archive.
+    // Arm Archive (inside the hub popover, its only home).
+    await openShowActions(modal);
     await modal.getByTestId("archive-show-button").click();
     await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
 

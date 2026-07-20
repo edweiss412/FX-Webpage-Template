@@ -431,6 +431,10 @@ describe("show review modal loader — shell + rail sections (§4/§6)", () => {
   });
 
   it("mounts Overview first and Changes last as rail sections", async () => {
+    // Overview is conditional now — it drops out when it has nothing to say —
+    // so this ordering assertion needs a show that gives it content. Archived
+    // qualifies (the Re-sync-paused notice).
+    state.snapshot = baseSnapshot({ archived: true, published: false });
     await renderLoader();
     const overview = screen.getByTestId("overview-section");
     const changes = screen.getByTestId("changes-section");
@@ -537,9 +541,12 @@ describe("show review modal loader — archived read-only posture (§6)", () => 
     await renderLoader();
     expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
     expect(screen.queryByTestId("strip-publish-toggle")).toBeNull();
-    // share-hub T4: archived shows get NO hub at all (read-only), and the
+    // archive-into-share-hub: the hub itself SURVIVES archiving (it is
+    // Unarchive's only home), but its share half does not — the primary
+    // relabels to "Show actions" instead of advertising a crew link, and the
     // retired Overview inactive notice is gone with the panel.
-    expect(screen.queryByTestId("share-hub-group")).toBeNull();
+    expect(screen.getByTestId("share-hub-group")).toBeTruthy();
+    expect(screen.getByTestId("share-hub-primary").textContent).toBe("Show actions");
     expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
     // Re-sync paused on the read-only surface (no re-sync button in Overview).
     expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
@@ -646,6 +653,8 @@ describe("show review modal loader — finalize-owned read fault (invariant 9)",
     state.finalizeError = { message: "rpc boom" };
     await renderLoader();
     // fail-open: finalizeOwned=false, so the Archive affordance is NOT frozen.
+    // It lives in the hub popover now, so open it before looking.
+    fireEvent.click(screen.getByTestId("share-hub-kebab"));
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     // NOT silent: the returned-error path emits the forensic code with source+slug.
     const call = finalizeErrorCall();
@@ -662,6 +671,7 @@ describe("show review modal loader — finalize-owned read fault (invariant 9)",
   it("readfinalizeowned_b2 threw → fail-open (Archive control renders) + logged (distinct 'threw' path)", async () => {
     state.finalizeThrows = true;
     await renderLoader();
+    fireEvent.click(screen.getByTestId("share-hub-kebab"));
     expect(screen.getByTestId("archive-show-button")).toBeTruthy();
     const call = finalizeErrorCall();
     expect(call, "thrown path did not emit ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED").toBeTruthy();
@@ -672,6 +682,10 @@ describe("show review modal loader — finalize-owned read fault (invariant 9)",
   it("healthy finalize=true (no fault) suppresses the Archive control — proves the affordance is finalize-gated", async () => {
     state.finalizeOwned = true;
     await renderLoader();
+    // Open the hub first: an assertion that never opened it would pass even if
+    // the suppressed control WERE rendered.
+    fireEvent.click(screen.getByTestId("share-hub-kebab"));
+    expect(screen.queryByTestId("share-hub-show-section")).toBeNull();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
     expect(finalizeErrorCall()).toBeUndefined();
   });

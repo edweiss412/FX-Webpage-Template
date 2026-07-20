@@ -65,6 +65,10 @@ function AllSurfaces() {
         crewEmails={[]}
         showTitle="Sample Show"
         pickerCrew={[]}
+        archived={false}
+        finalizeOwned={false}
+        archiveAction={async () => ({ ok: true }) as const}
+        unarchiveAction={async () => {}}
       />
     </ShareTokenProvider>
   );

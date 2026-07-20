@@ -22,7 +22,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 
 const state = vi.hoisted(() => ({
@@ -158,6 +158,16 @@ async function renderPage() {
   render(ui);
 }
 
+/**
+ * archive-into-share-hub: the Archive/Unarchive control moved out of Overview
+ * and into the status band's ShareHub popover ("Show" section), so every
+ * lifecycle assertion below must open the hub first. The kebab is the trigger
+ * that exists in BOTH lifecycles (an archived show has no "Share link" primary).
+ */
+function openShowActions() {
+  fireEvent.click(screen.getByTestId("share-hub-kebab"));
+}
+
 beforeEach(() => {
   state.snapshot = snapshotFor({});
   state.finalizeOwned = false;
@@ -171,6 +181,7 @@ describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
   it("Archived: Unarchive present, strip archived badge, NO toggle, NO Archive", async () => {
     state.snapshot = snapshotFor({ published: false, archived: true });
     await renderPage();
+    openShowActions();
     expect(screen.getByTestId("unarchive-show-button-s1")).toBeInTheDocument();
     expect(screen.getByTestId("strip-archived-badge")).toBeInTheDocument();
     expect(screen.queryByTestId("published-toggle")).toBeNull();
@@ -184,6 +195,7 @@ describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(false);
+    openShowActions();
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
     expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
   });
@@ -196,7 +208,10 @@ describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.hasAttribute("disabled")).toBe(true);
     // Restored (Task 13 review Finding 1): the show is immutable mid-publish, so the Archive
-    // control is hidden — not archived, so no Unarchive either.
+    // control is hidden — not archived, so no Unarchive either. Open the hub first: an
+    // assertion that never opened it would pass even if the control WERE rendered.
+    openShowActions();
+    expect(screen.queryByTestId("share-hub-show-section")).toBeNull();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
     expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
   });
@@ -212,6 +227,7 @@ describe("consolidated per-show lifecycle presentation (§4/§6)", () => {
 
   it("Live: Archive present, toggle ON-enabled", async () => {
     await renderPage();
+    openShowActions();
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
     const toggle = screen.getByTestId("published-toggle");
     expect(toggle.getAttribute("aria-checked")).toBe("true");

@@ -4,9 +4,24 @@
  * components/admin/showpage/ShareHub.tsx
  *
  * The published review modal's share hub: one popover holding the crew URL,
- * Copy, the batched Email-crew rows, and the two destructive controls (rotate
- * share link / reset everyone's pick). Opened by either the primary "Share
- * link" button or the kebab; both drive the same popover.
+ * Copy, the batched Email-crew rows, the two destructive share controls (rotate
+ * share link / reset everyone's pick), and — in its own "Show" section — the
+ * archive lifecycle control. Opened by either the primary "Share link" button
+ * or the kebab; both drive the same popover.
+ *
+ * Two arms, selected by `archived`:
+ *   - Not archived → primary reads "Share link"; crew-link section, Careful
+ *     section, and (unless finalize-owned) a Show section holding Archive.
+ *   - Archived     → primary RELABELS to "Show actions" and the popover holds
+ *     nothing but the Show section's Unarchive; the share half is
+ *     read-only-suppressed wholesale. Both triggers stay: the hub is
+ *     Unarchive's only home (so the strip's group is unconditional —
+ *     StatusStrip.tsx), and degrading to a bare kebab would hide the one way
+ *     back behind a glyph in the state where it matters most.
+ *
+ * The lifecycle control is a busy-reporting child exactly like rotate and
+ * reset — it reports through `onBusyChange`, so an in-flight archive gates
+ * every dismissal path (§6) instead of unmounting its own outcome banner.
  *
  * Spec: docs/superpowers/specs/2026-07-20-share-hub-design.md
  *   §4 lifecycle close (deferred while busy) · §6 dismissal + busy contract ·
@@ -30,7 +45,7 @@
  * the review modal open.
  */
 
-import { Link2, Mail, MoreVertical } from "lucide-react";
+import { Link2, Mail, MoreHorizontal, MoreVertical } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -41,6 +56,8 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
+import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { buildCrewLinkMailtos } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { PickerResetControl } from "@/app/admin/show/[slug]/PickerResetControl";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
@@ -54,23 +71,39 @@ import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetCont
  *  than any healthy round-trip on this surface. */
 const BUSY_GATE_MAX_MS = 15_000;
 
+type LifecycleResult = { ok: true } | { ok: false; code: string };
+
 export type ShareHubProps = {
   slug: string;
   showId: string;
   /** Drives the paused presentation and the crew-link arm; NOT a security gate. */
   published: boolean;
+  /** Read-only lifecycle: the whole share half is suppressed and the Show
+   *  section offers Unarchive instead of Archive. */
+  archived: boolean;
+  /** Finalize-owned ("Publishing…") window: the show is immutable, so the Show
+   *  section is omitted entirely rather than rendering a disabled Archive. */
+  finalizeOwned: boolean;
   crewEmails: readonly string[];
   showTitle: string;
   pickerCrew: PickerResetCrewRow[];
+  /** Pre-bound (to this show's slug) Archive server action. */
+  archiveAction: () => Promise<LifecycleResult>;
+  /** Show-scoped Unarchive server action (called with `showId`). */
+  unarchiveAction: (showId: string) => Promise<void>;
 };
 
 export function ShareHub({
   slug,
   showId,
   published,
+  archived,
+  finalizeOwned,
   crewEmails,
   showTitle,
   pickerCrew,
+  archiveAction,
+  unarchiveAction,
 }: ShareHubProps) {
   const { token, applyRotated } = useShareToken();
   const [open, setOpen] = useState(false);
@@ -81,6 +114,7 @@ export function ShareHub({
   // drift a count into a permanently-inert popover.
   const [rotateBusy, setRotateBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
   // A server action that never settles (network hang, a proxy that drops the
   // response after the mutation commits) would otherwise leave `busy` true
   // forever: all four dismissal paths inert AND Escape swallowed, so the
@@ -89,7 +123,7 @@ export function ShareHub({
   // past this window the operator gets control back even though the action is
   // still notionally in flight.
   const [busyStuck, setBusyStuck] = useState(false);
-  const inFlight = rotateBusy || resetBusy;
+  const inFlight = rotateBusy || resetBusy || lifecycleBusy;
   const busy = inFlight && !busyStuck;
 
   useEffect(() => {
@@ -111,11 +145,15 @@ export function ShareHub({
 
   const onRotateBusy = useCallback((b: boolean) => setRotateBusy(b), []);
   const onResetBusy = useCallback((b: boolean) => setResetBusy(b), []);
+  const onLifecycleBusy = useCallback((b: boolean) => setLifecycleBusy(b), []);
 
   const url = token != null ? `${resolveOrigin()}/show/${slug}/${token}` : null;
   // The crew link is live only for a published show; an unpublished one keeps
   // its token but must not surface a copyable URL (spec §4).
-  const linkActive = published && url != null;
+  // `!archived` is defensive-in-depth: the archived arm renders no share half at
+  // all, but a future edit that reintroduces one must not surface a live crew URL
+  // for a read-only show.
+  const linkActive = published && !archived && url != null;
   // Gated on `open`: the strip re-renders on every loader pass (relative-time
   // props churn), and batching the roster into mailto hrefs is real work that
   // nothing can observe while the popover is closed.
@@ -147,12 +185,19 @@ export function ShareHub({
   // still completes the mutation but loses its outcome banner, so the operator
   // would rotate a share link (killing the crew's current URL) with no
   // confirmation it happened.
-  const prevPublishedRef = useRef(published);
+  //
+  // "Lifecycle" is BOTH axes, not just publish: the hub now hosts the archive
+  // control, so a successful Archive swaps the popover's entire contents
+  // (share half gone, Archive → Unarchive). Keyed on `published` alone, the
+  // popover would survive that swap and the operator's next tap would land on
+  // a different control than the one they aimed at.
+  const prevLifecycleRef = useRef({ published, archived });
   const deferredCloseRef = useRef(false);
 
   useEffect(() => {
-    if (prevPublishedRef.current === published) return;
-    prevPublishedRef.current = published;
+    const prev = prevLifecycleRef.current;
+    if (prev.published === published && prev.archived === archived) return;
+    prevLifecycleRef.current = { published, archived };
     if (!open) return;
     if (busy) {
       deferredCloseRef.current = true;
@@ -160,7 +205,16 @@ export function ShareHub({
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(false);
-  }, [published, open, busy]);
+    // Restore focus, which the publish-only version of this effect did not need
+    // to: that axis flips from the toggle OUTSIDE the panel, so focus was never
+    // inside the subtree being unmounted. The archive axis flips from a control
+    // INSIDE it — the operator confirms, the action commits, `archived` flips on
+    // the refresh, and the panel disappears out from under their focus. Without
+    // this, focus falls to <body> and a keyboard or SR user has to Tab from the
+    // top of the modal (impeccable audit P1). The primary trigger renders in
+    // both arms, so the restore target always exists.
+    openerRef.current?.focus();
+  }, [published, archived, open, busy]);
 
   // When the action settles, the deferred close is CANCELLED, not applied.
   //
@@ -232,6 +286,14 @@ export function ShareHub({
         />
       )}
 
+      {/* The primary trigger renders in BOTH lifecycles, only its label changes.
+          Archived drops the crew-link half of the popover, but it must NOT drop
+          down to a bare kebab: Unarchive would then be reachable only by
+          guessing that a three-dot glyph is its home, in the one state where
+          the operator most needs a way back — and the hub does not even appear
+          on an archived show today, so there is no learned position either
+          (impeccable critique P1). A labelled trigger keeps it recognition,
+          not recall. */}
       <button
         type="button"
         ref={primaryRef}
@@ -249,13 +311,17 @@ export function ShareHub({
         // show is on air. The mock drew it orange; the project invariant wins.
         // The two arms differentiate by LABEL and weight instead.
         className={
-          published
+          published && !archived
             ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         }
       >
-        <Link2 aria-hidden="true" size={15} />
-        {published ? "Share link" : "Share link · paused"}
+        {archived ? (
+          <MoreHorizontal aria-hidden="true" size={15} />
+        ) : (
+          <Link2 aria-hidden="true" size={15} />
+        )}
+        {archived ? "Show actions" : published ? "Share link" : "Share link · paused"}
       </button>
 
       <button
@@ -265,7 +331,9 @@ export function ShareHub({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
-        aria-label="More share actions"
+        // Not "More SHARE actions" any more: the popover also owns the archive
+        // lifecycle control, and on an archived show that is ALL it owns.
+        aria-label="More show actions"
         onClick={() => toggle("kebab")}
         className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
           open ? "bg-surface-sunken" : "bg-transparent"
@@ -280,7 +348,11 @@ export function ShareHub({
           ref={panelRef}
           tabIndex={-1}
           role="dialog"
-          aria-label="Share crew link"
+          // While a child is mid-flight every dismissal path is inert and
+          // Escape is swallowed. Without this, an SR user pressing Escape
+          // mid-archive gets no response and no explanation (impeccable audit).
+          aria-busy={busy}
+          aria-label={archived ? "Show actions" : "Share crew link and show actions"}
           data-testid="share-hub-popover"
           onKeyDown={onPopoverKeyDown}
           // max-h + overflow: the email rows are batched per 1900-char mailto
@@ -288,79 +360,152 @@ export function ShareHub({
           // destructive controls below the fold on a 390px phone.
           className="absolute right-0 top-full z-40 mt-1.5 flex max-h-[min(70vh,32rem)] w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
         >
-          <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-            Crew link
-          </h3>
-
-          {linkActive ? (
+          {/* Share half — suppressed wholesale while archived (read-only): no
+              URL, no Copy, no email rows, no rotate, no reset. What remains is
+              the Show section below. */}
+          {!archived ? (
             <>
-              <div className="flex items-start gap-1.5">
-                <code
-                  data-testid="admin-current-share-link-url"
-                  className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
-                >
-                  {url}
-                </code>
-                <ShareLinkCopyButton url={url} variant="accent" />
-              </div>
-              {mailtos.length > 1 && (
+              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Crew link
+              </h3>
+
+              {linkActive ? (
+                <>
+                  <div className="flex items-start gap-1.5">
+                    <code
+                      data-testid="admin-current-share-link-url"
+                      className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
+                    >
+                      {url}
+                    </code>
+                    <ShareLinkCopyButton url={url} variant="accent" />
+                  </div>
+                  {mailtos.length > 1 && (
+                    <p
+                      data-testid="admin-current-share-link-email-note"
+                      className="text-xs text-text-subtle"
+                    >
+                      Your crew list needs {mailtos.length} separate emails. Send each one;
+                      addresses go in Bcc.
+                    </p>
+                  )}
+                  {mailtos.map((m) => (
+                    <a
+                      key={m.batch}
+                      href={m.href}
+                      data-testid="admin-current-share-link-email-button"
+                      className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <Mail aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+                      {m.batchCount === 1
+                        ? "Email this link to crew"
+                        : `Email this link to crew (${m.batch} of ${m.batchCount})`}
+                    </a>
+                  ))}
+                </>
+              ) : published ? (
                 <p
-                  data-testid="admin-current-share-link-email-note"
-                  className="text-xs text-text-subtle"
+                  data-testid="admin-current-share-link-unavailable"
+                  role="status"
+                  className="rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-subtle"
                 >
-                  Your crew list needs {mailtos.length} separate emails. Send each one; addresses go
-                  in Bcc.
+                  The share-link is unavailable right now. Refresh the page; if the problem repeats,
+                  rotate to mint a new link.
+                </p>
+              ) : (
+                <p
+                  data-testid="share-hub-paused-note"
+                  className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
+                >
+                  The crew link is paused while this show is unpublished. Publish to share it — you
+                  can still rotate or reset below.
                 </p>
               )}
-              {mailtos.map((m) => (
-                <a
-                  key={m.batch}
-                  href={m.href}
-                  data-testid="admin-current-share-link-email-button"
-                  className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                >
-                  <Mail aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
-                  {m.batchCount === 1
-                    ? "Email this link to crew"
-                    : `Email this link to crew (${m.batch} of ${m.batchCount})`}
-                </a>
-              ))}
+
+              <div className="h-px bg-border" />
+              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Careful
+              </h3>
+
+              <RotateShareTokenButton
+                showId={showId}
+                slug={slug}
+                isCrewLinkActive={linkActive}
+                onRotated={applyRotated}
+                onBusyChange={onRotateBusy}
+                compact
+                rowLabel="Rotate share link"
+                rowDescription="Old link stops working immediately"
+              />
+              <PickerResetControl showId={showId} crew={pickerCrew} onBusyChange={onResetBusy} />
             </>
-          ) : published ? (
-            <p
-              data-testid="admin-current-share-link-unavailable"
-              role="status"
-              className="rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-subtle"
-            >
-              The share-link is unavailable right now. Refresh the page; if the problem repeats,
-              rotate to mint a new link.
-            </p>
-          ) : (
-            <p
-              data-testid="share-hub-paused-note"
-              className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
-            >
-              The crew link is paused while this show is unpublished. Publish to share it — you can
-              still rotate or reset below.
-            </p>
-          )}
+          ) : null}
 
-          <div className="h-px bg-border" />
-          <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-            Careful
-          </h3>
+          {/* Show — the lifecycle control's single home, in BOTH directions.
+              Deliberately its own section rather than folded into Careful:
+              Careful is share-scoped (rotate the link, reset the picks), while
+              this changes what the show IS.
 
-          <RotateShareTokenButton
-            showId={showId}
-            slug={slug}
-            isCrewLinkActive={linkActive}
-            onRotated={applyRotated}
-            onBusyChange={onRotateBusy}
-            compact
-            rowLabel="Rotate share link"
-            rowDescription="Old link stops working immediately"
-          />
-          <PickerResetControl showId={showId} crew={pickerCrew} onBusyChange={onResetBusy} />
+              Omitted entirely during the finalize-owned "Publishing…" window
+              (consolidated-admin-show-page §6): the show is immutable there, so
+              rendering the heading with nothing under it would state a section
+              that offers nothing. `archived` wins over `finalizeOwned` — an
+              archived show is never finalize-owned (the loader forces it false),
+              and Unarchive must stay reachable regardless. */}
+          {archived || !finalizeOwned ? (
+            <>
+              {!archived ? <div className="h-px bg-border" /> : null}
+              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Show
+              </h3>
+              {/* The armed confirm carries the ratified long consequence
+                  sentence (destructive-confirm-pass §R7 keeps it), which in a
+                  308px panel wraps to several lines and grows the section
+                  downward. In the panel's own max-h scroller that growth can
+                  push the confirm target past the fold on a 390px phone — the
+                  venue-floor case — so the section scrolls itself back into
+                  view on the arming tap. The ARMED CONFIRM is the scroll
+                  subject, not this wrapper: once the sentence wraps, the
+                  section can be taller than the remaining scroll port, and
+                  `nearest` on the wrapper then moves nothing (impeccable audit
+                  P3). Falls back to the wrapper before the confirm mounts. */}
+              <div
+                data-testid="share-hub-show-section"
+                className="px-0.5"
+                onClick={(e) => {
+                  const el = e.currentTarget;
+                  requestAnimationFrame(() => {
+                    const confirm = el.querySelector('[data-testid="archive-show-confirm-button"]');
+                    const target = confirm ?? el;
+                    // jsdom implements no layout and no scrollIntoView, and this
+                    // runs inside a rAF — where a throw is an UNCAUGHT exception
+                    // that fails the run without failing any test (vitest exits
+                    // 1 on `Errors`, reported separately from the passing
+                    // count). Same typeof guard the modal's alert-deep-link
+                    // scroll already uses.
+                    if (typeof target.scrollIntoView !== "function") return;
+                    target.scrollIntoView({ block: confirm ? "end" : "nearest" });
+                  });
+                }}
+              >
+                {archived ? (
+                  <UnarchiveShowButton
+                    showId={showId}
+                    unarchiveAction={unarchiveAction}
+                    onBusyChange={onLifecycleBusy}
+                  />
+                ) : (
+                  <ArchiveShowButton
+                    archiveAction={archiveAction}
+                    compact
+                    onBusyChange={onLifecycleBusy}
+                    rowLabel="Archive show"
+                    rowDescription="Crew links stop working immediately"
+                  />
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       )}
     </div>

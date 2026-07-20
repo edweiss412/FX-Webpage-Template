@@ -97,6 +97,10 @@ export type StatusStripProps = {
   showTitle: string;
   /** Roster rows for the hub's everyone-reset control; [] → empty-roster copy. */
   pickerCrew: PickerResetCrewRow[];
+  /** Pre-bound (to this show's slug) Archive server action — the hub's Show section. */
+  archiveAction: () => Promise<LifecycleResult>;
+  /** Show-scoped Unarchive server action (called with `showId`) — same section, archived arm. */
+  unarchiveAction: (showId: string) => Promise<void>;
 };
 
 export function StatusStrip({
@@ -114,6 +118,8 @@ export function StatusStrip({
   crewEmails,
   showTitle,
   pickerCrew,
+  archiveAction,
+  unarchiveAction,
 }: StatusStripProps) {
   // Sync age: guard null BEFORE formatRelative so the "never" sentinel never renders
   // (spec §11 omit contract). Element existence is gated on lastSyncedAt (a show that
@@ -295,22 +301,27 @@ export function StatusStrip({
       ) : null}
 
       {/* share-hub T4. The hub replaces the standalone copy-link: URL, Copy,
-          Email-crew, rotate and reset all live in its popover. Archived shows
-          get NO hub at all (read-only), matching the Re-sync gate above.
+          Email-crew, rotate and reset all live in its popover — and, since the
+          lifecycle move, Archive/Unarchive too. That is why the group is now
+          UNCONDITIONAL: an archived show has no share half (the hub renders
+          kebab-only, read-only), but Unarchive lives in that popover, so gating
+          the group on `!archived` would strand the only way back.
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
-      {!archived ? (
-        <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center">
-          <ShareHub
-            slug={slug}
-            showId={showId}
-            published={published}
-            crewEmails={crewEmails}
-            showTitle={showTitle}
-            pickerCrew={pickerCrew}
-          />
-        </div>
-      ) : null}
+      <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center">
+        <ShareHub
+          slug={slug}
+          showId={showId}
+          published={published}
+          archived={archived}
+          finalizeOwned={finalizeOwned}
+          crewEmails={crewEmails}
+          showTitle={showTitle}
+          pickerCrew={pickerCrew}
+          archiveAction={archiveAction}
+          unarchiveAction={unarchiveAction}
+        />
+      </div>
     </div>
   );
 }
