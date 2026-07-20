@@ -15,6 +15,7 @@
 - Invariant 5: no raw error codes in UI — the new code is log-only, never rendered.
 - Invariant 9: the new Supabase call destructures `{ data, error }`; returned-error and thrown paths distinct; both emit `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` (a forensic code — `NEW_FORENSIC_CODES` row, NOT §12.4).
 - Invariant 11: all work in this worktree (`/Users/ericweiss/FX-worktrees/admin-modal-realtime-refresh`); commits `--no-verify`; conventional-commits.
+- Stage 0 already complete (ship-pipeline): worktree created off `origin/main`, `pnpm install` + `pnpm worktree:link-env` (symlinked `.env.local` verified present) + `pnpm preflight` all green before any task runs — no task re-runs setup.
 - Token read is NEVER cached (`unstable_cache`/`"use cache"` forbidden — pinned by test, spec §8.5.2).
 - Bridge mount is UNCONDITIONAL across published/unpublished/archived.
 - Bridge renders after `PublishedReviewModal` — strictly the LAST child.
@@ -25,7 +26,7 @@
 - EXTENDS `tests/app/admin/showReviewModalLoader.test.tsx` (loader behavior).
 - EXTENDS `tests/admin/_showReviewReadPathPin.test.ts` (new single-caller pin for `viewer_version_token` in the loader + never-cached source pin).
 - EXTENDS `tests/admin/_metaInfraContract.test.ts` — a `readBridgeVersionToken` registry row (spec §8.3; Task 1 Step 3 red set).
-- CREATES `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` — structural pin for the realtime CI wiring (Task 5; fallback variant on the NOT_DRIVABLE branch).
+- CREATES `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` — structural pin for the realtime CI wiring (Task 5).
 - EXTENDS `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES`.
 - Advisory locks: NOT touched (spec §9 declaration; no `pg_advisory*` anywhere in the diff).
 
@@ -390,7 +391,7 @@ The two read-path pins (single-caller, never-cached) are written in Task 1's RED
 - Create: `tests/e2e/_realtimeDrivabilityProbe.ts` (the spike's executable probe — full code in Step 2)
 - Create: `tests/e2e/helpers/realtimeOracle.ts` (constants + frame predicates, values filled from measurement)
 
-This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §8.4); this task measures the constants and proves drivability. **TDD note (declared):** a spike produces measurement artifacts, not behavior — there is no failing test to write first; its output is consumed by Task 4's tests, and the drivable/not-drivable outcome selects which Task-4 branch runs. **The Step-5 commit fires ONLY on the drivable outcome** (the constants/predicates are derived from observed frames); on the fallback outcome there are no frames to derive from — skip Step 4/5 entirely and jump to the fallback branch below, whose own files carry the commit.
+This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §8.4); this task measures the constants. **TDD note (declared):** a spike produces measurement artifacts, not behavior — there is no failing test to write first; its output is consumed by Task 4's tests. **Drivability is ALREADY RESOLVED — DRIVABLE — by plan-time execution of a node-level probe (evidence transcript below, after Step 4); the former fallback branch is deleted.** What remains at implementation time: run the BROWSER probe (after Task 1 lands — it needs the bridge mounted in the modal) to measure the browser-chain timings, confirm the wire-frame predicate shapes, and fill the oracle constants (floors stand for any unobserved timing, per the spec's "floor …, may raise, never lower" contract).
 
 - [ ] **Step 1: Boot the stack.** `supabase start` (if not running), then boot the dev server on a free port 3000 (`lsof -iTCP:3000 -sTCP:LISTEN` must be empty; if a sibling worktree owns it, use an alt port + set `PLAYWRIGHT_BASE_URL` for the probe per the sibling-dev-server lesson) **with the test-auth env** — the probe signs in via `signInAs`, which needs `ENABLE_TEST_AUTH` + `TEST_AUTH_SECRET` on the server. Use the exact env prefix of the config's :3000 webServer local command (`playwright.config.ts:233-236`):
 
@@ -398,179 +399,15 @@ This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §
 JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1
 ```
 
-- [ ] **Step 2: Write the probe script** at `tests/e2e/_realtimeDrivabilityProbe.ts` — complete, self-contained, committed with the oracle in Step 5 (round-7 F3: the spike's execution is fully specified, no ad-hoc one-offs). It seeds, signs in, records frames/requests with listeners installed BEFORE `goto`, mutates in-process via the service-role client, prints the raw frames + timing summary, and ends with a single machine-readable `PROBE RESULT: DRIVABLE|NOT_DRIVABLE|INDETERMINATE` line — that line IS the branch selector (INDETERMINATE = frame without swap → exit 1, diagnose, select no branch):
+- [ ] **Step 2: The probe script EXISTS** at `tests/e2e/_realtimeDrivabilityProbe.ts` — written, debugged, and committed AT PLAN TIME (with plan r11), so there is no transcription gap between plan prose and the artifact; read the file for the authoritative code. Mechanics (all round-7..10 findings folded in): env self-load via `@next/env` `loadEnvConfig` + dynamic helper imports (the `scripts/captureStep3HeaderBaseline.ts:40-42` pattern — `source .env.local` is not shell-safe; discovered empirically at plan time), explicit `crew:` rows (the seed default is an EMPTY roster — also discovered empirically), `signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE })` (standalone context has no Playwright baseURL), listeners installed BEFORE `goto` with `gotoAt` anchored, RSC-vs-DOC request discrimination via the `rsc` request header (the first `?show=` response after goto is the NAVIGATION, not the open refresh), in-flight request counting with OBSERVED quiescence before mutating (no fixed sleep), request-START-only + RSC-only post-frame refresh detection, timestamped content-swap poll, cleanup-safe seed-first `try/finally`, and a three-state machine-readable result: `DRIVABLE` (join + quiescence + frame + swap), `NOT_DRIVABLE` (healthy join, no frame), `INDETERMINATE` + exit 1 (no join / no quiescence / frame without swap — a stack fault, not branch evidence).
 
-```ts
-/**
- * tests/e2e/_realtimeDrivabilityProbe.ts — realtime-refresh plan Task 3 spike.
- *
- * Standalone script (NOT a Playwright test): opens /admin?show=<slug> in a real
- * browser, records the realtime websocket frames + the ?show=/version requests
- * around a service-role crew_members.role UPDATE, prints raw frames + timings,
- * and ends with one of three machine-readable results:
- *   PROBE RESULT: DRIVABLE       — broadcast frame arrived AND the row text swapped (Task 4 as written)
- *   PROBE RESULT: NOT_DRIVABLE   — no broadcast frame within FRAME_WAIT_MS (Task-3 fallback branch)
- *   PROBE RESULT: INDETERMINATE  — frame arrived, no content swap (exit 1: diagnose; select NO branch)
- *
- * Prereqs: supabase local running; Step-1 dev server (test-auth env) on :3000;
- * .env.local sourced into THIS process (standalone scripts don't auto-load it).
- *
- * Run:
- *   set -a && source .env.local && set +a && pnpm tsx tests/e2e/_realtimeDrivabilityProbe.ts
- */
-import { chromium } from "@playwright/test";
-import { ADMIN_FIXTURE } from "./helpers/fixtures";
-import { signInAs } from "./helpers/signInAs";
-import { seedShowWithCrew, deleteSeededShow } from "./helpers/seedShowWithCrew";
-import { admin } from "./helpers/supabaseAdmin";
-
-const BASE = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
-const JOIN_WAIT_MS = 30_000; // give hydration + socket join this long before declaring no-join
-const QUIESCE_MS = 3_000; // settle window after join before mutating
-const FRAME_WAIT_MS = 10_000; // NOT_DRIVABLE if no invalidation frame within this window post-commit
-const SWAP_WAIT_MS = 15_000; // INDETERMINATE if a frame arrived but the row text never swaps within this window
-
-type Stamped = { at: number; text: string };
-
-async function poll<T>(
-  fn: () => T | undefined | Promise<T | undefined>,
-  timeoutMs: number,
-  stepMs = 100,
-): Promise<T | undefined> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const v = await fn();
-    if (v !== undefined) return v;
-    if (Date.now() > deadline) return undefined;
-    await new Promise((r) => setTimeout(r, stepMs));
-  }
-}
-
-async function main(): Promise<void> {
-  // Seed FIRST, then everything else inside try/finally — a target-validation
-  // or browser-launch failure must still delete the seeded show (round-8 F4;
-  // shared-local-DB discipline).
-  const seeded = await seedShowWithCrew({});
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-  try {
-    const target = seeded.crew[0];
-    if (!target) throw new Error("probe: seedShowWithCrew({}) returned an empty roster");
-    const topic = `realtime:show:${seeded.showId}:invalidation`;
-    browser = await chromium.launch({ headless: false });
-    const page = await (await browser.newContext()).newPage();
-    const frames: Stamped[] = [];
-    const socketEvents: Stamped[] = [];
-    const requests: Stamped[] = [];
-    // Listeners BEFORE goto — the socket opens during hydration; a late
-    // listener misses the join reply and the join→/version timing.
-    page.on("websocket", (ws) => {
-      socketEvents.push({ at: Date.now(), text: `open ${ws.url()}` });
-      ws.on("framereceived", (f) => frames.push({ at: Date.now(), text: String(f.payload) }));
-      ws.on("framesent", (f) => frames.push({ at: Date.now(), text: `SENT ${String(f.payload)}` }));
-      ws.on("close", () => socketEvents.push({ at: Date.now(), text: "close" }));
-      ws.on("socketerror", (e) => socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }));
-    });
-    page.on("request", (r) => {
-      const u = new URL(r.url());
-      if (u.searchParams.get("show") === seeded.slug || u.pathname.endsWith("/version")) {
-        requests.push({ at: Date.now(), text: `${r.method()} ${u.pathname}${u.search}` });
-      }
-    });
-    page.on("response", (r) => {
-      const u = new URL(r.url());
-      if (u.searchParams.get("show") === seeded.slug || u.pathname.endsWith("/version")) {
-        requests.push({ at: Date.now(), text: `RESP ${r.status()} ${u.pathname}${u.search}` });
-      }
-    });
-    await signInAs(page, ADMIN_FIXTURE);
-    const gotoAt = Date.now(); // navigation start — anchors goto→join and goto→open-refresh (round-9 F1)
-    await page.goto(`${BASE}/admin?show=${seeded.slug}`);
-    const join = await poll(
-      () => frames.find((f) => !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("phx_reply")),
-      JOIN_WAIT_MS,
-    );
-    if (!join) {
-      console.log(`no join reply on ${topic} within ${JOIN_WAIT_MS}ms — socket events:`, socketEvents);
-      console.log("PROBE RESULT: NOT_DRIVABLE");
-      return;
-    }
-    // Open-refresh completion (for MODAL_OPEN_TIMEOUT_MS): first COMPLETED ?show= response after goto.
-    const openResp = await poll(
-      () => requests.find((r) => r.at > gotoAt && r.text.startsWith("RESP ") && r.text.includes(`show=${seeded.slug}`)),
-      JOIN_WAIT_MS,
-    );
-    await new Promise((r) => setTimeout(r, QUIESCE_MS));
-    const commitAt = Date.now();
-    const { error } = await admin
-      .from("crew_members")
-      .update({ role: "Probe Role Realtime" })
-      .eq("id", target.id);
-    if (error) throw new Error(`probe mutation failed: ${error.message}`);
-    const inval = await poll(
-      () =>
-        frames.find(
-          (f) => f.at > commitAt && !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("broadcast"),
-        ),
-      FRAME_WAIT_MS,
-    );
-    // Content swap, TIMESTAMPED via poll (round-9 F1: no fixed sleep — the swap
-    // moment is a measurement, and a frame with no swap is INDETERMINATE, not DRIVABLE).
-    const swapAt = inval
-      ? await poll(async () => {
-          const n = await page.getByText("Probe Role Realtime").count();
-          return n > 0 ? Date.now() : undefined;
-        }, SWAP_WAIT_MS)
-      : undefined;
-    console.log("=== RAW TOPIC FRAMES ===");
-    for (const f of frames.filter((x) => x.text.includes(topic))) console.log(f.at, f.text);
-    console.log("=== REQUESTS (?show= + /version) ===");
-    for (const r of requests) console.log(r.at, r.text);
-    console.log("=== TIMINGS (ms) ===");
-    console.log("goto→join-reply:", join.at - gotoAt);
-    console.log("goto→open-refresh response:", openResp ? openResp.at - gotoAt : "NONE OBSERVED");
-    console.log("commit→frame:", inval ? inval.at - commitAt : "NO FRAME");
-    // Request STARTS only (exclude RESP records): a pre-frame request's late
-    // response must never masquerade as the post-frame refresh (round-9 F1).
-    const rsc = inval
-      ? requests.find((r) => r.at > inval.at && !r.text.startsWith("RESP ") && r.text.includes(`show=${seeded.slug}`))
-      : undefined;
-    console.log("frame→?show= request start:", rsc && inval ? rsc.at - inval.at : "NONE OBSERVED");
-    console.log("frame→content swap:", swapAt && inval ? swapAt - inval.at : "NO SWAP");
-    if (inval && swapAt) {
-      console.log("PROBE RESULT: DRIVABLE");
-    } else if (!inval) {
-      console.log("PROBE RESULT: NOT_DRIVABLE");
-    } else {
-      // Frame arrived but the content never swapped: realtime IS drivable but the
-      // refresh pipeline is broken — neither branch may be selected until this is
-      // diagnosed. Exit nonzero so the run cannot silently continue.
-      console.log("PROBE RESULT: INDETERMINATE (frame received, no content swap — diagnose before selecting a branch)");
-      process.exitCode = 1;
-    }
-  } finally {
-    try {
-      await deleteSeededShow(seeded.driveFileId);
-    } finally {
-      await browser?.close();
-    }
-  }
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
-```
-
-(Import shapes verified against the live prefetch spec: `signInAs(page, ADMIN_FIXTURE)` from `./helpers/signInAs` + `./helpers/fixtures`, `seedShowWithCrew({})`/`deleteSeededShow(driveFileId)` from `./helpers/seedShowWithCrew` — `published-review-modal.prefetch.spec.ts:14-17,43,78`; `admin` service-role client from `./helpers/supabaseAdmin` (fact 22); `SeededShow.crew[n].id/.name/.role` from `seedShowWithCrew.ts:83-90,171-181`.)
-
-- [ ] **Step 3: Run the probe + measure.**
+- [ ] **Step 3: Run the browser probe (AFTER Task 1 is committed — the probe drives the bridge in the modal) + measure.**
 
 ```bash
-set -a && source .env.local && set +a && pnpm tsx tests/e2e/_realtimeDrivabilityProbe.ts
+pnpm tsx tests/e2e/_realtimeDrivabilityProbe.ts
 ```
 
-From the printed summary record: time from `phx_reply ok` to the catch-up `/version` response; goto→join-reply; commit→invalidation-frame; frame→`?show=` RSC request start; frame→row-text swap. Derive ALL the oracle constants from them (round-8 F1 — timeouts are measurement-bound, not Playwright defaults): `QUIET_WINDOW_MS = max(250, ceil(1.5 × observed frame→request))`; `MODAL_OPEN_TIMEOUT_MS = max(15_000, 3 × goto→open-refresh response)`; `JOIN_REPLY_TIMEOUT_MS = max(15_000, 3 × goto→join)`; `QUIESCENCE_ACQUIRE_TIMEOUT_MS = max(10_000, 20 × QUIET_WINDOW_MS)`; `INVALIDATION_FRAME_TIMEOUT_MS = max(10_000, 5 × commit→frame)`; `POST_FRAME_REQUEST_TIMEOUT_MS = max(5_000, 5 × frame→request)`; `CONTENT_SWAP_TIMEOUT_MS = max(10_000, 5 × frame→swap)`. The final `PROBE RESULT:` line selects the branch: `DRIVABLE` → Steps 4–5 + Task 4/5 as written; `NOT_DRIVABLE` → skip Steps 4–5, run the fallback branch below.
+(The probe self-loads `.env.local` via `loadEnvConfig`; no shell sourcing.) From the printed summary record: time from `phx_reply ok` to the catch-up `/version` response; goto→join-reply; goto→open-refresh RSC response; commit→invalidation-frame; frame→`?show=` RSC request start; frame→row-text swap. Derive ALL the oracle constants from them (round-8 F1 — timeouts are measurement-bound, not Playwright defaults): `QUIET_WINDOW_MS = max(250, ceil(1.5 × observed frame→request))`; `MODAL_OPEN_TIMEOUT_MS = max(15_000, 3 × goto→open-refresh response)`; `JOIN_REPLY_TIMEOUT_MS = max(15_000, 3 × goto→join)`; `QUIESCENCE_ACQUIRE_TIMEOUT_MS = max(10_000, 20 × QUIET_WINDOW_MS)`; `INVALIDATION_FRAME_TIMEOUT_MS = max(10_000, 5 × commit→frame)`; `POST_FRAME_REQUEST_TIMEOUT_MS = max(5_000, 5 × frame→request)`; `CONTENT_SWAP_TIMEOUT_MS = max(10_000, 5 × frame→swap)`; any timing the run does not observe leaves that constant at its documented floor. Expected `PROBE RESULT: DRIVABLE` (drivability already established by the plan-time node probe below); `INDETERMINATE` or `NOT_DRIVABLE` here would contradict that evidence → STOP and diagnose (a Task-1 mount defect or stack fault), do not proceed to Task 4. Also record the raw WIRE join-reply and invalidation frames from the probe output into the oracle file's comments, adjusting the two predicates if the observed envelope differs.
 
 - [ ] **Step 4: Write `tests/e2e/helpers/realtimeOracle.ts`** with the measured values:
 
@@ -631,27 +468,26 @@ export function isInvalidationFrame(frameText: string, showId: string): boolean 
 
 Adjust the two predicates to the ACTUAL observed frame shapes — the shapes above are the expected Phoenix envelope; the spike output is authoritative.
 
-**Fallback branch (only if the probe shows local Realtime broadcast is NOT drivable — no frame arrives on a plain `crew_members` UPDATE). This branch REPLACES Task 4 and modifies Task 5 as stated; it is fully specified here:**
+**FALLBACK BRANCH: REMOVED — RESOLVED BY PLAN-TIME SPIKE EXECUTION (2026-07-19).** The branch-selecting question ("does a plain `crew_members` UPDATE broadcast on LOCAL Supabase Realtime?") was answered empirically during plan authoring with a node-level probe (transcript below): **DRIVABLE, 3/3 runs, commit→frame 4–6ms.** The former fully-specified fallback (esbuild conduction harness + stubs + reconcile-invariants split) is deleted per YAGNI — its entire design existed only for the NOT_DRIVABLE outcome, which is now refuted by measurement. Contingency: if REAL CI's realtime ever behaves differently, that surfaces as the Task-4 spec failing in CI (gate 2 or phase (i) timeout) — a new, evidence-bearing decision point to be handled then; a dead pre-specified branch is not the mechanism.
 
-**BRANCH OWNERSHIP: on the fallback outcome, this branch REPLACES Task 4 entirely and REPLACES Task 5's steps with its own CI-wiring bullet below — Task 5 as written (env gate `MODAL_REALTIME_E2E`, realtime-spec run line, realtime-spec path filters) executes ONLY on the drivable outcome. One branch runs; never both.** (Timeout posture on this branch: there are no spike frame measurements to derive constants from — the conduction harness's stub drive is deterministic (synchronous SUBSCRIBED, in-page timers), and the reconcile-invariants test reuses the interaction suite's established wait conventions; the measurement-bound constants requirement is a drivable-branch contract.)
+**Plan-time spike evidence (node-level drivability probe).** Method: `@supabase/supabase-js` client in node (service-role key; `ws@8.20.0` transport — Node 20 has no global WebSocket), `realtime.setAuth(serviceKey)`, private channel `show:<id>:invalidation` with `broadcast self:false`, `.on("broadcast", { event: "invalidate" })`, awaited `SUBSCRIBED`, then service-role `crew_members.role` UPDATE via the `admin` helper against a `seedShowWithCrew` show; cleanup via `deleteSeededShow`. Output (4 runs):
 
-- Files: Create `tests/e2e/_realtimeBridgeLiveEntry.tsx` (client entry rendering `<ShowRealtimeBridge showId="harness-show" slug="harness" renderVersion="v0"/>`); Create `tests/e2e/_realtimeBridgeBundle.mjs` (esbuild bundler — a COPY of the verified live-bundle precedent `tests/e2e/_step3ReviewModalBundle.mjs`, keeping its use-server-elision plugin, with the entry swapped and TWO aliases added); Create `tests/e2e/_stubs/supabaseBrowserStub.ts` + `tests/e2e/_stubs/nextNavigationStub.ts` (the alias targets); Create `tests/e2e/realtime-bridge-conduction.spec.ts`; Modify `playwright.config.ts` (register `realtime-bridge-conduction` in the desktop-chromium testMatch INSTEAD of `published-review-modal\.realtime`); Modify `.github/workflows/published-modal-e2e.yml` (run line + path filters reference the conduction spec + `_realtimeBridgeLiveEntry.tsx` + `_realtimeBridgeBundle.mjs` + `tests/e2e/_stubs/**` — the bundler owns the alias wiring, so it MUST be path-filtered — **AND `components/realtime/ShowRealtimeBridge.tsx`**: the conduction harness bundles the REAL bridge, so a bridge edit must re-run the gate (round-8 F3); NO `MODAL_REALTIME_E2E` env var); Modify `tests/e2e/published-review-modal.interactions.spec.ts` (the appended reconcile-invariants test, TDD cycle below).
-- Alias 1 — `@/lib/supabase/browser` → stub module (spec §8.4 contract: the STUB IS THE SUPABASE CLIENT, so the REAL `subscribeToShow` runs — its channel setup, its broadcast-event registration, its readiness Promise). The stub's `getSupabaseBrowserClient()` returns a fake whose `.channel(topic, opts)` returns an object capturing the handler registered via `.on("broadcast", { event: "invalidate" }, handler)` and whose `.subscribe(cb)` synchronously calls `cb("SUBSCRIBED")`; `realtime.setAuth` no-op; `removeChannel` resolves. Expose `window.__driveInvalidation = (payload) => capturedHandler({ payload })`; stub `fetch` for the mint/version endpoints (fixed jwt/version). Alias 2 — `next/navigation` → `useRouter().refresh` increments `window.__refreshCount`.
-- **Stub contracts (defined by the REAL `subscribeToShow`'s verified usage, `lib/realtime/subscribeToShow.ts` — `setAuth` before channel open at `:153`, `.channel(topic, {config:{private:true,broadcast:{self:false}}})`, `.on("broadcast", { event: "invalidate" }, handler)`, `.subscribe(statusCb)`):** `supabaseBrowserStub.ts` exports `getSupabaseBrowserClient()` returning `{ realtime: { setAuth() {} }, channel: (topic, opts) => fakeChannel, removeChannel: async () => {} }` where `fakeChannel.on(type, filter, handler)` captures `handler` when `type === "broadcast" && filter.event === "invalidate"` (and returns the channel for chaining), and `fakeChannel.subscribe(cb)` calls `cb("SUBSCRIBED")`, sets `window.__subscribed = true` (the READINESS SIGNAL — the spec awaits `expect.poll(() => window.__subscribed)` before driving ANY invalidation, so a burst can never race the bridge's subscription effect; round-6 F6), and returns the channel; the module also sets `window.__driveInvalidation = (payload) => capturedHandler?.({ payload })` and stubs `globalThis.fetch` for `/api/realtime/subscriber-token` (`{ jwt: "harness-jwt", exp: 9999999999 }`) and `/api/show/*/version` (`{ version_token: "v0" }`). `nextNavigationStub.ts` exports `useRouter()` returning `{ refresh: () => { window.__refreshCount = (window.__refreshCount ?? 0) + 1; } }`. The captured-handler ARGUMENT shape `{ payload }` mirrors what `subscribeToShow`'s handler destructures — verify against `subscribeToShow.ts`'s `.on` callback at implementation time and match exactly.
-- **Bundle invocation + serving (deterministic):** the SPEC's `beforeAll` spawns the bundler out-of-process — `execFileSync(node, ["tests/e2e/_realtimeBridgeBundle.mjs", outDir])` where `outDir` is a `mkdtempSync` temp dir (the exact spawn pattern of the layout harness, `published-review-modal.layout.spec.ts:103-116`). The bundler writes `<outDir>/bundle.js` (esbuild output) and `<outDir>/index.html` (`<div id="root"></div><script src="./bundle.js"></script>`); the test `page.goto(pathToFileURL(join(outDir, "index.html")).href)`. No web server, no gitignore concerns (temp dir).
-- Conduction spec TDD (executable, alias-attributable): commit sequence is spec + entry + bundler WITHOUT the two alias entries first. Red: `pnpm exec playwright test --project=desktop-chromium tests/e2e/realtime-bridge-conduction.spec.ts` → FAIL (`window.__driveInvalidation` undefined — the un-aliased bundle imports the REAL `@/lib/supabase/browser`, which throws on missing env / never defines the hook). Green: add the two alias entries to `_realtimeBridgeBundle.mjs`, rerun the SAME command → PASS. The delta between red and green is exactly the aliases. Assertions: (a) `__driveInvalidation` burst of 8 within 50ms → exactly ONE `__refreshCount` increment, ≥100ms after the last call (REAL bridge debounce conducted it — never call refresh directly); (b) two invalidations 300ms apart → two increments (negative regression, mirrors the bridge's pinned debounce tests).
-- Reconcile-invariants test TDD (executable): append the test to `published-review-modal.interactions.spec.ts`. **Verified driver (round-9 F5):** the modal-section warning card's Ignore control — `DataQualityWarningControls` calls `router.refresh()` directly on ignore success (`components/admin/DataQualityWarningControls.tsx:34,55-56`; rendered inside modal sections via `SectionWarningItemControls`, `components/admin/showpage/sectionWarningExtras.tsx:31-52`), i.e. the LITERAL same call the bridge makes. **Fixture:** the Task-4 seed plus one active ignorable parse warning written service-role onto the seeded show's `shows_internal.parse_warnings` (`ParseWarning` shape at `lib/parser/types.ts:48-52` — `{ severity: "warn", code: <ignorable code>, message: "fallback fixture warning" }`; pick the code + confirm the control's `ignorable` derivation from `buildSectionWarningModel` at implementation time, and clean the row up with the show). Sequence: seed → open → arm the oracles (mid scrollTop, geometry baseline, skeleton `MutationObserver`, attention menu auto-open observed then closed) → **service-role `crew_members.role` UPDATE on an untouched row (content change now pending server-side)** → click the warning card's Ignore button → assert the reconcile applied: ROW-SCOPED role swap arrived, warning card moved active→ignored, scrollTop unchanged ±1px, geometry stable, skeleton recorder empty, menu still closed. The pending crew-content change makes the reconcile carry exactly the payload class a broadcast-driven refresh would carry — not a no-op revalidation. **Oracle scope on this branch (declared, honest):** popover-open + focus-node-identity (§4.4 inv 1–2) are NOT assertable here — the driver is a user click, and the #499 stacking contract closes any open popover on the backdrop-hitting first click while activation necessarily moves focus; no gesture-free refresh initiator exists without realtime. Those two invariants rest on the same React positional-reconciliation contract the remaining oracles exercise and are recorded as a second PR-body residual. **Composite-coverage argument (fallback only, stated in the plan AND the PR body — round-8 F2):** the modal cannot observe a refresh's initiator — a bridge-driven `router.refresh()` and an action revalidation apply full RSC payloads through the same App Router serial action queue (the ratified prefetch-spec empiric). The conduction harness proves the REAL bridge turns an invalidation into exactly one debounced `router.refresh()`; this test proves a mid-open RSC reconcile carrying crew-content changes preserves every §8.4 invariant. Together they cover the composite up to the queue-equivalence argument; the residual (no single end-to-end realtime test on this branch — a local-Realtime environment limitation, not a code gap) is recorded verbatim in the PR body. This split is the spec's own §8.4 fallback sanction ("substitute a real-browser harness … NEVER silently dropping the focus/scroll assertions"). Red-phase equivalence: run once (`pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts -g "reconcile invariants"`); if green on first run, perform ONE negative verification — inside a throwaway copy of the test, programmatically `scroller.scrollTop = 0` mid-window and assert the scrollTop oracle FAILS — then delete the throwaway; commit.
-- **Fallback CI wiring red phase (same discipline as Task 5, round-7 F2):** before editing the YAML, write `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` with the fallback's assertions — the conduction spec anchored to the `playwright test` run line (`/playwright test[^\n]*realtime-bridge-conduction\.spec\.ts/`), plus path-filter pins for EVERY file the fallback wiring adds — `tests/e2e/realtime-bridge-conduction.spec.ts`, `tests/e2e/_realtimeBridgeLiveEntry.tsx`, `tests/e2e/_realtimeBridgeBundle.mjs`, `tests/e2e/_stubs/`, AND `components/realtime/ShowRealtimeBridge.tsx` (one `/-\s*"<escaped path>"/` assertion each — round-8 F3 + round-9 F4: the pin's filter list mirrors the wiring's filter list exactly; omitting any one leaves that file's edits unable to trigger the gate); run it red (`pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` — all fail), then edit the YAML, rerun green, and commit test + YAML together in the `infra:` commit below. No `MODAL_REALTIME_E2E` assertion on this branch (the gate does not exist here).
-- Commits: `test(admin): realtime bridge conduction harness (local realtime not drivable)` (includes `tests/e2e/_realtimeDrivabilityProbe.ts` — the branch-selection evidence), then `test(admin): modal reconcile invariants over action revalidation`, then `infra: wire conduction harness into published-modal-e2e` (includes the wiring pin test). PR body records the drivability finding verbatim.
-
-- [ ] **Step 5: Commit.**
-
-```bash
-git add tests/e2e/_realtimeDrivabilityProbe.ts tests/e2e/helpers/realtimeOracle.ts
-git commit --no-verify -m "test(admin): realtime e2e oracle constants from drivability spike"
+```text
+run 1: channel status: SUBSCRIBED → NO FRAME in 10s → diagnostics → NOT_DRIVABLE  (cold start — see below)
+run 2: channel status: SUBSCRIBED → commit→frame ms: 6 → DRIVABLE
+       frame payload: {"event":"invalidate","meta":{"id":"…"},"payload":{"id":"…","show_id":"a782b249-…","version_token":"1784515351468:1:true"},"type":"broadcast"}
+run 3: commit→frame ms: 4 → DRIVABLE
+run 4: commit→frame ms: 4 → DRIVABLE
 ```
 
-(On the NOT_DRIVABLE outcome the probe file still gets committed — it is the recorded evidence for the branch selection — as the first commit of the fallback branch: `git add tests/e2e/_realtimeDrivabilityProbe.ts` folded into the conduction-harness commit.)
+Two consequences folded into Task 4: (a) the observed CHANNEL payload confirms the `payload.event === "invalidate"` discriminator; the browser-side WIRE envelope (what `page.on("websocket")` sees) is confirmed by the browser probe below. (b) The run-1 miss on a freshly started broadcast pipeline is a real cold-start hazard — CI boots supabase fresh every run — so Task 4 gains a **warm-up broadcast phase** (below) instead of relying on retry luck.
+
+- [ ] **Step 5: Commit the oracle.** (The probe file was already committed with plan r11 as spike evidence.)
+
+```bash
+git add tests/e2e/helpers/realtimeOracle.ts
+git commit --no-verify -m "test(admin): realtime e2e oracle constants from drivability spike"
+```
 
 ---
 
@@ -693,12 +529,13 @@ test.skip(process.env.MODAL_REALTIME_E2E !== "1", "prod-server realtime gate (CI
 1. Fixture: `seedShowWithCrew({ crew: [...] })` — the options type takes an explicit `crew?: SeedCrewMemberInput[]` roster (`seedShowWithCrew.ts:33-52` — each row `{ name, role, email?, ... }`), so pass ~25 rows with UNIQUE roles (`role: \`Probe Role ${i}\``) sized to force scrolling (`scrollHeight > clientHeight` — assert it; grow the count if the assertion fails). The actionable attention alert is seeded the way `published-show-attention.spec.ts:46-49` does: `admin.from("admin_alerts").insert({ show_id: show.showId, code, context, raised_at: new Date().toISOString() })` with the crew-routed `ROLE_FLAGS_NOTICE` code + context shape copied from that spec's `seedAlert(CREW_CODE, ...)` call at `:74`, and the matching `admin.from("admin_alerts").delete().eq("show_id", show.showId)` cleanup (`:82`).
 2. **Listeners FIRST, before any navigation:** install `page.on("websocket")` (frames + close/error events) AND the `?show=`/`/version` request trackers on the fresh page BEFORE `page.goto` — the Realtime socket opens during hydration, and a listener attached after the loaded modal has already missed the socket open and its join reply, invalidating gates 1–3.
 3. Open `/admin?show=<slug>`; wait for the loaded modal; **gate 1**: await completion of the post-open `?show=` RSC response (prefetch-spec request-tracking pattern); **auto-open menu observed, then close it** (§4.4 inv 4 setup). **Gate 2**: wait until a recorded frame satisfies `isJoinReplyOk(text, showId)`.
-4. **Gate 3**: quiescence — no in-flight `?show=` or `/version` request, AND no invalidation frame (spec §8.5.1 — a frame restarts the timer), sustained `QUIET_WINDOW_MS`.
-5. Prepare oracles: open the ⋮ popover on an UNTOUCHED row; focus its trigger (`crew-row-menu-button-<crewId>`); record `document.activeElement` node identity (tag a `data-probe` attribute via `page.evaluate` to re-identify it); set `scrollTop` to a mid position (≥100px, below max) and record it; record `scroller.scrollHeight` + target row `offsetTop`/`offsetHeight`; install the skeleton `MutationObserver` (testid `published-show-review-loading`); assert target row shows OLD role and NEW role string appears nowhere in the modal.
-6. Mutate: service-role `UPDATE crew_members SET role = <new unique role> WHERE id = <target>` (the `admin` client from `tests/e2e/helpers/supabaseAdmin.ts`).
-7. Assert (spec §8.4 order): **the full chain, each leg observed in order** — (i) a post-mutation frame satisfying `isInvalidationFrame(text, showId)` was RECEIVED; (ii) AFTER that frame, a `?show=` RSC request whose START timestamp post-dates the frame timestamp is observed AND completes (the request tracker records `page.on("request")` start times — a request merely COMPLETING after the frame could have started before it and prove nothing; the started-after-frame requirement pins the debounced `router.refresh()` as the frame's consequence); (iii) the content swap follows: NEW role appears within the target row locator (URL unchanged); NO `/version` request occurred post-mutation (unless a recorded socket close/reconnect happened → retry per protocol below); skeleton recorder empty; geometry stable (`scrollHeight`, `offsetTop`, `offsetHeight` ±1px — else fail INCONCLUSIVE with a distinct message); `scrollTop` unchanged ±1px; popover still open; `document.activeElement` is the `data-probe` node; attention menu still closed.
-8. **Retry protocol**: if (and only if) a socket close/error or re-join was recorded in the observation window, tear down the context, `deleteSeededShow`, re-seed under a NEW driveFileId, new browser context, run the whole scenario once more; second flake → test fails.
-9. **Cleanup (always)**: `deleteSeededShow(driveFileId)` in the test's `finally`/`afterAll` for EVERY attempt's fixture (success, terminal failure, and both retry attempts) — never leave seeded residue in the shared local DB (sibling-worktree pollution lesson). The Task 3 spike's seeded show gets the same `deleteSeededShow` at the end of the probe script.
+4. **Warm-up broadcast (cold-start defense; plan-time spike evidence: the FIRST broadcast after a fresh supabase boot was dropped once in 4 runs, and CI boots supabase fresh every run):** after gate 2, fire `admin.rpc("publish_show_invalidation", { p_show_id: <showId> })` (service-role callable — verified at plan time, returns `{ error: null }`) and await a frame satisfying `isInvalidationFrame(text, showId)` within `INVALIDATION_FRAME_TIMEOUT_MS`. This warms the DB→realtime broadcast worker AND validates the frame predicate live before the attributed mutation. The warm-up frame arms the bridge's debounce and triggers one refresh — gate 3's quiescence (next) absorbs it by design.
+5. **Gate 3**: quiescence — no in-flight `?show=` or `/version` request, AND no invalidation frame (spec §8.5.1 — a frame restarts the timer), sustained `QUIET_WINDOW_MS`; acquisition bounded by `QUIESCENCE_ACQUIRE_TIMEOUT_MS`.
+6. Prepare oracles: open the ⋮ popover on an UNTOUCHED row; focus its trigger (`crew-row-menu-button-<crewId>`); record `document.activeElement` node identity (tag a `data-probe` attribute via `page.evaluate` to re-identify it); set `scrollTop` to a mid position (≥100px, below max) and record it; record `scroller.scrollHeight` + target row `offsetTop`/`offsetHeight`; install the skeleton `MutationObserver` (testid `published-show-review-loading`); assert target row shows OLD role and NEW role string appears nowhere in the modal.
+7. Mutate: service-role `UPDATE crew_members SET role = <new unique role> WHERE id = <target>` (the `admin` client from `tests/e2e/helpers/supabaseAdmin.ts`).
+8. Assert (spec §8.4 order): **the full chain, each leg observed in order** — (i) a post-mutation frame satisfying `isInvalidationFrame(text, showId)` was RECEIVED; (ii) AFTER that frame, a `?show=` RSC request whose START timestamp post-dates the frame timestamp is observed AND completes (the request tracker records `page.on("request")` start times — a request merely COMPLETING after the frame could have started before it and prove nothing; the started-after-frame requirement pins the debounced `router.refresh()` as the frame's consequence); (iii) the content swap follows: NEW role appears within the target row locator (URL unchanged); NO `/version` request occurred post-mutation (unless a recorded socket close/reconnect happened → retry per protocol below); skeleton recorder empty; geometry stable (`scrollHeight`, `offsetTop`, `offsetHeight` ±1px — else fail INCONCLUSIVE with a distinct message); `scrollTop` unchanged ±1px; popover still open; `document.activeElement` is the `data-probe` node; attention menu still closed.
+9. **Retry protocol**: if (and only if) a socket close/error or re-join was recorded in the observation window, tear down the context, `deleteSeededShow`, re-seed under a NEW driveFileId, new browser context, run the whole scenario once more; second flake → test fails.
+10. **Cleanup (always)**: `deleteSeededShow(driveFileId)` in the test's `finally`/`afterAll` for EVERY attempt's fixture (success, terminal failure, and both retry attempts) — never leave seeded residue in the shared local DB (sibling-worktree pollution lesson). The Task 3 spike's seeded show gets the same `deleteSeededShow` at the end of the probe script.
 
 Write the full code for each phase — the prefetch spec is the style/harness reference; every wait uses Playwright auto-waiting or explicit `expect.poll`, never bare timeouts except the quiescence window itself. **Every phase timeout comes from the Task-3 oracle constants, never a Playwright default (round-8 F1; round-9 F3 — the loaded-modal/open-refresh and quiescence-acquisition waits are bound too):** gate 1 (loaded modal + post-open `?show=` response) waits `MODAL_OPEN_TIMEOUT_MS`; gate 2 waits `JOIN_REPLY_TIMEOUT_MS`; gate 3's ACQUISITION of a sustained-quiet window is bounded by `QUIESCENCE_ACQUIRE_TIMEOUT_MS` (the window itself is `QUIET_WINDOW_MS`); phase (i) waits `INVALIDATION_FRAME_TIMEOUT_MS`; phase (ii) waits `POST_FRAME_REQUEST_TIMEOUT_MS`; phase (iii)'s row-text swap waits `CONTENT_SWAP_TIMEOUT_MS` — each passed explicitly as the `expect.poll`/`waitFor` timeout option. The oracle-arming steps (popover open, focus, scroll set) and cleanup use Playwright's default action timeouts — they are user-gesture steps, not measured realtime phases.
 
@@ -848,7 +685,7 @@ gh pr checks <PR#> --watch
 gh pr view <PR#> --json mergeStateStatus --jq .mergeStateStatus   # must be CLEAN, not DIRTY/BEHIND
 ```
 
-The `published-modal-e2e` run MUST appear and pass on the PR (its path filters match this diff), AND its log must PROVE the new spec actually executed — `gh run view <runId> --log | grep -c "published-review-modal.realtime"` (or `realtime-bridge-conduction` on the fallback branch) must show ≥1 executed-test line; a green run whose log lacks the spec name means the run-line/env-gate wiring was dropped and the gate is DARK (round-6 F5 — green-without-running is the failure mode). If it did not trigger, `gh workflow run published-modal-e2e.yml --ref feat/admin-modal-realtime-refresh` and watch that run. If the PR is BEHIND/DIRTY, rebuild on `origin/main` first (merge-ref CI lesson).
+The `published-modal-e2e` run MUST appear and pass on the PR (its path filters match this diff), AND its log must PROVE the new spec actually executed — `gh run view <runId> --log | grep -c "published-review-modal.realtime"` must show ≥1 executed-test line; a green run whose log lacks the spec name means the run-line/env-gate wiring was dropped and the gate is DARK (round-6 F5 — green-without-running is the failure mode). If it did not trigger, `gh workflow run published-modal-e2e.yml --ref feat/admin-modal-realtime-refresh` and watch that run. If the PR is BEHIND/DIRTY, rebuild on `origin/main` first (merge-ref CI lesson).
 
 - [ ] **Step 4: Merge + sync (same turn as CI-green — never park a green PR):**
 
