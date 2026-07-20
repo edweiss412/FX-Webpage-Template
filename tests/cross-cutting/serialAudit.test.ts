@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { globToRegExp } from "@/lib/test/serialAudit";
 
-// Unit test for the glob matcher that backs the resolved-config partition proof
-// (spec 2026-07-20-ci-unit-suite-phase3-file-granular-serial §4b). The matcher is
-// load-bearing: it must model vitest's include/exclude semantics for every glob
+// Unit test for the glob matcher that backs the resolved-config partition
+// proof. The matcher is load-bearing: it must model vitest's include/exclude semantics for every glob
 // shape the config actually contains, including the terminal `/**` of the
 // default excludes — a naive sequential replace turns `**/node_modules/**` into
 // a pattern that cannot match nested descendants.

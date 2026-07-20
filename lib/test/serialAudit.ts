@@ -1,6 +1,5 @@
 // Glob -> anchored RegExp, used by the vitest-projects partition meta-test to
-// evaluate files against the projects' REAL include/exclude arrays (spec
-// 2026-07-20-ci-unit-suite-phase3-file-granular-serial §4b).
+// evaluate files against the projects' REAL include/exclude arrays.
 //
 // Sentinel-based on purpose: a naive sequential replace re-processes regex it
 // has already emitted, which turns the default excludes' terminal `/**`

@@ -42,8 +42,6 @@ function listTestFiles(dir: string): string[] {
   return out;
 }
 
-// A parallel glob is either a dir glob ("tests/x/**/*.test.{ts,tsx}") or an
-// exact file ("tests/sample.test.ts"). Reduce to a matcher without a glob lib.
 // Resolved-config membership: a file is in project P iff some P.include glob
 // matches it AND no P.exclude glob does. This reads the REAL arrays off the
 // imported config, so an exclusion added anywhere (including
@@ -55,6 +53,8 @@ function inProject(file: string, p: ProjectEntry["test"]): boolean {
   return !(p.exclude ?? []).some((g) => globRe(g).test(file));
 }
 
+// A parallel glob is either a dir glob ("tests/x/**/*.test.{ts,tsx}") or an
+// exact file ("tests/sample.test.ts"). Reduce to a matcher without a glob lib.
 function matchesParallel(file: string): boolean {
   return PARALLEL_TEST_GLOBS.some((g) => {
     const starIdx = g.indexOf("/**");
