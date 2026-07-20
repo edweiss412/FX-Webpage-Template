@@ -103,6 +103,13 @@ export default defineConfig({
           // mutation project below. testFastExcludes is empty unless
           // VITEST_TEST_FAST=1 (scripts/test-fast.mjs overlap; spec §4.1.3).
           exclude: [...configDefaults.exclude, ...nightlyExcludes, ...testFastExcludes],
+          // pool "threads": CONDITIONAL lever (spec §4.2). Quiet-box local effect
+          // is nil (57.1s threads vs 57.9s forks); the 2.3x seen in the spike was
+          // a contention artifact (load 25-37), which is the regime a 2-core CI
+          // runner is in. Kept only if real CI leg timings improve by >=15s,
+          // else reverted. isolate:false is a DEAD lever either way - it leaks
+          // mock/DOM state across files (spec §1.1).
+          pool: "threads",
           fileParallelism: true,
         },
       },
