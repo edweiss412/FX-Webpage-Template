@@ -37,6 +37,9 @@
 - Modify: `app/admin/_showReviewModal.tsx` (token read after the slug→id lookup at `:134`, before the `Promise.all` at `:224-240`; bridge mount in the return at `:370-407`)
 - Modify: `tests/app/admin/showReviewModalLoader.test.tsx` (mock extension + new describe block)
 - Modify: `tests/log/_auditableMutations.ts` (one string in `NEW_FORENSIC_CODES`, `ADMIN_SHOW_*` cluster at `:627-631`)
+- Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row — verified schema `{ helper, path, contract }`, rows at `:170-235`; each row gets the registry's standard helper-exists grep, no other schema fields)
+
+**Verified helper facts (this session):** `buildLoaderElement()` returns the RAW loader output — the `ShareTokenProvider` element (`showReviewModalLoader.test.tsx:244-247`), so the `bridgeChild`/`childOrder` helpers below operate on `ui.props.children` directly; `isValidElement` and `type ReactElement` are ALREADY imported at `:23`.
 
 **Interfaces:**
 
@@ -200,6 +203,14 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
     expect(bridgeChild(ui)).not.toBeNull();
   });
 
+  it("lifecycle: archived AND unpublished show still mounts the bridge (§4.3 — kills compound gates)", async () => {
+    // The two split cases alone would PASS a compound gate like
+    // `published || !archived`; this combination is the only one that fails it.
+    state.snapshot = baseSnapshot({ archived: true, published: false });
+    const ui = await buildLoaderElement();
+    expect(bridgeChild(ui)).not.toBeNull();
+  });
+
   it("child-order stability: the modal's child INDEX is identical in with-bridge and fault renders", async () => {
     state.versionToken = "vt-live";
     const okOrder = childOrder(await buildLoaderElement());
@@ -215,10 +226,10 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
 
 (Use the file's existing `buildLoaderElement` / `baseSnapshot` helpers verbatim — they already exist, `showReviewModalLoader.test.tsx:331-339` uses both.) If `buildLoaderElement` unwraps `ShareTokenProvider` (check its return: if it returns the PROVIDER element, the helpers above work on `ui.props.children`; if it returns the modal element directly, add a sibling helper `buildProviderElement()` that returns the raw loader output — same call, no unwrap).
 
-- [ ] **Step 3: Run the new tests — verify they FAIL.**
+- [ ] **Step 3: Run the new tests — verify the red phase precisely.**
 
 Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx -t "realtime bridge"`
-Expected: all 6 FAIL (no bridge in tree, no rpc branch consumed, no log emit).
+Expected: 8 of the 9 new tests FAIL (no bridge in tree for the ok/non-string/lifecycle cases; no `versionToken` entry in `readOrder`; no log emit on the fault cases — note the fault cases fail on the LOG assertion even though `bridgeChild` is already null). The **child-order-stability test passes vacuously** pre-implementation (both renders identically bridge-less) — its red-phase proof is deferred to Step 7's negative verification, which breaks the implementation to prove the test can fail.
 
 - [ ] **Step 4: Implement in `app/admin/_showReviewModal.tsx`.**
 
@@ -303,10 +314,12 @@ In the return, inside `ShareTokenProvider`, AFTER `<PublishedReviewModal …/>` 
 
 Follow the registry's existing per-row assertion pattern (a "helper exists" grep against the path; behavioral coverage lives in the loader suite's returned-error/throw tests from Step 2 — reference them if the registry's row schema wants a pointer).
 
-- [ ] **Step 7: Run the new tests — verify they PASS, then the full adjacent suites.**
+- [ ] **Step 7: Green + negative verification.**
 
 Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx tests/log tests/admin`
 Expected: PASS (all files), including `_metaInfraContract.test.ts` with the new row resolving.
+
+Negative verification for the vacuous-pass test (Step 3): temporarily move the `<ShowRealtimeBridge …/>` line BEFORE `<PublishedReviewModal …/>` in the loader → rerun the child-order-stability + "bridge rendered LAST" tests → both must FAIL → revert. (Do not commit the breakage.)
 
 - [ ] **Step 8: Commit.**
 
@@ -328,7 +341,9 @@ git commit --no-verify -m "feat(admin): mount realtime bridge in show-review mod
 - Consumes: the loader source from Task 1 (`.rpc("viewer_version_token"` present exactly once; no cache wrappers).
 - Produces: structural pins later refactors can't silently break.
 
-- [ ] **Step 1: Write the failing-or-green pins** (they PASS against Task 1's implementation — that is fine for structural pins; verify each FAILS by temporarily breaking the source, step 3). Append to the file's test block:
+**TDD note (declared, not waived):** these are STRUCTURAL meta-test pins over Task 1's already-TDD'd implementation — the repo's established red-phase equivalent for this class is the explicit negative verification (Step 3 breaks the source to prove each pin can fail), the same discipline every `_meta*` registry test in `tests/` uses. Behavioral TDD happened in Task 1.
+
+- [ ] **Step 1: Write the pins.** Append to the file's test block:
 
 ```ts
   test("the loader calls viewer_version_token exactly once (realtime-refresh §4.1 single caller)", () => {
@@ -371,7 +386,7 @@ git commit --no-verify -m "test(admin): pin viewer_version_token single-caller +
 
 - Create: `tests/e2e/helpers/realtimeOracle.ts` (constants + frame predicates, values filled from measurement)
 
-This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §8.4); this task measures the constants and proves drivability.
+This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §8.4); this task measures the constants and proves drivability. **TDD note (declared):** a spike produces measurement artifacts, not behavior — there is no failing test to write first; its output is consumed by Task 4's tests, and the drivable/not-drivable outcome selects which Task-4 branch runs. **The Step-5 commit fires ONLY on the drivable outcome** (the constants/predicates are derived from observed frames); on the fallback outcome there are no frames to derive from — skip Step 4/5 entirely and jump to the fallback branch below, whose own files carry the commit.
 
 - [ ] **Step 1: Boot the stack.** `supabase start` (if not running) + `pnpm dev` (port 3000 free — check `lsof -iTCP:3000 -sTCP:LISTEN`; if a sibling worktree owns it, use an alt port config per the sibling-dev-server lesson).
 
@@ -430,12 +445,13 @@ export function isInvalidationFrame(frameText: string, showId: string): boolean 
 
 Adjust the two predicates to the ACTUAL observed frame shapes — the shapes above are the expected Phoenix envelope; the spike output is authoritative.
 
-**Fallback branch (only if the probe shows local Realtime broadcast is NOT drivable — no frame arrives on a plain `crew_members` UPDATE):** replace Task 4's DB-driven scenario with the spec-ratified stub harness, concretely:
+**Fallback branch (only if the probe shows local Realtime broadcast is NOT drivable — no frame arrives on a plain `crew_members` UPDATE). This branch REPLACES Task 4 and modifies Task 5 as stated; it is fully specified here:**
 
-1. Create `tests/e2e/_realtimeBridgeHarness.tsx` — a standalone real-browser harness (the `reference_step3_modal_realbrowser_harnesses` esbuild pattern used by `tests/e2e/_publishedReviewModalHarness.tsx`) that renders `<ShowRealtimeBridge showId slug renderVersion>` with TWO esbuild aliases in its build script: `@/lib/realtime/subscribeToShow` → a stub module that captures `onInvalidate` and exposes `window.__driveInvalidation = (token) => capturedOnInvalidate(token)` (plus a resolved `subscribed` Promise and a no-op channel), and `next/navigation` → a stub whose `useRouter().refresh` increments `window.__refreshCount`. The harness test asserts: `__driveInvalidation()` bursts coalesce through the REAL bridge debounce to exactly one `__refreshCount` increment ≥100ms later — the stimulus traverses subscribe→debounce→refresh, never calling refresh directly.
-2. Keep Task 4's modal-side invariants (§4.4 1–4, skeleton, geometry) but drive the mid-open reconcile through a REAL mechanism the app owns: perform an admin server action that revalidates (e.g. the ignore-warning toggle used by `published-review-modal.interactions.spec.ts`) and assert the invariants across THAT reconcile.
-3. CI wiring (Task 5) then registers the harness spec instead of the realtime spec; the PR body records the drivability finding verbatim.
-4. The fallback is itself TDD: harness assertion written first, run to fail (stub not wired), wire, pass, commit `test(admin): realtime bridge conduction harness (local realtime not drivable)`.
+- Files: Create `tests/e2e/_realtimeBridgeHarness.tsx` (harness page) + `tests/e2e/realtime-bridge-conduction.spec.ts` (spec); Modify `playwright.config.ts` (register `realtime-bridge-conduction` in the desktop-chromium testMatch INSTEAD of `published-review-modal\.realtime`); Modify `.github/workflows/published-modal-e2e.yml` (run line + path filters reference these two files instead of the realtime spec).
+- Harness build: mirror `tests/e2e/_publishedReviewModalHarness.tsx`'s build wiring EXACTLY (same script/config that bundles it — locate its build entry at implementation time by grepping the harness filename in `scripts/` + `playwright.config.ts`; reuse that entry, do not invent a new build path), adding ONE esbuild alias: `@/lib/supabase/browser` → a stub module (spec §8.4 contract: the STUB IS THE SUPABASE CLIENT, so the REAL `subscribeToShow` runs — its channel setup, its broadcast-event registration, its readiness Promise). The stub's `getSupabaseBrowserClient()` returns a fake whose `.channel(topic, opts)` returns an object capturing the handler registered via `.on("broadcast", { event: "invalidate" }, handler)` and whose `.subscribe(cb)` synchronously calls `cb("SUBSCRIBED")`; `realtime.setAuth` is a no-op; `removeChannel` resolves. Expose `window.__driveInvalidation = (payload) => capturedHandler({ payload })` and stub `fetch` for the mint/version endpoints (return a fixed jwt/version). Alias `next/navigation` → `useRouter().refresh` increments `window.__refreshCount`.
+- Spec assertions (TDD: write FIRST, run against the unwired harness → FAIL, then wire the stub → PASS): (a) `__driveInvalidation` burst of 8 within 50ms → exactly ONE `__refreshCount` increment, arriving ≥100ms after the last call (the REAL bridge debounce conducted it — never call refresh directly); (b) two invalidations 300ms apart → two increments (negative regression, mirrors the bridge's plan-pinned tests).
+- Modal-side §4.4 invariants (1–4, skeleton, geometry) stay real-browser but ride a REAL app-owned reconcile: an admin server action that revalidates (the ignore-warning toggle exercised by `published-review-modal.interactions.spec.ts`), asserted with the same oracles as the main branch, in a test appended to `published-review-modal.interactions.spec.ts`.
+- Commits: `test(admin): realtime bridge conduction harness (local realtime not drivable)` then `infra: wire conduction harness into published-modal-e2e`. PR body records the drivability finding verbatim.
 
 - [ ] **Step 5: Commit.**
 
@@ -472,8 +488,8 @@ test.skip(process.env.MODAL_REALTIME_E2E !== "1", "prod-server realtime gate (CI
 - [ ] **Step 2: Implement the scenario as ONE test with the spec-§8.4 phases**, factored into helpers within the file. The oracle requirements, verbatim from the spec:
 
 1. Fixture: `seedShowWithCrew` with ≥ enough crew rows that the modal scroller scrolls (`scrollHeight > clientHeight` — assert it; grow the roster if the assertion fails), UNIQUE roles per row, plus one seeded actionable attention alert (copy the alert-seeding fixture from `tests/e2e/published-show-attention.spec.ts`).
-2. Open `/admin?show=<slug>`; wait for the loaded modal; **gate 1**: await completion of the post-open `?show=` RSC response (prefetch-spec request-tracking pattern); **auto-open menu observed, then close it** (§4.4 inv 4 setup).
-3. **Gate 2**: `page.on("websocket")` → collect frames; wait until some frame satisfies `isJoinReplyOk(text, showId)`. Also record socket close/error events (spec §8.5.4).
+2. **Listeners FIRST, before any navigation:** install `page.on("websocket")` (frames + close/error events) AND the `?show=`/`/version` request trackers on the fresh page BEFORE `page.goto` — the Realtime socket opens during hydration, and a listener attached after the loaded modal has already missed the socket open and its join reply, invalidating gates 1–3.
+3. Open `/admin?show=<slug>`; wait for the loaded modal; **gate 1**: await completion of the post-open `?show=` RSC response (prefetch-spec request-tracking pattern); **auto-open menu observed, then close it** (§4.4 inv 4 setup). **Gate 2**: wait until a recorded frame satisfies `isJoinReplyOk(text, showId)`.
 4. **Gate 3**: quiescence — no in-flight `?show=` or `/version` request, AND no invalidation frame (spec §8.5.1 — a frame restarts the timer), sustained `QUIET_WINDOW_MS`.
 5. Prepare oracles: open the ⋮ popover on an UNTOUCHED row; focus its trigger (`crew-row-menu-button-<crewId>`); record `document.activeElement` node identity (tag a `data-probe` attribute via `page.evaluate` to re-identify it); set `scrollTop` to a mid position (≥100px, below max) and record it; record `scroller.scrollHeight` + target row `offsetTop`/`offsetHeight`; install the skeleton `MutationObserver` (testid `published-show-review-loading`); assert target row shows OLD role and NEW role string appears nowhere in the modal.
 6. Mutate: service-role `UPDATE crew_members SET role = <new unique role> WHERE id = <target>` (the `admin` client from `tests/e2e/helpers/supabaseAdmin.ts`).
@@ -484,7 +500,17 @@ Write the full code for each phase — the prefetch spec is the style/harness re
 
 - [ ] **Step 3: Register in `playwright.config.ts`** — extend the desktop-chromium `testMatch` regex alternation: `published-review-modal\.prefetch` → `published-review-modal\.prefetch|published-review-modal\.realtime`.
 
-- [ ] **Step 4: Run locally against a prod server.**
+- [ ] **Step 4: Red-phase proof (the e2e is an acceptance test — prove it can fail on the defect it exists to catch).** Temporarily revert the bridge mount (`git stash push -- app/admin/_showReviewModal.tsx` reverts Task 1's loader edit including the mount), rebuild, run the spec:
+
+```bash
+git stash push -- app/admin/_showReviewModal.tsx
+NEXT_DIST_DIR=.next-realtime-probe CI=true pnpm build
+MODAL_REALTIME_E2E=1 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.realtime.spec.ts
+```
+
+Expected: FAIL (no bridge → no subscription → gate 2 times out, or no content swap). Then `git stash pop` to restore.
+
+- [ ] **Step 5: Green run against a prod server.**
 
 ```bash
 NEXT_DIST_DIR=.next-realtime-probe CI=true pnpm build   # prod build (prefetch/refresh behavior real)
@@ -493,7 +519,7 @@ MODAL_REALTIME_E2E=1 pnpm exec playwright test --project=desktop-chromium tests/
 
 Expected: PASS. (The dev server is NOT sufficient — the open-refresh + RSC behavior must be prod. If port 3000 is contested by a sibling worktree, use the scratch alt-port config lesson.)
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 6: Commit.**
 
 ```bash
 git add tests/e2e/published-review-modal.realtime.spec.ts playwright.config.ts
@@ -526,7 +552,7 @@ git commit --no-verify -m "test(admin): realtime broadcast e2e for the published
 
 (`app/admin/_showReviewModal.tsx`, `playwright.config.ts`, `tests/e2e/helpers/**` are already listed.)
 
-- [ ] **Step 4: Validate + commit.**
+- [ ] **Step 4: Validate + commit.** (TDD note, declared: workflow YAML carries no unit-testable behavior; its red→green proof IS the real-CI run in Task 7 Step 3 — the workflow must trigger on this PR's paths and pass.)
 
 ```bash
 pnpm exec prettier --check .github/workflows/published-modal-e2e.yml
@@ -534,13 +560,11 @@ git add .github/workflows/published-modal-e2e.yml
 git commit --no-verify -m "infra: run realtime modal e2e in published-modal-e2e workflow"
 ```
 
-Real-CI green on this workflow is a CLOSE-OUT gate (fire via `gh workflow run` / the PR's own run) — local green is not sufficient.
-
 ---
 
 ### Task 6: Invariant-8 dual-gate + full pre-push gates
 
-- [ ] **Step 1: `/impeccable critique` + `/impeccable audit`** on the affected diff (`app/admin/_showReviewModal.tsx` is a UI-surface file; the bridge renders null so both should be trivial). P0/P1 findings fixed or DEFERRED.md'd BEFORE the cross-model review.
+- [ ] **Step 1: `/impeccable critique` + `/impeccable audit`** on the affected diff (`app/admin/_showReviewModal.tsx` is a UI-surface file; the bridge renders null so both should be trivial). P0/P1 findings fixed or DEFERRED.md'd BEFORE the cross-model review. **Repair loop (applies here AND to Task 7's review findings):** every gate/review-triggered code change follows Step 2's failure protocol (failing regression test first for behavioral changes; scoped commit per finding-class), and after ANY repair the affected gates re-run — impeccable repairs re-run the dual-gate on the amended diff; Task-7 review repairs re-run the full local gates AND go back to the reviewer for the next round. Findings + dispositions are recorded in the **PR body** (the feature-scale analogue of a milestone handoff §12 — the #478-established pattern) with `DEFERRED.md` rows for anything deferred.
 - [ ] **Step 2: Full local gates** (green ≠ green lessons):
 
 ```bash
