@@ -1,0 +1,13 @@
+{
+  "branch": "feat/attention-alert-routing",
+  "stage": "spec",
+  "tasksRemaining": 3,
+  "next": "Write docs/superpowers/specs/2026-07-20-attention-alert-routing.md covering all three PRs, with the mandatory §1.1 resolved-scope section, then run pnpm spec:lint and dispatch Codex adversarial review via codex-guard.",
+  "blockedOn": "",
+  "cronJobId": "d806af7b",
+  "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
+  "siblings": {
+    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; my routing edits to lib/admin/attentionItems.ts will conflict; rebase when it merges",
+    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner; my real-browser assertions must expect 22px"
+  }
+}
