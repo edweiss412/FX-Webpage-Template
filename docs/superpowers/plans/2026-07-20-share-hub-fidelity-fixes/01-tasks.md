@@ -287,11 +287,13 @@ Idle return for the compact branch: `<div className="flex w-full flex-col gap-2"
 
 **Source-form contract (load-bearing, not style):** the wrapper's class list is written as
 that LITERAL string — never assembled (`WRAPPER_CLASSES.join(" ")`), never conditional — and
-the wrapper carries NO JSX spread. `_metaRowWrapperInert.test.ts` proves handler absence by
-scanning the source, so an assembled class expression makes the scan find nothing, and a
-spread (`const p = { onDoubleClick: fn }; <div {...p}>`) smuggles a handler past a prop-name
-scan. The meta-test fails LOUD in both cases rather than silently passing, and its scanner
-is itself unit-tested against those fixtures.
+the wrapper carries NO JSX spread and NO `ref`. `_metaRowWrapperInert.test.ts` proves
+behavior-absence by PARSING the source (TypeScript AST, not a regex): an assembled class
+expression makes the scan find nothing, a spread (`const p = { onDoubleClick: fn };
+<div {...p}>`) smuggles a handler past an attribute-name check, and a
+`ref={(n) => n?.addEventListener(…)}` attaches a native listener with neither. The
+file-level test fails LOUD when it finds no wrapper rather than passing vacuously, and the
+scanner is itself unit-tested against the correct shape and every one of those escapes.
 
 `aria-label` is **bound to `rowLabel`**, never re-hardcoded to a literal — §4.2: a caller
 passing a different `rowLabel` would otherwise violate WCAG 2.5.3 silently. Both attributes

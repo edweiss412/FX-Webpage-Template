@@ -977,12 +977,17 @@ row passes every helper end to end, and the known escapes still fail.
    sampling cannot prove a handler is absent: review walked the behavioral guard through
    `onClick`, `onPointerDown`/`onMouseDown`, `onPointerEnter`/`onPointerOver`, then
    `onDoubleClick`/`onContextMenu`, and there are ~60 React DOM event props. The behavioral
-   guard below is kept as the complement, not the proof. The scan also rejects JSX SPREADS on
-   the wrapper (`const p = { onDoubleClick: fn }; <div {...p}>` hides a handler from any
-   prop-name scan), and it depends on a documented SOURCE-FORM contract: the wrapper's class
-   list is written as a literal string, never assembled, so the scan can find it. The scanner
-   is a pure function, unit-tested against the correct shape and each escape, because a
-   scanner that silently matches nothing is worse than none.
+   guard below is kept as the complement, not the proof. It PARSES the source (TypeScript
+   AST, not a regex) and rejects three attachment mechanisms on the wrapper: `on*` props,
+   JSX SPREADS (`const p = { onDoubleClick: fn }; <div {...p}>`), and `ref` (which can
+   `addEventListener` imperatively). The AST replaced a regex that review broke three ways in
+   one round, all LEXING failures rather than rule failures: a `>` inside an attribute value
+   truncated the match and FAILED CORRECT CODE, a wrapper written in a COMMENT supplied a
+   decoy match, and the `ref` mechanism was invisible. A parse removes the first two by
+   construction. It depends on a documented SOURCE-FORM contract — the class list is a
+   literal string, never assembled — and the file-level test fails LOUD when it finds no
+   wrapper rather than passing vacuously. The scanner is pure and unit-tested against the
+   correct shape and every one of those escapes.
 5. **React's `onClick` is invisible to attribute checks** — delegation produces no `onclick`
    attribute — so the wrapper being non-interactive is proved BEHAVIORALLY: clicking the
    wrapper must leave the row idle, and clicking the row must still arm it (the second half
