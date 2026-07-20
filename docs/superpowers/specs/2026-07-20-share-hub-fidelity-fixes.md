@@ -219,7 +219,7 @@ would light up on hover and imply an affordance it does not have (§4.7).
 The label/description pair is wrapped in a `min-w-0` flex column so a long description
 cannot force the row wider than the 308px panel.
 
-### 4.2 Accessible name — `aria-label` and `aria-describedby` are RETAINED
+### 4.2 Accessible name — rotate's wiring is RETAINED, reset's is ADDED
 
 An earlier draft proposed dropping both so the accessible name would become
 label + description. **That is withdrawn.** The existing pairing is deliberately correct:
@@ -228,7 +228,9 @@ DESCRIPTION (`app/admin/show/[slug]/RotateShareTokenButton.tsx:219-220`). Flatte
 would destroy the name/description distinction and produce a long, state-dependent control
 name. Assistive tech announces a description; it is not suppressed.
 
-This defect is purely **visual layout**. The a11y wiring does not change:
+This defect is purely **visual layout** — no a11y AFFORDANCE is removed anywhere. But the
+two controls are not symmetric, and the table below is the precise statement (any earlier
+blanket phrasing that both controls' wiring is merely "retained" is superseded by it):
 
 | Control | `aria-label` | `aria-describedby` | Accessible name |
 | --- | --- | --- | --- |
@@ -320,9 +322,8 @@ or reviewer the same way.
 | Input | Rotate row | Reset row |
 | --- | --- | --- |
 | `compact=false` | Non-compact branch, unchanged. | n/a (component has no compact flag). |
-| `compact=true` but `rowLabel` falsy | **A hybrid, not the non-compact branch.** The outer return keys on `compact && rowLabel` while the button's styling keys on `compact` alone (`app/admin/show/[slug]/RotateShareTokenButton.tsx:222`), so today this yields the non-compact container wrapping a compact-styled button. This change does NOT alter that path — it is pre-existing, has no production caller (ShareHub always passes `rowLabel`), and is recorded here so the asymmetry is not mistaken for a regression. | n/a |
-| `rowLabel` empty or whitespace-only | `aria-label` omitted (see §4.2); the row still renders and the accessible name falls back to text content. | n/a — reset's label is a literal. |
-| `rowDescription` empty or whitespace-only | Treated as absent: no description span, no `aria-describedby`. | n/a — reset's description is always one of two literals. |
+| `compact=true` but `rowLabel` empty / whitespace-only / absent | **The MENU ROW IS NOT RENDERED AT ALL.** The outer return keys on `compact && rowLabel`, so a falsy `rowLabel` takes the pre-existing hybrid path (non-compact container + compact-styled `idleButton`, which keeps its own hardcoded `aria-label`) — `app/admin/show/[slug]/RotateShareTokenButton.tsx:222`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:279`. **The `.trim()` guard in §4.2 therefore governs only the row variant**, i.e. the whitespace-only case, which reaches the row (truthy string) but must not emit an empty `aria-label`. This spec does NOT change the hybrid path: it is pre-existing, has no production caller (ShareHub always passes `rowLabel`), and altering it is out of scope. Recorded so the asymmetry is not mistaken for a regression. | n/a — reset's label is a component literal, always non-empty. |
+| `rowDescription` empty or whitespace-only | Treated as fully absent: **no description span is rendered AND no `aria-describedby` is emitted.** Both the render condition and the attribute condition use `rowDescription?.trim()` — using a bare truthiness check for the render would leave an empty span with an id nothing points at. | n/a — reset's description is always one of two non-empty literals. |
 | Description is one unbreakable token (a long URL-like string) | `min-w-0` lets the column shrink but cannot break an unbreakable word; the row would overflow. Rotate's description is a fixed literal, so this is unreachable in production. Recorded, not defended against. | Same; reset's descriptions are fixed literals. |
 | `crew` empties WHILE reset is in `confirm` or `resolving` | n/a | `hasCrew` gates only the IDLE trigger's `disabled`, so an already-armed confirm stays actionable and the reset can still fire against an empty roster. Pre-existing (`app/admin/show/[slug]/PickerResetControl.tsx:264`), harmless (an epoch bump with no crew is a no-op), and out of scope. |
 | `rowDescription` absent | Row renders label only; no empty description node. | n/a (description is always one of two literals). |
@@ -351,13 +352,14 @@ a missing link fails the test rather than hiding inside it.
 | Control wrapper `<div>` | row `<button>` | button width === wrapper width | `w-full` on the button |
 | Popover panel | row `<button>` (transitively) | button width === panel content width | the two links above, asserted end-to-end in §7.4 |
 | Row `<button>` | leading icon | icon stays 16px when the label wraps | `shrink-0` on the icon |
-| Row `<button>` | label/description column | column may shrink to zero basis so long text wraps instead of widening the row | `min-w-0` on the column |
+| Row `<button>` | label/description column | the column may shrink BELOW its min-content width, so long text wraps instead of widening the row (`min-w-0` overrides the flex item's `min-width: auto`; it does not set a zero flex-basis) | `min-w-0` on the column |
 | Row `<button>` | label + description | stacked vertically as one block | `flex` AND `flex-col` TOGETHER on the column — `flex-col` alone only sets `flex-direction` and establishes no flex formatting context, so the column's class list is exactly `flex min-w-0 flex-col` |
-| Row `<button>` | its single child column | column vertically centred in the row | `items-center` on the row |
+| Row `<button>` | its two children (icon, then column) | both vertically centred on the row's cross axis | `items-center` on the row |
 | ShareHub root bottom edge | caret untransformed top | 4px | `top-full mt-1` |
 | ShareHub root bottom edge | panel top | 6px | `top-full mt-1.5` |
-| Caret box | itself | 10 × 10px, which is what makes the 17px offset and the straddle arithmetic hold | `size-2.5` |
-| Panel top edge | caret | the rotated diamond straddles it (≈1.93–16.07px against an edge at 6px) | the two offsets above (§5) |
+| Caret box | itself | 10 × 10px untransformed — the value both the 17px horizontal offset and the straddle arithmetic are derived from | `size-2.5` |
+| Caret box | its rotation | rotates about its own CENTRE, which is what both the horizontal centring and the straddle bounds assume | CSS `transform-origin` defaults to `50% 50%` and nothing overrides it; Tailwind's `origin-center` is the explicit spelling. **The row asserting caret centring in §7.4 measures the RESOLVED rect, so it fails if any future `origin-*` class changes this** |
+| Panel top edge | caret | the rotated diamond straddles it (≈1.93–16.07px against an edge at 6px) | ALL of: `top-full`, `mt-1` vs the panel's `mt-1.5`, `size-2.5`, and `rotate-45` about the centre — remove any one and the straddle no longer holds |
 | Row `<button>` | its own content at any height | ≥8px padding on all sides even when the description wraps past 44px | `px-2 py-2` (explicit both axes — see §4.1) |
 | Trigger group root (`relative`) | popover panel | panel right edge === group right edge | `right-0` on the panel |
 | Trigger group root | caret | caret horizontal center === kebab horizontal center | `right-[17px]` on the caret, measured from the same right edge (§5) |
@@ -376,7 +378,9 @@ then "the popover DOES close"); it is corrected below.
 | idle rest → idle hover | `hover:bg-surface-sunken`, `transition-colors duration-fast` |
 | idle rest → idle focus-visible | Instant — focus rings are never animated here |
 | idle focus-visible + hover (compound) | Both apply; ring and background are independent properties, no conflict |
-| idle enabled → idle disabled (reset only, `crew` empties) | Instant. The description text swaps in the SAME beat (`Make everyone pick…` ↔ `No crew to reset yet.`); no crossfade — a silently animated copy swap on a destructive control would be worse than an instant one |
+| idle enabled → idle disabled (reset only, `crew` empties), NOT hovered | Instant. The description text swaps in the same beat (`Make everyone pick…` ↔ `No crew to reset yet.`); no crossfade — a silently animated copy swap on a destructive control would be worse than an instant one |
+| idle enabled → idle disabled WHILE HOVERED | **Not instant.** The applicable background flips from `hover:bg-surface-sunken` to `disabled:hover:bg-transparent`, and `transition-colors duration-fast` animates that change. Accepted: a `duration-fast` fade out of the hover tint as the control becomes unavailable reads as the affordance withdrawing, which is the correct signal. The override decides the TERMINAL background; it does not make the change instantaneous |
+| idle disabled + hovered → idle enabled (crew repopulates under the cursor) | The reverse of the row above, and likewise animated over `duration-fast` — the hover tint fades IN as the control becomes available. Accepted for the same reason |
 | idle disabled + hover | **A `disabled` button DOES still match the CSS hover pseudo-class** — `disabled` blocks activation, not matching. Unguarded, `hover:bg-surface-sunken` would light the disabled reset row and imply an affordance that does not exist. The reset row therefore carries an explicit `disabled:hover:bg-transparent` override; the rest background holds because that override says so, NOT by browser default |
 | idle without banner → idle with success banner | Banner mounts instantly below the row; the `sr-only` live region announces (`app/admin/show/[slug]/PickerResetControl.tsx:178-180`) |
 | idle without banner → idle with error banner | Instant; `role="alert"` |
@@ -465,25 +469,77 @@ the alignment holds at every width.
 
 ## 7. Test plan
 
-### 7.0 Assertion mechanics — binding for every jsdom test below
+### 7.0 Assertion mechanics — a SHARED HELPER, not per-test discipline
 
-Three rules, because round-2 review showed the naive forms are all satisfiable by a wrong
-implementation:
+Three consecutive review rounds found the same class of defect: an assertion form that a
+wrong implementation could still satisfy. Each round patched the instances it found, and
+the next round found more. Per the structural-defense rule, the fix is not another pass of
+instance patches — it is **one shared helper used by every row assertion**, so the rigor is
+structural instead of remembered.
 
-1. **Token-exact, never substring.** Class assertions compare against
-   `el.className.split(/\s+/)` as a Set. `expect(cls).toContain("w-full")` also passes for
-   `sm:w-full` or `max-w-full`; `tokens.has("w-full")` does not.
-2. **"No rest background" is a token predicate, not a regex.** The rule is: no token
-   matches `/^bg-/` (unprefixed). A regex like `/\bbg-(?!surface-sunken)/` was proposed and
-   is REJECTED — it correctly ignores `hover:bg-surface-sunken` but ALSO ignores a bare
-   `bg-surface-sunken`, which is exactly the prohibited rest background. Variant-prefixed
-   tokens (`hover:bg-…`, `disabled:hover:bg-…`) are permitted; unprefixed ones are not.
-3. **Containment + uniqueness, never co-presence.** Asserting "the button's `textContent`
-   contains the description" AND "some element with the `aria-describedby` id contains the
-   description" is satisfiable by an implementation that keeps the OLD external block and
-   duplicates the text inside the button. Every such assertion must therefore prove the
-   `aria-describedby` target is a DESCENDANT OF THE BUTTON, and that the popover contains
-   exactly ONE element rendering that text.
+A NEW module at tests/components/admin/showpage/_rowAssertions.ts (created by Task 2;
+not yet tracked, hence written here as plain prose rather than a citation):
+
+```ts
+/** Class tokens of an element as a Set. NEVER assert against `className`
+ *  directly: `.toContain("w-full")` also passes for `sm:w-full` / `max-w-full`. */
+export const tokensOf = (el: Element): Set<string> =>
+  new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
+
+/** Asserts the element carries every required token, carries NO token matching
+ *  any forbidden pattern, and (when `exactly` is given) carries EXACTLY that
+ *  set and nothing else. `exactly` is what stops a conflicting extra
+ *  such as `items-start` or `w-max` from riding along unnoticed. */
+export function expectClasses(
+  el: Element,
+  spec: { has?: readonly string[]; forbids?: readonly RegExp[]; exactly?: readonly string[] },
+): void {
+  const t = tokensOf(el);
+  for (const c of spec.has ?? []) expect(t, `missing token ${c}`).toContain(c);
+  for (const re of spec.forbids ?? []) {
+    expect([...t].filter((x) => re.test(x)), `forbidden token matching ${re}`).toEqual([]);
+  }
+  if (spec.exactly) expect([...t].sort()).toEqual([...spec.exactly].sort());
+}
+
+/** No UNPREFIXED `bg-*` token. A regex over the whole class string cannot tell
+ *  `hover:bg-surface-sunken` (allowed) from `bg-surface-sunken` (forbidden). */
+export const NO_REST_BACKGROUND = /^bg-/;
+export const NO_BORDER = /^border/;
+
+/** The label/description contract, in ONE place.
+ *  Proves, for a row button: the text is rendered INSIDE the button (not left
+ *  outside in a surviving old block), the `aria-describedby` target is a
+ *  DESCENDANT of the button, and the string appears EXACTLY ONCE in the
+ *  popover, so a duplicate copy fails instead of passing. */
+export function expectRowText(
+  button: HTMLElement,
+  scope: HTMLElement,
+  { label, description }: { label: string; description: string },
+): void {
+  const labelEl = within(button).getByText(label);
+  expect(button.contains(labelEl)).toBe(true);
+  expect(within(scope).getAllByText(label)).toHaveLength(1);
+  expect(button.getAttribute("aria-label")).toBe(label);
+
+  const descEl = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+  expect(descEl).not.toBeNull();
+  expect(button.contains(descEl)).toBe(true);
+  expect(descEl!.textContent).toBe(description); // exact, never .toContain
+  expect(within(scope).getAllByText(description)).toHaveLength(1);
+}
+```
+
+**Binding rules, enforced by using the helper rather than by remembering them:**
+
+1. No test may assert a class via `className.toContain(...)`. Token-exact only.
+2. "No rest background" and "borderless" are `forbids` patterns, never bare regexes over
+   the class string.
+3. Every label/description assertion goes through `expectRowText`, which is the only place
+   the containment + uniqueness + exact-text triple is written.
+4. Every structural class list that this spec pins as complete (the label/description
+   column) uses `exactly`, not `has`.
+
 
 ### 7.1 jsdom (unit) — `tests/components/admin/showpage/shareHub.test.tsx`
 
@@ -499,34 +555,44 @@ claim is proved in §7.4 instead.
    not need one, so an elevation appearing there is a regression against the analysis.
 4. **Both-open ordering.** Open the menu AND the hub; assert the hub root has `z-30` while
    the menu panel has `z-20` (the §3.3 contract; no other test covers it).
+All row assertions below use the §7.0 helper. Where an item says "token set", it means
+`expectClasses`; where it says "label/description contract", it means `expectRowText`.
+
 5. **Rotate row shape.** ONE `<button>` whose token set includes `flex`, `w-full`,
    `items-center`, `gap-2`, `rounded-sm`, `min-h-tap-min`, `px-2`, `py-2`, `text-left`,
    `hover:bg-surface-sunken`, `transition-colors`, `duration-fast`, and all three ring
    tokens (`focus-visible:outline-none`, `focus-visible:ring-2`,
    `focus-visible:ring-focus-ring`); and includes NO token matching `/^border/` and none
    matching `/^bg-/` (rule 7.0.2).
-6. **Rotate row internals.** Exactly one descendant column whose tokens are exactly
-   `flex`, `min-w-0`, `flex-col` (§4.6 — `flex-col` without `flex` establishes no flex
-   context). The `<svg>` has `width` AND `height` `"16"` and tokens `shrink-0`,
-   `text-text-subtle`.
-7. **Rotate a11y binding (rule 7.0.3).** `aria-label` equals the rendered `rowLabel`
-   string. `aria-describedby` resolves to an element that **`rotateButton.contains(...)`
-   returns true for**, whose text is the description. The popover contains exactly ONE
-   element whose text is that description (`getAllByText(...)` has length 1) — this is what
-   makes the old external block's survival a failure rather than a pass.
+6. **Rotate row internals.** Exactly one descendant column, asserted with
+   `exactly: ["flex", "min-w-0", "flex-col"]` — `exactly`, not `has`, so a conflicting
+   extra like `items-start` or `w-max` fails (§4.6: `flex-col` without `flex` establishes
+   no flex formatting context). The `<svg>` has `width` AND `height` `"16"` and tokens
+   `shrink-0`, `text-text-subtle`.
+7. **Rotate label/description contract.** `expectRowText(rotate, popover(), {...})` — one
+   call covering: the label is rendered INSIDE the button, `aria-label` equals it, the
+   `aria-describedby` target is a DESCENDANT of the button, its text matches the
+   description EXACTLY, and both strings appear exactly once in the popover. Uniqueness
+   alone would not catch an implementation that left the label outside and omitted the
+   internal one; containment alone would not catch a surviving duplicate. The helper
+   asserts both, for both strings.
 8. **Old shape is GONE.** No button named exactly `Rotate` in the popover.
 9. **Reset row shape and internals.** Same token set as 5 + 6, PLUS
    `focus-visible:ring-offset-2`, `focus-visible:ring-offset-surface`,
    `disabled:cursor-not-allowed`, `disabled:opacity-60`, and
-   `disabled:hover:bg-transparent` (§4.7). Icon `RefreshCw`, same dimension and token
-   assertions.
-10. **Reset a11y binding.** Same containment + uniqueness assertions as 7, against
-    `"Reset everyone's pick"` and its description. This is a NEW assertion — reset has no
-    wiring today (§4.2).
+   `disabled:hover:bg-transparent` (§4.7). The icon gets the SAME full assertion set as
+   rotate's — `width` and `height` `"16"`, tokens `shrink-0` and `text-text-subtle` — plus
+   an identity check that it is `RefreshCw` and not another glyph (assert the rendered
+   `<svg>`'s `class` carries `lucide-refresh-cw`, the identity Lucide stamps on each icon).
+   Dimension-only assertions would let all three of those regress silently.
+10. **Reset label/description contract.** The same `expectRowText` call, against
+    `"Reset everyone's pick"` and its exact description. This is a NEW assertion — reset
+    has NEITHER attribute today (§4.2), so unlike rotate this one starts red.
 11. **Reset heading removed.** Popover has no `<h4>`; the `Careful` `<h3>` is still there.
-12. **Reset empty-crew guard.** `disabled` is true, the description is
-    `"No crew to reset yet."`, and THAT string is the `aria-describedby` target and is a
-    descendant of the button.
+12. **Reset empty-crew guard.** `disabled` is true, and `expectRowText` passes against
+    the description `"No crew to reset yet."` — the same containment + exactness +
+    uniqueness triple, so the empty-roster copy cannot be duplicated or left outside
+    either.
 13. **Width chain.** Both control wrapper `<div>`s have the `w-full` token (§4.6) — the
     link a button-only assertion misses.
 14. **Row family.** Scope to the popover; for the mailto assertion, first exclude the two
@@ -536,8 +602,9 @@ claim is proved in §7.4 instead.
     `pointer-events-none`; `popover().contains(caret) === false` (the §5 sibling contract);
     and **the caret follows the popover in DOM order** — assert
     `popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING`, which is
-    what actually decides paint order between two `z-40` siblings (§5). Popover still
-    carries `overflow-y-auto` and `max-h-[min(70vh,32rem)]` (proving the withdrawn
+    what actually decides paint order between two `z-40` siblings (§5). The popover's own
+    tokens still include `overflow-y-auto` and `max-h-[min(70vh,32rem)]` — asserted through
+    `expectClasses`, NOT `className.toContain`, per rule 7.0.1 (proving the withdrawn
     outer/inner split did not sneak back). Unmounts with the popover.
 
 ### 7.2 jsdom — the two control test files
