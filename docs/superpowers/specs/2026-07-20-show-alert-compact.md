@@ -3,6 +3,8 @@
 **Date:** 2026-07-20
 **Source design:** claude.ai/design project `16f7daf6-41a8-4c4f-a04c-119bf8dcea3b`, file `Show Alert Compact.dc.html`, iterated with the user to treatment C + G2. Committed mock snapshot: `docs/superpowers/specs/2026-07-20-show-alert-compact-mock/guidance-placement.html` (final iteration; shows the treatment-C detail band and all three guidance-placement options, G2 ratified).
 **Authorization:** user approved design AND autonomous ship-to-merged-PR 2026-07-20 00:55 CDT (AGENTS.md brainstorming gate).
+**Review status:** APPROVED-BY-LADDER, not by a third reviewer verdict. Rounds R1 (11 findings) and R2 (30 findings) both landed and were fully repaired; R3 was dispatched three times in the same inlined form that succeeded for R2 and died silently each time (`no_verdict`, `no_o_file`), as did R2's whole-document and two tight-scope dispatches. Fifteen dispatch attempts in total. Per AGENTS.md ("`status:\"no_verdict\"` → apply the existing skip/self-review ladder"), the spec proceeds on self-review; the whole-diff cross-model review at implementation close-out is the remaining adversarial gate, and it reviews this design as built.
+
 **Review history:** adversarial R1 (11 findings, all verified true, all repaired); class sweep (2 further source-scanning constraints); adversarial R2 inlined (30 findings, repaired by the wholesale rewrite this document now is). R2's whole-document and tight-scope dispatches died silently three times each; the inlined no-tool variant succeeded. Recorded so a later round does not re-derive the dispatch history.
 
 ## 1. Overview
