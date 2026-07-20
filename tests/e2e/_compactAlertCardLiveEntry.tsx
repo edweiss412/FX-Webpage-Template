@@ -146,7 +146,7 @@ function LiveHarness() {
             message="Doug Larson was added with LEAD."
             helpTrigger={
               <CompactAlertHelp
-                helpfulContext="Lead changes must be confirmed on the show page."
+                popoverCopy="Lead changes must be confirmed on the show page."
                 helpHref="/help/errors#X"
                 route="/admin"
                 testId="help-short-400"
@@ -198,7 +198,7 @@ function LiveHarness() {
             message={UNBROKEN_TOKEN}
             helpTrigger={
               <CompactAlertHelp
-                helpfulContext="Context for the token card."
+                popoverCopy="Context for the token card."
                 helpHref={null}
                 route="/admin"
                 testId="help-token-320"

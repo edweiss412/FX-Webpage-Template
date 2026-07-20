@@ -133,7 +133,7 @@ describe("buildHelpPopoverBody — presence matrix (§3.2)", () => {
 
 describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
   const props = {
-    helpfulContext: "Check the sheet's time column.",
+    popoverCopy: "Check the sheet's time column.",
     helpHref: "/help/errors#X",
     route: ADMIN_ROUTE,
     testId: "demo-help",
@@ -141,7 +141,7 @@ describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
 
   test("renders nothing when there is no popover content", () => {
     const { container } = render(
-      <CompactAlertHelp helpfulContext={null} helpHref={null} route={ADMIN_ROUTE} testId="x" />,
+      <CompactAlertHelp popoverCopy={null} helpHref={null} route={ADMIN_ROUTE} testId="x" />,
     );
     expect(container.innerHTML).toBe("");
   });

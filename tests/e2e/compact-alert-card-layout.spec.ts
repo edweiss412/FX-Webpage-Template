@@ -309,6 +309,7 @@ test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
     test(`compact trigger geometry - ${mount} (spec §3.4/§6/§7)`, async ({ page }) => {
       const scope = page.getByTestId(mount);
       const btn = scope.getByTestId(/-trigger$/);
+      const btnId = (await btn.getAttribute("data-testid"))!;
       const box = (await btn.boundingBox())!;
       expect(Math.abs(box.width - 22)).toBeLessThanOrEqual(TOL);
       expect(Math.abs(box.height - 22)).toBeLessThanOrEqual(TOL);
@@ -333,7 +334,7 @@ test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
             document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
           [cx + dx, cy + dy] as const,
         );
-        expect(hit, `probe ${dx},${dy}`).toMatch(/-trigger$/);
+        expect(hit, `probe ${dx},${dy}`).toBe(btnId);
       }
       // glyph centering (spec §6 fixed-dimension parent invariant, rendered)
       const glyph = scope.getByTestId("compact-help-glyph");

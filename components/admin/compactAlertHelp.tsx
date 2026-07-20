@@ -84,7 +84,13 @@ export function buildHelpPopoverBody(input: {
 export type CompactAlertHelpProps = {
   /** Short plain-text subject naming THIS card, for the trigger's accessible name. */
   subject?: string | null;
-  helpfulContext: string | null | undefined;
+  /**
+   * The popover's body copy. Deliberately NOT named after any one catalog
+   * field: AttentionBanner feeds `helpfulContext`, the warning cards feed
+   * `triggerContext` (spec 2026-07-20-warning-card-copy-restore §3.3) - the
+   * leaf renders whatever copy its host surface routes here.
+   */
+  popoverCopy: string | null | undefined;
   helpHref: string | null | undefined;
   /**
    * Route the Learn-more gate is evaluated against. Supplied by the caller
@@ -100,12 +106,12 @@ export type CompactAlertHelpProps = {
 
 export function CompactAlertHelp({
   subject,
-  helpfulContext,
+  popoverCopy,
   helpHref,
   route,
   testId,
 }: CompactAlertHelpProps) {
-  const content = buildHelpPopoverBody({ helpfulContext, helpHref, route });
+  const content = buildHelpPopoverBody({ helpfulContext: popoverCopy, helpHref, route });
   if (content === null) return null;
 
   return (
