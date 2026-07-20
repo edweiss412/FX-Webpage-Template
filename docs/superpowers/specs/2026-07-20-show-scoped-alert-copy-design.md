@@ -218,24 +218,31 @@ Six defenses. Each fails because something is **absent** or **rendered wrong**, 
 4. **Single source for labels, enforced by source scan.** R3 finding 5 is right that an import assertion is vacuous: a component can import the module, ignore it, and reimplement the conditional locally. The test instead **scans the three component sources for the literal strings** `"Mark resolved"`, `"Confirm"`, `"Dismiss"`, `"Resolving…"`, `"Confirming…"`, `"Dismissing…"` and fails on any hit. The labels exist in exactly one module; a local reimplementation cannot avoid writing one of those literals.
 5. **Resolve-intent completeness and lifecycle.** Completeness: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9` — the registry production code cites at `lib/admin/attentionItems.ts:65`; `tests/adminAlerts/adminAlertCodes.fixture.ts:13` is a verified-identical 45-code copy) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`); every member needs an explicit `RESOLVE_INTENTS` row.
 
-   Lifecycle (R3 finding 6; tightened per R4 finding 4, then again per R5 finding 1). Two earlier forms failed:
+   Lifecycle (R3 f6 → R4 f4 → R5 f1 → R6 f1). Three same-tree oracles were tried and all three failed, and R6 identified why in general:
 
-   - "assert no code disappears across the diff" is not executable — a test sees only the final tree.
-   - `keys(RESOLVE_INTENTS) ⊇ RESOLVE_INTENTS_BASELINE` freezes the wrong thing in the wrong direction. R5 finding 1 is right on both counts: a new code can enter the map without ever entering the baseline (so a later deletion of *both* passes), and a baselined code's **intent value** can be flipped from `"confirm"` to `"resolve"` while the key-only superset still holds. Either path produces exactly the regression the defense claims to prevent: a persisted historical row silently reverting to "Mark resolved".
+   - "assert no code disappears across the diff" — a test sees only the final tree.
+   - key-only superset against a baseline — an unbaselined code can be added then deleted, and a baselined code's intent can be flipped.
+   - exact pair-equality against a baseline — **one commit can edit the map and the baseline together**, so equality still passes while the pair changes or vanishes.
 
-   The oracle is therefore **exact equality over pairs**, not a superset over keys:
+   R6 finding 1 is correct, and it generalizes: **no assertion computed from a single tree can enforce an append-only property**, because the "previous" state it must compare against is not present in that tree. Any in-tree baseline is just a second file the same commit can edit. Continuing to refine the equality is the wrong move; the oracle needs a different input.
+
+   **The check is history-aware.** It reads the previous baseline from git rather than from the working tree:
 
    ```
-   RESOLVE_INTENTS  ==  RESOLVE_INTENTS_BASELINE      // same key set AND same intent per key
+   prev = git show origin/main:tests/adminAlerts/resolveIntentsBaseline.ts
+   assert: for every (code, intent) in prev  →  RESOLVE_INTENTS has code with the SAME intent
    ```
 
-   `RESOLVE_INTENTS_BASELINE` is a committed frozen map of every `code → intent` the map has ever held. Consequences, each closing one of R5's paths:
+   A commit can now edit both files freely and still fail, because `prev` comes from a tree that commit cannot rewrite. Deleting a row, flipping an intent, or dropping a code alongside its producer all fail against `origin/main`. Adding is unrestricted.
 
-   - **Adding** a code fails until the baseline gains the same entry in the same commit, so nothing can enter the map unbaselined.
-   - **Deleting** a code fails against the baseline regardless of what happened to the producer registry.
-   - **Changing** an intent fails, because the pair no longer matches. A deliberate re-classification is then an explicit two-line edit whose diff shows a user-visible label change on already-persisted rows — which is the point.
+   Two-layer availability, following the `validation-schema-parity` precedent in this repo:
 
-   Retiring a producer means setting `retired: true` on the entry, which preserves both key and intent, so historical rows keep rendering "Confirm". The baseline only grows, and growing it is always the same commit that grows the map.
+   - **Layer 1 (always):** current-tree consistency — `RESOLVE_INTENTS` and the committed baseline agree exactly. Runs everywhere, catches the ordinary mistake of updating one and not the other.
+   - **Layer 2 (history):** the `origin/main` comparison above. Skips with an explicit logged reason when no git history is reachable (a shallow or detached checkout); **required** in CI, where full history is fetched. A skipped Layer 2 is never silent.
+
+   Retiring a producer means setting `retired: true`, which preserves both key and intent, so persisted historical rows keep rendering "Confirm".
+
+   **Residual risk, stated honestly:** an author who deliberately edits the map, the baseline, and force-pushes over `origin/main` history defeats this, as they defeat every CI gate. That is out of scope for a test; it is what review is for. What the gate closes is the realistic failure — retiring a producer and cleaning up "unused" map entries without realizing persisted rows still render them.
 
 6. **Single-caller topology.** Asserts `safeDougFacingTemplate` has exactly one caller (`deriveAttentionItems`) and `deriveAttentionItems` exactly one caller (`app/admin/_showReviewModal.tsx`), per §3.5. A second caller fails immediately, forcing an explicit scope decision instead of silently inheriting show copy.
 
