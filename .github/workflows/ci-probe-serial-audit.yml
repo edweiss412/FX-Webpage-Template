@@ -70,3 +70,35 @@ jobs:
         with:
           name: serial-audit
           path: serial-audit.json
+
+  serial-audit-withdb:
+    name: serial-audit-withdb (control — same run WITH a database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.107.0
+      - name: Install psql
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      # The CONTROL for the no-DB job. "Passed without a database" is not evidence
+      # a file is DB-free: 66 files in the first run passed while executing ZERO
+      # tests, because they SKIP when no DB is reachable, and 230 more assertions
+      # were skipped inside otherwise-passing files. Only a per-file comparison of
+      # PASSING ASSERTION COUNTS distinguishes "does not need a DB" from "quietly
+      # did nothing". Same flags as the no-DB job so the two are comparable.
+      - name: Run the serial project WITH a database, files in parallel
+        env:
+          VITEST_EXCLUDE_ENV_BOUND: "1"
+        run: |
+          pnpm exec vitest run --project=serial --fileParallelism \
+            --reporter=json --outputFile=serial-withdb.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: serial-withdb
+          path: serial-withdb.json
