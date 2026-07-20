@@ -24,7 +24,8 @@
 
 - EXTENDS `tests/app/admin/showReviewModalLoader.test.tsx` (loader behavior).
 - EXTENDS `tests/admin/_showReviewReadPathPin.test.ts` (new single-caller pin for `viewer_version_token` in the loader + never-cached source pin).
-- EXTENDS `tests/admin/_metaInfraContract.test.ts` — a `readBridgeVersionToken` registry row (spec §8.3; Task 1 Step 6).
+- EXTENDS `tests/admin/_metaInfraContract.test.ts` — a `readBridgeVersionToken` registry row (spec §8.3; Task 1 Step 3 red set).
+- CREATES `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` — structural pin for the realtime CI wiring (Task 5; fallback variant on the NOT_DRIVABLE branch).
 - EXTENDS `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES`.
 - Advisory locks: NOT touched (spec §9 declaration; no `pg_advisory*` anywhere in the diff).
 
@@ -266,8 +267,23 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
   });
 ```
 
-Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx -t "realtime bridge"` AND `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts`
-Expected: **9 of the 10 new loader tests FAIL** (ok/args, returned-error, throw, success-null, number-coercion, read-order settlement, and all three lifecycle tests — no bridge in tree, no `versionToken` in `readOrder`, no log emit; the fault cases fail on the LOG assertion even though `bridgeChild` is already null), AND the **single-caller pin FAILS** (`toHaveLength(1)` vs 0 matches — the rpc call doesn't exist yet). Two vacuous-passes pre-implementation, each with an explicit later proof: the **child-order-stability test** (both renders identically bridge-less; broken-and-proven in Step 9) and the **never-cached pin** (no cache import exists yet; broken-and-proven in Step 9).
+**And add the invariant-9 registry row NOW — it is also red-first (round-7 F1).** In `tests/admin/_metaInfraContract.test.ts`, append to `infraRegistry` (spec §8.3 — MANDATORY, not conditional):
+
+```ts
+  {
+    // Realtime-refresh (2026-07-19): the modal loader's viewer_version_token
+    // fence read for the ShowRealtimeBridge mount.
+    helper: "readBridgeVersionToken",
+    path: "app/admin/_showReviewModal.tsx",
+    contract:
+      "viewer_version_token rpc ({ data, error } destructure); returned {error} AND thrown await are distinct paths, BOTH emit ADMIN_SHOW_VERSION_TOKEN_READ_FAILED (source admin.show, slug, showId, error) and return null → the loader renders WITHOUT the bridge (fail-open, realtime-refresh spec §4.2); recovery on any later loader re-run. Closure (not importable) — behavioral coverage lives in tests/app/admin/showReviewModalLoader.test.tsx's returned-error/throw cases.",
+  },
+```
+
+The registry gives every row a "helper exists" grep against its `path` (file header contract, `tests/admin/_metaInfraContract.test.ts`: "the helper is grep-visible in the path it claims to live at"); `readBridgeVersionToken` does not exist in the loader yet, so this row FAILS red-first — Step 4's implementation is what turns it green. (`readBridgeVersionToken` is a loader-scoped closure, not importable, so the registry's optional behavioral assertion does not apply; the loader suite's returned-error/throw tests are the behavioral coverage, as several existing rows already note for their non-importable helpers.)
+
+Run: `pnpm vitest run tests/app/admin/showReviewModalLoader.test.tsx -t "realtime bridge"` AND `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts` AND `pnpm vitest run tests/admin/_metaInfraContract.test.ts`
+Expected: **9 of the 10 new loader tests FAIL** (ok/args, returned-error, throw, success-null, number-coercion, read-order settlement, and all three lifecycle tests — no bridge in tree, no `versionToken` in `readOrder`, no log emit; the fault cases fail on the LOG assertion even though `bridgeChild` is already null), the **single-caller pin FAILS** (`toHaveLength(1)` vs 0 matches — the rpc call doesn't exist yet), AND the **new infraRegistry row FAILS** its helper-exists grep (`readBridgeVersionToken` absent from the loader). Two vacuous-passes pre-implementation, each with an explicit later proof: the **child-order-stability test** (both renders identically bridge-less; broken-and-proven in Step 9) and the **never-cached pin** (no cache import exists yet; broken-and-proven in Step 9).
 
 - [ ] **Step 4: Implement in `app/admin/_showReviewModal.tsx`.**
 
@@ -338,20 +354,7 @@ In the return, inside `ShareTokenProvider`, AFTER `<PublishedReviewModal …/>` 
   "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
 ```
 
-- [ ] **Step 6: Add the invariant-9 registry row (spec §8.3 — MANDATORY, not conditional).** In `tests/admin/_metaInfraContract.test.ts`, append to `infraRegistry`:
-
-```ts
-  {
-    // Realtime-refresh (2026-07-19): the modal loader's viewer_version_token
-    // fence read for the ShowRealtimeBridge mount.
-    helper: "readBridgeVersionToken",
-    path: "app/admin/_showReviewModal.tsx",
-    contract:
-      "viewer_version_token rpc ({ data, error } destructure); returned {error} AND thrown await are distinct paths, BOTH emit ADMIN_SHOW_VERSION_TOKEN_READ_FAILED (source admin.show, slug, showId, error) and return null → the loader renders WITHOUT the bridge (fail-open, realtime-refresh spec §4.2); recovery on any later loader re-run",
-  },
-```
-
-Follow the registry's existing per-row assertion pattern (a "helper exists" grep against the path; behavioral coverage lives in the loader suite's returned-error/throw tests from Step 2 — reference them if the registry's row schema wants a pointer).
+- [ ] **Step 6: (FOLDED INTO STEP 3.)** The invariant-9 registry row is written in Step 3's red set — its helper-exists grep genuinely fails before Step 4 implements the closure (round-7 F1: failing-test-first, not rename-after-commit).
 
 - [ ] **Step 7: Green.**
 
@@ -369,7 +372,7 @@ git commit --no-verify -m "feat(admin): mount realtime bridge in show-review mod
 
 1. Child-order-stability + "bridge rendered LAST" (the Step-3 vacuous-pass): temporarily swap the ORDER of the two children — move the ENTIRE `{versionToken !== null ? (…) : null}` conditional block ABOVE `<PublishedReviewModal …/>` (a complete, syntactically valid JSX reorder — never delete just the inner element, which leaves an empty ternary branch and fails the BUILD instead of the test) → rerun → both must FAIL behaviorally → `git checkout -- app/admin/_showReviewModal.tsx`.
 2. Never-cached pin (the other Step-3 vacuous-pass): temporarily add `import { unstable_cache } from "next/cache";` to the loader → `pnpm vitest run tests/admin/_showReviewReadPathPin.test.ts` → the pin must FAIL on the import scan → revert. Then temporarily duplicate the `.rpc("viewer_version_token"` line → rerun → the single-caller pin must FAIL → revert.
-3. Invariant-9 row (Step 6): temporarily rename the loader closure `readBridgeVersionToken` → `readBridgeVersionTokenX` → run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` → the row's helper-exists grep must FAIL → revert.
+3. Invariant-9 row (Step 3 red set — this check is belt-and-braces on top of its proven red phase): temporarily rename the loader closure `readBridgeVersionToken` → `readBridgeVersionTokenX` → run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` → the row's helper-exists grep must FAIL → revert.
 4. Forensic-code row (Step 5) — **enforcement character stated honestly (verified this session):** `NEW_FORENSIC_CODES` is consumed ONLY as a LEAK-GUARD (`tests/log/_metaAdminOutcomeContract.test.ts:69-73` — asserts these codes stay OUT of the §12.4 producer scan); deleting the row fails nothing, so there is NO meaningful delete-the-row negative verification and the plan does not pretend one. The row is the established convention registration (peers `ADMIN_SHOW_LOOKUP_FAILED`, `ADMIN_SHOW_TOKEN_READ_FAILED` are registered the same way) plus the leak-guard. The EMIT's enforcement is the loader suite's log-spy assertions, whose red phase Step 3 already proved.
 
 ---
@@ -384,22 +387,152 @@ The two read-path pins (single-caller, never-cached) are written in Task 1's RED
 
 **Files:**
 
+- Create: `tests/e2e/_realtimeDrivabilityProbe.ts` (the spike's executable probe — full code in Step 2)
 - Create: `tests/e2e/helpers/realtimeOracle.ts` (constants + frame predicates, values filled from measurement)
 
 This is the spec-§1.1-ratified empirical spike. Requirements are fixed (spec §8.4); this task measures the constants and proves drivability. **TDD note (declared):** a spike produces measurement artifacts, not behavior — there is no failing test to write first; its output is consumed by Task 4's tests, and the drivable/not-drivable outcome selects which Task-4 branch runs. **The Step-5 commit fires ONLY on the drivable outcome** (the constants/predicates are derived from observed frames); on the fallback outcome there are no frames to derive from — skip Step 4/5 entirely and jump to the fallback branch below, whose own files carry the commit.
 
-- [ ] **Step 1: Boot the stack.** `supabase start` (if not running) + `pnpm dev` (port 3000 free — check `lsof -iTCP:3000 -sTCP:LISTEN`; if a sibling worktree owns it, use an alt port config per the sibling-dev-server lesson).
-
-- [ ] **Step 2: Drivability probe.** Seed a show (`pnpm tsx` one-off using `tests/e2e/helpers/seedShowWithCrew.ts`), then in a Playwright headed script: **install `page.on("websocket", …)` (framereceived + framesent + close/error) AND the `?show=`/`/version` request listeners BEFORE `page.goto`** — the probe's whole purpose is capturing the initial join reply and the join→`/version` timing, both of which a late listener misses. Then `page.goto` `http://localhost:3000/admin?show=<slug>` (sign in via the `signInAs` helper pattern), and from a second terminal:
+- [ ] **Step 1: Boot the stack.** `supabase start` (if not running), then boot the dev server on a free port 3000 (`lsof -iTCP:3000 -sTCP:LISTEN` must be empty; if a sibling worktree owns it, use an alt port + set `PLAYWRIGHT_BASE_URL` for the probe per the sibling-dev-server lesson) **with the test-auth env** — the probe signs in via `signInAs`, which needs `ENABLE_TEST_AUTH` + `TEST_AUTH_SECRET` on the server. Use the exact env prefix of the config's :3000 webServer local command (`playwright.config.ts:233-236`):
 
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -c "update crew_members set role = 'Probe Role X' where show_id = '<showId>' and name = '<name>';"
+JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1
 ```
 
-Observe: (a) the websocket frames in the probe script (`page.on("websocket", ws => ws.on("framereceived", …))`) — record the EXACT join-reply and invalidation frame shapes for the `show:<id>:invalidation` topic; (b) whether the modal's row text updates without navigation. Record both raw frames in the spike log (step 4).
+- [ ] **Step 2: Write the probe script** at `tests/e2e/_realtimeDrivabilityProbe.ts` — complete, self-contained, committed with the oracle in Step 5 (round-7 F3: the spike's execution is fully specified, no ad-hoc one-offs). It seeds, signs in, records frames/requests with listeners installed BEFORE `goto`, mutates in-process via the service-role client, prints the raw frames + timing summary, and ends with a single machine-readable `PROBE RESULT: DRIVABLE|NOT_DRIVABLE` line — that line IS the branch selector:
 
-- [ ] **Step 3: Measure timings.** From the probe run, record: time from `phx_reply ok` to the catch-up `/version` response; time from DB commit to invalidation frame; time from frame to the `?show=` RSC request (should be ~100ms debounce + dispatch). Set `QUIET_WINDOW_MS = max(250, ceil(1.5 × observed debounce-to-dispatch))`.
+```ts
+/**
+ * tests/e2e/_realtimeDrivabilityProbe.ts — realtime-refresh plan Task 3 spike.
+ *
+ * Standalone script (NOT a Playwright test): opens /admin?show=<slug> in a real
+ * browser, records the realtime websocket frames + the ?show=/version requests
+ * around a service-role crew_members.role UPDATE, prints raw frames + timings,
+ * and ends with `PROBE RESULT: DRIVABLE` or `PROBE RESULT: NOT_DRIVABLE`.
+ * DRIVABLE ⇔ a broadcast frame on realtime:show:<id>:invalidation arrives
+ * within FRAME_WAIT_MS of the UPDATE — selects Task 4 as written; otherwise
+ * the Task-3 fallback branch runs.
+ *
+ * Prereqs: supabase local running; Step-1 dev server (test-auth env) on :3000;
+ * .env.local sourced into THIS process (standalone scripts don't auto-load it).
+ *
+ * Run:
+ *   set -a && source .env.local && set +a && pnpm tsx tests/e2e/_realtimeDrivabilityProbe.ts
+ */
+import { chromium } from "@playwright/test";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs } from "./helpers/signInAs";
+import { seedShowWithCrew, deleteSeededShow } from "./helpers/seedShowWithCrew";
+import { admin } from "./helpers/supabaseAdmin";
+
+const BASE = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+const JOIN_WAIT_MS = 30_000; // give hydration + socket join this long before declaring no-join
+const QUIESCE_MS = 3_000; // settle window after join before mutating
+const FRAME_WAIT_MS = 10_000; // NOT_DRIVABLE if no invalidation frame within this window post-commit
+
+type Stamped = { at: number; text: string };
+
+async function poll<T>(fn: () => T | undefined, timeoutMs: number, stepMs = 100): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const v = fn();
+    if (v !== undefined) return v;
+    if (Date.now() > deadline) return undefined;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+}
+
+async function main(): Promise<void> {
+  const seeded = await seedShowWithCrew({});
+  const target = seeded.crew[0];
+  if (!target) throw new Error("probe: seedShowWithCrew({}) returned an empty roster");
+  const topic = `realtime:show:${seeded.showId}:invalidation`;
+  const browser = await chromium.launch({ headless: false });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    const frames: Stamped[] = [];
+    const socketEvents: Stamped[] = [];
+    const requests: Stamped[] = [];
+    // Listeners BEFORE goto — the socket opens during hydration; a late
+    // listener misses the join reply and the join→/version timing.
+    page.on("websocket", (ws) => {
+      socketEvents.push({ at: Date.now(), text: `open ${ws.url()}` });
+      ws.on("framereceived", (f) => frames.push({ at: Date.now(), text: String(f.payload) }));
+      ws.on("framesent", (f) => frames.push({ at: Date.now(), text: `SENT ${String(f.payload)}` }));
+      ws.on("close", () => socketEvents.push({ at: Date.now(), text: "close" }));
+      ws.on("socketerror", (e) => socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }));
+    });
+    page.on("request", (r) => {
+      const u = new URL(r.url());
+      if (u.searchParams.get("show") === seeded.slug || u.pathname.endsWith("/version")) {
+        requests.push({ at: Date.now(), text: `${r.method()} ${u.pathname}${u.search}` });
+      }
+    });
+    page.on("response", (r) => {
+      const u = new URL(r.url());
+      if (u.searchParams.get("show") === seeded.slug || u.pathname.endsWith("/version")) {
+        requests.push({ at: Date.now(), text: `RESP ${r.status()} ${u.pathname}${u.search}` });
+      }
+    });
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.goto(`${BASE}/admin?show=${seeded.slug}`);
+    const join = await poll(
+      () => frames.find((f) => !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("phx_reply")),
+      JOIN_WAIT_MS,
+    );
+    if (!join) {
+      console.log(`no join reply on ${topic} within ${JOIN_WAIT_MS}ms — socket events:`, socketEvents);
+      console.log("PROBE RESULT: NOT_DRIVABLE");
+      return;
+    }
+    await new Promise((r) => setTimeout(r, QUIESCE_MS));
+    const commitAt = Date.now();
+    const { error } = await admin
+      .from("crew_members")
+      .update({ role: "Probe Role Realtime" })
+      .eq("id", target.id);
+    if (error) throw new Error(`probe mutation failed: ${error.message}`);
+    const inval = await poll(
+      () =>
+        frames.find(
+          (f) => f.at > commitAt && !f.text.startsWith("SENT") && f.text.includes(topic) && f.text.includes("broadcast"),
+        ),
+      FRAME_WAIT_MS,
+    );
+    // Let the debounced refresh land, then check the row text swapped in place.
+    await new Promise((r) => setTimeout(r, 3_000));
+    const roleVisible = await page.getByText("Probe Role Realtime").count();
+    console.log("=== RAW TOPIC FRAMES ===");
+    for (const f of frames.filter((x) => x.text.includes(topic))) console.log(f.at, f.text);
+    console.log("=== REQUESTS (?show= + /version) ===");
+    for (const r of requests) console.log(r.at, r.text);
+    console.log("=== TIMINGS (ms) ===");
+    console.log("join reply at:", join.at);
+    console.log("commit at:", commitAt, "| commit→frame:", inval ? inval.at - commitAt : "NO FRAME");
+    const rsc = requests.find((r) => inval && r.at > inval.at && r.text.includes(`show=${seeded.slug}`));
+    console.log("frame→?show= request:", rsc && inval ? rsc.at - inval.at : "NONE OBSERVED");
+    console.log("new role visible in modal:", roleVisible > 0);
+    console.log(`PROBE RESULT: ${inval ? "DRIVABLE" : "NOT_DRIVABLE"}`);
+  } finally {
+    await deleteSeededShow(seeded.driveFileId);
+    await browser.close();
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+```
+
+(Import shapes verified against the live prefetch spec: `signInAs(page, ADMIN_FIXTURE)` from `./helpers/signInAs` + `./helpers/fixtures`, `seedShowWithCrew({})`/`deleteSeededShow(driveFileId)` from `./helpers/seedShowWithCrew` — `published-review-modal.prefetch.spec.ts:14-17,43,78`; `admin` service-role client from `./helpers/supabaseAdmin` (fact 22); `SeededShow.crew[n].id/.name/.role` from `seedShowWithCrew.ts:83-90,171-181`.)
+
+- [ ] **Step 3: Run the probe + measure.**
+
+```bash
+set -a && source .env.local && set +a && pnpm tsx tests/e2e/_realtimeDrivabilityProbe.ts
+```
+
+From the printed summary record: time from `phx_reply ok` to the catch-up `/version` response; commit→invalidation-frame; frame→`?show=` RSC request (should be ~100ms debounce + dispatch). Set `QUIET_WINDOW_MS = max(250, ceil(1.5 × observed frame→request))`. The final `PROBE RESULT:` line selects the branch: `DRIVABLE` → Steps 4–5 + Task 4/5 as written; `NOT_DRIVABLE` → skip Steps 4–5, run the fallback branch below.
 
 - [ ] **Step 4: Write `tests/e2e/helpers/realtimeOracle.ts`** with the measured values:
 
@@ -459,14 +592,17 @@ Adjust the two predicates to the ACTUAL observed frame shapes — the shapes abo
 - **Bundle invocation + serving (deterministic):** the SPEC's `beforeAll` spawns the bundler out-of-process — `execFileSync(node, ["tests/e2e/_realtimeBridgeBundle.mjs", outDir])` where `outDir` is a `mkdtempSync` temp dir (the exact spawn pattern of the layout harness, `published-review-modal.layout.spec.ts:103-116`). The bundler writes `<outDir>/bundle.js` (esbuild output) and `<outDir>/index.html` (`<div id="root"></div><script src="./bundle.js"></script>`); the test `page.goto(pathToFileURL(join(outDir, "index.html")).href)`. No web server, no gitignore concerns (temp dir).
 - Conduction spec TDD (executable, alias-attributable): commit sequence is spec + entry + bundler WITHOUT the two alias entries first. Red: `pnpm exec playwright test --project=desktop-chromium tests/e2e/realtime-bridge-conduction.spec.ts` → FAIL (`window.__driveInvalidation` undefined — the un-aliased bundle imports the REAL `@/lib/supabase/browser`, which throws on missing env / never defines the hook). Green: add the two alias entries to `_realtimeBridgeBundle.mjs`, rerun the SAME command → PASS. The delta between red and green is exactly the aliases. Assertions: (a) `__driveInvalidation` burst of 8 within 50ms → exactly ONE `__refreshCount` increment, ≥100ms after the last call (REAL bridge debounce conducted it — never call refresh directly); (b) two invalidations 300ms apart → two increments (negative regression, mirrors the bridge's pinned debounce tests).
 - Reconcile-invariants test TDD (executable): append the test to `published-review-modal.interactions.spec.ts` driving a REAL app-owned reconcile (the ignore-warning server action that spec already exercises) with the §4.4 1–4 + skeleton + geometry oracles. Red-phase equivalence: run once (`pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts -g "reconcile invariants"`); if green on first run, perform ONE negative verification — inside a throwaway copy of the test, programmatically `scroller.scrollTop = 0` mid-window and assert the scrollTop oracle FAILS — then delete the throwaway; commit.
-- Commits: `test(admin): realtime bridge conduction harness (local realtime not drivable)`, then `test(admin): modal reconcile invariants over action revalidation`, then `infra: wire conduction harness into published-modal-e2e`. PR body records the drivability finding verbatim.
+- **Fallback CI wiring red phase (same discipline as Task 5, round-7 F2):** before editing the YAML, write `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` with the fallback's assertions — the conduction spec anchored to the `playwright test` run line (`/playwright test[^\n]*realtime-bridge-conduction\.spec\.ts/`), plus path-filter pins for `tests/e2e/_realtimeBridgeBundle.mjs` and `tests/e2e/_stubs/` (regex `/-\s*"tests\/e2e\/_realtimeBridgeBundle\.mjs"/` etc.); run it red (`pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` — all fail), then edit the YAML, rerun green, and commit test + YAML together in the `infra:` commit below. No `MODAL_REALTIME_E2E` assertion on this branch (the gate does not exist here).
+- Commits: `test(admin): realtime bridge conduction harness (local realtime not drivable)` (includes `tests/e2e/_realtimeDrivabilityProbe.ts` — the branch-selection evidence), then `test(admin): modal reconcile invariants over action revalidation`, then `infra: wire conduction harness into published-modal-e2e` (includes the wiring pin test). PR body records the drivability finding verbatim.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add tests/e2e/helpers/realtimeOracle.ts
+git add tests/e2e/_realtimeDrivabilityProbe.ts tests/e2e/helpers/realtimeOracle.ts
 git commit --no-verify -m "test(admin): realtime e2e oracle constants from drivability spike"
 ```
+
+(On the NOT_DRIVABLE outcome the probe file still gets committed — it is the recorded evidence for the branch selection — as the first commit of the fallback branch: `git add tests/e2e/_realtimeDrivabilityProbe.ts` folded into the conduction-harness commit.)
 
 ---
 
@@ -509,24 +645,25 @@ Write the full code for each phase — the prefetch spec is the style/harness re
 
 - [ ] **Step 3: Register in `playwright.config.ts`** — extend the desktop-chromium `testMatch` regex alternation: `published-review-modal\.prefetch` → `published-review-modal\.prefetch|published-review-modal\.realtime`.
 
-- [ ] **Step 4: Red-phase proof (the e2e is an acceptance test — prove it can fail on the defect it exists to catch).** Task 1's mount is COMMITTED, so stashing does nothing — instead make a temporary uncommitted breakage: edit `app/admin/_showReviewModal.tsx` and replace the ENTIRE `{versionToken !== null ? (…) : null}` conditional block with `{null}` (a complete, valid JSX expression — deleting only the inner element would leave an empty ternary branch and fail the BUILD, proving nothing), rebuild, run the spec:
+- [ ] **Step 4: Red-phase proof (the e2e is an acceptance test — prove it can fail on the defect it exists to catch).** Task 1's mount is COMMITTED, so stashing does nothing — instead make a temporary uncommitted breakage: edit `app/admin/_showReviewModal.tsx` and replace the ENTIRE `{versionToken !== null ? (…) : null}` conditional block with `{null}` (a complete, valid JSX expression — deleting only the inner element would leave an empty ternary branch and fail the BUILD, proving nothing), then run the spec the way CI does — **the config's own :3000 webServer builds and serves the prod artifact; never build out-of-band** (round-7 F4: a manually-built alternate `NEXT_DIST_DIR` is never what the webServer serves):
 
 ```bash
 # (manual edit: replace the bridge conditional block with {null} in the loader return)
-NEXT_DIST_DIR=.next-realtime-probe CI=true pnpm build
-MODAL_REALTIME_E2E=1 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.realtime.spec.ts
+lsof -iTCP:3000 -sTCP:LISTEN   # MUST be empty — CI mode disables reuseExistingServer and boots its own server
+CI=true BASELINE_SERVER_ONLY=1 MODAL_REALTIME_E2E=1 pnpm exec playwright test --retries=0 --project=desktop-chromium tests/e2e/published-review-modal.realtime.spec.ts
 ```
+
+`CI=true` flips the :3000 baseline webServer entry to `pnpm build && pnpm start -H 127.0.0.1` (prod build+serve, `playwright.config.ts:233-236`) — so the uncommitted `{null}` edit is exactly what gets built and served; `BASELINE_SERVER_ONLY=1` boots ONLY the :3000 entry (filter at `playwright.config.ts:386-388` — the same env `published-modal-e2e.yml` already sets); `--retries=0` overrides CI-mode's `retries: 2` so the red run fails once, crisply. (The CI-mode build lands in the default `.next`, clobbering any dev artifact — accepted; the next `pnpm dev` rebuilds.)
 
 Expected: FAIL BEHAVIORALLY (build succeeds; no bridge → no subscription → gate 2 times out waiting for the join reply). Restore with `git checkout -- app/admin/_showReviewModal.tsx` (the breakage was never staged or committed).
 
-- [ ] **Step 5: Green run against a prod server.**
+- [ ] **Step 5: Green run against the same CI-mode prod server.**
 
 ```bash
-NEXT_DIST_DIR=.next-realtime-probe CI=true pnpm build   # prod build (prefetch/refresh behavior real)
-MODAL_REALTIME_E2E=1 pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.realtime.spec.ts
+CI=true BASELINE_SERVER_ONLY=1 MODAL_REALTIME_E2E=1 pnpm exec playwright test --retries=0 --project=desktop-chromium tests/e2e/published-review-modal.realtime.spec.ts
 ```
 
-Expected: PASS. (The dev server is NOT sufficient — the open-refresh + RSC behavior must be prod. If port 3000 is contested by a sibling worktree, use the scratch alt-port config lesson.)
+Expected: PASS (`--retries=0` kept — a first-attempt local pass, not a retry-masked one; CI itself runs with its own retry budget). The dev server is NOT sufficient — the open-refresh + RSC behavior must be prod, which is exactly what the CI-mode webServer serves. If port 3000 is contested by a sibling worktree, free it or use the scratch alt-port config lesson.
 
 - [ ] **Step 6: Commit.**
 
@@ -537,22 +674,63 @@ git commit --no-verify -m "test(admin): realtime broadcast e2e for the published
 
 ---
 
-### Task 5: CI wiring — join `published-modal-e2e.yml`
+### Task 5: CI wiring — join `published-modal-e2e.yml` (red-first via a structural workflow pin)
 
 **Files:**
 
+- Create: `tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts` (the failing test — round-7 F2: workflow wiring gets an executable red phase, not just the Task-7 real-CI proof)
 - Modify: `.github/workflows/published-modal-e2e.yml`
 
-- [ ] **Step 1: Add the env gate** next to `MODAL_PREFETCH_E2E: "1"`:
+- [ ] **Step 1: Write the failing structural pin test.** String-match idiom per the established workflow guards (`tests/cross-cutting/ci-workflow-speedup.test.ts:1-17` — `readFileSync` on `.github/workflows/*.yml`, no yaml dependency; runs in `pnpm test` like its cross-cutting peers):
+
+```ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+// Realtime-refresh plan Task 5: the realtime e2e's CI gate is DARK unless all
+// three wiring points exist in published-modal-e2e.yml — a green workflow
+// whose run line lacks the spec is the green-without-running failure mode
+// (round-6 F5). This pin is the wiring's red phase (written BEFORE the YAML
+// edit) and its structural guard afterward. Idiom per ci-workflow-speedup.
+const WORKFLOW = readFileSync(
+  join(process.cwd(), ".github", "workflows", "published-modal-e2e.yml"),
+  "utf8",
+);
+
+describe("published-modal-e2e realtime wiring", () => {
+  it("sets the MODAL_REALTIME_E2E env gate (the spec self-skips without it)", () => {
+    expect(WORKFLOW).toMatch(/MODAL_REALTIME_E2E:\s*"1"/);
+  });
+
+  it("lists the realtime spec on the playwright RUN LINE (not merely in path filters)", () => {
+    // Anchored to the `playwright test` invocation so a path-filter entry
+    // alone can never satisfy it.
+    expect(WORKFLOW).toMatch(/playwright test[^\n]*published-review-modal\.realtime\.spec\.ts/);
+  });
+
+  it("path-filters on the bridge component so bridge edits re-run the gate", () => {
+    expect(WORKFLOW).toMatch(/-\s*"components\/realtime\/ShowRealtimeBridge\.tsx"/);
+  });
+});
+```
+
+(If the run line is later wrapped across YAML lines, widen the run-line regex to match the wrapped form at implementation time — the anchor stays "the playwright invocation", never a bare `toContain` that a path filter would satisfy.)
+
+- [ ] **Step 2: Run it — verify red.**
+
+Run: `pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts`
+Expected: **all 3 FAIL** (none of the wiring exists in the workflow yet).
+
+- [ ] **Step 3: Edit the workflow.** (a) Add the env gate next to `MODAL_PREFETCH_E2E: "1"`:
 
 ```yaml
       # Realtime-refresh spec §8 CI wiring: the realtime e2e self-skips without it.
       MODAL_REALTIME_E2E: "1"
 ```
 
-- [ ] **Step 2: Add the spec to the run line** (append to the existing `playwright test` file list): `tests/e2e/published-review-modal.realtime.spec.ts`.
-
-- [ ] **Step 3: Add path filters** under `on.pull_request.paths`:
+(b) Append `tests/e2e/published-review-modal.realtime.spec.ts` to the existing `playwright test` file list on the run line. (c) Add path filters under `on.pull_request.paths`:
 
 ```yaml
       - "components/realtime/ShowRealtimeBridge.tsx"
@@ -561,11 +739,12 @@ git commit --no-verify -m "test(admin): realtime broadcast e2e for the published
 
 (`app/admin/_showReviewModal.tsx`, `playwright.config.ts`, `tests/e2e/helpers/**` are already listed.)
 
-- [ ] **Step 4: Validate + commit.** (TDD note, declared: workflow YAML carries no unit-testable behavior; its red→green proof IS the real-CI run in Task 7 Step 3 — the workflow must trigger on this PR's paths and pass.)
+- [ ] **Step 4: Green + commit (pin test and YAML land together).** The pin proves the wiring EXISTS; the Task-7 real-CI log proof remains the integration-level check that the wiring EXECUTES (both are required — neither subsumes the other).
 
 ```bash
+pnpm vitest run tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts   # all 3 PASS
 pnpm exec prettier --check .github/workflows/published-modal-e2e.yml
-git add .github/workflows/published-modal-e2e.yml
+git add tests/cross-cutting/published-modal-e2e-realtime-wiring.test.ts .github/workflows/published-modal-e2e.yml
 git commit --no-verify -m "infra: run realtime modal e2e in published-modal-e2e workflow"
 ```
 
@@ -624,6 +803,6 @@ Then set the ship marker `stage: "done"` and `CronDelete` the nudge job.
 
 - **Layout-dimensions task:** N/A — no fixed-dimension parent changes (bridge renders null).
 - **Transition-audit task:** N/A — no visual states added; modal transition pin untouched.
-- **Anti-tautology:** Task 2 step 3 is an explicit negative verification; Task 4's oracle carries the spec's attribution gates (quiescence, join-reply, no-/version assertion), row-scoped content check with preconditions, geometry proof separated from the scroll invariant, and the menu-closed check that first observes auto-open. Concrete failure modes each test catches are stated inline in the spec §8.
+- **Anti-tautology:** Task 1 Step 9's post-commit negative verifications + Task 1 Step 3's red-first pins/registry row + Task 5's red-first workflow pin are the explicit negative verifications (Task 2 is folded into Task 1); Task 4's oracle carries the spec's attribution gates (quiescence, join-reply, no-/version assertion), row-scoped content check with preconditions, geometry proof separated from the scroll invariant, and the menu-closed check that first observes auto-open. Concrete failure modes each test catches are stated inline in the spec §8.
 - **Advisory-lock topology:** untouched (spec §9 declaration).
 - **Fix-round regression budget:** after each adversarial repair, re-grep the repaired class across the loader + spec files and rerun `tests/admin` + `tests/log`.
