@@ -39,6 +39,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+import { admin } from "./helpers/supabaseAdmin";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 
 const TOL = 0.5;
@@ -866,6 +867,180 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       );
     });
   }
+
+  test("T-HUB-ZORDER: an open attention menu is not overpainted by the closed share hub", async ({
+    page,
+  }) => {
+    // The shipped defect (share-hub-fidelity-fixes §1.2): ShareHub's root carried
+    // `relative z-30` unconditionally, establishing a stacking context that
+    // painted its two NON-POSITIONED trigger buttons above the attention menu's
+    // z-20 panel and stole its clicks.
+    //
+    // elementFromPoint, NOT a computed-style or class read: a class assertion
+    // passes against a wrapper that is elevated but still loses in paint order,
+    // which is precisely the bug.
+    // Seeded HERE, not in beforeAll: an actionable alert makes the attention
+    // menu auto-open on arrival, and an always-open menu claims the first Esc
+    // (the ratified capture-phase contract) and shifts header geometry — which
+    // perturbs the focus-continuity, exit-animation, and popover-geometry tests
+    // in this file. Scope it to the one test that needs it and clean up in a
+    // finally, so a failure here cannot leak the alert into the rest of the run.
+    //
+    // Unknown codes are actionable by classification (neither inbox-routed nor
+    // auto-resolving) — the same seed code the deeplink suite uses.
+    const { data, error } = await admin
+      .from("admin_alerts")
+      .insert({
+        show_id: show.showId,
+        code: "SYNC_DELAYED_SEVERE",
+        context: {},
+        raised_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error || !data) throw new Error(`T-HUB-ZORDER alert seed failed: ${error?.message}`);
+    const alertId = data.id as string;
+
+    try {
+      await openModal(page, POPUP);
+      const menu = page.locator(`${MODAL} [data-testid="${BASE}-attention-menu"]`);
+      const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+      if (!(await menu.isVisible())) await pill.click();
+      await expect(menu).toBeVisible();
+
+      const menuBox = await menu.boundingBox();
+      const hubBox = await page.locator(`${MODAL} [data-testid="share-hub-primary"]`).boundingBox();
+      if (!menuBox || !hubBox) throw new Error("menu and share-hub must both be laid out");
+
+      // PRECONDITION, failing loud rather than skipping: if these stop
+      // overlapping the test no longer exercises the defect and must say so
+      // instead of silently going green.
+      const ix = Math.max(menuBox.x, hubBox.x);
+      const iy = Math.max(menuBox.y, hubBox.y);
+      const ir = Math.min(menuBox.x + menuBox.width, hubBox.x + hubBox.width);
+      const ib = Math.min(menuBox.y + menuBox.height, hubBox.y + hubBox.height);
+      expect(
+        ir > ix && ib > iy,
+        "the attention menu and the share-hub button must overlap for this test to mean anything",
+      ).toBe(true);
+
+      const hit = await page.evaluate(
+        ([x, y]: [number, number]) => {
+          const el = document.elementFromPoint(x, y);
+          return {
+            inMenu: !!el?.closest('[data-testid="published-show-review-attention-menu"]'),
+            inHub: !!el?.closest('[data-testid="share-hub-primary"]'),
+          };
+        },
+        [(ix + ir) / 2, (iy + ib) / 2] as [number, number],
+      );
+      expect(hit.inMenu).toBe(true);
+      expect(hit.inHub).toBe(false);
+    } finally {
+      await admin.from("admin_alerts").delete().eq("id", alertId);
+    }
+  });
+
+  test("T-HUB-ROWS: the Careful rows fill the panel, clear the tap floor, and pad a wrapped description", async ({
+    page,
+  }) => {
+    // §4.6's width chain is panel → component wrapper → button, three links.
+    // Measuring the button against the PANEL proves all of them end to end: a
+    // missing `w-full` on either link resolves short and fails here. jsdom
+    // computes no layout, so this cannot be asserted in the unit suite.
+    await openModal(page, POPUP);
+    await page.locator('[data-testid="share-hub-primary"]').click();
+    const panel = page.locator('[data-testid="share-hub-popover"]');
+    await expect(panel).toBeVisible();
+
+    const geo = await panel.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const contentWidth =
+        el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const row = (id: string) => {
+        const b = document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
+        const label = b.querySelector<HTMLElement>("span > span")!;
+        return {
+          width: b.getBoundingClientRect().width,
+          height: b.getBoundingClientRect().height,
+          labelTopGap: label.getBoundingClientRect().top - b.getBoundingClientRect().top,
+          icon: (() => {
+            const r = b.querySelector("svg")!.getBoundingClientRect();
+            return { w: r.width, h: r.height };
+          })(),
+        };
+      };
+      return {
+        contentWidth,
+        overflowsX: el.scrollWidth > el.clientWidth,
+        rotate: row("admin-rotate-share-token-button"),
+        reset: row("picker-reset-all-button"),
+      };
+    });
+
+    for (const [name, row] of [
+      ["rotate", geo.rotate],
+      ["reset", geo.reset],
+    ] as const) {
+      expect(Math.abs(row.width - geo.contentWidth), `${name} row fills the panel`).toBeLessThan(
+        0.5,
+      );
+      expect(row.height, `${name} row clears the 44px tap floor`).toBeGreaterThanOrEqual(44);
+      // p-2 is 8px on every side, and it must hold once the row grows past the
+      // tap floor - min-h alone supplies no padding at content height.
+      expect(row.labelTopGap, `${name} row keeps its top padding`).toBeGreaterThanOrEqual(7.5);
+      expect(row.icon.w, `${name} icon is 16px wide`).toBeCloseTo(16, 0);
+      expect(row.icon.h, `${name} icon is 16px tall`).toBeCloseTo(16, 0);
+    }
+    expect(geo.overflowsX, "the panel never scrolls horizontally").toBe(false);
+  });
+
+  test("T-HUB-CARET: the caret centres on the kebab, straddles the panel edge, and is unclipped", async ({
+    page,
+  }) => {
+    await openModal(page, POPUP);
+    await page.locator('[data-testid="share-hub-primary"]').click();
+    await expect(page.locator('[data-testid="share-hub-popover"]')).toBeVisible();
+
+    const caret = await page.locator('[data-testid="share-hub-caret"]').boundingBox();
+    const kebab = await page.locator('[data-testid="share-hub-kebab"]').boundingBox();
+    const panel = await page.locator('[data-testid="share-hub-popover"]').boundingBox();
+    if (!caret || !kebab || !panel) throw new Error("caret, kebab and panel must all be laid out");
+
+    // Derived from the MEASURED kebab, never hardcoded to 22px: a future kebab
+    // resize then fails here instead of drifting silently.
+    expect(
+      Math.abs(caret.x + caret.width / 2 - (kebab.x + kebab.width / 2)),
+      "the caret centres on the kebab",
+    ).toBeLessThan(0.5);
+
+    // The rotated 10px square: bounding box ~14.1px on the diagonal.
+    expect(caret.width, "caret is a 10px square (rotated)").toBeCloseTo(caret.height, 1);
+    expect(caret.width).toBeGreaterThan(9);
+    expect(caret.width).toBeLessThan(15);
+
+    // Straddles the panel's top edge - that overlap is what reads as a notch
+    // rather than a detached diamond.
+    expect(caret.y, "caret starts above the panel edge").toBeLessThan(panel.y);
+    expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(panel.y);
+
+    // NOT clipped away: the whole point of rendering it as the panel's sibling
+    // rather than its child (the panel is overflow-y-auto).
+    const painted = await page.evaluate(
+      ([x, y]: [number, number]) => {
+        const el = document.elementFromPoint(x, y);
+        return {
+          hit: !!el,
+          // pointer-events-none: the caret must never be the hit target, even
+          // where it overlaps the panel.
+          isCaret: el?.getAttribute("data-testid") === "share-hub-caret",
+        };
+      },
+      [caret.x + caret.width / 2, caret.y + 1] as [number, number],
+    );
+    expect(painted.hit, "the caret's tip is inside the viewport and paintable").toBe(true);
+    expect(painted.isCaret, "the caret is inert to pointer events").toBe(false);
+  });
 
   test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({
     page,
