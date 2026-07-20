@@ -173,8 +173,8 @@ irrespective of `alertsDegraded` — the degraded branch is reachable only when
 | Attention open, entrance frame (`menuOpen = true`, `entered = false`, `components/admin/showpage/AttentionMenu.tsx:59-63`) | `z-auto` | panel `z-20`, `opacity-0 scale-95` | Same stacking result as above — the panel is elevated and hit-testable for that one frame even while visually transparent. Deliberate: it is the frame before the rAF flip, and the paint order is already correct there. |
 | Hub open, attention closed | `z-30` | wrapper `z-auto`, no panel | Popover above the pill; the backdrop intercepts pill clicks. Unchanged. |
 | Both open (keyboard only) | `z-30` | panel `z-20` | Share popover wins by z-index (§3.3). |
-| `actionable.length === 0`, not degraded | per `open` | neither wrapper nor panel renders (`components/admin/showpage/PublishedReviewModal.tsx:509`) | Nothing to collide with. |
-| `actionable.length === 0 && alertsDegraded && clearingCount === 0` | per `open` | a bare `<span>` pill, no wrapper and no menu (`components/admin/showpage/PublishedReviewModal.tsx:558-564`) | No menu exists; nothing to collide with. |
+| **Any branch other than the first** — i.e. `actionable.length === 0`, whatever `alertsDegraded` / `clearingCount` are | per `open` | a bare `<span>` pill: **no `relative` wrapper and no menu**. The chain is four branches — `actionable.length > 0` (`components/admin/showpage/PublishedReviewModal.tsx:509`), then degraded (`components/admin/showpage/PublishedReviewModal.tsx:558`), then clearing (`components/admin/showpage/PublishedReviewModal.tsx:567`), then in-sync (`components/admin/showpage/PublishedReviewModal.tsx:578`) — and ONLY the first renders a wrapper or a menu. | No menu exists in any of the three; nothing to collide with. Stated as one row deliberately: enumerating the three separately invites a stale row the next time a branch is added, and the invariant that matters is "only branch 1 has a menu." |
+| `menuOpen` still true while `actionable` falls to zero (live data refresh) | per `open` | the whole first branch unmounts, taking the wrapper, the pill, and the menu with it | The menu disappears. `menuOpen` remains `true` in `PublishedReviewModal` state, so if actionable items return the menu re-mounts already-open. Pre-existing behavior, NOT introduced or changed here, and out of scope — recorded so it is not re-derived as a finding. |
 
 
 ## 4. Design — Defect B (Careful menu rows)
@@ -212,7 +212,9 @@ ring today and this spec does not homogenize them:
 
 Dropping reset's offset pair would be an unacknowledged focus-presentation change on a
 destructive control. It is retained verbatim. Reset also retains
-`disabled:cursor-not-allowed disabled:opacity-60`.
+`disabled:cursor-not-allowed disabled:opacity-60`, and ADDS `disabled:hover:bg-transparent`
+— a `disabled` button still matches the CSS hover pseudo-class, so without the override the disabled row
+would light up on hover and imply an affordance it does not have (§4.7).
 
 The label/description pair is wrapped in a `min-w-0` flex column so a long description
 cannot force the row wider than the 308px panel.
@@ -230,21 +232,37 @@ This defect is purely **visual layout**. The a11y wiring does not change:
 
 | Control | `aria-label` | `aria-describedby` | Accessible name |
 | --- | --- | --- | --- |
-| Rotate | `"Rotate share link"` | → the description span | `"Rotate share link"` |
-| Reset | `"Reset everyone's pick"` | → the description span | `"Reset everyone's pick"` |
+| Rotate | **`{rowLabel}` — bound to the same prop the row renders**, never a hardcoded literal | → the description span | whatever `rowLabel` is |
+| Reset | `"Reset everyone's pick"` — the component's own literal, which it also renders | → the description span | `"Reset everyone's pick"` |
 
-WCAG 2.5.3 (Label in Name) holds in both cases: the visible label text is exactly the
-`aria-label` string, so the accessible name contains the visible label.
+**The rotate binding must be `aria-label={rowLabel}`.** Hardcoding `"Rotate share link"`
+while rendering `{rowLabel}` would silently violate WCAG 2.5.3 (Label in Name) for any
+caller passing a different `rowLabel` — the accessible name would not contain the visible
+label. Binding them to one value makes the invariant hold by construction for every value,
+including ones this spec never anticipated. Reset has no such prop; its label is a literal
+in the component, so the same string is used for both.
 
-`PickerResetControl` gains the `aria-label` + `aria-describedby` pair it does not have
-today (its `descId` is currently rendered but unwired to the button —
-`app/admin/show/[slug]/PickerResetControl.tsx:217`). Its description id must therefore stay
-alive, not be deleted.
+Guard, `rowLabel` empty or whitespace-only: an empty `aria-label` is worse than none (it
+strips the name entirely), so the attribute is applied only when `rowLabel.trim()` is
+non-empty; otherwise it is omitted and the accessible name falls back to the button's text
+content. Same rule for `aria-describedby` against `rowDescription`.
 
-Consequence for tests: the existing exact-name assertions
+**The two controls are NOT symmetric here, and earlier wording that said the wiring is
+"retained on both rows" was wrong:**
+
+- **Rotate — RETAINED.** It already has both attributes
+  (`app/admin/show/[slug]/RotateShareTokenButton.tsx:219-220`); only the `aria-label` value
+  changes from a literal to `{rowLabel}` (above).
+- **Reset — NEWLY ADDED.** It has NEITHER attribute today. Its `descId` is rendered on the
+  description paragraph but never referenced by the button
+  (`app/admin/show/[slug]/PickerResetControl.tsx:217`). So `descId` must stay alive and
+  becomes the `aria-describedby` target.
+
+Consequence for tests: rotate's existing exact-name assertions
 (`tests/components/admin/showpage/shareHub.test.tsx:296`,
-`tests/components/RotateShareTokenButton.test.tsx:71`) **continue to pass unchanged** —
-which is the point. The row tests below assert the visual structure instead.
+`tests/components/RotateShareTokenButton.test.tsx:71`) **continue to pass unchanged**.
+Reset has no such assertion today, so its wiring needs a NEW test — it cannot be described
+as "staying as-is." §7.2 says so explicitly.
 
 ### 4.3 Deliberate reversal: PCR-1 (b) heading
 
@@ -301,7 +319,12 @@ or reviewer the same way.
 
 | Input | Rotate row | Reset row |
 | --- | --- | --- |
-| `compact=false` or `rowLabel` absent | Non-compact branch, unchanged. | n/a (component has no compact flag). |
+| `compact=false` | Non-compact branch, unchanged. | n/a (component has no compact flag). |
+| `compact=true` but `rowLabel` falsy | **A hybrid, not the non-compact branch.** The outer return keys on `compact && rowLabel` while the button's styling keys on `compact` alone (`app/admin/show/[slug]/RotateShareTokenButton.tsx:222`), so today this yields the non-compact container wrapping a compact-styled button. This change does NOT alter that path — it is pre-existing, has no production caller (ShareHub always passes `rowLabel`), and is recorded here so the asymmetry is not mistaken for a regression. | n/a |
+| `rowLabel` empty or whitespace-only | `aria-label` omitted (see §4.2); the row still renders and the accessible name falls back to text content. | n/a — reset's label is a literal. |
+| `rowDescription` empty or whitespace-only | Treated as absent: no description span, no `aria-describedby`. | n/a — reset's description is always one of two literals. |
+| Description is one unbreakable token (a long URL-like string) | `min-w-0` lets the column shrink but cannot break an unbreakable word; the row would overflow. Rotate's description is a fixed literal, so this is unreachable in production. Recorded, not defended against. | Same; reset's descriptions are fixed literals. |
+| `crew` empties WHILE reset is in `confirm` or `resolving` | n/a | `hasCrew` gates only the IDLE trigger's `disabled`, so an already-armed confirm stays actionable and the reset can still fire against an empty roster. Pre-existing (`app/admin/show/[slug]/PickerResetControl.tsx:264`), harmless (an epoch bump with no crew is a no-op), and out of scope. |
 | `rowDescription` absent | Row renders label only; no empty description node. | n/a (description is always one of two literals). |
 | `crew.length === 0` | n/a | Row is `disabled`, description reads `"No crew to reset yet."`, `disabled:opacity-60 disabled:cursor-not-allowed` retained. |
 | `isCrewLinkActive=false` (unpublished show) | Row renders and is enabled — rotating an unpublished show is supported (`components/admin/showpage/ShareHub.tsx:343-344`). | Unaffected. |
@@ -329,7 +352,12 @@ a missing link fails the test rather than hiding inside it.
 | Popover panel | row `<button>` (transitively) | button width === panel content width | the two links above, asserted end-to-end in §7.4 |
 | Row `<button>` | leading icon | icon stays 16px when the label wraps | `shrink-0` on the icon |
 | Row `<button>` | label/description column | column may shrink to zero basis so long text wraps instead of widening the row | `min-w-0` on the column |
-| Row `<button>` | label + description | vertically centered as one block | `items-center` on the row + `flex-col` on the column |
+| Row `<button>` | label + description | stacked vertically as one block | `flex` AND `flex-col` TOGETHER on the column — `flex-col` alone only sets `flex-direction` and establishes no flex formatting context, so the column's class list is exactly `flex min-w-0 flex-col` |
+| Row `<button>` | its single child column | column vertically centred in the row | `items-center` on the row |
+| ShareHub root bottom edge | caret untransformed top | 4px | `top-full mt-1` |
+| ShareHub root bottom edge | panel top | 6px | `top-full mt-1.5` |
+| Caret box | itself | 10 × 10px, which is what makes the 17px offset and the straddle arithmetic hold | `size-2.5` |
+| Panel top edge | caret | the rotated diamond straddles it (≈1.93–16.07px against an edge at 6px) | the two offsets above (§5) |
 | Row `<button>` | its own content at any height | ≥8px padding on all sides even when the description wraps past 44px | `px-2 py-2` (explicit both axes — see §4.1) |
 | Trigger group root (`relative`) | popover panel | panel right edge === group right edge | `right-0` on the panel |
 | Trigger group root | caret | caret horizontal center === kebab horizontal center | `right-[17px]` on the caret, measured from the same right edge (§5) |
@@ -349,7 +377,7 @@ then "the popover DOES close"); it is corrected below.
 | idle rest → idle focus-visible | Instant — focus rings are never animated here |
 | idle focus-visible + hover (compound) | Both apply; ring and background are independent properties, no conflict |
 | idle enabled → idle disabled (reset only, `crew` empties) | Instant. The description text swaps in the SAME beat (`Make everyone pick…` ↔ `No crew to reset yet.`); no crossfade — a silently animated copy swap on a destructive control would be worse than an instant one |
-| idle disabled + hover | The `hover:` class remains in the class list but `disabled` buttons receive no hover state in any supported browser, so the rest background holds. Deliberate: no `disabled:hover:` override is added |
+| idle disabled + hover | **A `disabled` button DOES still match the CSS hover pseudo-class** — `disabled` blocks activation, not matching. Unguarded, `hover:bg-surface-sunken` would light the disabled reset row and imply an affordance that does not exist. The reset row therefore carries an explicit `disabled:hover:bg-transparent` override; the rest background holds because that override says so, NOT by browser default |
 | idle without banner → idle with success banner | Banner mounts instantly below the row; the `sr-only` live region announces (`app/admin/show/[slug]/PickerResetControl.tsx:178-180`) |
 | idle without banner → idle with error banner | Instant; `role="alert"` |
 | idle success banner → dismissed (5s `SUCCESS_DISMISS_MS`) | Instant unmount. Errors are NEVER auto-dismissed |
@@ -361,6 +389,11 @@ then "the popover DOES close"); it is corrected below.
 | `rowDescription` present ↔ absent (rotate) | Instant; the description span is conditionally rendered, so the row height changes in one frame |
 | ShareHub closed ↔ open (root elevation) | Instant — `z-30` toggles with `open`; z-index is not a transitionable property here and no fade is added |
 | AttentionMenu closed → entering → entered | Existing `transition-[opacity,transform] duration-fast` fade+scale, `motion-reduce` instant (`components/admin/showpage/AttentionMenu.tsx:99-101`). Untouched by this spec |
+| AttentionMenu entered → closed | Instant unmount — the component returns `null` when `open` is false (`components/admin/showpage/AttentionMenu.tsx:43`); no exit animation. Untouched |
+| AttentionMenu entering → closed (before the rAF flip) | Instant unmount; the `cancelAnimationFrame` cleanup (`components/admin/showpage/AttentionMenu.tsx:84`) drops the pending flip so nothing is written after unmount. Untouched |
+| Popover + caret unmounted → mounted (hub opens) | Both mount in the same commit under the same `open` guard. No entrance animation, so no frame exists in which one is present without the other |
+| Popover + caret mounted → unmounted (hub closes) | Both unmount together, instantly |
+| idle focus-visible → confirm (keyboard) | Instant, and focus moves to the confirm row's Cancel button (C3, `app/admin/show/[slug]/PickerResetControl.tsx:84-86`) — the keyboard parallel of the hover-held row below |
 | Compound: hover held while idle → confirm | Idle row unmounts mid-hover; the hover style is a CSS pseudo-class, so nothing is stranded |
 | Compound: popover close attempted while row is in `confirm` (pre-submit) | The popover **DOES close** — `confirm` is not `busy`, and only `busy` makes dismissal inert. Unchanged from today and out of scope |
 | Compound: popover close attempted while `resolving` | Inert — all four dismissal paths are gated on `busy` |
@@ -385,18 +418,31 @@ current classes byte-for-byte**, including `max-h-[min(70vh,32rem)] overflow-y-a
 - Placement: inside the ShareHub root (`components/admin/showpage/ShareHub.tsx:221`, the
   same `relative` ancestor the popover is positioned against), rendered under the same
   `open` guard as the popover.
-- Classes: `absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-l border-t border-border bg-surface`.
+- Classes: `pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-l border-t border-border bg-surface`.
+- **DOM order is load-bearing: the caret is rendered AFTER the popover.** The two are
+  sibling positioned elements at the SAME `z-40`; equal z-index does not decide paint
+  order — tree order does. Rendering the caret last is what puts it above the panel so the
+  notch is not cut by the panel's top border. A future edit that reorders them is a visual
+  regression; §7.1 pins the order.
+- **`pointer-events-none` is load-bearing too.** `aria-hidden` hides the caret from
+  assistive tech but does NOT disable hit-testing. Painted above the panel and overlapping
+  it, the caret would otherwise intercept clicks in that overlap, and any logic keyed on
+  `panelRef.current.contains(target)` would classify such a click as OUTSIDE the dialog.
+  With `pointer-events-none` the caret is never an event target and the overlap is inert.
 - Geometry: the kebab is `size-tap-min` (44px) and is the rightmost element of the trigger
   group; the panel is `right-0` against that group, so the kebab's horizontal center sits
   22px from the group's right edge. A 10px square centered there needs
   `right: 22 − 5 = 17px`.
 - Vertical: the popover is `mt-1.5` (6px) below the group; `mt-1` (4px) puts the caret's
-  10px box spanning 4px–14px below the group, so its rotated tip overlaps the panel's top
-  edge at 6px and the seam is covered.
+  UNTRANSFORMED 10px box spanning 4px–14px below the group. The panel's top edge is at 6px,
+  so the box straddles it. After `rotate-45` about the box centre (9px) the diamond's visual
+  bounds are ≈1.93px–16.07px: its upper tip sits ABOVE the panel edge and its two drawn
+  sides cross that edge, which is what produces the notch. Precisely: the tip protrudes and
+  the body overlaps — not "the tip overlaps".
 - Only `border-l` + `border-t` are drawn: after the 45° rotation those two form the
   outward-facing V; the other two edges sit under the panel body.
-- `bg-surface` matches the panel fill; `z-40` matches the panel so the caret is never
-  painted under it.
+- `bg-surface` matches the panel fill; `z-40` matches the panel, and tree order (above) is
+  what actually resolves the tie between them.
 
 **Guard:** at `max-w-[calc(100vw-2rem)]` on a 390px viewport the panel is still `right-0`
 against the same group, and the caret's offset is measured from that same right edge, so
@@ -419,54 +465,97 @@ the alignment holds at every width.
 
 ## 7. Test plan
 
+### 7.0 Assertion mechanics — binding for every jsdom test below
+
+Three rules, because round-2 review showed the naive forms are all satisfiable by a wrong
+implementation:
+
+1. **Token-exact, never substring.** Class assertions compare against
+   `el.className.split(/\s+/)` as a Set. `expect(cls).toContain("w-full")` also passes for
+   `sm:w-full` or `max-w-full`; `tokens.has("w-full")` does not.
+2. **"No rest background" is a token predicate, not a regex.** The rule is: no token
+   matches `/^bg-/` (unprefixed). A regex like `/\bbg-(?!surface-sunken)/` was proposed and
+   is REJECTED — it correctly ignores `hover:bg-surface-sunken` but ALSO ignores a bare
+   `bg-surface-sunken`, which is exactly the prohibited rest background. Variant-prefixed
+   tokens (`hover:bg-…`, `disabled:hover:bg-…`) are permitted; unprefixed ones are not.
+3. **Containment + uniqueness, never co-presence.** Asserting "the button's `textContent`
+   contains the description" AND "some element with the `aria-describedby` id contains the
+   description" is satisfiable by an implementation that keeps the OLD external block and
+   duplicates the text inside the button. Every such assertion must therefore prove the
+   `aria-describedby` target is a DESCENDANT OF THE BUTTON, and that the popover contains
+   exactly ONE element rendering that text.
+
 ### 7.1 jsdom (unit) — `tests/components/admin/showpage/shareHub.test.tsx`
 
-jsdom loads no CSS, so these are structure and class assertions; every geometric claim is
-proved in §7.4 instead.
+jsdom loads no CSS, so these are structure and class-token assertions; every geometric
+claim is proved in §7.4 instead.
 
-1. **Z-order class contract.** Closed hub: root has `relative`, NOT `z-30`. Open: has both.
-   Catches an unconditional `z-30` regressing in.
-2. **Attention wrapper is NOT touched.** Assert `PublishedReviewModal`'s attention wrapper
-   still has no `z-` class — the corrected §3.2 says it must not need one, so a future
-   "helpful" elevation there is a regression against the analysis, not a fix.
-3. **Both-open ordering.** Open the attention menu AND the hub (keyboard path), then assert
-   the hub root resolves `z-30` while the menu panel resolves `z-20` — the §3.3 contract,
-   which no other test covers.
-4. **Rotate row shape.** One `<button>` carrying: `w-full`, `min-h-tap-min`, `px-2`, `py-2`,
-   `text-left`, NO `border` class, NO `bg-` class at rest, `hover:bg-surface-sunken`, and
-   its ring classes. Its icon `<svg>` has width/height 16. The label/description column has
-   `min-w-0` and `flex-col`. **The description must be a visible descendant text node** —
-   assert `rotate.textContent` contains it, which a concatenated `aria-label` cannot fake.
-   Assert `aria-label === "Rotate share link"` and that `aria-describedby` resolves to an
-   element whose text is the description (§4.2 — retained, not removed).
-   Assert NO separate button named exactly `Rotate` exists in the popover.
-5. **Reset row shape.** Same class set PLUS `focus-visible:ring-offset-2` and
-   `focus-visible:ring-offset-surface` and the `disabled:` pair (§4.1). Description is a
-   visible descendant text node AND the `aria-describedby` target. Popover contains no
-   `<h4>`; the `Careful` `<h3>` is still present.
-6. **Reset disabled with empty crew**, description `No crew to reset yet.` and that string
-   is the `aria-describedby` target.
-7. **Width chain.** Both control wrapper `<div>`s carry `w-full` (§4.6) — the link a
-   button-only assertion would miss.
-8. **Row family consistency.** Scope to the popover; for the mailto assertion, first
-   **exclude the two Careful rows by testid** so it cannot pass on the wrong node, and
-   handle the zero-to-many mailto reality: assert over `queryAllBy…` with an explicit
-   expected batch count derived from the fixture, never an assumed single row.
-9. **Caret.** Present when open, `aria-hidden="true"`, and **NOT a descendant of the
-   popover** (`popover().contains(caret) === false`) — the §5 sibling contract. Popover
-   still carries `overflow-y-auto` and `max-h-[min(70vh,32rem)]` (proving the withdrawn
-   outer/inner split did not sneak back in).
+1. **Z-order class contract.** Closed hub: tokens include `relative`, exclude `z-30`. Open:
+   include both. Catches the shipped unconditional `z-30`.
+2. **Triggers stay non-positioned.** Neither trigger's tokens include `relative`,
+   `absolute`, `fixed`, or `sticky` — a positioned trigger at `z-auto` would beat the
+   menu's `z-20` by tree order and reintroduce the defect in a subtler form.
+3. **Attention wrapper is NOT touched.** It still carries no `z-` token — §3.2 says it must
+   not need one, so an elevation appearing there is a regression against the analysis.
+4. **Both-open ordering.** Open the menu AND the hub; assert the hub root has `z-30` while
+   the menu panel has `z-20` (the §3.3 contract; no other test covers it).
+5. **Rotate row shape.** ONE `<button>` whose token set includes `flex`, `w-full`,
+   `items-center`, `gap-2`, `rounded-sm`, `min-h-tap-min`, `px-2`, `py-2`, `text-left`,
+   `hover:bg-surface-sunken`, `transition-colors`, `duration-fast`, and all three ring
+   tokens (`focus-visible:outline-none`, `focus-visible:ring-2`,
+   `focus-visible:ring-focus-ring`); and includes NO token matching `/^border/` and none
+   matching `/^bg-/` (rule 7.0.2).
+6. **Rotate row internals.** Exactly one descendant column whose tokens are exactly
+   `flex`, `min-w-0`, `flex-col` (§4.6 — `flex-col` without `flex` establishes no flex
+   context). The `<svg>` has `width` AND `height` `"16"` and tokens `shrink-0`,
+   `text-text-subtle`.
+7. **Rotate a11y binding (rule 7.0.3).** `aria-label` equals the rendered `rowLabel`
+   string. `aria-describedby` resolves to an element that **`rotateButton.contains(...)`
+   returns true for**, whose text is the description. The popover contains exactly ONE
+   element whose text is that description (`getAllByText(...)` has length 1) — this is what
+   makes the old external block's survival a failure rather than a pass.
+8. **Old shape is GONE.** No button named exactly `Rotate` in the popover.
+9. **Reset row shape and internals.** Same token set as 5 + 6, PLUS
+   `focus-visible:ring-offset-2`, `focus-visible:ring-offset-surface`,
+   `disabled:cursor-not-allowed`, `disabled:opacity-60`, and
+   `disabled:hover:bg-transparent` (§4.7). Icon `RefreshCw`, same dimension and token
+   assertions.
+10. **Reset a11y binding.** Same containment + uniqueness assertions as 7, against
+    `"Reset everyone's pick"` and its description. This is a NEW assertion — reset has no
+    wiring today (§4.2).
+11. **Reset heading removed.** Popover has no `<h4>`; the `Careful` `<h3>` is still there.
+12. **Reset empty-crew guard.** `disabled` is true, the description is
+    `"No crew to reset yet."`, and THAT string is the `aria-describedby` target and is a
+    descendant of the button.
+13. **Width chain.** Both control wrapper `<div>`s have the `w-full` token (§4.6) — the
+    link a button-only assertion misses.
+14. **Row family.** Scope to the popover; for the mailto assertion, first exclude the two
+    Careful rows by testid so it cannot pass on the wrong node, and derive the expected
+    mailto row count from the fixture (zero-to-many is the live reality — never assume one).
+15. **Caret.** Present when open, `aria-hidden="true"`, tokens include
+    `pointer-events-none`; `popover().contains(caret) === false` (the §5 sibling contract);
+    and **the caret follows the popover in DOM order** — assert
+    `popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING`, which is
+    what actually decides paint order between two `z-40` siblings (§5). Popover still
+    carries `overflow-y-auto` and `max-h-[min(70vh,32rem)]` (proving the withdrawn
+    outer/inner split did not sneak back). Unmounts with the popover.
 
 ### 7.2 jsdom — the two control test files
 
-`tests/components/RotateShareTokenButton.test.tsx` and
-`tests/admin/pickerResetControl.test.tsx`. Because §4.2 RETAINS the a11y wiring, the
-accessible-name and `aria-describedby` assertions in both files stay as-is and must keep
-passing. The only edit is `tests/admin/pickerResetControl.test.tsx:38`, whose
-`getByRole("heading", …)` assertion is replaced by an assertion that the label is a visible
-text node inside the row button and that the button's `aria-label` carries the same string.
-Every state-machine, focus, busy-contract, and banner assertion is untouched — if any of
-those needs changing, the change is wrong.
+`tests/components/RotateShareTokenButton.test.tsx` — its existing accessible-name and
+`aria-describedby` assertions must keep passing unchanged, because rotate's wiring is
+RETAINED (§4.2). The one addition: with `rowLabel` set to a non-default string, assert
+`aria-label` equals THAT string, pinning the `aria-label={rowLabel}` binding rather than a
+re-hardcoded literal.
+
+`tests/admin/pickerResetControl.test.tsx` — the `getByRole("heading", …)` assertion at
+`tests/admin/pickerResetControl.test.tsx:38` is replaced
+by the row-button assertions (label as visible descendant text, `aria-label` equal to it).
+Reset's `aria-describedby` wiring is NEW, so it gets a NEW assertion here; §4.2 corrects
+the earlier claim that this file's a11y assertions "stay as-is." Every state-machine,
+focus, busy-contract, and banner assertion IS untouched — if any of those needs changing,
+the change is wrong.
+
 
 ### 7.3 Real browser — z-order, `tests/e2e/published-review-modal.interactions.spec.ts`
 

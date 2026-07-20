@@ -75,9 +75,11 @@ so its relationship to the triggers is unchanged. A failure there means the chan
 **Files:** `tests/components/admin/showpage/shareHub.test.tsx`,
 `app/admin/show/[slug]/RotateShareTokenButton.tsx`
 
-`tests/components/RotateShareTokenButton.test.tsx` needs **no edit** — §4.2 retains the
-`aria-label` + `aria-describedby` wiring, so its existing assertions must keep passing. If
-that file goes red, the implementation drifted from the spec.
+`tests/components/RotateShareTokenButton.test.tsx`: every existing assertion must keep
+passing untouched — §4.2 RETAINS rotate's `aria-label` + `aria-describedby` wiring, so a
+red there means the implementation drifted. It gets exactly ONE addition (§7.2): render
+with a non-default `rowLabel` and assert `aria-label` equals THAT string, which pins the
+`aria-label={rowLabel}` binding and fails if someone re-hardcodes the literal.
 
 ### Failing test first
 
@@ -85,6 +87,13 @@ ADD (do not replace) alongside the existing wiring test at
 `tests/components/admin/showpage/shareHub.test.tsx:292`:
 
 ```tsx
+/** §7.0.1 — token-exact. `.toContain` also passes for `sm:w-full` / `max-w-full`. */
+const tokensOf = (el: Element): Set<string> => new Set(el.className.split(/\s+/).filter(Boolean));
+/** §7.0.2 — no UNPREFIXED bg-* token. A regex over the whole string cannot
+ *  distinguish `hover:bg-surface-sunken` (allowed) from `bg-surface-sunken` (not). */
+const hasRestBackground = (el: Element): boolean =>
+  [...tokensOf(el)].some((t) => /^bg-/.test(t));
+
 it("rotate idle state is ONE borderless full-width menu row", () => {
   renderHub({ published: true });
   fireEvent.click(primary());
@@ -92,30 +101,50 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   const rotate = screen.getByTestId("admin-rotate-share-token-button");
   expect(rotate.tagName).toBe("BUTTON");
 
-  for (const cls of ["w-full", "min-h-tap-min", "px-2", "py-2", "text-left", "hover:bg-surface-sunken"]) {
-    expect(rotate.className).toContain(cls);
+  const t = tokensOf(rotate);
+  for (const cls of [
+    "flex", "w-full", "items-center", "gap-2", "rounded-sm",
+    "min-h-tap-min", "px-2", "py-2", "text-left",
+    "hover:bg-surface-sunken", "transition-colors", "duration-fast",
+    "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-focus-ring",
+  ]) {
+    expect(t.has(cls)).toBe(true);
   }
-  expect(rotate.className).not.toMatch(/\bborder(-|\b)/);
-  expect(rotate.className).not.toMatch(/\bbg-(?!surface-sunken)/); // no rest background
+  expect([...t].some((x) => /^border/.test(x))).toBe(false);
+  expect(hasRestBackground(rotate)).toBe(false);
 
-  // The description is a VISIBLE descendant text node — a concatenated
-  // aria-label could satisfy an accessible-name check but not this.
-  expect(rotate.textContent).toContain("Rotate share link");
-  expect(rotate.textContent).toContain("Old link stops working immediately");
-
-  // §4.2 wiring RETAINED, not removed.
-  expect(rotate.getAttribute("aria-label")).toBe("Rotate share link");
+  // §7.0.3 — the described element must be a DESCENDANT of the button, and the
+  // description must appear EXACTLY ONCE in the popover. Without both, an
+  // implementation that keeps the old external block and duplicates the text
+  // inside the button passes.
   const descId = rotate.getAttribute("aria-describedby");
-  expect(document.getElementById(descId!)?.textContent).toBe("Old link stops working immediately");
+  const desc = document.getElementById(descId!);
+  expect(desc).not.toBeNull();
+  expect(rotate.contains(desc)).toBe(true);
+  expect(desc!.textContent).toBe("Old link stops working immediately");
+  expect(within(popover()).getAllByText("Old link stops working immediately")).toHaveLength(1);
+
+  // aria-label is BOUND to the rendered label, not a hardcoded literal (§4.2).
+  expect(rotate.getAttribute("aria-label")).toBe("Rotate share link");
+  expect(within(popover()).getAllByText("Rotate share link")).toHaveLength(1);
+
+  // Exactly one label/description column, with the full flex token set.
+  const cols = rotate.querySelectorAll(":scope > span.flex");
+  expect(cols).toHaveLength(1);
+  const colTokens = tokensOf(cols[0]!);
+  for (const cls of ["flex", "min-w-0", "flex-col"]) expect(colTokens.has(cls)).toBe(true);
+
+  const icon = rotate.querySelector("svg")!;
+  expect(icon.getAttribute("width")).toBe("16");
+  expect(icon.getAttribute("height")).toBe("16");
+  expect(tokensOf(icon).has("shrink-0")).toBe(true);
+  expect(tokensOf(icon).has("text-text-subtle")).toBe(true);
 
   // The OLD shape must be GONE, not merely joined by the new one.
   expect(within(popover()).queryByRole("button", { name: "Rotate" })).toBeNull();
 
   // §4.6 width chain link 1: the wrapper, not just the button.
-  expect((rotate.parentElement as HTMLElement).className).toContain("w-full");
-
-  const icon = rotate.querySelector("svg") as SVGElement;
-  expect(icon.getAttribute("width")).toBe("16");
+  expect(tokensOf(rotate.parentElement!).has("w-full")).toBe(true);
 });
 ```
 
@@ -134,8 +163,8 @@ const rowButton = (
     ref={triggerRef}
     onClick={onRotateClick}
     data-testid="admin-rotate-share-token-button"
-    aria-label="Rotate share link"
-    aria-describedby={rowDescription ? descId : undefined}
+    aria-label={rowLabel?.trim() ? rowLabel : undefined}
+    aria-describedby={rowDescription?.trim() ? descId : undefined}
     className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
   >
     <RotateCcw aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
@@ -154,8 +183,10 @@ const rowButton = (
 Idle return for the compact branch: `<div className="flex w-full flex-col gap-2">{rowButton}{banners}</div>`
 (`py-3` dropped — the popover owns row spacing; `w-full` added per §4.6).
 
-`aria-describedby` uses `undefined`, not `null`, for the absent case —
-`exactOptionalPropertyTypes` rejects `null` here.
+`aria-label` is **bound to `rowLabel`**, never re-hardcoded to a literal — §4.2: a caller
+passing a different `rowLabel` would otherwise violate WCAG 2.5.3 silently. Both attributes
+use `undefined` (not `null`) for the absent case; `exactOptionalPropertyTypes` rejects
+`null` here, and an EMPTY `aria-label` is worse than none, hence the `.trim()` guards.
 
 **Mode boundary (§4.4):** `labelHeader` is currently shared by the compact idle AND compact
 confirm renders (`app/admin/show/[slug]/RotateShareTokenButton.tsx:201-211`, used again at
@@ -187,24 +218,56 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
 
   const reset = screen.getByTestId("picker-reset-all-button");
   expect(reset.tagName).toBe("BUTTON");
+
+  const t = tokensOf(reset);
   for (const cls of [
-    "w-full", "min-h-tap-min", "px-2", "py-2", "text-left",
+    "flex", "w-full", "items-center", "gap-2", "rounded-sm",
+    "min-h-tap-min", "px-2", "py-2", "text-left",
+    "hover:bg-surface-sunken", "transition-colors", "duration-fast",
+    "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-focus-ring",
+    // reset-ONLY — the guard against silently homogenizing the two rows' focus
+    // treatment, and against a disabled row lighting up on hover (§4.7).
     "focus-visible:ring-offset-2", "focus-visible:ring-offset-surface",
-    "disabled:cursor-not-allowed", "disabled:opacity-60",
+    "disabled:cursor-not-allowed", "disabled:opacity-60", "disabled:hover:bg-transparent",
   ]) {
-    expect(reset.className).toContain(cls);
+    expect(t.has(cls)).toBe(true);
   }
-  expect(reset.textContent).toContain("Make everyone pick their name again");
-  expect(reset.getAttribute("aria-label")).toBe("Reset everyone's pick");
+  expect([...t].some((x) => /^border/.test(x))).toBe(false);
+  expect(hasRestBackground(reset)).toBe(false);
+
   const descId = reset.getAttribute("aria-describedby");
-  expect(document.getElementById(descId!)?.textContent).toContain(
-    "Make everyone pick their name again",
-  );
+  const desc = document.getElementById(descId!);
+  expect(desc).not.toBeNull();
+  expect(reset.contains(desc)).toBe(true);
+  expect(desc!.textContent).toContain("Make everyone pick their name again");
+  expect(reset.getAttribute("aria-label")).toBe("Reset everyone's pick");
+  expect(within(popover()).getAllByText("Reset everyone's pick")).toHaveLength(1);
+
+  const cols = reset.querySelectorAll(":scope > span.flex");
+  expect(cols).toHaveLength(1);
+  const colTokens = tokensOf(cols[0]!);
+  for (const cls of ["flex", "min-w-0", "flex-col"]) expect(colTokens.has(cls)).toBe(true);
+
+  const icon = reset.querySelector("svg")!;
+  expect(icon.getAttribute("width")).toBe("16");
+  expect(icon.getAttribute("height")).toBe("16");
 
   // §4.3: the PCR-1 (b) <h4> is deliberately gone; `Careful` <h3> still stands.
   expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
   expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
-  expect((reset.parentElement as HTMLElement).className).toContain("w-full");
+  expect(tokensOf(reset.parentElement!).has("w-full")).toBe(true);
+});
+
+it("GUARD empty crew: reset row is disabled and its empty copy IS the described text", () => {
+  renderHub({ pickerCrew: [] });
+  fireEvent.click(primary());
+
+  const reset = screen.getByTestId("picker-reset-all-button") as HTMLButtonElement;
+  expect(reset.disabled).toBe(true);
+  const desc = document.getElementById(reset.getAttribute("aria-describedby")!);
+  expect(reset.contains(desc)).toBe(true);
+  expect(desc!.textContent).toBe("No crew to reset yet.");
+  expect(within(popover()).getAllByText("No crew to reset yet.")).toHaveLength(1);
 });
 ```
 
@@ -266,6 +329,17 @@ it("renders a decorative caret OUTSIDE the popover, leaving the dialog's scroll 
   // and silently invisible.
   expect(popover().contains(caret)).toBe(false);
 
+  // Two z-40 siblings: TREE ORDER decides paint order, not z-index. The caret
+  // must follow the popover or the panel's top border cuts the notch.
+  expect(
+    popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+
+  // aria-hidden does not disable hit-testing; without this the caret would
+  // intercept clicks in its overlap with the panel and any
+  // panelRef.contains(target) check would read them as outside the dialog.
+  expect(caret.className.split(/\s+/)).toContain("pointer-events-none");
+
   // The dialog still owns its own scrolling (the regression the withdrawn
   // outer/inner split would have caused).
   expect(popover().className).toContain("overflow-y-auto");
@@ -288,11 +362,12 @@ In `ShareHub.tsx`, inside the same `{open && (…)}` region as the popover, as i
 <span
   aria-hidden="true"
   data-testid="share-hub-caret"
-  className="absolute right-[17px] top-full z-40 mt-1 size-2.5 rotate-45 border-l border-t border-border bg-surface"
+  className="pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-l border-t border-border bg-surface"
 />
 ```
 
-Both the caret and the popover are positioned against the ShareHub root's `relative`.
+Both are positioned against the ShareHub root's `relative`. **Render the caret AFTER the
+popover** — they share `z-40`, so tree order is what decides which paints on top (§5).
 
 **Commit:** `feat(admin): caret notch on the share popover, anchored to the kebab`
 
