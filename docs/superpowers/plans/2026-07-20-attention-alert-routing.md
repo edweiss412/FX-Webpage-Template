@@ -217,8 +217,11 @@ import { describe, expect, it } from "vitest";
 describe("producer wiring", () => {
   it("builds its PARSE_ERROR_LAST_GOOD context via buildParseErrorContext (not an inline literal)", () => {
     const src = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
-    const block = src.slice(src.indexOf('code: "PARSE_ERROR_LAST_GOOD"'));
-    expect(block.slice(0, 400)).toMatch(/buildParseErrorContext\(/);
+    const i = src.indexOf('code: "PARSE_ERROR_LAST_GOOD"');
+    const block = src.slice(i, i + 400);
+    expect(block).toMatch(/buildParseErrorContext\(/);
+    // the failure code must be WIRED, not a constant: the hard-fail result binding flows in.
+    expect(block).toMatch(/failureCode:\s*phase1\.code/);
   });
 });
 ```
@@ -335,31 +338,35 @@ and in `toAlertItem`'s `alert: { ... }` literal: `errorCode: readErrorCode(row.c
 
 Proves the field survives persist-shape → derive → compose (spec §3.1). Uses the persisted CONTEXT SHAPE as input.
 
-- [ ] **Step 1: Write the test**
+- [ ] **Step 1: Write the PR1-half test (drive the REAL seam)**
+
+PR1 cannot render (the note channel + composer are PR2). Task 1.5 proves seam -> derive; Task 2.8 (PR2) closes derive -> compose. Both are named so the full contract is visible.
 
 ```ts
 // @vitest-environment node
-// tests/admin/reasonTransportIntegration.test.ts
+// tests/admin/reasonTransportIntegration.test.ts  (PR1 half)
 import { describe, expect, it } from "vitest";
+import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
 import { deriveAttentionItems, type AttentionAlertInput } from "@/lib/admin/attentionItems";
 import { parseFailureReasonTitle } from "@/lib/messages/parseFailureReason";
-const persisted = (error_code?: string): AttentionAlertInput => ({
-  id: "p1", code: "PARSE_ERROR_LAST_GOOD",
-  context: { drive_file_id: "f", sheet_name: "S", ...(error_code ? { error_code } : {}) },
-  raised_at: "2026-07-20T00:00:00Z", occurrence_count: 1, identityText: null, messageParams: {}, crewName: null });
-describe("reason survives persist-shape -> derive -> resolve", () => {
-  it("A allowlisted resolves to its title end to end", () => {
-    const a = deriveAttentionItems({ alerts: [persisted("MI-5b_DUPLICATE_CREW_EMAIL")], feed: null, slug: "s" })[0]?.alert;
-    expect(parseFailureReasonTitle(a?.errorCode ?? null)).toBe("Two crew rows share an email");
-  });
-  it("omitted resolves to null (no stale reason)", () => {
-    const a = deriveAttentionItems({ alerts: [persisted()], feed: null, slug: "s" })[0]?.alert;
-    expect(parseFailureReasonTitle(a?.errorCode ?? null)).toBeNull();
-  });
+
+// Drive the ACTUAL producer seam, not a hand-built context.
+const chain = (failureCode: string | null) => {
+  const context = buildParseErrorContext({ driveFileId: "f", sheetName: "S", failureCode });
+  const row: AttentionAlertInput = { id: "p1", code: "PARSE_ERROR_LAST_GOOD", context,
+    raised_at: "2026-07-20T00:00:00Z", occurrence_count: 1, identityText: null, messageParams: {}, crewName: null };
+  const alert = deriveAttentionItems({ alerts: [row], feed: null, slug: "s" })[0]?.alert;
+  return parseFailureReasonTitle(alert?.errorCode ?? null);
+};
+describe("seam -> derive -> resolve (PR1 half)", () => {
+  it("allowlisted failure flows through to its title", () =>
+    expect(chain("MI-5b_DUPLICATE_CREW_EMAIL")).toBe("Two crew rows share an email"));
+  it("PARSE_HARD_FAIL flows through to null (dropped at the seam)", () =>
+    expect(chain("PARSE_HARD_FAIL")).toBeNull());
 });
 ```
 
-- [ ] **Step 2-4:** This is a **characterization/integration** test (composes shipped units; passes once 1.1+1.4 are in). Confirm it goes red if `readErrorCode` threading is reverted, then restore. Not a TDD red for new code.
+- [ ] **Step 2-4:** Characterization/integration test (composes shipped units 1.1/1.2/1.4; green once in). Confirm red if the seam filter OR `readErrorCode` threading is removed, then restore. Not a TDD red for new code.
 
 - [ ] **Step 5: Commit** `test(admin): end-to-end parse-reason transport integration`.
 
@@ -395,46 +402,91 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { PRODUCER_SCOPE, perShowReachableCodes, DEFINITION_SITES, FROZEN_REACHABLE } from "./alertProducerScope.registry";
+import { PRODUCER_SCOPE, perShowReachableCodes, FROZEN_REACHABLE } from "./alertProducerScope.registry";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 const ROOTS = ["lib", "app"];
-function walk(dir: string, out: string[] = []): string[] {
+function walk(dir: string, exts: string[], out: string[] = []): string[] {
   for (const e of readdirSync(dir)) { const p = path.join(dir, e);
-    if (statSync(p).isDirectory()) { if (!p.includes("node_modules")) walk(p, out); }
-    else if (p.endsWith(".ts") && !p.endsWith(".test.ts")) out.push(p); }
+    if (statSync(p).isDirectory()) { if (!p.includes("node_modules")) walk(p, exts, out); }
+    else if (exts.some((x) => p.endsWith(x)) && !p.endsWith(".test.ts") && !p.endsWith(".test.tsx")) out.push(p); }
   return out;
 }
-function discover(): string[] {
-  const sites: string[] = [];
-  for (const root of ROOTS) for (const file of walk(root)) {
-    const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+type Hit = { site: string; code: string | null }; // code = literal 2nd arg when static, else null (dynamic)
+// TS/TSX: any CallExpression whose callee's rightmost identifier is `upsertAdminAlert`.
+function discoverTs(): Hit[] {
+  const hits: Hit[] = [];
+  for (const root of ROOTS) for (const file of walk(root, [".ts", ".tsx"])) {
+    const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const visit = (n: ts.Node) => {
       if (ts.isCallExpression(n)) {
         const c = n.expression;
         const name = ts.isIdentifier(c) ? c.text : ts.isPropertyAccessExpression(c) ? c.name.text : undefined;
         if (name === "upsertAdminAlert") {
           const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
-          sites.push(`${file}:${line + 1}`);
+          // Extract a literal code when the call is positional `(showId, "CODE", ...)` or
+          // an object arg `{ code: "CODE" }`. Non-literal => dynamic (code: null).
+          let code: string | null = null;
+          const a1 = n.arguments[1];
+          if (a1 && ts.isStringLiteral(a1)) code = a1.text;
+          const a0 = n.arguments[0];
+          if (!code && a0 && ts.isObjectLiteralExpression(a0)) {
+            for (const prop of a0.properties)
+              if (ts.isPropertyAssignment(prop) && prop.name.getText(sf) === "code" && ts.isStringLiteral(prop.initializer))
+                code = prop.initializer.text;
+          }
+          hits.push({ site: `${file}:${line + 1}`, code });
         }
       }
       ts.forEachChild(n, visit);
     };
     visit(sf);
   }
-  return sites;
+  return hits;
+}
+// SQL: `upsert_admin_alert(` INVOCATIONS (perform / := ...), not the CREATE/DROP/REVOKE/GRANT ... function lines.
+function discoverSql(): string[] {
+  const out: string[] = [];
+  for (const file of walk("supabase", [".sql"])) {
+    readFileSync(file, "utf8").split("\n").forEach((ln, i) => {
+      if (/upsert_admin_alert\s*\(/.test(ln) && !/(drop|create|replace|revoke|grant)\b.*function/i.test(ln))
+        out.push(`${file}:${i + 1}`);
+    });
+  }
+  return out;
 }
 
 describe("_metaAlertProducerScope", () => {
-  it("every AST-discovered call site is registered (or a known definition site)", () => {
+  const tsHits = () => discoverTs();
+  const allSites = () => [...tsHits().map((h) => h.site), ...discoverSql()];
+
+  it("every discovered site (ts + tsx + sql invocation) is registered", () => {
     const reg = new Set(PRODUCER_SCOPE.filter((r) => r.discoverable !== false).map((r) => r.site));
-    const missing = discover().filter((s) => !reg.has(s) && !DEFINITION_SITES.has(s));
+    const missing = allSites().filter((s) => !reg.has(s));
     expect(missing, `unregistered: ${missing.join(", ")}`).toEqual([]);
   });
-  it("no registered discoverable site is stale (registered ⊆ discovered)", () => {
-    const disc = new Set(discover());
+  it("no registered discoverable row is stale (registered ⊆ discovered)", () => {
+    const disc = new Set(allSites());
     const stale = PRODUCER_SCOPE.filter((r) => r.discoverable !== false && !disc.has(r.site)).map((r) => r.site);
     expect(stale, "stale rows").toEqual([]);
+  });
+  it("STATIC-literal sites: (site, code) matches the registry exactly", () => {
+    // AST extracts the literal code from static calls; assert the registry's rows for
+    // those sites carry exactly that code. Dynamic sites (code:null from the AST) are
+    // exempt here - their code completeness is the acknowledged residual risk.
+    for (const h of tsHits()) {
+      if (h.code == null) continue;
+      const rows = PRODUCER_SCOPE.filter((r) => r.site === h.site).map((r) => r.code);
+      expect(rows, `${h.site} literal code`).toContain(h.code);
+    }
+  });
+  it("dynamic rows are flagged dynamic:true with a provenance note", () => {
+    const dynamicSites = new Set(tsHits().filter((h) => h.code == null).map((h) => h.site));
+    for (const site of dynamicSites)
+      for (const r of PRODUCER_SCOPE.filter((x) => x.site === site)) {
+        expect(r.dynamic, `${site} must be dynamic`).toBe(true);
+        expect((r.note ?? "").length, `${site} needs a provenance note`).toBeGreaterThan(0);
+      }
   });
   it("reachability = per-show AND not-health; frozen set matches", () => {
     const reach = [...perShowReachableCodes()].sort();
@@ -466,8 +518,9 @@ export function perShowReachableCodes(): Set<string> {
   for (const r of PRODUCER_SCOPE) if (r.scope === "per-show" && !health.has(r.code)) out.add(r.code);
   return out;
 }
-// AST hits that land on `async upsertAdminAlert(` / `function upsertAdminAlert(` definition lines:
-export const DEFINITION_SITES = new Set<string>([ /* fill from the discover() run */ ]);
+// NOTE: there are NO definition-CALL sites to exempt - a function definition is not a
+// CallExpression, so the walker never yields one. The reports/submit.ts LOCAL
+// upsertAdminAlert(db,...) helper's CALL sites ARE real emit sites and are registered.
 // The sorted output of perShowReachableCodes(), pasted once and reviewed as a diff:
 export const FROZEN_REACHABLE: string[] = [ /* fill from one run */ ];
 ```
@@ -589,7 +642,7 @@ describe("composed-string hygiene across ALL 8 reason titles", () => {
 });
 ```
 
-- [ ] **Step 2-4:** red if composition drifts; green when `composeParseNote` matches §3.2. The all-title hygiene sweep is new coverage and must pass.
+- [ ] **Step 2-4:** Copy oracle GUARD. Author it BEFORE Task 2.2 finalizes composition, against a stub `composeParseNote` returning empty strings, so its frozen strings DRIVE the exact wording (red), then 2.2 port turns it green. If 2.2 already landed, this is a characterization guard, labeled as such, NOT counted as red-for-new-code. The all-title hygiene sweep (em dash / doubled period / doubled space) is genuinely new coverage.
 
 - [ ] **Step 5: Commit** `test(admin): frozen copy oracle + all-title hygiene`.
 
@@ -597,7 +650,7 @@ describe("composed-string hygiene across ALL 8 reason titles", () => {
 
 **Files:** Test `tests/admin/spikeParity.test.ts`. Preserves the spike's four `@ts-expect-error` rejections in the SHIPPED types.
 
-- [ ] **Step 1-3:** Copy the four negative cases from the spike, retargeted at the shipped `AttentionRoute` (Task 2.3) and `NoteItem`/`NoteCode` (Task 2.2): invalid `{sectionId:"crew", anchor:"diagrams"}`, wrong anchor for section, alert-less note item, third note code. The file must `pnpm typecheck` clean WITH all four directives consumed.
+- [ ] **Step 1-3:** Compile-time GUARD, labeled: a type-rejection test has no runtime implementation, so it has no red-for-new-code cycle and invariant 1 impl-before-test does not apply. Copy the four negative cases from the spike, retargeted at the shipped `AttentionRoute` (Task 2.3) and `NoteItem`/`NoteCode` (Task 2.2): invalid `{sectionId:"crew", anchor:"diagrams"}`, wrong anchor for section, alert-less note item, third note code. Must `pnpm typecheck` clean WITH all four directives consumed. Prove the guard is LIVE: during authoring, delete one `@ts-expect-error`, confirm typecheck FAILS, restore.
 
 - [ ] **Step 4:** `pnpm typecheck` exit 0 (compile-time is the test).
 
@@ -626,12 +679,19 @@ const FROZEN: Record<string, string> = {
   SHEET_UNAVAILABLE: "overview", RESYNC_SHRINK_HELD: "overview", SHOW_FIRST_PUBLISHED: "overview",
   SHOW_UNPUBLISHED: "overview", DRIVE_FETCH_FAILED: "overview", PICKER_EPOCH_RESET: "overview",
   AMBIGUOUS_EMAIL_BINDING: "crew", ROLE_FLAGS_NOTICE: "crew",
+  // Reachable (per-show, non-health) codes this feature does NOT move; pin them so they cannot drift:
+  OAUTH_IDENTITY_CLAIMED: "crew", PICKER_SELECTION_RACE: "overview",
 };
+import { perShowReachableCodes } from "../adminAlerts/alertProducerScope.registry";
 describe("ATTENTION_ROUTES frozen disposition", () => {
   it.each(Object.entries(FROZEN))("%s routes to %s", (code, expected) => {
     const r = ATTENTION_ROUTES[code];
     const got = r && "anchor" in r && r.anchor ? `${r.sectionId}@${r.anchor}` : r?.sectionId;
     expect(got).toBe(expected);
+  });
+  it("every per-show-reachable code has a frozen route (none drifts unpinned)", () => {
+    const missing = [...perShowReachableCodes()].filter((c) => !(c in FROZEN));
+    expect(missing, `reachable codes missing from the fixture: ${missing.join(", ")}`).toEqual([]);
   });
 });
 ```
@@ -771,6 +831,16 @@ it("crew placement is preserved after the sectionAttention rename (props present
 - [ ] **Step 2-4:** red → render `<div data-testid="parse-attention-notes">` as first child, mapping `orderNotes(bucket.notes ?? [])` through `composeParseNote(item, warnings.length)` to `<p data-testid={\`parse-attention-note-${code}\`}>` with lead in `<strong>`. Classes `text-xs/relaxed text-text-subtle`; container `border-b border-border pb-2 mb-1`. No card, no stripe, no `role`/`aria-live` (spec §3.2). → green.
 
 - [ ] **Step 5: Commit** `feat(admin): render the parse notices as banner lines atop the warnings panel`.
+
+### Task 2.8: Close the end-to-end chain (derive -> compose)
+
+**Files:** extend `tests/admin/reasonTransportIntegration.test.ts`.
+
+Proves the persisted context reaches a COMPOSED banner string, which no single-layer test covers.
+
+- [ ] **Step 1-4:** Append a block: `buildParseErrorContext` -> `deriveAttentionItems` -> `toNoteItem(item)` -> `composeParseNote(note, warningCount)`; assert the composed `rest` CONTAINS the resolved reason sentence for an allowlisted code, and does NOT contain it (state 4) when omitted. Uses the real composer. Green once Task 2.2 lands; confirm red if the seam filter is removed.
+
+- [ ] **Step 5: Commit** `test(admin): close the persist -> compose reason chain`.
 
 **PR2 close-out:** `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check`. Impeccable dual-gate; P0/P1 fixed or DEFERRED. Real CI green, whole-diff Codex APPROVE, merge, fast-forward.
 
