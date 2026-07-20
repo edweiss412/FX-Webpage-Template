@@ -1,0 +1,72 @@
+name: CI probe — serial-project DB audit (TEMPORARY, delete after measuring)
+# Question: how much of the `serial` project actually needs a database?
+#
+# The serial project is the DEFAULT bucket — everything not explicitly listed in
+# PARALLEL_TEST_GLOBS lands there, whether or not it touches a DB. A shallow grep
+# says only ~170 of its 772 files reference postgres directly and ~40 use the
+# HTTP client. If most of the remaining ~560 are DB-free, they are paying
+# fileParallelism:false for nothing — and roughly half the serial phase is
+# per-file isolation overhead rather than test execution (local breakdown: 292s
+# of tests inside 530s total, 148s of it module import).
+#
+# Why this must run in CI rather than locally: 161 serial test files HARDCODE
+# `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. No env override can
+# redirect them, so a local "closed port" run is not achievable without stopping
+# the developer's Supabase. A runner with no database installed is the only
+# faithful harness — and it is the same one that produced the parallel-project
+# census (run 29758568301).
+#
+# Two variables are deliberately changed at once, because the spike needs both
+# numbers and they are not independent: no database AND fileParallelism:true.
+#   - a file that FAILS here either needs the DB or is parallel-unsafe -> stays serial
+#   - a file that PASSES is a candidate to move, AND the run's wall clock is a
+#     direct measurement of what the moved set would cost in a no-DB leg
+# Separating the two would cost an extra run without changing the decision: any
+# failure, for either reason, keeps the file serial.
+#
+# Result is a JSON artifact (per-file pass/fail), not a pass/fail gate. The job
+# is EXPECTED to be red — the genuinely DB-bound files cannot pass without a DB.
+on:
+  push:
+    branches: ["spike/**"]
+  workflow_dispatch:
+
+jobs:
+  serial-audit:
+    name: serial-audit (no database, fileParallelism forced on)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # No supabase/setup-cli, no psql, no bootstrap — the point is that no
+      # database exists on this runner.
+      - name: Run the serial project with no database, files in parallel
+        env:
+          VITEST_EXCLUDE_ENV_BOUND: "1"
+        # `|| true` confined to this throwaway probe: the job is EXPECTED to fail
+        # (genuinely DB-bound files cannot pass), and the artifact is the deliverable.
+        run: |
+          start=$(date +%s)
+          pnpm exec vitest run --project=serial --fileParallelism \
+            --reporter=json --outputFile=serial-audit.json || true
+          echo "PROBE_SERIAL_NODB_PARALLEL_SECONDS=$(( $(date +%s) - start ))"
+      - name: Summarize per-file outcomes
+        run: |
+          node -e '
+            const r = require("./serial-audit.json");
+            const files = r.testResults ?? [];
+            const pass = files.filter((f) => f.status === "passed");
+            const fail = files.filter((f) => f.status !== "passed");
+            console.log("TOTAL_FILES=" + files.length);
+            console.log("PASSED_NO_DB=" + pass.length);
+            console.log("FAILED_NO_DB=" + fail.length);
+            const rel = (n) => n.replace(process.cwd() + "/", "");
+            console.log("--- FAILED (must stay serial) ---");
+            for (const f of fail) console.log(rel(f.name));
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: serial-audit
+          path: serial-audit.json
