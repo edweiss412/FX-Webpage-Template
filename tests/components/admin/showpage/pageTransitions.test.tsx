@@ -133,6 +133,15 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // scanner, not by reasoning.
   "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / re-sync / copy-link
   "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
+  // share-hub §9: the ONE conditional the scanner's regexes see is the
+  // `{linkActive ? (` crew-link arm head. The popover's `{open && (` mounts
+  // (backdrop + panel) and `{mailtos.length > 1 && (` use the multi-line
+  // `&& (` form, which these regexes deliberately do not match — the same
+  // documented blind spot called out for StatusStrip's `{!archived ? (` note
+  // above. Count captured by RUNNING the scanner, not by reasoning. The
+  // popover's instantness is additionally pinned behaviorally in
+  // tests/components/admin/showpage/shareHub.test.tsx.
+  "components/admin/showpage/ShareHub.tsx": 1, // linkActive arm (see note)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
 };

@@ -1,0 +1,414 @@
+// @vitest-environment jsdom
+/**
+ * tests/components/admin/showpage/shareHub.test.tsx
+ *
+ * Behavior-only coverage for <ShareHub> (spec 2026-07-20-share-hub-design.md).
+ * Geometry is deliberately NOT asserted here: jsdom computes no layout, so
+ * width / placement / clamp / tap-min live in the Playwright layout spec that
+ * ships with the styling (plan T4). Everything below is jsdom-provable.
+ *
+ * The §9 rules R1-R4 are executable here — they replaced a hand-enumerated
+ * compound table that four review rounds could not keep correct, so these tests
+ * are the authority on composition, not prose.
+ */
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const rotateMock = vi.hoisted(() => vi.fn());
+const epochMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/picker/rotateShareToken", () => ({ rotateShareToken: rotateMock }));
+vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: epochMock }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+import { ShareHub } from "@/components/admin/showpage/ShareHub";
+import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
+import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
+
+const SHOW_ID = "11111111-2222-4333-8444-555555555555";
+const SLUG = "aurora-fall-tour";
+const TOKEN = "b".repeat(64);
+const CREW = [
+  { id: "c1111111-1111-4111-8111-111111111111", name: "Alice", role: "A1" },
+  { id: "c2222222-2222-4222-8222-222222222222", name: "Bob", role: "BO" },
+];
+
+type Opts = {
+  published?: boolean;
+  token?: string | null;
+  crewEmails?: readonly string[];
+  showTitle?: string;
+  pickerCrew?: typeof CREW;
+};
+
+function renderHub({
+  published = true,
+  token = TOKEN,
+  crewEmails = ["alice@example.com"],
+  showTitle = "Aurora Fall Tour",
+  pickerCrew = CREW,
+}: Opts = {}) {
+  return render(
+    <ShareTokenProvider key={SHOW_ID} initialToken={token} initialEpoch={1}>
+      <ShareHub
+        slug={SLUG}
+        showId={SHOW_ID}
+        published={published}
+        crewEmails={crewEmails}
+        showTitle={showTitle}
+        pickerCrew={pickerCrew}
+      />
+    </ShareTokenProvider>,
+  );
+}
+
+const primary = () => screen.getByTestId("share-hub-primary") as HTMLButtonElement;
+const kebab = () => screen.getByTestId("share-hub-kebab") as HTMLButtonElement;
+const popover = () => screen.getByTestId("share-hub-popover");
+const queryPopover = () => screen.queryByTestId("share-hub-popover");
+const backdrop = () => screen.getByTestId("share-hub-backdrop");
+
+beforeEach(() => {
+  rotateMock.mockReset();
+  epochMock.mockReset();
+});
+afterEach(cleanup);
+
+describe("ShareHub — triggers", () => {
+  it("published: primary reads 'Share link'; unpublished: 'Share link · paused'", () => {
+    const { unmount } = renderHub({ published: true });
+    expect(primary().textContent).toContain("Share link");
+    expect(primary().textContent).not.toMatch(/paused/i);
+    unmount();
+    renderHub({ published: false });
+    expect(primary().textContent).toMatch(/Share link · paused/);
+  });
+
+  it("kebab carries its accessible name", () => {
+    renderHub();
+    expect(kebab()).toHaveAccessibleName("More share actions");
+  });
+
+  it("BOTH triggers report aria-expanded false→true and point at the popover", () => {
+    // A permanently-collapsed aria-expanded would leave assistive tech with a
+    // wrong state while the popover is visibly open.
+    renderHub();
+    expect(primary().getAttribute("aria-expanded")).toBe("false");
+    expect(kebab().getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(primary());
+    expect(primary().getAttribute("aria-expanded")).toBe("true");
+    expect(kebab().getAttribute("aria-expanded")).toBe("true");
+
+    const id = primary().getAttribute("aria-controls");
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)).toBe(popover());
+    expect(kebab().getAttribute("aria-controls")).toBe(id);
+  });
+});
+
+describe("ShareHub — open/close semantics", () => {
+  it("either trigger opens exactly one labelled dialog; pressing again closes", () => {
+    renderHub();
+    expect(queryPopover()).toBeNull();
+
+    fireEvent.click(primary());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(popover()).toHaveAccessibleName("Share crew link");
+    fireEvent.click(primary());
+    expect(queryPopover()).toBeNull();
+
+    fireEvent.click(kebab());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(kebab());
+    expect(queryPopover()).toBeNull();
+  });
+
+  it("backdrop click closes WITHOUT restoring trigger focus", () => {
+    renderHub();
+    fireEvent.click(primary());
+    (document.activeElement as HTMLElement)?.blur();
+    fireEvent.click(backdrop());
+    expect(queryPopover()).toBeNull();
+    expect(document.activeElement).not.toBe(primary());
+  });
+
+  it("Escape closes, restores focus to the trigger that opened it, and does NOT reach the document", () => {
+    // ReviewModalShell.tsx:238-245 subscribes a document-level Escape listener
+    // that closes the WHOLE review modal on any Escape and never inspects
+    // defaultPrevented — so stopPropagation, not preventDefault, is what keeps
+    // the modal open. A spy here stands in for the shell.
+    const shellSpy = vi.fn();
+    document.addEventListener("keydown", shellSpy);
+    try {
+      renderHub();
+      fireEvent.click(kebab());
+      fireEvent.keyDown(popover(), { key: "Escape" });
+      expect(queryPopover()).toBeNull();
+      expect(document.activeElement).toBe(kebab());
+      expect(shellSpy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", shellSpy);
+    }
+  });
+});
+
+describe("ShareHub — published arm content", () => {
+  it("renders the crew URL derived from origin+slug+token, plus Copy", () => {
+    renderHub();
+    fireEvent.click(primary());
+    // Derived from the fixture, never hardcoded.
+    const expected = `${resolveOrigin()}/show/${SLUG}/${TOKEN}`;
+    expect(screen.getByTestId("admin-current-share-link-url").textContent).toBe(expected);
+    expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
+  });
+
+  it("renders one mailto row per batch, with the multi-batch note only when batched", () => {
+    renderHub({ crewEmails: ["a@example.com", "b@example.com"] });
+    fireEvent.click(primary());
+    const rows = screen.getAllByTestId("admin-current-share-link-email-button");
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    for (const r of rows) expect(r.getAttribute("href")).toMatch(/^mailto:/);
+    if (rows.length === 1) {
+      expect(screen.queryByTestId("admin-current-share-link-email-note")).toBeNull();
+    }
+  });
+
+  it("GUARD empty crewEmails: no mailto rows at all", () => {
+    renderHub({ crewEmails: [] });
+    fireEvent.click(primary());
+    expect(screen.queryAllByTestId("admin-current-share-link-email-button")).toHaveLength(0);
+  });
+
+  it("GUARD empty showTitle: still emits a usable mailto (subject fallback, no 'undefined')", () => {
+    renderHub({ showTitle: "", crewEmails: ["a@example.com"] });
+    fireEvent.click(primary());
+    const rows = screen.queryAllByTestId("admin-current-share-link-email-button");
+    for (const r of rows) {
+      const href = r.getAttribute("href") ?? "";
+      expect(href).toMatch(/^mailto:/);
+      expect(href.toLowerCase()).not.toContain("undefined");
+    }
+  });
+
+  it("GUARD null token: unavailable sentence instead of a dead URL block", () => {
+    renderHub({ token: null });
+    fireEvent.click(primary());
+    expect(screen.queryByTestId("admin-current-share-link-url")).toBeNull();
+    expect(screen.getByTestId("admin-current-share-link-unavailable").textContent).toMatch(
+      /share-link is unavailable right now/i,
+    );
+  });
+});
+
+describe("ShareHub — unpublished arm", () => {
+  it("shows the paused note, hides url/copy/email, and KEEPS the Careful rows", () => {
+    renderHub({ published: false });
+    fireEvent.click(primary());
+    expect(popover().textContent).toMatch(
+      /crew link is paused while this show is unpublished\. Publish to share it/i,
+    );
+    expect(screen.queryByTestId("admin-current-share-link-url")).toBeNull();
+    expect(screen.queryAllByTestId("admin-current-share-link-email-button")).toHaveLength(0);
+    // Spec §1.1: rotate/reset stay reachable while unpublished.
+    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeTruthy();
+    expect(screen.getByTestId("picker-reset-all-button")).toBeTruthy();
+  });
+});
+
+describe("ShareHub — Careful section wiring", () => {
+  it("rotate row carries its label + description and follows published for isCrewLinkActive", () => {
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(rotate).toHaveAccessibleName("Rotate share link");
+    const descId = rotate.getAttribute("aria-describedby");
+    expect(document.getElementById(descId!)?.textContent).toBe(
+      "Old link stops working immediately",
+    );
+  });
+
+  it("GUARD empty pickerCrew: reset row renders its empty-roster copy and is disabled", () => {
+    renderHub({ pickerCrew: [] });
+    fireEvent.click(primary());
+    expect(within(popover()).getByText("No crew to reset yet.")).toBeTruthy();
+    expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+});
+
+describe("ShareHub — §9 composition rules", () => {
+  const openHub = () => {
+    renderHub();
+    fireEvent.click(primary());
+  };
+
+  it("R1: arming a control's confirm clears ITS OWN banner (rotate)", async () => {
+    rotateMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    openHub();
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    });
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
+
+    // Re-arm: the banner must go, and confirm must be showing — banner+confirm
+    // is unreachable WITHIN one control.
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    expect(screen.queryByTestId("admin-rotate-share-token-refused")).toBeNull();
+    expect(screen.getByTestId("admin-rotate-share-token-confirm-row")).toBeTruthy();
+  });
+
+  it("R1 across controls: a rotate banner SURVIVES arming reset's confirm", async () => {
+    rotateMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    openHub();
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    });
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
+
+    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
+    expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
+    // No cross-clear: the sibling's banner is untouched.
+    expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeTruthy();
+  });
+
+  it("§6: two confirms may be armed at once — permitted, no cross-clear, no throw", () => {
+    openHub();
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
+    expect(screen.getByTestId("admin-rotate-share-token-confirm-row")).toBeTruthy();
+    expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
+  });
+
+  it("R3: a rotate error banner is role=alert and persists (never auto-dismissed)", async () => {
+    vi.useFakeTimers();
+    try {
+      rotateMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      renderHub();
+      fireEvent.click(primary());
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const banner = screen.getByTestId("admin-rotate-share-token-refused");
+      expect(banner.getAttribute("role")).toBe("alert");
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("ShareHub — busy gating (spec §6)", () => {
+  /**
+   * Leaves rotate mid-flight so busy stays true, and RETURNS the resolver. The
+   * caller must settle it: a test that abandons an in-flight transition leaks a
+   * pending React transition into the next test in this file (observed —
+   * abandoning it made the lifecycle-deferral test below fail while passing in
+   * isolation).
+   */
+  const openAndHang = async () => {
+    let settle: ((v: unknown) => void) | null = null;
+    rotateMock.mockImplementation(
+      () =>
+        new Promise((res) => {
+          settle = res;
+        }),
+    );
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    });
+    return async () => {
+      await act(async () => {
+        settle?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      });
+    };
+  };
+
+  it("ALL FOUR dismissal paths are inert while a child is resolving", async () => {
+    const shellSpy = vi.fn();
+    document.addEventListener("keydown", shellSpy);
+    let settle: (() => Promise<void>) | null = null;
+    try {
+      settle = await openAndHang();
+      expect(queryPopover()).not.toBeNull();
+
+      fireEvent.click(primary());
+      expect(queryPopover()).not.toBeNull();
+
+      fireEvent.click(kebab());
+      expect(queryPopover()).not.toBeNull();
+
+      fireEvent.click(backdrop());
+      expect(queryPopover()).not.toBeNull();
+
+      fireEvent.keyDown(popover(), { key: "Escape" });
+      expect(queryPopover()).not.toBeNull();
+      // Escape must STILL be swallowed — otherwise it closes the whole review
+      // modal, which is strictly worse than closing the popover.
+      expect(shellSpy).not.toHaveBeenCalled();
+    } finally {
+      // Settle before leaving: never abandon an in-flight transition.
+      await settle?.();
+      document.removeEventListener("keydown", shellSpy);
+    }
+  });
+});
+
+describe("ShareHub — lifecycle close (spec §4)", () => {
+  const Harness = ({ published, hang }: { published: boolean; hang: boolean }) => (
+    <ShareTokenProvider key={SHOW_ID} initialToken={TOKEN} initialEpoch={1}>
+      <ShareHub
+        slug={SLUG}
+        showId={SHOW_ID}
+        published={published}
+        crewEmails={[]}
+        showTitle="T"
+        pickerCrew={hang ? CREW : CREW}
+      />
+    </ShareTokenProvider>
+  );
+
+  it("published flip while OPEN and IDLE closes the popover immediately", () => {
+    // Without this the popover survives the published/unpublished content swap,
+    // showing the wrong arm over a stale state.
+    const { rerender } = render(<Harness published hang={false} />);
+    fireEvent.click(primary());
+    expect(queryPopover()).not.toBeNull();
+    rerender(<Harness published={false} hang={false} />);
+    expect(queryPopover()).toBeNull();
+  });
+
+  it("published flip while BUSY defers the close until the action settles", async () => {
+    let resolveRotate: ((v: unknown) => void) | null = null;
+    rotateMock.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveRotate = res;
+        }),
+    );
+    const { rerender } = render(<Harness published hang />);
+    fireEvent.click(primary());
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    });
+
+    rerender(<Harness published={false} hang />);
+    // Still open: unmounting now would lose the outcome of a destructive action.
+    expect(queryPopover()).not.toBeNull();
+
+    await act(async () => {
+      resolveRotate?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    });
+    await waitFor(() => expect(queryPopover()).toBeNull());
+  });
+});
