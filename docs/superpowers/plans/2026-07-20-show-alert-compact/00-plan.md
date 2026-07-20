@@ -34,168 +34,197 @@ MUST NOT EDIT: `_metaInlineIdentityContract.test.ts`, `_metaAdminAlertCatalog.te
 
 ## 2. Task list
 
-Each task is TDD: failing test → minimal implementation → passing test → commit. Commit format `<type>(<scope>): <summary>`; scope `crew-page` is wrong here — use `admin`.
+Each task is TDD: failing test -> minimal implementation -> passing test -> commit. Commit format `<type>(<scope>): <summary>`, scope `admin`.
+
+**Two ordering rules, added after plan review R1 (findings 1-5, 3 of them BLOCKING):**
+
+1. **Registry atomicity.** A source-scanning gate and the code it scans move in the SAME commit. A `<HoverHelp>` call site therefore ships together with its exemption comment; a component ships together with its row in the motion-free scanner list. No commit boundary may leave a gate red. The original plan deferred both to trailing tasks (old Tasks 8 and 9); those tasks are dissolved into the tasks that create the code.
+2. **Red phase for structural and browser assertions.** A scanner row or layout assertion written after its code passes on first run, which proves nothing. Every such assertion is demonstrated red by a scratch MUTATION of the code it governs (delete the class, drop the row, revert the guard), observed failing, then the mutation reverted before commit. The observed failure output is quoted in the commit body. This is the honest substitute for a red phase when the code necessarily precedes the pin.
+
+Tasks 1 and 2 are already committed (`ebda208c4`, `05f4b4e64`); their gaps from review findings 9 and 10 are repaired in Task 2b.
 
 ---
 
-### Task 1 — `CompactAlertCard` shell: bands and slot presence
+### Task 2b - shell defaults, warning-stripe pass-through, and message-row gaps
 
-**Test first** (new file `tests/components/admin/compactAlertCard.test.tsx (new)`; auto-included by `BASE_INCLUDE`):
+Repairs review findings 9 and 10 against the already-committed shell.
 
-Assert every spec §5.1 row. Concrete failure modes each catches, stated per test:
+**Test first:** omitted `tone` defaults to `warning` (glyph present, amber skin); omitted `stripe` defaults to `review`; warning tone honors each of `review`, `degraded`, AND `none` (the `none` case is what PerShowActionableWarnings depends on in Task 6); absent `helpTrigger` renders no trigger wrapper element at all, not merely no trigger content; the `!` glyph carries `aria-hidden="true"` (review finding 20 - the glyph must never reach the accessibility tree).
 
-- each of `detailBand` / `controlsBand` / both footer slots absent as `null`, `undefined`, `false`, `""` ⇒ neither the band element NOR its divider renders. (Catches a divider left behind when the band is conditional but the `border-t` wrapper is not.)
-- `footerRight` present with `footerLeft` absent ⇒ bar renders AND the right cluster carries `ml-auto`. (Catches a `justify-between` implementation, which leaves a lone child at the START edge — spec §2.)
-- `footerLeft` present alone ⇒ bar renders.
-- `0`, `NaN`, `[]`, and an empty fragment in a slot ⇒ band DOES render (the uniform presence rule; adapters are responsible for normalizing these to `null`).
-
-```tsx
-// @vitest-environment jsdom
-import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
-
-afterEach(cleanup);
-
-describe("CompactAlertCard bands", () => {
-  test("absent detail band renders neither band nor divider", () => {
-    render(<CompactAlertCard message="m" />);
-    expect(screen.queryByTestId("compact-alert-detail-band")).toBeNull();
-  });
-
-  test("footerRight alone pins right via ml-auto, not justify-between", () => {
-    render(<CompactAlertCard message="m" footerRight={<button type="button">Go</button>} />);
-    const bar = screen.getByTestId("compact-alert-footer");
-    expect(bar.className).not.toContain("justify-between");
-    expect(screen.getByTestId("compact-alert-footer-right").className).toContain("ml-auto");
-  });
-});
-```
-
-**Implement:** the new file `components/admin/CompactAlertCard.tsx (new)` per spec §3.1. Testids: `compact-alert-card`, `compact-alert-message`, `compact-alert-detail-band`, `compact-alert-footer`, `compact-alert-footer-left`, `compact-alert-footer-right`, `compact-alert-controls-band`.
-
-**Commit:** `feat(admin): CompactAlertCard shell with banded slots`
+**Commit:** `test(admin): pin CompactAlertCard defaults, stripe pass-through, and glyph aria-hidden`
 
 ---
 
-### Task 2 — Shell tone skins and stripe forcing
+### Task 3 - `HoverHelp` Escape containment
 
-**Test first:** all three tones map to their spec §3.1 skin classes; `muted` and `neutral` force `stripe="none"` EVEN WHEN a stripe prop is passed, and omit the `!` glyph; `className` merges rather than replaces. (Catches a tone map that honors a caller's stripe on a non-severity card — the exact defect amendment A5 exists to prevent.)
+**Test first** (new file `tests/components/admin/hoverHelpEscapeContainment.test.tsx (new)`): render a `HoverHelp` inside a real `ReviewModalShell`, open the popover, dispatch Escape from inside it. Assert BOTH that the popover closed AND that the shell's close callback was NOT called. Regression pair: with the popover CLOSED, Escape reaches the shell and it closes normally.
 
-**Implement:** tone/stripe class map with full literal class strings (JIT requirement).
+Do NOT assert `defaultPrevented` - the shell ignores it (`components/admin/review/ReviewModalShell.tsx` lines 239-245), so that assertion proves nothing. A synthetic-parent-handler spy is likewise insufficient; the `document`-level native listener is the boundary under test.
 
-**Commit:** `feat(admin): CompactAlertCard tone skins with forced stripe suppression`
-
----
-
-### Task 3 — `HoverHelp` Escape containment
-
-**Test first** (new file `tests/components/admin/hoverHelpEscapeContainment.test.tsx (new)`): render a `HoverHelp` inside a real `ReviewModalShell`, open the popover, dispatch Escape from inside it. Assert BOTH: the popover closed, AND the shell's close callback was NOT called. Regression pair: with the popover CLOSED, Escape reaches the shell and it closes normally.
-
-Do NOT assert `defaultPrevented` — the shell ignores it (`components/admin/review/ReviewModalShell.tsx` lines 239-245), so that assertion proves nothing. A synthetic-parent-handler spy is likewise insufficient alone; the `document`-level native listener is the boundary under test.
-
-**Implement:** element-level `onKeyDown` on the HoverHelp root per spec §3.2 (`preventDefault` + `stopPropagation` + close, only while open).
+**Implement:** element-level `onKeyDown` on the HoverHelp root per spec section 3.2 (`preventDefault` + `stopPropagation` + close, only while open).
 
 **Commit:** `fix(admin): contain HoverHelp Escape so it never closes the host modal`
 
 ---
 
-### Task 4 — Amber `?` trigger + help adapter helper
+### Task 4 - amber `?` trigger + help-body helper
 
-**Test first:** a shared helper builds the popover body from `(helpfulContext, helpHref, route)`; assert all four presence combinations plus the route-gated case, and that a whitespace-only `helpfulContext`/`helpHref` counts as absent. (Catches the trigger rendering with an empty popover.)
+**Location and signature, specified** (review finding 8): both live in `components/admin/compactAlertHelp.tsx (new)`.
 
-**Implement:** the trigger node (spec §3.2 visual spec, `min-h-tap-min min-w-tap-min` hit area) and a small `buildHelpPopover` helper applying `shouldEmitLearnMore`.
+```ts
+export function buildHelpPopoverBody(input: {
+  helpfulContext: string | null | undefined;
+  helpHref: string | null | undefined;
+  route: string;
+}): { body: ReactNode; learnMore?: { href: string } } | null;
+```
+
+Returns `null` when there is nothing to show. `learnMore` is included only when `helpHref` is non-empty after trim AND `shouldEmitLearnMore` passes for `route`; it is omitted entirely (never `undefined`) to satisfy `exactOptionalPropertyTypes`. With a Learn-more link but no `helpfulContext`, `body` is the exact string `"More about this alert in the help pages."`.
+
+**Test first:** all four presence combinations; whitespace-only `helpfulContext` and `helpHref` both count as absent; the route gate exercised passing AND failing with the same non-empty `helpHref`; the helpHref-only lead-in text asserted VERBATIM against the string above, not by substring sniffing; and the returned `learnMore.href` equals the input href.
+
+Trigger tests (review finding 7): render the trigger through `HoverHelp` and assert it is a `<button>`, carries `min-h-tap-min min-w-tap-min`, the focus-ring classes, and an accessible name of `"What does this mean?"`; and that clicking it flips `aria-expanded` false -> true. Popover state is asserted via `aria-expanded` and the body's `hidden` class per spec section 9.1 - never `toBeVisible()`, which is vacuous in this repo's CSS-less jsdom.
 
 **Commit:** `feat(admin): amber help trigger and route-gated popover body helper`
 
 ---
 
-### Task 5 — AttentionBanner adapter
+### Task 5 - AttentionBanner adapter
 
-**Test first:** update `tests/components/admin/review/attentionBanner.test.tsx` per spec §9.2 — remove identity assertions and the `underCrewRow` prop; add: invalid item ⇒ null; null/empty/whitespace template ⇒ fallback; null action ⇒ time alone with no leading separator; `failedKeys` null/`[]`/all-whitespace ⇒ no entry; >6 keys ⇒ `+N more`; `dataGaps` null / `total: 0` / `total: NaN` ⇒ no entry; whitespace-only `autoClearNote` ⇒ resolve button; stripe review vs degraded from `item.tone`; trigger across all four help combinations with the route gate exercised both ways; Ep→Rp→C retry path.
+**Test first:** update `tests/components/admin/review/attentionBanner.test.tsx` - remove identity assertions and the `underCrewRow` prop; add, each with its concrete failure mode:
 
-Popover assertions follow spec §9.1: `aria-expanded` on the trigger plus the `hidden` class on the body. Never `toBeVisible()` in jsdom.
+- invalid item / missing `alert` -> null;
+- null, empty, and whitespace `template` -> fallback;
+- **a non-empty template whose emphasis rendering yields no visible text -> fallback** (review finding 11: an implementation guarding only the input string renders an empty message row and would otherwise pass);
+- null `action` -> time alone, no leading separator;
+- `failedKeys` null / `[]` / all-whitespace -> no entry;
+- **exactly 6 surviving keys -> all six shown with NO `+N more` suffix**, and 7 keys -> six plus `+1 more` (review finding 13: catches off-by-one and `+0 more`);
+- `dataGaps` null, `total: 0`, `total: NaN`, **`total: -1`, and `total: Infinity`** -> no entry (review finding 12: "nonzero and not NaN" would pass the old set while rendering negatives and infinities);
+- whitespace-only `autoClearNote` -> resolve button, not note;
+- stripe `review` vs `degraded` from `item.tone`;
+- trigger across all four help combinations with the route gate exercised both ways;
+- **preserved DOM contracts asserted explicitly** (review finding 21): `data-attention-anchor`, `aria-current` when highlighted, and the dynamic resolve/autoclear/failed-sources/data-gaps testids - a wholesale rewrite can drop these while every behavioral test stays green;
+- Ep -> Rp -> C retry path.
 
-**Implement:** rewrite the component onto `CompactAlertCard`; delete the identity sub-line, the `INLINE_IDENTITY_CODES` import, the `underCrewRow` prop (and its use at `components/admin/showpage/PublishedReviewModal.tsx` line 294), and the freestanding Learn-more link. Keep `now: Date` as a prop and never read the clock (`class-sweep-now-utility` constraint).
+**Implement:** rewrite onto `CompactAlertCard`. Delete the identity sub-line, the `INLINE_IDENTITY_CODES` import, the `underCrewRow` prop and its use at `components/admin/showpage/PublishedReviewModal.tsx` line 294, and the freestanding Learn-more link. Keep `now: Date` as a prop; never read the clock (`class-sweep-now-utility` constraint).
 
-**Same commit:** update `tests/components/admin/dataGapsTransitionAudit.test.tsx` line 147's pinned regex to the tightened guard. The scanner fails otherwise, and splitting it across commits leaves a red intermediate state.
+**In the SAME commit** (registry atomicity): the `// not-a-help-affordance:` exemption comment above this call site, and the updated pinned regex in `tests/components/admin/dataGapsTransitionAudit.test.tsx` line 147, and this component's path is already in the motion-free scanner list.
+
+**Red-phase evidence:** the dataGaps regex update is demonstrated red by first running the scanner against the tightened guard without updating the pin; the failure is quoted in the commit body.
 
 **Commit:** `refactor(admin): AttentionBanner onto the compact card`
 
 ---
 
-### Task 6 — PerShowActionableWarnings adapter
+### Task 6 - PerShowActionableWarnings adapter
 
-**Test first:** update `tests/admin/perShowActionable*.test.tsx` and `tests/parser/parseWarningDeepLinkRender.test.tsx` per spec §9.2, including: `sourceCell` present with NULL `driveFileId` ⇒ no link (catches branching on `sourceCell` instead of on the built href); controls land in `controlsBand`, asserted via the controls node's ancestor band, NOT merely "controls exist" (catches the A1 regression of putting a full control cluster in the footer); no link + no controls ⇒ no footer bar; muted tone skin.
+**Test first:**
 
-**Implement:** rewrite onto `CompactAlertCard`; `helpfulContext` moves into the popover; controls to `controlsBand`; stripe `"none"`.
+- `sourceCell` present with NULL `driveFileId` -> no link (catches branching on `sourceCell` rather than on the built href);
+- controls land in `controlsBand`, asserted via the controls node's ancestor band (catches the A1 regression of a full control cluster in the footer);
+- **the adapter passes `stripe="none"` on the WARNING tone path** (review finding 14: the muted path proves nothing here, since muted forces `none` inside the shell; omitting the prop on the warning path would silently produce the shell's default review stripe);
+- no link and no controls -> no footer bar;
+- `renderItemControls` absent, and present-but-returning-null -> no controls band;
+- all-empty title chain -> `"Data quality issue"`;
+- row-label suppression across null, empty, whitespace, and non-`UNKNOWN_FIELD`;
+- muted tone skin; key stability untouched.
+
+**In the SAME commit:** this call site's exemption comment, and this component's path added to the motion-free scanner list in `tests/components/admin/transitionAudit.test.tsx`.
+
+**Red-phase evidence:** the scanner row is demonstrated red by a scratch mutation adding a motion class to the component; failure quoted in the commit body.
 
 **Commit:** `refactor(admin): per-show actionable warnings onto the compact card`
 
 ---
 
-### Task 7 — HealthAlertsPanel adapter
+### Task 7 - HealthAlertsPanel adapter
 
-**Test first:** update `tests/components/healthAlertsPanel*.test.tsx` — `neutral` tone with NO stripe and NO glyph; the weight badge still distinguishes degraded from notice (catches severity being moved onto the container, which A5 forbids); separator interleaving across every link-presence combination including `show_id` XOR `slug`; `occurrence_count` 0/1/2/negative/non-finite; empty and whitespace identity; all four detail inputs absent ⇒ no band.
+**Test first:**
 
-**Implement:** rewrite `HealthAlertRowItem` onto `CompactAlertCard` with `tone="neutral"`. The panel stays a server component.
+- `neutral` tone with NO stripe and NO glyph; the weight badge still distinguishes degraded from notice (catches severity migrating onto the container, which A5 forbids);
+- **footer-right branch coverage** (review finding 16): `isAutoResolving` true -> italic auto-resolve note and NO resolve button; false -> the resolve button; plus the button's pending state (it has no error state - `components/admin/telemetry/HealthAlertResolveButton.tsx` line 19);
+- separator interleaving across every link-presence combination, including `show_id` XOR `slug` -> no View-show link;
+- `occurrence_count` 0 / 1 / 2 / negative / non-finite;
+- **detail/follow-up templates exercised INDEPENDENTLY for empty and whitespace-only**, and **sentence entries asserted to precede Identity and Seen** (review finding 17: blank sentence rows or reordered content would otherwise pass);
+- all four detail inputs absent -> no band.
+
+**In the SAME commit:** this component's path added to the motion-free scanner list, with the same scratch-mutation red-phase evidence.
 
 **Commit:** `refactor(admin): health alert rows onto the compact card`
 
 ---
 
-### Task 8 — Affordance-matrix registration
+### Task 8 - affordance-matrix template-family row
 
-**Test first:** the parity and shape suites must stay green with the two new `<HoverHelp` call sites present. Assert the concrete-row count is UNCHANGED (no concrete row added).
+Exemption comments already shipped with their call sites in Tasks 5 and 6 (registry atomicity), so no commit boundary was ever red. This task registers the family row.
 
-**Implement:** exemption comment `// not-a-help-affordance: per-item popover; registered as a template-family row, see app/help/_affordanceMatrix.ts` above each call site; ONE new `template-family` row; rewrite the stale comment at `app/help/_affordanceMatrix.ts` lines 105-112.
+**Test first, with a real red phase** (review finding 2): extend `tests/help/_affordance-matrix-shape.test.ts` with an assertion that a template-family row exists whose `testidPattern` covers the per-item help popover, AND that the concrete-row count is unchanged. Run it BEFORE adding the row and observe it fail; quote the failure in the commit body.
+
+**Implement:** one `template-family` row in `app/help/_affordanceMatrix.ts` (shape at lines 19-27), and rewrite the stale comment at lines 105-112 that claims per-alert education is a freestanding `helpHref` link.
 
 **Commit:** `test(admin): register the per-item help popover as a template-family affordance`
 
 ---
 
-### Task 9 — Transition audit extension
+### Task 9 - compound transition tests
 
-**Test first / implement together:** add `components/admin/CompactAlertCard.tsx (new)`, `components/admin/PerShowActionableWarnings.tsx`, and `components/admin/telemetry/HealthAlertsPanel.tsx` to the motion-free list in `tests/components/admin/transitionAudit.test.tsx` (AttentionBanner is already listed at line 41). Concrete failure mode: R9 could otherwise be violated on an adapter outside the current scan.
+Repairs review finding 4: the source-scanning audit cannot prove compound behavior, and the project rule requires compound-transition tests.
 
-**Commit:** `test(admin): extend the transition audit to every compact-card adapter`
+**Test first** (`tests/components/admin/compactAlertCompoundTransitions.test.tsx (new)`), behavioral, not source-scanning:
+
+- popover open, then resolve clicked -> the request proceeds AND the popover is unaffected until the confirmed swap (catches shared state that closes the popover on unrelated activity);
+- popover open across `Rp -> Ep` -> the popover stays open and the inline error renders;
+- popover open across `Ep -> Rp` retry -> still open;
+- popover open at `Rp -> C` -> the whole body swaps and both trigger and popover unmount, with the anchor still mounted (R11);
+- popover toggled closed while a request is in flight -> the request is unaffected.
+
+**Commit:** `test(admin): compound popover-and-resolve transitions on the compact card`
 
 ---
 
-### Task 10 — Real-browser layout assertions
+### Task 10 - real-browser layout assertions
 
-**Test first** (Playwright, existing standalone harness pattern; workflow path filter confirmed in the same commit):
+**File and CI wiring, named concretely** (review finding 6): `tests/e2e/compact-alert-card-layout.spec.ts (new)`, matched by the existing `tests/e2e/**` Playwright project. The workflow path filter is verified by grepping the admin-layout workflow for its `tests/e2e` glob in this same task; if the glob does not already cover the new file, the filter is amended in this commit and the amendment is stated in the PR body.
 
-- footer containment at 400px and 320px with a short-label and a longest-live-label fixture ("Open branch settings"): EVERY descendant of the footer bar within the bar's content box ±0.5px;
-- truncation load-bearing: `scrollWidth > clientWidth` on the long label (catches ancestor clipping masquerading as truncation);
-- single-line only for the short fixture; long fixture wraps to two lines WITHOUT overflow;
-- help trigger ≥44×44;
-- popover opens (`toBeVisible()` is meaningful here), sits below and right-aligned to its trigger, not clipped by the card. Per A6 it does NOT assert scroll-container containment;
-- message-row containment with a long unbroken token: the help trigger stays inside the card (proves `min-w-0`).
+**Assertions, each with a stated observable** (review findings 18, 19, 20):
+
+- **Footer containment:** every DESCENDANT element of the footer bar has a `getBoundingClientRect()` within the bar's BORDER BOX, minus its computed `padding-left`/`padding-right` read via `getComputedStyle` - the border-box-versus-content-box distinction is stated explicitly rather than assumed.
+- **Truncation is load-bearing:** `scrollWidth > clientWidth` on the long label element (ancestor clipping cannot satisfy this, whereas pure containment can).
+- **Wrapping:** measured as the footer bar's height exceeding a single line-box height, and the left cluster's `getBoundingClientRect().top` differing from the right cluster's - stated so "two lines" is unambiguous.
+- **Popover not clipped:** proven by HIT TESTING, not geometry - `document.elementFromPoint` at the popover body's centre returns the body or a descendant of it. Bounding rectangles cannot reveal clipping (the spec says so itself), so geometry alone is not used for this claim.
+- **Tap targets:** the help trigger AND every footer link measured at >= 44x44 (review finding 20 - footer links carry the same requirement).
+- **Message-row containment:** with a long unbroken token as the message, the help trigger's rect stays inside the card (proves `min-w-0`).
+
+**Red-phase evidence:** each assertion is demonstrated red by a scratch mutation of the class it governs (`ml-auto`, `min-w-0`, `truncate`, `min-h-tap-min`), observed failing, then reverted. Failures quoted in the commit body.
 
 **Commit:** `test(admin): real-browser layout assertions for the compact alert card`
 
 ---
 
-### Task 11 — Impeccable dual gate
+### Task 11 - impeccable dual gate
 
-Run `/impeccable critique` and `/impeccable audit` on the diff. Before running, apply the pre-code mechanical checklist (em-dash ban in user-visible copy, straight apostrophes, `min-h-tap-min` on interactives, canonical `text-xs/relaxed` and `text-subtle` classes). P0/P1 fixed or explicitly deferred via `DEFERRED.md`. Findings and dispositions recorded in the close-out doc.
+Before running, apply the pre-code mechanical checklist: em-dash ban in user-visible copy, straight apostrophes, `min-h-tap-min` on interactives, canonical `text-xs/relaxed` and `text-subtle` classes.
 
-**Commit:** `fix(admin): impeccable gate findings on the compact alert card` (only if findings)
+Run `/impeccable critique` and `/impeccable audit` on the diff. P0 and P1 findings fixed, or explicitly deferred via a `DEFERRED.md` entry.
+
+**Close-out record is unconditional** (review finding 22): `docs/superpowers/plans/2026-07-20-show-alert-compact/01-closeout.md (new)` records both gate runs, every finding with its disposition, and the review-round history. It is committed EVEN IF the gates surface nothing - a clean run is a result worth recording, and the previous plan made this commit conditional.
+
+**Commits:** `fix(admin): impeccable gate findings on the compact alert card` (only if code findings) and `docs(plan): show-alert-compact close-out record` (always).
 
 ---
 
-### Task 12 — Close-out
+### Task 12 - ship
 
-Full suite, typecheck, eslint, `format:check`. Whole-diff cross-model review (inlined variant — tool-using codex dispatches are dying on this repo today; 15 attempts across the spec rounds). Push, real CI green, `gh pr merge --merge`, fast-forward local main until `git rev-list --left-right --count main...origin/main` reports `0  0`.
+Full suite, typecheck, eslint, `format:check`. Whole-diff cross-model review using the inlined variant (tool-using codex dispatches have died 18 times on this repo today; the inlined form is what works). Push, real CI green, `gh pr merge --merge`, fast-forward local main until `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 ## 3. Risks
 
 | Risk | Mitigation |
 |------|-----------|
-| Affordance-matrix registration breaks three assertions if done as a concrete row | Task 8 pins the count-unchanged assertion; spec §10 explains the route |
-| `dataGaps` guard tightening lands without the scanner update | Same commit, stated in Task 5 |
-| Popover clipping inside the review modal | Descoped (A6), residual filed as `BL-HOVERHELP-PORTAL` |
-| Controls band regresses to the footer | Task 6 asserts the ancestor band, not mere presence |
-| jsdom visibility assertions silently vacuous | Spec §9.1 rules; Playwright owns real visibility |
+| A registry gate goes red at a commit boundary | Ordering rule 1: gate and code move together; old Tasks 8 and 9 dissolved into Tasks 5-7 |
+| A structural or browser assertion passes on first run and proves nothing | Ordering rule 2: scratch-mutation red phase with the failure quoted in the commit body |
+| Affordance-matrix registration breaks three assertions if done as a concrete row | Task 8 pins the count-unchanged assertion; spec section 10 explains the route |
+| Controls band regresses into the footer | Task 6 asserts the ancestor band, not mere presence |
+| Compound popover-and-resolve behavior unprovable by source scanning | Task 9 is behavioral |
+| Popover clipping inside the review modal | Descoped (A6), residual filed as `BL-HOVERHELP-PORTAL`; Task 10 proves the card-level claim by hit testing rather than geometry |
+| jsdom visibility assertions silently vacuous | Spec section 9.1 rules; Playwright owns real visibility |
