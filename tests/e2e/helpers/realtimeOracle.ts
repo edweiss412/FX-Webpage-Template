@@ -48,7 +48,16 @@ type WireFrame = {
   payload?: { status?: string; event?: string } | undefined;
 };
 
-/** Decode a websocket frame: Phoenix V2 array envelope or plain object. */
+// Phoenix BINARY broadcast push (observed on the CI stack's newer realtime,
+// 2026-07-20 PR #505 triage): a handful of length-header bytes, then the topic,
+// then the event name, then the meta + payload JSON objects concatenated.
+// Structural extraction (topic captured EXACTLY, immediately followed by the
+// event token and an opening brace -- never a loose substring scan). The local
+// stack's older realtime still sends the JSON array envelope; both decode.
+const BINARY_BROADCAST_RE = /^[\s\S]{1,8}(realtime:show:[0-9a-f-]{36}:invalidation)(invalidate)\{/;
+
+/** Decode a websocket frame: Phoenix V2 array envelope, plain object, or the
+ *  binary broadcast push layout above. */
 function parseWireFrame(text: string): WireFrame | null {
   try {
     const raw = JSON.parse(text) as unknown;
@@ -64,6 +73,12 @@ function parseWireFrame(text: string): WireFrame | null {
     }
     return raw as WireFrame;
   } catch {
+    const m = BINARY_BROADCAST_RE.exec(text);
+    const topic = m?.[1];
+    const event = m?.[2];
+    if (topic !== undefined && event !== undefined) {
+      return { topic, event: "broadcast", payload: { event } };
+    }
     return null;
   }
 }
