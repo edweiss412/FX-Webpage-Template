@@ -240,10 +240,18 @@ export function ShareHub({
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={() => toggle("primary")}
+        // NOT bg-accent, deliberately. DESIGN.md reserves the FXAV orange for
+        // "this matters now" — and the band's accent set is contractually
+        // EXACTLY {published-toggle, status-dot-live} (T-NO-ORANGE in
+        // published-review-modal.layout.spec.ts). Share link is a routine,
+        // always-available action, not a live-state signal, so an accent fill
+        // here would both break that pin and dilute the one cue that means the
+        // show is on air. The mock drew it orange; the project invariant wins.
+        // The two arms differentiate by LABEL and weight instead.
         className={
           published
-            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm bg-accent px-3 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         }
       >
         <Link2 aria-hidden="true" size={15} />

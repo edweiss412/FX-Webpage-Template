@@ -212,12 +212,20 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     await expect(anchor, "exactly one #share-access node in the modal").toHaveCount(1);
     await expect(anchor).toBeVisible();
 
-    // toBeVisible() is not in-viewport, so measure the box against the viewport.
-    const onScreen = await anchor.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return r.top >= 0 && r.bottom <= window.innerHeight && r.height > 0;
-    });
-    expect(onScreen, "the band target is on screen without scrolling").toBe(true);
+    // toBeVisible() is not in-viewport, so measure the box against the
+    // viewport. POLLED, not one-shot: a cold run measured before the modal
+    // finished streaming in and read false, then passed on retry. Polling waits
+    // for the settled geometry instead of racing it.
+    await expect
+      .poll(
+        () =>
+          anchor.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return r.top >= 0 && r.bottom <= window.innerHeight && r.height > 0;
+          }),
+        { message: "the band target is on screen without scrolling" },
+      )
+      .toBe(true);
   });
 
   test("SIGNED-IN legacy /admin/show/<slug>?alert_id=x 307s into the modal with the highlight", async ({

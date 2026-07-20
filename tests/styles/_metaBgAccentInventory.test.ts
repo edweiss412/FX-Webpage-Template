@@ -88,10 +88,6 @@ const REGISTRY: Row[] = [
   L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 1),
   L("app/show/[slug]/[shareToken]/error.tsx", 0),
   L("app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx", 0),
-  // share-hub T4: the published "Share link" trigger. Same disposition as the
-  // sibling accent Copy arm above — a solid accent fill carrying a visible
-  // text label, so the control is identifiable without relying on hue.
-  L("components/admin/showpage/ShareHub.tsx", 0),
   // edge-treated (7)
   E("components/admin/OnboardingWizard.tsx", 0),
   E("components/admin/PublishedToggle.tsx", 0),

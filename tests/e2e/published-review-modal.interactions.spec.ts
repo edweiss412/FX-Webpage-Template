@@ -800,6 +800,73 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     );
   });
 
+  // T-HUB-POPOVER (share-hub T4). Geometry for a surface that only exists after
+  // a real click, so it belongs in this hydrated spec rather than the static
+  // layout harness. Failure modes: a popover that covers the very triggers that
+  // opened it (top-full lost), one that is not the specified 308px, one whose
+  // right edge drifts off the band's content edge, and one that overflows a
+  // 390px phone.
+  for (const width of [390, 1280]) {
+    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
+      page,
+    }) => {
+      await openModal(page, { width, height: 900 });
+      await page.getByTestId("share-hub-primary").click();
+      await expect(page.getByTestId("share-hub-popover")).toBeVisible();
+
+      const geo = await page.locator(SUBHEADER).evaluate((band) => {
+        const pop = document.querySelector('[data-testid="share-hub-popover"]');
+        const group = band.querySelector('[data-testid="share-hub-group"]');
+        const primary = band.querySelector('[data-testid="share-hub-primary"]');
+        const kebab = band.querySelector('[data-testid="share-hub-kebab"]');
+        if (pop === null || group === null || primary === null || kebab === null) return null;
+        const bandRect = band.getBoundingClientRect();
+        const padRight = parseFloat(getComputedStyle(band).paddingRight);
+        const p = pop.getBoundingClientRect();
+        const k = kebab.getBoundingClientRect();
+        return {
+          popWidth: p.width,
+          popTop: p.top,
+          popRight: p.right,
+          popLeft: p.left,
+          groupBottom: group.getBoundingClientRect().bottom,
+          contentRight: bandRect.right - padRight,
+          primaryHeight: primary.getBoundingClientRect().height,
+          kebabW: k.width,
+          kebabH: k.height,
+          docScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(geo, "hub popover + group present").not.toBeNull();
+
+      // min(308, viewport - 2rem) at EVERY width — one expression exercised on
+      // both bands, so deleting the clamp cannot pass on the wide band alone.
+      const expectedWidth = Math.min(308, geo!.viewportWidth - 32);
+      expect(geo!.popWidth, `width is min(308, viewport-2rem) @ ${width}`).toBeCloseTo(
+        expectedWidth,
+        0,
+      );
+      expect(
+        geo!.popTop,
+        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom}`,
+      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
+      expect(
+        Math.abs(geo!.popRight - geo!.contentRight),
+        `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight}`,
+      ).toBeLessThanOrEqual(1);
+      expect(geo!.popLeft, `popover left edge on-screen @ ${width}`).toBeGreaterThanOrEqual(-1);
+      expect(geo!.docScrollWidth, `no horizontal overflow @ ${width}`).toBeLessThanOrEqual(
+        geo!.viewportWidth + 1,
+      );
+      expect(geo!.primaryHeight, `primary trigger tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(geo!.kebabH, `kebab tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(Math.abs(geo!.kebabW - geo!.kebabH), `kebab is square @ ${width}`).toBeLessThanOrEqual(
+        1,
+      );
+    });
+  }
+
   test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({
     page,
   }) => {

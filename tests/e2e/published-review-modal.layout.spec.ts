@@ -329,85 +329,12 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       ).toBeLessThanOrEqual(1);
     });
 
-    // T-HUB-POPOVER (share-hub T4). Geometry is authored in the same commit as
-    // these assertions: jsdom computes no layout, so nothing below is provable
-    // in a unit test. Failure modes caught: a popover that overlaps the very
-    // triggers that opened it (top-full lost), one that is not the specified
-    // 308px, one whose right edge drifts off the band's content edge, and one
-    // that overflows the viewport on mobile.
-    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
-      page,
-    }) => {
-      await openHarness(page, { width, height: vh });
-      await page.getByTestId("share-hub-primary").click();
-      const panel = page.getByTestId("share-hub-popover");
-      await expect(panel).toBeVisible();
-
-      const geo = await page.locator(SUBHEADER).evaluate((band) => {
-        const pop = document.querySelector('[data-testid="share-hub-popover"]');
-        const group = band.querySelector('[data-testid="share-hub-group"]');
-        const primary = band.querySelector('[data-testid="share-hub-primary"]');
-        const kebab = band.querySelector('[data-testid="share-hub-kebab"]');
-        if (pop === null || group === null || primary === null || kebab === null) return null;
-        const bandRect = band.getBoundingClientRect();
-        const padRight = parseFloat(getComputedStyle(band).paddingRight);
-        const p = pop.getBoundingClientRect();
-        return {
-          popWidth: p.width,
-          popTop: p.top,
-          popRight: p.right,
-          popLeft: p.left,
-          groupBottom: group.getBoundingClientRect().bottom,
-          contentRight: bandRect.right - padRight,
-          primaryHeight: primary.getBoundingClientRect().height,
-          kebabRect: {
-            w: kebab.getBoundingClientRect().width,
-            h: kebab.getBoundingClientRect().height,
-          },
-          docScrollWidth: document.documentElement.scrollWidth,
-          viewportWidth: document.documentElement.clientWidth,
-        };
-      });
-      expect(geo, "hub popover + group present").not.toBeNull();
-
-      // Width is min(308, viewport - 2rem) at EVERY width — one expression that
-      // is exercised on both bands rather than a branch that never runs. The
-      // earlier `if (clamped)` arm was dead: both tested widths (375, 1280)
-      // exceed the 340px threshold, so deleting `max-w-[calc(100vw-2rem)]`
-      // outright would still have passed and let the panel overflow on a
-      // narrower phone.
-      const expectedWidth = Math.min(308, geo!.viewportWidth - 32);
-      expect(
-        geo!.popWidth,
-        `popover width is min(308, viewport-2rem) = ${expectedWidth} @ ${width}`,
-      ).toBeCloseTo(expectedWidth, 0);
-
-      // Below the triggers — never covering them (top-full).
-      expect(
-        geo!.popTop,
-        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom} @ ${width}`,
-      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
-
-      // Right-aligned to the same content edge the group flushes to.
-      expect(
-        Math.abs(geo!.popRight - geo!.contentRight),
-        `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight} @ ${width}`,
-      ).toBeLessThanOrEqual(1);
-
-      // Inside the modal, and no horizontal page overflow at any width.
-      expect(geo!.popLeft, `popover left edge on-screen @ ${width}`).toBeGreaterThanOrEqual(-1);
-      expect(geo!.docScrollWidth, `no horizontal overflow @ ${width}`).toBeLessThanOrEqual(
-        geo!.viewportWidth + 1,
-      );
-
-      // Tap targets: both triggers meet the project floor; the kebab is square.
-      expect(geo!.primaryHeight, `primary trigger tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
-      expect(geo!.kebabRect.h, `kebab tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
-      expect(
-        Math.abs(geo!.kebabRect.w - geo!.kebabRect.h),
-        `kebab is square @ ${width}`,
-      ).toBeLessThanOrEqual(1);
-    });
+    // T-HUB-POPOVER lives in published-review-modal.interactions.spec.ts, not
+    // here. This spec renders a STATIC harness (no hydration), so clicking a
+    // trigger cannot open anything — T-HUB-FLUSH works because the trigger
+    // group is in the server-rendered markup, but the popover only exists
+    // after a real click. Asserting it here failed on a correct
+    // implementation; the interactions spec runs against the hydrated app.
 
     // REWRITTEN, not deleted and not retuned (modal-header-reconciliation
     // §6.1/§14.1). The old "header rhythm" test policed the gap between the
