@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/codex-guard.mjs — watchdog wrapper for direct Codex CLI dispatches.
 // Spec: docs/superpowers/specs/2026-07-19-codex-guard.md (canonical; §11 = numeric authority).
-import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -367,7 +367,57 @@ function writeResult(cfg, state, patch) {
 // and resume (Task 7) branches are added test-first.
 // ---------------------------------------------------------------------------
 
+const TTL_SIGNATURE = /codex_models_manager::manager: failed to renew cache TTL/;
+
+// §6 rung 1. Advisory lock; matched-or-skipped consumes the cap.
+function tryCacheRung(cfg, attempt, state) {
+  state.cacheRungUsed = true;
+  const lockDir = join(cfg.codexHome, ".codex-guard-cache-lock");
+  const cachePath = join(cfg.codexHome, "models_cache.json");
+  const skip = () => { attempt.recovery = "cache_ttl_skipped"; return "cache_ttl_skipped"; };
+
+  if (!existsSync(cfg.codexHome) || !existsSync(cachePath)) return skip();
+
+  if (existsSync(lockDir)) {
+    let ageSecs = 0;
+    try { ageSecs = (Date.now() - statSync(lockDir).mtimeMs) / 1000; } catch { return skip(); }
+    if (ageSecs > cfg.cacheLockStaleSecs) {
+      const tomb = join(cfg.codexHome, `.codex-guard-cache-lock.stale-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
+      try { renameSync(lockDir, tomb); rmSync(tomb, { recursive: true, force: true }); } catch { /* sibling broke it */ }
+      return skip(); // break-then-defer (§6)
+    }
+    return skip(); // fresh lock = live sibling
+  }
+
+  try { mkdirSync(lockDir); } catch { return skip(); }
+  state.heldLockDir = lockDir;
+  try {
+    writeFileSync(join(lockDir, "owner"), String(process.pid));
+    const backup = readFileSync(cachePath);
+    writeFileSync(join(cfg.out, "models_cache.bak.json"), backup);
+    unlinkSync(cachePath);
+    attempt.recovery = "cache_ttl";
+    return "cache_ttl";
+  } catch {
+    return skip();
+  } finally {
+    releaseOwnLock(state, lockDir);
+  }
+}
+
+function releaseOwnLock(state, lockDir) {
+  try {
+    const owner = readFileSync(join(lockDir, "owner"), "utf8");
+    if (owner === String(process.pid)) rmSync(lockDir, { recursive: true, force: true });
+  } catch { /* owner-less or foreign: leave for stale-break */ }
+  if (state.heldLockDir === lockDir) state.heldLockDir = null;
+}
+
 function selectRung(cfg, attempt, state) {
+  let stderrText = "";
+  try { stderrText = readFileSync(attempt.stderrPath, "utf8"); } catch { /* spawn_error */ }
+  if (!state.cacheRungUsed && TTL_SIGNATURE.test(stderrText)) return tryCacheRung(cfg, attempt, state);
+
   attempt.recovery = "retry";
   return "retry";
 }

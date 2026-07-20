@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupRuns, mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
 
@@ -23,6 +23,63 @@ describe("codex-guard recovery ladder (§6)", () => {
     expect(r.attempts.map((a) => a.recovery)).toEqual(["retry", "retry", null]);
     expect(readCalls(run)).toHaveLength(3);
     for (const a of r.attempts) expect(a.failureShape).toBe("nonzero_exit");
+  });
+
+  it("scenario 3: TTL stderr fires rung once; cap holds even with cache recreated", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] }, // no -o → failed
+      {
+        onCall: 2,
+        actions: [
+          { type: "writeFile", path: "$CODEX_HOME/models_cache.json", text: '{"recreated":true}' }, // deterministic
+          { type: "stderr", text: TTL_LINE },
+          { type: "exit", code: 0 },
+        ],
+      },
+      { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    const r = readResult(run);
+    expect(r.status).toBe("verdict");
+    expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl", "retry", null]); // cap: 2nd TTL → retry
+    expect(readFileSync(join(run.outDir, "models_cache.bak.json"), "utf8")).toContain("stub");
+    expect(JSON.parse(readFileSync(join(run.codexHome, "models_cache.json"), "utf8"))).toEqual({ recreated: true }); // recreated file NOT deleted again
+  });
+
+  it("scenario 3b: TTL signature on stdout only → rung NOT fired, no backup", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: TTL_LINE }, { type: "exit", code: 1 }] },
+      { onCall: 2, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    const r = readResult(run);
+    expect(r.status).toBe("verdict");
+    expect(r.attempts.map((a) => a.recovery)).toEqual(["retry", null]); // signature-matching reads ONLY stderr
+    expect(existsSync(join(run.outDir, "models_cache.bak.json"))).toBe(false);
+    expect(existsSync(join(run.codexHome, "models_cache.json"))).toBe(true);
+  });
+
+  // Resume branch lands in Task 7 — attempt 2's rung reads `retry` until then; same
+  // it.fails staging as scenario 9 (flip to `it` in Task 7 Step 1).
+  it.fails("scenario 11: absent cache → cache_ttl_skipped consumes cap; resume still reachable", async () => {
+    const run = mkRun();
+    rmSync(join(run.codexHome, "models_cache.json"));
+    const sid = "aaaabbbb-cccc-4ddd-8eee-ffff00001111";
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stderr", text: TTL_LINE }, { type: "exit", code: 0 }] }, // TTL, no -o → failed; rung 1 skips (no cache), cap consumed
+      { onCall: 2, actions: [{ type: "stdout", text: `session id: ${sid}\n` }, { type: "exit", code: 0 }] }, // truncation → rung 2 must fire
+      { onCall: 3, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(0);
+    const r = readResult(run);
+    expect(r.attempts.map((a) => a.recovery)).toEqual(["cache_ttl_skipped", "resume", null]);
+    expect(r.attempts[2]!.kind).toBe("resume");
+    expect(r.status).toBe("verdict");
   });
 
   it("scenario 15: admission gate blocks rung side effects — cache intact, no backup", async () => {
