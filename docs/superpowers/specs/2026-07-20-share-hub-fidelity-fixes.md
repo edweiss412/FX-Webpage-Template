@@ -727,19 +727,20 @@ export function expectNoDescriptionNode(
   // `flex min-w-0 flex-col` just because there is nothing left to stack.
   expectRowTopology(button, column!);
 
-  // Scanned across the whole SCOPE, not just the button. A button-scoped scan
-  // misses a carrier rendered as the button's SIBLING inside the row wrapper:
-  //   <div className="flex w-full flex-col gap-2">
-  //     <button>…correct icon + label-only column…</button>
-  //     <p id={descId} className="text-xs text-text-subtle">{rowDescription}</p>
-  //   </div>
-  // which leaves the button pristine while the forbidden empty description node
-  // survives in the DOM, the precise failure this guard exists to exclude.
+  // Scanned across the whole SCOPE, matching the COMPLETE description class set.
+  //
+  // Deliberately `every`, not `some`: the row ICON legitimately carries
+  // `text-text-subtle`, which is one of the description tokens, so a `some`
+  // match flags `<svg class="shrink-0 text-text-subtle">` and FAILS THE CORRECT
+  // implementation. A partial-class carrier (`<p class="text-xs">`) is caught
+  // structurally instead: by the row topology check (children exactly
+  // `[svg, column]`), the column-subtree check, and the wrapper-children check
+  // below, which is stronger than a class heuristic anyway.
   expect(
     [...scope.querySelectorAll("*")].filter((el) =>
-      DESCRIPTION_CLASSES.some((c) => tokensOf(el).has(c)),
+      DESCRIPTION_CLASSES.every((c) => tokensOf(el).has(c)),
     ),
-    "no element in the row scope may carry any description class",
+    "no element in the row scope may carry the description class set",
   ).toEqual([]);
 
   // The decisive check, because a class scan can only reject carriers that LOOK
@@ -807,7 +808,7 @@ export function expectRowBoundary(
   // container assertions while nesting interactive controls, which is invalid
   // HTML and breaks the one-button-per-control contract.
   expect(wrapper!.tagName, "the row wrapper must be a plain div").toBe("DIV");
-  for (const attr of ["href", "onclick", "tabindex", "role", "disabled"]) {
+  for (const attr of ["href", "onclick", "tabindex", "role", "disabled", "contenteditable"]) {
     expect(wrapper!.hasAttribute(attr), `the row wrapper must not carry ${attr}`).toBe(false);
   }
   // The PERSISTENT live region is a legitimate wrapper sibling: PickerResetControl
@@ -825,6 +826,21 @@ export function expectRowBoundary(
     el.getAttribute("aria-live") === "polite" &&
     tokensOf(el).has("sr-only");
   const liveRegions = [...wrapper!.children].filter(isLiveRegion);
+  // A region that qualifies structurally can still be USELESS or polluted:
+  // `class="sr-only hidden" aria-hidden="true"` removes it from the a11y tree,
+  // destroying PCR-1 (a), and a nested <button> breaks one-control-per-row.
+  // Both survive the identity match, so pin the region's own contract.
+  for (const region of liveRegions) {
+    expectClasses(region, { exactly: ["sr-only"] });
+    expect(region.hasAttribute("hidden"), "the live region must not be hidden").toBe(false);
+    expect(region.getAttribute("aria-hidden"), "the live region must not be aria-hidden").not.toBe(
+      "true",
+    );
+    expect(
+      [...region.children],
+      "the live region carries announcement TEXT, never elements",
+    ).toEqual([]);
+  }
   expect(
     [...wrapper!.children].filter((el) => !liveRegions.includes(el)),
     "the idle wrapper contains the button (and, for reset, its live region)",
@@ -857,6 +873,16 @@ export function expectRowBoundary(
   }
 }
 ```
+
+**The helpers carry a permanent SELF-TEST** at
+tests/components/admin/showpage/_rowAssertions.selftest.test.tsx. Four review findings were
+of the class "this assertion would FAIL THE CORRECT implementation" (rounds 6, 17, 18, 21) —
+strictly worse than admitting a wrong one, because it blocks a good diff. Each survived
+earlier probing because the probe fixtures were not faithful: round 21's case (the
+description-class scan flagging the row ICON, which legitimately carries `text-text-subtle`)
+was invisible to a probe rendering a bare `<svg />`. The self-test therefore uses the REAL
+lucide icons and the REAL prescribed class strings, and asserts BOTH directions: a correct
+row passes every helper end to end, and the known escapes still fail.
 
 **Binding rules, enforced by using the helper rather than by remembering them:**
 

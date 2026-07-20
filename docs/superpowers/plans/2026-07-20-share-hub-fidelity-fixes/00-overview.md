@@ -28,7 +28,12 @@ Six TDD tasks. Each: failing test → minimal implementation → green → one c
 
 ## Meta-test inventory
 
-- **CREATES:** none.
+- **CREATES:** `tests/components/admin/showpage/_rowAssertions.selftest.test.tsx` — a
+  permanent self-test of the shared row-assertion helpers, asserting BOTH that a correct row
+  passes every helper end to end (using the real lucide icons and real class strings) and
+  that the known escapes still fail. It exists because four review findings were of the
+  class "this assertion would fail the CORRECT implementation," each missed by unfaithful
+  probe fixtures.
 - **EXTENDS:** none.
 - **Declared N/A with reason:**
   - `tests/auth/_metaInfraContract.test.ts` — no Supabase client call is added or moved.
