@@ -31,8 +31,8 @@ import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
 const YAML = readFileSync(join(process.cwd(), ".github", "workflows", "unit-suite.yml"), "utf8");
 
-const DB_LEGS = 8;
-const NODB_LEGS = 3;
+const DB_LEGS = 12;
+const NODB_LEGS = 4;
 
 /**
  * Comment-free view of a block. A forbidden-token guard that scans raw YAML also
