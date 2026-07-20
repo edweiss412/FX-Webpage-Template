@@ -16,7 +16,7 @@
 - [x] `pnpm spec:lint` on the spec: 0 hard
 - [ ] Snippet typecheck (Task 0 below produces the transcript)
 - [ ] Adversarial review (cross-model) — Codex, to APPROVE, before execution
-- [ ] Execution (Tasks 1–5; whole-diff review BEFORE push)
+- [ ] Execution (Tasks 0–4; whole-diff review BEFORE push)
 
 ## Global Constraints
 
@@ -31,7 +31,9 @@ EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–g)
 
 ---
 
-### Task 0: Regenerate the list from a committed script (script first, list second)
+### Task 0: Generate the list from a committed script (tooling + data; no behavior change)
+
+**TDD note (deliberate, reviewed):** this task adds NO production behavior — nothing imports `PARALLEL_EXTRA_FILES` until Task 1, so there is no behavior a failing test could describe first. Its verification is `--check` (Step 4), and it is put under permanent test in Task 1 via the §4c list-integrity block and the §4g `--check` invocation. The red→green cycle for the actual behavior change lives entirely inside Task 1.
 
 **Files:**
 - Create (new, not yet tracked): audit-serial-files.mjs under scripts/
@@ -56,31 +58,50 @@ git commit --no-verify -m "infra: audit-serial-files script + generated PARALLEL
 
 ---
 
-### Task 1: Partition meta-test — resolved-config proof + wiring pins (failing first)
+### Task 1: Partition proof + wiring (single red -> green -> commit cycle)
 
 **Files:**
 - Modify: `tests/cross-cutting/vitest-projects-partition.test.ts`
+- Modify: `vitest.config.ts`, `vitest.projects.ts`
 
 **Interfaces:**
 - Consumes: Task 0's `PARALLEL_EXTRA_FILES`; the imported `vitestConfig` projects array.
-- Produces: the failing gate Task 2 satisfies.
+- Produces: the shipped membership change.
+
+**Decision (resolved, no implementer choice):** `vitest.projects.ts` **re-exports** `PARALLEL_EXTRA_FILES` (`export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";`) so consumers keep importing membership from the module they already import, while the generated list stays in its own regenerable file. Do NOT inline or append it into `PARALLEL_TEST_GLOBS`.
 
 - [ ] **Step 1: Add the local glob matcher** (decision already made — see Global Constraints; picomatch is not importable from the root). Extend P2's `globToRegExp` in the test file to support brace alternation:
 
 ```ts
-// Glob -> anchored RegExp for the resolved-config proof. Handles the three
-// shapes the vitest config actually uses: `**/` prefixes, `*` segments, and
-// `{ts,tsx}` alternation. picomatch is not importable from the workspace root
-// (nested transitive dep only), so this stays dependency-free.
+// Glob -> anchored RegExp for the resolved-config proof. Sentinel-based so
+// escaping never re-processes emitted regex (a naive sequential replace turns
+// `**/node_modules/**` into a pattern that cannot match nested descendants).
+// Verified against 15 cases covering every shape the config uses: `**/x/**`
+// default excludes, `tests/x/**/*.test.{ts,tsx}`, exact files, and
+// `**/tests/.../x.test.ts`. picomatch is not importable from the workspace
+// root (nested transitive dep only), so this stays dependency-free.
 function globToRegExp(glob: string): RegExp {
-  const esc = glob
-    .replace(/[.+^$()|[\]\\]/g, "\\$&")
-    .replace(/\{([^}]+)\}/g, (_m, alts: string) => `(?:${alts.split(",").join("|")})`)
-    .replace(/\*\*\//g, "(?:.*/)?")
-    .replace(/\*/g, "[^/]*");
-  return new RegExp(`^${esc}$`);
+  const DEEP_SUFFIX = "\u0000DEEPSUF\u0000";
+  const DEEP = "\u0000DEEP\u0000";
+  const STAR = "\u0000STAR\u0000";
+  const marked = glob
+    .replace(/\/\*\*$/, DEEP_SUFFIX)
+    .replace(/\*\*\//g, DEEP)
+    .replace(/\*/g, STAR);
+  const esc = marked.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const body = esc
+    .replace(/\\\{([^}]*)\\\}/g, (_m, alts: string) => `(?:${alts.split(",").join("|")})`)
+    .split(DEEP_SUFFIX)
+    .join("(?:/.*)?")
+    .split(DEEP)
+    .join("(?:.*/)?")
+    .split(STAR)
+    .join("[^/]*");
+  return new RegExp(`^${body}$`);
 }
 ```
+
+A companion unit test in the same file pins the matcher itself (it is now load-bearing infrastructure, not a helper): assert the 15 cases above, including that the default-exclude glob for node_modules matches a nested path under a node_modules directory and does NOT match an ordinary test path.
 - [ ] **Step 2: Edit the test.** All of:
   - Import `PARALLEL_EXTRA_FILES`.
   - (§4a) `matchesParallel(file)` → true if ANY `PARALLEL_TEST_GLOBS` entry matches (dir glob or exact file, as today) **or** `PARALLEL_EXTRA_FILES.includes(file)`. Comment it as spot-check shorthand, explicitly NOT the partition proof.
@@ -89,44 +110,49 @@ function globToRegExp(glob: string): RegExp {
   - (§4b) REPLACE the walker at `vitest-projects-partition.test.ts` lines 133-147 (delete the sum-of-three form) with a resolved-config classifier: `inProject(file, p)` = some `p.include` glob matches AND no `p.exclude` glob matches, read off the imported config objects. For every walked file assert exactly one admitting project, EXCEPT `NIGHTLY_ONLY_EXCLUDES` matches (zero) and, in a `VITEST_EXCLUDE_ENV_BOUND=1` re-import (mirroring the existing `serialExcludeFor` env-stub pattern at `vitest-projects-partition.test.ts` lines 193-217), the three env-bound files (zero).
   - (§4c) NEW list-integrity block, one assertion each: every entry exists on disk; unique; sorted; matches `BASE_INCLUDE`; claimed by NO `PARALLEL_TEST_GLOBS` entry; not nightly; not env-bound; not matched by `configDefaults.exclude`.
   - (§4d) NEW anti-vacuity band: `PARALLEL_EXTRA_FILES.length` within `[400, 600]`, with the comment that the band is re-tuned when measure mode legitimately moves the count.
-  - (§4e) `mustBeSerial`: replace the whole-dir rows `tests/onboarding`, `tests/api`, `tests/notify` with exact DB-bound file paths from those dirs (take them from the residual set — e.g. onboarding's `cleanupRecoveryConcurrency.db.test.ts`, api's wizard-approve route test, notify's DB-touching test); keep `tests/db/advisory-lock.test.ts` and `tests/sync/dev-routing.test.ts` as exact paths.
-  - (§4f) Keep the env-bound assertion, strengthened: the three paths are absent from `PARALLEL_EXTRA_FILES` and claimed by no `PARALLEL_TEST_GLOBS` entry.
-  - (§4g) NEW: spawn `node scripts/audit-serial-files.mjs --check` and assert exit 0.
-- [ ] **Step 3: Run — expect failures** in the wiring/classification assertions (list exists but is not yet spread into the config).
+  - (§4e) `mustBeSerial`: replace the whole-dir rows `tests/onboarding`, `tests/api`, `tests/notify` with these exact DB-bound paths (verified present and DB-marker-bearing this session), keeping `tests/db/advisory-lock.test.ts` and the corpus writer `tests/sync/dev-routing.test.ts`:
 
-Run: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts`
-Expected: FAIL on (§4b0-i), (§4b0-ii); list-integrity/band/`--check` PASS.
-
-- [ ] **Step 4: Commit the failing test** (TDD boundary — the config change is Task 2).
-
-```bash
-git add tests/cross-cutting/vitest-projects-partition.test.ts
-git commit --no-verify -m "test(infra): resolved-config partition proof + PARALLEL_EXTRA_FILES wiring pins (failing until wired)"
+```ts
+    const mustBeSerial = [
+      "tests/db/advisory-lock.test.ts",
+      "tests/sync/dev-routing.test.ts", // the fixture-corpus WRITER
+      "tests/admin/test-auth-gate.test.ts", // env-bound (x-audits-targeted)
+      "tests/cross-cutting/email-canonicalization.test.ts", // env-bound (x5-targeted)
+      "tests/cross-cutting/pg-cron-coverage.test.ts", // env-bound
+      "tests/onboarding/finalizeGateStaged.db.test.ts",
+      "tests/onboarding/rescanWizardSheetFlowB.db.test.ts",
+      "tests/api/wizard-approve-route.test.ts",
+      "tests/api/show-unpublish-route.realdb.test.ts",
+      "tests/notify/monitorDigest.drift.db.test.ts",
+      "tests/notify/auto-publish-undo-live-probe-real-db.test.ts",
+    ];
 ```
 
----
+(The three whole-dir rows are gone because those dirs are now genuinely mixed; every path above is asserted serial by exact path.)
+  - (§4f) Keep the env-bound assertion, strengthened: the three paths are absent from `PARALLEL_EXTRA_FILES` and claimed by no `PARALLEL_TEST_GLOBS` entry.
+  - (§4g) NEW: spawn `node scripts/audit-serial-files.mjs --check` and assert exit 0.
+- [ ] **Step 3: Run — RED.** Confirm the failure set is exactly the wiring assertions, proving they bind:
 
-### Task 2: Wire the list into both projects
+Run: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts`
+Expected: FAIL on (§4b0-i) and (§4b0-ii) only — the list exists but is not yet in either project's arrays. List-integrity, band, matcher unit test, and `--check` PASS. Do NOT commit here.
 
-**Files:**
-- Modify: `vitest.projects.ts` (re-export or import-and-append), `vitest.config.ts`
+- [ ] **Step 4: Wire it — GREEN.** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling verbatim). `vitest.projects.ts`: add the re-export above, and extend the header with the §3.3 contract note — mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the audit script.
 
-- [ ] **Step 1:** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling exactly). `vitest.projects.ts` header gains the §3.3 contract note: mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the script.
-- [ ] **Step 2: Run — expect green.**
+- [ ] **Step 5: Run — verify green across the meta-test suite.**
 
 Run: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts tests/cross-cutting/vitest-shard-balance.test.ts tests/cross-cutting/unit-suite-shard-topology.test.ts`
 Expected: PASS (all).
 
-- [ ] **Step 3: Commit.**
+- [ ] **Step 6: Commit** (one commit, red and green together — the suite is never committed failing).
 
 ```bash
-git add vitest.config.ts vitest.projects.ts
-git commit --no-verify -m "infra: wire PARALLEL_EXTRA_FILES into both vitest projects (516 measured DB-free files leave the serial phase)"
+git add tests/cross-cutting/vitest-projects-partition.test.ts vitest.config.ts vitest.projects.ts
+git commit --no-verify -m "infra: resolved-config partition proof + wire PARALLEL_EXTRA_FILES into both vitest projects"
 ```
 
 ---
 
-### Task 3: Verification gates
+### Task 2: Verification gates
 
 - [ ] **Step 1:** `pnpm exec tsc --noEmit` — clean.
 - [ ] **Step 2:** `pnpm exec eslint` on every touched file — clean.
@@ -136,14 +162,14 @@ git commit --no-verify -m "infra: wire PARALLEL_EXTRA_FILES into both vitest pro
 
 ---
 
-### Task 4: Whole-diff cross-model review (BEFORE push)
+### Task 3: Whole-diff cross-model review (BEFORE push)
 
 - [ ] **Step 1:** Dispatch via `node scripts/codex-guard.mjs review`, fresh-eyes, REVIEWER ONLY, do-not-relitigate = spec §1.1 (incl. the withdrawn inverted model) + the spike numbers. Tight file list: the new audit script under scripts/, the new root parallel-extra-files module, `vitest.config.ts`, `vitest.projects.ts`, `tests/cross-cutting/vitest-projects-partition.test.ts`. Iterate to APPROVE.
 - [ ] **Step 2:** Repairs follow the originating task's TDD shape; one commit per finding class.
 
 ---
 
-### Task 5: PR + accept criteria (spec §5, real CI)
+### Task 4: PR + accept criteria (spec §5, real CI)
 
 Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (push → watch → resolve run → measure latest attempt → evaluate).
 
@@ -157,7 +183,7 @@ Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (pus
 
 ## Self-review notes
 
-- Spec coverage: §3.1→Task 0 Step 3; §3.2→Task 2 Step 1; §3.3→Task 2 Step 1 header note; §3.4→Task 0 Steps 1-2; §3.5→Task 1 (§4c); §4a-g→Task 1 Step 2; §5→Task 5. No requirement without a task.
-- Ordering rationale: the script precedes the list (regeneration is the contract, not the artifact), and the list precedes the wiring so Task 1's failing test isolates the wiring defect specifically.
+- Spec coverage: §3.1→Task 0 Step 3; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→Task 0 Steps 1-2; §3.5→Task 1 (§4c); §4a-g→Task 1 Step 2; §5→Task 4. No requirement without a task.
+- Ordering rationale: the script precedes the list (regeneration is the contract, not the artifact); the test-then-wire cycle lives INSIDE Task 1 so no commit ever contains a failing suite, and Task 1 Step 3's red state still isolates the wiring defect specifically.
 - Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4g runs the real script rather than asserting its existence.
 - Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 3 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
