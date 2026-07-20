@@ -141,15 +141,29 @@ export function RotateShareTokenButton({
     clearAutoRevert();
     setUi("resolving");
     startTransition(async () => {
-      const r = await rotateShareToken({ showId });
-      setResult(r);
-      if (r.ok) {
-        // Push the new token+epoch into the shared cache so the card / chip / crew
-        // link update instantly (only for an active crew link — an inactive show
-        // must not surface a copyable URL). router.refresh() is the backstop that
-        // re-reads other server-derived data.
-        if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
-        router.refresh();
+      try {
+        const r = await rotateShareToken({ showId });
+        setResult(r);
+        if (r.ok) {
+          // Push the new token+epoch into the shared cache so the card / chip / crew
+          // link update instantly (only for an active crew link — an inactive show
+          // must not surface a copyable URL). router.refresh() is the backstop that
+          // re-reads other server-derived data.
+          if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
+          router.refresh();
+        }
+      } catch {
+        // A thrown action (network death, server error boundary) must not strand
+        // the control in resolving — settle through the refused banner. Mirrors
+        // PickerResetControl.tsx and CrewRowActions.tsx, which took this guard in
+        // the R2 class-sweep that missed this file. Without it `result` stays
+        // null, so the `ui === "resolving"` exit effect below never fires.
+        // Reuses the existing failure code rather than minting one: the union
+        // admits exactly this code (rotateShareToken.ts:13), the value is never
+        // rendered (the banner keys on `ok === false` and renders a fixed
+        // sentence), and a new code would fan out across the §12.4 catalog —
+        // explicitly out of scope per spec §1.1.
+        setResult({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
       }
     });
   };

@@ -192,6 +192,30 @@ describe("RotateShareTokenButton — confirmation-only success banner + onRotate
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  test("a THROWN action settles to the refused banner (no stranded resolving row)", async () => {
+    // Class-sweep gap: PickerResetControl.tsx and CrewRowActions.tsx both carry
+    // a try/catch for this ("review R2 class-sweep of the CrewRowActions
+    // thrown-action fix"); rotate was missed. Without the guard `result` stays
+    // null, so the `ui === "resolving"` exit effect never fires and the control
+    // strands forever — and once ShareHub gates dismissal on a busy signal
+    // derived from that state, the popover can no longer be closed at all.
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("network death"),
+    );
+    const onRotated = vi.fn();
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} onRotated={onRotated} />);
+    await clickThroughConfirm();
+
+    const refused = await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
+    expect(refused.getAttribute("role")).toBe("alert");
+    expect(refused.textContent).toContain("Couldn't rotate");
+    // Left `resolving`: the idle trigger is back, so the row is usable again.
+    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeTruthy();
+    expect(screen.queryByTestId("admin-rotate-share-token-confirm-row")).toBeNull();
+    expect(onRotated).not.toHaveBeenCalled();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
   test("re-entering confirm clears a stale refused banner (no zombie state)", async () => {
     (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,
