@@ -486,9 +486,12 @@ import { expect } from "vitest";
 
 /** Class tokens as a Set. NEVER assert against `className` directly:
  *  `.toContain("w-full")` also passes for `sm:w-full` / `max-w-full`. */
-/** Class-based hiding mechanisms. `invisible` and `collapse` hide as
- *  thoroughly as `hidden` does; omitting them left a decidable escape. */
+/** Class-based hiding mechanisms, matched AFTER any variant prefix. `sm:hidden`
+ *  and `md:invisible` hide the row just as thoroughly as the bare tokens do at
+ *  their breakpoint, and a bare-token check misses every one of them. */
 const HIDING_TOKENS = ["sr-only", "hidden", "invisible", "collapse"] as const;
+const HIDING_RE = new RegExp(`(?:^|:)(?:${HIDING_TOKENS.join("|")})$`);
+const hidingTokensOf = (el: Element): string[] => [...tokensOf(el)].filter((t) => HIDING_RE.test(t));
 
 export const tokensOf = (el: Element): Set<string> =>
   new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
@@ -545,12 +548,9 @@ function expectNotHidden(el: Element, root: Element, what: string): void {
   // the button.
   let cur: Element | null = el;
   while (cur) {
-    const t = tokensOf(cur);
     const where = cur === el ? what : `${what} ancestor <${cur.tagName.toLowerCase()}>`;
-    // Class-based hiding.
-    for (const token of HIDING_TOKENS) {
-      expect(t.has(token), `${where} must not be ${token}`).toBe(false);
-    }
+    // Class-based hiding, variant-prefixed forms included.
+    expect(hidingTokensOf(cur), `${where} must not carry a hiding class`).toEqual([]);
     expect(cur.hasAttribute("hidden"), `${where} must not carry the hidden attribute`).toBe(false);
     expect(cur.getAttribute("aria-hidden"), `${where} must not be aria-hidden`).not.toBe("true");
     // INLINE style hiding. jsdom cannot resolve stylesheets, but it parses the
@@ -647,12 +647,23 @@ export function expectNoDescriptionNode(
     "the column must hold the label and NOTHING else - any tag, not just a span",
   ).toBe(1);
 
-  // Belt and braces: nothing anywhere in the row carries the description styling.
+  // Exact row topology. A class-set filter is not enough on its own: an empty
+  // `<p id={descId} class="text-xs">` sits OUTSIDE the column, carries only PART
+  // of the description class set, leaves textContent untouched, and still
+  // survives. The prescribed row has exactly two element children, the icon and
+  // the column, so anything else is the escape.
+  expect(
+    [...button.children].map((c) => c.tagName.toLowerCase()),
+    "row children must be exactly [icon, column]",
+  ).toEqual(["svg", "span"]);
+
+  // Belt and braces: nothing anywhere in the row carries the description
+  // styling, in whole or in part.
   expect(
     [...button.querySelectorAll("*")].filter((el) =>
-      DESCRIPTION_CLASSES.every((c) => tokensOf(el).has(c)),
+      DESCRIPTION_CLASSES.some((c) => tokensOf(el).has(c)),
     ),
-    "no element may carry the description class set",
+    "no element may carry any description class",
   ).toEqual([]);
 }
 ```
@@ -678,7 +689,9 @@ export function expectNoDescriptionNode(
    the LABEL's full contract (name, not-hidden, typography) — otherwise
    `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes, and a row with no
    description silently loses its accessible name while the normal-description tests stay
-   green. A count of
+   green. It also pins the row's exact child topology (`[svg, span]`), because an empty
+   `<p id={descId} class="text-xs">` placed OUTSIDE the column carries only part of the
+   description class set and otherwise survives every other check. A count of
    `<span>` elements is not: an empty `<p id={descId} class="text-xs text-text-subtle">`
    passes a span count while leaving the forbidden empty described node in the tree.
 5. **`exactly` is the default posture for every class list this spec fully prescribes** —
