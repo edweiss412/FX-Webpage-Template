@@ -238,7 +238,17 @@ Six defenses. Each fails because something is **absent** or **rendered wrong**, 
    Two-layer availability, following the `validation-schema-parity` precedent in this repo:
 
    - **Layer 1 (always):** current-tree consistency — `RESOLVE_INTENTS` and the committed baseline agree exactly. Runs everywhere, catches the ordinary mistake of updating one and not the other.
-   - **Layer 2 (history):** the `origin/main` comparison above. Skips with an explicit logged reason when no git history is reachable (a shallow or detached checkout); **required** in CI, where full history is fetched. A skipped Layer 2 is never silent.
+   - **Layer 2 (history):** the `origin/main` comparison above. **Required in CI**, where full history is fetched.
+
+   Layer 2's three outcomes are explicit, because R7 finding 1 correctly showed the first draft had no valid behavior on its own introducing PR:
+
+   | Condition | Behavior |
+   | --- | --- |
+   | `origin/main` reachable, baseline file **exists** there | Compare. Every historical pair must still resolve identically. |
+   | `origin/main` reachable, baseline file **absent** there | **Pass, vacuously.** There are no historical pairs to preserve. This is the bootstrap case — the PR that introduces the baseline — and it is a correct pass, not a skip. |
+   | `origin/main` **unreachable** (no remote-tracking ref; shallow clone without it) | Skip, with the reason logged. |
+
+   The skip condition is precisely "the `origin/main` ref cannot be resolved" — **not** "HEAD is detached." R7 finding 1 is right that CI commonly runs detached while `origin/main` remains perfectly reachable; treating detachment as a skip would disable the layer exactly where it is required. Detached HEAD with a reachable `origin/main` takes the compare path like any other.
 
    Retiring a producer means setting `retired: true`, which preserves both key and intent, so persisted historical rows keep rendering "Confirm".
 
