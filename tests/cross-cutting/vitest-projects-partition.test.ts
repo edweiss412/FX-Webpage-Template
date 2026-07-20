@@ -198,6 +198,21 @@ describe("vitest projects split — partition is complete and correctly wired", 
       expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(
         9,
       );
+      // Anti-collapse floors, computed from RESOLVED membership (not the
+      // matchesParallel helper): exact-once alone permits massive drift, since
+      // every file could pile into one project and still be admitted exactly
+      // once. Counts at time of writing: parallel 694, serial 773.
+      let parallelCount = 0;
+      let serialCount = 0;
+      for (const f of allTestFiles) {
+        for (const p of defaults) {
+          if (!inProject(f, p)) continue;
+          if (p.name === "parallel") parallelCount++;
+          else if (p.name === "serial") serialCount++;
+        }
+      }
+      expect(parallelCount, "parallel project must not collapse").toBeGreaterThan(200);
+      expect(serialCount, "serial project must not collapse").toBeGreaterThan(100);
     } finally {
       vi.unstubAllEnvs();
       vi.resetModules();
