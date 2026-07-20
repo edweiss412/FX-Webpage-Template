@@ -66,30 +66,6 @@ jobs:
           version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
-      # Conditional image-cache lever (spec 2026-07-19 §5.2; keep-or-revert
-      # decided by the §6 accept gate — if reverted, delete these three steps
-      # and in the same commit replace the topology test's cache describe-block
-      # with the zero-soft-fail guard, which must REMAIN).
-      # Key inputs: runner OS/arch; the setup-cli version literal (image tags
-      # derive from CLI version — topology test pins the two literals equal);
-      # hashFiles over config.toml (db.major_version selects the postgres
-      # image) + the bootstrap script (its -x list selects which services'
-      # images are needed at all) + this workflow file (the docker-save
-      # image-selection grep lives below). Caches are immutable per key —
-      # every input that can change the image set must be in the key.
-      - name: Restore Supabase image cache
-        id: supabase-image-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/supabase-images.tar.zst
-          key: supabase-images-${{ runner.os }}-${{ runner.arch }}-2.107.0-${{ hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh', '.github/workflows/unit-suite.yml') }}
-      - name: Load cached Supabase images (hit only)
-        if: steps.supabase-image-cache.outputs.cache-hit == 'true'
-        # Trailing soft-fail operator (NOT repeated in this comment — the
-        # topology meta-test counts its occurrences): a corrupt/failed load
-        # degrades to today's behavior (`supabase start` pulls whatever is
-        # missing) — never fails the leg.
-        run: zstd -d --stdout ~/supabase-images.tar.zst | docker load || true
       - name: Boot local Supabase (guarded migrations)
         # Shared bootstrap — same Supabase + GUC + guarded-migration setup
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
@@ -102,25 +78,6 @@ jobs:
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
         run: pnpm exec vitest run --shard=${{ matrix.shard }}/6
-      - name: Save Supabase images for cache (miss only)
-        if: steps.supabase-image-cache.outputs.cache-hit != 'true'
-        # One braced compound with a single trailing soft-fail operator (the
-        # literal is NOT repeated in this comment — the topology meta-test
-        # counts its occurrences): any failure (apt, enumeration, docker save,
-        # zstd, disk) costs only the cache entry, never the leg. pipefail is
-        # load-bearing (default `bash -e {0}` takes the PIPELINE status from
-        # zstd alone — a mid-stream docker-save death would otherwise publish
-        # a truncated archive). tmp-then-mv is load-bearing (the cache
-        # post-step uploads whatever sits at the cache path under an IMMUTABLE
-        # key — a partial file would hit forever, soft-fail every load, and
-        # never regenerate since save is miss-only).
-        run: |
-          set -o pipefail
-          { (command -v zstd || sudo apt-get install -y zstd) \
-            && docker save $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'supabase|kong|postgrest') \
-               | zstd -T0 -o ~/supabase-images.img.tmp \
-            && mv ~/supabase-images.img.tmp ~/supabase-images.tar.zst; } || true
-
   unit-suite:
     # Aggregator — PRESERVES the `unit-suite` required check-context name so
     # branch protection needs no change. Green only when EVERY shard leg passed
