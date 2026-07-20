@@ -620,6 +620,51 @@ describe("ShareHub — Unarchive failure surface", () => {
   });
 });
 
+describe("ShareHub — the row wrappers are inert (spec §7.0)", () => {
+  // The SOURCE guard (_metaRowWrapperInert.test.ts) is the proof that no handler
+  // is attached: finite event sampling cannot show absence across ~60 React DOM
+  // event props. These are its behavioral complement, and the second half of
+  // each - clicking the ROW - is what stops them passing against a dead control.
+  const cases = [
+    { name: "reset", row: "picker-reset-all-button", confirm: "picker-reset-confirm-row" },
+    {
+      name: "rotate",
+      row: "admin-rotate-share-token-button",
+      confirm: "admin-rotate-share-token-confirm-row",
+    },
+  ] as const;
+
+  for (const { name, row, confirm } of cases) {
+    it(`${name}: clicking the WRAPPER does nothing; clicking the ROW still arms`, () => {
+      renderHub();
+      fireEvent.click(primary());
+
+      const button = screen.getByTestId(row);
+      const wrapper = button.parentElement as HTMLElement;
+
+      expect(screen.queryByTestId(confirm)).toBeNull();
+      // Enter/over first: fireEvent.click synthesizes no pointer sequence, so a
+      // wrapper wired with onPointerEnter/onPointerOver would survive a
+      // click-only probe while a real pointer merely entering it arms the row.
+      fireEvent.pointerOver(wrapper);
+      fireEvent.pointerEnter(wrapper);
+      fireEvent.mouseOver(wrapper);
+      fireEvent.mouseEnter(wrapper);
+      fireEvent.pointerDown(wrapper);
+      fireEvent.mouseDown(wrapper);
+      fireEvent.pointerUp(wrapper);
+      fireEvent.mouseUp(wrapper);
+      fireEvent.click(wrapper);
+      fireEvent.doubleClick(wrapper);
+      fireEvent.contextMenu(wrapper);
+      expect(screen.queryByTestId(confirm)).toBeNull();
+
+      fireEvent.click(button);
+      expect(screen.getByTestId(confirm)).toBeTruthy();
+    });
+  }
+});
+
 describe("ShareHub — §9 composition rules", () => {
   const openHub = () => {
     renderHub();
