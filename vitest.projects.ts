@@ -20,6 +20,12 @@
 // invariant that every non-nightly test file lands in exactly one default
 // project (the nightly mutation-harness files land in none by design).
 
+// Phase 3 (spec 2026-07-20-ci-unit-suite-phase3-file-granular-serial): the
+// measured file-granular parallel set, generated per that spec's procedure.
+// Re-exported here so every consumer keeps importing membership from this one
+// module while the generated list stays in its own regenerable file.
+export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";
+
 export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
 
 // Files the unit-suite CI job must NOT run (each needs an environment the
