@@ -21,6 +21,14 @@ vi.mock("@/lib/auth/picker/rotateShareToken", () => ({ rotateShareToken: rotateM
 vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: epochMock }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
+import {
+  expectClasses,
+  expectRowBoundary,
+  expectRowText,
+  NO_BORDER,
+  NO_REST_BACKGROUND,
+  WRAPPER_CLASSES,
+} from "./_rowAssertions";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
@@ -337,7 +345,60 @@ describe("ShareHub — unpublished arm", () => {
   });
 });
 
+/** The prescribed row class list (spec §4.1), shared by both Careful rows. */
+const ROW_TOKENS = [
+  "flex",
+  "w-full",
+  "items-center",
+  "gap-2",
+  "rounded-sm",
+  "min-h-tap-min",
+  "p-2",
+  "text-left",
+  "hover:bg-surface-sunken",
+  "transition-colors",
+  "duration-fast",
+  "focus-visible:outline-none",
+  "focus-visible:ring-2",
+  "focus-visible:ring-focus-ring",
+] as const;
+
 describe("ShareHub — Careful section wiring", () => {
+  it("rotate idle state is ONE borderless full-width menu row", () => {
+    renderHub({ published: true });
+    fireEvent.click(primary());
+
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(rotate.tagName).toBe("BUTTON");
+    // `exactly`, not `has`: the class list is fully prescribed, so an overriding
+    // extra (sm:w-auto, items-start, px-0) must FAIL rather than ride along.
+    expectClasses(rotate, { exactly: ROW_TOKENS, forbids: [NO_BORDER, NO_REST_BACKGROUND] });
+
+    // One call covers containment, exact text, uniqueness, typography, stacking
+    // order, and row topology for BOTH strings (spec §7.0).
+    expectRowText(rotate, popover(), {
+      label: "Rotate share link",
+      description: "Old link stops working immediately",
+    });
+
+    const icon = rotate.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    // `has`, deliberately: lucide adds its own base `lucide` class, so the list
+    // is not complete and `exactly` would be wrong.
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-rotate-ccw"] });
+
+    // The OLD shape must be GONE, not merely joined by the new one.
+    expect(within(popover()).queryByRole("button", { name: "Rotate" })).toBeNull();
+
+    // §4.6 width chain link 1: the wrapper, not just the button.
+    expectClasses(rotate.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(rotate, {
+      scope: popover(),
+      descriptionId: rotate.getAttribute("aria-describedby"),
+    });
+  });
+
   it("rotate row carries its label + description and follows published for isCrewLinkActive", () => {
     renderHub({ published: true });
     fireEvent.click(primary());

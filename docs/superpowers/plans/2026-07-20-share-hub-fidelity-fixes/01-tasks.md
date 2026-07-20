@@ -115,7 +115,7 @@ import {
 
 const ROW_TOKENS = [
   "flex", "w-full", "items-center", "gap-2", "rounded-sm",
-  "min-h-tap-min", "px-2", "py-2", "text-left",
+  "min-h-tap-min", "p-2", "text-left",
   "hover:bg-surface-sunken", "transition-colors", "duration-fast",
   "focus-visible:outline-none", "focus-visible:ring-2", "focus-visible:ring-focus-ring",
 ] as const;
@@ -267,7 +267,7 @@ const rowButton = (
     data-testid="admin-rotate-share-token-button"
     aria-label={rowLabel?.trim() ? rowLabel : undefined}
     aria-describedby={rowDescription?.trim() ? descId : undefined}
-    className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+    className="flex min-h-tap-min w-full items-center gap-2 rounded-sm p-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
   >
     <RotateCcw aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
     <span className="flex min-w-0 flex-col">
@@ -605,7 +605,7 @@ With the popover open, assert — all derived from measured rects, never hardcod
    so a missing `w-full` on either the wrapper or the button fails here.
 2. Both rows `height >= 44`.
 3. With a long-description fixture: row height > 44 AND the label's top is ≥8px below the
-   row's top (the `py-2` decision).
+   row's top (the `p-2` decision).
 4. Both leading icons resolve 16×16 and do not shrink when the label wraps.
 5. `panel.scrollWidth <= panel.clientWidth` (no horizontal overflow of the 308px panel).
 6. The `role="dialog"` element is the scroller and is the focused element on open.

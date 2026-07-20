@@ -38,7 +38,7 @@ import {
 // prescribes. Earlier probes used a bare <svg/> and therefore could not see
 // that the icon carries `text-text-subtle`.
 const ROW =
-  "flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+  "flex min-h-tap-min w-full items-center gap-2 rounded-sm p-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 const RESET_ROW = `${ROW} focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent`;
 const LC = "text-sm font-medium text-text-strong";
 const DC = "text-xs text-text-subtle";

@@ -194,7 +194,7 @@ Token mapping from the mock (mock hexes are never used directly — DESIGN.md to
 | --- | --- | --- |
 | `display:flex;align-items:center;gap:11px;width:100%` | `flex w-full items-center gap-2` | `gap-2` (8px) matches the popover's existing mailto row (`components/admin/showpage/ShareHub.tsx:320`), which is the row family this joins. |
 | `min-height:40px` | `min-h-tap-min` (44px) | **The 44px tap floor wins over the mock's 40px.** Same precedent as T-NO-ORANGE: project invariants beat mock geometry. |
-| `padding:8px` | `px-2 py-2` | **Both axes are explicit.** `min-h-tap-min` supplies breathing room ONLY while the content is shorter than 44px; once the description wraps, the row grows to content height and an unpadded row would let text touch the edges. `py-2` (8px) matches the mock and holds at every content height. |
+| `padding:8px` | `p-2` | **Both axes, one token.** `min-h-tap-min` supplies breathing room ONLY while the content is shorter than 44px; once the description wraps, the row grows to content height and an unpadded row would let text touch the edges. `p-2` (8px on all sides) matches the mock and holds at every content height. The canonical-Tailwind lint rule collapses `px-2 py-2` to `p-2`, so `p-2` is the spelling. |
 | `border-radius:7px` | `rounded-sm` | Codebase token. |
 | `background:transparent`, hover `#f4f3f1` | (no bg class) + `hover:bg-surface-sunken` | Matches the mailto row. |
 | `text-align:left` | `text-left` | Needed because the row is a `<button>` (which centers by default). |
@@ -367,7 +367,7 @@ a missing link fails the test rather than hiding inside it.
 | Caret box | itself | 10 × 10px untransformed — the value both the 17px horizontal offset and the straddle arithmetic are derived from | `size-2.5` |
 | Caret box | its rotation | rotates about its own CENTRE, which is what both the horizontal centring and the straddle bounds assume | CSS `transform-origin` defaults to `50% 50%` and nothing overrides it; Tailwind's `origin-center` is the explicit spelling. **The row asserting caret centring in §7.4 measures the RESOLVED rect, so it fails if any future `origin-*` class changes this** |
 | Panel top edge | caret | the rotated diamond straddles it (≈1.93–16.07px against an edge at 6px) | ALL of: `top-full`, `mt-1` vs the panel's `mt-1.5`, `size-2.5`, and `rotate-45` about the centre — remove any one and the straddle no longer holds |
-| Row `<button>` | its own content at any height | ≥8px padding on all sides even when the description wraps past 44px | `px-2 py-2` (explicit both axes — see §4.1) |
+| Row `<button>` | its own content at any height | ≥8px padding on all sides even when the description wraps past 44px | `p-2` (all sides — see §4.1) |
 | Trigger group root (`relative`) | popover panel | panel right edge === group right edge | `right-0` on the panel |
 | Trigger group root | caret | caret horizontal center === kebab horizontal center | `right-[17px]` on the caret, measured from the same right edge (§5) |
 
@@ -1044,7 +1044,7 @@ All row assertions below use the §7.0 helper. Where an item says "token set", i
 
 5. **Rotate row shape.** ONE `<button>` whose token set is asserted with `exactly` (the
    spec prescribes this list completely, so an overriding extra must fail) — `flex`, `w-full`,
-   `items-center`, `gap-2`, `rounded-sm`, `min-h-tap-min`, `px-2`, `py-2`, `text-left`,
+   `items-center`, `gap-2`, `rounded-sm`, `min-h-tap-min`, `p-2`, `text-left`,
    `hover:bg-surface-sunken`, `transition-colors`, `duration-fast`, and all three ring
    tokens (`focus-visible:outline-none`, `focus-visible:ring-2`,
    `focus-visible:ring-focus-ring`); and includes NO token matching `/^border/` and none
@@ -1149,7 +1149,7 @@ element and the `evaluate` receives plain numbers, not element handles.
 2. **Row height floor.** Both rows `height >= 44` (the tap invariant, in resolved pixels).
 3. **Padding under wrap.** Force a long description (narrow viewport / long fixture); assert
    the row's height exceeds 44px AND the label's top is ≥8px below the row's top — the §4.5
-   wrap guard and the §4.1 `py-2` decision.
+   wrap guard and the §4.1 `p-2` decision.
 4. **Icon dimensions.** Both leading icons resolve 16×16 and do not shrink when the label
    wraps.
 5. **Column shrink.** The label/description column's width is ≤ the row's content width
@@ -1187,7 +1187,7 @@ Every literal in this document, cross-checked against the body it describes.
 | --- | --- | --- |
 | 44px tap floor | §4.1 `min-h-tap-min`, §7.4.2 | `app/globals.css:162` `--spacing-tap-min: 44px` |
 | 40px | §4.1 | the mock's row height, explicitly OVERRIDDEN by the 44px floor |
-| 8px | §4.1 `px-2 py-2`, §4.1 `gap-2`, §7.4.3 | mock `padding:8px`; `gap-2` is 8px |
+| 8px | §4.1 `p-2`, §4.1 `gap-2`, §7.4.3 | mock `padding:8px`; `gap-2` is 8px |
 | 11px | §4.1 | mock `gap:11px`, mapped DOWN to `gap-2` (8px) to match the mailto row |
 | 7px | §4.1 | mock `border-radius:7px`, mapped to `rounded-sm` |
 | 16px | §4.1, §7.4.4 | icon size, matching the mailto row's `<Mail size={16} />` |
