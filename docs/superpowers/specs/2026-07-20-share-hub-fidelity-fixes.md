@@ -741,50 +741,64 @@ export function expectNoDescriptionNode(
   // fresh, so no banner exists.
   // The whole boundary, which is the only thing that can see a forbidden
   // SIBLING of the button (classless carrier, empty heading, duplicate id).
-  expectRowBoundary(scope, button, { descriptionId: null });
+  expectRowBoundary(button, { scope, descriptionId: null });
 }
 
 /**
- * Asserts the component's WHOLE rendered boundary, not just the button.
+ * Asserts the row component's WHOLE rendered boundary, not just the button.
  *
- * Every escape found from round 13 onward had the same shape: a forbidden node
- * rendered as a SIBLING of the button: a classless description carrier, an
- * empty `<h5>`, a second element reusing the description id. Button-scoped and
- * class-based checks are structurally unable to see those. So instead of adding
- * another spot-check per round, this pins the entire tree the component may
- * render.
+ * Every escape found from round 13 onward had one shape: a forbidden node
+ * rendered as a SIBLING of the button (a classless description carrier, an
+ * empty `<h5 aria-label>`, a second element reusing the description id).
+ * Button-scoped and class-based checks are structurally unable to see those, so
+ * this pins the tree instead of adding another spot-check per round.
  *
- * `container` is Testing Library's render container (or the popover scope).
+ * The component boundary is the WRAPPER: rotate and reset each render exactly
+ * one wrapper containing the row. That is the only boundary available inside
+ * ShareHub, whose popover legitimately holds other content.
+ *
+ * `container` is optional and applies to STANDALONE renders only. Pass
+ * Testing Library's `render(...).container`, which proves the component emits
+ * that wrapper and nothing beside it. Do NOT pass `document.body` (its child is
+ * TL's host div, not the wrapper) and do NOT pass the ShareHub popover (it holds
+ * the crew-link block and the mailto rows too).
+ *
+ * `scope` bounds the description-id cardinality scan; `getElementById` resolves
+ * only the first match, so a duplicate id elsewhere is otherwise invisible.
+ *
  * Call on an IDLE row with no outcome banner mounted; a banner is a legitimate
  * wrapper sibling and callers with one should assert it explicitly instead.
  */
 export function expectRowBoundary(
-  container: HTMLElement,
   button: HTMLElement,
-  { descriptionId }: { descriptionId: string | null },
+  {
+    scope,
+    descriptionId,
+    container,
+  }: { scope: HTMLElement; descriptionId: string | null; container?: HTMLElement },
 ): void {
-  expect([...container.children], "the component renders exactly one wrapper").toEqual([
-    button.parentElement,
+  const wrapper = button.parentElement;
+  expect(wrapper, "row button must have a wrapper").not.toBeNull();
+  expectClasses(wrapper!, { exactly: WRAPPER_CLASSES });
+  expect([...wrapper!.children], "the idle wrapper contains the button and nothing else").toEqual([
+    button,
   ]);
-  expectClasses(button.parentElement!, { exactly: WRAPPER_CLASSES });
-  expect(
-    [...button.parentElement!.children],
-    "the idle wrapper contains the button and nothing else",
-  ).toEqual([button]);
 
-  // No heading ANYWHERE in the boundary, not merely inside the button: an empty
-  // `<h5 aria-label="…"/>` beside the button restores the outline entry while
-  // adding no composed text and touching nothing the row-level checks inspect.
-  expect(headingsIn(container), "the component must contribute no heading").toEqual([]);
+  // No heading ANYWHERE in the component boundary, not merely inside the
+  // button: an empty `<h5 aria-label="…"/>` beside the button restores the
+  // outline entry while adding no composed text.
+  expect(headingsIn(wrapper!), "the component must contribute no heading").toEqual([]);
 
-  // Description-id CARDINALITY. `getElementById` resolves only the first match,
-  // so a duplicate id elsewhere in the boundary is otherwise invisible: exactly
-  // one carrier when a description is expected, zero when it is not.
-  const carriers = descriptionId
-    ? [...container.querySelectorAll(`[id="${CSS.escape(descriptionId)}"]`)]
-    : [];
+  if (container) {
+    expect([...container.children], "the component renders exactly one wrapper").toEqual([wrapper]);
+    expect(headingsIn(container), "no heading beside the wrapper either").toEqual([]);
+  }
+
   if (descriptionId) {
-    expect(carriers, `exactly one element may carry id ${descriptionId}`).toHaveLength(1);
+    expect(
+      [...scope.querySelectorAll(`[id="${CSS.escape(descriptionId)}"]`)],
+      `exactly one element may carry id ${descriptionId}`,
+    ).toHaveLength(1);
   }
 }
 ```
@@ -811,7 +825,12 @@ export function expectRowBoundary(
    SIBLING of the button (a classless description carrier, an empty `<h5 aria-label>`, a
    second element reusing the description id). Button-scoped and class-based checks are
    structurally unable to see those, so the boundary is asserted instead of adding another
-   spot-check per round. It also pins description-id CARDINALITY, since `getElementById`
+   spot-check per round. The component boundary is the WRAPPER (the only boundary available
+   inside ShareHub, whose popover legitimately holds other content); the optional
+   `container` argument applies to STANDALONE renders and proves the component emits one
+   wrapper and nothing beside it. Passing `document.body` or the popover as `container`
+   would fail CORRECT code — a call-site defect review caught before implementation. It also
+   pins description-id CARDINALITY, since `getElementById`
    resolves only the first match, and scans headings by ROLE TOKEN (`role="heading
    presentation"` is a heading; an `[role='heading']` selector misses it).
 5. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts

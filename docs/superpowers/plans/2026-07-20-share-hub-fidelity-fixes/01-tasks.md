@@ -154,11 +154,18 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   // `flex-col`, or a conflicting `w-auto` must fail here.
   expectClasses(rotate.parentElement!, { exactly: WRAPPER_CLASSES });
 
-  // The whole component boundary: exactly one wrapper, the wrapper holding only
-  // the button, NO heading anywhere (an empty <h5 aria-label> beside the button
-  // restores the outline entry while adding no text), and exactly one element
-  // carrying the description id (getElementById hides a duplicate).
-  expectRowBoundary(rotate.closest("[data-rowroot]") ?? rotate.parentElement!.parentElement!, rotate, {
+  // The component boundary: the wrapper holds ONLY the button, carries the
+  // exact wrapper classes, and contains NO heading (an empty <h5 aria-label>
+  // beside the button restores the outline entry while adding no text). Scope
+  // is the popover, so the description-id cardinality scan can see a duplicate
+  // id anywhere in it — getElementById resolves only the first match.
+  //
+  // NO `container` argument here: that option is for STANDALONE renders, where
+  // it proves the component emits one wrapper and nothing beside it. Inside
+  // ShareHub the popover legitimately holds the crew-link block and the mailto
+  // rows, so passing it would fail correct code.
+  expectRowBoundary(rotate, {
+    scope: popover(),
     descriptionId: rotate.getAttribute("aria-describedby"),
   });
 });
@@ -175,8 +182,8 @@ guards need their own case. These go in `tests/components/RotateShareTokenButton
 (the only place `rowLabel` / `rowDescription` can be varied — ShareHub hardcodes them):
 
 ```tsx
-it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
-  render(
+it("GUARD whitespace-only rowDescription: no description node at all", () => {
+  const { container } = render(
     <RotateShareTokenButton
       showId={SHOW_ID}
       slug={SLUG}
@@ -192,9 +199,12 @@ it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
   // empty `<p id={descId} class="text-xs text-text-subtle">` survives it while
   // leaving the forbidden empty described node in the tree. This helper asserts
   // the column holds the label and nothing else, whatever tag the escape uses.
-  // Scope = the whole rendered tree: the absence scan must reach a carrier
-  // rendered as the button's SIBLING, not just one inside it.
-  expectNoDescriptionNode(btn, document.body, "Rotate share link");
+  // Scope = render()'s container, NOT document.body: body's child is Testing
+  // Library's host div, not the component wrapper, so the boundary check would
+  // fail correct code. `container` additionally proves the component emits one
+  // wrapper and nothing beside it.
+  expectNoDescriptionNode(btn, container, "Rotate share link");
+  expectRowBoundary(btn, { scope: container, descriptionId: null, container });
 });
 
 it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
@@ -209,14 +219,17 @@ it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
 });
 
 it("GUARD rowDescription absent: row renders, no described node", () => {
-  render(
+  const { container } = render(
     <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="Rotate share link" />,
   );
   const btn = screen.getByTestId("admin-rotate-share-token-button");
   expect(btn.textContent).toBe("Rotate share link");
-  // Scope = the whole rendered tree: the absence scan must reach a carrier
-  // rendered as the button's SIBLING, not just one inside it.
-  expectNoDescriptionNode(btn, document.body, "Rotate share link");
+  // Scope = render()'s container, NOT document.body: body's child is Testing
+  // Library's host div, not the component wrapper, so the boundary check would
+  // fail correct code. `container` additionally proves the component emits one
+  // wrapper and nothing beside it.
+  expectNoDescriptionNode(btn, container, "Rotate share link");
+  expectRowBoundary(btn, { scope: container, descriptionId: null, container });
 });
 ```
 
@@ -319,6 +332,14 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
   expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
   expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
   expectClasses(reset.parentElement!, { exactly: WRAPPER_CLASSES });
+
+  // Reset needs the SAME boundary assertion as rotate — without it, a reset row
+  // rendering `<h5 aria-label="Reset"/>` or a second element carrying descId
+  // beside the button passes everything above. Same sibling shape, same close.
+  expectRowBoundary(reset, {
+    scope: popover(),
+    descriptionId: reset.getAttribute("aria-describedby"),
+  });
 });
 
 it("GUARD empty crew: reset row is disabled and its empty copy IS the described text", () => {
