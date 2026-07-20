@@ -357,7 +357,10 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
     scope: popover(),
     descriptionId: reset.getAttribute("aria-describedby"),
     // ONLY reset renders a persistent sr-only live region (PCR-1 (a)). The flag
-    // defaults to false, so rotate cannot quietly grow one.
+    // defaults to false, so rotate cannot quietly grow one — and for reset it
+    // requires EXACTLY one with the full DIV + sr-only + role=status +
+    // aria-live=polite contract, so deleting the region (which would silently
+    // lose the announcement) fails rather than passing an "at most one" check.
     allowLiveRegion: true,
   });
 });
@@ -406,6 +409,36 @@ and the `sr-only` live region are untouched.
 its own parallel implementation and only mentions this component in comments
 (`:1263`, `:1284`). That stale line produced a BLOCKING false positive in spec review
 (§4.3); fixing it is the structural defense against a repeat.
+
+### Behavioral guard: the wrapper must not be clickable
+
+React attaches `onClick` through delegation, so it produces NO `onclick` HTML attribute —
+the wrapper's attribute checks cannot see it. A wrapper carrying `onClick` would let a click
+on row whitespace activate the control. Only behavior can prove its absence, so BOTH rows
+get:
+
+```tsx
+it("clicking the wrapper itself does nothing - only the button is interactive", () => {
+  renderHub();
+  fireEvent.click(primary());
+
+  const row = screen.getByTestId("picker-reset-all-button");
+  const wrapper = row.parentElement!;
+
+  // Idle before, idle after: no confirm row appears.
+  expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+  fireEvent.click(wrapper);
+  expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+  // …and the row itself still works, so the test cannot pass by the control
+  // being inert altogether.
+  fireEvent.click(row);
+  expect(screen.getByTestId("picker-reset-confirm-row")).toBeTruthy();
+});
+```
+
+The rotate equivalent uses `admin-rotate-share-token-button` /
+`admin-rotate-share-token-confirm-row`. The second half is what stops the assertion being
+vacuous: an entirely dead control would otherwise satisfy the first half.
 
 **Commit:** `fix(admin): reset everyone's pick renders as a popover menu row`
 

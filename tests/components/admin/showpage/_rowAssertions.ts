@@ -356,19 +356,28 @@ export function expectRowBoundary(
   // region already in the a11y tree. Requiring `[button]` outright would fail the
   // CORRECT reset implementation, so it is excluded BY IDENTITY (a live region),
   // not by being merely `sr-only`.
+  // The live region is identified by its FULL contract, not by `role="status"`
+  // plus any `aria-live` value: `<button role="status" aria-live="off">junk</button>`
+  // would otherwise qualify as one.
   const isLiveRegion = (el: Element): boolean =>
-    el.getAttribute("role") === "status" && el.hasAttribute("aria-live");
+    el.tagName === "DIV" &&
+    el.getAttribute("role") === "status" &&
+    el.getAttribute("aria-live") === "polite" &&
+    tokensOf(el).has("sr-only");
   const liveRegions = [...wrapper!.children].filter(isLiveRegion);
   expect(
-    [...wrapper!.children].filter((el) => !isLiveRegion(el)),
+    [...wrapper!.children].filter((el) => !liveRegions.includes(el)),
     "the idle wrapper contains the button (and, for reset, its live region)",
   ).toEqual([button]);
-  // Gated per control: only reset legitimately renders one, so an unconditional
-  // exemption would let ROTATE quietly grow a live region it must not have.
+  // EXACTLY one when the control owns a live region, not "at most one":
+  // PCR-1 (a) requires the region to be PERSISTENT, so a build that deletes it
+  // loses the announcement entirely, and `<= 1` would call that a pass.
   expect(
     liveRegions.length,
-    allowLiveRegion ? "at most one live region" : "this row must render no live region",
-  ).toBeLessThanOrEqual(allowLiveRegion ? 1 : 0);
+    allowLiveRegion
+      ? "reset must render exactly one persistent sr-only polite live region"
+      : "this row must render no live region",
+  ).toBe(allowLiveRegion ? 1 : 0);
 
   // No heading ANYWHERE in the component boundary, not merely inside the
   // button: an empty `<h5 aria-label="…"/>` beside the button restores the

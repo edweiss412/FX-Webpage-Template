@@ -816,19 +816,28 @@ export function expectRowBoundary(
   // region already in the a11y tree. Requiring `[button]` outright would fail the
   // CORRECT reset implementation, so it is excluded BY IDENTITY (a live region),
   // not by being merely `sr-only`.
+  // The live region is identified by its FULL contract, not by `role="status"`
+  // plus any `aria-live` value: `<button role="status" aria-live="off">junk</button>`
+  // would otherwise qualify as one.
   const isLiveRegion = (el: Element): boolean =>
-    el.getAttribute("role") === "status" && el.hasAttribute("aria-live");
+    el.tagName === "DIV" &&
+    el.getAttribute("role") === "status" &&
+    el.getAttribute("aria-live") === "polite" &&
+    tokensOf(el).has("sr-only");
   const liveRegions = [...wrapper!.children].filter(isLiveRegion);
   expect(
-    [...wrapper!.children].filter((el) => !isLiveRegion(el)),
+    [...wrapper!.children].filter((el) => !liveRegions.includes(el)),
     "the idle wrapper contains the button (and, for reset, its live region)",
   ).toEqual([button]);
-  // Gated per control: only reset legitimately renders one, so an unconditional
-  // exemption would let ROTATE quietly grow a live region it must not have.
+  // EXACTLY one when the control owns a live region, not "at most one":
+  // PCR-1 (a) requires the region to be PERSISTENT, so a build that deletes it
+  // loses the announcement entirely, and `<= 1` would call that a pass.
   expect(
     liveRegions.length,
-    allowLiveRegion ? "at most one live region" : "this row must render no live region",
-  ).toBeLessThanOrEqual(allowLiveRegion ? 1 : 0);
+    allowLiveRegion
+      ? "reset must render exactly one persistent sr-only polite live region"
+      : "this row must render no live region",
+  ).toBe(allowLiveRegion ? 1 : 0);
 
   // No heading ANYWHERE in the component boundary, not merely inside the
   // button: an empty `<h5 aria-label="…"/>` beside the button restores the
@@ -866,7 +875,11 @@ export function expectRowBoundary(
    open), and composed text must insert a SEPARATOR at element
    boundaries (`textContent` concatenates, so a duplicate whose gap is supplied by
    `gap-1` rather than a text node reads identically on screen yet goes uncounted).
-4. `expectRowBoundary` pins the component's WHOLE rendered tree, not just the button.
+4. **React's `onClick` is invisible to attribute checks** — delegation produces no `onclick`
+   attribute — so the wrapper being non-interactive is proved BEHAVIORALLY: clicking the
+   wrapper must leave the row idle, and clicking the row must still arm it (the second half
+   stops the assertion passing against an entirely dead control).
+5. `expectRowBoundary` pins the component's WHOLE rendered tree, not just the button.
    Every escape found from round 13 onward had one shape: a forbidden node rendered as a
    SIBLING of the button (a classless description carrier, an empty `<h5 aria-label>`, a
    second element reusing the description id). Button-scoped and class-based checks are
@@ -882,7 +895,7 @@ export function expectRowBoundary(
    pins description-id CARDINALITY, since `getElementById`
    resolves only the first match, and scans headings by ROLE TOKEN (`role="heading
    presentation"` is a heading; an `[role='heading']` selector misses it).
-5. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts
+6. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts
    the LABEL's full contract (name, not-hidden, typography) — otherwise
    `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes, and a row with no
    description silently loses its accessible name while the normal-description tests stay
@@ -891,7 +904,7 @@ export function expectRowBoundary(
    description class set and otherwise survives every other check. A count of
    `<span>` elements is not: an empty `<p id={descId} class="text-xs text-text-subtle">`
    passes a span count while leaving the forbidden empty described node in the tree.
-6. **`exactly` is the default posture for every class list this spec fully prescribes** —
+7. **`exactly` is the default posture for every class list this spec fully prescribes** —
    both row buttons AND the label/description column. `has` alone lets a conflicting extra
    ride along and OVERRIDE a token that was just asserted (`sm:w-auto` beside `w-full`,
    `items-start` beside `items-center`, `px-0` beside `px-2`), which is exactly the
