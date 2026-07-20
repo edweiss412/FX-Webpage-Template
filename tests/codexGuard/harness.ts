@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -85,7 +85,9 @@ export function cleanupRuns(): void {
 }
 
 export function mkRun(): Run {
-  const dir = mkdtempSync(join(tmpdir(), "codex-guard-test-"));
+  // realpathSync: macOS tmpdir lives behind the /var -> /private/var symlink; the
+  // fixture records its realpath cwd, so canonicalize here or cwd asserts mismatch.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "codex-guard-test-")));
   RUNS.push(dir);
   const run: Run = {
     dir,

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // scripts/codex-guard.mjs — watchdog wrapper for direct Codex CLI dispatches.
 // Spec: docs/superpowers/specs/2026-07-19-codex-guard.md (canonical; §11 = numeric authority).
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
 
 const GUARD_VERSION = 1;
 
@@ -18,9 +19,6 @@ const BOUNDS = {
 };
 const PROMPT_MAX_BYTES = 2000000;
 const KNOWN_OUTCOMES = ["APPROVE", "NEEDS-ATTENTION", "BLOCKING"];
-void GUARD_VERSION;
-void KNOWN_OUTCOMES;
-
 function usageError(msg) {
   process.stderr.write(`codex-guard: ${msg}\n`);
   process.exit(2);
@@ -139,7 +137,240 @@ function buildConfig(flags) {
   return cfg;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt composition (§4) — composed ONCE at startup; cap violation = exit 2.
+// ---------------------------------------------------------------------------
+
+function composePrompt(cfg) {
+  let prompt = cfg.briefText;
+  if (cfg.fallback) {
+    for (let i = 0; i < cfg.artifacts.length; i++) {
+      prompt += `\n===== ARTIFACT: ${basename(cfg.artifacts[i])} =====\n`;
+      prompt += cfg.artifactTexts[i];
+      prompt += `\n===== END ARTIFACT =====\n`;
+    }
+    prompt +=
+      "\nCitations were pre-verified — do not re-read files needlessly. " +
+      "REACH A VERDICT — budget your reading.\n";
+  }
+  if (Buffer.byteLength(prompt) > cfg.promptMaxBytes) {
+    usageError(`composed prompt exceeds PROMPT_MAX_BYTES (${cfg.promptMaxBytes})`);
+  }
+  return prompt;
+}
+
+// ---------------------------------------------------------------------------
+// Verdict parsing (§6)
+// ---------------------------------------------------------------------------
+
+function parseVerdict(text) {
+  const noFences = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
+  const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
+  const survivors = lines.filter((l) => {
+    const upper = l.toUpperCase();
+    let occurrences = 0;
+    for (const o of KNOWN_OUTCOMES) occurrences += upper.split(o).length - 1;
+    // NEEDS-ATTENTION does not contain APPROVE/BLOCKING as substrings; counts are exact
+    return occurrences < 2 && !/ or /i.test(l);
+  });
+  if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
+  const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
+  let payload = raw.replace(/^\s*VERDICT:\s*/, "");
+  for (;;) {
+    const before = payload;
+    payload = payload.trim().replace(/[.,;:!]+$/, "");
+    payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
+    if (payload === before) break;
+  }
+  payload = payload.trim().toUpperCase();
+  if (KNOWN_OUTCOMES.includes(payload)) return { verdict: payload, verdictLine: raw, shape: "ok" };
+  return { verdict: null, verdictLine: raw, shape: "unrecognized_verdict" };
+}
+
+// ---------------------------------------------------------------------------
+// Attempt runner (§4/§5)
+// ---------------------------------------------------------------------------
+
+const nowSecs = () => Date.now() / 1000;
+
+function freshArgv(cfg, n) {
+  return [
+    "exec", "--skip-git-repo-check", "-s", "read-only", "-C", cfg.cwd,
+    "-c", "model_reasoning_effort=high",
+    "-o", join(cfg.out, `attempt-${n}.last-message.txt`),
+  ];
+}
+
+function killGroup(pid, signal) {
+  try { process.kill(-pid, signal); } catch { /* group gone */ }
+}
+
+function classifyAttempt(attempt) {
+  if (attempt.killedReason !== null) { attempt.failureShape = "killed"; return; }
+  if (attempt.exitCode !== 0) { attempt.failureShape = "nonzero_exit"; return; }
+  if (!existsSync(attempt.lastMessagePath)) { attempt.failureShape = "no_o_file"; return; }
+  const msg = readFileSync(attempt.lastMessagePath, "utf8");
+  if (msg.trim() === "") { attempt.failureShape = "empty_o_file"; return; }
+  const parsed = parseVerdict(msg);
+  attempt.parsed = parsed;
+  if (parsed.shape !== "ok") attempt.failureShape = parsed.shape;
+}
+
+async function runAttempt(cfg, n, kind, argvAfterExec, state) {
+  const transcriptPath = join(cfg.out, `attempt-${n}.transcript.txt`);
+  const stderrPath = join(cfg.out, `attempt-${n}.stderr.txt`);
+  const lastMessagePath = join(cfg.out, `attempt-${n}.last-message.txt`);
+  const attempt = { n, kind, pid: null, exitCode: null, signal: null,
+    killedReason: null, failureShape: null, recovery: null,
+    transcriptPath, stderrPath, lastMessagePath, durationSecs: 0 };
+  const t0 = nowSecs();
+  const fail = (msg) => Object.assign(new Error(msg), { attempt });
+
+  const child = spawn(cfg.bin.cmd, [...cfg.bin.leadingArgs, ...argvAfterExec], {
+    cwd: cfg.cwd, detached: true, stdio: ["pipe", "pipe", "pipe"],
+  });
+  // On a successful spawn, child.pid is set SYNCHRONOUSLY by spawn(); register the live
+  // attempt BEFORE the first await so a signal landing in the spawn-confirmation window
+  // can both kill (pid known) and record (currentAttempt set) it. On spawn failure pid
+  // is undefined and the error path below unregisters before throwing.
+  attempt.pid = child.pid ?? null;
+  state.liveChild = child;
+  state.currentAttempt = attempt; // live-attempt snapshot for onSignal (cleared on every exit path)
+  // spawn failures surface via the async "error" event, NOT try/catch
+  const spawnError = new Promise((res) => child.on("error", (e) => res(e)));
+  const exited = new Promise((res) => child.on("exit", (code, signal) => res({ code, signal })));
+  const closed = new Promise((res) => child.on("close", res)); // stdio fully flushed
+
+  const first = await Promise.race([
+    spawnError.then((e) => ({ kind: "error", e })),
+    new Promise((res) => child.on("spawn", () => res({ kind: "spawned" }))),
+  ]);
+  if (first.kind === "error") {
+    state.currentAttempt = null;
+    state.liveChild = null;
+    attempt.failureShape = "spawn_error";
+    attempt.durationSecs = nowSecs() - t0;
+    throw fail(`spawn failed: ${first.e.message}`);
+  }
+
+  const tOut = createWriteStream(transcriptPath);
+  const tErr = createWriteStream(stderrPath);
+  const streamErr = new Promise((_, rej) => {
+    tOut.on("error", (e) => rej(fail(`transcript write failed: ${e.message}`)));
+    tErr.on("error", (e) => rej(fail(`stderr write failed: ${e.message}`)));
+  });
+  let streamFailure = null;
+  streamErr.catch((e) => { streamFailure = e; }); // latch: also swallows post-race rejection
+  child.stdout.pipe(tOut);
+  child.stderr.pipe(tErr);
+  // settle on finish OR error — an errored stream never emits "finish" (no deadlock)
+  const finished = Promise.all([
+    new Promise((res) => { tOut.on("finish", res); tOut.on("error", res); }),
+    new Promise((res) => { tErr.on("finish", res); tErr.on("error", res); }),
+  ]);
+
+  const prompt = kind === "resume"
+    ? "Output your final findings list and the mandatory final line now: VERDICT: ...\n"
+    : cfg.prompt; // composed + cap-validated once at startup
+  child.stdin.on("error", () => {});
+  child.stdin.end(prompt);
+
+  let exitInfo;
+  try {
+    exitInfo = await Promise.race([exited, streamErr]);
+  } catch (e) {
+    killGroup(child.pid, "SIGKILL"); // stream error while child live: never orphan the group
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw e;
+  }
+  await closed;      // stdio flushed
+  await finished;    // files durable (or errored — settled either way)
+  // Late stream failure — child exited BEFORE/WITH the write-stream error, so the race
+  // above resolved on `exited` and never threw. Rethrow here: an attempt must never be
+  // classified (least of all as success) against a torn transcript/stderr file.
+  if (streamFailure) {
+    killGroup(child.pid, "SIGKILL"); // group hygiene — helpers may outlive the leader
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw streamFailure;
+  }
+  attempt.exitCode = exitInfo.code;
+  attempt.signal = exitInfo.signal;
+  // NOTE: external_signal classification (exitInfo.signal !== null → killedReason) is
+  // deliberately NOT set here — Task 7 adds that line when scenario 13 (its owning test) lands.
+  attempt.durationSecs = nowSecs() - t0;
+  try {
+    classifyAttempt(attempt);
+  } catch (e) {
+    state.currentAttempt = null;
+    state.liveChild = null;
+    throw fail(`classification failed: ${e.message}`); // fail() attaches attempt — history survives via e.attempt
+  }
+  state.liveChild = null;
+  state.currentAttempt = null; // cleared only AFTER classification — a classify throw still reaches history
+  return attempt;
+}
+
+// ---------------------------------------------------------------------------
+// Result writer (§6)
+// ---------------------------------------------------------------------------
+
+function writeResult(cfg, state, patch) {
+  const attempts = state.attempts.map(({ parsed, ...a }) => a);
+  const body = {
+    guardVersion: GUARD_VERSION, label: cfg.label,
+    status: "no_verdict", verdict: null, verdictLine: null, lastMessagePath: null,
+    attempts, failureReason: null, error: null,
+    startedAt: state.startedAtIso, endedAt: new Date().toISOString(),
+    ...patch,
+  };
+  writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
+}
+
+// ---------------------------------------------------------------------------
+// Main (single-attempt — the ladder loop arrives in Task 5)
+// ---------------------------------------------------------------------------
+
 const cfg = buildConfig(parseArgs(process.argv.slice(2)));
-void cfg;
-process.stderr.write("codex-guard: not implemented\n");
-process.exit(3);
+cfg.prompt = composePrompt(cfg);
+
+async function main() {
+  const state = {
+    startedAt: nowSecs(), startedAtIso: new Date().toISOString(),
+    attempts: [], liveChild: null, currentAttempt: null,
+    cacheRungUsed: false, resumeRungUsed: false, resumeSid: null, heldLockDir: null,
+  };
+  globalThis.__guardState = state;
+
+  const attempt = await runAttempt(cfg, 1, "exec", freshArgv(cfg, 1), state);
+  state.attempts.push(attempt);
+
+  if (attempt.failureShape === null) {
+    writeResult(cfg, state, {
+      status: "verdict", verdict: attempt.parsed.verdict,
+      verdictLine: attempt.parsed.verdictLine, lastMessagePath: attempt.lastMessagePath,
+    });
+    process.exit(0);
+  }
+  writeResult(cfg, state, { failureReason: "attempts_exhausted", verdictLine: attempt.parsed?.verdictLine ?? null });
+  process.exit(0);
+}
+
+main().catch((e) => {
+  const state = globalThis.__guardState;
+  const attempts = [
+    ...(state?.attempts ?? []).map(({ parsed, ...a }) => a),
+    ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt) ? [(({ parsed, ...a }) => a)(e.attempt)] : []),
+  ];
+  try {
+    writeFileSync(join(cfg.out, "result.json"), JSON.stringify({
+      guardVersion: GUARD_VERSION, label: cfg.label, status: "no_verdict",
+      verdict: null, verdictLine: null, lastMessagePath: null,
+      attempts, failureReason: "wrapper_error", error: String(e?.message ?? e),
+      startedAt: state?.startedAtIso ?? null, endedAt: new Date().toISOString(),
+    }, null, 2) + "\n");
+  } catch { /* stderr only */ }
+  process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
+  process.exit(3);
+});
