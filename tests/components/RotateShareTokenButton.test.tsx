@@ -4,7 +4,8 @@
  *
  * Pins the two-tap state machine + the CONFIRMATION-ONLY success banner. The
  * new-URL / Copy / email affordances moved to the always-current share-link card
- * (ShareLinkBody), which this button drives via onRotated(newToken, newEpoch).
+ * (the ShareHub popover, share-hub T4), which this button drives via
+ * onRotated(newToken, newEpoch).
  * The action invocation is mocked; the typed return shape (new_share_token +
  * new_epoch) drives the success branch.
  */

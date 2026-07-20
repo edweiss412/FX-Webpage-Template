@@ -149,10 +149,15 @@ describe("alert-action registry ↔ raise-site fidelity", () => {
 
 describe("alert-action internal link targets exist", () => {
   test("the #share-access anchor exists on the show page (spec §4 #1-#3)", () => {
-    // Consolidated-admin-show-page (Task 13): the share/access region moved into
-    // the OverviewSection rail section (always rendered — share panel OR inactive
-    // notice), so the `#share-access` deep-link anchor lives there now.
-    expect(read("components/admin/showpage/OverviewSection.tsx")).toMatch(/id="share-access"/);
+    // share-hub T4: the share/access region became the status band's ShareHub
+    // popover, so the deep-link anchor moved onto the StatusStrip ROOT — an
+    // unconditional element that renders in all three lifecycles, including
+    // archived (where the hub itself is absent). Hosting it on the hub's own
+    // trigger group would dead-link the alert action for archived shows.
+    expect(read("components/admin/showpage/StatusStrip.tsx")).toMatch(/id="share-access"/);
+    // And it must live in exactly ONE component — two nodes with this id means
+    // the deep link resolves to whichever comes first in the DOM.
+    expect(read("components/admin/showpage/OverviewSection.tsx")).not.toMatch(/id="share-access"/);
   });
   test("the onboarding wizard route exists (spec §4 #6)", () => {
     expect(existsSync(join(ROOT, "app/admin/onboarding/page.tsx"))).toBe(true);

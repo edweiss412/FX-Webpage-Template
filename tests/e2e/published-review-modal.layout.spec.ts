@@ -284,24 +284,25 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
     });
 
-    // T-COPY-FLUSH (modal-header-reconciliation §8). The copy button carries
-    // `ml-auto shrink-0` and ALWAYS did (StatusStrip.tsx) — this does NOT test
-    // that `ml-auto` is present. It tests that `ml-auto` resolves against a
-    // FULL-BAND-WIDTH row: the band is deliberately not a flex container, so
-    // without `w-full` on the strip root the strip shrink-wraps its content and
-    // the button flushes to the strip's own right edge, well short of the band.
+    // T-HUB-FLUSH (share-hub T4; replaces T-COPY-FLUSH, whose subject — the
+    // standalone strip copy-link — was retired when the hub absorbed it). The
+    // hub group carries `ml-auto shrink-0` — this does NOT test that `ml-auto`
+    // is present. It tests that `ml-auto` resolves against a FULL-BAND-WIDTH
+    // row: the band is deliberately not a flex container, so without `w-full`
+    // on the strip root the strip shrink-wraps and the group flushes to the
+    // strip's own right edge, well short of the band.
     //
     // Measured against the BAND'S CONTENT BOX, never the panel's: the band
     // carries `px-tile-pad`, so a panel-relative assertion would be off by
     // exactly that padding — and the tempting "fix" would be to delete the
     // padding, which is the wrong repair.
-    test(`T-COPY-FLUSH @ ${width}: Copy's right edge sits at the band's content-box right edge`, async ({
+    test(`T-HUB-FLUSH @ ${width}: the share-hub group's right edge sits at the band's content-box right edge`, async ({
       page,
     }) => {
       await openHarness(page, { width, height: vh });
 
       const flush = await page.locator(SUBHEADER).evaluate((band) => {
-        const copy = band.querySelector('[data-testid="strip-copy-link"]');
+        const copy = band.querySelector('[data-testid="share-hub-group"]');
         if (copy === null) return null;
         const bandRect = band.getBoundingClientRect();
         const padRight = parseFloat(getComputedStyle(band).paddingRight);
@@ -316,7 +317,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // the harness fixture is published + tokened precisely so the button exists.
       expect(
         flush,
-        "copy-link present in the band (fixture is published + tokened)",
+        "share-hub group present in the band (fixture is published + non-archived)",
       ).not.toBeNull();
       expect(
         flush!.padRight,
@@ -324,7 +325,85 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       ).toBeGreaterThan(0);
       expect(
         Math.abs(flush!.copyRight - flush!.contentRight),
-        `copy right ${flush!.copyRight} === band content-box right ${flush!.contentRight} @ ${width}`,
+        `hub right ${flush!.copyRight} === band content-box right ${flush!.contentRight} @ ${width}`,
+      ).toBeLessThanOrEqual(1);
+    });
+
+    // T-HUB-POPOVER (share-hub T4). Geometry is authored in the same commit as
+    // these assertions: jsdom computes no layout, so nothing below is provable
+    // in a unit test. Failure modes caught: a popover that overlaps the very
+    // triggers that opened it (top-full lost), one that is not the specified
+    // 308px, one whose right edge drifts off the band's content edge, and one
+    // that overflows the viewport on mobile.
+    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+      await page.getByTestId("share-hub-primary").click();
+      const panel = page.getByTestId("share-hub-popover");
+      await expect(panel).toBeVisible();
+
+      const geo = await page.locator(SUBHEADER).evaluate((band) => {
+        const pop = document.querySelector('[data-testid="share-hub-popover"]');
+        const group = band.querySelector('[data-testid="share-hub-group"]');
+        const primary = band.querySelector('[data-testid="share-hub-primary"]');
+        const kebab = band.querySelector('[data-testid="share-hub-kebab"]');
+        if (pop === null || group === null || primary === null || kebab === null) return null;
+        const bandRect = band.getBoundingClientRect();
+        const padRight = parseFloat(getComputedStyle(band).paddingRight);
+        const p = pop.getBoundingClientRect();
+        return {
+          popWidth: p.width,
+          popTop: p.top,
+          popRight: p.right,
+          popLeft: p.left,
+          groupBottom: group.getBoundingClientRect().bottom,
+          contentRight: bandRect.right - padRight,
+          primaryHeight: primary.getBoundingClientRect().height,
+          kebabRect: {
+            w: kebab.getBoundingClientRect().width,
+            h: kebab.getBoundingClientRect().height,
+          },
+          docScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(geo, "hub popover + group present").not.toBeNull();
+
+      // Width: 308 exactly, unless the mobile clamp is doing its job.
+      const clamped = geo!.viewportWidth - 32 < 308;
+      if (!clamped) {
+        expect(geo!.popWidth, `popover is 308px @ ${width}`).toBeCloseTo(308, 0);
+      } else {
+        expect(geo!.popWidth, `clamped popover fits the viewport @ ${width}`).toBeLessThanOrEqual(
+          geo!.viewportWidth - 32 + 1,
+        );
+      }
+
+      // Below the triggers — never covering them (top-full).
+      expect(
+        geo!.popTop,
+        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom} @ ${width}`,
+      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
+
+      // Right-aligned to the same content edge the group flushes to.
+      expect(
+        Math.abs(geo!.popRight - geo!.contentRight),
+        `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight} @ ${width}`,
+      ).toBeLessThanOrEqual(1);
+
+      // Inside the modal, and no horizontal page overflow at any width.
+      expect(geo!.popLeft, `popover left edge on-screen @ ${width}`).toBeGreaterThanOrEqual(-1);
+      expect(geo!.docScrollWidth, `no horizontal overflow @ ${width}`).toBeLessThanOrEqual(
+        geo!.viewportWidth + 1,
+      );
+
+      // Tap targets: both triggers meet the project floor; the kebab is square.
+      expect(geo!.primaryHeight, `primary trigger tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(geo!.kebabRect.h, `kebab tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(
+        Math.abs(geo!.kebabRect.w - geo!.kebabRect.h),
+        `kebab is square @ ${width}`,
       ).toBeLessThanOrEqual(1);
     });
 
@@ -655,8 +734,14 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   });
 
   // T-CONTRAST (modal-header-reconciliation §6.4 / §7.1 / §7.2, Task 6).
+  // share-hub T4 retargeted the SUBJECT from the retired outline Copy button to
+  // the hub's KEBAB trigger — the band's remaining transparent-background
+  // control, which is exactly what this sampling method exists for. (The
+  // primary trigger is a solid accent fill when published, so it would make the
+  // walk-up trivial and test nothing.) Method and rationale unchanged; the
+  // sampled value is the icon's currentColor rather than a text label.
   //
-  // The sampling method IS the test. The outline Copy button is
+  // The sampling method IS the test. The kebab trigger is
   // `background: transparent`, so reading `backgroundColor` off the element
   // itself yields rgba(0,0,0,0) and ANY ratio computed against it is
   // meaningless — a correct implementation fails, or a broken one passes. The
@@ -671,7 +756,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   // and would force either weakening the test or abandoning the token system.
   // The visible label does the identifying work.
   for (const theme of ["light", "dark"] as const) {
-    test(`T-CONTRAST ${theme}: the outline Copy label clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
+    test(`T-CONTRAST ${theme}: the hub kebab's icon color clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
       page,
     }) => {
       await openHarness(page, { width: 1280, height: 900 });
@@ -689,7 +774,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       });
 
       const sample = await page
-        .locator(`${SUBHEADER} [data-testid="strip-copy-link"] button`)
+        .locator(`${SUBHEADER} [data-testid="share-hub-kebab"]`)
         .evaluate((btn) => {
           const parse = (c: string): [number, number, number, number] => {
             const n = c.match(/[\d.]+/g)!.map(Number);

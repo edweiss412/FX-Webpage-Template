@@ -12,10 +12,15 @@
  *   §4 lifecycle close (deferred while busy) · §6 dismissal + busy contract ·
  *   §9 R1-R4 composition rules (executable in shareHub.test.tsx, not narrated).
  *
- * GEOMETRY IS NOT AUTHORED HERE (plan T3/T4 boundary). Width, absolute
- * placement, the mobile clamp and tap-min sizing land in T4 alongside the
- * Playwright assertions that verify them — jsdom computes no layout, so
- * anything committed here would be unproven until a later commit.
+ * Geometry (added in T4, alongside the Playwright assertions that verify it —
+ * jsdom computes no layout, so none of this is provable in a unit test):
+ * the popover is `absolute top-full right-0 w-[308px]`, positioned against the
+ * `relative` wrapper below rather than the strip row. The row deliberately has
+ * NO `relative` (StatusStrip.tsx: the band owns the positioned ancestor, and
+ * re-anchoring it would break the Re-sync overlay's `inset-x-0` full-band
+ * width). The wrapper's right edge is the band's content edge via `ml-auto` on
+ * the strip's hub group, so `right-0` aligns the panel to that same edge.
+ * `max-w-[calc(100vw-2rem)]` keeps it inside the modal at 390px.
  *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
  * button that closes without focus restore, and Escape that closes WITH focus
@@ -137,7 +142,7 @@ export function ShareHub({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-2">
       {open && (
         <button
           type="button"
@@ -161,8 +166,8 @@ export function ShareHub({
         onClick={() => toggle("primary")}
         className={
           published
-            ? "inline-flex items-center justify-center gap-1.5 rounded-sm bg-accent px-3 text-sm font-semibold text-accent-contrast transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm bg-accent px-3 text-sm font-semibold text-accent-contrast transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         }
       >
         <Link2 aria-hidden="true" size={15} />
@@ -178,7 +183,7 @@ export function ShareHub({
         aria-controls={popoverId}
         aria-label="More share actions"
         onClick={() => toggle("kebab")}
-        className={`inline-flex items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
+        className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
           open ? "bg-surface-sunken" : "bg-transparent"
         }`}
       >
@@ -192,7 +197,7 @@ export function ShareHub({
           aria-label="Share crew link"
           data-testid="share-hub-popover"
           onKeyDown={onPopoverKeyDown}
-          className="z-30 flex flex-col gap-2 rounded-md border border-border bg-surface p-2.5 shadow-lg"
+          className="absolute right-0 top-full z-30 mt-1.5 flex w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border border-border bg-surface p-2.5 shadow-lg"
         >
           <p className="px-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle">
             Crew link

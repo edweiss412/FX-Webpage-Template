@@ -20,7 +20,7 @@
  * the Overview archive row (spec §6.1).
  *
  * RSC boundary: server-only pieces arrive pre-rendered as ReactNode SLOTS
- * (`alertSlot`, `shareSlot`); every server action arrives as a DIRECT ref
+ * (`alertSlot`); every server action arrives as a DIRECT ref
  * (never an inline-wrapped closure — the RSC server-action lesson).
  * `buildSectionWarningModel` (SERVER, node:crypto) ran on the loader; this
  * shell only invokes the crypto-free `buildSectionWarningExtras` factory.
@@ -54,6 +54,7 @@ import {
   dateSummarySegments,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
+import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
@@ -98,8 +99,10 @@ export type PublishedReviewModalProps = {
   hasActionableWarnings: boolean;
   archiveAction: () => Promise<LifecycleResult>;
   unarchiveAction: (showId: string) => Promise<void>;
-  /** Server-rendered share-&-access cluster (`<CurrentShareLinkPanel/>`). */
-  shareSlot: ReactNode;
+  /** Crew addresses for the hub's batched Email-crew rows (share-hub T4). */
+  crewEmails: readonly string[];
+  /** Roster rows for the hub's everyone-reset control (share-hub T4). */
+  pickerCrew: PickerResetCrewRow[];
 
   // ── Changes ──
   feed: ChangesSectionProps["feed"];
@@ -135,7 +138,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     hasActionableWarnings,
     archiveAction,
     unarchiveAction,
-    shareSlot,
+    crewEmails,
+    pickerCrew,
     feed,
     undoAction,
     acceptAction,
@@ -378,7 +382,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       <OverviewSection
         showId={showId}
         archived={archived}
-        published={published}
         finalizeOwned={finalizeOwned}
         openSheetHref={openSheetHref}
         hasActionableWarnings={hasActionableWarnings}
@@ -392,7 +395,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             </div>
           ) : null
         }
-        shareSlot={shareSlot}
       />
     ),
   };
@@ -603,6 +605,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           lastCheckedAt={lastCheckedAt}
           lastSyncStatus={lastSyncStatus}
           now={now}
+          showId={showId}
+          crewEmails={crewEmails}
+          showTitle={title ?? slug}
+          pickerCrew={pickerCrew}
         />
       }
     >

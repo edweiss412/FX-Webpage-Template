@@ -3,9 +3,10 @@
  * tests/components/shareTokenInstantUpdate.test.tsx
  *
  * Load-bearing integration test (spec §6.2): the three token consumers — header
- * ShareChip (A), CrewPageLink (B), and the ShareLinkBody card (C) — share ONE
+ * ShareChip (A), CrewPageLink (B), and the ShareHub popover (C) — share ONE
  * ShareTokenProvider. A rotate driven through the real RotateShareTokenButton
- * (inside ShareLinkBody) must update the URL on ALL THREE surfaces INSTANTLY,
+ * (inside the hub, share-hub T4 — formerly the ShareLinkBody card) must update
+ * the URL on ALL THREE surfaces INSTANTLY,
  * with `router.refresh()` mocked to a no-op — proving the instant update comes
  * from the client epoch-gated cache, not a server re-render. The old token must
  * then appear NOWHERE (text, href, title, or clipboard payload).
@@ -14,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/lib/auth/picker/rotateShareToken", () => ({ rotateShareToken: vi.fn() }));
+vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: vi.fn() }));
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) }));
@@ -21,7 +23,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: refreshMock }) 
 import { ShareTokenProvider, useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { ShareChip } from "@/app/admin/show/[slug]/ShareChip";
 import { CrewPageLink } from "@/app/admin/show/[slug]/CrewPageLink";
-import { ShareLinkBody } from "@/app/admin/show/[slug]/ShareLinkBody";
+import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 
 const ORIGIN = "https://crew.fxav.show";
@@ -56,12 +58,13 @@ function AllSurfaces() {
     <ShareTokenProvider initialToken={OLD} initialEpoch={5}>
       <ShareChip slug={SLUG} isEligible />
       <CrewPageLink slug={SLUG} isEligible />
-      <ShareLinkBody
+      <ShareHub
         slug={SLUG}
         showId={SHOW_ID}
+        published
         crewEmails={[]}
-        isCrewLinkActive
-        resetSlot={null}
+        showTitle="Sample Show"
+        pickerCrew={[]}
       />
     </ShareTokenProvider>
   );
@@ -76,9 +79,9 @@ const chipCopyButton = () =>
     "admin-current-share-link-copy-button",
   );
 const cardCopyButton = () =>
-  screen
-    .getAllByTestId("admin-current-share-link-copy-button")
-    .find((b) => b.closest("[data-testid='admin-show-share-chip']") === null)!;
+  within(screen.getByTestId("share-hub-popover")).getByTestId(
+    "admin-current-share-link-copy-button",
+  );
 
 async function rotateThroughConfirm() {
   vi.useFakeTimers();
@@ -99,6 +102,8 @@ describe("share-token instant update across the real A/B/C consumers", () => {
       new_epoch: 6,
     });
     render(<AllSurfaces />);
+    // The hub's URL/Copy/rotate live inside its popover (share-hub T4).
+    fireEvent.click(screen.getByTestId("share-hub-primary"));
 
     // --- OLD everywhere first ---
     const chip = screen.getByTestId("admin-show-share-chip");

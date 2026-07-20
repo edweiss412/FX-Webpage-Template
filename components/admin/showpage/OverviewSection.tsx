@@ -4,34 +4,36 @@
  * components/admin/showpage/OverviewSection.tsx (consolidated-admin-show-page spec §5.1/§6)
  *
  * The FIRST rail section of the consolidated admin show page. It relocates — INTACT — the
- * per-show alert detail, the share-&-access cluster, the sheet/sync cluster (correction-loop
- * callout + open-sheet link), and the archive lifecycle control. It wraps; it does not
- * reimplement or restyle beyond section chrome.
+ * per-show alert detail, the sheet/sync cluster (correction-loop callout + open-sheet link),
+ * and the archive lifecycle control. It wraps; it does not reimplement or restyle beyond
+ * section chrome. (share-hub T4 moved the share-&-access cluster out to the status band.)
  *
  * The Re-sync CONTROL is NOT here: modal-header-reconciliation §4.3 (ratified) moved it to
  * the StatusStrip, and duplicating it was explicitly rejected — exactly one Re-sync exists.
  * The archived paused-notice and the correction-loop guidance stay (§6.7).
  *
  * RSC boundary: Overview renders inside the CLIENT `ShowReviewSurface` (via an extra-section
- * `render()` closure), so it is a client component. The server-only pieces (`CurrentShareLinkPanel`,
- * `CurrentShareLinkPanel`) are pre-rendered by the server page (Task 13) and handed in as
- * `attentionSlot` / `shareSlot` ReactNode props. The client controls (`ArchiveShowButton`,
+ * `render()` closure), so it is a client component. The server-only attention cluster is
+ * pre-rendered by the server loader and handed in as the `attentionSlot` ReactNode prop.
+ * (share-hub T4 retired the `shareSlot` prop and its `CurrentShareLinkPanel` subtree: the
+ * crew URL, Copy, Email-crew, rotate and reset now live in the status band's ShareHub
+ * popover, and the `#share-access` anchor moved onto the StatusStrip root.)
+ * The client controls (`ArchiveShowButton`,
  * `UnarchiveShowButton`, `CorrectionLoopCallout`) are rendered directly,
  * with their server actions passed THROUGH as props (never inline-wrapped closures — the RSC
  * server-action boundary lesson; the page hands Overview DIRECT action refs).
  *
- * Mode boundaries (spec §6):
- *   - Published + active (published && !archived) → alert · share panel · sheet/sync
- *     (open-sheet) · Archive.
- *   - Unpublished (held)                          → alert · INACTIVE-share notice · sheet/sync
- *     (still archivable — held is not archived) · Archive.
+ * Mode boundaries (spec §6). share-hub T4 removed the share panel and its inactive notice,
+ * so publish state no longer changes anything Overview renders — the `published` prop was
+ * retired with them, and the published/held rows collapsed into one:
+ *   - Not archived (published OR held)            → alert · sheet/sync (open-sheet) · Archive.
  *   - Publishing… (finalize-owned, !archived)     → the show is immutable while the finalize job
  *     holds it (spec §6): the Archive control is SUPPRESSED (matching the old page, which only
  *     rendered its lifecycle section for archived||held). The archive server action carries its
  *     own finalize-ownership refusal as the backstop, but we don't render a control the server
  *     would reject. Every other affordance renders per the published/held mode above.
- *   - Archived (read-only)                        → alert · INACTIVE-share notice · Re-sync-PAUSED
- *     notice (no callout) · UNARCHIVE (the only lifecycle control).
+ *   - Archived (read-only)                        → alert · Re-sync-PAUSED notice
+ *     (no callout) · UNARCHIVE (the only lifecycle control).
  *
  * The `#overview` wrapper anchor is the target of the strip's alert badge (StatusStrip.tsx:149)
  * and the spec §10 hash deep link.
@@ -56,8 +58,6 @@ export type OverviewSectionProps = {
   showId: string;
   /** Read-only lifecycle state: hides every mutating affordance, shows Unarchive. */
   archived: boolean;
-  /** Publish state: an unpublished (held) show shows the inactive-share notice. */
-  published: boolean;
   /** Finalize-owned ("Publishing…") window (spec §6): the show is immutable, so the Archive
    *  control is suppressed. Same value the StatusStrip freezes the publish toggle on. */
   finalizeOwned: boolean;
@@ -71,27 +71,18 @@ export type OverviewSectionProps = {
   unarchiveAction: (showId: string) => Promise<void>;
   /** Attention banners + degraded notice for this show (published-show-alerts §5.4). */
   attentionSlot: ReactNode;
-  /** Server-rendered share-&-access cluster (`<CurrentShareLinkPanel/>`); only shown when the
-   *  crew link is active (published && !archived). Ignored otherwise (inactive notice shown). */
-  shareSlot: ReactNode;
 };
 
 export function OverviewSection({
   showId,
   archived,
-  published,
   finalizeOwned,
   openSheetHref,
   hasActionableWarnings,
   archiveAction,
   unarchiveAction,
   attentionSlot,
-  shareSlot,
 }: OverviewSectionProps) {
-  // The crew link is active only for a published, non-archived show — same gate the current
-  // page keys the share panel / rotate / reset on (page.tsx isShowEligibleForCrewLink).
-  const isCrewLinkActive = published && !archived;
-
   return (
     <section
       id="overview"
@@ -100,25 +91,6 @@ export function OverviewSection({
       className="flex scroll-mt-4 flex-col gap-section-gap"
     >
       {attentionSlot}
-
-      {/* Share & access — the server-rendered panel when the link is live, else the inactive
-          notice (an unpublished/archived show keeps its token but the crew link is paused).
-          `#share-access` is the always-present deep-link target for the share-access alert
-          action (lib/adminAlerts/alertActions.ts) — it wraps BOTH states so a held-show nudge
-          still resolves. (The publish toggle itself lives in the StatusStrip.) */}
-      <div id="share-access" className="scroll-mt-4">
-        {isCrewLinkActive ? (
-          shareSlot
-        ) : (
-          <p
-            data-testid="admin-share-link-inactive"
-            className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-          >
-            The crew link is inactive while this show is {archived ? "archived" : "unpublished"}. It
-            will be available once the show is published.
-          </p>
-        )}
-      </div>
 
       {/* Sheet & sync. The Re-sync CONTROL moved to the StatusStrip
           (modal-header-reconciliation §4.3 — ratified; duplicating it here was
