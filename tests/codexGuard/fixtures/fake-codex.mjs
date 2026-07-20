@@ -1,6 +1,6 @@
 // Scenario-driven stand-in for the codex CLI. See plan "Fixture scenario protocol"
 // (docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md).
-import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -65,16 +65,23 @@ async function main() {
       // The grandchild writes its own pid file AFTER registering the SIGTERM handler —
       // the file's existence proves the handler is live (a fixture-side write races the
       // grandchild's V8 boot, and an early SIGTERM would kill it via the default action).
+      const gcPidPath = join(recordDir, `grandchild-pid-${callN}.txt`);
       const gc = spawn(
         process.execPath,
         [
           "-e",
           "process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(()=>{},1e6)",
-          join(recordDir, `grandchild-pid-${callN}.txt`),
+          gcPidPath,
         ],
         { detached: false, stdio: "ignore" },
       );
       void gc;
+      // Block until the grandchild has written its pid file, i.e. its SIGTERM handler is
+      // live. If the fixture proceeds (or exits) first, the wrapper's post-exit group
+      // sweep can SIGKILL the grandchild mid-V8-boot and the proof file never appears —
+      // exactly the 2-core CI runner race that broke main (run 29711040467, scenario 13b).
+      const bootDeadline = Date.now() + 10000;
+      while (!existsSync(gcPidPath) && Date.now() < bootDeadline) await sleep(25);
     } else if (a.type === "exit") process.exit(a.code);
   }
   process.exit(0);
