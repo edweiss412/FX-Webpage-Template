@@ -23,7 +23,7 @@
 - Commit per task, conventional-commits, `--no-verify`.
 - No new dir globs for mixed dirs; serial stays `fileParallelism: false`; no workflow/shard change.
 - Worktree `/Users/ericweiss/FX-worktrees/ci-unit-suite-phase3` (branch `chore/ci-unit-suite-phase3-db-parallel`).
-- A glob matcher is needed for the resolved-config proof. **Decided by inspection this session: `picomatch` is NOT importable from the workspace root (present only as a nested transitive dep under `node_modules/.pnpm`, not hoisted, no `@types`), so it is NOT used.** The test implements the conversion locally: the P2 `globToRegExp` extended to handle `{a,b}` brace alternation in addition to `*` and `**`. No new dependency is added by this phase.
+- A glob matcher is needed for the resolved-config proof. **Decided by inspection this session: `picomatch` is NOT importable from the workspace root (present only as a nested, non-hoisted transitive dep inside the pnpm store, with no @types package), so it is NOT used.** The test implements the conversion locally: the P2 `globToRegExp` extended to handle `{a,b}` brace alternation in addition to `*` and `**`. No new dependency is added by this phase.
 
 ## Meta-test inventory
 
