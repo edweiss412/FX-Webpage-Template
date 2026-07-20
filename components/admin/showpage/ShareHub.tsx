@@ -44,9 +44,11 @@
  * an unconditional `z-30` here therefore painted this hub's two NON-POSITIONED
  * trigger buttons above that menu and stole its clicks. Gating the class on
  * `open` is the whole fix — PublishedReviewModal's attention wrapper is
- * deliberately left as a bare `relative`. Keep the triggers non-positioned: a
- * `relative` on either would beat the menu by tree order and bring the defect
- * back in a subtler form.
+ * deliberately left as a bare `relative`. The triggers must not establish a
+ * stacking context at the menu's level or above: a `relative` at `z-index:auto`
+ * is fine (it paints below a positive-z context per CSS 2.1 Appendix E), but a
+ * positive z-index or `isolate` on either trigger would lift it over the menu
+ * and bring the defect back (pinned in shareHub.test.tsx).
  *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
  * button that closes without focus restore, and Escape that closes WITH focus

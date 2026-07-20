@@ -937,7 +937,13 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       expect(hit.inMenu).toBe(true);
       expect(hit.inHub).toBe(false);
     } finally {
-      await admin.from("admin_alerts").delete().eq("id", alertId);
+      // Surface a failed cleanup instead of swallowing it: a leaked actionable
+      // alert would auto-open the attention menu for every later test in this
+      // file and quietly corrupt them. Better to fail this test loudly here.
+      const { error: cleanupError } = await admin.from("admin_alerts").delete().eq("id", alertId);
+      if (cleanupError) {
+        throw new Error(`T-HUB-ZORDER alert cleanup failed (would leak): ${cleanupError.message}`);
+      }
     }
   });
 
@@ -1024,22 +1030,23 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(caret.y, "caret starts above the panel edge").toBeLessThan(panel.y);
     expect(caret.y + caret.height, "caret crosses into the panel").toBeGreaterThan(panel.y);
 
-    // NOT clipped away: the whole point of rendering it as the panel's sibling
-    // rather than its child (the panel is overflow-y-auto).
-    const painted = await page.evaluate(
-      ([x, y]: [number, number]) => {
-        const el = document.elementFromPoint(x, y);
-        return {
-          hit: !!el,
-          // pointer-events-none: the caret must never be the hit target, even
-          // where it overlaps the panel.
-          isCaret: el?.getAttribute("data-testid") === "share-hub-caret",
-        };
-      },
-      [caret.x + caret.width / 2, caret.y + 1] as [number, number],
+    // NOT clipped away: proven STRUCTURALLY, not by elementFromPoint. The caret
+    // is a SIBLING of the panel (unit test: popover does not contain it), so the
+    // panel's overflow-y-auto cannot clip it; the rect assertions above prove it
+    // has a real box that extends above the panel edge. A hit-test cannot add to
+    // that: the caret is pointer-events-none, so elementFromPoint over it ALWAYS
+    // returns the element behind it whether the caret is visible, clipped, or
+    // absent — so `!!el` there would prove nothing.
+    //
+    // What the hit-test DOES prove, and the only thing asserted here: the caret
+    // is inert to pointer events. Sampled where the caret overlaps the panel, so
+    // a caret that (wrongly) intercepted clicks would be the hit target.
+    const overCaret = await page.evaluate(
+      ([x, y]: [number, number]) =>
+        document.elementFromPoint(x, y)?.getAttribute("data-testid") === "share-hub-caret",
+      [caret.x + caret.width / 2, caret.y + caret.height - 1] as [number, number],
     );
-    expect(painted.hit, "the caret's tip is inside the viewport and paintable").toBe(true);
-    expect(painted.isCaret, "the caret is inert to pointer events").toBe(false);
+    expect(overCaret, "the caret is inert to pointer events").toBe(false);
   });
 
   test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({

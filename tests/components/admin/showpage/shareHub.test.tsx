@@ -254,12 +254,19 @@ describe("ShareHub — z-order (spec §3)", () => {
     expect(root.className).not.toContain("z-30");
   });
 
-  it("keeps BOTH triggers non-positioned, which is what lets the z-20 menu win", () => {
+  it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
     renderHub();
-    // A `relative` here would recreate the defect in a subtler form: a positioned
-    // trigger at z-auto still paints above the menu's z-20 by tree order.
+    // What reintroduces the defect is NOT `position` alone. Per CSS 2.1
+    // Appendix E, a positioned element at `z-index: auto` paints in the same
+    // step as z-0 contexts (step 6), which is BELOW a positive-z stacking
+    // context (step 7) — so a bare `relative` trigger still loses to the menu's
+    // z-20. The defect returns only if a trigger establishes a context at the
+    // menu's level or above: a positive z-index (`z-1`..`z-50`, or an arbitrary
+    // `z-[N]`) or `isolate`/`isolation-isolate`. Forbid exactly those, so a
+    // correct refactor that adds `relative` for an unrelated reason still passes.
     for (const el of [primary(), kebab()]) {
-      expect(el.className).not.toMatch(/\b(relative|absolute|fixed|sticky)\b/);
+      expect(el.className).not.toMatch(/\bz-(?:\[|\d)/);
+      expect(el.className).not.toMatch(/\bisolate\b/);
     }
   });
 });
@@ -290,6 +297,12 @@ describe("ShareHub — caret (spec §5)", () => {
     // caret would intercept clicks in its overlap with the panel and any
     // panelRef.contains(target) check would read them as outside the dialog.
     expectClasses(caret, { has: ["pointer-events-none"] });
+
+    // The two are equal-z SIBLINGS, so tree order (asserted above) only decides
+    // paint order while both stay at z-40. Pin the level on both, or lowering the
+    // caret's z would drop it behind the panel while order + geometry still pass.
+    expectClasses(caret, { has: ["z-40"] });
+    expectClasses(popover(), { has: ["z-40"] });
 
     // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
     // have moved it off the focused element.
