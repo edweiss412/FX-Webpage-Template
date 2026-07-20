@@ -22,12 +22,18 @@ import { defineConfig, devices } from "@playwright/test";
  * equations on the REAL PublishedReviewModal tree; successor to the retired
  * showPageLayout spec), skeletonBandParity (modal-header-reconciliation Task 9 —
  * §6.1.1 band parity between the streaming ShowReviewModalSkeleton and the
- * loaded PublishedReviewModal, both rendered on ONE page under one stylesheet).
+ * loaded PublishedReviewModal, both rendered on ONE page under one stylesheet), compact-alert-card-layout
+ * (show-alert-compact Task 10 — §9.3 footer containment, ellipsis engagement,
+ * tap targets, and popover hit testing on the REAL CompactAlertCard tree).
+ *
+ * NOTE: `testMatch` below is an explicit allow-list, so a new standalone spec is
+ * NOT discovered until its name is added here. A spec file that merely exists
+ * runs nowhere and silently proves nothing.
  */
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|packlist-rescan-recovery|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|packlist-rescan-recovery|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

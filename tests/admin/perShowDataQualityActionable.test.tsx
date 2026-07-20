@@ -60,7 +60,9 @@ describe("PerShowActionableWarnings — row label (Part A)", () => {
       },
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
-    expect(screen.getByTestId("per-show-actionable-row-label").textContent).toBe("GS Podium Type");
+    expect(screen.getByTestId("per-show-actionable-row-label-value").textContent).toBe(
+      "GS Podium Type",
+    );
   });
 
   // audit idx46/#217: the `<label> | <value>` rawSnippet contract holds ONLY for
@@ -86,7 +88,10 @@ describe("PerShowActionableWarnings — row label (Part A)", () => {
       },
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
-    const labels = screen.queryAllByTestId("per-show-actionable-row-label");
+    // Scope to the VALUE element: the entry itself also carries a "Sheet row"
+    // micro-label, so asserting the wrapper's textContent would compare against
+    // label+value and pass or fail for the wrong reason.
+    const labels = screen.queryAllByTestId("per-show-actionable-row-label-value");
     // Only the UNKNOWN_FIELD row yields a muted label; the PULL_SHEET row yields none.
     expect(labels).toHaveLength(1);
     expect(labels[0]?.textContent).toBe("GS Podium Type");

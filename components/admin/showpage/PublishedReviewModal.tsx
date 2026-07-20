@@ -290,13 +290,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const highlightedItemId = alertId != null ? `alert:${alertId}` : null;
   // Plain per-render derivation (React Compiler memoizes; manual useMemo over
   // the unstable onResolved identity only fought the lint contract).
-  const bannerFor = (item: AttentionItem, underCrewRow: boolean) => (
+  // `underCrewRow` retired with the identity sub-line (show-alert-compact R6):
+  // this card only renders inside the show modal, which already establishes the
+  // show, so there was no longer anything for the flag to suppress.
+  const bannerFor = (item: AttentionItem) => (
     <AttentionBanner
       key={item.id}
       item={item}
       slug={slug}
       now={now}
-      underCrewRow={underCrewRow}
       highlighted={item.id === highlightedItemId}
       onResolved={onResolved}
     />
@@ -317,16 +319,16 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       if (item.sectionId === "crew") {
         if (item.crewKey && renderedKeys.has(item.crewKey)) {
           const list = byCrewKey.get(item.crewKey) ?? [];
-          list.push(bannerFor(item, true));
+          list.push(bannerFor(item));
           byCrewKey.set(item.crewKey, list);
         } else {
-          sectionTop.push(bannerFor(item, false));
+          sectionTop.push(bannerFor(item));
         }
       } else if (item.sectionId === "overview") {
-        overview.push(bannerFor(item, false));
+        overview.push(bannerFor(item));
       } else {
         // Defensive: unknown-routed alerts land in Overview (spec §4 fallback).
-        overview.push(bannerFor(item, false));
+        overview.push(bannerFor(item));
       }
     }
     const crew: CrewAttention = { byCrewKey, sectionTop };

@@ -43,7 +43,14 @@
  * disclosures). This is the compact hover/tap hint next to section titles, stat
  * counts, and the Drive-health badge. Pass align="right" near a right edge.
  */
-import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { ReactNode } from "react";
 
 const CLOSE_DELAY_MS = 120;
@@ -120,6 +127,31 @@ export function HoverHelp({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  /**
+   * Escape CONTAINMENT (spec 2026-07-20-show-alert-compact §3.2).
+   *
+   * A popover hosted inside `ReviewModalShell` must swallow its own Escape,
+   * or one keypress closes the popover AND the whole modal. The shell's
+   * handler is a `document`-level native listener that closes
+   * UNCONDITIONALLY — it never inspects `defaultPrevented`
+   * (ReviewModalShell.tsx:238-250) — so containment rests entirely on
+   * `stopPropagation`: React attaches synthetic handlers at the root
+   * container, which sits BELOW `document`, so stopping here keeps the native
+   * event from ever reaching the shell. `CrewRowActions` relies on the same
+   * topology (wizard/CrewRowActions.tsx:115-121). `preventDefault` is
+   * defense in depth only; it does not do the work.
+   *
+   * Only while OPEN: a closed popover must let Escape through so the host
+   * modal still closes normally.
+   */
+  const onRootKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!open || e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearCloseTimer();
+    setOpen(false);
+  };
+
   // Hover is MOUSE-ONLY: a synthetic-mouse tap on a touch device fires pointer
   // events with pointerType="touch"/"pen" — ignore those so the click toggle is
   // the sole touch interaction (no open-then-toggle net-closed race).
@@ -154,6 +186,7 @@ export function HoverHelp({
       data-testid={rootTestId}
       onPointerEnter={onMouseEnter}
       onPointerLeave={onMouseLeave}
+      onKeyDown={onRootKeyDown}
     >
       {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min;
           the compact "?" keeps a 20px visual but a transparent before:-inset-3

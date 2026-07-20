@@ -3,6 +3,7 @@ import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import type { AffordanceRow } from "@/app/help/_affordanceMatrix";
 import { AFFORDANCE_MATRIX, testidForErrorCode } from "@/app/help/_affordanceMatrix";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { messageFor } from "@/lib/messages/lookup";
@@ -30,7 +31,14 @@ const documentedEntries = Object.values(MESSAGE_CATALOG).filter(isDocumentedEntr
 
 describe("deep-link walker template-family coverage (Task G.5)", () => {
   it("has exactly one error-message template-family row", () => {
-    const templateRows = AFFORDANCE_MATRIX.filter((row) => row.kind === "template-family");
+    // Scoped to the error-message family this walker actually exercises.
+    // show-alert-compact added a second family row for the per-item help
+    // popover on compact alert cards; it is walked by its own surface tests,
+    // not by this catalog-driven Learn-more walker.
+    const templateRows = AFFORDANCE_MATRIX.filter(
+      (row): row is Extract<AffordanceRow, { kind: "template-family" }> =>
+        row.kind === "template-family" && row.affordance === "Learn more →",
+    );
     expect(templateRows).toHaveLength(1);
     expect(templateRows[0]?.testidPattern).toBe(
       "help-affordance--error-message--<code>--learn-more",

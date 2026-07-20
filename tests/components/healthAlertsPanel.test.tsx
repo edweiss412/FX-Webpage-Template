@@ -308,3 +308,29 @@ describe("HealthAlertsPanel (Task 8 reachability)", () => {
     );
   });
 });
+
+describe("HealthAlertRowItem — compact card skin and footer (spec §4.3, A5)", () => {
+  // Failure mode: reusing tone="muted" (bg-surface-sunken) or letting the shell's
+  // warning/review defaults through. Health rows are NOT a severity surface —
+  // severity belongs to the weight badge, and re-skinning the container by
+  // severity is exactly what amendment A5 forbids.
+  test("rows use the neutral skin: no stripe, no severity glyph, badge unchanged", async () => {
+    impl.fn = async ({ weight }) => ({
+      kind: "ok",
+      rows: weight === "degraded" ? [row({ id: "r1", code: "DRIVE_FETCH_FAILED" })] : [],
+      hasMore: false,
+    });
+    await renderPanel();
+    const card = document.querySelector('[data-testid="compact-alert-card"]')!;
+    expect(card.className).toContain("bg-surface");
+    expect(card.className).not.toContain("bg-surface-sunken");
+    expect(card.className).not.toContain("border-l-status-review");
+    expect(card.className).not.toContain("border-l-status-degraded");
+    // No severity glyph: the neutral tone omits it.
+    expect(card.textContent).not.toContain("!");
+    // The weight badge still carries the severity distinction.
+    expect(document.querySelector('[data-testid="health-alert-weight-r1"]')!.textContent).toBe(
+      "Degraded",
+    );
+  });
+});

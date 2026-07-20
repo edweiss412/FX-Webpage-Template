@@ -39,6 +39,12 @@ const SERVER_RENDERED = [
   "app/admin/show/[slug]/page.tsx",
   "components/admin/PublishedToggle.tsx",
   "components/admin/review/AttentionBanner.tsx",
+  // show-alert-compact: the compact card shell and its two remaining adapters.
+  // Listed so R9 (card-owned transitions are instant) cannot be violated on a
+  // surface outside the original scan.
+  "components/admin/CompactAlertCard.tsx",
+  "components/admin/PerShowActionableWarnings.tsx",
+  "components/admin/telemetry/HealthAlertsPanel.tsx",
   "components/admin/showpage/AttentionMenu.tsx",
   // admin-show-modal Task 7: the published review modal surface. All three are
   // client components but deliberately motion-free in SOURCE — the modal's
@@ -105,9 +111,16 @@ describe("transition audit (§10)", () => {
       // (`animate-[sync-heartbeat_…]`, SYNC-PULSE-1) — both inside StatusIndicator, both
       // status-dot micro-signals, not mount/route-enter transitions. Any OTHER arbitrary
       // `animate-[…]` (a route-enter, a stagger, a framer refugee) still fails here.
-      const animateMatches = (s.match(/animate-\[[^\]]*\]|route-enter|stagger/g) ?? []).filter(
-        (m) => !m.startsWith("animate-[sync-heartbeat"),
-      );
+      // Also catches the tailwindcss-animate enter/exit utilities
+      // (`animate-in`, `animate-out`, `fade-in-*`, `slide-in-*`, `zoom-in-*`):
+      // they are mount animations by definition, and the original pattern —
+      // arbitrary `animate-[…]` only — let them through. Verified by mutation
+      // while adding the compact-card surfaces (show-alert-compact Task 6).
+      const animateMatches = (
+        s.match(
+          /animate-\[[^\]]*\]|\banimate-(?:in|out)\b|\b(?:fade|slide|zoom|spin)-(?:in|out)-[\w./[\]-]+|route-enter|stagger/g,
+        ) ?? []
+      ).filter((m) => !m.startsWith("animate-[sync-heartbeat"));
       expect(animateMatches, `${rel} should have no mount/route-enter animation`).toEqual([]);
     }
   });

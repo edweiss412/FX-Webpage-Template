@@ -129,8 +129,27 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     expect(byId.get("help-affordance--wizard-step3--tooltip")?.sourceRoute).toBe("/admin?step=3");
   });
 
+  // show-alert-compact: a SECOND family row covers the per-item help popover on
+  // the compact alert cards. Its testids interpolate an alert id / warning key,
+  // so it cannot be a concrete row: the parity gate matches literal testids and
+  // separately requires each concrete id to occur exactly once.
+  it("declares the per-item compact-alert help popover as a template-family row", () => {
+    const popoverRows = AFFORDANCE_MATRIX.filter(
+      (row) => row.kind === "template-family" && row.affordance.includes("What does this mean?"),
+    );
+    expect(popoverRows).toHaveLength(1);
+    expect(popoverRows[0]).toMatchObject({
+      kind: "template-family",
+      sourceRoute: expect.stringMatching(/^\/admin(?:[/?]|$)/),
+      testidPattern: expect.stringContaining("-trigger"),
+      owningMilestone: expect.any(String),
+    });
+  });
+
   it("declares exactly one template-family row for messageFor(code) errors", () => {
-    const templateRows = AFFORDANCE_MATRIX.filter((row) => row.kind === "template-family");
+    const templateRows = AFFORDANCE_MATRIX.filter(
+      (row) => row.kind === "template-family" && row.affordance === "Learn more →",
+    );
 
     expect(templateRows).toHaveLength(1);
     expect(templateRows[0]).toMatchObject({

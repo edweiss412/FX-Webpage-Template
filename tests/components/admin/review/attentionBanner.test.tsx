@@ -14,6 +14,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -64,7 +65,6 @@ function renderBanner(
       item={it}
       slug="test-show"
       now={NOW}
-      underCrewRow={false}
       highlighted={false}
       onResolved={() => {}}
       {...over}
@@ -125,15 +125,14 @@ describe("AttentionBanner", () => {
     expect(container.querySelector('[data-testid="attention-banner-action-a1"]')).toBeNull();
   });
 
-  test("help link when helpHref; absent when null", () => {
+  // The freestanding "Learn more" link is retired; help now lives behind the
+  // "?" popover trigger (R3/G2). Presence is driven by the §3.2 contract.
+  test("help trigger present with a helpHref; absent with neither help source", () => {
     renderBanner(item({ alert: { helpHref: "/help/errors#x" } }));
-    expect(screen.getByTestId("attention-banner-help-a1")).toHaveAttribute(
-      "href",
-      "/help/errors#x",
-    );
+    expect(screen.getByTestId("attention-banner-help-a1-trigger")).toBeInTheDocument();
     cleanup();
     const { container } = renderBanner(item({}));
-    expect(container.querySelector('[data-testid="attention-banner-help-a1"]')).toBeNull();
+    expect(container.querySelector('[data-testid="attention-banner-help-a1-trigger"]')).toBeNull();
   });
 
   test("failedKeys + dataGaps detail lines; absent when null", () => {
@@ -141,15 +140,27 @@ describe("AttentionBanner", () => {
       item({
         alert: {
           failedKeys: ["hotel", "rooms"],
-          dataGaps: { total: 2, classes: { unknown_section: 2 } } as never,
+          // Real gap-class code (GAP_CLASSES registry, lib/parser/dataGaps.ts:30).
+          // The previous fixture used a made-up `unknown_section` key cast to
+          // `never`, so formatDataGapBreakdown returned "" and the old
+          // assertion passed purely on the static prefix it checked.
+          dataGaps: { total: 2, classes: { UNKNOWN_SECTION_HEADER: 2 } } as never,
         },
       }),
     );
+    // Detail band joins with the middot separator (spec §4.1), and the entry
+    // carries its caps micro-label.
     expect(screen.getByTestId("attention-banner-failed-sources-a1").textContent).toContain(
-      "hotel, rooms",
+      "hotel · rooms",
+    );
+    // Derived from the fixture via the same formatter the component uses, so a
+    // silently-empty breakdown cannot pass (that is exactly what the old
+    // prefix-only assertion allowed).
+    expect(screen.getByTestId("attention-banner-data-gaps-a1").textContent).toContain(
+      formatDataGapBreakdown({ total: 2, classes: { UNKNOWN_SECTION_HEADER: 2 } } as never),
     );
     expect(screen.getByTestId("attention-banner-data-gaps-a1").textContent).toContain(
-      "Data dropped while parsing:",
+      "unknown section",
     );
     cleanup();
     const { container } = renderBanner(item({}));
@@ -159,12 +170,12 @@ describe("AttentionBanner", () => {
     expect(container.querySelector('[data-testid="attention-banner-data-gaps-a1"]')).toBeNull();
   });
 
-  test("identity sub-line: shown for null-template rows; hidden when underCrewRow", () => {
-    renderBanner(item({}));
-    expect(screen.getByTestId("attention-banner-identity").textContent).toBe("Crew · John Redcorn");
-    cleanup();
-    const { container } = renderBanner(item({}), { underCrewRow: true });
+  // R6: the identity sub-line is gone. This card only renders inside the show
+  // modal, which already establishes the show, so the line was redundant.
+  test("identity sub-line is never rendered", () => {
+    const { container } = renderBanner(item({}));
     expect(container.querySelector('[data-testid="attention-banner-identity"]')).toBeNull();
+    expect(container.textContent).not.toContain("John Redcorn");
   });
 
   test("actionable → resolve button; autoClearNote → note, no button", () => {
@@ -195,14 +206,15 @@ describe("AttentionBanner", () => {
     expect(container.querySelector('[data-attention-anchor="alert:a1"]')).toBeTruthy();
   });
 
+  // The stripe now lives on the CompactAlertCard element; the anchor wrapper
+  // stays a bare positioning/identity host (it must remain mounted across the
+  // confirmed swap, so it carries no skin of its own).
   test("tone stripe classes: notice → border-l-status-review; critical → border-l-status-degraded", () => {
-    const { container } = renderBanner(item({}));
-    expect(container.querySelector('[data-attention-anchor="alert:a1"]')!.className).toContain(
-      "border-l-status-review",
-    );
+    renderBanner(item({}));
+    expect(screen.getByTestId("compact-alert-card").className).toContain("border-l-status-review");
     cleanup();
-    const { container: c2 } = renderBanner(item({ tone: "critical" }));
-    expect(c2.querySelector('[data-attention-anchor="alert:a1"]')!.className).toContain(
+    renderBanner(item({ tone: "critical" }));
+    expect(screen.getByTestId("compact-alert-card").className).toContain(
       "border-l-status-degraded",
     );
   });
@@ -214,6 +226,84 @@ describe("AttentionBanner", () => {
     ).toBe("true");
     cleanup();
     const { container: c2 } = renderBanner(item({}));
+    expect(
+      c2.querySelector('[data-attention-anchor="alert:a1"]')!.getAttribute("aria-current"),
+    ).toBeNull();
+  });
+
+  // ---- guard cases added after plan review R1 (findings 11, 12, 13, 21) ----
+
+  // Failure mode: guarding only the INPUT string. A template of bare emphasis
+  // markers is non-empty but renders no visible text, so the card would show an
+  // empty message row instead of the fallback.
+  test.each([["**"], ["  __  "], ["``"]])(
+    "template %j renders no visible text → fallback line",
+    (template) => {
+      const { container } = renderBanner(item({ alert: { template } }));
+      expect(container.textContent).toContain("Something needs your attention on this show.");
+    },
+  );
+
+  // Failure mode: a "nonzero and not NaN" guard. Negative and infinite totals
+  // would render a nonsense Dropped entry.
+  test.each([
+    ["zero", 0],
+    ["negative", -3],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["NaN", Number.NaN],
+  ])("dataGaps total %s → no Dropped entry", (_label, total) => {
+    const { container } = renderBanner(
+      item({ alert: { dataGaps: { total, classes: { UNKNOWN_SECTION_HEADER: 2 } } as never } }),
+    );
+    expect(container.querySelector('[data-testid="attention-banner-data-gaps-a1"]')).toBeNull();
+  });
+
+  test("failedKeys of only whitespace entries → no Failed entry", () => {
+    const { container } = renderBanner(item({ alert: { failedKeys: ["  ", "\t"] } }));
+    expect(
+      container.querySelector('[data-testid="attention-banner-failed-sources-a1"]'),
+    ).toBeNull();
+  });
+
+  // Boundary: exactly at the cap must NOT emit "+0 more", and one past it must
+  // show the cap plus an accurate remainder.
+  test("exactly 6 failed keys → all six, no overflow suffix", () => {
+    const keys = ["a", "b", "c", "d", "e", "f"];
+    renderBanner(item({ alert: { failedKeys: keys } }));
+    const text = screen.getByTestId("attention-banner-failed-sources-a1").textContent ?? "";
+    for (const k of keys) expect(text).toContain(k);
+    expect(text).not.toContain("more");
+  });
+
+  test("7 failed keys → six shown plus '+1 more'", () => {
+    renderBanner(item({ alert: { failedKeys: ["a", "b", "c", "d", "e", "f", "g"] } }));
+    const text = screen.getByTestId("attention-banner-failed-sources-a1").textContent ?? "";
+    expect(text).toContain("+1 more");
+    expect(text).not.toContain("g");
+  });
+
+  test("whitespace-only autoClearNote → resolve button, not a note", () => {
+    const { container } = renderBanner(item({ alert: { autoClearNote: "   " } }));
+    expect(screen.getByTestId("per-show-alert-resolve-a1")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="attention-banner-autoclear-a1"]')).toBeNull();
+  });
+
+  test("no action → footer shows the time with no leading separator", () => {
+    renderBanner(item({}));
+    const footerLeft = screen.getByTestId("compact-alert-footer-left");
+    expect(footerLeft.textContent?.trimStart().startsWith("Raised")).toBe(true);
+  });
+
+  // A wholesale markup rewrite can silently drop these; every deep link and the
+  // scroll-into-view machinery depends on them.
+  test("preserved DOM contracts: anchor, aria-current, and the confirmed-swap host", () => {
+    const { container } = renderBanner(item({}), { highlighted: true });
+    const anchor = container.querySelector('[data-attention-anchor="alert:a1"]');
+    expect(anchor).not.toBeNull();
+    expect(anchor).toHaveAttribute("aria-current", "true");
+    cleanup();
+    const { container: c2 } = renderBanner(item({}));
+    expect(c2.querySelector('[data-attention-anchor="alert:a1"]')).not.toBeNull();
     expect(
       c2.querySelector('[data-attention-anchor="alert:a1"]')!.getAttribute("aria-current"),
     ).toBeNull();

@@ -30,6 +30,7 @@ import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
+import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -81,84 +82,139 @@ function HealthAlertRowItem({
   const followUpTemplate = raw?.followUp ?? null;
   const action = resolveAlertAction(row.code, row.context, { slug: row.slug });
 
+  // Sentence entries (detail + follow-up templates) come first, then the
+  // label/value entries, so the band reads narrative-then-facts (spec §4.3).
+  const identityText =
+    typeof row.identityText === "string" && row.identityText.trim().length > 0
+      ? row.identityText.trim()
+      : null;
+  const occurrences = row.occurrence_count;
+  const showOccurrences = Number.isFinite(occurrences) && occurrences > 0;
+
+  const detailBand =
+    detailTemplate || followUpTemplate || identityText || showOccurrences ? (
+      <>
+        {detailTemplate ? (
+          <p className="wrap-break-word w-full max-w-prose whitespace-pre-line text-xs text-text-subtle">
+            {renderCatalogEmphasis(detailTemplate, params)}
+          </p>
+        ) : null}
+        {followUpTemplate ? (
+          <p className="w-full text-xs text-text-subtle">
+            {renderCatalogEmphasis(followUpTemplate, params)}
+          </p>
+        ) : null}
+        {identityText ? (
+          <span
+            data-testid={`health-alert-identity-${row.id}`}
+            className="inline-flex items-center gap-1.5"
+          >
+            <span className="text-[10px] font-semibold tracking-wider text-text-subtle uppercase">
+              Identity
+            </span>
+            <span className="wrap-break-word text-xs font-semibold text-text">{identityText}</span>
+          </span>
+        ) : null}
+        {showOccurrences ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold tracking-wider text-text-subtle uppercase">
+              Seen
+            </span>
+            <span className="text-xs font-semibold text-text tabular-nums">
+              {occurrences} occurrence{occurrences === 1 ? "" : "s"}
+            </span>
+          </span>
+        ) : null}
+      </>
+    ) : null;
+
+  // Separators interleave BETWEEN present items only: zero links means the time
+  // stands alone with no leading middot (spec §4.3).
+  const footerLinks = [
+    row.show_id && row.slug ? (
+      <Link
+        key="show"
+        data-testid={`health-alert-show-link-${row.id}`}
+        href={`/admin?show=${encodeURIComponent(row.slug)}`}
+        className="inline-flex min-h-tap-min min-w-0 items-center truncate underline"
+      >
+        View show
+      </Link>
+    ) : null,
+    action ? (
+      <a
+        key="action"
+        href={action.href}
+        data-testid={`health-alert-action-${row.id}`}
+        {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        className="inline-flex min-h-tap-min min-w-0 items-center truncate font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+      >
+        {action.label}
+        {action.external ? <span aria-hidden="true"> ↗</span> : null}
+      </a>
+    ) : null,
+  ].filter(Boolean);
+
+  const footerLeft = (
+    <>
+      {footerLinks.map((link, i) => (
+        <span key={i} className="inline-flex items-center gap-2">
+          {link}
+          <span aria-hidden="true" className="opacity-50">
+            ·
+          </span>
+        </span>
+      ))}
+      <span className="tabular-nums">
+        Raised{" "}
+        <time dateTime={row.raised_at} title={row.raised_at} suppressHydrationWarning>
+          {formatRelative(row.raised_at, now)}
+        </time>
+      </span>
+    </>
+  );
+
   return (
-    <li
-      data-testid={`health-alert-row-${row.id}`}
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad text-text"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <p className="wrap-break-word min-w-0 whitespace-pre-line text-sm font-semibold text-text-strong">
-          {headingTemplate
-            ? renderCatalogEmphasis(headingTemplate, params)
-            : "A system-health item needs attention."}
-        </p>
-        <span
-          data-testid={`health-alert-weight-${row.id}`}
-          className={`shrink-0 rounded-pill px-2 py-0.5 text-xs font-medium ${
-            weight === "degraded"
-              ? "bg-status-degraded text-status-degraded-text"
-              : "bg-surface-sunken text-text-subtle"
-          }`}
-        >
-          {weight === "degraded" ? "Degraded" : "Notice"}
-        </span>
-      </div>
-      {detailTemplate ? (
-        <p className="wrap-break-word max-w-prose whitespace-pre-line text-sm text-text-subtle">
-          {renderCatalogEmphasis(detailTemplate, params)}
-        </p>
-      ) : null}
-      {followUpTemplate ? (
-        <p className="text-xs text-text-subtle">
-          {renderCatalogEmphasis(followUpTemplate, params)}
-        </p>
-      ) : null}
-      {row.identityText ? (
-        <p
-          data-testid={`health-alert-identity-${row.id}`}
-          className="wrap-break-word text-sm text-text-subtle"
-        >
-          {row.identityText}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-text-subtle">
-        <span className="tabular-nums">
-          Raised{" "}
-          <time dateTime={row.raised_at} title={row.raised_at} suppressHydrationWarning>
-            {formatRelative(row.raised_at, now)}
-          </time>
-        </span>
-        <span className="tabular-nums">
-          {row.occurrence_count} occurrence{row.occurrence_count === 1 ? "" : "s"}
-        </span>
-        {row.show_id && row.slug ? (
-          <Link
-            data-testid={`health-alert-show-link-${row.id}`}
-            href={`/admin?show=${encodeURIComponent(row.slug)}`}
-            className="inline-flex min-h-tap-min items-center underline"
-          >
-            View show
-          </Link>
-        ) : null}
-        {action ? (
-          <a
-            href={action.href}
-            data-testid={`health-alert-action-${row.id}`}
-            {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className="inline-flex min-h-tap-min items-center font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            {action.label}
-            {action.external ? <span aria-hidden="true"> ↗</span> : null}
-          </a>
-        ) : null}
-      </div>
-      {isAutoResolving(row.code) ? (
-        <p data-testid={`health-alert-autoclear-${row.id}`} className="text-xs text-text-subtle">
-          {autoResolveNote(row.code)}
-        </p>
-      ) : (
-        <HealthAlertResolveButton alertId={row.id} />
-      )}
+    <li data-testid={`health-alert-row-${row.id}`}>
+      <CompactAlertCard
+        // Health rows are NOT a severity surface: severity stays on the weight
+        // badge, exactly as before. `neutral` reproduces the live
+        // border-border/bg-surface skin and forces stripe="none" (amendment A5).
+        tone="neutral"
+        message={
+          <div className="flex items-start justify-between gap-3">
+            <p className="wrap-break-word min-w-0 whitespace-pre-line text-sm font-semibold text-text-strong">
+              {headingTemplate
+                ? renderCatalogEmphasis(headingTemplate, params)
+                : "A system-health item needs attention."}
+            </p>
+            <span
+              data-testid={`health-alert-weight-${row.id}`}
+              className={`shrink-0 rounded-pill px-2 py-0.5 text-xs font-medium ${
+                weight === "degraded"
+                  ? "bg-status-degraded text-status-degraded-text"
+                  : "bg-surface-sunken text-text-subtle"
+              }`}
+            >
+              {weight === "degraded" ? "Degraded" : "Notice"}
+            </span>
+          </div>
+        }
+        detailBand={detailBand}
+        footerLeft={footerLeft}
+        footerRight={
+          isAutoResolving(row.code) ? (
+            <span
+              data-testid={`health-alert-autoclear-${row.id}`}
+              className="text-xs text-text-subtle italic"
+            >
+              {autoResolveNote(row.code)}
+            </span>
+          ) : (
+            <HealthAlertResolveButton alertId={row.id} />
+          )
+        }
+      />
     </li>
   );
 }
