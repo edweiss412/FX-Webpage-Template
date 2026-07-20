@@ -171,6 +171,18 @@ These apply when this repo is being driven by Codex CLI (`codex exec`) rather th
 - **Output verbosity.** Match the verbosity to the task. Don't narrate tool calls. Don't echo file contents the user just read. Keep explanations proportional to complexity.
 - **gsheets MCP is available to Codex (as of 2026-06-18).** Codex's `~/.codex/config.toml` registers an `mcp_servers.gsheets` entry (`npx -y mcp-gsheets@latest`, same `fxav-reader-sa.json` service account as Claude Code), so Codex can read the live FXAV Google Sheets via the `sheets_*` tools — NOT limited to committed markdown fixtures. Per-machine config, not repo state (a fresh install won't have it). **Caveat:** the credentials grant access but don't name a target — Codex won't know which folder/sheet to read unless the brief says so. When a Codex task is load-bearing on live sheet content, inline the canonical IDs: Drive folder `fxav-test-shows` = `1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C`; real shows are the `II -`-prefixed spreadsheets (e.g. East Coast `1N1PKmhcvLAn5UwHLn4Rplm1yeVeYMvwfL3eOzB4McnY`, RPAS `1vyZMRTqeFAJgocbSJM2_HDDMsUUJFBiLKk6WKq-dUYo`); `VB01`–`VB10`/`DRILL` are standardized-template copies. `sheets_get_values` trims trailing empty cells per row, so a "short" row is a conversion artifact, not a structural truncation. Markdown fixtures (`fixtures/shows/raw/*.md`) are valid for parser unit tests but are NOT the source of truth for "what the sheets actually contain."
 
+### Codex dispatch guard (`codex-guard`)
+
+Spec: `docs/superpowers/specs/2026-07-19-codex-guard.md` (canonical; §11 = numeric authority).
+
+- All direct `codex exec` review/task dispatches SHOULD go through `node scripts/codex-guard.mjs review --brief <file> --cwd <dir> --out <dir>` (launched backgrounded — the caller's PreToolUse hooks never see a `codex exec` token, and the wrapper closes the child's stdin by construction).
+- Companion app-server wedge rescue = `codex-guard review --fallback --artifact <spec-or-plan> …` (replaces the manual fallback procedure; memory files stay as background, this AGENTS.md text is the cross-CLI durable contract).
+- Result contract: read `<out>/result.json` on the exit notification; `status:"no_verdict"` → apply the existing skip/self-review ladder — the wrapper bounds the retry burn (cache-TTL rung → truncation resume → generic retry; §11 defaults ≤3 attempts and ≤1500s total, both caller-overridable per dispatch), it does not change the escalation policy. Exit 3 = wrapper infra failure, not a Codex outcome; exit 2 = usage error; exit 0 = `result.json` written with `status` `verdict` or `no_verdict`.
+- Brief authoring: the brief MUST instruct the reviewer to end with a final `VERDICT: <outcome>` line using one of APPROVE / NEEDS-ATTENTION / BLOCKING (the wrapper detects verdicts, it does not inject the instruction).
+- Fresh `--out` per dispatch (timestamped dir); the wrapper refuses a dir that already holds a `result.json`.
+- Shim install one-liner for other machines/checkouts:
+  `mkdir -p ~/.claude/bin && printf '#!/bin/sh\nexec node "$HOME/FX-Webpage-Template/scripts/codex-guard.mjs" "$@"\n' > ~/.claude/bin/codex-guard && chmod +x ~/.claude/bin/codex-guard`
+
 ---
 
 ## Cross-cutting discipline (from milestone retrospectives)
