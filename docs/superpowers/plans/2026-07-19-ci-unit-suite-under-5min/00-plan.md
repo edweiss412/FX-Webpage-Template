@@ -422,7 +422,8 @@ measure() { # usage: measure <run-id> <attempt>   (uses $LEGS)
 git push                                   # no-op if nothing local; NEVER skip
 gh pr checks <PR#> --watch                 # wait for the pushed run
 RUN=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
-measure $RUN 1                             # errors loudly if not a full green attempt
+ATT=$(gh run view $RUN --json attempt --jq .attempt)   # LATEST attempt (1 normally; >1 after any rerun)
+measure $RUN $ATT                          # errors loudly if not a full green attempt
 # Evaluate IN ORDER on this output:
 #   (3) vitest_skew <= 75 ?  no → reweight branch → MEASURE-LOOP
 #   (2) max_wall   <  300 ?  no → 8-leg fallback (once) → MEASURE-LOOP; at 8 already → keep-fastest branch → MEASURE-LOOP
@@ -430,7 +431,7 @@ measure $RUN 1                             # errors loudly if not a full green a
 # keep-fastest floor branch has confirmed its configuration on a measured run.
 ```
 
-Flake rule: `gh run rerun $RUN --failed` is fine for turning the CHECK green, but its attempt is partial by construction and `measure` will refuse it — for a measurement, always use a FULL attempt (a fresh pushed run, or a full `gh run rerun $RUN` whose new attempt reruns all legs).
+Flake rule — the invariant is COMPLETENESS, not the rerun trigger: an attempt is measurable iff it contains all `$LEGS` legs, all green (exactly what `measure` validates). `gh run rerun $RUN --failed` after a single-leg flake produces a partial attempt (only the failed leg re-runs) — `measure` refuses it; use a full `gh run rerun $RUN` or a fresh pushed run instead. In the corner case where EVERY leg failed, a `--failed` rerun re-runs all legs and its attempt is complete — measurable like any other.
 
 - [ ] **Step 1: Push + PR.**
 
@@ -491,7 +492,12 @@ measure $RUNH 1    # this new run's attempt 1 is the cache-hit measurement
 
   **(4) 8-leg fallback** (only if (2) misses at 6): test-first edits — topology matrix literal test to `[1, 2, 3, 4, 5, 6, 7, 8]` + denominator `.toBe(8)`, balance loops `[2, 3, 6]` → `[2, 3, 8]` in BOTH loops; run both meta-tests → FAIL; workflow `shard: [1, 2, 3, 4, 5, 6, 7, 8]`, `--shard=${{ matrix.shard }}/8`, step name `/8`, header prose `6-leg`→`8-leg` / `i/6`→`i/8` / `six legs`→`eight legs`; run both meta-tests → PASS; commit `infra: 8-leg fallback per spec §6.4 (6-leg max leg <measured>s ≥300s)`; set `LEGS=8`. **→ MEASURE-LOOP** (re-evaluate (3) then (2)).
 
-  **Keep-fastest floor branch (only if (2) STILL misses at 8):** compare `max_wall` of the 6-leg and 8-leg qualifying measure outputs (if reweighting happened at 8 legs only, the old 6-leg number is stale — note that in the comparison; a stale-vs-fresh comparison favoring the stale side requires a fresh 6-leg measurement via the revert below before deciding). If 8 won: keep it, no edits. If 6 won: revert to 6 test-first — topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, run both meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix (8-leg measured slower, spec §6.4)`; set `LEGS=6`; **→ MEASURE-LOOP** (confirms the reverted configuration on a fresh measured run). Then, on the kept configuration's latest measure output: verify `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge); append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target`; commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`; **→ MEASURE-LOOP** (pushes the BACKLOG commit and confirms the final tree green — docs-only, so the measure numbers are unchanged but the merge ref must contain every commit).
+  **Keep-fastest floor branch (only if (2) STILL misses at 8):** decide between configurations on FRESH measurements only:
+
+  1. If reweighting happened only at 8 legs, the old 6-leg number is stale — take a fresh 6-leg measurement first: revert to 6 test-first (topology matrix test back to `[1, 2, 3, 4, 5, 6]` + `.toBe(6)`, balance loops back to `[2, 3, 6]`, meta-tests → FAIL; workflow matrix/denominator/prose back to 6-leg forms; meta-tests → PASS; commit `infra: revert to 6-leg matrix for fresh §6.4 comparison`); set `LEGS=6`; **→ MEASURE-LOOP**.
+  2. If the fresh 6-leg output now satisfies (2) AND (3): the target is MET — exit the branch entirely (no residual gap exists; continue to Step 5 on the 6-leg configuration).
+  3. Otherwise compare fresh-vs-fresh `max_wall`. If 6 won (or they tie): keep 6 as-is. If 8 won: restore 8 test-first (the same edits as the §6.4 bump, same expected FAIL→PASS sequence; commit `infra: restore 8-leg matrix (fresh 6-leg measurement slower, spec §6.4)`); set `LEGS=8`; **→ MEASURE-LOOP** (the restored configuration's fresh output is the final measurement).
+  4. On the kept configuration's latest measure output: verify `max_wall` beats the 3-leg baseline's 480s max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge); append the residual gap to `BACKLOG.md` as `## BL-CI-UNIT-SUITE-PHASE2 — Phase-1 residual: max leg <measured>s vs 300s target`; commit `docs: BACKLOG — record Phase-1 residual wall-clock gap (spec §6.4)`; **→ MEASURE-LOOP** (pushes the BACKLOG commit and confirms the final tree green — docs-only, so the measure numbers are unchanged but the merge ref must contain every commit).
 
 - [ ] **Step 5: Record + merge.** All measurements + decisions in the PR body (§6 table filled). Pre-merge guards, in order:
 
