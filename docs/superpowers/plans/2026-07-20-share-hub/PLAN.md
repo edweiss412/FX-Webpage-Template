@@ -37,9 +37,11 @@ Independent of everything else; ships first so T2 has a reachable thrown-exit pa
 **Implementation:** optional `onBusyChange?: (busy: boolean) => void` on both, additive, default undefined.
 **Failure mode caught:** a busy edge that never fires leaves the hub either permanently locked or unguarded during a mutation.
 
-## T3 — `ShareHub` component, in isolation
+## T3 — `ShareHub` component: behavior only, NO geometry
 
-Self-contained: the component is unit-tested with props supplied directly, so it is complete and type-safe before any integration.
+Self-contained: unit-tested with props supplied directly, so it is complete and type-safe before any integration.
+
+**Scope boundary — this task authors no geometry.** The split between T3 and T4 is by what can be VERIFIED, not by which file is touched: T3 owns everything jsdom can prove (structure, ARIA, content, state rules), T4 owns everything only a browser can prove (width, placement, alignment, clamp, tap targets) together with the assertions that prove it. Concretely, T3 ships the popover's markup and semantics but NOT `w-[308px]`, `absolute`/`top-full`/`right-0`, the clamp `max-w`, or the tap-min sizing — those land in T4 beside their Playwright checks. Rationale: T3 has no real layout observer, so any geometry committed here would be unverified until a later task, which is precisely the defect this seam kept producing. A popover that renders in normal flow is fine for every T3 assertion.
 
 **Tests** (`tests/components/admin/showpage/shareHub.test.tsx`), all failing until the component exists:
 - Triggers: accent "Share link" when `published`, outline "Share link · paused" when not; kebab `aria-label="More share actions"`. **`aria-expanded` is `false` when closed and `true` when open, on BOTH triggers**, and `aria-controls` resolves to the popover's id.
@@ -75,7 +77,7 @@ Self-contained: the component is unit-tested with props supplied directly, so it
 - At 390px: the popover's left edge is ≥ the modal's content-box left edge (clamp holds) and `document.documentElement.scrollWidth` shows no horizontal overflow.
 - **Primary trigger and kebab both satisfy the tap-min token**; the kebab is square.
 
-T3 authors the hub's styling, but none of it is *verified* until these assertions run in a real browser (jsdom computes no layout). Any styling fix they force belongs to this commit.
+**The geometry styling itself is authored HERE, not in T3** — `w-[308px]`, the positioned wrapper plus `absolute top-full right-0`, the clamp `max-w`, and tap-min sizing all land in this commit alongside the assertions above. jsdom computes no layout, so T3 has no way to verify any of it; authoring it there would leave it unproven for a commit. Styling and its proof ship together.
 
 **Consumer migration — same commit.** The enumerated sweep covers the deleted SYMBOLS and the retired TESTIDS, not just the panel names:
 
