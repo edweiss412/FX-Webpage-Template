@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move the spike-verified DB-free files (≈516; the audit script's measured output is authoritative) out of the serial vitest project via a new `PARALLEL_EXTRA_FILES` list, with a regeneration script and a resolved-config partition proof.
+**Goal:** Move the spike-verified DB-free files (≈516, measured per spec §2) out of the serial vitest project via a new `PARALLEL_EXTRA_FILES` list, proven by a resolved-config partition test. Automating regeneration is descoped to `BL-CI-SERIAL-AUDIT-SCRIPT` (spec §1.0).
 
 **Architecture:** Extends the existing single-source membership model with one new entry type — no inversion, no new dir globs, safe-by-default preserved. The partition meta-test's synthetic sum is replaced by evaluation against the projects' real `include`/`exclude` arrays.
 
-**Tech Stack:** vitest 4.1.5 projects, Node ESM script, TypeScript strict.
+**Tech Stack:** vitest 4.1.5 projects, TypeScript strict.
 
 **Spec:** `docs/superpowers/specs/ci/2026-07-20-ci-unit-suite-phase3-file-granular-serial.md` (APPROVED, 4 adversarial rounds). Section refs are to that spec.
 
@@ -27,7 +27,7 @@
 
 ## Meta-test inventory
 
-EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–g). CREATES none. The audit script is tooling, pinned by §4g's `--check` invocation.
+EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–f; §4g withdrawn by spec §1.0). CREATES one: the new serialAudit unit test under tests/cross-cutting/, which owns the matcher cases and the §4c/§4d list-integrity assertions.
 
 ---
 
@@ -68,12 +68,14 @@ it.each(CASES)("globToRegExp(%s) vs %s -> %s", (glob, path, expected) => {
 
 Run → FAIL (module absent).
 
-- [ ] **Step 2: Write the core** at serialAudit.ts under lib/test/ — the sentinel implementation already validated 15/15 this session (see Task 1 Step 1 for the exact body). Re-run → PASS.
-- [ ] **Step 3: Create the new root module vitest.parallel-extra-files.ts** exporting `PARALLEL_EXTRA_FILES` — the measured array from the spike (spec §2.3; ≈516 paths, sorted, deduplicated). Header states: what it is; how it was measured (closed-port env with the four DB/Supabase vars at port 9, `fileParallelism: true`, green in 3 consecutive repeats); that regeneration follows spec §3.4's documented procedure; and that `BL-CI-SERIAL-AUDIT-SCRIPT` tracks automating it.
-- [ ] **Step 4: Publish the symbol** — add `export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";` to `vitest.projects.ts`. Plumbing only: no project's `include`/`exclude` changes here, so membership is unchanged and Task 1's red run resolves the import instead of failing collection.
-- [ ] **Step 5: Verify** membership is genuinely unchanged: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts` plus the new matcher test → green.
-- [ ] **Step 6: Add the backlog row** to `BACKLOG.md`: `## BL-CI-SERIAL-AUDIT-SCRIPT — automate PARALLEL_EXTRA_FILES regeneration`, citing spec §3.4 as the procedure and §1.0 for why it was descoped.
-- [ ] **Step 7: Commit.**
+- [ ] **Step 2: Write the core** at serialAudit.ts under lib/test/ — the sentinel implementation already validated 15/15 this session (the sentinel form: mark trailing /**, then **/, then *, escape, then expand the markers). Re-run → PASS.
+- [ ] **Step 3: Write the FAILING list-integrity test** (spec §4c) in the same new test file, importing `PARALLEL_EXTRA_FILES` from `vitest.projects` (i.e. through the re-export, so this test also binds the plumbing Step 5 adds). One assertion each: every entry exists on disk; unique; sorted; matches `BASE_INCLUDE`; claimed by NO `PARALLEL_TEST_GLOBS` entry (dir glob or exact file, via `globToRegExp`); not `NIGHTLY_ONLY_EXCLUDES`; not `ENV_BOUND_EXCLUDES`; not matched by `configDefaults.exclude`; and the §4d band `length` within `[400, 600]`. Run → FAIL (neither the module nor the re-export exists). These assertions move OUT of Task 1 — Task 1 keeps only the config-resolution/wiring proofs (§4a, §4b0, §4b, §4e, §4f).
+
+- [ ] **Step 4: Create the new root module vitest.parallel-extra-files.ts** exporting `PARALLEL_EXTRA_FILES` — the measured array from the spike (spec §2.3; ≈516 paths, sorted, deduplicated). Header states: what it is; how it was measured (closed-port env with the four DB/Supabase vars at port 9, `fileParallelism: true`, green in 3 consecutive repeats); that regeneration follows spec §3.4's documented procedure; and that `BL-CI-SERIAL-AUDIT-SCRIPT` tracks automating it.
+- [ ] **Step 5: Publish the symbol** — add `export { PARALLEL_EXTRA_FILES } from "./vitest.parallel-extra-files";` to `vitest.projects.ts`. Plumbing only: no project's `include`/`exclude` changes here, so membership is unchanged, and Task 1's red run resolves the import instead of failing collection. Re-run the Step 3 test → PASS (this is the green half of Steps 3-5).
+- [ ] **Step 6: Verify** membership is genuinely unchanged: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts tests/cross-cutting/serialAudit.test.ts` → green (the partition test still passes because no project's arrays changed).
+- [ ] **Step 7: Add the backlog row** to `BACKLOG.md`: `## BL-CI-SERIAL-AUDIT-SCRIPT — automate PARALLEL_EXTRA_FILES regeneration`, citing spec §3.4 as the procedure and §1.0 for why it was descoped.
+- [ ] **Step 8: Commit.**
 
 ```bash
 git add lib/test/serialAudit.ts tests/cross-cutting/serialAudit.test.ts vitest.parallel-extra-files.ts vitest.projects.ts BACKLOG.md
@@ -92,7 +94,7 @@ git commit --no-verify -m "infra: measured PARALLEL_EXTRA_FILES + glob matcher (
 - Consumes: Task 0's `PARALLEL_EXTRA_FILES`; the imported `vitestConfig` projects array.
 - Produces: the shipped membership change.
 
-**Prerequisite already satisfied by Task 0 Step 4 (the re-export):** `vitest.projects.ts` re-exports `PARALLEL_EXTRA_FILES` from the generated module (plumbing only, membership unchanged), so this task's red run resolves the import and fails on the two wiring assertions rather than on collection. Do NOT inline or append the array into `PARALLEL_TEST_GLOBS`.
+**Prerequisite already satisfied by Task 0 Step 5 (the re-export):** `vitest.projects.ts` re-exports `PARALLEL_EXTRA_FILES` from the generated module (plumbing only, membership unchanged), so this task's red run resolves the import and fails on the two wiring assertions rather than on collection. Do NOT inline or append the array into `PARALLEL_TEST_GLOBS`.
 
 - [ ] **Step 1: Import the matcher.** `import { globToRegExp } from "@/lib/test/serialAudit";` — it is an EXPORTED member of the Task-0 core (see that task's Core API block) and is already covered there by the 15-case matrix. Do not redefine or re-test it here.
 
@@ -102,8 +104,7 @@ git commit --no-verify -m "infra: measured PARALLEL_EXTRA_FILES + glob matcher (
   - (§4b0-i) REPLACE the assertion at `vitest-projects-partition.test.ts` lines 118-126 (`parallel.include` equals `PARALLEL_TEST_GLOBS`) with: `parallel.include` equals `[...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`, and `serial.exclude` contains every entry of that union.
   - (§4b0-ii) NEW: every `PARALLEL_EXTRA_FILES` entry classifies as exactly `"parallel"` under the resolved-config classifier below.
   - (§4b) REPLACE the walker at `vitest-projects-partition.test.ts` lines 133-147 (delete the sum-of-three form) with a resolved-config classifier: `inProject(file, p)` = some `p.include` glob matches AND no `p.exclude` glob matches, read off the imported config objects. For every walked file assert exactly one admitting project, EXCEPT `NIGHTLY_ONLY_EXCLUDES` matches (zero) and, in a `VITEST_EXCLUDE_ENV_BOUND=1` re-import (mirroring the existing `serialExcludeFor` env-stub pattern at `vitest-projects-partition.test.ts` lines 193-217), the three env-bound files (zero).
-  - (§4c) NEW list-integrity block, one assertion each: every entry exists on disk; unique; sorted; matches `BASE_INCLUDE`; claimed by NO `PARALLEL_TEST_GLOBS` entry; not nightly; not env-bound; not matched by `configDefaults.exclude`.
-  - (§4d) NEW anti-vacuity band: `PARALLEL_EXTRA_FILES.length` within `[400, 600]`, with the comment that the band is re-tuned when measure mode legitimately moves the count.
+  - (§4c, §4d) NOT here — landed test-first in Task 0 Steps 3-5.
   - (§4e) `mustBeSerial`: replace the whole-dir rows `tests/onboarding`, `tests/api`, `tests/notify` with these exact DB-bound paths (verified present and DB-marker-bearing this session), keeping `tests/db/advisory-lock.test.ts` and the corpus writer `tests/sync/dev-routing.test.ts`:
 
 ```ts
@@ -128,9 +129,9 @@ git commit --no-verify -m "infra: measured PARALLEL_EXTRA_FILES + glob matcher (
 - [ ] **Step 3: Run — RED.** Confirm the failure set is exactly the wiring assertions, proving they bind:
 
 Run: `pnpm exec vitest run tests/cross-cutting/vitest-projects-partition.test.ts`
-Expected: FAIL on (§4b0-i) and (§4b0-ii) only — the list exists but is not yet in either project's arrays. List-integrity, band, matcher unit test, and `--check` PASS. Do NOT commit here.
+Expected: FAIL on (§4b0-i) and (§4b0-ii) only — the list exists and is imported, but is not yet in either project's arrays. Every other assertion in this file passes. (The matcher and list-integrity tests live in the Task-0 file and are not selected by this command; run them too if you want the full picture.) Do NOT commit here.
 
-- [ ] **Step 4: Wire it — GREEN.** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling verbatim). `vitest.projects.ts`: extend the header with the §3.3 contract note — mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the audit script.
+- [ ] **Step 4: Wire it — GREEN.** `vitest.config.ts`: parallel `include: [...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES]`; serial `exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...PARALLEL_EXTRA_FILES, ...envBoundExcludes, ...nightlyExcludes]` (preserve the existing conditional env-bound handling verbatim). `vitest.projects.ts`: extend the header with the §3.3 contract note — mixed dirs are NOT parallel globs, so new tests there stay serial by default; a file becomes parallel only via an explicit reviewable `PARALLEL_EXTRA_FILES` line regenerated by the documented procedure in spec §3.4 (automation tracked by BL-CI-SERIAL-AUDIT-SCRIPT).
 
 - [ ] **Step 5: Run — verify green across the meta-test suite.**
 
@@ -178,6 +179,6 @@ Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (pus
 ## Self-review notes
 
 - Spec coverage: §3.1→Task 0 Step 3; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→retained as the documented regeneration PROCEDURE (spec §1.0 descope), referenced from the generated module's header in Task 0 Step 3; §3.5→Task 1 (§4c); §4a-f→Task 1 Step 2 (§4g withdrawn by spec §1.0); §5→Task 4. No requirement without a task.
-- Ordering rationale: the script precedes the list (regeneration is the contract, not the artifact); the test-then-wire cycle lives INSIDE Task 1 so no commit ever contains a failing suite, and Task 1 Step 3's red state still isolates the wiring defect specifically.
-- Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4g runs the real script rather than asserting its existence.
+- Ordering rationale: Task 0 lands the matcher and the list, each test-first (matcher Steps 1-2; list + re-export Steps 3-5); Task 1's test-then-wire cycle lives inside one task so no commit ever contains a failing suite, and its red state isolates the wiring defect specifically.
+- Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4c asserts the list against the live tree and the real config constants rather than restating it.
 - Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 2 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
