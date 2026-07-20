@@ -91,7 +91,70 @@ async function main(): Promise<void> {
       ),
     );
     console.log("[diag] frame delivered:", frameAt ? `${frameAt - commitAt}ms` : "NO FRAME in 10s");
-    console.log(`[diag] RELAY RESULT: ${frameAt ? "DELIVERED" : "UNDELIVERED"}`);
+    console.log(`[diag] RELAY RESULT (service key): ${frameAt ? "DELIVERED" : "UNDELIVERED"}`);
+
+    // Second subscriber: the APP-MINTED admin viewer JWT (exact route claim
+    // shape, subscriber-token/route.ts:260-269) — the e2e's failing delta.
+    const { SignJWT } = await import("jose");
+    const secret = process.env.SUPABASE_JWT_SECRET ?? "";
+    const issuer = process.env.SUPABASE_REALTIME_ISS ?? "";
+    console.log("[diag] mint env present:", { secret: secret.length >= 32, issuer: issuer !== "" });
+    const mintedJwt = await new SignJWT({
+      show_id: seeded.showId,
+      role: "authenticated",
+      viewer_kind: "admin",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("<admin>")
+      .setIssuer(issuer)
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
+      .sign(new TextEncoder().encode(secret));
+    const client2 = createClient(url, key, {
+      realtime: { transport: WS as unknown as typeof WebSocket },
+    });
+    try {
+      await client2.realtime.setAuth(mintedJwt);
+      let frame2At: number | undefined;
+      const channel2 = client2.channel(`show:${seeded.showId}:invalidation`, {
+        config: { private: true, broadcast: { self: false } },
+      });
+      channel2.on("broadcast", { event: "invalidate" }, () => {
+        frame2At = Date.now();
+      });
+      await new Promise<void>((resolve, reject) => {
+        const t2 = setTimeout(() => reject(new Error("minted-jwt subscribe timeout")), 15_000);
+        channel2.subscribe((status) => {
+          console.log("[diag] minted-jwt channel status:", status);
+          if (status === "SUBSCRIBED") {
+            clearTimeout(t2);
+            resolve();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            clearTimeout(t2);
+            reject(new Error(`minted-jwt subscribe failed: ${status}`));
+          }
+        });
+      });
+      const commit2At = Date.now();
+      const rpc2 = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+      console.log("[diag] publish#2 rpc error:", rpc2.error?.message ?? "none");
+      const deadline2 = Date.now() + 10_000;
+      while (!frame2At && Date.now() < deadline2) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      console.log(
+        "[diag] minted-jwt frame delivered:",
+        frame2At ? `${frame2At - commit2At}ms` : "NO FRAME in 10s",
+      );
+      console.log(
+        `[diag] RELAY RESULT (minted admin JWT): ${frame2At ? "DELIVERED" : "UNDELIVERED"}`,
+      );
+    } finally {
+      try {
+        await client2.realtime.disconnect();
+      } catch {
+        // teardown noise is irrelevant to the diagnostic
+      }
+    }
   } finally {
     await deleteSeededShow(seeded.driveFileId);
     try {
