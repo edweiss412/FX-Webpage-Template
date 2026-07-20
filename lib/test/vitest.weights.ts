@@ -1,7 +1,8 @@
 // Single source of truth for the weight-balanced shard sequencer (PR E).
-// Keys are repo-relative, forward-slashed. ONLY the heavy serial-DB files
-// (≥8s measured) need entries; everything else uses DEFAULT_WEIGHT. A heavy
-// file left out gets DEFAULT_WEIGHT and can re-cluster — the balance
+// Keys are repo-relative, forward-slashed. ONLY the heavy sequencer-visible
+// files (≥8s measured; serial-DB or parallel) need entries; everything else
+// uses DEFAULT_WEIGHT. A heavy file left out gets DEFAULT_WEIGHT and can
+// re-cluster — the balance
 // meta-test's no-stale-keys + exact-value + 1.25x-mean guards catch
 // committed-weight problems, but a NEW unweighted heavy file is caught only
 // by the CI per-leg timing (spec §6).

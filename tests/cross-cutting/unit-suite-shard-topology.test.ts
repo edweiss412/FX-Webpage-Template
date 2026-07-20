@@ -156,20 +156,39 @@ describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the leve
     ).toBe(true);
   });
 
-  it("soft-failure inventory: exactly two `|| true` — the load line and the save-prep trailing; pipefail present", () => {
+  it("soft-failure inventory: exactly two `|| true` — the load line and the save-prep trailing; pipefail + tmp-then-mv scoped to save-prep", () => {
     const soft = YAML.match(/\|\| true/g) ?? [];
     expect(soft, "exactly two `|| true` sites allowed (spec §5.2)").toHaveLength(2);
+    // Scope the save-prep shape pins to the save step's own block (from its
+    // `- name:` to the next step or EOF) — a `set -o pipefail` elsewhere in the
+    // workflow, or a direct write to the cache path with no tmp+mv, must not
+    // satisfy these assertions.
+    const save = /- name: Save Supabase images for cache[\s\S]*?(?=\n {6}- name: |$)/.exec(YAML);
+    expect(save, "save-prep step block not found").not.toBeNull();
+    const saveBody = save![0];
+    expect(
+      saveBody.includes("set -o pipefail"),
+      "save-prep itself must set pipefail — without it a mid-stream docker-save death publishes a truncated archive",
+    ).toBe(true);
+    expect(
+      /zstd -T0 -o ~\/supabase-images\.img\.tmp/.test(saveBody),
+      "save-prep must write zstd output to the tmp path, never directly to the cache path",
+    ).toBe(true);
+    expect(
+      /mv ~\/supabase-images\.img\.tmp ~\/supabase-images\.tar\.zst/.test(saveBody),
+      "save-prep must publish via mv tmp -> cache path (atomic; a partial file would poison the immutable key)",
+    ).toBe(true);
+    expect(
+      /zstd[^\n]*-o ~\/supabase-images\.tar\.zst/.test(saveBody),
+      "save-prep must NOT write zstd output directly to the cache path",
+    ).toBe(false);
     expect(
       /docker load \|\| true/.test(YAML),
       "one `|| true` must be on the docker-load line",
     ).toBe(true);
     expect(
-      /; \} \|\| true/.test(YAML),
-      "one `|| true` must trail the braced save-prep compound",
-    ).toBe(true);
-    expect(
-      YAML.includes("set -o pipefail"),
-      "save-prep must set pipefail — without it a mid-stream docker-save death publishes a truncated archive",
+      /; \} \|\| true/.test(saveBody),
+      "one `|| true` must trail the braced save-prep compound (in the save step itself)",
     ).toBe(true);
     expect(
       /run: bash scripts\/ci\/supabase-local-bootstrap\.sh\n/.test(YAML),
