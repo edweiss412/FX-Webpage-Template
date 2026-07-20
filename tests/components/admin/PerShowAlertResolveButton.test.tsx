@@ -47,7 +47,11 @@ describe("PerShowAlertResolveButton", () => {
       }),
     );
     const { getByTestId } = render(
-      <PerShowAlertResolveButton alertId="alert-1" slug="rpas-central-2026" />,
+      <PerShowAlertResolveButton
+        code="AMBIGUOUS_EMAIL_BINDING"
+        alertId="alert-1"
+        slug="rpas-central-2026"
+      />,
     );
     await act(async () => {
       fireEvent.click(getByTestId("per-show-alert-resolve-alert-1"));
@@ -68,7 +72,11 @@ describe("PerShowAlertResolveButton", () => {
       }),
     );
     const { getByTestId } = render(
-      <PerShowAlertResolveButton alertId="alert-1" slug="rpas-central-2026" />,
+      <PerShowAlertResolveButton
+        code="AMBIGUOUS_EMAIL_BINDING"
+        alertId="alert-1"
+        slug="rpas-central-2026"
+      />,
     );
     await act(async () => {
       fireEvent.click(getByTestId("per-show-alert-resolve-alert-1"));
@@ -83,7 +91,11 @@ describe("PerShowAlertResolveButton", () => {
       mockJsonResponse({ ok: false, code: "ADMIN_ALERT_NOT_FOUND" }, { status: 404 }),
     );
     const { getByTestId, container } = render(
-      <PerShowAlertResolveButton alertId="alert-1" slug="rpas-central-2026" />,
+      <PerShowAlertResolveButton
+        code="AMBIGUOUS_EMAIL_BINDING"
+        alertId="alert-1"
+        slug="rpas-central-2026"
+      />,
     );
     await act(async () => {
       fireEvent.click(getByTestId("per-show-alert-resolve-alert-1"));

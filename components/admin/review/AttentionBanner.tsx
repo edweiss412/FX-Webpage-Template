@@ -193,6 +193,7 @@ export function AttentionBanner({
     <PerShowAlertResolveButton
       alertId={a.alertId}
       slug={slug}
+      code={a.code}
       onResolved={() => {
         setConfirmed(true);
         onResolved(item.id);

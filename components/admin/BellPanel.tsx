@@ -83,6 +83,7 @@ import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
+import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
 import {
   GROUP_THRESHOLD,
@@ -333,7 +334,9 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           aria-busy={resolving}
           className={GHOST_DISMISS}
         >
-          {resolving ? "Dismissing…" : "Dismiss"}
+          {resolving
+            ? resolveActionLabels(entry.code).pending
+            : resolveActionLabels(entry.code).idle}
         </button>
       )}
     </div>

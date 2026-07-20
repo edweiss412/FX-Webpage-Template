@@ -47,7 +47,7 @@ describe("HealthAlertResolveButton (Task 9 wiring)", () => {
   test("renders a Server-Action <form> with a hidden id + submit button (no JSON-route href)", async () => {
     const { HealthAlertResolveButton } =
       await import("@/components/admin/telemetry/HealthAlertResolveButton");
-    render(<HealthAlertResolveButton alertId="abc" />);
+    render(<HealthAlertResolveButton code="AMBIGUOUS_EMAIL_BINDING" alertId="abc" />);
     const form = screen.getByTestId("health-alert-resolve-form-abc");
     expect(form.tagName).toBe("FORM");
     // hidden id input carries the row id (what the action reads)

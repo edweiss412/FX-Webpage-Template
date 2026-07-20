@@ -211,7 +211,7 @@ function HealthAlertRowItem({
               {autoResolveNote(row.code)}
             </span>
           ) : (
-            <HealthAlertResolveButton alertId={row.id} />
+            <HealthAlertResolveButton alertId={row.id} code={row.code} />
           )
         }
       />
