@@ -1,13 +1,19 @@
 {
   "branch": "feat/attention-alert-routing",
-  "stage": "spec",
+  "stage": "spec-review-r1",
   "tasksRemaining": 3,
-  "next": "Write docs/superpowers/specs/2026-07-20-attention-alert-routing.md covering all three PRs, with the mandatory §1.1 resolved-scope section, then run pnpm spec:lint and dispatch Codex adversarial review via codex-guard.",
+  "next": "Read /private/tmp/claude-501/-Users-ericweiss-FX-Webpage-Template/cb6f02d4-2ef3-400d-a54f-dd980ebb4f0b/scratchpad/codex-spec-r1/result.json. If status is verdict: triage findings, repair the spec, re-run pnpm spec:lint, re-dispatch until APPROVE. If status is no_verdict: apply the skip/self-review ladder per AGENTS.md. Then invoke writing-plans for the 3-PR implementation plan.",
   "blockedOn": "",
   "cronJobId": "d806af7b",
   "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
+  "specCommit": "9d7dcf897",
+  "planNotes": [
+    "tests/components/admin/review/showReviewSurfaceAttention.test.tsx asserts DOM BYTE-IDENTITY when attention props are absent — the crewAttention -> sectionAttention rename must preserve it; this is the regression proof for PR2's mount generalization.",
+    "AGENTS.md cites tests/messages/codes.test.ts:92 for the x1 parity gate; the real path is tests/cross-cutting/codes.test.ts. Fix as a one-line docs correction in PR1.",
+    "Real-browser assertions must expect a 22x22 ? trigger (sibling feat/warning-card-copy-restore geometry), not the historical 44px box."
+  ],
   "siblings": {
-    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; my routing edits to lib/admin/attentionItems.ts will conflict; rebase when it merges",
-    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner; my real-browser assertions must expect 22px"
+    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; already committed my 13-code handoff at 3aba6f8f5; rebase when it merges",
+    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner"
   }
 }

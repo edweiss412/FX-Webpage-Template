@@ -30,8 +30,8 @@ A second defect surfaced while scoping this: `PARSE_ERROR_LAST_GOOD` tells the o
 | `PICKER_EPOCH_RESET` is CUT from the attention surface. It is the third copy of one event: `PickerResetControl.tsx:187` already renders a visible success banner with a live region and 5s auto-dismiss, and `resetPickerEpoch.ts:47` writes a durable `PICKER_EPOCH_RESET_BY_ADMIN` audit record. | User, this session. |
 | The two parse notices render as a banner LINE, not a card ("Option C"). They lose the manual Mark-resolved affordance and clear when the next sync succeeds. | User selected option C knowing the trade-off, this session. |
 | Failure-reason capture is IN scope (option b of three), and stores the invariant CODE only, never the free-text `message`. | User selected (b), this session. |
-| Show-scoped copy (`dougFacingShowScoped` authoring for the 13 per-show codes) is OUT of scope — owned by `feat/show-scoped-alert-copy` spec B, which already holds the code list (that branch's commit `3aba6f8f5`). | User, this session; sibling spec §5. |
-| The five global codes (`ONBOARDING_SHEET_UNREADABLE`, `WATCH_CHANNEL_ORPHANED`, `SYNC_STALLED`, `LIVE_ROW_CONFLICT`) and the non-alert `DRIVE_FETCH_FAILED` need NO routing change: they are raised with `showId: null` (or are not alerts) and never reach a per-show fetch. Routing-table membership is NOT eligibility. | Verified §2.2. |
+| Show-scoped copy (`dougFacingShowScoped` authoring for the 14 per-show codes) is OUT of scope — owned by `feat/show-scoped-alert-copy` spec B, which already holds the code list (that branch's commit `3aba6f8f5`). | User, this session; sibling spec §5. |
+| The FOUR global codes (`ONBOARDING_SHEET_UNREADABLE`, `WATCH_CHANNEL_ORPHANED`, `SYNC_STALLED`, `LIVE_ROW_CONFLICT`) need NO routing change: every producer passes `showId: null`, so they never reach a per-show fetch. Routing-table membership is NOT eligibility. | Verified §2.2. |
 
 ## 2. Current mechanism (verified against live code)
 
@@ -46,7 +46,7 @@ A second defect surfaced while scoping this: `PARSE_ERROR_LAST_GOOD` tells the o
 | Threading | `components/admin/review/ShowReviewSurface.tsx:919` | `...(s.id === "crew" && crewAttention ? { crewAttention } : {})` — the crew-only gate |
 | Section top render | `components/admin/wizard/step3ReviewSections.tsx:1314-1315` | the slot a generalized mount reuses |
 
-### 2.2 Eligibility (why 13, not 18)
+### 2.2 Eligibility (why 14, not 18)
 
 `lib/adminAlerts/fetchPerShowAlerts.ts:17` filters `HEALTH_CODES` only; eligibility is otherwise determined by whether a producer passes a non-null `showId`. Verified raise sites:
 
@@ -56,9 +56,9 @@ A second defect surfaced while scoping this: `PARSE_ERROR_LAST_GOOD` tells the o
 | `WATCH_CHANNEL_ORPHANED` | `lib/adminAlerts/alertIdentityMap.ts:116` declares `{ kind: "global" }` | global |
 | `SYNC_STALLED` | `lib/notify/detect/stall.ts:15` | `showId: null` |
 | `LIVE_ROW_CONFLICT` | `lib/sync/runOnboardingScan.ts:53` | `showId: null` |
-| `DRIVE_FETCH_FAILED` | no `upsertAdminAlert` call site exists | not an alert |
+| `DRIVE_FETCH_FAILED` | `lib/sync/runManualSyncForShow.ts:232` (`recoveryTx.upsertAdminAlert`) | PER-SHOW — eligible |
 
-These five carry `ATTENTION_ROUTES` rows for totality (that table is set-equal to the registry, pinned by `tests/admin/_metaAttentionRoutes.test.ts`). A route row is NOT evidence of reachability — §7 adds a test that says so mechanically, because this exact confusion cost a full analysis pass during scoping.
+These four carry `ATTENTION_ROUTES` rows for totality (that table is set-equal to the registry, pinned by `tests/admin/_metaAttentionRoutes.test.ts`). A route row is NOT evidence of reachability — §7 adds a test that says so mechanically, because this exact confusion cost a full analysis pass during scoping.
 
 ### 2.3 The discarded failure reason
 
@@ -120,7 +120,7 @@ type AttentionRoute = {
 
 **Cut `PICKER_EPOCH_RESET`** from `ATTENTION_ROUTES` participation: the derivation drops it before it becomes an `AttentionItem`. The alert row is still written (it remains the bell's and the audit trail's record) — only the per-show attention surface stops rendering it. Cutting the producer is explicitly NOT in scope.
 
-**Guard test** for §2.2: the five global codes can never produce a per-show attention item.
+**Guard test** for §2.2: the four global codes can never produce a per-show attention item.
 
 ### 3.3 PR 3 — anchors for the asset/reel codes
 
@@ -145,7 +145,7 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 | `WATCH_CHANNEL_ORPHANED` | never renders (global) | unchanged | — |
 | `SYNC_STALLED` | never renders (global) | unchanged | — |
 | `LIVE_ROW_CONFLICT` | never renders (global) | unchanged | — |
-| `DRIVE_FETCH_FAILED` | not an alert | unchanged | — |
+| `DRIVE_FETCH_FAILED` | Overview card | unchanged (sync) | — |
 | `PICKER_EPOCH_RESET` | Overview card | cut from attention | 2 |
 | `PARSE_ERROR_LAST_GOOD` | Overview card | `warnings` banner line + reason | 1, 2 |
 | `RESYNC_QUALITY_REGRESSED` | Overview card | `warnings` banner line | 2 |
@@ -183,7 +183,7 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 
 **EXTENDS** `tests/admin/_metaAttentionRoutes.test.ts` — set-equality against the registry still holds after the type widens; add anchor-validity (an anchor may only name a slot the target section declares).
 
-**CREATES** a per-show reachability guard: for every code in `ATTENTION_ROUTES`, assert that a code whose producers all pass `showId: null` yields no attention item. This is the mechanical form of §2.2 and exists specifically because routing-table membership was misread as eligibility during scoping.
+**CREATES** a per-show reachability guard: for every code in `ATTENTION_ROUTES`, assert that a code whose producers ALL pass `showId: null` yields no attention item. The registry is the FOUR codes in §2.2, not five: `DRIVE_FETCH_FAILED` is per-show via `recoveryTx.upsertAdminAlert` and must NOT be listed (a five-code registry would encode the very error this test exists to prevent). This is the mechanical form of §2.2 and exists specifically because routing-table membership was misread as eligibility during scoping.
 
 **EXTENDS** the §12.4 catalog parity surface via the two new rows (`x1-catalog-parity`, `tests/cross-cutting/codes.test.ts`).
 
@@ -199,9 +199,13 @@ These render as `CompactAlertCard` (unchanged shell), so they keep their stripe,
 - **Real browser (Playwright):** an anchored card renders inside its anchor's container (assert DOM ancestry, not coordinates), and the `?` trigger measures 22×22 per the sibling branch's geometry.
 - **Reachability guard:** §7.
 
+## 8.1 Known defect NOT fixed here
+
+`DRIVE_FETCH_FAILED` copy tells the operator to "click 'Retry'" (`lib/messages/catalog.ts`, its `dougFacing`), but `AttentionBanner` renders no Retry control on that card: its footer-right slot is the auto-clear note. The same is true of `WATCH_CHANNEL_ORPHANED`'s auto-clear note ("use Retry to trigger it now"), which is a global code and out of this surface anyway. This spec does NOT fix the copy — that is admin-alert copy, owned by the sibling `feat/show-scoped-alert-copy` spec B. Recorded here so a reviewer does not raise it as a finding against this diff, and so spec B has the pointer.
+
 ## 9. Out of scope
 
-- `dougFacingShowScoped` authoring for the 13 per-show codes — sibling spec B.
+- `dougFacingShowScoped` authoring for the 14 per-show codes — sibling spec B. NOTE: the list handed to that session listed 13 and wrongly excluded `DRIVE_FETCH_FAILED`; §2.2 corrects it.
 - Parse-warning card copy and the `?` trigger geometry — `feat/warning-card-copy-restore`.
 - Removing the `PICKER_EPOCH_RESET` producer (only its attention rendering is cut).
 - Storing or surfacing the hard-fail `message` text (§3.1, deliberate).
