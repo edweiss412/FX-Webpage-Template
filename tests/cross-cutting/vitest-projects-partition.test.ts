@@ -10,6 +10,7 @@ import {
   NIGHTLY_ONLY_EXCLUDES,
   PARALLEL_TEST_GLOBS,
 } from "@/vitest.projects";
+import { globToRegExp as globRe } from "@/lib/test/serialAudit";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -39,6 +40,17 @@ function listTestFiles(dir: string): string[] {
     }
   }
   return out;
+}
+
+// Resolved-config membership: a file is in project P iff some P.include glob
+// matches it AND no P.exclude glob does. This reads the REAL arrays off the
+// imported config, so an exclusion added anywhere (including
+// configDefaults.exclude, or one added later by anyone) is honoured — unlike a
+// classifier function, which can only restate the partition it was written from.
+function inProject(file: string, p: ProjectEntry["test"]): boolean {
+  const included = (p.include ?? []).some((g) => globRe(g).test(file));
+  if (!included) return false;
+  return !(p.exclude ?? []).some((g) => globRe(g).test(file));
 }
 
 // A parallel glob is either a dir glob ("tests/x/**/*.test.{ts,tsx}") or an
@@ -130,20 +142,81 @@ describe("vitest projects split — partition is complete and correctly wired", 
     expect(allTestFiles.length).toBeGreaterThan(500);
   });
 
-  it("every non-nightly test file is claimed by EXACTLY ONE default project (nightly files by NONE)", () => {
-    // By construction (DEFAULT discovery mode): parallel iff a parallel glob
-    // matches and the file is not nightly-excluded; serial otherwise; the 9
-    // nightly mutation-harness files live in NO default project (their opt-in
-    // mutation-project membership is pinned by the env-gated test above).
-    const parallelFiles = allTestFiles.filter((f) => projectOf(f) === "parallel");
-    const serialFiles = allTestFiles.filter((f) => projectOf(f) === "serial");
-    const noneFiles = allTestFiles.filter((f) => projectOf(f) === "none");
-    expect(parallelFiles.length + serialFiles.length + noneFiles.length).toBe(allTestFiles.length);
-    expect(noneFiles.length, "exactly the 9 nightly harness files live in no default project").toBe(
-      9,
-    );
-    expect(parallelFiles.length, "parallel project must be non-empty").toBeGreaterThan(200);
-    expect(serialFiles.length, "serial project must be non-empty").toBeGreaterThan(100);
+  it("resolved config partitions correctly under VITEST_EXCLUDE_ENV_BOUND=1 (CI mode)", async () => {
+    // CI runs with the env gate ON, where the three env-bound files leave the
+    // serial project. Assert the real arrays in that mode: those files belong to
+    // NO default project, every other non-nightly file to exactly one.
+    vi.resetModules();
+    vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "1");
+    try {
+      const cfg = (await import("@/vitest.config")).default as {
+        test?: { projects?: ProjectEntry[] };
+      };
+      const gated = (cfg.test?.projects ?? []).map((p) => p.test);
+      expect(gated.length, "gated config must still define both default projects").toBe(2);
+      const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
+      const envBoundPaths = ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, ""));
+      for (const f of allTestFiles) {
+        const admitting = gated.filter((p) => inProject(f, p)).map((p) => p.name);
+        if (nightlyRe.some((r) => r.test(f)) || envBoundPaths.includes(f)) {
+          expect(admitting, `${f} must be in NO default project under the env gate`).toEqual([]);
+        } else {
+          expect(admitting, `${f} must be admitted exactly once under the env gate`).toHaveLength(
+            1,
+          );
+        }
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("resolved config admits every discovered file exactly once (nightly files zero)", async () => {
+    // Import with the env-bound flag explicitly CLEARED: CI sets
+    // VITEST_EXCLUDE_ENV_BOUND=1, which would otherwise gate the top-level
+    // import and make this default-mode proof expect the three env-bound files
+    // in a project they deliberately leave.
+    vi.resetModules();
+    vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "");
+    const defaultCfg = (await import("@/vitest.config")).default as {
+      test?: { projects?: ProjectEntry[] };
+    };
+    const defaults = (defaultCfg.test?.projects ?? []).map((p) => p.test);
+    try {
+      const nightlyRe = NIGHTLY_ONLY_EXCLUDES.map(globRe);
+      let nightlyCount = 0;
+      for (const f of allTestFiles) {
+        const admitting = defaults.filter((p) => inProject(f, p)).map((p) => p.name);
+        if (nightlyRe.some((r) => r.test(f))) {
+          nightlyCount++;
+          expect(admitting, `${f} is nightly-only and must be in NO default project`).toEqual([]);
+        } else {
+          expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
+        }
+      }
+      expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(
+        9,
+      );
+      // Anti-collapse floors, computed from RESOLVED membership (not the
+      // matchesParallel helper): exact-once alone permits massive drift, since
+      // every file could pile into one project and still be admitted exactly
+      // once. Counts at time of writing: parallel 694, serial 773.
+      let parallelCount = 0;
+      let serialCount = 0;
+      for (const f of allTestFiles) {
+        for (const p of defaults) {
+          if (!inProject(f, p)) continue;
+          if (p.name === "parallel") parallelCount++;
+          else if (p.name === "serial") serialCount++;
+        }
+      }
+      expect(parallelCount, "parallel project must not collapse").toBeGreaterThan(200);
+      expect(serialCount, "serial project must not collapse").toBeGreaterThan(100);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it("keeps the DB/FS-heavy dirs in the SERIAL project", () => {
