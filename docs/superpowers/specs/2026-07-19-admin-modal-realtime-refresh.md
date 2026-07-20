@@ -24,6 +24,18 @@ Mount the existing realtime bridge in the modal's server loader so a cron publis
 - **Client**: the same `supabase` server client the loader already holds (the snapshot RPC caller). The RPC is granted EXECUTE to `authenticated` (`getShowForViewer.ts:869`), and the loader path is admin-gated upstream (dashboard `requireAdmin`) with the snapshot RPC's `not_admin_or_missing` as the in-loader gate — no service-role client needed.
 - **Never cached.** Same contract as `getShowForViewer.ts:874-876`: caching the token re-serves a stale fence forever → refresh loop.
 
+### 4.1a Freshness coverage contract (mutation source × broadcast × token)
+
+The realtime contract of this feature is **sync-path freshness**, not total-modal freshness. The fence (token catch-up) only needs to cover mutations that BROADCAST — a broadcast received while subscribed always refreshes unconditionally (`ShowRealtimeBridge.tsx:744-754`, no token compare); the token exists solely to close the [token-read → SUBSCRIBED] gap for those same sources.
+
+| Mutation source | Broadcasts? | Advances token? | Freshness mechanism |
+| --- | --- | --- | --- |
+| Cron sync apply / manual stage / unpublish (`lib/sync/runScheduledCronSync.ts:2395`, `lib/sync/unpublishShow.ts:183` → `publish_show_invalidation(uuid)`) | yes (explicit helper) | yes (`shows.last_synced_at` stamped by apply) | broadcast; gap covered by token catch-up |
+| `crew_members` insert/update (statement triggers, `supabase/migrations/20260501001000_internal_and_admin.sql:95-105`) | yes | yes (`max(crew_members.last_changed_at)`) | broadcast; gap covered by token catch-up |
+| `crew_member_auth` insert/update (triggers, same migration `:83-93`) | yes | only via an accompanying `crew_members` stamp (plan verifies whether claim writes stamp `crew_members.last_changed_at`) | broadcast; residual: a claim landing inside the subscribe gap may evade the catch-up. **Accepted — status-quo parity:** the crew page runs the IDENTICAL fence with the identical window (`getShowForViewer.ts:920-935`); this spec does not widen or narrow it. |
+| `admin_alerts`, ignored-warnings, change-feed rows, finalize state | no | no | OUT of the realtime contract. These refresh via the admin's own action revalidation (server actions conclude with their own revalidation) or opportunistically on ANY refresh (every refresh re-runs the whole loader wave). Unchanged from today. |
+| `picker_epoch` bump (reset/rotate) | no trigger, but admin-action revalidates | yes (`picker_epoch_bumped_at`) | admin's own action path (`ShareTokenContext` reconcile) — unchanged |
+
 ### 4.2 Fault posture (differs from crew page — deliberately)
 
 `getShowForViewer` HARD-throws on a token-RPC error (`getShowForViewer.ts:871-872`: crew page cannot render without the fence). The modal instead **fails open**: on returned-error or throw,
@@ -54,9 +66,9 @@ A bridge-driven `router.refresh()` is the SAME mechanism the modal already fires
 - Attention auto-open is one-shot (`autoOpenFiredRef`, `PublishedReviewModal.tsx:241-264`) — "a user who closed the menu is not re-opened by later refreshes" is the in-code contract.
 - Resolved banners stay mounted in place "until router.refresh() reconciles" (`PublishedReviewModal.tsx:312-314`).
 - `ShareTokenContext` reconciles a fresh server seed from an in-flight `router.refresh()` (`app/admin/show/[slug]/ShareTokenContext.tsx:15,51`).
-- RSC reconciliation preserves client-component state/DOM where element type + position are stable — the shell (`ReviewModalShell`), popovers (#499 contracts), and scroll container are client-side and stay mounted.
+- RSC reconciliation preserves client-component state/DOM where element type + position are stable — the shell (`ReviewModalShell`), popovers (#499 contracts), and scroll container are client-side and stay mounted. **Plan verification note:** state preservation depends on type+key+position at every level of the subtree; the plan's pre-draft pass must verify (a) crew rows render with stable keys (crew-member id, not index) and (b) the row-controls popover's open state lives in a client component that survives a props-only reconcile. If either fails verification, the e2e invariants stand as the acceptance bar and the implementation must fix the keying.
 
-**New behavioral invariants this spec pins (real-browser e2e, not jsdom):** with the modal open and a broadcast-driven refresh landing,
+**New behavioral invariants this spec pins (real-browser e2e, not jsdom; asserted under the §8.4 geometry-stable mutation constraint — arbitrary reflows are out of scope):** with the modal open and a broadcast-driven refresh landing,
 
 1. an open row-controls popover (⋮ menu, #499) stays open and container focus is not lost;
 2. document focus (activeElement) inside the modal is unchanged;
@@ -68,7 +80,9 @@ A bridge-driven `router.refresh()` is the SAME mechanism the modal already fires
 
 At open, up to two refreshes can fire: the modal's revalidate-on-open (`PublishedReviewModal.tsx:157-161`) and the bridge's post-subscribe catch-up IF the SSR'd token already mismatches live (`ShowRealtimeBridge.tsx:292-324`). Both are idempotent RSC round-trips; the catch-up only fires on a genuine mismatch. No dedupe is added — this mirrors the crew page, where the same catch-up coexists with navigation-driven renders.
 
-While open, broadcasts coalesce through the bridge's 100ms debounce (`ShowRealtimeBridge.tsx:108`, plan-pinned). Admin server actions already serialize with `router.refresh()` through the App Router (spec 2026-07-19-show-modal-prefetch empirics) — a refresh landing mid-action does not interleave DOM state.
+While open, broadcasts coalesce through the bridge's 100ms debounce (`ShowRealtimeBridge.tsx:108`, plan-pinned).
+
+**Actions × refresh overlap (scoped claim, do not relitigate):** the ratified prefetch spec pins the App Router empiric that actions serialize with `router.refresh()` — "the router's action serialization makes release-after-commit unconstructible" (`docs/superpowers/specs/2026-07-19-show-modal-prefetch.md` §6 case (b) / §3.4 empirics block at `:51`). Independent of that empiric, this feature adds no NEW overlap mechanism: the modal's revalidate-on-open refresh already coexists with every admin action today, and the modal's client state machines are built for reconciles at arbitrary times (§4.4). The bridge changes refresh FREQUENCY only. No compound-race test is added; the §4.4 e2e invariants are the behavioral coverage.
 
 ## 5. Guard conditions
 
@@ -78,7 +92,8 @@ While open, broadcasts coalesce through the bridge's 100ms debounce (`ShowRealti
 | token RPC returned-error or throw | §4.2 | log `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED`, render without bridge |
 | `showId` | always present at mount site (loader redirects on missing show, `_showReviewModal.tsx:134`) | n/a |
 | `slug` | non-empty (dashboard `?show=` param gate, `app/admin/page.tsx:161-170`) | n/a |
-| admin session expires while open | bridge renewal mints 401 → `auth_denied` → forced `router.refresh()` (`ShowRealtimeBridge.tsx:386-394`) | Server Component auth chain re-runs and routes to sign-in — desired |
+| admin session expires — at INITIAL mount (mint 401 before first subscribe) | fail-open no-op, no retry (`ShowRealtimeBridge.tsx:707-725`: SSR already authorized the render; forcing refresh at mount would loop) | no realtime this open; modal otherwise unaffected |
+| admin session expires — at RENEWAL (disconnect/reconnect mint 401) | `auth_denied` → forced `router.refresh()` (`ShowRealtimeBridge.tsx:386-394`) | Server Component auth chain re-runs and routes to sign-in — desired |
 | show deleted while open | broadcast/refresh → loader slug lookup finds no row → `redirect("/admin")` (`_showReviewModal.tsx:134`) | modal closes to dashboard — matches D8 posture |
 
 ## 6. Explicitly out of scope
@@ -100,15 +115,22 @@ While open, broadcasts coalesce through the bridge's 100ms debounce (`ShowRealti
    - token read ok → rendered tree contains `ShowRealtimeBridge` with `{ showId, slug, renderVersion: <token> }`;
    - RPC returned-error → no bridge in tree + `log.warn` with `ADMIN_SHOW_VERSION_TOKEN_READ_FAILED` (assert on the log spy, not just absence);
    - RPC throw → same;
-   - non-string `data` → bridge mounts with `renderVersion: ""`.
-   - read-order: token RPC is awaited before the snapshot RPC is invoked (call-order assertion on the mock — catches a regression that folds it into the wave).
+   - non-string `data` → bridge mounts with `renderVersion: ""`;
+   - read-order: token RPC has SETTLED before ANY wave reader is invoked (call-order assertion over ALL mocked wave readers — snapshot RPC, finalize RPC, feed, share-token, ignored-warnings, alerts — not just the snapshot; catches a regression that folds the token into the wave or reorders a single reader ahead of it);
+   - child-order pin (§4.3): in the rendered tree, `ShowRealtimeBridge` is the LAST child inside `ShareTokenProvider`, AFTER `PublishedReviewModal` — asserted in both the with-bridge and (absent) fault renders, so the fault render provably removes a trailing sibling and never shifts the modal's child index.
 2. **Read-path pin** — `tests/admin/_showReviewReadPathPin.test.ts` currently pins the loader's only `.from()` as the slug→id lookup; the new call is `.rpc("viewer_version_token")` — extend/confirm the pin accepts it (peer of `readfinalizeowned_b2`).
 3. **Invariant-9 meta-test** — add the loader's version-token boundary to the admin infra-contract registry (the #500-established registry row pattern).
 4. **Real-browser e2e** (Playwright — extend the modal's existing e2e surface, `tests/e2e/published-review-modal.prefetch.spec.ts` patterns): open `/admin?show=<slug>`, commit a content change so the statement trigger broadcasts on the local Supabase Realtime stack, assert:
-   **Attribution guard (anti-tautology):** the modal's own revalidate-on-open `router.refresh()` fires at mount — a change committed before/during open would surface through THAT path and prove nothing about the bridge. The test MUST first let the open settle (loaded modal visible AND the open-refresh round-trip completed — e.g. await the post-open `?show=` RSC response, or a fixed content marker from the pre-change render), and only THEN commit the DB change. A subsequent content swap with no navigation is then attributable only to the broadcast-driven refresh.
-   - changed content appears in the modal without navigation (URL unchanged, no skeleton re-entry);
-   - §4.4 invariants 1–4 (popover open + focus + scroll retained across the reconcile).
-   No crew-side realtime e2e exists to copy (the M4-era `apply-driven-refresh.spec.ts` referenced in the bridge's comments never landed under that name) — this is a NEW harness. Plan must verify local Realtime broadcast is drivable from the test (trigger fires on a plain DB write); if it is not, say so explicitly and substitute a real-browser harness that stubs the broadcast layer while still exercising a genuine mid-open `router.refresh()` — NOT silently drop the focus/scroll assertions.
+   **Pre-mutation gates (anti-tautology, BOTH mandatory before the DB change is committed):**
+   1. **Open-refresh completion, network-observed:** the modal's own revalidate-on-open `router.refresh()` fires at mount — a change committed before it completes would surface through THAT path and prove nothing about the bridge. The test awaits the loaded modal AND the completion of the post-open `?show=` RSC response (network observation, the `published-review-modal.prefetch.spec.ts` request-tracking pattern). A content marker alone is NOT sufficient — it cannot prove the open refresh finished.
+   2. **Subscription readiness observed:** the bridge must have reached `SUBSCRIBED` — otherwise the test can pass through the post-subscribe token catch-up without any broadcast being received, proving nothing about the broadcast path on the repo's FIRST realtime e2e. Observe it without touching the bridge: Playwright's `page.on("websocket")` sees the Realtime socket's join reply frame (`phx_reply`, status `ok`) for the `show:<id>:invalidation` topic; the plan picks the exact frame predicate. Only after BOTH gates does the test commit the DB change.
+
+   After the gates, a content swap with no navigation is attributable only to the broadcast-driven refresh path.
+   **Assertions after the mutation:**
+   - changed content appears in the modal without navigation (URL unchanged);
+   - **skeleton non-re-entry, transiently observed:** a post-hoc check would miss a brief fallback flash. Before the mutation, install (via `page.evaluate`) a `MutationObserver` that records any mount of the skeleton's testid; after the content swap, assert the recorder is empty across the whole window;
+   - **§4.4 invariants 1–4 under a geometry-stable mutation:** the DB change is constrained to swap text content of equal layout impact (e.g., a title/venue string of similar length), NOT insert/remove rows above the viewport — arbitrary reflows legitimately move scroll/focus and are out of scope. Focus target + open popover are anchored on a crew row the mutation does NOT touch. Menu-closed assertion (§4.4 inv 4) is exercised non-tautologically: the fixture seeds an actionable attention item so the menu AUTO-OPENS (`PublishedReviewModal.tsx:241-264`), the test closes it, THEN the broadcast lands, and the menu must stay closed (this actually exercises `autoOpenFiredRef`; starting closed would prove nothing).
+   No crew-side realtime e2e exists to copy (the M4-era `apply-driven-refresh.spec.ts` in the desktop-chromium testMatch regex has no matching file — stale entry) — this is the repo's FIRST realtime e2e. Plan must verify local Realtime broadcast is drivable from the test (trigger/helper fires on a plain DB write against local Supabase); if it is not, say so explicitly and substitute a real-browser harness that injects the invalidation THROUGH the bridge's broadcast callback via a module-stubbed Supabase client (esbuild-alias harness precedent, `tests/e2e/published-review-modal.crew-actions.spec.ts` real-popover style) so the stimulus traverses subscribe→debounce→`router.refresh()` — NEVER a harness that calls `router.refresh()` directly (tautological: proves reconciliation, not the bridge), and NEVER silently dropping the focus/scroll assertions.
 5. **No mutation-surface telemetry additions** — invariant 10 N/A: no new mutating route/action (read-only loader change + null-render client mount).
 
 ## 9. Spec-rule declarations
