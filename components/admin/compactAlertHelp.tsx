@@ -117,16 +117,20 @@ export function CompactAlertHelp({
     <HoverHelp
       label={helpTriggerLabel(subject)}
       align="right"
+      compactTrigger
       testId={testId}
       // placement deliberately omitted: inherit HoverHelp's shipped default
       // rather than invent a geometry policy (spec amendment A6).
       {...(content.learnMore ? { learnMore: content.learnMore } : {})}
       trigger={
+        // The BUTTON owns the 22px box + centering (compactTrigger); this span
+        // is the full-size skin, and the inner glyph span is the independently
+        // measurable child for the §6 centering proof.
         <span
           aria-hidden="true"
-          className="grid size-[22px] place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast hover:bg-warning-text/10"
+          className="pointer-events-none grid size-full place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast hover:bg-warning-text/10"
         >
-          ?
+          <span data-testid="compact-help-glyph">?</span>
         </span>
       }
     >

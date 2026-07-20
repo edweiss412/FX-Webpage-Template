@@ -72,8 +72,10 @@ test.beforeAll(async () => {
       "--loader:.tsx=tsx",
       '--define:process.env.NODE_ENV="production"',
       "--external:node:fs",
+      `--alias:node:crypto=${join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts")}`,
       `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
       '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
+      `--alias:next/navigation=${join(REPO_ROOT, "tests", "e2e", "_nextNavigationStub.ts")}`,
       `--outfile=${join(workDir, "bundle.js")}`,
     ],
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
@@ -88,6 +90,9 @@ test.beforeAll(async () => {
       `@source "${join(REPO_ROOT, "components", "admin", "compactAlertHelp.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "HoverHelp.tsx")}";`,
       `@source "${join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "PerShowActionableWarnings.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "AttentionBanner.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "PerShowAlertResolveButton.tsx")}";`,
       globals,
     ].join("\n"),
   );
@@ -228,11 +233,21 @@ test.describe("compact alert card layout (real browser, real CSS)", () => {
     expect(overflows).toEqual([]);
   });
 
-  test("help trigger meets the 44px tap-target floor", async ({ page }) => {
-    const box = await page.getByTestId("help-short-400-trigger").boundingBox();
+  test("help trigger meets the 44px tap-target floor (22px box + overlay extent)", async ({
+    page,
+  }) => {
+    // warning-card-copy-restore §3.4: the box is 22px by design; the 44px
+    // floor is carried by the before:-inset-[11px] overlay (22 + 11 + 11).
+    const btn = page.getByTestId("help-short-400-trigger");
+    const box = await btn.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44 - TOL);
-    expect(box!.height).toBeGreaterThanOrEqual(44 - TOL);
+    expect(Math.abs(box!.width - 22)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(box!.height - 22)).toBeLessThanOrEqual(TOL);
+    const insets = await btn.evaluate((el) => {
+      const s = getComputedStyle(el, "::before");
+      return [s.top, s.right, s.bottom, s.left];
+    });
+    expect(insets).toEqual(["-11px", "-11px", "-11px", "-11px"]);
   });
 
   test("footer links meet the 44px tap-target floor", async ({ page }) => {
@@ -280,4 +295,61 @@ test.describe("compact alert card layout (real browser, real CSS)", () => {
     });
     expect(res.triggerRight).toBeLessThanOrEqual(res.cardRight + TOL);
   });
+});
+
+// ── warning-card-copy-restore (spec 2026-07-20-warning-card-copy-restore §3.4/§6/§7) ──
+// Compact trigger geometry on BOTH changed CompactAlertHelp consumers.
+test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(baseUrl + "live.html");
+    await page.getByTestId("mount-warning-card").waitFor();
+  });
+
+for (const mount of ["mount-warning-card", "mount-attention-banner"] as const) {
+  test(`compact trigger geometry - ${mount} (spec §3.4/§6/§7)`, async ({ page }) => {
+    const scope = page.getByTestId(mount);
+    const btn = scope.getByTestId(/-trigger$/);
+    const box = (await btn.boundingBox())!;
+    expect(Math.abs(box.width - 22)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(box.height - 22)).toBeLessThanOrEqual(TOL);
+    // ::before extent = exact 44×44 (spec §7c)
+    const insets = await btn.evaluate((el) => {
+      const s = getComputedStyle(el, "::before");
+      return [s.top, s.right, s.bottom, s.left];
+    });
+    expect(insets).toEqual(["-11px", "-11px", "-11px", "-11px"]);
+    // corner probes just inside the overlay
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const PROBES: ReadonlyArray<readonly [number, number]> = [
+      [-21.5, -21.5],
+      [21.5, -21.5],
+      [-21.5, 21.5],
+      [21.5, 21.5],
+    ];
+    for (const [dx, dy] of PROBES) {
+      const hit = await page.evaluate(
+        ([x, y]: readonly [number, number]) =>
+          document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
+        [cx + dx, cy + dy] as const,
+      );
+      expect(hit, `probe ${dx},${dy}`).toMatch(/-trigger$/);
+    }
+    // glyph centering (spec §6 fixed-dimension parent invariant, rendered)
+    const glyph = scope.getByTestId("compact-help-glyph");
+    const gbox = (await glyph.boundingBox())!;
+    expect(Math.abs(gbox.x + gbox.width / 2 - cx)).toBeLessThanOrEqual(1);
+    expect(Math.abs(gbox.y + gbox.height / 2 - cy)).toBeLessThanOrEqual(1);
+  });
+}
+
+test("trigger top-aligns with the title line WITH guidance rendered (spec §3.4)", async ({
+  page,
+}) => {
+  const scope = page.getByTestId("mount-warning-card");
+  await expect(scope.getByTestId("per-show-actionable-guidance")).toBeVisible();
+  const btn = (await scope.getByTestId(/-trigger$/).boundingBox())!;
+  const title = (await scope.getByTestId("per-show-actionable-title").boundingBox())!;
+  expect(Math.abs(btn.y - title.y)).toBeLessThanOrEqual(4);
+});
 });

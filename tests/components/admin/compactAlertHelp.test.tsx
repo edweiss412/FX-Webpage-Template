@@ -146,12 +146,14 @@ describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  test("trigger is a button with the tap-target floor and the standard focus ring", () => {
+  test("trigger is a button with the compact box + overlay tap floor and the standard focus ring", () => {
+    // warning-card-copy-restore §3.4: the 44px floor is carried by the
+    // before:-inset-[11px] overlay around the 22px box, not a min-h box.
     render(<CompactAlertHelp {...props} />);
     const trigger = screen.getByTestId("demo-help-trigger");
     expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger.className).toContain("min-h-tap-min");
-    expect(trigger.className).toContain("min-w-tap-min");
+    expect(trigger.className).toContain("size-[22px]");
+    expect(trigger.className).toContain("before:-inset-[11px]");
     expect(trigger.className).toContain("focus-visible:ring-2");
   });
 

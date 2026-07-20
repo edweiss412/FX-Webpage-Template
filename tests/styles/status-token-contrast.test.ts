@@ -249,3 +249,23 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
     expect(css).toMatch(/--color-status-live-text:\s*var\(--color-accent-on-bg\)\s*;/);
   });
 });
+
+// ── warning-card guidance copy pairs (spec 2026-07-20-warning-card-copy-restore §7) ──
+// The 12px inline guidance line renders text-warning-text on warning-bg
+// (warning tone) and text-text-subtle on surface-sunken (muted tone). AA body
+// floor in BOTH themes; measured 6.09 / 6.94 / 8.79 / 9.64 at authoring.
+describe("warning-card guidance contrast (AA 4.5:1, both themes)", () => {
+  const PAIRS = [
+    ["--color-text-subtle-runtime", "--color-surface-sunken-runtime"],
+    ["--color-warning-text-runtime", "--color-warning-bg-runtime"],
+  ] as const;
+  for (const mode of MODES) {
+    for (const [fg, bg] of PAIRS) {
+      it(`${mode.name}: ${fg} on ${bg} >= 4.5`, () => {
+        expect(contrast(tokenIn(mode.src, fg), tokenIn(mode.src, bg))).toBeGreaterThanOrEqual(
+          TEXT_FLOOR,
+        );
+      });
+    }
+  }
+});
