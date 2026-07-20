@@ -43,9 +43,9 @@ export const POST_FRAME_REQUEST_TIMEOUT_MS = 5_000; // max(5_000, 5×109)
 export const CONTENT_SWAP_TIMEOUT_MS = 10_000; // max(10_000, 5×554)
 
 type WireFrame = {
-  topic?: string;
-  event?: string;
-  payload?: { status?: string; event?: string };
+  topic?: string | undefined;
+  event?: string | undefined;
+  payload?: { status?: string; event?: string } | undefined;
 };
 
 /** Decode a websocket frame: Phoenix V2 array envelope or plain object. */

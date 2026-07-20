@@ -150,7 +150,11 @@ async function main(): Promise<void> {
     // carry status "ok" — an ERROR reply is a stack/auth fault (INDETERMINATE),
     // never NOT_DRIVABLE evidence; an invalidation frame must carry the
     // payload.event === "invalidate" discriminator, never bare "broadcast".
-    type WireFrame = { topic?: string; event?: string; payload?: { status?: string; event?: string } };
+    type WireFrame = {
+      topic?: string | undefined;
+      event?: string | undefined;
+      payload?: { status?: string; event?: string } | undefined;
+    };
     // Local Supabase Realtime speaks the Phoenix V2 ARRAY serializer
     // (socket URL carries vsn=2.0.0): [join_ref, ref, topic, event, payload].
     // Measured 2026-07-19: join reply = ["10","10","realtime:show:<id>:invalidation",
