@@ -148,8 +148,10 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
   // The OLD shape must be GONE, not merely joined by the new one.
   expect(within(popover()).queryByRole("button", { name: "Rotate" })).toBeNull();
 
-  // §4.6 width chain link 1: the wrapper, not just the button.
-  expectClasses(rotate.parentElement!, { has: ["w-full"] });
+  // §4.6 width chain link 1: the wrapper, not just the button. `exactly`,
+  // because this list is fully prescribed too — a stale `py-3`, a missing
+  // `flex-col`, or a conflicting `w-auto` must fail here.
+  expectClasses(rotate.parentElement!, { exactly: ["flex", "w-full", "flex-col", "gap-2"] });
 });
 ```
 
@@ -300,7 +302,7 @@ it("reset idle state is ONE menu row, contributes no heading, and keeps its ring
   // §4.3: the PCR-1 (b) <h4> is deliberately gone; `Careful` <h3> still stands.
   expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
   expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
-  expectClasses(reset.parentElement!, { has: ["w-full"] });
+  expectClasses(reset.parentElement!, { exactly: ["flex", "w-full", "flex-col", "gap-2"] });
 });
 
 it("GUARD empty crew: reset row is disabled and its empty copy IS the described text", () => {

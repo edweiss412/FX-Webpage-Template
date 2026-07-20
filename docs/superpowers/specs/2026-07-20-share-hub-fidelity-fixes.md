@@ -594,6 +594,9 @@ export const COLUMN_CLASSES = ["flex", "min-w-0", "flex-col"] as const;
  *  each be correct while sitting as DIRECT children of the button, an unstacked
  *  flex row that satisfies every per-element check. */
 function expectRowTopology(button: HTMLElement, column: Element): void {
+  // An implicit or `submit` type would SUBMIT AN ENCLOSING FORM when the row is
+  // clicked. Cheap to assert, expensive to discover in production.
+  expect(button.getAttribute("type"), "row must be type=button").toBe("button");
   expect(
     [...button.children].map((c) => c.tagName.toLowerCase()),
     "row children must be exactly [icon, column]",
@@ -635,6 +638,14 @@ export function expectRowText(
     descEl!.parentElement,
   );
   expect(labelEl.parentElement, "label must not be a direct child of the row").not.toBe(button);
+
+  // ORDER, not just co-parenthood: label above description. The reverse
+  // satisfies every other assertion while reading upside-down on screen.
+  expect(
+    [...labelEl.parentElement!.children],
+    "column children must be exactly [label, description], in that order",
+  ).toEqual([labelEl, descEl]);
+
   expectRowTopology(button, labelEl.parentElement!);
 }
 
@@ -672,10 +683,13 @@ export function expectNoDescriptionNode(
 
   const column = labelEl.parentElement;
   expect(column, "label must sit in the row column").not.toBeNull();
+  // The whole SUBTREE, not just the direct children: an empty `<span id={descId}/>`
+  // nested INSIDE the label element leaves the column's child count at one, the
+  // text content unchanged, and no description class anywhere.
   expect(
-    column!.childElementCount,
-    "the column must hold the label and NOTHING else - any tag, not just a span",
-  ).toBe(1);
+    [...column!.querySelectorAll("*")],
+    "the column subtree must contain exactly the label element",
+  ).toEqual([labelEl]);
 
   // Same topology as the with-description case, including the column's own
   // prescribed classes: an absent-description branch must not quietly drop
