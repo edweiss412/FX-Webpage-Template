@@ -57,15 +57,26 @@ Self-contained: the component is unit-tested with props supplied directly, so it
 
 One commit, because the prop chain must land with its consumer or nothing type-checks. `StatusStripProps` today has none of `showId` / `crewEmails` / `showTitle` / `pickerCrew`; this task adds them and threads them from `_showReviewModal` → `PublishedReviewModal` → `StatusStrip` → `ShareHub`.
 
-**Tests:** strip renders `ShareHub` right-flushed for non-archived shows, omits it when archived; `strip-copy-link` no longer exists anywhere; `id="share-access"` is on the strip root in ALL THREE lifecycles; `_metaAlertActionsContract` re-points to `StatusStrip.tsx`; `publishedReviewModal.test.tsx` and the modal-loader test cover the new props. Recompute the `StatusStrip.tsx` pin by running the scanner (**red proof required**).
-**Also in this commit** (they observe the strip and would otherwise go red): the e2e harnesses `_publishedReviewModalHarness.tsx` / `_skeletonParityHarness.tsx`, T-COPY-FLUSH in `published-review-modal.layout.spec.ts` re-targeted to the hub trigger group, and `published-review-modal.deeplink.spec.ts:199-247` re-targeted to the strip block (its ":129 taller-than-pane" note no longer applies to a short band).
-**Failure mode caught:** the alert deep-link anchor disappearing for archived shows; a half-threaded prop chain.
+**The anchor MOVES in this one commit — it is never duplicated and never absent.** T4 adds `id="share-access"` to the strip root AND removes it from `OverviewSection`'s wrapper in the same change (the wrapper div itself survives here, still holding `shareSlot`; T5 deletes the wrapper). Splitting these would put two `#share-access` nodes in one commit.
+
+**Tests:** strip renders `ShareHub` right-flushed for non-archived shows, omits it when archived; `strip-copy-link` no longer exists anywhere; `id="share-access"` is on the strip root in ALL THREE lifecycles **and is absent from `OverviewSection` — asserted as exactly one such node in the rendered modal**; `_metaAlertActionsContract` re-points to `StatusStrip.tsx`; `publishedReviewModal.test.tsx` and the modal-loader test cover the new props. Recompute the `StatusStrip.tsx` pin by running the scanner (**red proof required**).
+
+**Real-browser geometry lands here too**, because this is the first commit where the hub renders inside the real modal — the assertions must ship with the layout they govern, not two tasks later. Playwright in `published-review-modal.layout.spec.ts`, at each existing width band:
+- Hub trigger group's right edge == the band's **content-box** right edge within 0.5px (measured against the band, never the panel — the band carries `px-tile-pad`). This replaces T-COPY-FLUSH's target.
+- Popover **width is 308px**, its **top edge sits at the trigger group's bottom edge** (`top-full`, no vertical overlap of the triggers), and its right edge aligns to the same content-box edge.
+- At 390px: the popover's left edge is ≥ the modal's content-box left edge (clamp holds) and `document.documentElement.scrollWidth` shows no horizontal overflow.
+- **Primary trigger and kebab both satisfy the tap-min token**; the kebab is square.
+
+T3 authors the hub's styling, but none of it is *verified* until these assertions run in a real browser (jsdom computes no layout). Any styling fix they force belongs to this commit.
+
+**Also in this commit** (they observe the strip and would otherwise go red): the e2e harnesses `_publishedReviewModalHarness.tsx` / `_skeletonParityHarness.tsx`, and `published-review-modal.deeplink.spec.ts:199-247` re-targeted to the strip block (its ":129 taller-than-pane" note no longer applies to a short band).
+**Failure mode caught:** the alert deep-link anchor duplicated, or disappearing for archived shows; a half-threaded prop chain; a popover that overlaps its own triggers or overflows the modal on mobile.
 
 ## T5 — Retire the Overview share cluster
 
 One commit: deletion and every consumer's migration together, so no commit is ever red.
 
-**Tests:** `OverviewSection` no longer accepts or renders `shareSlot`, `#share-access`, or `admin-share-link-inactive`; `_showReviewModal` serializes the reset affordances iff `!archived` (widened from `published && !archived`, spec §1.1) — assert the archived case serializes nothing, which is the RSC-payload guard. Recompute the `OverviewSection.tsx` pin (**red proof required**).
+**Tests:** `OverviewSection` no longer accepts or renders `shareSlot`, the wrapper div that held it, or `admin-share-link-inactive` (the `#share-access` id already left in T4); `_showReviewModal` serializes the reset affordances iff `!archived` (widened from `published && !archived`, spec §1.1) — assert the archived case serializes nothing, which is the RSC-payload guard. Recompute the `OverviewSection.tsx` pin (**red proof required**).
 **Deletes:** `CurrentShareLinkPanel.tsx`, `ShareLinkBody.tsx`, `OverviewSection`'s `shareSlot` prop, `_showReviewModal`'s shareSlot build.
 **Migrates, in this same commit** — the enumerated sweep, extended per review to include the deleted SYMBOL and the retired TESTID, not just the panel names:
 
@@ -76,18 +87,10 @@ rg -l 'shareSlot|CurrentShareLinkPanel|ShareLinkBody|admin-share-link-inactive|a
 Known consumers (2026-07-20): `tests/app/admin/showReviewModalLoader.test.tsx`, `tests/components/ShareLinkBody.test.tsx`, `tests/components/shareTokenInstantUpdate.test.tsx`, `tests/components/CurrentShareLinkPanel.test.tsx`, `tests/components/admin/per-show-lifecycle.test.tsx`, `tests/components/admin/shareLinkCopyButtonVariant.test.tsx`, `tests/components/admin/showpage/overviewSection.test.tsx`, `tests/components/admin/showpage/statusStrip.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `tests/e2e/picker-flow.spec.ts`, `tests/e2e/_publishedReviewModalHarness.tsx`, `tests/e2e/admin-lifecycle-transitions.spec.ts` (incl. the `:271` paused-copy reference → the popover's paused note), `tests/e2e/_skeletonParityHarness.tsx`, `tests/e2e/published-review-modal.interactions.spec.ts`.
 **Closure check:** re-run the grep above. Permitted survivors are ONLY hits inside `shareHub.test.tsx` referring to testids the hub deliberately reuses. Anything else is an unmigrated consumer.
 
-## T6 — Real-browser layout (mandatory; jsdom cannot verify any of this)
-
-Playwright in `published-review-modal.layout.spec.ts`, at each existing width band:
-- Hub trigger group's right edge == the band's **content-box** right edge within 0.5px (measured against the band, never the panel — the band carries `px-tile-pad`).
-- Popover **width is 308px**, its **top edge sits at the trigger group's bottom edge** (`top-full`, no vertical overlap of the triggers), and its right edge aligns to the same content-box edge.
-- At 390px: the popover's left edge is ≥ the modal's content-box left edge (clamp holds) and `document.documentElement.scrollWidth` shows no horizontal overflow.
-- **Primary trigger and kebab both satisfy the tap-min token**; the kebab is square.
-
-## T7 — impeccable dual gate (invariant 8)
+## T6 — impeccable dual gate (invariant 8)
 
 `/impeccable critique` AND `/impeccable audit` on the diff; P0/P1 fixed or explicitly deferred via `DEFERRED.md`; findings + dispositions recorded in the PR body.
 
-## T8 — Pre-push gates
+## T7 — Pre-push gates
 
 `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, plus every touched e2e project. Then whole-diff cross-model review, push, real CI green, `gh pr merge --merge`, and fast-forward local `main` to `0  0`.
