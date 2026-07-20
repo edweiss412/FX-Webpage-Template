@@ -28,9 +28,9 @@ An `admin_alerts` row renders in three surfaces with one message string and thre
 
 | Decision | Ratification |
 | --- | --- |
-| The show-name fix is one mechanism applied class-wide, not per-code authored copy. | User decision, this brainstorm. Realized as the `<show-prefix>` token (§3.1) after R1 killed the runtime-classifier form. |
-| Nothing operates on rendered text. | §3.1. Rendered text contains user data; a regex over it can match a show name containing "In ". The token satisfies this trivially — there is no transform at all. |
-| Which templates adopt the token is **authored**, not predicted. | §3.1–3.2, R1 findings 3/5/6. A runtime classifier cannot fail-by-default and cannot know a param's runtime value. |
+| **AMENDED (R2).** The show-name fix is per-code **authored** show-scoped templates, not a class-wide mechanical transform. | Originally ratified as "class-wide, mechanical" by user decision. Amended after two mechanical designs were killed in review (§3 revision note) and the exhaustive scan showed the adopting set is **3 codes, not ~45** — the cost that made authored variants unattractive does not exist. The class-wide part survives as the §7.1 meta-test, which forces every future prefixed template to declare a variant or an exemption. |
+| The **global** rendering path does not change. | §3.1. This is what retires the bold-loss, missing-name, and empty-composition classes at once, rather than guarding each. |
+| Nothing operates on rendered text, or on templates. | §3.1. There is no transform of any kind; lookup selects between two authored strings. |
 | `lead-hint` resolves to `""` in show scope; the bell keeps the current sentence verbatim. | User decision, this brainstorm. |
 | Action label is chosen by **alert intent**, not by surface. All three buttons read the same map. | User decision, this brainstorm. |
 | `components/admin/DataQualityWarningControls.tsx:101` "Ignore" is out of scope — it acts on parse warnings, not `admin_alerts`, and "ignore" is its correct verb. | §6. |
@@ -50,57 +50,66 @@ Show-scoped and global already resolve through **separate callers**. That is the
 
 `lead-hint` is set at `lib/adminAlerts/deriveMessageParams.ts:358` from `leadHintParam` (`lib/adminAlerts/deriveMessageParams.ts:282`). The `ROLE_FLAGS_NOTICE` template is `dougFacing: "In <sheet-name>, <role-changes><lead-hint>"` (`lib/messages/catalog.ts:855`).
 
-## 3. Design — the `<show-prefix>` token
+## 3. Design — authored show-scoped templates
 
-**Revision note (R1).** The first draft specified a runtime *classifier* that inspected each template and decided whether stripping left a grammatical sentence. Adversarial review R1 killed it on four counts, all correct: `deriveAlertMessageParams` returns params, not a template, so a template transform had no data path there (BLOCKING); a total classifier can never fail-by-default, because it returns an answer for every new template (HIGH); capitalization is not grammaticality, so an uppercase remainder can still be a fragment (HIGH); and a token's *name* says nothing about its runtime *value*, so `<crew-name>` resolving to an empty string still opens a sentence badly (HIGH).
+**Revision note (R1, R2).** Two mechanisms have now been killed by review, and the second failure is the informative one.
 
-The replacement removes the prediction problem instead of refining it. **Classification is authored into the template, once, by a human, and checked by the compiler and one grep-style meta-test.**
+R1 killed a runtime *classifier* that predicted whether stripping a template's location prefix left a grammatical sentence: `deriveAlertMessageParams` returns params, not a template, so the transform had no data path (BLOCKING); and a total classifier can never fail-by-default, because it answers for every new template.
 
-### 3.1 The token
+R2 killed the replacement, a `<show-prefix>` param carrying the fragment `In 'X', `. The decisive finding was one this spec's own author had independently confirmed against the code: `BellPanel.tsx:362` renders the pre-`<role-changes>` template segment through `renderCatalogEmphasis(..., BELL_BOLD_IDENTITY_TOKENS)`, and that set (`lib/adminAlerts/deriveMessageParams.ts:55-59`) bolds `sheet-name` / `show-name` so the operator can spot **which show** an alert belongs to. A template that replaces `<sheet-name>` with `<show-prefix>` either loses that bold entirely, or — if the prefix token joins the bold set — bolds the preposition and comma along with the name. R2 also correctly noted the frozen bell baselines are *string* comparisons, so they would have passed while the rendered emphasis silently regressed.
 
-The 3 templates that read well without their location prefix are rewritten to open with an explicit `<show-prefix>` token:
+Both dead mechanisms share one root cause: **they changed the global rendering path in order to serve the show-scoped surface.** Every subsequent finding (bold loss, prefix-source completeness, missing-name ambiguity in the bell, empty-remainder compositions) descends from that. Per the project's three-round prose cap on design-correctness vectors, the third design does not guard those failures — it removes the possibility of them.
 
+**The global path does not change. At all.**
+
+### 3.1 A second authored template
+
+The catalog entry gains one optional field:
+
+```ts
+/** Show-scoped variant of `dougFacing`, used only when the alert renders
+    inside the show it belongs to. Falls back to `dougFacing` when absent. */
+dougFacingShowScoped?: string;
 ```
-"In <sheet-name>, <role-changes><lead-hint>"     →  "<show-prefix><role-changes><lead-hint>"
-```
 
-`deriveAlertMessageParams` resolves `show-prefix` like any other param:
+Message lookup selects by scope: `"global"` reads `dougFacing`, unchanged; `"show"` reads `dougFacingShowScoped ?? dougFacing`.
 
-- global scope → `In 'Doug's Sheet', ` (the same sheet/show name the template used to interpolate, same quoting via `quoted`, trailing `", "` included)
-- show scope → `""`
+Consequences, each of which retires a class of finding rather than guarding it:
 
-No template transform, no strip, no regex over templates or rendered text. The existing `interpolate()` path does all the work, and the ratified "never operate on rendered text" constraint holds trivially because nothing operates on rendered text at all.
+- **The bell, the banner, and telemetry render byte-identical, emphasis-identical output.** `dougFacing` is untouched, so `<sheet-name>` still sits in the template where `renderCatalogEmphasis` expects it, and the `<role-changes>` split at `BellPanel.tsx:358` still works on the same string. R2 finding 2 cannot arise.
+- **Missing identity degrades exactly as it does today** in the global path, because it *is* today's path. R2 finding 5 (global copy changing when a name fails to resolve) cannot arise.
+- **The fallback is always safe.** A code with no show variant renders its global text: redundant, never wrong, never empty. R2 findings 3, 4, and 7 lose their blast radius — there is no composition that can produce an empty or malformed show-scoped message, because the worst case is the string that ships today.
+- **No new param, no sentence fragment in a value, no prefix-source selection.** R2 findings 1 and 6 cannot arise; there is nothing to select and nothing to compose.
 
-The 2 templates whose remainder opens with a lowercase value (`AMBIGUOUS_EMAIL_BINDING`, `PICKER_SELECTION_RACE`) **keep their literal `In <sheet-name>, ` prefix** and do not adopt the token. They stay correct-but-redundant in the modal; rewording them is spec B copy work.
+The cost is one authored string per adopting code. That was the option originally priced at ~45 strings and set aside; the exhaustive scan in §3.3 found the real adopting set is **3**, so the objection no longer holds.
 
-### 3.2 Which name does `show-prefix` use?
+### 3.2 The three authored variants
 
-Per template, and authored — not inferred. Each adopting template declares its prefix source in the same place its other identity params come from:
-
-| Code | Prefix source | Global rendering |
+| Code | `dougFacing` (global, unchanged) | `dougFacingShowScoped` (new) |
 | --- | --- | --- |
-| `ROLE_FLAGS_NOTICE` | `sheet-name` | `In 'II - RIA Investment Forum - Central 2025', ` |
-| `PICKER_BOOTSTRAP_RPC_FAILED` | `show-name` | `In 'II - RIA Investment Forum - Central 2025', ` |
-| `OAUTH_IDENTITY_CLAIMED` | `show-name` | `In 'II - RIA Investment Forum - Central 2025', ` |
+| `ROLE_FLAGS_NOTICE` | `In <sheet-name>, <role-changes><lead-hint>` | `<role-changes><lead-hint>` |
+| `PICKER_BOOTSTRAP_RPC_FAILED` | `In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.` | `Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening, contact the developer.` |
+| `OAUTH_IDENTITY_CLAIMED` | `In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.` | `<crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.` |
 
-R1 finding 5 asked whether `<sheet-name>` is genuinely redundant with the modal header or names a *distinct* input sheet. Verified: `ROLE_FLAGS_NOTICE` is raised per-show and its `sheet-name` resolves to the same show's spreadsheet, which the modal header already names (screenshot in §1 shows both strings identical). The redundancy is real, not apparent. Codes where the sheet is a *different* artifact than the open show do not adopt the token.
+R2 finding 9 is right that the first draft showed only one code's rendering. All three are above in full, and each show variant is a complete sentence under every parameter state: `role-changes` is guaranteed non-empty by `ROLE_CHANGES_FALLBACK` (`lib/adminAlerts/deriveMessageParams.ts:27`); `PICKER_BOOTSTRAP_RPC_FAILED` carries no params at all in its remainder; `crew-name` and `email` in `OAUTH_IDENTITY_CLAIMED` resolve through the same identity>context>fallback chain that already protects the global string, and the sentence opens with a proper noun in every case.
 
-### 3.3 Guard conditions
+Note the `PICKER_BOOTSTRAP_RPC_FAILED` variant also drops "for the same show" — inside one show's modal, "if it keeps happening" already means that show. This is the kind of edit only an author can make, and is the reason the authored form beats any mechanical transform.
 
-`show-prefix` is a normal param and inherits the existing fallback chain (identity > context > fallback, `lib/adminAlerts/deriveMessageParams.ts:12-20`). Explicit behavior for every degenerate input:
+### 3.3 Adopting set (3 of 250 codes)
 
-| Input state | `show-prefix` (global) | `show-prefix` (show) |
+Exhaustive scan of all 250 `dougFacing` templates for a literal `In <sheet-name>, ` / `In <show-name>, ` opening returns exactly 5:
+
+| Code | Adopts variant | Reason |
 | --- | --- | --- |
-| identity resolves the name | `In '<name>', ` | `""` |
-| identity null, context supplies the name | `In '<name>', ` | `""` |
-| neither supplies a name | `""` — no dangling "In '', " | `""` |
-| name resolves to whitespace-only | `""` (trimmed, then treated as absent) | `""` |
+| `ROLE_FLAGS_NOTICE` | yes | remainder is a complete sentence |
+| `PICKER_BOOTSTRAP_RPC_FAILED` | yes | remainder is a complete sentence |
+| `OAUTH_IDENTITY_CLAIMED` | yes | remainder opens with a proper noun |
+| `AMBIGUOUS_EMAIL_BINDING` | no | remainder opens `<email> is shared by…` (lowercase); rewording is spec B |
+| `PICKER_SELECTION_RACE` | no | remainder opens `a stale picker selection…` (lowercase); rewording is spec B |
 
-The absent-name case is why the token is strictly better than the strip: today a missing `sheet-name` renders the literal fallback phrase mid-prefix; with the token, an unresolvable name degrades to no prefix at all, which is the correct sentence either way.
+The two non-adopters render their global string in the modal: the show name is redundant there but the sentence is correct.
 
-R1 finding 6 (empty `<role-changes>` plus empty `<lead-hint>` in show scope yielding an empty body) is guarded by the pre-existing `ROLE_CHANGES_FALLBACK` (`lib/adminAlerts/deriveMessageParams.ts:27`), which guarantees `role-changes` is never empty. A test pins that specific composition — empty context, show scope — and asserts the body is non-empty.
-
-R1 finding 7 (a template that is *entirely* the prefix) cannot arise: a template consisting only of `<show-prefix>` would render empty in show scope. The meta-test in §7.1 rejects any template whose non-prefix remainder is empty.
+Templates carrying `<show-name>` mid-sentence are untouched — grammatical either way, and rewriting them is spec B.
 
 ### 3.4 Result
 
@@ -108,7 +117,7 @@ R1 finding 7 (a template that is *entirely* the prefix) cannot arise: a template
 
 > **Doug Larson was added with LEAD + V1.**
 
-In the bell, unchanged:
+In the bell — the same string, the same bold, the same `<ul>` split as today:
 
 > **In 'II - RIA Investment Forum - Central 2025', Doug Larson was added with LEAD + V1.** Lead changes must be confirmed in the show page.
 
@@ -138,7 +147,7 @@ New pure module `lib/adminAlerts/resolveActionLabel.ts`:
 
 ```ts
 export type ResolveIntent = "confirm" | "resolve";
-/** Throws on a code absent from RESOLVE_INTENTS. There is no default. */
+/** Returns "resolve" for a code absent from RESOLVE_INTENTS. Never throws. */
 export function resolveActionIntent(code: string): ResolveIntent;
 export function resolveActionLabels(code: string): { idle: string; pending: string };
 ```
@@ -146,9 +155,14 @@ export function resolveActionLabels(code: string): { idle: string; pending: stri
 - `"confirm"` → `{ idle: "Confirm", pending: "Confirming…" }`
 - `"resolve"` → `{ idle: "Mark resolved", pending: "Resolving…" }`
 
-**No default.** R1 finding 4 is right that defaulting unknown codes to `"resolve"` makes the coverage meta-test vacuous — every code would be "classified" without anyone classifying it. `RESOLVE_INTENTS` instead maps every resolve-eligible code explicitly (§7.2 defines that set as the 45 `ADMIN_ALERTS_CODES` minus the auto-resolving ones), and an unmapped code throws.
+**No default in the map; a safe default at runtime.** R1 finding 4 is right that a defaulting *map* makes a coverage test vacuous. R2 finding 3 is right that a *throwing* accessor is unsafe on a live surface: `ADMIN_ALERTS_CODES` enumerates current production write sites, not the rows already sitting in `admin_alerts`, so a historic row, a deploy-version skew, or a code retired from the producer registry can still reach a button and would take down all three admin surfaces on render.
 
-Throwing is safe here precisely because the set is closed and gated: a code can only reach a resolve button after being registered in `ADMIN_ALERTS_CODES`, and that registration now fails the §7.2 test until its intent is declared. The throw is a development-time backstop behind a CI gate, not a runtime risk on a live surface.
+Both hold at once, because they concern different objects:
+
+- `RESOLVE_INTENTS` has **no default entry**. Completeness is asserted against an independently derived set (§7.2), so the meta-test cannot pass vacuously — it consults the map, not the accessor.
+- `resolveActionIntent(code)` **returns `"resolve"` for an unmapped code** and never throws. "Mark resolved" is the correct conservative label for an unrecognized alert: it describes clearing a row, which is what the button does regardless of intent.
+
+The gate catches authoring mistakes at CI time; the runtime fallback catches everything CI cannot see. Neither depends on the other being complete.
 
 Codes are `"confirm"` when the admin is approving a deliberate change rather than clearing a fault — `ROLE_FLAGS_NOTICE` is the first member.
 
@@ -161,9 +175,9 @@ Renaming the button falsifies user-visible copy that quotes it. Two catalog rows
 - `lib/messages/catalog.ts:2189` (`ADMIN_ALERT_NOT_FOUND`) — "When you clicked Mark resolved, the server looked up that alert by id…"
 - `lib/messages/catalog.ts:2192` (`ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`) — same opening clause
 
-Both become label-agnostic rather than intent-branched, so no error string has to know which label the user saw:
+Both become label-agnostic rather than intent-branched, so no error string has to know which label the user saw. The replacement also stops asserting success on what is by definition a failed attempt (R2 finding 10):
 
-> "When you resolved that alert, the server looked up that alert by id and either didn't find it…"
+> "When you tried to resolve that alert, the server looked it up by id and either didn't find it…"
 
 These are §12.4 rows, so the edit lands as the **lockstep triple in one commit** (per AGENTS.md): master spec §12.4 prose at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, `pnpm gen:spec-codes` regen of `lib/messages/__generated__/spec-codes.ts`, and the matching `lib/messages/catalog.ts` rows. The `x1-catalog-parity` gate (`tests/cross-cutting/codes.test.ts`, run by `pnpm test:audit:x1-catalog-parity`) blocks merge if any of the three drifts. The master spec carries one additional prose occurrence of the phrase; `pnpm prettier` is never run on the master spec.
 
@@ -175,25 +189,28 @@ These are §12.4 rows, so the edit lands as the **lockstep triple in one commit*
 
 ## 7. Structural defenses
 
-Two meta-tests plus one compiler guarantee. R1 findings 3 and 4 correctly identified that the first draft's defenses were vacuous — a total classifier and a defaulting label map both answer for every input, so neither can fail on a new row. Each defense below fails because something is *absent*, never because a predicate returned the wrong answer.
+Three defenses. Each fails because something is **absent**, never because a predicate returned the wrong answer — the vacuity R1 findings 3/4 identified.
 
-1. **No un-tokenized prefix.** Scans every `dougFacing` in `lib/messages/catalog.ts` for a template opening with the literal `In <sheet-name>, ` or `In <show-name>, `. Every hit must appear in an explicit `PREFIX_EXEMPT` registry with a written reason. The registry ships with exactly two rows (`AMBIGUOUS_EMAIL_BINDING`, `PICKER_SELECTION_RACE`, both "remainder opens with a lowercase value"). A new template written with a literal prefix fails until its author either adopts `<show-prefix>` or writes down why it cannot. Also asserts no adopting template's remainder is empty (§3.3).
-2. **Resolve-intent completeness.** The resolve-eligible set is discoverable: `ADMIN_ALERTS_CODES` (`tests/adminAlerts/adminAlertCodes.fixture.ts:13`, 45 codes with production write sites) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`, derived from `resolution: "auto"`). Every member must have an explicit row in the intent map — there is **no default**. `resolveActionIntent` throws on an unmapped code rather than falling back to `"resolve"`. A new alert producer already has to register its code in `ADMIN_ALERTS_CODES` (existing gate); doing so now also fails this test until the code's intent is declared. The same test asserts all three button components read their labels from the module rather than string literals.
-3. **Scope argument — compiler, not test.** The required fourth parameter (§3.5) means an omitted scope is a type error. No scan, no registry, no discovery problem.
+1. **No un-declared prefixed template.** Scans every `dougFacing` in `lib/messages/catalog.ts` for a literal `In <sheet-name>, ` / `In <show-name>, ` opening. Every hit must EITHER define `dougFacingShowScoped` OR carry a row in `PREFIX_EXEMPT` with a written reason. Ships with 3 adopters and 2 exempt rows (§3.3). A new template written with a literal prefix fails until its author picks one.
+2. **Show-variant validity.** For every entry defining `dougFacingShowScoped`: it is non-empty after trim; it does NOT itself open with the literal prefix; and its placeholder set is a **subset** of `dougFacing`'s. The subset rule is what closes R2 finding 7 — a variant cannot introduce a token the global template never had, so it cannot reference a param the derive layer does not populate. No composition can yield an empty or malformed show message, because the fallback when a variant is absent is the shipping global string.
+3. **Resolve-intent completeness.** The resolve-eligible set is derived independently of the map: `ADMIN_ALERTS_CODES` (`tests/adminAlerts/adminAlertCodes.fixture.ts:13`, 45 codes) minus `AUTO_RESOLVING_CODES` (`lib/adminAlerts/audience.ts:52`). Every member must have an explicit `RESOLVE_INTENTS` row. Registering a new alert producer already requires adding to `ADMIN_ALERTS_CODES`; doing so now fails this test until the intent is declared. The same test asserts each of the three button components imports the label module — and §8's cross-product assertions prove they actually *use* its result (R2 finding 8).
 
-Spec B additionally introduces a meta-test forbidding `helpfulContext: null` when `helpHref` is set. Recorded here so the two specs do not both claim it.
+The scope argument needs no defense: it is a required parameter (§3.5), so omitting it is a type error.
 
-Spec B additionally introduces a meta-test forbidding `helpfulContext: null` when `helpHref` is set. Recorded here so the two specs do not both claim it.
+R2 finding 4 asks what happens when a resolve-eligible code has no catalog entry. Existing behavior, unchanged and already pinned: `lib/messages/lookup.ts` returns its unknown-code fallback copy (`tests/messages/lookup-unknown-code.test.ts`), the row renders with generic text, and — per this spec — its button reads "Mark resolved". No path throws.
+
+Spec B additionally introduces a meta-test forbidding `helpfulContext: null` when `helpHref` is set. Recorded once, here, so the two specs do not both claim it (R2 finding 11 flagged this paragraph appearing twice).
 
 ## 8. Testing
 
-**Oracle policy.** R1 findings 9 and 10 are right that deriving expected strings from the catalog compares the implementation with itself: edit the template and both sides move together. The project's usual "derive, never hardcode" rule assumes the fixture is *input*; here the catalog is the **subject under test**, so the oracle must be independent of it. Every copy assertion below therefore uses a **frozen string literal written into the test**, and a template edit is expected to fail the test — that failure is the signal, and re-blessing is a deliberate edit.
+**Oracle policy.** R1 findings 9/10 are right that deriving expected strings from the catalog compares the implementation with itself. The project's usual "derive, never hardcode" rule assumes the fixture is *input*; here the catalog is the **subject under test**, so every copy assertion uses a **frozen string literal written into the test**. A template edit is expected to fail these tests; that failure is the signal, and re-blessing is a deliberate edit.
 
-- **Unit** — `deriveAlertMessageParams` for each of the 3 adopting codes under both scopes, asserting the fully interpolated message against a frozen literal. Global for `ROLE_FLAGS_NOTICE`: `"In 'II - RIA Investment Forum - Central 2025', Doug Larson was added with LEAD + V1. Lead changes must be confirmed in the show page."` Show: `"Doug Larson was added with LEAD + V1."`
-- **Unit — guards (§3.3 table).** Each degenerate input: identity null with context name, neither supplying a name (asserting no dangling `In '', `), whitespace-only name, and the empty-`role-changes` + show-scope composition asserting a non-empty body.
-- **Unit** — `resolveActionIntent` returns `"confirm"` for `ROLE_FLAGS_NOTICE`, `"resolve"` for a declared resolve-intent member, and **throws** for an unmapped code (pinning the no-default contract, not a fallback).
-- **Component** — each of the three buttons renders the intent-correct idle and pending label. The assertion reads the button's own accessible name via its `data-testid` (`per-show-alert-resolve-<id>`, `health-alert-resolve-<id>`, `bell-resolve-<id>`), never a container query: the message body for this code contains the word "confirm," so a container-scoped `getByText(/confirm/i)` would pass with the button label still reading "Mark resolved."
-- **Regression — frozen bell baseline.** The bell rendering for all 5 prefix-relevant codes is asserted against frozen literals captured from `main` *before* the change and committed as a fixture. R1 finding 10 is right that "byte-identical before and after" is meaningless without a stored baseline; the fixture is that baseline, and it is generated once from the pre-change tree, not from the post-change implementation.
+- **Unit — show variants.** For each of the 3 adopting codes, the fully interpolated message under both scopes against frozen literals. `ROLE_FLAGS_NOTICE` global: `"In 'II - RIA Investment Forum - Central 2025', Doug Larson was added with LEAD + V1. Lead changes must be confirmed in the show page."` Show: `"Doug Larson was added with LEAD + V1."`
+- **Unit — non-adopters.** `AMBIGUOUS_EMAIL_BINDING` and `PICKER_SELECTION_RACE` render the SAME string under both scopes, pinning that absence of a variant means fallback, not empty.
+- **Unit — guards.** Per-code, under show scope: identity null with context supplying the name, neither supplying it, whitespace-only name, and the empty-`role-changes` composition — each asserting a non-empty, prefix-free body.
+- **Unit — label map.** `resolveActionIntent` returns `"confirm"` for `ROLE_FLAGS_NOTICE`, `"resolve"` for a declared resolve member, and `"resolve"` for an unmapped code (pinning the no-throw contract R2 finding 3 required).
+- **Component — full cross-product (R2 finding 8).** All 3 buttons × both intents = 6 assertions, plus pending state for each. A component that hardcodes "Confirm", ignores its `code`, or calls the module and discards the result fails at least one cell. Each assertion reads the button's own accessible name via its `data-testid` (`per-show-alert-resolve-<id>`, `health-alert-resolve-<id>`, `bell-resolve-<id>`) — never a container query, since this code's message body contains the word "confirm" and a container-scoped `getByText(/confirm/i)` would pass with the label still reading "Mark resolved".
+- **Regression — bell rendered output, not just its string.** R2 finding 2 is right that string baselines would have missed an emphasis regression. The bell assertion for all 5 prefix-relevant codes therefore checks the rendered tree: the show/sheet name is inside a `<strong>`, the `<ul>` split still occurs for multi-change `ROLE_FLAGS_NOTICE`, and the full text matches a frozen literal captured from `main` before the change. This is cheap insurance even though §3.1 makes the global path unreachable by this diff.
 
 ## 9. Dimensional Invariants
 
