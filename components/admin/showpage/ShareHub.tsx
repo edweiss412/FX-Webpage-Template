@@ -476,7 +476,15 @@ export function ShareHub({
                   const el = e.currentTarget;
                   requestAnimationFrame(() => {
                     const confirm = el.querySelector('[data-testid="archive-show-confirm-button"]');
-                    (confirm ?? el).scrollIntoView({ block: confirm ? "end" : "nearest" });
+                    const target = confirm ?? el;
+                    // jsdom implements no layout and no scrollIntoView, and this
+                    // runs inside a rAF — where a throw is an UNCAUGHT exception
+                    // that fails the run without failing any test (vitest exits
+                    // 1 on `Errors`, reported separately from the passing
+                    // count). Same typeof guard the modal's alert-deep-link
+                    // scroll already uses.
+                    if (typeof target.scrollIntoView !== "function") return;
+                    target.scrollIntoView({ block: confirm ? "end" : "nearest" });
                   });
                 }}
               >
