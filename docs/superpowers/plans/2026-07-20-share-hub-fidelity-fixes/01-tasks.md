@@ -183,7 +183,7 @@ it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
   // empty `<p id={descId} class="text-xs text-text-subtle">` survives it while
   // leaving the forbidden empty described node in the tree. This helper asserts
   // the column holds the label and nothing else, whatever tag the escape uses.
-  expectNoDescriptionNode(btn, "Rotate share link");
+  expectNoDescriptionNode(btn, btn.closest("body")!, "Rotate share link");
 });
 
 it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
@@ -203,7 +203,7 @@ it("GUARD rowDescription absent: row renders, no described node", () => {
   );
   const btn = screen.getByTestId("admin-rotate-share-token-button");
   expect(btn.textContent).toBe("Rotate share link");
-  expectNoDescriptionNode(btn, "Rotate share link");
+  expectNoDescriptionNode(btn, btn.closest("body")!, "Rotate share link");
 });
 ```
 

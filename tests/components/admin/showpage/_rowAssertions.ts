@@ -163,10 +163,23 @@ export function expectRowText(
  * `childElementCount === 1` is the contract regardless of what tag the escape
  * reaches for.
  */
-export function expectNoDescriptionNode(button: HTMLElement, label: string): void {
+export function expectNoDescriptionNode(
+  button: HTMLElement,
+  scope: HTMLElement,
+  label: string,
+): void {
   expect(button.getAttribute("aria-describedby"), "no described node when absent").toBeNull();
 
   const labelEl = within(button).getByText(label);
+
+  // The LABEL's own contract must survive the description being absent. Without
+  // this, `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes:
+  // the normal-description tests still see the right name, while a row with no
+  // description silently loses its accessible name entirely.
+  expect(button.getAttribute("aria-label"), "label survives an absent description").toBe(label);
+  expectNotHidden(labelEl, scope, "row label");
+  expectClasses(labelEl, { exactly: LABEL_CLASSES });
+
   const column = labelEl.parentElement;
   expect(column, "label must sit in the row column").not.toBeNull();
   expect(

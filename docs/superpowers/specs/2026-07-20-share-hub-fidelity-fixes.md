@@ -623,10 +623,23 @@ export function expectRowText(
  * `childElementCount === 1` is the contract regardless of what tag the escape
  * reaches for.
  */
-export function expectNoDescriptionNode(button: HTMLElement, label: string): void {
+export function expectNoDescriptionNode(
+  button: HTMLElement,
+  scope: HTMLElement,
+  label: string,
+): void {
   expect(button.getAttribute("aria-describedby"), "no described node when absent").toBeNull();
 
   const labelEl = within(button).getByText(label);
+
+  // The LABEL's own contract must survive the description being absent. Without
+  // this, `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes:
+  // the normal-description tests still see the right name, while a row with no
+  // description silently loses its accessible name entirely.
+  expect(button.getAttribute("aria-label"), "label survives an absent description").toBe(label);
+  expectNotHidden(labelEl, scope, "row label");
+  expectClasses(labelEl, { exactly: LABEL_CLASSES });
+
   const column = labelEl.parentElement;
   expect(column, "label must sit in the row column").not.toBeNull();
   expect(
@@ -661,7 +674,11 @@ export function expectNoDescriptionNode(button: HTMLElement, label: string): voi
    open), and composed text must insert a SEPARATOR at element
    boundaries (`textContent` concatenates, so a duplicate whose gap is supplied by
    `gap-1` rather than a text node reads identically on screen yet goes uncounted).
-4. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC. A count of
+4. Absence is proved by `expectNoDescriptionNode`, which is TAG-AGNOSTIC and ALSO re-asserts
+   the LABEL's full contract (name, not-hidden, typography) — otherwise
+   `aria-label={rowDescription?.trim() ? rowLabel : undefined}` passes, and a row with no
+   description silently loses its accessible name while the normal-description tests stay
+   green. A count of
    `<span>` elements is not: an empty `<p id={descId} class="text-xs text-text-subtle">`
    passes a span count while leaving the forbidden empty described node in the tree.
 5. **`exactly` is the default posture for every class list this spec fully prescribes** —
