@@ -470,15 +470,18 @@ describe("_metaAlertProducerScope", () => {
     const stale = PRODUCER_SCOPE.filter((r) => r.discoverable !== false && !disc.has(r.site)).map((r) => r.site);
     expect(stale, "stale rows").toEqual([]);
   });
-  it("STATIC-literal sites: (site, code) matches the registry exactly", () => {
-    // AST extracts the literal code from static calls; assert the registry's rows for
-    // those sites carry exactly that code. Dynamic sites (code:null from the AST) are
-    // exempt here - their code completeness is the acknowledged residual risk.
-    for (const h of tsHits()) {
-      if (h.code == null) continue;
-      const rows = PRODUCER_SCOPE.filter((r) => r.site === h.site).map((r) => r.code);
-      expect(rows, `${h.site} literal code`).toContain(h.code);
-    }
+  it("STATIC-literal sites: AST-derived (site,code) SET equals the registry (no extra/duplicate codes)", () => {
+    // Full set equality, not toContain: a phantom or duplicate registry code at a static
+    // site would otherwise pass and leak into perShowReachableCodes()/FROZEN_REACHABLE.
+    const hits = tsHits().filter((h) => h.code != null);
+    const staticSites = new Set(hits.map((h) => h.site));
+    const astPairs = [...new Set(hits.map((h) => `${h.site}::${h.code}`))].sort();
+    // Registry rows AT a static site must be exactly the AST literals; a dynamic:true row
+    // on a site the AST resolved statically is itself a defect this equality catches.
+    const regPairs = [...new Set(
+      PRODUCER_SCOPE.filter((r) => staticSites.has(r.site)).map((r) => `${r.site}::${r.code}`),
+    )].sort();
+    expect(regPairs).toEqual(astPairs);
   });
   it("dynamic rows are flagged dynamic:true with a provenance note", () => {
     const dynamicSites = new Set(tsHits().filter((h) => h.code == null).map((h) => h.site));
@@ -646,16 +649,6 @@ describe("composed-string hygiene across ALL 8 reason titles", () => {
 
 - [ ] **Step 5: Commit** `test(admin): frozen copy oracle + all-title hygiene`.
 
-### Task 2.2b: Spike parity + negative-type guard
-
-**Files:** Test `tests/admin/spikeParity.test.ts`. Preserves the spike's four `@ts-expect-error` rejections in the SHIPPED types.
-
-- [ ] **Step 1-3:** Compile-time GUARD, labeled: a type-rejection test has no runtime implementation, so it has no red-for-new-code cycle and invariant 1 impl-before-test does not apply. Copy the four negative cases from the spike, retargeted at the shipped `AttentionRoute` (Task 2.3) and `NoteItem`/`NoteCode` (Task 2.2): invalid `{sectionId:"crew", anchor:"diagrams"}`, wrong anchor for section, alert-less note item, third note code. Must `pnpm typecheck` clean WITH all four directives consumed. Prove the guard is LIVE: during authoring, delete one `@ts-expect-error`, confirm typecheck FAILS, restore.
-
-- [ ] **Step 4:** `pnpm typecheck` exit 0 (compile-time is the test).
-
-- [ ] **Step 5: Commit** `test(admin): shipped-type parity with the transport spike (negative cases)`.
-
 ### Task 2.3: Widen the route union + route parse codes + frozen fixture + cut picker + header-pill guard
 
 **Files:** Modify `lib/admin/attentionItems.ts`; Test `tests/admin/attentionRoutingFrozen.test.ts`, `tests/admin/pickerEpochCut.test.ts`.
@@ -735,6 +728,16 @@ export type AttentionRoute =
 - [ ] **Step 4: Run - PASS**; `pnpm vitest run tests/admin/attentionRoutingFrozen.test.ts tests/admin/pickerEpochCut.test.ts tests/admin/_metaAttentionRoutes.test.ts` + typecheck.
 
 - [ ] **Step 5: Commit** `feat(admin): section-scoped route union; parse codes to warnings; cut picker from attention`.
+
+### Task 2.3a: Spike parity + negative-type guard
+
+**Files:** Test `tests/admin/spikeParity.test.ts`. Runs AFTER Task 2.3 because it references the widened `AttentionRoute` (the route negatives cannot typecheck against the pre-2.3 narrow type). Preserves the spike's four `@ts-expect-error` rejections in the SHIPPED types.
+
+- [ ] **Step 1-3:** Compile-time GUARD, labeled: a type-rejection test has no runtime implementation, so it has no red-for-new-code cycle and invariant 1 impl-before-test does not apply. Copy the four negative cases from the spike, retargeted at the shipped `AttentionRoute` (Task 2.3) and `NoteItem`/`NoteCode` (Task 2.2): invalid `{sectionId:"crew", anchor:"diagrams"}`, wrong anchor for section, alert-less note item, third note code. Must `pnpm typecheck` clean WITH all four directives consumed. Prove the guard is LIVE: during authoring, delete one `@ts-expect-error`, confirm typecheck FAILS, restore.
+
+- [ ] **Step 4:** `pnpm typecheck` exit 0 (compile-time is the test).
+
+- [ ] **Step 5: Commit** `test(admin): shipped-type parity with the transport spike (negative cases)`.
 
 ### Task 2.4: Extend `_metaAttentionRoutes` with anchor-validity
 
@@ -832,15 +835,38 @@ it("crew placement is preserved after the sectionAttention rename (props present
 
 - [ ] **Step 5: Commit** `feat(admin): render the parse notices as banner lines atop the warnings panel`.
 
-### Task 2.8: Close the end-to-end chain (derive -> compose)
+### Task 2.8: Close the end-to-end chain (persist-shape -> read -> derive -> rendered DOM)
 
-**Files:** extend `tests/admin/reasonTransportIntegration.test.ts`.
+**Files:** Test `tests/components/admin/reasonEndToEnd.test.tsx` (jsdom).
 
-Proves the persisted context reaches a COMPOSED banner string, which no single-layer test covers.
+The spec's ratified integration contract is persist -> read -> derive -> RENDER. The read layer
+(`fetchPerShowAlerts`) is DB-bound but is a VERBATIM context pass-through - it `select`s `context`
+whole with no transform (`lib/adminAlerts/fetchPerShowAlerts.ts:100`), so the persisted context shape
+IS the shape derivation receives. This one fixture therefore spans the whole chain to the DOM:
 
-- [ ] **Step 1-4:** Append a block: `buildParseErrorContext` -> `deriveAttentionItems` -> `toNoteItem(item)` -> `composeParseNote(note, warningCount)`; assert the composed `rest` CONTAINS the resolved reason sentence for an allowlisted code, and does NOT contain it (state 4) when omitted. Uses the real composer. Green once Task 2.2 lands; confirm red if the seam filter is removed.
+- [ ] **Step 1: Write the test** - build the context via the REAL seam, feed the persisted shape
+through `deriveAttentionItems`, render the warnings panel, and assert the reason sentence appears in
+the banner DOM (scoped to `parse-attention-note-PARSE_ERROR_LAST_GOOD`), and is ABSENT for an omitted
+code (state 4).
 
-- [ ] **Step 5: Commit** `test(admin): close the persist -> compose reason chain`.
+```tsx
+// @vitest-environment jsdom
+// tests/components/admin/reasonEndToEnd.test.tsx
+import { render, within } from "@testing-library/react";
+import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
+import { deriveAttentionItems, type AttentionAlertInput } from "@/lib/admin/attentionItems";
+// ... render the warnings section fed by bucketAttention over the derived items ...
+// const context = buildParseErrorContext({ driveFileId: "f", sheetName: "S", failureCode: "MI-4_NO_CREW" });
+// row: AttentionAlertInput with that context (the fetchPerShowAlerts output shape) ->
+//   deriveAttentionItems -> bucketAttention -> render -> assert:
+// within(getByTestId("parse-attention-note-PARSE_ERROR_LAST_GOOD")).getByText(/No crew rows\./);
+```
+
+- [ ] **Step 2-4:** Characterization/integration (composes shipped units; green once 1.x + 2.2/2.5/2.7 are in).
+Confirm red if the seam filter is removed. A source note in the test cites `fetchPerShowAlerts.ts:100` as the
+verbatim-read justification so a reviewer sees why the DB layer is represented by its output shape.
+
+- [ ] **Step 5: Commit** `test(admin): persist-shape -> derive -> rendered-DOM reason integration`.
 
 **PR2 close-out:** `pnpm typecheck && pnpm test && pnpm lint && pnpm format:check`. Impeccable dual-gate; P0/P1 fixed or DEFERRED. Real CI green, whole-diff Codex APPROVE, merge, fast-forward.
 
@@ -907,7 +933,7 @@ Harness pattern: `tests/e2e/compact-alert-card-layout.spec.ts` (out-of-process e
 - [ ] **Producer contract:** seam test (1.2) proves error_code add + existing fields retained + message dropped; source test (1.3) proves the producer calls the seam; real-RPC test (1.3) proves latest-wins; integration (1.5) spans persist-shape → resolve.
 - [ ] **Registry:** AST discovery (not grep); `discovered ⊆ registered` AND `registered ⊆ discovered` for the discoverable surface; raw-INSERT sites `discoverable:false`; frozen reachable set asserted whole.
 - [ ] **Copy:** frozen oracle independent of `composeParseNote` (2.2a); all 6 full lines; em-dash + doubled-period + doubled-space over all 8 titles; render-binding scoped to the note testid (2.7).
-- [ ] **Regression proofs:** frozen full routing fixture (2.3/3.2), `_metaAttentionRoutes` anchor-validity (2.4), spike parity negatives (2.2b), notes-vs-cards (2.5), banner-not-card (2.7), picker cut + route-row-remains + header-pill unaffected (2.3).
+- [ ] **Regression proofs:** frozen full routing fixture (2.3/3.2), `_metaAttentionRoutes` anchor-validity (2.4), spike parity negatives (2.3a), notes-vs-cards (2.5), banner-not-card (2.7), picker cut + route-row-remains + header-pill unaffected (2.3).
 - [ ] **Anchor signature:** `anchorsForData` returns a per-section `Map` (3.1); availability reuses `hasDiagramSignal` and the reel accessor.
 - [ ] **Transport boundary:** `toNoteItem` (2.2) and `bucketAttention` (2.5) are named units with tests; the production notes-vs-cards branch is proven.
 - [ ] **Cross-PR:** rebase commands present; PR opens gated on predecessor merge; `0  0` completion.
