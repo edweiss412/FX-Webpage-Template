@@ -28,7 +28,7 @@
 - Create: `tests/helpers/corpusTemp.ts`
 <!-- spec-lint: ignore — file created by this plan -->
 - Create: `tests/cross-cutting/corpus-temp-prefix.test.ts`
-- Modify: `tests/help/fixture-range-parser.test.ts:26-28` (filter)
+- Modify: `tests/help/fixture-range-parser.test.ts:27-29` (filter)
 - Modify: `tests/sync/dev-routing.test.ts` (three temp-name consts: `TEMP_FIXTURE_NAME` line 81, `TEMP_AMBIGUOUS_NAME` line 298, `FLIP_FIXTURE_NAME` line 354)
 <!-- spec-lint: ignore — file created by this plan -->
 - Test: `tests/cross-cutting/corpus-temp-prefix.test.ts`
@@ -102,7 +102,7 @@ Expected: FAIL — reader lacks import/filter; writer consts are plain string li
 
 - [ ] **Step 4: Edit the reader**
 
-In `tests/help/fixture-range-parser.test.ts`, add the import and extend the filter at lines 26-28:
+In `tests/help/fixture-range-parser.test.ts`, add the import and extend the filter at lines 27-29:
 
 ```ts
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
@@ -233,9 +233,17 @@ describe("TEST_FAST_DEFERRED contract", () => {
   });
 
   it("config wires the deferred set into the parallel project only under VITEST_TEST_FAST=1", () => {
-    const config = readFileSync("vitest.config.ts", "utf8");
-    expect(config).toMatch(/VITEST_TEST_FAST.*===.*"1".*TEST_FAST_DEFERRED/s);
-    expect(config).toMatch(/\.vite-testfast/);
+    // Comment-proof: strip line comments before matching, and require BOTH the
+    // gated binding and its use in the parallel project's exclude.
+    const config = readFileSync("vitest.config.ts", "utf8")
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("//"))
+      .join("\n");
+    expect(config).toMatch(
+      /const testFastExcludes =[^;]*VITEST_TEST_FAST[^;]*===\s*"1"[^;]*TEST_FAST_DEFERRED/s,
+    );
+    expect(config).toMatch(/exclude:\s*\[[^\]]*\.\.\.testFastExcludes/s);
+    expect(config).toMatch(/VITEST_TEST_FAST[^;]*cacheDir:\s*"node_modules\/\.vite-testfast"/s);
   });
 });
 ```
@@ -406,8 +414,10 @@ const LOG_PATH = `${LOG_DIR}/parallel.log`;
 writeFileSync(LOG_PATH, "");
 
 const children = new Set();
+let interrupted = false;
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
+    interrupted = true;
     for (const child of children) child.kill(sig);
   });
 }
@@ -458,6 +468,13 @@ process.stdout.write(parallelBuf);
 
 // Epilogue: deferred files under DEFAULT config (no VITEST_TEST_FAST) - the
 // serial writer has restored devPanelPresent.ts by now.
+// A Ctrl-C during phase 1 must NOT spawn the epilogue (it would need a second
+// interrupt to stop). Interrupted runs exit non-zero without the epilogue.
+if (interrupted) {
+  console.error("\n[test:fast] interrupted - skipping epilogue\n");
+  process.exit(serialCode !== 0 ? serialCode : parallelCode !== 0 ? parallelCode : 130);
+}
+
 console.log("\n[test:fast] ── epilogue (deferred files) ──\n");
 const epilogueCode = await done(
   vitest([...TEST_FAST_DEFERRED, "--project", "parallel"], { stdio: "inherit" }),
@@ -792,10 +809,35 @@ if (invokedDirectly) main();
     "prebuild": "node scripts/pretest-gen.mjs",
 ```
 
-- [ ] **Step 5: Run meta-test; reconcile any literal findings**
+- [ ] **Step 5: Run meta-test — arm (b) is a READ-CALL guard, not a literal guard**
+
+Sweep run at plan time (`rg -n 'readFileSync\(|readdirSync\(|existsSync\(|createReadStream\(' scripts/generate-admin-tables.ts scripts/extract-watermark-symbols.ts scripts/extract-email-boundaries.ts scripts/generate-traceability.ts`) — complete output, every hit dispositioned:
+
+| Read call | Disposition |
+| --- | --- |
+| `generate-admin-tables.ts:57` `readFileSync(SPEC_PATH)` | const resolves to spec literal — manifest input ✓ |
+| `extract-watermark-symbols.ts:165` `readFileSync(SPEC_PATH)` | same ✓ |
+| `extract-email-boundaries.ts:251-252` `readFileSync(SPEC_PATH)` / `readFileSync(PLAN_PATH)` | both manifest inputs ✓ |
+| `generate-traceability.ts` lines 175 and 178 `readdirSync(dir)` / `readFileSync(join(dir, entry))` | `readPlanCorpus` — covered by the `inputDirs` row; `COMPUTED_READS` pin |
+| `generate-traceability.ts` lines 217 and 367 `readFileSync(specPath)` | parameter; sole call sites pass `SPEC_PATH` — `COMPUTED_READS` pin |
+| `generate-traceability.ts:369` `existsSync/readFileSync(workflowPath)` | parameter; call site passes `WORKFLOW_PATH` — manifest input, `COMPUTED_READS` pin |
+
+Why arm (b) guards read CALLS and not all path-shaped literals: `extract-email-boundaries.ts` lines 45-53 and 141-207 holds ~24 repo-path literals that are canonicalization DATA (boundary-table keys such as a boundary-table path key such as the discard-route entry), never read from disk. An all-literals arm would demand a ~25-row allowlist that churns with every boundary-table edit while proving nothing. (Spec §4.3 arm (b), R4 refinement.)
+
+The meta-test's arm (b) therefore scans each reached source for read-call arguments and requires each to be an inline covered literal, an UPPER_SNAKE const resolving in-file to a covered literal, or a `COMPUTED_READS` entry:
+
+```ts
+// Reads whose argument is a parameter or computed path; each pinned to the
+// manifest row that covers it. A new computed read fails until dispositioned.
+const COMPUTED_READS: Record<string, string[]> = {
+  "scripts/generate-traceability.ts": ["specPath", "workflowPath", "join(dir, entry)"],
+};
+```
+
+Also add `lib/audit/watermark-symbols.generated.ts` awareness: `extract-watermark-symbols.ts` is in `gen:traceability`'s import closure, and its `OUT_PATH` write target is that generator's OWN output, not traceability's — arm (b) covers reads only, so no manifest row is needed there.
 
 Run: `pnpm exec vitest run tests/cross-cutting/pretest-gen-manifest.test.ts`
-If arm (b) surfaces an uncovered path literal in a generator source (e.g. a prose string that happens to start with `lib/`), reconcile by EITHER adding it to `inputs` (if actually read) OR — only if provably never read — extending the meta-test with an explicit per-literal allowlist `const NON_READ_LITERALS: Record<string, string[]>` carrying a reason comment per entry. Expected end state: PASS.
+Expected: PASS.
 
 - [ ] **Step 6: Behavioral cache checks (AC-3 shape)**
 
@@ -833,6 +875,8 @@ git commit --no-verify -m "feat(infra): content-hash pretest codegen cache + man
 - [ ] **Step 2: Baseline.** `time pnpm test` (records file/test totals + wall).
 - [ ] **Step 3: Overlap run.** `time pnpm test:fast`. Assert: exit 0; file/test totals across overlap + epilogue equal the baseline totals; wall < baseline by roughly the parallel-phase wall.
 - [ ] **Step 4: AC-1 negative probes.** Add a temporarily failing test in a serial dir (`tests/cross-cutting/`), run `pnpm test:fast` → non-zero exit. Delete. Repeat with a failing test in a parallel dir (`tests/components/`) → non-zero, plus the immediate `[test:fast] parallel project FAILED` stderr line. Delete.
+- [ ] **Step 4b: AC-5 third probe (deferred-set fail-by-default).** Temporarily rename `tests/components/admin/settings/DevToolsRow.absent.test.tsx` to a temporary `absent2` name; run `pnpm exec vitest run tests/cross-cutting/test-fast-deferred.test.ts` → FAILS (`must exist on disk`). Rename back; re-run → PASS.
+- [ ] **Step 4c: AC-2 CI arm (explicit).** After the PR is open, confirm all 8 `unit-suite` legs are green on the real GitHub Actions run under `pool: "threads"` (`gh pr checks <PR#> --watch`, then `gh pr view <PR#> --json mergeStateStatus` = CLEAN). Local green is NOT sufficient for this AC.
 - [ ] **Step 5: Pre-push gates** (memory: scoped green ≠ green): `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test`.
 - [ ] **Step 6: Record numbers** for the PR body: baseline `pnpm test` wall, `test:fast` wall, warm/cold pretest timings, box load context. If the box never quiets, record best-available numbers WITH the load caveat — honesty over theater.
 - [ ] **Step 7: Commit** any stray formatting only if gates required it; otherwise nothing to commit.
