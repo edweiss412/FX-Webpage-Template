@@ -264,6 +264,42 @@ describe("ShareHub — z-order (spec §3)", () => {
   });
 });
 
+describe("ShareHub — caret (spec §5)", () => {
+  it("renders a decorative caret OUTSIDE the popover, AFTER it, and inert", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const caret = screen.getByTestId("share-hub-caret");
+    expect(caret.getAttribute("aria-hidden")).toBe("true");
+
+    // Sibling, NOT a child: a child would be clipped by the panel's
+    // overflow-y-auto and silently invisible.
+    expect(popover().contains(caret)).toBe(false);
+
+    // Two z-40 siblings: TREE ORDER decides paint order, not z-index. The caret
+    // must FOLLOW the popover or the panel's top border cuts the notch.
+    expect(
+      popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Same positioned parent, or the caret is anchored to the wrong ancestor.
+    expect(caret.parentElement).toBe(popover().parentElement);
+    expectClasses(caret.parentElement!, { has: ["relative"] });
+
+    // aria-hidden does not disable hit-testing: without pointer-events-none the
+    // caret would intercept clicks in its overlap with the panel and any
+    // panelRef.contains(target) check would read them as outside the dialog.
+    expectClasses(caret, { has: ["pointer-events-none"] });
+
+    // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
+    // have moved it off the focused element.
+    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,32rem)]"] });
+
+    fireEvent.click(primary());
+    expect(screen.queryByTestId("share-hub-caret")).toBeNull();
+  });
+});
+
 describe("ShareHub — published arm content", () => {
   it("renders the crew URL derived from origin+slug+token, plus Copy", () => {
     renderHub();

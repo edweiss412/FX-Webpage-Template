@@ -519,6 +519,27 @@ export function ShareHub({
           ) : null}
         </div>
       )}
+
+      {/* Caret notch, pointing at the kebab (spec 2026-07-20-share-hub-fidelity-fixes §5).
+          A SIBLING of the panel, not a child: the panel is `overflow-y-auto`, so a child
+          would be clipped away and silently invisible. Rendered AFTER the panel because
+          both are `z-40` and equal z-index is resolved by TREE ORDER, not by the class —
+          reorder these two and the panel's top border cuts through the notch.
+          `pointer-events-none` because `aria-hidden` hides it from assistive tech but does
+          NOT disable hit-testing: painted above the panel and overlapping it, the caret
+          would otherwise swallow clicks there, and `panelRef.current.contains(target)`
+          would classify them as OUTSIDE the dialog.
+          Geometry: the kebab is `size-tap-min` (44px) and rightmost in the group, and the
+          panel is `right-0` against that same group, so the kebab's centre sits 22px from
+          the right edge; a 10px square centred there needs 22 − 5 = 17px. `mt-1` (4px) vs
+          the panel's `mt-1.5` (6px) makes the rotated diamond straddle the panel edge. */}
+      {open && (
+        <span
+          aria-hidden="true"
+          data-testid="share-hub-caret"
+          className="pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-t border-l border-border bg-surface"
+        />
+      )}
     </div>
   );
 }
