@@ -12,11 +12,13 @@ import { PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 //
 // Topology (CI probe run 29758568301 measured serial=690s, parallel=294s whole):
 // the suite is split by PROJECT across two matrix jobs, not by file across one.
-//   unit-suite-db   — 8 legs, boots Supabase, runs ONLY the serial project
-//   unit-suite-nodb — 3 legs, boots NOTHING,  runs ONLY the parallel project
+//   unit-suite-db   — 6 legs, boots Supabase, runs ONLY the serial project
+//   unit-suite-nodb — 2 legs, boots NOTHING,  runs ONLY the parallel project
 // Leg counts are bounded by RUNNER CONCURRENCY, not by the timing arithmetic:
-// a 12+4 topology hit per-leg targets but staggered leg starts across 171s and
-// regressed the wall clock (run 29760670825). See the workflow header.
+// 12+4 hit every per-leg target and REGRESSED the wall (171s of start stagger,
+// run 29760670825); 8+3 still staggered 43s and gained only 16s (run
+// 29761339451). Total legs are capped at 8, the count measured to start within
+// 3s. See the workflow header for all three measurements.
 // The parallel project is DB-free (that same probe is the proof), so its legs
 // skip the ~71s Supabase boot entirely. Both feed one aggregator that keeps the
 // required check-context name.
@@ -29,8 +31,8 @@ import { PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
 const YAML = readFileSync(join(process.cwd(), ".github", "workflows", "unit-suite.yml"), "utf8");
 
-const DB_LEGS = 8;
-const NODB_LEGS = 3;
+const DB_LEGS = 6;
+const NODB_LEGS = 2;
 
 /**
  * Comment-free view of a block. A forbidden-token guard that scans raw YAML also

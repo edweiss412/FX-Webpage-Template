@@ -15,7 +15,7 @@ Splitting by PROJECT lets the DB-free half skip the boot entirely.
 | Decision | Rationale |
 | --- | --- |
 | Split by project, not more file shards | A plain 8→12 file-shard bump models to ~205s; the project split reaches ~188s AND removes the boot from a third of the legs |
-| 8 DB + 3 no-DB legs | Set by RUNNER CONCURRENCY, not by the arithmetic — see §2.1. The timing floor (~100s overhead + ~30s startup + the unsplittable 54s `no-global-cursor.test.ts`) is not the binding constraint; leg-start queueing is |
+| 6 DB + 2 no-DB legs | Set by RUNNER CONCURRENCY, not by the arithmetic — see §2.1. The timing floor (~100s overhead + ~30s startup + the unsplittable 54s `no-global-cursor.test.ts`) is not the binding constraint; leg-start queueing is |
 | Two files MOVED, not exception-listed | Serial excludes each parallel dir glob wholesale, so a per-file parallel exclusion strands the file in NO project |
 | No separate drift-gate workflow | `unit-suite-nodb` already runs the whole parallel project with no database on every PR. It IS the standing gate |
 | Total legs stay near 8 | 16 legs was tried and REGRESSED the wall clock (§2.1). The pre-PR observation of 24 concurrent jobs at 11s max delay did NOT predict the ceiling at 16 unit-suite legs alongside x-audits' ~18 |
@@ -38,23 +38,30 @@ Superseded model: a back-fit projection put serial at ~900s and parallel at ~366
 
 ## 2.1 The binding constraint is runner concurrency, not leg arithmetic
 
-A 12+4 topology was built and measured first (PR #517, run 29760670825). **Per-leg time landed exactly where predicted — max DB leg 182s against the old 258s, median 157s — and the workflow still got WORSE: 342s wall against a 264s baseline.**
+Three topologies were measured on PR #517. The baseline is a like-for-like PR run (29754822376), not a push-to-main run — PRs fire x-audits' ~18 jobs alongside, and that neighbour load is part of what sets the ceiling.
 
-The 16 legs could not all start at once. Runner acquisition staggered their starts across +0s to +171s, so the last leg began after the whole baseline run would have finished. The previous 8-leg matrix had started every leg within 17s.
+| Topology | Start stagger | Max leg | **Workflow wall** |
+| --- | --- | --- | --- |
+| 8 mixed (baseline, run 29754822376) | 3s | 253s | **262s** |
+| 12+4 (run 29760670825) | **171s** | 182s | **342s** — REGRESSED |
+| 8+3 (run 29761339451) | 43s | 195s | **246s** — only 16s better |
+| 6+2 (shipped) | — | — | — |
 
-So the ceiling sits between 8 and 16 concurrent legs for this repo, whose PRs also fire x-audits' ~18 jobs alongside. 8+3 keeps the total near the count known to start cleanly while still removing the boot from the DB-free third.
+The 12+4 run hit its per-leg target exactly (182s against 258s) and still lost, because 16 legs could not all start at once: the last one began after the entire baseline run would have finished. At 8+3 the stagger was smaller but still consumed most of the per-leg gain.
 
-The general lesson, and the reason this section exists: **per-leg wall clock and workflow wall clock are different objectives, and past some leg count they move in opposite directions.** Every projection in §2 optimizes the former. Only a measured run reveals the latter.
+So total legs are capped at **8** — the count measured to start within 3s — and the split is expressed by REBALANCING that budget (6 DB + 2 no-DB) rather than adding to it. The split still pays at the cap, because the 2 no-DB legs skip the ~71s boot: 690s of serial work spreads over 6 legs paying ~100s each, while 294s of parallel work rides 2 legs paying ~30s.
+
+**The generalizable lesson:** per-leg wall clock and workflow wall clock are different objectives, and past some leg count they move in opposite directions. Every projection in §2 optimizes the first. Only a measured run reveals the second — and the pre-flight concurrency check (24 concurrent jobs at 11s max delay) did NOT extrapolate to 16 unit-suite legs beside the same neighbours.
 
 ## 3. Topology
 
 ```
-unit-suite-db    8 legs  boots Supabase  vitest run --project=serial   --shard=i/8
-unit-suite-nodb  3 legs  boots NOTHING   vitest run --project=parallel --shard=i/3
+unit-suite-db    6 legs  boots Supabase  vitest run --project=serial   --shard=i/6
+unit-suite-nodb  2 legs  boots NOTHING   vitest run --project=parallel --shard=i/2
 unit-suite        aggregator, needs BOTH, asserts BOTH rollups == success
 ```
 
-Projected max leg at 8+3: ~186s against ~258s.
+Projected max leg at 6+2: ~215s against a measured 253s baseline.
 
 **Coverage** is guaranteed by two composing invariants, not by inspection:
 
