@@ -8,6 +8,7 @@ import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { FeedEntry } from "@/lib/sync/holds/types";
 import { resolveAlertAction, type AlertActionLink } from "@/lib/adminAlerts/alertActions";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
+import { PARSE_FAILURE_ALLOWLIST } from "@/lib/messages/parseFailureReason";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { messageFor, interpolate, type MessageParams } from "@/lib/messages/lookup";
@@ -41,6 +42,9 @@ export type AttentionAlertPayload = {
   autoClearNote: string | null;
   failedKeys: string[] | null;
   dataGaps: DataGapsSummary | null;
+  /** Allowlisted parse-failure invariant code for PARSE_ERROR_LAST_GOOD, else null
+   *  (attention-alert-routing §3.1). Resolved to operator copy by parseFailureReasonTitle. */
+  errorCode: string | null;
 };
 
 export type AttentionItem = {
@@ -210,6 +214,13 @@ function readFailedKeys(code: string, context: Record<string, unknown> | null): 
   return (context.failedKeys as unknown[]).filter((k): k is string => typeof k === "string");
 }
 
+// Read-layer defense: only an allowlisted persisted code reaches the payload, so a
+// context value outside the allowlist renders no reason (attention-alert-routing §3.1).
+function readErrorCode(context: Record<string, unknown> | null): string | null {
+  const v = context?.error_code;
+  return typeof v === "string" && PARSE_FAILURE_ALLOWLIST.has(v) ? v : null;
+}
+
 function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
   const actionable = !isInboxRouted(row.code) && !isAutoResolving(row.code);
   const autoClearNote = actionable
@@ -241,6 +252,7 @@ function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
       autoClearNote,
       failedKeys: readFailedKeys(row.code, row.context),
       dataGaps: row.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(row.context) : null,
+      errorCode: readErrorCode(row.context),
     },
   };
 }
