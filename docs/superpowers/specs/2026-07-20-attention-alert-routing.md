@@ -68,7 +68,7 @@ These four carry `ATTENTION_ROUTES` rows for totality (that table is set-equal t
 
 `MI-1_VERSION_DETECTION_FAILED`, `MI-2_EMPTY_TITLE`, `MI-3_NO_VALID_DATES`, `MI-4_NO_CREW`, `MI-5_NO_ROOMS`, `MI-5a_DUPLICATE_CREW_NAME`, `MI-5b_DUPLICATE_CREW_EMAIL`, `VERSION_AMBIGUOUS`.
 
-Six already have `MESSAGE_CATALOG` entries. `MI-2_EMPTY_TITLE` and `MI-3_NO_VALID_DATES` do not (verified: zero catalog hits).
+Six already have catalog entries under the SAME name. `MI-2_EMPTY_TITLE` and `MI-3_NO_VALID_DATES` do not — but the same two invariants have operator-facing rows under DIFFERENT names (`MI-2_TITLE_MISSING`, `MI-3_NO_PARSEABLE_DATE`). §3.1 bridges that drift with an alias map rather than authoring duplicate rows.
 
 ---
 
