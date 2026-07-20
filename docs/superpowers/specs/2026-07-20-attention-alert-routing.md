@@ -143,6 +143,20 @@ Anything else — `PARSE_HARD_FAIL`, a future invariant code, an interpolated st
 
 None of the eight titles ends in punctuation, so the appended period never doubles. A test asserts the FINAL COMPOSED string for all eight titles: no em dash, no doubled period, no doubled space.
 
+**Repeated raises: latest wins, and omission clears (R7#1).** The rendered copy says "your latest changes", so a stale reason would make it untruthful. The existing upsert already gives the required semantics, and this spec relies on them rather than adding merge logic.
+
+`upsert_admin_alert` conflicts on `(coalesce(show_id::text,''), code) where resolved_at is null` and sets `context = ... else p_context` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:47`). The `failedKeys` merge arm is the ONLY exception, and it applies only when `p_context ? 'failedKeys'`; `PARSE_ERROR_LAST_GOOD` never carries that key, so this producer always takes the `else` arm and the context is REPLACED WHOLE.
+
+| Second raise | Result | Copy shown |
+| --- | --- | --- |
+| allowlisted A, then allowlisted B | context replaced; `error_code` = B | B's reason (latest) |
+| allowlisted A, then a non-allowlisted code (e.g. `PARSE_HARD_FAIL`) | context replaced; `error_code` key ABSENT because the producer omits it | matrix state 2 or 4 (no reason sentence) |
+| allowlisted A, then allowlisted A | context replaced identically | A's reason |
+
+The omission case is the one worth stating: because the whole context is replaced, an omitted `error_code` does not leave the previous value behind. Degrading to "no reason" is correct — the app genuinely does not know the current reason — and is strictly better than displaying a superseded one.
+
+**Tests (§8):** allowlisted A→B asserts the rendered reason is B's, and allowlisted→omitted asserts the reason sentence disappears. A single-fixture persist→render test cannot catch either, so both are explicit cases.
+
 **End-to-end transport contract (R2#4).** The field crosses four layers; each is named so a per-layer test cannot pass while production drops it:
 
 | Layer | Contract |
@@ -316,6 +330,7 @@ Each entry names the concrete failure it catches.
 - **Crew preservation.** The existing byte-identity assertion is retained verbatim; plus in-`<li>` and section-top placement with props present. Catches: the rename regressing crew placement.
 - **Note ordering.** Fixture built in the WRONG derivation order; asserts the rendered order is still `PARSE_ERROR_LAST_GOOD` first. Catches: reliance on incidental derivation order (§3.2).
 - **Anchor fallback.** Anchor unavailable → section top; section unavailable → Overview. Catches: an item silently dropped when a data-gated sub-block does not render.
+- **Repeated raises (§3.1, R7#1).** Two cases beyond the single-fixture test: allowlisted A→B asserts the LATEST reason renders (not the first), and allowlisted→non-allowlisted asserts the reason sentence disappears rather than going stale. Catches: a merge-style context write, or a producer that preserves a superseded `error_code` under copy that says "latest".
 - **End-to-end reason transport (§3.1).** One fixture driven persist -> read -> derive -> render, asserting the composed sentence reaches the DOM. Catches: the field being dropped between layers while every per-layer test passes.
 - **Real browser (Playwright).** An anchored card renders INSIDE its anchor's container (asserted by DOM ancestry, not coordinates). Catches: an anchor that resolves but mounts outside the intended subtree. NO assertion about `?` trigger geometry — see §9.
 
