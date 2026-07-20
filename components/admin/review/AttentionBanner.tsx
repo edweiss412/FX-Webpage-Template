@@ -80,7 +80,7 @@ function DetailEntry({
 }) {
   return (
     <span className="inline-flex items-center gap-1.5" data-testid={testId}>
-      <span className="text-[10px] font-semibold tracking-wider text-warning-text/70 uppercase">
+      <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
         {label}
       </span>
       <span className="text-xs font-semibold text-text">{children}</span>

@@ -12,6 +12,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 
 afterEach(cleanup);
@@ -204,5 +206,36 @@ describe("CompactAlertCard — defaults and message-row structure", () => {
     expect(glyph).not.toBeNull();
     expect(glyph).toHaveAttribute("aria-hidden", "true");
     expect(glyph!.textContent).toBe("!");
+  });
+});
+
+describe("CompactAlertCard surfaces — contrast guards (impeccable critique P1-b/P1-c)", () => {
+  // Alpha variants of warning-text on the amber wash compute BELOW the WCAG floors,
+  // and they are invisible to tests/styles/status-token-contrast.test.ts, which pins
+  // the full-strength tokens only. Measured on --color-warning-bg #fff3d6:
+  //   text-warning-text       8.79:1  (passes body 4.5:1)
+  //   text-warning-text/70    4.01:1  (FAILS body 4.5:1 — and a 10px uppercase
+  //                                    micro-label is not WCAG "large text")
+  //   border-warning-text/40  ~2.0:1  (FAILS the 3:1 non-text UI floor)
+  // A source scan is the practical guard: jsdom loads no CSS, so computed contrast
+  // cannot be measured here.
+  const SURFACES = [
+    "components/admin/CompactAlertCard.tsx",
+    "components/admin/compactAlertHelp.tsx",
+    "components/admin/review/AttentionBanner.tsx",
+    "components/admin/PerShowActionableWarnings.tsx",
+  ];
+
+  test.each(SURFACES)("%s uses no sub-threshold warning-text alpha for text or borders", (rel) => {
+    const src = readFileSync(join(process.cwd(), rel), "utf8");
+    const textAlpha = src.match(/text-warning-text\/\d+/g) ?? [];
+    expect(textAlpha, `${rel}: alpha-dimmed warning text fails AA on the amber wash`).toEqual([]);
+    // Divider hairlines are decorative and exempt; borders that bound a CONTROL
+    // (the help trigger) must clear 3:1, so they carry no alpha.
+    const borderAlpha = (src.match(/border-warning-text\/(\d+)/g) ?? []).filter((m) => {
+      const pct = Number(m.split("/")[1]);
+      return pct > 25; // /20 and /25 are the band/footer dividers
+    });
+    expect(borderAlpha, `${rel}: control borders must not be alpha-dimmed`).toEqual([]);
   });
 });

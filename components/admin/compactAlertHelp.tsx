@@ -102,7 +102,7 @@ export function CompactAlertHelp({
       trigger={
         <span
           aria-hidden="true"
-          className="grid size-[22px] place-items-center rounded-pill border border-warning-text/40 text-xs font-bold text-warning-text transition-colors duration-fast group-hover:bg-warning-text/10"
+          className="grid size-[22px] place-items-center rounded-pill border border-warning-text text-xs font-bold text-warning-text transition-colors duration-fast hover:bg-warning-text/10"
         >
           ?
         </span>

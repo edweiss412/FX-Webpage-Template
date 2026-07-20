@@ -93,7 +93,7 @@ export function PerShowActionableWarnings({
             className="inline-flex items-center gap-1.5"
             data-testid="per-show-actionable-row-label"
           >
-            <span className="text-[10px] font-semibold tracking-wider text-warning-text/70 uppercase">
+            <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
               Sheet row
             </span>
             <span
