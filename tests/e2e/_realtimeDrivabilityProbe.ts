@@ -144,7 +144,11 @@ async function main(): Promise<void> {
     });
     page.on("requestfailed", (r) => {
       if (!isTracked(r.url())) return;
-      settleOnce(r, `FAILED ${r.url()}`);
+      // PROD aborts the applied RSC refresh fetch (ERR_ABORTED = applied);
+      // settle it as a completed entry so the measurements still anchor.
+      const u = new URL(r.url());
+      const kind = r.headers()["rsc"] ? "RSC" : "DOC";
+      settleOnce(r, `RESP ${kind} ABORTED ${u.pathname}${u.search}`);
     });
     // Parsed frame predicates (mirror the oracle's contract): a join reply must
     // carry status "ok" — an ERROR reply is a stack/auth fault (INDETERMINATE),
