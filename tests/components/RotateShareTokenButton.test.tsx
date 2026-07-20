@@ -86,6 +86,62 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     expect(document.getElementById(descId!)?.textContent ?? "").toMatch(/old one stops working/i);
   });
 
+  test("compact: aria-label is BOUND to rowLabel, never a hardcoded literal", () => {
+    // Asserting only the DEFAULT label would pass an implementation that renders
+    // a hardcoded visible label while setting aria-label={rowLabel}: with a
+    // different rowLabel the visible and accessible labels diverge, which is the
+    // WCAG 2.5.3 violation spec §4.2 exists to prevent. So use a NON-DEFAULT
+    // label and assert both the accessible name and the rendered text.
+    const label = "Regenerate access";
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        compact
+        rowLabel={label}
+        rowDescription="Old link stops working immediately"
+      />,
+    );
+    const btn = idleBtn();
+    expect(btn.getAttribute("aria-label")).toBe(label);
+    expect(btn.textContent).toContain(label);
+    expect(screen.getByRole("button", { name: label })).toBe(btn);
+  });
+
+  test("GUARD whitespace-only rowDescription: no description node at all", () => {
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        compact
+        rowLabel="Rotate share link"
+        rowDescription="   "
+      />,
+    );
+    const btn = idleBtn();
+    // An empty described node is worse than none: SRs announce a blank
+    // description. The NODE must be gone, not merely the attribute.
+    expect(btn.getAttribute("aria-describedby")).toBeNull();
+    expect(btn.textContent).toBe("Rotate share link");
+    expect(btn.querySelectorAll("span")).toHaveLength(2); // column + label only
+  });
+
+  test("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="   " />);
+    // ABSENT, not merely non-empty: `.not.toBe("")` would also pass
+    // aria-label={rowLabel} yielding "   ", a whitespace accessible name.
+    expect(idleBtn().getAttribute("aria-label")).toBeNull();
+  });
+
+  test("GUARD rowDescription absent: row renders, no described node", () => {
+    render(
+      <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="Rotate share link" />,
+    );
+    const btn = idleBtn();
+    expect(btn.getAttribute("aria-describedby")).toBeNull();
+    expect(btn.textContent).toBe("Rotate share link");
+  });
+
   test("compact confirm: Confirm/Cancel render full-width below the label, not beside it", () => {
     render(
       <RotateShareTokenButton
