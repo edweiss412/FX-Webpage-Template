@@ -99,14 +99,17 @@ Pull is ~38s of the 71s boot. Mechanism (three new steps around the boot step):
 3. **Save-prep** (after the vitest step, miss-only via `if: steps.supabase-image-cache.outputs.cache-hit != 'true'`), a single command so ONE trailing `|| true` soft-fails the whole thing — including the zstd guarded-install (zstd ships on current ubuntu-latest but the image rolls weekly; if the runner image someday drops zstd the LOAD side would fail too, which its own `|| true` degrades to a plain pull):
 
    ```
-   (command -v zstd || sudo apt-get install -y zstd) \
+   set -o pipefail
+   { (command -v zstd || sudo apt-get install -y zstd) \
      && docker save $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'supabase|kong|postgrest') \
         | zstd -T0 -o ~/supabase-images.img.tmp \
-     && mv ~/supabase-images.img.tmp ~/supabase-images.tar.zst \
-     || true
+     && mv ~/supabase-images.img.tmp ~/supabase-images.tar.zst; } || true
    ```
 
-   Any failure (apt, enumeration, disk, zstd) costs only the cache entry, never the leg. The **tmp-then-`mv`** shape is load-bearing: a save that dies mid-stream must not leave a partial file at the cache path, because the `actions/cache` post-step uploads whatever exists there under an immutable key — a poisoned entry would then hit forever, soft-fail every load, and never regenerate (save-prep is miss-only). With tmp-then-`mv`, a failed save leaves nothing at the cache path, the post-step uploads nothing, and the next run retries the save.
+   Any failure (apt, enumeration, disk, docker save, zstd) costs only the cache entry, never the leg. Two shapes are load-bearing:
+
+   - **`set -o pipefail`** — GitHub's default `run:` shell is `bash -e {0}` WITHOUT pipefail, so without it the `docker save | zstd` pipeline's status is zstd's alone: a mid-stream `docker save` death (or an empty `grep` making `docker save` error after zstd already opened its output) would let `mv` publish a truncated archive. With pipefail, any upstream failure fails the pipeline and skips the `mv`.
+   - **tmp-then-`mv`** — a save that dies mid-stream must not leave a partial file at the cache path, because the `actions/cache` post-step uploads whatever exists there under an immutable key — a poisoned entry would then hit forever, soft-fail every load, and never regenerate (save-prep is miss-only). With tmp-then-`mv`, a failed save leaves nothing at the cache path, the post-step uploads nothing, and the next run retries the save.
 
 - The bootstrap script itself is **unchanged**; `supabase start` skips pulling images already present, and the `SUPABASE_START_ATTEMPTS` retry loop is unaffected.
 - **Soft-failure inventory (exhaustive):** exactly two `|| true` sites — the load command (step 2) and the single trailing `|| true` on the save-prep compound command (step 3). The boot step and the vitest step carry none. The topology meta-test enforces this inventory (§5.4), alongside the existing no-`continue-on-error` guard (`unit-suite-shard-topology.test.ts:53-58`).
@@ -129,7 +132,7 @@ This phase **extends** two existing structural meta-tests; it creates none:
    - matrix literal `[1, 2, 3]` → `[1, 2, 3, 4, 5, 6]` and denominator `3` → `6` (titles + regexes, §4.3);
    - NEW pin: the cache-restore step declares `id: supabase-image-cache` (the exact id the load/save guards reference — an id/guard mismatch silently disables both), and its `key` expression contains BOTH the same CLI version literal as the `supabase/setup-cli` step (extract both via regex, assert equal — drift = stale images silently reused across CLI bumps) AND `hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh')`;
    - NEW pin: step ordering — restore before load, load (with its `cache-hit == 'true'` guard) before the boot step, save-prep (with its `cache-hit != 'true'` guard) after the vitest step;
-   - NEW pin: soft-failure inventory — `|| true` appears exactly twice in the workflow, on the `docker load` line and the `docker save` pipeline line; the boot and vitest `run:` blocks contain no `|| true` (closes the gap where the existing no-`continue-on-error` guard would accept `bootstrap || true`);
+   - NEW pin: soft-failure inventory — `|| true` appears exactly twice in the workflow: on the `docker load` line, and as the single trailing `|| true` after the save-prep compound command's closing brace (i.e., after the `mv`, covering install+save+mv as one unit); the save-prep body also contains `set -o pipefail` (without it a mid-stream `docker save` failure publishes a truncated archive, §5.2.3); the boot and vitest `run:` blocks contain no `|| true` (closes the gap where the existing no-`continue-on-error` guard would accept `bootstrap || true`);
    - if the cache lever is reverted per §6, these cache pins are dropped in the same commit (the test never asserts steps that don't exist; the `[1..6]`/`/6` and soft-failure-count-zero forms remain).
 2. `tests/cross-cutting/vitest-shard-balance.test.ts` — N loops `[2, 3]` → `[2, 3, 6]` (`:64`, `:88`); NEW `MEASURED_HEAVY ⊆ FILE_WEIGHTS` assertion (§5.3).
 3. `tests/cross-cutting/vitest-shard-balance.test.ts` file-set model fix (R1 finding 5): the derivation at `vitest-shard-balance.test.ts:28-34` subtracts only `ENV_BOUND_EXCLUDES`, but the serial project ALSO unconditionally excludes `NIGHTLY_ONLY_EXCLUDES` (`vitest.config.ts:77-82`, `vitest.projects.ts:48` — the 9 `tests/parser/mutationHarness.*.test.ts` files), so the test models 9 files the unit-suite sequencer never sees. Fix: subtract `NIGHTLY_ONLY_EXCLUDES` the same way `ENV_BOUND_EXCLUDES` is subtracted. Exhaustive sweep of other set-model gaps (R1 class-sweep): the mutation project is env-gated out of unit-suite discovery (`vitest.config.ts:98`), and the parallel project is include-only — no other unconditional excludes exist in `vitest.config.ts`/`vitest.projects.ts`.
