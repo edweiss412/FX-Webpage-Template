@@ -250,4 +250,20 @@ export function expectNoDescriptionNode(
     ),
     "no element in the row scope may carry any description class",
   ).toEqual([]);
+
+  // The decisive check, because a class scan can only reject carriers that LOOK
+  // like descriptions. A CLASSLESS `<p id={descId}>   </p>` beside the button
+  // carries no description token at all and would otherwise survive. The idle
+  // row wrapper renders the button and nothing else, so pinning its element
+  // children forbids every sibling carrier, styled or not.
+  //
+  // Precondition: call this only on an idle row with no outcome banner mounted.
+  // A banner is a legitimate wrapper sibling. The guard tests render the control
+  // fresh, so no banner exists.
+  const wrapper = button.parentElement;
+  expect(wrapper, "row button must have a wrapper").not.toBeNull();
+  expect(
+    [...wrapper!.children],
+    "the idle row wrapper must contain the button and nothing else",
+  ).toEqual([button]);
 }
