@@ -100,6 +100,7 @@ function renderBreakdown(
     <WarningsBreakdown
       dfid={DFID}
       warnings={warnings}
+      mode="rescan"
       {...(opts.decisions !== undefined ? { useRawDecisions: opts.decisions } : {})}
       {...(opts.session === false ? {} : { wizardSessionId: WSID })}
     />,
@@ -251,6 +252,7 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
       <WarningsBreakdown
         dfid={DFID}
         warnings={[roomSplitWarning(0), roomSplitWarning(9), w]}
+        mode="rescan"
         useRawDecisions={[]}
         wizardSessionId={WSID}
       />,

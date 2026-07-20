@@ -401,3 +401,30 @@ describe("severity gate", () => {
     expect(model.crew?.active.map((a) => a.warning.code)).toEqual(["UNKNOWN_ROLE_TOKEN"]);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+describe("correction-loop verb is mode-derived (published → re-sync)", () => {
+  // `WarningsBreakdown` is the SINGLE render site for this copy across both
+  // modes, and it used to hard-code the wizard's `mode="rescan"`. On a PUBLISHED
+  // show the re-scan action does not exist — the surface's only action is
+  // Re-sync (StatusStrip) — so the published panel was instructing Doug to press
+  // a control that is not on screen. The verb now derives from `isStaged(s)` at
+  // the section-registry call site.
+  //
+  // Anti-tautology: the assertion is scoped INSIDE the warnings section's own
+  // testid subtree, so no sibling panel can satisfy it. The negative assertion
+  // is not redundant with the positive one — it is what catches a later edit
+  // that renders BOTH verbs (e.g. "re-sync (or re-scan)").
+  it("published data renders the re-sync verb, never the wizard's re-scan", () => {
+    const d = buildData({ warnings: [roleWarning] });
+    // Precondition: this fixture really is the published branch, so a future
+    // refactor that silently makes it staged cannot green this test.
+    expect(isPublished(d)).toBe(true);
+    render(<SurfaceHarness data={d} />);
+    const callout = within(sectionEl("warnings")).getByTestId("correction-loop-callout");
+    expect(callout.textContent).toContain("then re-sync");
+    expect(callout.textContent).not.toContain("re-scan");
+    // Copy invariant: no em dash in user-visible copy.
+    expect(callout.textContent).not.toMatch(/[—]|--/);
+  });
+});

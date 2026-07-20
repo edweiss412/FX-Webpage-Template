@@ -53,13 +53,6 @@ import { fetchPerShowAlerts } from "@/lib/adminAlerts/fetchPerShowAlerts";
 import { deriveAttentionItems } from "@/lib/admin/attentionItems";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
-import type { ParseWarning } from "@/lib/parser/types";
-import {
-  isDataQualityWarning,
-  selectActionableForDisplay,
-  OPERATOR_ACTIONABLE_ANCHORED,
-} from "@/lib/parser/dataGaps";
-import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
@@ -338,16 +331,12 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
     renderedSectionIds: sectionIds,
   });
 
-  // §5.1 correction-loop gate — mirrors the prior page's actionable-warnings
-  // partition so the Overview Re-sync framing matches today: the data-gap digest
-  // (unknown section / removed block) + the deduped operator-actionable warnings,
-  // minus ignored ones. Empty → a standalone Re-sync (no callout).
-  const digest = publishedData.warnings.filter(
-    (w: ParseWarning) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code),
-  );
-  const displayWarnings = [...digest, ...selectActionableForDisplay(publishedData.warnings)];
-  const { active: activeActionable } = partitionByIgnored(displayWarnings, ignoredFingerprints);
-  const hasActionableWarnings = activeActionable.length > 0;
+  // The §5.1 correction-loop gate that used to live here is GONE with the
+  // Overview callout it fed. The guidance now renders in the Parse warnings
+  // panel, which gates on the raw `warnings.length` it already holds — so no
+  // actionable-warning partition has to be recomputed on the server and handed
+  // down. Deleting the gate WITH its only consumer is deliberate: a surviving
+  // `hasActionableWarnings` with no reader is exactly the zombie-flag shape.
 
   // §5.5 roster read cap — the snapshot RPC returns the full roster (no PostgREST
   // cap), so honor the cap post-read: over the cap, the actionable roster
@@ -432,7 +421,6 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         attentionItems={attentionItems}
         alertsDegraded={alertsDegraded}
         openSheetHref={openSheetHref}
-        hasActionableWarnings={hasActionableWarnings}
         crewEmails={crewEmails}
         pickerCrew={pickerCrew}
         archiveAction={archiveShowAction.bind(null, slug)}

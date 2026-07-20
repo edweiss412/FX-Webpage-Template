@@ -16,7 +16,8 @@
  *     of the read-only Unarchive affordance — an archived show must be read-only.
  *   - Unpublished show not showing the inactive-share notice (a live-looking share panel on
  *     a paused link).
- *   - Overview dropping the correction-loop callout when there ARE actionable warnings.
+ *   - Overview resurrecting the correction-loop callout, which the Parse warnings panel owns
+ *     (the two rendered one scroll apart inside the same modal).
  *   - Open-sheet link rendered with no href (a dead "Open sheet ↗").
  *
  * Anti-tautology: the inactive-notice wording is asserted INSIDE the notice's own testid
@@ -49,7 +50,6 @@ const SHOW_ID = "22222222-2222-2222-2222-222222222222";
 function baseProps(overrides: Partial<OverviewSectionProps> = {}): OverviewSectionProps {
   return {
     archived: false,
-    hasActionableWarnings: false,
     attentionSlot: <div data-testid="mock-attention-slot">alert</div>,
     ...overrides,
   };
@@ -70,11 +70,7 @@ describe("OverviewSection", () => {
   // the negative here is the half that catches a half-done move. The strip
   // half lives in statusStrip.test.tsx.
   it("T-RESYNC-MOVED: NO Re-sync button remains in Overview, in ANY of its modes", () => {
-    for (const overrides of [
-      {},
-      { hasActionableWarnings: true },
-      { archived: true },
-    ] as Partial<OverviewSectionProps>[]) {
+    for (const overrides of [{}, { archived: true }] as Partial<OverviewSectionProps>[]) {
       cleanup();
       render(<OverviewSection {...baseProps(overrides)} />);
       expect(
@@ -84,14 +80,24 @@ describe("OverviewSection", () => {
     }
   });
 
-  // T-RESYNC-GUIDANCE: the guidance copy is NOT the affordance. Deleting the
-  // callout along with the button is the documented failure mode (§6.7) — its
-  // `children` slot was already optional (CorrectionLoopCallout.tsx:43).
-  it("T-RESYNC-GUIDANCE: the correction-loop callout still renders its copy, now with no child button", () => {
-    render(<OverviewSection {...baseProps({ hasActionableWarnings: true })} />);
-    const callout = screen.getByTestId("correction-loop-callout");
-    expect(within(callout).getByText(/then re-sync/i)).toBeTruthy();
-    expect(callout.querySelector("button")).toBeNull();
+  // T-GUIDANCE-DEDUPED: the correction-loop guidance is owned by the Parse
+  // warnings panel (`WarningsBreakdown`, step3ReviewSections.tsx), which renders
+  // it whenever `warnings.length > 0` — a SUPERSET of the actionable subset that
+  // used to gate Overview's copy. So Overview's copy could never be the only one
+  // on screen; it was a verbatim duplicate inside a single modal. The failure
+  // mode caught here is resurrecting it, NOT the guidance disappearing (the
+  // panel-side tests pin that).
+  it("T-GUIDANCE-DEDUPED: Overview renders NO correction-loop callout, in ANY of its modes", () => {
+    for (const overrides of [{}, { archived: true }] as Partial<OverviewSectionProps>[]) {
+      cleanup();
+      render(<OverviewSection {...baseProps(overrides)} />);
+      expect(
+        screen.queryByTestId("correction-loop-callout"),
+        `the Parse warnings panel owns this copy; Overview must not duplicate it for ${JSON.stringify(overrides)}`,
+      ).toBeNull();
+      // Belt-and-braces: the copy must not reappear via some other node.
+      expect(screen.queryByText(/Fixed it in the sheet\?/i)).toBeNull();
+    }
   });
 
   it("published + active: relocates the alert slot; no lifecycle control of its own", () => {
@@ -100,17 +106,7 @@ describe("OverviewSection", () => {
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
   });
 
-  it("published + actionable warnings: the correction-loop callout renders as bare guidance", () => {
-    render(<OverviewSection {...baseProps({ hasActionableWarnings: true })} />);
-    expect(screen.getByTestId("correction-loop-callout")).toBeTruthy();
-  });
-
-  it("published + no warnings: no callout (and, post-move, no Re-sync either)", () => {
-    render(<OverviewSection {...baseProps({ hasActionableWarnings: false })} />);
-    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
-  });
-
-  it("archived: the Re-sync-paused notice replaces the callout", () => {
+  it("archived: the Re-sync-paused notice renders", () => {
     render(<OverviewSection {...baseProps({ archived: true })} />);
     expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
     expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
@@ -123,11 +119,7 @@ describe("OverviewSection", () => {
   // live in the band's hub popover. Overview must not resurrect any of them: a
   // second copy is exactly the duplicate-control state each relocation removed.
   it("renders NO share, sheet-link or lifecycle control in ANY lifecycle", () => {
-    for (const props of [
-      { archived: false },
-      { archived: false, hasActionableWarnings: true },
-      { archived: true },
-    ]) {
+    for (const props of [{ archived: false }, { archived: true }]) {
       const { unmount } = render(<OverviewSection {...baseProps(props)} />);
       expect(screen.queryByTestId("overview-open-sheet")).toBeNull();
       expect(screen.queryByTestId("overview-archive-row")).toBeNull();

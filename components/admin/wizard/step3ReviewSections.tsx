@@ -2362,6 +2362,7 @@ export function reviewWarningTitle(w: ParseWarning): string {
 export function WarningsBreakdown({
   dfid,
   warnings,
+  mode,
   useRawDecisions,
   wizardSessionId,
 }: {
@@ -2370,6 +2371,11 @@ export function WarningsBreakdown({
   // on a non-null dfid, so the null case renders the list without controls.
   dfid: string | null;
   warnings: ParseWarning[];
+  /** Correction-loop verb. This panel is the SINGLE render site for that copy in
+   *  BOTH modes, so the verb cannot be hard-coded: the wizard's action is Re-scan
+   *  (RescanSheetButton) and the published surface's is Re-sync (StatusStrip).
+   *  Derived from `isStaged()` at the registry call site — never guessed here. */
+  mode: "resync" | "rescan";
   /** spec 2026-07-16 §4.1: staged decisions + session so every in-scope row can
    *  render the use-raw / recognize-role controls (live-page parity). Optional/
    *  ABSENT in standalone mounts (exactOptionalPropertyTypes) → no controls. */
@@ -2394,9 +2400,12 @@ export function WarningsBreakdown({
         </p>
       ) : (
         <>
-          {/* Flow 3 (audit 3.1): correction-loop callout (re-scan verb) — copy-only;
-              the wizard already carries RescanSheetButton for the re-scan action. */}
-          <CorrectionLoopCallout mode="rescan" />
+          {/* Flow 3 (audit 3.1): correction-loop callout — copy-only. The verb is
+              mode-derived, never hard-coded: the wizard already carries
+              RescanSheetButton (re-scan), the published surface carries the
+              StatusStrip Re-sync. This is the panel that OWNS this guidance;
+              Overview deliberately does not duplicate it. */}
+          <CorrectionLoopCallout mode={mode} />
           <p
             data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
             className="text-xs text-text-subtle"
@@ -3775,6 +3784,10 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
         <WarningsBreakdown
           dfid={s.driveFileId}
           warnings={s.warnings}
+          // The correction-loop verb names the action that actually exists on
+          // THIS surface: the wizard's Re-scan vs the published StatusStrip's
+          // Re-sync. Same discriminator the session threading uses.
+          mode={isStaged(s) ? "rescan" : "resync"}
           useRawDecisions={s.useRawDecisions}
           {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
         />
