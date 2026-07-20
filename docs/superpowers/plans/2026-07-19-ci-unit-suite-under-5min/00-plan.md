@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md` (APPROVED, 4 adversarial rounds). Section references below are to that spec.
 
+## Plan pipeline checklist (AGENTS.md writing-plans additions)
+
+- [x] Pre-draft code-verification pass (both meta-tests read in full; all line refs verified live)
+- [x] Self-review (notes at bottom)
+- [ ] **Adversarial review (cross-model)** — Codex, iterate to APPROVE, before any execution
+- [ ] Execution (Tasks 1–6, in order; whole-diff cross-model review is Task 5, BEFORE push — per the AGENTS.md autonomous pipeline ordering "whole-diff Codex review to APPROVE; push → real CI green → merge")
+
 ## Global Constraints
 
 - Commit per task, conventional-commits, `--no-verify` (worktree; shared hooks live in the main checkout).
@@ -122,16 +129,18 @@ export const DEFAULT_WEIGHT = 1500; // ms, rough light-file proxy
 // to the nearest 1,000ms. Pinned exactly by vitest-shard-balance.test.ts's
 // MEASURED_HEAVY — update both together when re-measuring.
 export const FILE_WEIGHTS: Record<string, number> = {
-  "tests/cross-cutting/no-global-cursor.test.ts": 54000,
-  "tests/scripts/validation-report-fixtures.test.ts": 40000,
-  "tests/codexGuard/timeouts.test.ts": 28000,
-  "tests/cross-cutting/validation-check-seed-content-coverage.test.ts": 23000,
-  "tests/components/admin/wizard/Step3ReviewModal.test.tsx": 15000,
-  "tests/scripts/validation-check-seed.test.ts": 15000,
-  "tests/app/admin/showReviewModalLoader.test.tsx": 11000,
-  "tests/parser/blocks/event.test.ts": 8000,
+  "tests/cross-cutting/no-global-cursor.test.ts": 54000, // measured 2026-07-20 run 29710814674
+  "tests/scripts/validation-report-fixtures.test.ts": 40000, // measured 2026-07-20 run 29710814674
+  "tests/codexGuard/timeouts.test.ts": 28000, // measured 2026-07-20 run 29710814674
+  "tests/cross-cutting/validation-check-seed-content-coverage.test.ts": 23000, // measured 2026-07-20 run 29710814674
+  "tests/components/admin/wizard/Step3ReviewModal.test.tsx": 15000, // measured 2026-07-20 run 29710814674
+  "tests/scripts/validation-check-seed.test.ts": 15000, // measured 2026-07-20 run 29710814674
+  "tests/app/admin/showReviewModalLoader.test.tsx": 11000, // measured 2026-07-20 run 29710814674
+  "tests/parser/blocks/event.test.ts": 8000, // measured 2026-07-20 run 29710814674
 };
 ```
+
+(The per-row `// measured 2026-07-20 run 29710814674` comment is a spec §5.3 requirement — keep all eight.)
 
 Also `vitest.sequencer.ts` line 12: change `// → deterministic across the two separate CI runners.` to `// → deterministic across the N separate CI runners.` (spec §4.5 — leg-count-neutral).
 
@@ -227,7 +236,7 @@ git commit --no-verify -m "infra: unit-suite shard matrix 3 -> 6 legs (topology 
 - [ ] **Step 1: Append cache pins to the topology test.** Add after the existing `describe` block in `tests/cross-cutting/unit-suite-shard-topology.test.ts`:
 
 ```ts
-describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — delete this block if the lever is reverted per §6.1)", () => {
+describe("unit-suite Supabase image cache (spec 2026-07-19 §5.2 — if the lever is reverted per §6.1, REPLACE this block with the zero-count guard in plan Task 6 step 4.1)", () => {
   it("restore step declares the exact id its guards reference", () => {
     expect(
       /- name: Restore Supabase image cache\n {8}id: supabase-image-cache\n/.test(YAML),
@@ -295,7 +304,8 @@ Expected: FAIL — the 5 new cache tests; the original 7 PASS.
 ```yaml
       # Conditional image-cache lever (spec 2026-07-19 §5.2; keep-or-revert
       # decided by the §6 accept gate — if reverted, delete these three steps
-      # AND the topology test's cache describe-block in the same commit).
+      # and in the same commit replace the topology test's cache describe-block
+      # with the zero-soft-fail guard, which must REMAIN).
       # Key inputs: runner OS/arch; the setup-cli version literal (image tags
       # derive from CLI version — topology test pins the two literals equal);
       # hashFiles over config.toml (db.major_version selects the postgres
@@ -310,8 +320,10 @@ Expected: FAIL — the 5 new cache tests; the original 7 PASS.
           key: supabase-images-${{ runner.os }}-2.107.0-${{ hashFiles('supabase/config.toml', 'scripts/ci/supabase-local-bootstrap.sh') }}
       - name: Load cached Supabase images (hit only)
         if: steps.supabase-image-cache.outputs.cache-hit == 'true'
-        # `|| true`: a corrupt/failed load degrades to today's behavior
-        # (`supabase start` pulls whatever is missing) — never fails the leg.
+        # Trailing soft-fail operator (NOT repeated in this comment — the
+        # topology meta-test counts its occurrences): a corrupt/failed load
+        # degrades to today's behavior (`supabase start` pulls whatever is
+        # missing) — never fails the leg.
         run: zstd -d --stdout ~/supabase-images.tar.zst | docker load || true
 ```
 
@@ -320,14 +332,16 @@ And after the vitest step (end of the shard job):
 ```yaml
       - name: Save Supabase images for cache (miss only)
         if: steps.supabase-image-cache.outputs.cache-hit != 'true'
-        # One braced compound + ONE trailing `|| true`: any failure (apt,
-        # enumeration, docker save, zstd, disk) costs only the cache entry,
-        # never the leg. pipefail is load-bearing (default `bash -e {0}` takes
-        # the PIPELINE status from zstd alone — a mid-stream docker-save death
-        # would otherwise publish a truncated archive). tmp-then-mv is
-        # load-bearing (the cache post-step uploads whatever sits at the cache
-        # path under an IMMUTABLE key — a partial file would hit forever,
-        # soft-fail every load, and never regenerate since save is miss-only).
+        # One braced compound with a single trailing soft-fail operator (the
+        # literal is NOT repeated in this comment — the topology meta-test
+        # counts its occurrences): any failure (apt, enumeration, docker save,
+        # zstd, disk) costs only the cache entry, never the leg. pipefail is
+        # load-bearing (default `bash -e {0}` takes the PIPELINE status from
+        # zstd alone — a mid-stream docker-save death would otherwise publish
+        # a truncated archive). tmp-then-mv is load-bearing (the cache
+        # post-step uploads whatever sits at the cache path under an IMMUTABLE
+        # key — a partial file would hit forever, soft-fail every load, and
+        # never regenerate since save is miss-only).
         run: |
           set -o pipefail
           { (command -v zstd || sudo apt-get install -y zstd) \
@@ -362,15 +376,70 @@ git commit --no-verify -m "infra: conditional Supabase image cache on unit-suite
 
 ---
 
-### Task 5: PR + empirical accept gate (spec §6, on real CI)
+### Task 5: Whole-diff cross-model review (BEFORE push — AGENTS.md pipeline ordering)
 
-**Files:** none (GitHub operations).
+**Files:** none (review dispatch; fix-forward commits only if findings land).
 
-- [ ] **Step 1:** Push branch; open PR titled `infra: CI unit-suite under 5 min — Phase 1 (6-leg shard matrix + conditional image cache + weight refresh)`. Body: spec/plan links, the §3 measured baseline, and a placeholder table for the §6 measurements.
-- [ ] **Step 2:** Watch run 1 (cache miss): `gh pr checks <PR#> --watch`. Record per-leg wall clocks + vitest-step durations. Verify all legs + aggregator green.
-- [ ] **Step 3:** Trigger run 2 (cache hit — first run after a green run): `gh run rerun <run-1-id>` — a rerun executes on the SAME `refs/pull/N/merge` ref, so it restores the cache run 1 saved. (A `workflow_dispatch` run would execute on `refs/heads/<branch>`, a different cache scope, and always miss — do not use it for this measurement. Fallback if rerun is refused: push an empty commit.) Record the leg-median boot path (restore+load+boot summed).
-- [ ] **Step 4:** Apply §6 ordered decision: (1) cache keep iff median boot path ≤56s, else revert commit (3 steps + test describe-block); (2) max leg <5 min on surviving config; (3) vitest-step skew ≤75s, else reweight outlier from the run's own log and re-push; (4) if <5 min misses, predeclared 8-leg bump (matrix, `/6`→`/8`, both meta-test literals) and re-run. Record all measurements + decisions in the PR body.
-- [ ] **Step 5:** Cross-model whole-diff review, then merge (pipeline Stage 4 — `gh pr merge --merge` after real CI green; fast-forward local main; verify `0 0`).
+- [ ] **Step 1:** Dispatch the whole-diff Codex review via `node scripts/codex-guard.mjs review` (fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list = spec §1.1 + both review histories). Iterate to APPROVE, no round budget.
+- [ ] **Step 2:** Any repair commits follow the same shape as their originating task (test edit first if a test is wrong, then implementation, then targeted vitest run, then commit `fix(infra): <what>` — one commit per finding class).
+- [ ] **Step 3:** Only on APPROVE proceed to Task 6.
+
+---
+
+### Task 6: PR + empirical accept gate (spec §6, on real CI)
+
+**Files:** conditional — `.github/workflows/unit-suite.yml`, both meta-tests, `lib/test/vitest.weights.ts` (only on the revert / reweight / 8-leg branches below).
+
+- [ ] **Step 1: Push + PR.**
+
+```bash
+git push -u origin chore/ci-unit-suite-5min-phase1
+gh pr create --title "infra: CI unit-suite under 5 min — Phase 1 (6-leg shard matrix + conditional image cache + weight refresh)" --body "<spec/plan links, §3 baseline table, empty §6 measurement table>"
+```
+
+- [ ] **Step 2: Run 1 (cache miss) — watch and measure.**
+
+```bash
+gh pr checks <PR#> --watch
+RUN1=$(gh run list --workflow unit-suite.yml --branch chore/ci-unit-suite-5min-phase1 --limit 1 --json databaseId --jq '.[0].databaseId')
+# Per-leg job wall clocks + step durations (boot path components + vitest):
+gh run view $RUN1 --json jobs --jq '.jobs[] | select(.name|startswith("unit-suite-shard")) | {leg: .name, wall_s: (((.completedAt|fromdate)-(.startedAt|fromdate))), steps: [.steps[] | select(.name|test("Restore Supabase|Load cached|Boot local|Run vitest")) | {s: .name, secs: ((.completedAt|fromdate)-(.startedAt|fromdate))}]}'
+```
+
+Expected: all legs + aggregator green; restore step ~0s (miss), load skipped. Verify `mergeStateStatus` is not DIRTY (`gh pr view <PR#> --json mergeStateStatus`). If a leg fails on an unrelated flake (e.g. docker-pull retry exhaustion, a step that never reached vitest), `gh run rerun $RUN1 --failed` and do not count that run for any measurement (spec §6.4 no-repetition rule applies to QUALIFYING runs only).
+
+- [ ] **Step 3: Run 2 (cache hit) — rerun on the same merge ref.**
+
+```bash
+gh run rerun $RUN1   # rerun executes on the SAME refs/pull/N/merge ref → restores run 1's cache.
+# (workflow_dispatch would run on refs/heads/<branch>, a different cache scope — always a miss. Fallback if rerun refused: git commit --allow-empty + push.)
+RUN2=<new run id from gh run list>   # rerun replaces RUN1's id in some gh versions; take the newest run id
+# Boot path per leg = Restore + Load + Boot summed; compute median across legs:
+gh run view $RUN2 --json jobs --jq '[.jobs[] | select(.name|startswith("unit-suite-shard")) | ([.steps[] | select(.name|test("Restore Supabase|Load cached|Boot local")) | ((.completedAt|fromdate)-(.startedAt|fromdate))] | add)] | sort | .[(length/2|floor)]'
+```
+
+- [ ] **Step 4: §6 ordered decision (each conditional mutation is TDD'd + committed like Tasks 1–3):**
+
+  **(1) Cache decision:** keep iff the Step-3 median ≤56s. If REVERT: first edit the topology test — replace the entire cache `describe` block with the zero-count guard the spec requires to REMAIN after reversion (spec §5.4.1 "the soft-failure-count-zero form remains"):
+
+  ```ts
+  describe("unit-suite has no cache lever (reverted per spec 2026-07-19 §6.1)", () => {
+    it("no soft-failed commands and no cache steps remain", () => {
+      expect(YAML.match(/\|\| true/g) ?? [], "a reverted cache lever must leave zero soft-fail sites").toHaveLength(0);
+      expect(YAML.includes("supabase-image-cache"), "no cache step may remain after reversion").toBe(false);
+    });
+  });
+  ```
+
+  Run `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts` — expect FAIL (steps still present); delete the three workflow steps; run again — expect PASS; commit `infra: revert image-cache lever (measured saving <15s, spec §6.1)` with the measurement in the body. Push; the next PR run (now cacheless) is the surviving-configuration measurement run for step (2).
+
+  **(2) Wall-clock criterion:** on the surviving configuration's qualifying run, `max leg wall_s < 300`. Record.
+
+  **(3) Balance criterion:** max−min vitest-step secs ≤75 across legs (from the Step-2/Step-3 jq output). If exceeded: extract the outlier leg's per-file times from its log (`gh run view <id> --log | grep "unit-suite-shard (<n>)" | perl -pe 's/\x1b\[[0-9;]*m//g' | grep -oE "✓ +(serial|parallel) +tests/[^ ]+ \([0-9]+ tests[^)]*\) [0-9]+ms"`), update BOTH the `MEASURED_HEAVY` literal and `FILE_WEIGHTS` for the mis-weighted file (test first: edit `MEASURED_HEAVY`, run balance test → FAIL, edit map, → PASS), commit `test(infra): reweight <file> from run <id> per-leg log (spec §6.3)`, push, re-measure.
+
+  **(4) 8-leg fallback** (only if (2) misses at 6): test-first edits — topology matrix literal test to `[1, 2, 3, 4, 5, 6, 7, 8]` + denominator `.toBe(8)`, balance loops `[2, 3, 6]` → `[2, 3, 8]` in BOTH loops; run both meta-tests → FAIL; workflow `shard: [1, 2, 3, 4, 5, 6, 7, 8]`, `--shard=${{ matrix.shard }}/8`, step name `/8`, header prose `6-leg`→`8-leg` / `i/6`→`i/8` / `six legs`→`eight legs`; run both meta-tests → PASS; commit `infra: 8-leg fallback per spec §6.4 (6-leg max leg <measured>s ≥300s)`; push; re-run steps (2)–(3) on the new matrix. If STILL ≥300s at 8: compare max-leg wall of the 6-leg and 8-leg qualifying runs, keep the faster configuration (revert to 6 with the same test-first shape if 6 won), verify it beats the 3-leg baseline's 8-minute max leg (every projection clears this by minutes — if somehow not, STOP and escalate, do not merge), and record the residual gap in the PR body + `BACKLOG.md` as Phase 2's opening number.
+
+- [ ] **Step 5: Record + merge.** All measurements + decisions in the PR body (§6 table filled). If any repair commits landed after Task 5's APPROVE, re-dispatch a delta cross-model review of those commits to APPROVE. Then: real CI green on the final configuration → `gh pr merge <PR#> --merge` in the same turn → `cd /Users/ericweiss/FX-Webpage-Template && git pull --ff-only && git rev-list --left-right --count main...origin/main` → expect `0	0`.
 
 ---
 
