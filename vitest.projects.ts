@@ -16,7 +16,18 @@
 // never overlaps the serial one — a fixture-corpus reader in the parallel set
 // (e.g. tests/help/fixture-range-parser, tests/parser) never races the serial
 // writer. New directories default to SERIAL (safe): add to this list ONLY after
-// verifying the dir is DB-free. The vitest-projects-partition meta-test pins the
+// verifying the dir is DB-free.
+//
+// The DB-free claim is now CI-ENFORCED rather than trusted. It began as a
+// one-time, per-DIRECTORY audit (2026-06-23), so files added to these dirs
+// afterwards inherited it unverified -- two had, and were racing each other
+// against one shared DB under fileParallelism:true (CI probe run 29758568301;
+// both moved to tests/admin/). The unit-suite-nodb job now runs this ENTIRE
+// project on a runner with no Supabase and no psql installed, on every PR, so a
+// DB-touching file added to a parallel dir fails immediately instead of drifting
+// in silently. Spec: docs/superpowers/specs/ci/2026-07-20-unit-suite-project-split.md
+//
+// The vitest-projects-partition meta-test pins the
 // invariant that every non-nightly test file lands in exactly one default
 // project (the nightly mutation-harness files land in none by design).
 
