@@ -26,7 +26,7 @@
 
 **Create:**
 - lib/adminAlerts/resolveActionLabel.ts, intent map + label pairs. Pure, no imports from components.
-- tests/adminAlerts/resolveIntentsBaseline.ts, frozen `code → intent` baseline for the lifecycle oracle.
+- tests/adminAlerts/resolveIntentsBaseline.json, frozen `code → intent` baseline (JSON, so the history gate parses it exactly) for the lifecycle oracle.
 - tests/adminAlerts/resolveActionLabel.test.ts
 - tests/messages/_metaShowScopedTemplates.test.ts, defenses 1, 2, 3 (prefix declaration, rendered validity, paired fixture).
 - tests/adminAlerts/_metaResolveIntentLifecycle.test.ts, defense 5 (completeness + two-layer lifecycle).
@@ -96,7 +96,7 @@ describe("authored show-scoped variants", () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `pnpm vitest run tests/messages/showScopedCopy.test.ts`
-Expected: FAIL, `dougFacingShowScoped` is `undefined`, and a type error that the property does not exist on `MessageCatalogEntry`.
+Expected: FAIL with `expected undefined to be "<role-changes><lead-hint>"`. Note this is a RUNTIME assertion failure, not a type error: vitest strips types, so the "property does not exist on MessageCatalogEntry" error appears only under `pnpm typecheck` (review R1 finding 15).
 
 - [ ] **Step 3: Add the field to the type**
 
@@ -299,7 +299,7 @@ describe("lead-hint is scope-dependent", () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `pnpm vitest run tests/adminAlerts/deriveMessageParams.test.ts`
-Expected: FAIL, a type error on the 4th argument, then the show-scope assertion returning the sentence.
+Expected: FAIL on the show-scope assertion, which returns the LEAD sentence instead of `""`. The extra-argument type error surfaces under `pnpm typecheck`, not here (review R1 finding 15).
 
 - [ ] **Step 3: Implement**
 
@@ -345,9 +345,29 @@ Assignment at `lib/adminAlerts/deriveMessageParams.ts:358`:
   const params = deriveAlertMessageParams(row.code, row.context, null, "global");
 ```
 
+- [ ] **Step 4b: Migrate the existing TEST call sites (53 of them)**
+
+Review R1 finding 3 is right that making the parameter required breaks existing three-argument calls, and that `pnpm vitest` would still pass because it strips types. Verified counts:
+
+| File | Call sites |
+| --- | --- |
+| `tests/adminAlerts/deriveMessageParams.test.ts` | 48 |
+| `tests/adminAlerts/_metaAdminTemplateCoverage.test.ts` | 3 |
+| `tests/messages/_metaAdminAlertCatalog.test.ts` | 1 |
+| `tests/adminAlerts/_metaInlineIdentityContract.test.ts` | 1 |
+
+Every existing call asserts GLOBAL behavior (they predate scope), so the migration is mechanical: add `, "global"` as the fourth argument. Do NOT blanket-edit the three new show-scope tests added in Step 1.
+
+```bash
+# Inspect first, then apply. Multi-line calls will not match; fix those by hand.
+grep -rn "deriveAlertMessageParams(" tests/ | wc -l   # expect 53 before, 53 after
+```
+
+Then re-run `pnpm typecheck` — it is the only gate that sees a missed site.
+
 - [ ] **Step 5: Run tests and typecheck**
 
-Run: `pnpm vitest run tests/adminAlerts/ && pnpm typecheck`
+Run: `pnpm vitest run tests/adminAlerts/ tests/messages/ && pnpm typecheck`
 Expected: PASS. Typecheck is the real gate here, it proves no call site was missed.
 
 - [ ] **Step 6: Commit**
@@ -490,15 +510,22 @@ Expected: PASS.
 // tests/components/admin/resolveLabelCrossProduct.test.tsx
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
+import { BellRowFixture } from "./_bellRowFixture";
 
 // 3 buttons x 2 intents. A component that hardcodes a label, ignores its
 // `code`, or calls the module and discards the result fails at least one cell.
 // Assertions read the BUTTON's own accessible name via data-testid, never a
 // container query: this code's message body contains the word "confirm", so a
 // container-scoped getByText(/confirm/i) passes with the label still wrong.
+// Both states for every surface. Review R1 finding 5: an idle-only matrix
+// lets a component use `.idle` in BOTH states and still pass everywhere.
+// `pending` is driven per surface: PerShow via its internal running state
+// (click, with the fetch stubbed to never settle), Health via useFormStatus
+// (submit the form), Bell via its `resolving` prop.
 describe("resolve label cross-product", () => {
   it("PerShowAlertResolveButton reads Confirm for a confirm-intent code", () => {
     render(
@@ -523,10 +550,90 @@ describe("resolve label cross-product", () => {
     render(<HealthAlertResolveButton alertId="h2" code="AMBIGUOUS_EMAIL_BINDING" />);
     expect(screen.getByTestId("health-alert-resolve-h2")).toHaveTextContent("Mark resolved");
   });
+
+  // ---- pending state, per surface ----
+
+  it("PerShowAlertResolveButton pending reads Confirming… for confirm intent", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {}))); // never settles
+    render(<PerShowAlertResolveButton alertId="p1" slug="s" code="ROLE_FLAGS_NOTICE" />);
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-p1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("per-show-alert-resolve-p1")).toHaveTextContent("Confirming…"),
+    );
+  });
+
+  it("PerShowAlertResolveButton pending reads Resolving… for resolve intent", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    render(<PerShowAlertResolveButton alertId="p2" slug="s" code="AMBIGUOUS_EMAIL_BINDING" />);
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-p2"));
+    await waitFor(() =>
+      expect(screen.getByTestId("per-show-alert-resolve-p2")).toHaveTextContent("Resolving…"),
+    );
+  });
+
+  it("HealthAlertResolveButton pending reads the intent-correct label", async () => {
+    // useFormStatus reports pending only while the action is in flight, so the
+    // action passed in must not settle.
+    render(<HealthAlertResolveButton alertId="h3" code="ROLE_FLAGS_NOTICE" />);
+    fireEvent.submit(screen.getByTestId("health-alert-resolve-form-h3"));
+    await waitFor(() =>
+      expect(screen.getByTestId("health-alert-resolve-h3")).toHaveTextContent("Confirming…"),
+    );
+  });
+
+  it("BellPanel row pending reads the intent-correct label", async () => {
+    // The bell button takes `resolving` from its parent row state; render the
+    // row with resolving already true rather than simulating the request.
+    render(<BellRowFixture code="ROLE_FLAGS_NOTICE" alertId="b1" resolving />);
+    expect(screen.getByTestId("bell-resolve-b1")).toHaveTextContent("Confirming…");
+  });
+
+  it("BellPanel row idle reads Confirm for confirm intent", () => {
+    render(<BellRowFixture code="ROLE_FLAGS_NOTICE" alertId="b2" resolving={false} />);
+    expect(screen.getByTestId("bell-resolve-b2")).toHaveTextContent("Confirm");
+  });
+
+  it("BellPanel row idle reads Mark resolved for resolve intent", () => {
+    render(<BellRowFixture code="AMBIGUOUS_EMAIL_BINDING" alertId="b3" resolving={false} />);
+    expect(screen.getByTestId("bell-resolve-b3")).toHaveTextContent("Mark resolved");
+  });
 });
 ```
 
-The BellPanel cells are covered in the existing bell test file, which already has the row-rendering harness, extend `tests/components/bellPanelRedesign.test.tsx` with the same two assertions against `bell-resolve-<id>`.
+`BellRowFixture` is a new local helper, tests/components/admin/_bellRowFixture.tsx, that renders one bell entry row with the props the row component needs. Model it on the entry construction already used in `tests/components/bellPanelRedesign.test.tsx` (which has a working bell-row harness) and export it so both files can use it:
+
+```tsx
+// tests/components/admin/_bellRowFixture.tsx
+import { BellPanel } from "@/components/admin/BellPanel";
+
+/** One non-health, non-auto-resolving bell row, so the resolve button renders
+ *  (BellPanel.tsx:320 suppresses it for health and auto-resolving codes). */
+export function BellRowFixture({
+  code,
+  alertId,
+  resolving,
+}: {
+  code: string;
+  alertId: string;
+  resolving: boolean;
+}) {
+  const entry = {
+    alertId,
+    code,
+    isHealth: false,
+    isAutoResolving: false,
+    autoResolveNote: null,
+    messageParams: {},
+    context: {},
+    raisedAt: new Date(0).toISOString(),
+    occurrenceCount: 1,
+    readAt: null,
+  };
+  return <BellPanel feed={{ entries: [entry] }} initialResolvingId={resolving ? alertId : null} />;
+}
+```
+
+**Implementer note:** copy the entry shape from `tests/components/bellPanelRedesign.test.tsx` rather than the sketch above if they disagree; that file is the working reference and `BellEntry` (lib/admin/bellFeed.ts:41-52) is the type of record. If BellPanel has no `initialResolvingId` prop, render the row component directly instead of the panel, or add the prop as test-only surface only if the existing test file already does so, never invent a production prop for a test.
 
 - [ ] **Step 6: Run it and watch it fail**
 
@@ -557,6 +664,17 @@ Expected: FAIL, `code` is not a prop on either component, and both render "Mark 
 
 Update every call site that renders these buttons to pass `code` (`components/admin/review/AttentionBanner.tsx:193` passes `item.alert.code`; `HealthAlertsPanel.tsx` passes `row.code`). `pnpm typecheck` finds them all.
 
+- [ ] **Step 7b: Migrate the existing component test renders (4 of them)**
+
+Review R1 finding 4: a required `code` prop breaks existing renders, and vitest strips types so only typecheck catches it. Verified:
+
+| File | Renders |
+| --- | --- |
+| `tests/components/admin/PerShowAlertResolveButton.test.tsx` | 3 |
+| `tests/components/healthAlertResolveButton.test.tsx` | 1 |
+
+Add `code="AMBIGUOUS_EMAIL_BINDING"` to each existing render. That code is resolve-intent, so every existing assertion expecting "Mark resolved" / "Resolving…" keeps passing — which is the point: the migration must not silently change what those tests assert.
+
 - [ ] **Step 8: Run tests and typecheck**
 
 Run: `pnpm vitest run tests/components/ tests/adminAlerts/ && pnpm typecheck`
@@ -573,8 +691,16 @@ git commit -m "feat(admin): one resolve label per alert intent across all three 
 
 ### Task 5: Structural defenses
 
+**Ordering note (plan review R1 finding 8).** The plan's own rule says a defense ships in the same commit as the code it defends, yet Tasks 1, 2, and 4 commit first. That contradiction is resolved by moving each defense into the task whose code it guards:
+
+- Defense 1, 2, 3 (template declaration, rendered validity, paired fixture) move into **Task 1's commit**, since they guard the catalog field and the authored variants.
+- Defense 6 (topology) moves into **Task 2's commit**, since it guards the no-scope-parameter assumption in `safeDougFacingTemplate`.
+- Defense 4 (label single-source) and defense 5 (completeness + lifecycle) move into **Task 4's commit**, since they guard the label module.
+
+This task remains as the single place their CODE is written; when executing, write the test file here, then `git add` it as part of the referenced task's commit rather than committing it separately. Tasks 1, 2, and 4 are therefore not complete until their defense is green.
+
 **Files:**
-- Create: tests/messages/_metaShowScopedTemplates.test.ts, tests/adminAlerts/_metaResolveIntentLifecycle.test.ts, tests/admin/_metaAttentionItemsTopology.test.ts, tests/adminAlerts/resolveIntentsBaseline.ts, tests/components/admin/_metaResolveLabelSingleSource.test.ts
+- Create: tests/messages/_metaShowScopedTemplates.test.ts, tests/adminAlerts/_metaResolveIntentLifecycle.test.ts, tests/admin/_metaAttentionItemsTopology.test.ts, tests/adminAlerts/resolveIntentsBaseline.json, tests/components/admin/_metaResolveLabelSingleSource.test.ts
 - Modify: lib/adminAlerts/resolveActionLabel.ts (rows the completeness test demands)
 
 **Interfaces:**
@@ -710,35 +836,50 @@ Expected: PASS. If defense 1 lists codes, either author a variant or add an exem
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { walk } from "../styles/_classScanUtils";
+import { walk, stripComments } from "../styles/_classScanUtils";
 
 const ROOT = process.cwd();
 const SOURCE_DIRS = ["app", "components", "lib", "scripts"];
 
-function callersOf(symbol: string, selfPath: string): string[] {
-  const hits: string[] = [];
+/**
+ * Counts CALL SITES, not files, and counts them everywhere including the
+ * defining file. Review R1 finding 6 is right that an "expect zero external
+ * callers" assertion proves nothing: it never counts the internal call, so
+ * deleting that call, duplicating it, or aliasing the function all pass.
+ */
+function callSites(symbol: string): { file: string; count: number }[] {
+  const out: { file: string; count: number }[] = [];
   for (const dir of SOURCE_DIRS) {
     for (const file of walk(join(ROOT, dir))) {
       if (!/\.tsx?$/.test(file)) continue;
-      const rel = file.replace(`${ROOT}/`, "");
-      if (rel === selfPath) continue;
-      const src = readFileSync(file, "utf8");
-      if (new RegExp(`\\b${symbol}\\s*\\(`).test(src)) hits.push(rel);
+      // stripComments so a mention in a docstring is not a call site.
+      const src = stripComments(readFileSync(file, "utf8"));
+      const calls = src.match(new RegExp(`\\b${symbol}\\s*\\(`, "g")) ?? [];
+      // A bare reference without parens (passed as a callback, re-exported,
+      // aliased) is ALSO a topology change, so count those too.
+      const refs = src.match(new RegExp(`\\b${symbol}\\b`, "g")) ?? [];
+      const imports = src.match(new RegExp(`import[^;]*\\b${symbol}\\b[^;]*;`, "g")) ?? [];
+      const total = Math.max(calls.length, refs.length - imports.length);
+      if (total > 0) out.push({ file: file.replace(`${ROOT}/`, ""), count: total });
     }
   }
-  return hits.sort();
+  return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
 describe("attention-items call topology", () => {
-  it("safeDougFacingTemplate has exactly one caller", () => {
-    expect(callersOf("safeDougFacingTemplate", "lib/admin/attentionItems.ts")).toEqual([]);
-    // Its only call is INSIDE attentionItems.ts (deriveAttentionItems), which
-    // is why the external caller list is empty.
+  it("safeDougFacingTemplate is referenced exactly once, inside its own module", () => {
+    // Exact expected shape. Adding a caller, removing the call, or aliasing
+    // the symbol all fail here, which is what makes the no-scope-parameter
+    // design in spec §3.5 sound.
+    expect(callSites("safeDougFacingTemplate")).toEqual([
+      { file: "lib/admin/attentionItems.ts", count: 1 },
+    ]);
   });
 
-  it("deriveAttentionItems is called only from the show modal", () => {
-    expect(callersOf("deriveAttentionItems", "lib/admin/attentionItems.ts")).toEqual([
-      "app/admin/_showReviewModal.tsx",
+  it("deriveAttentionItems is referenced exactly once outside its own module", () => {
+    expect(callSites("deriveAttentionItems")).toEqual([
+      { file: "app/admin/_showReviewModal.tsx", count: 1 },
+      { file: "lib/admin/attentionItems.ts", count: 1 },
     ]);
   });
 });
@@ -763,12 +904,17 @@ An import assertion is vacuous, a component can import the module, ignore it, an
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
-const LABEL_LITERALS = [
+// Every label string, matched as WORDS in comment-stripped source so a JSX
+// text node (<button>Confirm</button>) is caught as readily as a quoted
+// literal. Review R1 finding 7: the first draft matched `Confirm"` (quoted
+// form only) and omitted "Dismiss" entirely.
+const LABEL_WORDS = [
   "Mark resolved",
-  "Confirm\"",
-  "Confirming…",
-  "Resolving…",
-  "Dismissing…",
+  "Confirm",
+  "Confirming",
+  "Resolving",
+  "Dismiss",
+  "Dismissing",
 ];
 
 const BUTTON_FILES = [
@@ -779,48 +925,43 @@ const BUTTON_FILES = [
 
 describe("resolve labels have exactly one home", () => {
   for (const file of BUTTON_FILES) {
-    it(`${file} contains no hardcoded label literal`, () => {
-      const src = readFileSync(file, "utf8");
-      const hits = LABEL_LITERALS.filter((lit) => src.includes(lit));
-      expect(hits, `import them from lib/adminAlerts/resolveActionLabel.ts`).toEqual([]);
+    it(`${file} contains no hardcoded label text`, () => {
+      const src = stripComments(readFileSync(file, "utf8"));
+      const hits = LABEL_WORDS.filter((w) => new RegExp(`\\b${w}\\b`).test(src));
+      expect(hits, "import the pair from lib/adminAlerts/resolveActionLabel.ts").toEqual([]);
     });
   }
 
   it("the label module DOES contain them (proving the scan looks for live strings)", () => {
     const src = readFileSync("lib/adminAlerts/resolveActionLabel.ts", "utf8");
-    expect(src).toContain("Mark resolved");
-    expect(src).toContain("Confirming…");
+    for (const w of LABEL_WORDS) expect(src, `${w} vanished from the label module`).toMatch(new RegExp(`\\b${w}\\b`));
   });
 });
 ```
 
-The second assertion is the anti-tautology control: without it, the scan would still pass if someone renamed every label and the literals no longer existed anywhere.
+The second assertion is the anti-tautology control: without it the scan would still pass if someone renamed every label and the strings no longer existed anywhere. It also means the scan is NOT a proof that components consume the correct state-dependent pair, which is what the behavioral cross-product in Task 4 is for. Both are needed; neither substitutes for the other.
+
+`"Dismiss"` will hit `BellPanel.tsx` until Task 4 routes that branch through the module, which is the point: it was a third spelling of the same action.
 
 Run: `pnpm vitest run tests/components/admin/_metaResolveLabelSingleSource.test.ts`
 Expected: PASS after Task 4's edits. If `BellPanel.tsx` still trips on `"Dismiss"`, that is a real hit, route it through the module.
 
 - [ ] **Step 5: Write the baseline and defense 5 (lifecycle)**
 
-```ts
-// tests/adminAlerts/resolveIntentsBaseline.ts
-/**
- * Every code->intent pair RESOLVE_INTENTS has ever held.
- *
- * Append-only. A row is never removed and an intent is never changed, because
- * admin_alerts rows persist: deleting a retired producer's row would silently
- * flip already-stored rows from "Confirm" back to "Mark resolved". Retiring a
- * producer means `retired: true` in RESOLVE_INTENTS, which keeps this pair.
- *
- * Enforced by _metaResolveIntentLifecycle.test.ts against origin/main, because
- * no single-tree assertion can enforce append-only (adversarial R6).
- */
-export const RESOLVE_INTENTS_BASELINE: Readonly<Record<string, "confirm" | "resolve">> = {
-  ROLE_FLAGS_NOTICE: "confirm",
-  AMBIGUOUS_EMAIL_BINDING: "resolve",
-  OAUTH_IDENTITY_CLAIMED: "resolve",
-  PICKER_BOOTSTRAP_RPC_FAILED: "resolve",
-  PICKER_SELECTION_RACE: "resolve",
-};
+The baseline is **JSON, not TypeScript**. Review R1 finding 12 is right that parsing a TS literal out of a git blob with a formatting-sensitive regex is fragile: quoted keys, reindentation, or a prettier pass could drop rows while `historical.length > 0` still passes. JSON parses exactly.
+
+```json
+// tests/adminAlerts/resolveIntentsBaseline.json
+{
+  "_comment": "Every code->intent pair RESOLVE_INTENTS has ever held. APPEND-ONLY: never remove a row, never change an intent. admin_alerts rows persist, so deleting a retired producer's row would silently flip already-stored rows from Confirm back to Mark resolved. Retiring a producer means retired:true in RESOLVE_INTENTS, which keeps this pair. Enforced against origin/main by _metaResolveIntentLifecycle.test.ts, because no single-tree assertion can enforce append-only.",
+  "intents": {
+    "ROLE_FLAGS_NOTICE": "confirm",
+    "AMBIGUOUS_EMAIL_BINDING": "resolve",
+    "OAUTH_IDENTITY_CLAIMED": "resolve",
+    "PICKER_BOOTSTRAP_RPC_FAILED": "resolve",
+    "PICKER_SELECTION_RACE": "resolve"
+  }
+}
 ```
 
 ```ts
@@ -828,11 +969,12 @@ export const RESOLVE_INTENTS_BASELINE: Readonly<Record<string, "confirm" | "reso
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { RESOLVE_INTENTS } from "@/lib/adminAlerts/resolveActionLabel";
-import { RESOLVE_INTENTS_BASELINE } from "./resolveIntentsBaseline";
+import BASELINE from "./resolveIntentsBaseline.json";
 import { ADMIN_ALERTS_CODES } from "../messages/adminAlertsRegistry";
 import { AUTO_RESOLVING_CODES } from "@/lib/adminAlerts/audience";
 
-const BASELINE_PATH = "tests/adminAlerts/resolveIntentsBaseline.ts";
+const BASELINE_PATH = "tests/adminAlerts/resolveIntentsBaseline.json";
+const RESOLVE_INTENTS_BASELINE = BASELINE.intents as Record<string, "confirm" | "resolve">;
 
 describe("defense 5a: completeness", () => {
   it("every resolve-eligible code has an explicit intent row", () => {
@@ -893,12 +1035,13 @@ describe("defense 5c: layer 2, history", () => {
     const prev = baselineOnMain();
     if (prev === null) return; // bootstrap: no baseline on main yet, nothing to preserve
 
-    const historical = [...prev.matchAll(/^\s{2}([A-Z0-9_]+):\s*"(confirm|resolve)"/gm)];
-    expect(historical.length, "could not parse the baseline on origin/main").toBeGreaterThan(0);
+    // JSON.parse, never a regex over source text (review R1 finding 12).
+    const historical = JSON.parse(prev).intents as Record<string, "confirm" | "resolve">;
+    expect(Object.keys(historical).length, "baseline on origin/main is empty").toBeGreaterThan(0);
 
-    for (const [, code, intent] of historical) {
+    for (const [code, intent] of Object.entries(historical)) {
       expect(
-        RESOLVE_INTENTS[code!]?.intent,
+        RESOLVE_INTENTS[code]?.intent,
         `${code} changed or was deleted; rows already in admin_alerts still render it`,
       ).toBe(intent);
     }
@@ -914,7 +1057,7 @@ Expected: completeness may FAIL and name missing codes, add a row per named code
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/messages/_metaShowScopedTemplates.test.ts tests/components/admin/_metaResolveLabelSingleSource.test.ts tests/admin/_metaAttentionItemsTopology.test.ts tests/adminAlerts/_metaResolveIntentLifecycle.test.ts tests/adminAlerts/resolveIntentsBaseline.ts lib/adminAlerts/resolveActionLabel.ts
+git add tests/messages/_metaShowScopedTemplates.test.ts tests/components/admin/_metaResolveLabelSingleSource.test.ts tests/admin/_metaAttentionItemsTopology.test.ts tests/adminAlerts/_metaResolveIntentLifecycle.test.ts tests/adminAlerts/resolveIntentsBaseline.json lib/adminAlerts/resolveActionLabel.ts
 git commit -m "test(alerts): structural defenses for show-scoped copy and intent lifecycle"
 ```
 
@@ -940,10 +1083,35 @@ After `- uses: actions/checkout@v4` (line 62):
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 ```
 
-- [ ] **Step 2: Verify locally**
+- [ ] **Step 2: Prove the red phase in a checkout that actually lacks the ref**
 
-Run: `cd /Users/ericweiss/FX-worktrees/show-scoped-alert-copy && git rev-parse --verify origin/main && CI=1 pnpm vitest run tests/adminAlerts/_metaResolveIntentLifecycle.test.ts`
-Expected: PASS with `CI=1` set, proving the CI branch does not throw when the ref resolves.
+Review R1 finding 9 is right that running this in the current worktree proves nothing: `origin/main` is already present here, so the test passes with or without the workflow edit. Reproduce the CI condition instead.
+
+```bash
+# A clone with NO origin/main remote-tracking ref, exactly like a depth-1 checkout.
+TMP=$(mktemp -d)
+git clone --depth 1 --single-branch --branch feat/show-scoped-alert-copy \
+  file:///Users/ericweiss/FX-Webpage-Template "$TMP/probe" 2>/dev/null
+cd "$TMP/probe" && git rev-parse --verify origin/main 2>&1 | head -1   # expect: fatal / not a valid ref
+```
+
+Run the lifecycle test there with `CI=1`.
+Expected: **FAIL** with "origin/main is unresolvable in CI". That is the red phase, and it is what CI would have done before Task 6's fetch step.
+
+Then apply the fetch command from Step 1 inside the probe clone and re-run.
+Expected: PASS. This proves the refspec in the workflow is the one that fixes it, rather than assuming.
+
+- [ ] **Step 2b: Validate the workflow YAML**
+
+A malformed step would only surface on the next push. Lint it locally:
+
+```bash
+actionlint .github/workflows/unit-suite.yml || npx -y actionlint .github/workflows/unit-suite.yml
+```
+
+Expected: no errors. If `actionlint` is unavailable, at minimum `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/unit-suite.yml'))"` to catch a syntax break.
+
+Final proof is the real CI run on the PR, per the project's local-passes-CI-fails rule — this task is not verified until the pushed run is green.
 
 - [ ] **Step 3: Commit**
 
@@ -977,17 +1145,20 @@ describe("resolve-error copy is label-agnostic", () => {
     expect(src).not.toContain("We could not mark this alert resolved");
   });
 
-  it("does not name a specific button label", () => {
-    for (const code of ["ADMIN_ALERT_NOT_FOUND", "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE"]) {
-      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
-      expect(entry.dougFacing).not.toMatch(/Mark resolved|clicked Confirm/);
-    }
+  // FROZEN LITERALS, not pattern exclusions. Review R1 finding 10: asserting
+  // "does not match /Mark resolved/" plus one substring lets materially wrong
+  // replacement copy through, and the parity gate only proves the three
+  // artifacts agree with EACH OTHER, not that the copy is right.
+  it("ADMIN_ALERT_NOT_FOUND reads exactly the approved string", () => {
+    expect(MESSAGE_CATALOG.ADMIN_ALERT_NOT_FOUND.dougFacing).toBe(
+      "When you tried to resolve that alert, the server looked it up by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+    );
   });
 
-  it("does not assert success on a failed attempt", () => {
-    expect(MESSAGE_CATALOG.ADMIN_ALERT_NOT_FOUND.dougFacing).toContain(
-      "When you tried to resolve that alert",
-    );
+  it("ALERT_REQUIRES_SHOW_SCOPED_RESOLVE names no button label", () => {
+    const copy = MESSAGE_CATALOG.ALERT_REQUIRES_SHOW_SCOPED_RESOLVE.dougFacing!;
+    expect(copy).toContain("resolve it there");
+    expect(copy).not.toMatch(/Mark resolved|'Confirm'/);
   });
 });
 ```
@@ -1048,26 +1219,47 @@ import { test, expect } from "@playwright/test";
 // Renders ONE fixed alert row twice, changing only the button label, so the
 // button is the single variable. Includes a negative control: the button's own
 // width MUST differ, proving the harness actually swapped the label.
+// The harness renders the REAL PerShowAlertResolveButton and varies only the
+// alert CODE, so the label travels the production code -> intent -> label path
+// (review R1 finding 13). A harness that swapped button text directly would
+// satisfy the geometry while proving nothing about resolveActionLabels.
+async function measure(page: import("@playwright/test").Page, code: string) {
+  await page.goto(`/__harness/compact-alert-card?code=${code}`);
+  // Explicit hydration gate. networkidle alone is not one (project rule);
+  // the harness sets data-hydrated="true" in an effect after mount.
+  await page.waitForSelector('[data-testid="compact-alert-card"][data-hydrated="true"]');
+  const btn = page.getByTestId("per-show-alert-resolve-h1");
+  await expect(btn).toBeVisible();
+  // Read all three boxes from ONE settled render, and fail loudly rather than
+  // via a non-null assertion if an element detached (review R1 finding 11).
+  const boxes = await Promise.all([
+    page.getByTestId("compact-alert-footer").boundingBox(),
+    btn.boundingBox(),
+    page.getByTestId("compact-alert-footer-right").boundingBox(),
+  ]);
+  const [row, button, container] = boxes;
+  if (!row || !button || !container) {
+    throw new Error(`missing bounding box for ${code}: element detached or not rendered`);
+  }
+  return { row, button, container };
+}
+
 test("label swap does not disturb the footer row", async ({ page }) => {
-  await page.goto("/__harness/compact-alert-card?label=resolve");
-  const rowA = await page.getByTestId("compact-alert-footer").boundingBox();
-  const btnA = await page.getByTestId("per-show-alert-resolve-h1").boundingBox();
-  const containerA = await page.getByTestId("compact-alert-footer-right").boundingBox();
+  const a = await measure(page, "AMBIGUOUS_EMAIL_BINDING"); // resolve intent
+  const b = await measure(page, "ROLE_FLAGS_NOTICE"); // confirm intent
+  const { row: rowA, button: btnA, container: containerA } = a;
+  const { row: rowB, button: btnB, container: containerB } = b;
 
-  await page.goto("/__harness/compact-alert-card?label=confirm");
-  const rowB = await page.getByTestId("compact-alert-footer").boundingBox();
-  const btnB = await page.getByTestId("per-show-alert-resolve-h1").boundingBox();
-  const containerB = await page.getByTestId("compact-alert-footer-right").boundingBox();
-
-  expect(Math.abs(rowA!.height - rowB!.height)).toBeLessThan(0.5);
-  expect(Math.abs(btnA!.x + btnA!.width - (containerA!.x + containerA!.width))).toBeLessThan(0.5);
-  expect(Math.abs(btnB!.x + btnB!.width - (containerB!.x + containerB!.width))).toBeLessThan(0.5);
-  // Negative control.
-  expect(Math.abs(btnA!.width - btnB!.width)).toBeGreaterThan(1);
+  expect(Math.abs(rowA.height - rowB.height)).toBeLessThan(0.5);
+  expect(Math.abs(btnA.x + btnA.width - (containerA.x + containerA.width))).toBeLessThan(0.5);
+  expect(Math.abs(btnB.x + btnB.width - (containerB.x + containerB.width))).toBeLessThan(0.5);
+  // Negative control: the two renders must genuinely differ, or the geometry
+  // assertions above are comparing a page to itself.
+  expect(Math.abs(btnA.width - btnB.width)).toBeGreaterThan(1);
 });
 ```
 
-Reuse the existing compact-alert-card harness (`tests/e2e/_compactAlertCardLiveEntry.tsx`, driven by `tests/e2e/compact-alert-card-layout.spec.ts`) rather than standing up a new server: add a `label` query param to that entry. State the boot mechanism in the PR body, this rides the existing standalone config (`tests/e2e/standalone.config.ts`), which builds and serves on its own port.
+Reuse the existing compact-alert-card harness (`tests/e2e/_compactAlertCardLiveEntry.tsx`, driven by `tests/e2e/compact-alert-card-layout.spec.ts`) rather than standing up a new server. Add a `code` query param to that entry (NOT a label param), pass it to a real `PerShowAlertResolveButton`, and set `data-hydrated="true"` on the card in a mount effect so the spec has a real readiness gate. State the boot mechanism in the PR body, this rides the existing standalone config (`tests/e2e/standalone.config.ts`), which builds and serves on its own port.
 
 - [ ] **Step 2: Run it**
 
@@ -1079,19 +1271,47 @@ Expected: PASS. A failing negative control means the harness ignored the param, 
 Add to `tests/components/admin/transitionAudit.test.tsx`:
 
 ```tsx
-it("a card's label is fixed for its whole lifetime", async () => {
-  // resolveActionIntent is a pure function of `code`, so a card can never
-  // re-read a different label mid-transition. Capture at mount, resolve both,
-  // assert neither captured label changed before unmount.
-  const { getByTestId } = render(<TwoCardFixture />);
-  const a = getByTestId("per-show-alert-resolve-a1").textContent;
-  const b = getByTestId("per-show-alert-resolve-b1").textContent;
-  expect(a).toBe("Confirm");
-  expect(b).toBe("Mark resolved");
+// Two cards of DIFFERING intent, resolved in quick succession, observed
+// through unmount. Review R1 finding 14: the first draft asserted an
+// idle->pending swap synchronously and never observed a lifetime or an
+// unmount, so it did not test what its name claimed.
+function TwoCardFixture() {
+  return (
+    <>
+      <PerShowAlertResolveButton alertId="a1" slug="s" code="ROLE_FLAGS_NOTICE" />
+      <PerShowAlertResolveButton alertId="b1" slug="s" code="AMBIGUOUS_EMAIL_BINDING" />
+    </>
+  );
+}
+
+it("each card's label is fixed from mount through unmount", async () => {
+  // Deterministic pending: the first resolve never settles, so card A stays
+  // pending while card B runs. No timing race, no fake timers.
+  const never = new Promise<Response>(() => {});
+  const settle = Promise.resolve(new Response(JSON.stringify({ status: "resolved" })));
+  const fetchMock = vi.fn().mockReturnValueOnce(never).mockReturnValueOnce(settle);
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { getByTestId, unmount } = render(<TwoCardFixture />);
+  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirm");
+  expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent("Mark resolved");
+
   fireEvent.click(getByTestId("per-show-alert-resolve-a1"));
+  await waitFor(() =>
+    expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirming…"),
+  );
+
+  // B transitions while A is mid-flight: the compound case from spec §10.
   fireEvent.click(getByTestId("per-show-alert-resolve-b1"));
-  expect(getByTestId("per-show-alert-resolve-a1").textContent).toBe("Confirming…");
-  expect(getByTestId("per-show-alert-resolve-b1").textContent).toBe("Resolving…");
+  await waitFor(() =>
+    expect(getByTestId("per-show-alert-resolve-b1")).toHaveTextContent("Resolving…"),
+  );
+
+  // A never adopted B's verb despite both being in flight together.
+  expect(getByTestId("per-show-alert-resolve-a1")).toHaveTextContent("Confirming…");
+  expect(getByTestId("per-show-alert-resolve-a1")).not.toHaveTextContent("Resolving…");
+
+  unmount(); // no post-unmount state update warning = the label never re-read
 });
 ```
 
@@ -1117,14 +1337,18 @@ Expected: all PASS. Scoped runs miss registry suites, `tests/styles` and `tests/
 
 - [ ] **Step 2: Run the UI quality gate (invariant 8)**
 
-This diff touches `components/**`, so both commands run on it:
+This diff touches `components/**`, so invariant 8 applies in full. Both commands run with the canonical v3 setup gates, which are part of the contract and not optional (review R1 finding 2):
+
+1. **Context load** — run the skill's context loader script so `PRODUCT.md` and `DESIGN.md` are in context.
+2. **Register reference read** — read the applicable register (brand vs product register; this is an internal admin surface, so the product register).
+3. Then, on the affected diff:
 
 ```
 /impeccable critique
 /impeccable audit
 ```
 
-Fix P0 and P1 findings, or record an explicit `DEFERRED.md` entry. Put findings and dispositions in the handoff doc.
+Both must run; a critique without its paired audit does not satisfy the invariant. Fix P0 and P1 findings, or record an explicit `DEFERRED.md` entry for each. Findings and dispositions go in §12 of the milestone handoff doc.
 
 - [ ] **Step 3: Commit any gate fixes**
 
