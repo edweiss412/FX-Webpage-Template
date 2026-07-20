@@ -204,7 +204,8 @@ function composePrompt(cfg) {
 // ---------------------------------------------------------------------------
 
 function parseVerdict(text) {
-  const noFences = text.replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*$/gm, "");
+  // Markdown fences may be indented up to 3 spaces (CommonMark) — strip those too.
+  const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
   const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
   const survivors = lines.filter((l) => {
     const upper = l.toUpperCase();
@@ -424,6 +425,10 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
       break;
     }
   }
+  // Leader exited (any path): unconditional group sweep — helpers may outlive the leader.
+  // Without this, an externally-killed or normally-exiting leader leaks a live helper into
+  // the flush wait (inherited pipes park `close` forever) or into the next attempt.
+  killGroup(child.pid, "SIGKILL");
   await closed; // stdio flushed
   await finished; // files durable (or errored — settled either way)
   // Late stream failure — child exited BEFORE/WITH the write-stream error, so the race

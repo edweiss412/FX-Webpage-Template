@@ -77,6 +77,11 @@ describe("codex-guard happy path", () => {
       "```",
       "Findings: one HIGH.",
       "  VERDICT: **NEEDS-ATTENTION**.  ",
+      // Markdown fences may be indented up to 3 spaces (close-out R1 finding 2) —
+      // placed AFTER the real verdict so an unstripped decoy would win as last survivor.
+      "   ```",
+      "VERDICT: BLOCKING",
+      "   ```",
       "",
     ].join("\n");
     writeScenario(run, [

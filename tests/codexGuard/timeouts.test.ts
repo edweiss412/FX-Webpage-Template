@@ -119,6 +119,16 @@ describe("codex-guard timeouts (§5)", () => {
     expect(readResult(run).attempts[0]!.killedReason).toBe("attempt_timeout");
   }, 30000);
 
+  it("§5 precedence order is pinned in source (total > attempt > stall > no_output)", () => {
+    // Close-out R1 finding 3: 17b's equal-budget construction cannot deterministically
+    // catch a reversed check order (the poll tick may land in the startup-delta gap where
+    // only total has crossed). The precedence is a single if/else chain — pin its shape.
+    const src = readFileSync(join(process.cwd(), "scripts/codex-guard.mjs"), "utf8");
+    const chain =
+      /if \([^)]*totalMaxSecs\) reason = "total_timeout";\s*else if \([^)]*attemptMaxSecs\) reason = "attempt_timeout";\s*else if \([^)]*stallSecs\) reason = "stall";\s*else if \([^)]*firstOutputSecs\) reason = "no_output";/;
+    expect(src).toMatch(chain);
+  });
+
   it("scenario 17b: attempt-max and total-max expire together → total_timeout wins", async () => {
     const run = mkRun();
     writeScenario(run, [

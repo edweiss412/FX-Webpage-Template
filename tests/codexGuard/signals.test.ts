@@ -61,6 +61,22 @@ describe("codex-guard signals + spawn errors", () => {
     }
   }, 30000);
 
+  it("scenario 13b: leader exits leaving a TERM-ignoring helper → group swept before next step", async () => {
+    // Failure mode caught (close-out R1 finding 1): monitoring ends on the LEADER's exit;
+    // without an unconditional post-exit group sweep, a surviving helper leaks into the
+    // next attempt (or, with inherited pipes, parks `close` forever with all timers stopped).
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "grandchild" }, { type: "exit", code: 1 }] },
+    ]);
+    const res = await runGuard(run, [], { CODEX_GUARD_MAX_ATTEMPTS: "1" });
+    expect(res.code).toBe(0);
+    expect(readResult(run).attempts[0]!.failureShape).toBe("nonzero_exit");
+    // the grandchild ignores SIGTERM; only the group SIGKILL sweep can have killed it
+    const gcPid = Number(readFileSync(join(run.recordDir, "grandchild-pid-1.txt"), "utf8"));
+    expect(isDead(gcPid)).toBe(true);
+  }, 30000);
+
   it("scenario 14: nonexistent CODEX_GUARD_BIN → exit 3, wrapper_error, spawn_error attempt", async () => {
     const run = mkRun();
     writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
