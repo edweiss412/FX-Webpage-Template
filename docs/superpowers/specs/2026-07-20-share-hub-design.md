@@ -122,25 +122,28 @@ All transitions are INSTANT (project norm: pageTransitions §9); timers are the 
 | hub closed↔open (either trigger) | instant mount/unmount; **inert while `busy`** (§6) |
 | rotate idle↔confirm, reset idle↔confirm | instant (existing two-tap machines, own auto-revert timers) |
 | confirm→resolving (either) | instant; sets `busy`, freezing all four dismissal paths |
-| resolving→banner (either) | instant. SUCCESS: rotate's persists in place (`role="status"`), reset's auto-dismisses at `SUCCESS_DISMISS_MS`. ERROR: both persist indefinitely and are `role="alert"` — see the compound table for the full rule |
-| banner→idle (either) | instant. TWO independent clear paths per control: (a) RE-ARM clears unconditionally, success or error — `setResult(null)` (`RotateShareTokenButton.tsx:125-128`) and `enterConfirm`'s `setOutcome(null)` (`PickerResetControl.tsx:110-112`); (b) TIMER clears reset's SUCCESS banner only (`PickerResetControl.tsx:102-106`). Rotate has no timer path at all — re-arm is its only clear. Whichever fires first wins |
+| resolving→banner (either) | instant; clears `busy`. Banner lifecycle and roles follow R2/R3 below |
+| banner→idle | see the per-control clear rules below — they differ, and stating them once is what keeps this table correct |
 | hub open→closed via publish toggle / archived swap, `busy = false` | instant unmount |
 | hub open→closed via publish toggle / archived swap, `busy = true` | DEFERRED until settle (§4); never an unmount mid-flight |
 | Copied label | existing 2s reset inside `ShareLinkCopyButton` |
 
-**Compound states — each is reachable and each is specified:**
+### Per-control rules (source-derived; the compound behavior follows from these)
+
+Four rounds of adversarial review kept finding errors in a hand-enumerated compound table — each repair introduced the next round's defect, which is exactly the failure the project's three-round prose cap describes. The table is therefore replaced by the four rules the components actually implement. Rules compose; compounds are not narrated one by one, and the executable coverage is T9, not prose.
+
+- **R1 — banner and confirm are mutually exclusive WITHIN a control.** Entering confirm clears that control's banner unconditionally, success or error: `setResult(null)` (`RotateShareTokenButton.tsx:125-128`) and `setOutcome(null)` (`PickerResetControl.tsx:110-112`). So `rotate=banner ∧ rotate=confirm` is unreachable, and likewise for reset. Banner + confirm can only occur ACROSS the two controls.
+- **R2 — clear paths differ per control.** Rotate's banner clears ONLY on re-arm; its auto-revert timer calls `closeConfirm()` (`:130-131`), which touches only `ui` and never `result` (`:88-97`). Reset's banner clears on re-arm OR, for SUCCESS ONLY, its `SUCCESS_DISMISS_MS` timer (`PickerResetControl.tsx:102-106`); that effect returns early for errors, and its cleanup cancels the timer whenever `outcome` changes or the control unmounts.
+- **R3 — errors never auto-dismiss, and announce assertively.** Both controls: error banners persist until re-arm and carry `role="alert"` (`PickerResetControl.tsx:178`, `RotateShareTokenButton.tsx:231`). Successes are `role="status"` — reset announcing through its persistent sr-only region (`:156`) with the visible banner `aria-hidden`, rotate through its visible banner (`:203`, `:217`). Two simultaneous alerts announce in DOM order; accepted, not designed around.
+- **R4 — `busy` gates dismissal only; it pauses nothing.** No timer, no sibling interaction, and no confirm row is frozen by a sibling's flight. A confirm row stays fully interactive while the other control resolves, and its own auto-revert timer keeps running.
+
+**Remaining compound facts not derivable from R1–R4:**
 
 | Compound | Behavior |
 | --- | --- |
-| rotate=banner ∧ reset=confirm (B+OS) | both render; independent. Reset's confirm does not clear rotate's banner |
-| rotate=banner ∧ reset=resolving (B+V) | banner stays visible; `busy` freezes dismissal |
-| reset=banner ∧ rotate=confirm/resolving | both render independently. A reset SUCCESS banner does NOT stay pinned for rotate's flight — its `SUCCESS_DISMISS_MS` timer runs regardless of `busy` and clears it via `setOutcome(null)` (`PickerResetControl.tsx:102-106`), so the operator may see the reset confirmation disappear mid-rotate. A reset ERROR banner persists. `busy` gates dismissal paths only; it pauses no timer |
-| both=confirm | permitted (§6 — single-slot deliberately not adopted); two confirm rows stack in the popover, each with its own Cancel focused on open |
+| both=confirm | permitted (§6 — single-slot deliberately not adopted); two confirm rows stack, each with its own Cancel focused on open |
 | both=resolving | permitted; `busy` stays ≥1 until BOTH settle |
-| rotate=confirm ∧ reset=resolving | permitted. `busy` is already set, so dismissal is inert — but the rotate confirm row stays interactive: its Confirm and Cancel are NOT disabled by a sibling's flight, and its auto-revert timer keeps running and may collapse the row while the sibling resolves |
-| rotate=resolving ∧ reset=confirm | mirrors the above, with one ASYMMETRY: `busy` does not pause any timer. A reset SUCCESS banner's `SUCCESS_DISMISS_MS` timer keeps running and may dismiss that banner while rotate is still confirming or resolving; a reset ERROR banner persists throughout. Timers are per-control and indifferent to the sibling's state |
-| both=banner, both SUCCESS | permitted. Two banners stack, neither cross-clearing. Reset's success auto-dismisses at `SUCCESS_DISMISS_MS` (`PickerResetControl.tsx:102-106`); rotate's success persists until its confirm is re-armed (`setResult(null)`, `RotateShareTokenButton.tsx:125-128`). Absent any re-arm the pair therefore resolves to rotate-only; re-arming reset before its timer fires clears that banner immediately instead, and re-arming rotate clears rotate's — so "rotate-only" is the timer-wins outcome, not an invariant. Announcement: reset via its persistent sr-only `role="status"` region (`PickerResetControl.tsx:156`, the visible banner being `aria-hidden`); rotate via its visible `role="status"` (`:203`, `:217`) |
-| both=banner, either or both ERROR | permitted, and errors behave DIFFERENTLY from successes: error banners are NEVER auto-dismissed — reset's auto-dismiss effect returns early unless `outcome.kind === "ok"` (`PickerResetControl.tsx:103`, comment: "Errors are NOT auto-dismissed — they must persist until the admin reads and acts on them"). Error banners are `role="alert"` (assertive), not `role="status"` — `PickerResetControl.tsx:178`, `RotateShareTokenButton.tsx:231`. Two simultaneous `role="alert"` nodes announce in DOM order and interrupt; this is accepted, not designed around |
+| both=banner | permitted (R1 only forbids it within one control). Neither cross-clears the other; each follows R2 |
 | any trigger/Escape/backdrop press while `busy` | no-op; Escape still `stopPropagation`s |
 | sibling armed while the other's auto-revert timer is pending | timers are per-component and independent; each fires against its own `closeConfirm`, whose functional `setUi` guard no-ops if that row is already gone (`RotateShareTokenButton.tsx:88-97`) |
 | rotate success while a Copy 2s window is open | `onRotated` swaps the context token and the URL re-renders; the stale "Copied" label self-clears on its own timer. The clipboard still holds the OLD url — which is why rotate's success copy states the old link no longer works (`RotateShareTokenButton.tsx:205-210`) |
