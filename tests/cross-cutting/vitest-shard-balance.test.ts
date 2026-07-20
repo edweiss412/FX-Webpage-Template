@@ -77,7 +77,7 @@ describe("PR E weight-balanced shard partition", () => {
   });
 
   // --- lptShard (pure) over the real key set ---
-  for (const N of [2, 3, 6]) {
+  for (const N of [2, 3, 8]) {
     it(`lptShard N=${N}: clean cover of every file (no drop, no dup)`, () => {
       const bins = lptShard(allFiles, N, weightOf, (k) => k);
       expect(bins).toHaveLength(N);
@@ -101,7 +101,7 @@ describe("PR E weight-balanced shard partition", () => {
   });
 
   // --- WeightBalancedSequencer.shard() (real method, over project-qualified specs) ---
-  for (const N of [2, 3, 6]) {
+  for (const N of [2, 3, 8]) {
     it(`sequencer N=${N}: union of legs is a clean cover of all specs (no drop/dup)`, async () => {
       const specs = allFiles.map((f) => fakeSpec(f));
       const legs = await Promise.all(

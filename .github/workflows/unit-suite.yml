@@ -9,9 +9,9 @@ name: Unit + DB suite (full vitest gate)
 # screenshots-drift.yml) and runs the WHOLE vitest suite so any unit or
 # local-DB test failure blocks merge.
 #
-# PR D — sharded for wall-clock: the suite is split across a 6-leg `shard`
+# PR D — sharded for wall-clock: the suite is split across an 8-leg `shard`
 # matrix (`unit-suite-shard`). Each leg boots its OWN isolated local Supabase
-# and runs `vitest run --shard=i/6`. vitest's --shard is a clean file partition
+# and runs `vitest run --shard=i/8`. vitest's --shard is a clean file partition
 # (every file in exactly one leg), and each leg's serial vitest project still
 # runs fileParallelism:false, so the serial-DB guarantee holds WITHIN a leg and
 # the legs never share a database (separate runners). A tiny aggregator job
@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -71,13 +71,13 @@ jobs:
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
         # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run vitest shard ${{ matrix.shard }}/6 (minus the three env-bound files; see header)
-        # --shard=i/6 partitions the test FILES across the six legs (every file
+      - name: Run vitest shard ${{ matrix.shard }}/8 (minus the three env-bound files; see header)
+        # --shard=i/8 partitions the test FILES across the eight legs (every file
         # runs in exactly one leg). The two-project structure is unchanged, so
         # the serial project still runs fileParallelism:false within this leg.
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/6
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8
   unit-suite:
     # Aggregator — PRESERVES the `unit-suite` required check-context name so
     # branch protection needs no change. Green only when EVERY shard leg passed
