@@ -31,7 +31,16 @@
  * the URL up in the background.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -59,7 +68,7 @@ import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -165,15 +174,41 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // (the modal is server-rendered off `?show`), so the shell would otherwise
   // stay mounted until the new payload lands. Hide client-side FIRST (the
   // shell's unmount cleanups restore focus/inert/scroll immediately), then let
-  // `close()` catch the URL up in the background. No reset path needed: a
-  // reopen streams through the Suspense fallback (ShowReviewModalSkeleton — a
-  // different element type), which unmounts this instance, so a fresh open
-  // never inherits `closing`.
+  // `close()` catch the URL up in the background. A COMMITTED close unmounts
+  // this instance (a reopen streams through the Suspense fallback — a different
+  // element type), so a fresh open never inherits `closing`.
+  //
+  // ABORTED close (the reopen race): the close is `router.push("/admin")`, and
+  // any navigation started while it is in flight supersedes it. Clicking the
+  // SAME row again during that window targets `/admin?show=<slug>` — the URL
+  // the browser is still on — so the aborted close commits nothing, the URL
+  // never changes, and this instance is never remounted. Without a reset path
+  // it would stay hidden forever and the show could not be reopened until some
+  // other URL was navigated to. Running the close inside a transition gives us
+  // the settle signal: once it is no longer pending and our own `?show` is
+  // STILL committed, the close did not land — un-hide.
   const [closing, setClosing] = useState(false);
+  const [closePending, startCloseTransition] = useTransition();
+  const searchParams = useSearchParams();
+  // The standalone layout harnesses (skeletonBandParity, statusStripToggleLayout)
+  // render this tree with NO router context, where the hook really does hand back
+  // null despite its non-nullable type — guard rather than crash them. Those
+  // harnesses never navigate, so a null read simply means "no close to heal".
+  const committedShow = (searchParams as URLSearchParams | null)?.get("show") ?? null;
   const handleClose = useCallback(() => {
     setClosing(true);
-    close();
+    startCloseTransition(() => {
+      close();
+    });
   }, [close]);
+  // Guarded setState-in-render (the ShowsTable idiom — react-hooks/set-state-in-effect
+  // forbids the effect form). Self-heals only once: the guard is false on the
+  // very next render. `committedShow !== slug` means the close DID commit and
+  // this instance's unmount is imminent — resetting there would flash the modal
+  // back on its way out.
+  if (closing && !closePending && committedShow === slug) {
+    setClosing(false);
+  }
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The consumer owns the scroll container the surface hands its scroll-spy
   // (shell contract: no body wrapper — the surface root IS the body element).
