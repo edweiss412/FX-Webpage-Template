@@ -431,6 +431,10 @@ describe("show review modal loader — shell + rail sections (§4/§6)", () => {
   });
 
   it("mounts Overview first and Changes last as rail sections", async () => {
+    // Overview is conditional now — it drops out when it has nothing to say —
+    // so this ordering assertion needs a show that gives it content. Archived
+    // qualifies (the Re-sync-paused notice).
+    state.snapshot = baseSnapshot({ archived: true, published: false });
     await renderLoader();
     const overview = screen.getByTestId("overview-section");
     const changes = screen.getByTestId("changes-section");

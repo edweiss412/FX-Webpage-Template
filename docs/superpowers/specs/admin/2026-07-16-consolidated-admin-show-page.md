@@ -379,3 +379,21 @@ Both phases land in this one PR (single review arc), but commits are phase-order
 - **`report` section omitted in published mode:** §5.2 default, revisit only if the plan audit finds admin-relevant content.
 - **Archived read-only posture:** existing rule (`app/admin/show/[slug]/page.tsx:11`), generalized not invented.
 - **Zero new §12.4 codes:** §12 — deviation is a spec amendment, not a review finding.
+
+---
+
+## Amendment — 2026-07-20 (owner-ratified): Overview is conditional; lifecycle + open-sheet relocated
+
+Three relocations have since hollowed out the Overview rail section described in §5.1/§6:
+
+1. **Re-sync control → StatusStrip** (modal-header-reconciliation §4.3, already ratified).
+2. **Share & access cluster → the status band's ShareHub popover** (share-hub T4, already ratified).
+3. **This amendment:** the standalone **open-sheet link** is deleted (it duplicated the modal header's sheet anchor, `published-show-review-sheetlink`), and the **Archive / Unarchive** controls move into the ShareHub popover's new "Show" section — the single home for the lifecycle control in both directions.
+
+**Consequences ratified with it:**
+
+- **Overview renders only when it has content.** What remains in the section is the attention slot plus one line of sheet/sync guidance (the correction-loop callout, or the archived Re-sync-paused notice). A healthy live show with no alerts has neither, so the section AND its rail item drop out together — a rail entry whose panel is blank is the worse half. Condition: `hasAttention || archived || hasActionableWarnings` (`PublishedReviewModal.tsx`).
+- **The `#overview` deep links stay safe by construction.** The strip's alert badge and the §10 hash target only exist when there are alerts, which is exactly when the section mounts. The one case that can miss is the §6.4 `alert_id` fallback for a stale link whose alert has cleared; it now scrolls the body to top rather than dead-ending on an absent anchor.
+- **The ShareHub group is unconditional in the strip.** An archived show renders no share half, but the popover is Unarchive's only home, so the hub must still mount; its primary trigger relabels from "Share link" to "Show actions" rather than degrading to a bare kebab.
+
+**Pinned by:** `tests/components/admin/showpage/publishedReviewModal.test.tsx` (Overview drops out / returns / archived mounts it / stale-link top fallback), `tests/components/admin/showpage/shareHub.test.tsx` (Show section, archived arm), `tests/components/admin/showpage/statusStrip.test.tsx` (unconditional group), `tests/components/admin/showpage/overviewSection.test.tsx` (no lifecycle or sheet-link control in any mode).

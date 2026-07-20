@@ -37,6 +37,12 @@ const REGISTRY: Row[] = [
     "morph",
     "archive-show-confirm-button (full ternary branch)",
   ),
+  R(
+    "components/admin/ArchiveShowButton.tsx",
+    2,
+    "panel",
+    "archive-show-confirm-button (ROW branch — the hub popover's Confirm/Cancel pair; owner-ratified 2026-07-20 amendment to §R7, mirroring the sibling rotate row)",
+  ),
   R("components/admin/MaintenanceResetButtons.tsx", 0, "panel", "validation-reset-confirm"),
   R(
     "components/admin/PendingPanelDiscardButtons.tsx",

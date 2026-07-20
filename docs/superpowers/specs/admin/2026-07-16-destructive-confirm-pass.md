@@ -141,3 +141,25 @@ New subsection under the existing button/action guidance: **"Destructive actions
 - **Two-tap morph double-activation:** a second Enter/tap on a morphed button fires the action — accepted, established idiom (Archive, `ArchiveShowButton.tsx:42`, shipped; G1–G4 adopt it); auto-revert + label change are the mitigations. The trigger→panel surfaces don't share this vector once F4 lands (focus moves to cancel). Not a finding.
 - **F2 fixed copy without §12.4 code:** same precedent as the strip's fixed infra sentence (`RecentAutoAppliedStrip.tsx:363-374`); aggregate copy carries no code, so no catalog/lockstep churn. Not an invariant-5 violation (no raw code rendered).
 - **UseRawControl neutrality:** ratified design (its own docstring); out of scope.
+
+---
+
+## Amendment — 2026-07-20 (owner-ratified): R7 row variant
+
+§R7 above says of `ArchiveShowButton`: _"long confirm label text is retained."_ That holds for the two legacy variants. It no longer holds for the control as rendered in the ShareHub popover.
+
+**What changed.** The archive lifecycle control moved out of the Overview rail section and into the status band's ShareHub popover (`components/admin/showpage/ShareHub.tsx`, "Show" section). Supplying `rowLabel` alongside `compact` now renders it in the same row idiom the sibling `RotateShareTokenButton` already uses in that popover:
+
+| | Legacy variants (`compact` alone, or neither) | Row variant (`compact` + `rowLabel`) |
+| --- | --- | --- |
+| Resting label | `Archive show` | `Archive`, under a `rowLabel` / `rowDescription` header |
+| Armed label | the full consequence sentence | `Confirm archive` |
+| Consequence copy | inside the button label | prose above it, referenced by `aria-describedby` |
+| Dismissal | 4s `ARM_REVERT_MS` auto-revert | explicit `Cancel` (no timer) |
+| Destructive recipe (C1) | unchanged | unchanged |
+
+**Why.** The label-carries-the-consequence form was written for the wide Overview host. In the 308px popover the ~120-character sentence wraps to roughly four lines of inverted amber, and the 4s auto-revert was shorter than the time needed to read it — punishing the attentive operator and nobody else. The consequence copy itself is unchanged; it moved from the button label into prose, where it can wrap as prose.
+
+The timer is dropped in this variant only, matching the idiom being adopted: the rotate row has always dismissed via `Cancel`, not a timeout. `ARM_REVERT_MS` and its harmonization across the legacy surfaces are untouched.
+
+**Pinned by:** `tests/components/admin/ArchiveShowButton.test.tsx` ("row variant (hub popover)"), `tests/e2e/admin-lifecycle-transitions.spec.ts` (B2, now Cancel rather than idle). The recipe registry row in `tests/styles/_metaDestructiveConfirm.test.ts` is unaffected — both class literals survive.

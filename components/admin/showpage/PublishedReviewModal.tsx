@@ -287,7 +287,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     const target = scroller.querySelector("#overview");
     if (target instanceof HTMLElement && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "center" });
+      return;
     }
+    // Overview is no longer unconditional: a show with nothing to report drops
+    // the section (and its rail item) entirely. That is EXACTLY the state a
+    // no-match alert deep link lands in — a stale link whose alert has since
+    // cleared — so without this the fallback would be dead precisely when it
+    // fires. Top of the scroller is the honest substitute: the modal opens
+    // where it would have anyway.
+    if (typeof scroller.scrollTo === "function") scroller.scrollTo({ top: 0 });
   }, [alertId, attentionItems]);
 
   // ── Banner placement buckets (§5.4) ────────────────────────────────────────
@@ -357,6 +365,21 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // §5.1 Overview — the FIRST rail item; badge = overview-routed ACTIONABLE
   // attention count, rendered with the StatusStrip alert-badge token idiom.
+  //
+  // Overview earns its rail slot only when it HAS something to say. Three
+  // relocations (Re-sync to the strip, the share cluster and then the
+  // lifecycle control to the hub, the open-sheet link to the header) left it
+  // with attention banners plus one line of sheet/sync guidance, and a healthy
+  // live show has neither — the section would render an empty box behind a
+  // rail item that promises content. Both the item and the panel drop out
+  // together; a rail entry whose panel is blank is the worse half.
+  //
+  // The `#overview` deep links stay safe by construction: the strip's alert
+  // badge and the §10 hash target only exist when there ARE alerts, which is
+  // exactly when `hasAttention` is true.
+  const hasAttention = degradedNotice !== null || overviewBanners.length > 0;
+  const overviewHasContent = hasAttention || archived || hasActionableWarnings;
+
   const overviewExtra: ExtraSection = {
     id: "overview",
     label: "Overview",
@@ -385,7 +408,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         archived={archived}
         hasActionableWarnings={hasActionableWarnings}
         attentionSlot={
-          degradedNotice || overviewBanners.length > 0 ? (
+          hasAttention ? (
             <div className="flex flex-col gap-2">
               {degradedNotice}
               {overviewBanners}
@@ -620,7 +643,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         scrollerRef={scrollerRef}
         layout="modal"
         syncHash
-        extraSectionsBefore={[overviewExtra]}
+        extraSectionsBefore={overviewHasContent ? [overviewExtra] : []}
         extraSectionsAfter={[changesExtra]}
         renderSectionExtras={renderSectionExtras}
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}

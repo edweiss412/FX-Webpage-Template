@@ -763,7 +763,9 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   });
 
   it("Overview is the FIRST rail item and Changes the LAST; both content sections render", () => {
-    renderModal();
+    // Overview is conditional now (it drops out when it has nothing to say), so
+    // the ordering fixture must give it something — an actionable alert.
+    renderModal({ attentionItems: [alertItem({ id: "alert:ov1" })] });
     const overviewItem = screen.getByTestId(railTid("rail-item-overview"));
     const changesItem = screen.getByTestId(railTid("rail-item-changes"));
     const registryItems = Array.from(
@@ -852,8 +854,10 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
 
 describe("PublishedReviewModal guards (spec §6.2)", () => {
   it("feed=null (SyncInfraError degrade) renders the Changes infra notice; the modal is otherwise healthy", () => {
-    renderModal({ feed: null });
+    renderModal({ feed: null, attentionItems: [alertItem({ id: "alert:ov1" })] });
     expect(screen.getByTestId("change-feed-infra-error")).toBeTruthy();
+    // A degraded FEED does not degrade Overview — it still mounts for its own
+    // (unrelated) attention content.
     expect(screen.getByTestId("overview-section")).toBeTruthy();
   });
 
@@ -867,10 +871,32 @@ describe("PublishedReviewModal guards (spec §6.2)", () => {
     expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
   });
 
-  it("attentionItems=[] renders no banner content — Overview stays healthy", () => {
+  it("attentionItems=[] on a healthy live show drops Overview ENTIRELY — section and rail item", () => {
+    // Three relocations (Re-sync → strip, share cluster + lifecycle → hub,
+    // open-sheet → header) left Overview with attention banners plus one line
+    // of sheet/sync guidance. A healthy live show has neither, so the section
+    // would be an empty box behind a rail item promising content. Both drop
+    // out together — a rail entry whose panel is blank is the worse half.
     renderModal({ attentionItems: [] });
+    expect(screen.queryByTestId("overview-section")).toBeNull();
+    expect(screen.queryByTestId(railTid("rail-item-overview"))).toBeNull();
+    // Changes is unaffected — this is not "the rail collapsed".
+    expect(screen.getByTestId(railTid("rail-item-changes"))).toBeTruthy();
+  });
+
+  it("Overview returns the moment it has something to say", () => {
+    // The negative above is only meaningful next to its positive: the gate must
+    // be about CONTENT, not a section that quietly stopped rendering.
+    renderModal({ attentionItems: [alertItem({ id: "alert:ov1" })] });
     const overview = screen.getByTestId("overview-section");
-    expect(overview.querySelector("[data-attention-anchor]")).toBeNull();
+    expect(overview.querySelector('[data-attention-anchor="alert:ov1"]')).toBeTruthy();
+    expect(screen.getByTestId(railTid("rail-item-overview"))).toBeTruthy();
+  });
+
+  it("archived mounts Overview even with no alerts — the Re-sync-paused notice is content", () => {
+    renderModal({ attentionItems: [], archived: true });
+    expect(screen.getByTestId("overview-section")).toBeTruthy();
+    expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
   });
 
   it("overview-routed banners render inside Overview; crew-routed inside the Crew section (matching row) or its top", () => {
@@ -924,9 +950,26 @@ describe("PublishedReviewModal alert_id deep link (spec §6.4 — one-shot)", ()
   });
 
   it("alertId with no matching item falls back to the #overview scrollIntoView", () => {
-    renderModal({ alertId: ALERT_ID, attentionItems: [] });
+    // Overview must EXIST for this fallback to be the #overview one; give the
+    // modal an unrelated alert so the section mounts.
+    renderModal({ alertId: ALERT_ID, attentionItems: [alertItem({ id: "alert:other" })] });
     expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
     expect((scrollIntoViewSpy.mock.instances[0] as HTMLElement).id).toBe("overview");
+  });
+
+  it("no match AND no Overview (the stale-link case) scrolls the body to top instead of dead-ending", () => {
+    // This is the state a stale alert deep link actually lands in — the alert
+    // it names has since cleared, so there are no attention items and Overview
+    // is gone. Without the top fallback the deep link would do nothing at all
+    // precisely when it fires.
+    // beforeEach installs its own HTMLElement.prototype.scrollTo, which shadows
+    // anything set on Element.prototype — patch the same slot it uses.
+    const scrollToSpy = vi.fn();
+    (HTMLElement.prototype as unknown as { scrollTo: unknown }).scrollTo = scrollToSpy;
+    renderModal({ alertId: ALERT_ID, attentionItems: [] });
+    expect(screen.queryByTestId("overview-section")).toBeNull();
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 0 });
   });
 
   it("alertId=null → no scroll at all", () => {

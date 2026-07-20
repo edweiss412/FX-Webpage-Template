@@ -50,6 +50,174 @@ function expectDestructiveRecipe(el: HTMLElement) {
   ).toEqual([]);
 }
 
+// ── ROW VARIANT (owner-ratified 2026-07-20; amends destructive-confirm-pass
+// §R7 and m12.2-phase-b2 §2.2). `compact` + `rowLabel` renders the idiom the
+// sibling rotate row already uses in the same popover: short trigger, the
+// consequence carried as prose, explicit Cancel instead of a 4s timer the
+// operator cannot finish reading in.
+describe("ArchiveShowButton — row variant (hub popover)", () => {
+  const renderRow = (action = vi.fn(async () => ({ ok: true }) as const)) => ({
+    action,
+    ...render(
+      <ArchiveShowButton
+        archiveAction={action}
+        compact
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working immediately"
+      />,
+    ),
+  });
+
+  it("resting: titled row + SHORT trigger; the consequence is not crammed into the button", () => {
+    const { getByTestId, getByText } = renderRow();
+    const trigger = getByTestId("archive-show-button");
+    expect(trigger.textContent).toBe("Archive");
+    // The long sentence must not be the label — that is the whole point of the
+    // amendment (it wrapped to ~4 lines of inverted amber in a 308px popover).
+    expect(trigger.textContent).not.toMatch(/stop working/i);
+    expect(getByText("Archive show")).toBeTruthy();
+    expect(getByText("Crew links stop working immediately")).toBeTruthy();
+    // Short label still needs a full accessible name.
+    expect(trigger.getAttribute("aria-label")).toBe("Archive show");
+  });
+
+  it("armed: consequence renders as PROSE the confirm points at, and the label stays short", async () => {
+    const { getByTestId } = renderRow();
+    fireEvent.click(getByTestId("archive-show-button"));
+    const confirm = getByTestId("archive-show-confirm-button");
+    expect(confirm.textContent).toBe("Confirm archive");
+    const describedBy = confirm.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    const prose = document.getElementById(describedBy!)!;
+    expect(prose.textContent).toMatch(
+      /Crew links stop working now and won’t come back until you re-publish and issue a new link\./,
+    );
+    // Prose, not a button: it must not be inside the confirm's own label.
+    expect(confirm.contains(prose)).toBe(false);
+  });
+
+  it("armed: Cancel returns to resting WITHOUT dispatching (the timer is gone here)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { getByTestId, queryByTestId, action } = renderRow();
+      fireEvent.click(getByTestId("archive-show-button"));
+      expect(getByTestId("archive-show-confirm-button")).toBeTruthy();
+
+      // The 4s auto-revert must NOT fire in this variant — reading the
+      // consequence prose is allowed to take longer than the timer did.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(getByTestId("archive-show-confirm-button")).toBeTruthy();
+
+      fireEvent.click(getByTestId("archive-show-cancel-button"));
+      expect(queryByTestId("archive-show-confirm-button")).toBeNull();
+      expect(getByTestId("archive-show-button")).toBeTruthy();
+      expect(action).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("armed confirm keeps the destructive recipe and the 44px floor", () => {
+    const { getByTestId } = renderRow();
+    fireEvent.click(getByTestId("archive-show-button"));
+    const confirm = getByTestId("archive-show-confirm-button");
+    expectDestructiveRecipe(confirm);
+    expect(confirm.className).toContain("min-h-tap-min");
+    expect(getByTestId("archive-show-cancel-button").className).toContain("min-h-tap-min");
+  });
+
+  // C3 / C5 (DESIGN.md:419, spec §15). The morphing-button exemption does not
+  // apply here: the armed row has a SEPARATE safe control, so the focus rules
+  // the rotate row implements apply to this one too.
+  it("C3: arming focuses CANCEL, not the destructive confirm", () => {
+    const { getByTestId } = renderRow();
+    const trigger = getByTestId("archive-show-button");
+    trigger.focus();
+    fireEvent.click(trigger);
+    // Confirm precedes Cancel in DOM order, so a dropped focus would put the
+    // next Tab/Enter on the destructive control — the stray-second-Enter vector.
+    expect(document.activeElement).toBe(getByTestId("archive-show-cancel-button"));
+    expect(document.activeElement).not.toBe(getByTestId("archive-show-confirm-button"));
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("C5: Cancel restores focus to the re-mounted trigger", () => {
+    const { getByTestId } = renderRow();
+    fireEvent.click(getByTestId("archive-show-button"));
+    fireEvent.click(getByTestId("archive-show-cancel-button"));
+    expect(document.activeElement).toBe(getByTestId("archive-show-button"));
+  });
+
+  it("Cancel is disabled while the confirm is in flight", async () => {
+    // Live, it would unmount the form mid-dispatch: the mutation still lands,
+    // its outcome banner is lost, and the host's dismissal gate is released by
+    // the unmount cleanup — the gate exists precisely to prevent that.
+    let settle: ((v: { ok: true }) => void) | null = null;
+    const action = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((res) => {
+          settle = res;
+        }),
+    );
+    const { getByTestId } = render(
+      <ArchiveShowButton
+        archiveAction={action}
+        compact
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working immediately"
+      />,
+    );
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    const cancel = getByTestId("archive-show-cancel-button") as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    expect(cancel.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      settle?.({ ok: true });
+    });
+  });
+
+  it("busy is reported to the host for the row confirm too", async () => {
+    const seen: boolean[] = [];
+    let settle: ((v: { ok: true }) => void) | null = null;
+    const action = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((res) => {
+          settle = res;
+        }),
+    );
+    const { getByTestId } = render(
+      <ArchiveShowButton
+        archiveAction={action}
+        compact
+        rowLabel="Archive show"
+        onBusyChange={(b) => seen.push(b)}
+      />,
+    );
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    expect(seen).toContain(true);
+    await act(async () => {
+      settle?.({ ok: true });
+    });
+  });
+
+  it("tap 2 dispatches the action", async () => {
+    const { getByTestId, action } = renderRow();
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
   it("resting shows [Archive]; tap 1 morphs to the links-dead confirm copy WITHOUT dispatching", async () => {
     const action = vi.fn(async () => ({ ok: true }) as const);

@@ -491,6 +491,8 @@ export function ShareHub({
                     archiveAction={archiveAction}
                     compact
                     onBusyChange={onLifecycleBusy}
+                    rowLabel="Archive show"
+                    rowDescription="Crew links stop working immediately"
                   />
                 )}
               </div>
