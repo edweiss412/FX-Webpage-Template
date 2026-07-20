@@ -361,7 +361,7 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       // A missing frame with NO observed transport disruption FAILS — it is the
       // primary behavior under test, and the spec's in-test retry contract is
       // reconnect-only (whole-diff review R3 F1). Silent local delivery loss
-      // (measured ~1-in-5) is absorbed by the RUNNER-level retry budget
+      // (measured ~9%: 10 of 11 warm-server runs passed) is absorbed by the RUNNER-level retry budget
       // instead: playwright.config.ts sets retries:2 in CI, and each runner
       // retry re-enters runScenario with a FRESH seed + context.
       expect(inval, "post-mutation invalidation frame (phase i)").toBeTruthy();
@@ -468,9 +468,17 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       throw err;
     }
   } finally {
-    await admin.from("admin_alerts").delete().eq("show_id", seeded.showId);
-    await deleteSeededShow(seeded.driveFileId);
-    await context?.close();
+    // Nested so a failing earlier cleanup can never skip the later ones
+    // (review R4 advisory 1).
+    try {
+      await admin.from("admin_alerts").delete().eq("show_id", seeded.showId);
+    } finally {
+      try {
+        await deleteSeededShow(seeded.driveFileId);
+      } finally {
+        await context?.close();
+      }
+    }
   }
 }
 
