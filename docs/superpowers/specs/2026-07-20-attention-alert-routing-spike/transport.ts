@@ -27,7 +27,16 @@ import type {
  * itself the proof that PR 2 has a hard dependency on PR 1's payload field.
  */
 type PayloadWithReason = AttentionAlertPayload & { errorCode: string | null };
-type NoteItem = Omit<AttentionItem, "alert"> & { alert?: PayloadWithReason };
+/**
+ * The note channel is NARROWER than AttentionItem (R4#3). An item reaches it
+ * only if it is an alert with one of the two note codes and a payload present,
+ * so `composeNote` has no "unexpected code -> silently null" path that could
+ * drop a note. The narrowing is the type-level statement of the no-drop
+ * invariant; the bucket cannot carry something the renderer would discard.
+ */
+export type NoteCode = "PARSE_ERROR_LAST_GOOD" | "RESYNC_QUALITY_REGRESSED";
+type NotePayload = PayloadWithReason & { code: NoteCode };
+type NoteItem = Omit<AttentionItem, "alert"> & { alert: NotePayload };
 
 /** Anchors, declared per section (R2#5). */
 export type RoomsAnchor = "diagrams";
@@ -41,7 +50,7 @@ export type EventAnchor = "opening_reel";
 export type SpikeAttentionRoute =
   | { sectionId: "rooms"; anchor?: RoomsAnchor }
   | { sectionId: "event"; anchor?: EventAnchor }
-  | { sectionId: Exclude<RoutedSectionId, "rooms" | "event"> };
+  | { sectionId: Exclude<RoutedSectionId, "rooms" | "event">; anchor?: never };
 
 export type SpikeSectionAttentionBucket = {
   /** Pre-rendered cards. Opaque by design: nothing downstream inspects them. */
@@ -82,10 +91,8 @@ export function composeNote(
   item: NoteItem,
   warningCount: number,
   resolveReason: (errorCode: string | null) => string | null,
-): { lead: string; rest: string } | null {
+): { lead: string; rest: string } {
   const alert = item.alert;
-  if (!alert) return null;
-
   const hasList = warningCount > 0;
 
   if (alert.code === "PARSE_ERROR_LAST_GOOD") {
@@ -101,14 +108,37 @@ export function composeNote(
     return { lead: "Crew are still seeing the last good version.", rest: parts.join(" ") };
   }
 
-  if (alert.code === "RESYNC_QUALITY_REGRESSED") {
-    return {
-      lead: "This version is live for crew.",
-      rest: hasList
-        ? "The latest changes lost some detail, and the problems below are what stopped reading."
-        : "The latest changes lost some detail.",
-    };
-  }
-
-  return null;
+  // Exhaustive: NoteCode has exactly two members, so there is no fallthrough
+  // and no null return. A third note code becomes a COMPILE error here.
+  return {
+    lead: "This version is live for crew.",
+    rest: hasList
+      ? "The latest changes lost some detail, and the problems below are what stopped reading."
+      : "The latest changes lost some detail.",
+  };
 }
+
+/* ------------------------------------------------------------------------ *
+ * NEGATIVE CASES (R4#3) — these must NOT compile. Each is asserted with
+ * @ts-expect-error, so if the type ever loosens enough to accept one, tsc
+ * fails on the now-unused directive. Compiling valid examples proves nothing
+ * about rejection; these are the rejection proof.
+ * ------------------------------------------------------------------------ */
+
+// A non-fresh value with an extra `anchor` must not satisfy the no-anchor arm.
+const crewWithAnchor = { sectionId: "crew" as const, anchor: "diagrams" as const };
+// @ts-expect-error crew declares no anchors (`anchor?: never`)
+const _badPairing: SpikeAttentionRoute = crewWithAnchor;
+
+// The rooms arm must not accept the event anchor.
+// @ts-expect-error "opening_reel" is not a rooms anchor
+const _badAnchorForSection: SpikeAttentionRoute = { sectionId: "rooms", anchor: "opening_reel" };
+
+// A note item must carry an alert; an alert-less item cannot enter the channel.
+// @ts-expect-error `alert` is required on NoteItem
+const _noteWithoutAlert: NoteItem = { id: "x", kind: "alert", tone: "notice" } as Omit<
+  AttentionItem,
+  "alert"
+>;
+
+export type { NoteItem, SpikeAttentionRoute as _RouteExport };
