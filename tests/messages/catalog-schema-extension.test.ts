@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect, expectTypeOf } from "vitest";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
-import { extractAdminLogOnlyCodes } from "@/scripts/extract-admin-log-only-codes";
+import { extractAdminLogOnlyCodes, CARD_SURFACED_LOG_ONLY } from "@/scripts/extract-admin-log-only-codes";
 
 describe("MessageCatalogEntry M11 extension", () => {
   it("type declares title, longExplanation, helpHref as `string | null`", () => {
@@ -47,14 +47,12 @@ describe("Catalog alignment with master-spec admin-log-only contract (Task B.3 h
     for (const code of derivedCodes) {
       const entry = (MESSAGE_CATALOG as Record<string, Partial<MessageCatalogEntry>>)[code];
       if (!entry) continue;
-      for (const field of [
-        "dougFacing",
-        "crewFacing",
-        "helpfulContext",
-        "title",
-        "longExplanation",
-        "helpHref",
-      ] as const) {
+      const nullFields = CARD_SURFACED_LOG_ONLY.has(code)
+        ? // Card-surfaced carve-out (spec 2026-07-20-warning-card-copy-restore §3.1):
+          // title/helpfulContext are required non-null and pinned elsewhere.
+          (["dougFacing", "crewFacing", "longExplanation", "helpHref"] as const)
+        : (["dougFacing", "crewFacing", "helpfulContext", "title", "longExplanation", "helpHref"] as const);
+      for (const field of nullFields) {
         if (entry[field] !== null) {
           violations.push(`${code}.${field} = ${JSON.stringify(entry[field])} (expected null)`);
         }

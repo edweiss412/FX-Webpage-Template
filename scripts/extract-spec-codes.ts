@@ -1,3 +1,4 @@
+import { CARD_SURFACED_LOG_ONLY } from "./extract-admin-log-only-codes";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -391,9 +392,9 @@ export function extractSpecCodesFromMarkdown(
         `§12.4 helpfulContext appendix missing entry for code ${code} (dougFacing is non-null)`,
       );
     }
-    if (payload.dougFacing === null && context !== null) {
+    if (payload.dougFacing === null && context !== null && !CARD_SURFACED_LOG_ONLY.has(code)) {
       invariantErrors.push(
-        `§12.4 helpfulContext appendix has entry for code ${code} whose dougFacing is null (admin-log-only codes never surface to Doug — remove the YAML entry)`,
+        `§12.4 helpfulContext appendix has entry for code ${code} whose dougFacing is null (admin-log-only codes never surface to Doug — remove the YAML entry, or add the code to CARD_SURFACED_LOG_ONLY if it renders on the warning cards)`,
       );
     }
     specCodes[code] = { ...payload, helpfulContext: context };

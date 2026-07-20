@@ -1,4 +1,5 @@
 import type { MessageCatalogEntry } from "@/lib/messages/catalog";
+import { CARD_SURFACED_LOG_ONLY } from "@/lib/messages/cardSurfacedLogOnly";
 
 export const HELP_HREF_RE = /^\/help\/.+/;
 
@@ -44,7 +45,11 @@ export function contractViolations(entry: MessageCatalogEntry): string[] {
     return violations;
   }
 
-  if (entry.title !== null) violations.push("non-predicate entry: title must be null");
+  if (entry.title !== null && !CARD_SURFACED_LOG_ONLY.has(entry.code)) {
+    // Card-surfaced admin-log-only codes carry a card title by design
+    // (spec 2026-07-20-warning-card-copy-restore §3.1).
+    violations.push("non-predicate entry: title must be null");
+  }
   if (entry.longExplanation !== null) {
     violations.push("non-predicate entry: longExplanation must be null");
   }

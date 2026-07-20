@@ -599,8 +599,8 @@ git commit --no-verify -m "docs(plan): transition-audit verification pass (Task 
 
 ## Measured values (filled by Task 1 Step 3)
 
-- `EXPECTED_CORPUS_FIXTURES`: _pending measurement_
-- `EXPECTED_CORPUS_WARN_CODES`: _pending measurement_
+- `EXPECTED_CORPUS_FIXTURES` (measured 2026-07-20, 10 files): 2024-05-east-coast-family-office.md, 2025-03-dci-rpas-central.md, 2025-04-asset-mgmt-cfo-coo.md, 2025-05-redefining-fixed-income-private-credit.md, 2025-06-ria-investment-forum.md, 2025-10-consultants-roundtable.md, 2025-10-fixed-income-trading-summit.md, 2026-03-rpas-central-four-seasons.md, 2026-04-asset-mgmt-cfo-coo-waldorf.md, 2026-05-fintech-forum-cto-summit.md (two more than the spec-time count of 8 — sibling merges added fixtures; oracle freezes what exists)
+- `EXPECTED_CORPUS_WARN_CODES` (measured 2026-07-20, 6 codes, all registered): AGENDA_BLOCK_UNRESOLVED, ROOM_HEADER_SPLIT_AMBIGUOUS, SECTION_HEADER_NO_FIELDS, STAGE_WORD_AUTOCORRECTED, UNKNOWN_FIELD, UNKNOWN_SECTION_HEADER
 
 ## Self-review notes
 
