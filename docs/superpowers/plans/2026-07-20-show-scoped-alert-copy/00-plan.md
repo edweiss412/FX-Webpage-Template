@@ -291,9 +291,14 @@ describe("lead-hint is scope-dependent", () => {
     expect(p["lead-hint"]).toBe("");
   });
 
-  it("show scope empties it even when there is no LEAD delta", () => {
+  // Non-discriminating on its own (review R9a finding 1): leadHintParam
+  // already returns "" without a LEAD delta, so this passes even if scope is
+  // ignored entirely. Kept as a guard that the two paths AGREE on the empty
+  // case; the discriminating assertion is the LEAD-delta pair above.
+  it("show and global agree when there is no LEAD delta", () => {
     const noLead = { changes: [{ crew_name: "X", prior_flags: ["A1"], new_flags: ["A2"] }] };
     expect(deriveAlertMessageParams("ROLE_FLAGS_NOTICE", noLead, null, "show")["lead-hint"]).toBe("");
+    expect(deriveAlertMessageParams("ROLE_FLAGS_NOTICE", noLead, null, "global")["lead-hint"]).toBe("");
   });
 });
 ```
@@ -745,7 +750,7 @@ If `BellEntry` turns out to have required fields the sketch omits, add them with
 - [ ] **Step 6: Run it and watch it fail**
 
 Run: `pnpm vitest run tests/components/admin/resolveLabelCrossProduct.test.tsx`
-Expected: FAIL, `code` is not a prop on either component, and both render "Mark resolved".
+Expected: FAIL on the label assertions, which read "Mark resolved" where "Confirm" is expected. The missing `code` prop is a TYPE error and surfaces under `pnpm typecheck`, not here, because vitest strips types (review R9a finding 2).
 
 - [ ] **Step 7: Thread `code` and read the labels**
 
