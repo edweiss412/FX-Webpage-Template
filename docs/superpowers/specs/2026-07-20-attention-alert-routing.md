@@ -28,7 +28,7 @@ A second defect surfaced while scoping this: `PARSE_ERROR_LAST_GOOD` tells the o
 | Asset/reel alerts anchor to the CONTENT (diagram sub-block, reel field), not merely the section top. "Option B" of the placement mockup. | User selected option B, this session. |
 | `SHOW_FIRST_PUBLISHED` + `SHOW_UNPUBLISHED` STAY on the show surface. Neither is an admin being told what they just clicked: the first is raised by cron auto-publish (`runScheduledCronSync.ts:2364`), the second is reachable from an emailed link (`app/show/[slug]/unpublish/actions.ts:65`). | User selected "keep in Overview", this session. |
 | `PICKER_EPOCH_RESET` is CUT from the attention surface. It is the third copy of one event: `PickerResetControl.tsx:187` already renders a visible success banner with a live region and 5s auto-dismiss, and `resetPickerEpoch.ts:47` writes a durable `PICKER_EPOCH_RESET_BY_ADMIN` audit record. | User, this session. |
-| The two parse notices render as a banner LINE, not a card ("Option C"). They lose the manual Mark-resolved affordance and clear when the next sync succeeds. | User selected option C knowing the trade-off, this session. |
+| The two parse notices render as a banner LINE, not a card ("Option C"). **Nothing is lost by this**: both codes are already `resolution: "auto"` (`lib/messages/catalog.ts`), so neither has ever rendered a manual Mark-resolved button — the footer shows an auto-clear note instead. An earlier draft of this row claimed the affordance was surrendered; that was wrong (R3#4). Clearing paths verified: `PARSE_ERROR_LAST_GOOD` via `syncProblemCodeForStatus("parse_error")` + `resolveStaleSyncProblemAlerts_unlocked` (`lib/sync/runScheduledCronSync.ts:211`), `RESYNC_QUALITY_REGRESSED` via its own resolver (`lib/sync/runScheduledCronSync.ts:332`). | User selected option C, this session. |
 | Failure-reason capture is IN scope (option b of three), and stores the invariant CODE only, never the free-text `message`. | User selected (b), this session. |
 | Show-scoped copy (`dougFacingShowScoped` authoring for the 14 per-show codes) is OUT of scope — owned by `feat/show-scoped-alert-copy` spec B, which already holds the code list (that branch's commit `3aba6f8f5`). | User, this session; sibling spec §5. |
 | The FOUR global codes (`ONBOARDING_SHEET_UNREADABLE`, `WATCH_CHANNEL_ORPHANED`, `SYNC_STALLED`, `LIVE_ROW_CONFLICT`) need NO routing change: every producer passes `showId: null`, so they never reach a per-show fetch. Routing-table membership is NOT eligibility. | Verified §2.2. |
@@ -87,10 +87,10 @@ Eligibility claims in §2.2 rest on producer completeness, which a per-code grep
 | field | meaning |
 | --- | --- |
 | `site` | `file:line` of the call |
-| `codes` | the literal code(s) this site can emit. A site with a non-literal code argument MUST enumerate them explicitly; the test fails on an unenumerated dynamic site rather than guessing |
-| `scope` | `per-show` \| `global` \| `both` — derived from the `showId` argument at that site |
+| `code` | ONE literal code. A site emitting several yields several rows; a site with a non-literal code argument MUST enumerate its codes as separate rows, and the test fails on an unenumerated dynamic site rather than guessing |
+| `scope` | `per-show` \| `global` — the scope FOR THAT CODE AT THAT SITE (R3#3). A dynamic site that passes `showId: null` with code A and a real id with code B produces two rows with different scopes, which a site-level `both` would have wrongly collapsed |
 
-`scope: both` exists because a code can be per-show at one site and global at another; a code is REACHABLE on the per-show surface iff ANY row emitting it has scope `per-show` or `both`. §2.2's table and §7's reachability projection both read this relation, so neither can drift from the call sites.
+A code can legitimately be per-show at one site and global at another; that is two rows, not a `both` value. §2.2's table and §7's reachability projection read this relation, so neither can drift from the call sites.
 
 **Honest limit, stated:** a producer that writes `admin_alerts` through some future path that is neither a `upsertAdminAlert` callee nor an `upsert_admin_alert` SQL call is not discovered. That is a narrower gap than "six shapes" and is the same gap every structural guard in this repo carries.
 
@@ -99,7 +99,8 @@ Eligibility claims in §2.2 rest on producer completeness, which a per-code grep
 **Producer.** In the hard-fail branch (`lib/sync/runScheduledCronSync.ts:3384`), extend the `PARSE_ERROR_LAST_GOOD` context with:
 
 - `error_code: string` — ONLY if allowlisted (below); otherwise the key is omitted
-- `failed_codes: string[]` — allowlisted members only, capped at 4
+
+`failed_codes` was specified in an earlier draft and is DROPPED (R3#5): nothing read it, so it had no product effect, no lifecycle, and no truncation/ordering semantics worth defining. Only the routed `code` is persisted. If a future surface needs the full list, it is a deliberate addition with its own consumer.
 
 **Persistence allowlist (R1#2).** `Phase1Result.code` and `failedCodes` are typed `string`, not a union, and `code` falls back to a ninth value `PARSE_HARD_FAIL` when `failedCodes` is empty (`lib/sync/phase1.ts:395`). Type-level safety does not exist. The producer filters against a frozen allowlist AT THE PERSISTENCE BOUNDARY:
 
@@ -112,7 +113,7 @@ MI-4_NO_CREW                    VERSION_AMBIGUOUS
 
 Anything else — `PARSE_HARD_FAIL`, a future invariant code, an interpolated string — is DROPPED. `phase1.message` is never stored under any condition.
 
-**What the `message` prohibition means, precisely (R2#10).** The existing context already carries `sheet_name`, which IS free text, so "the context contains no free-text member" is false and untestable. The actual contract: **no value derived from `phase1.message` is ever persisted**, and the context gains no key beyond `error_code` and `failed_codes`. The test asserts (a) no `message`-like key exists, and (b) a recognizable sentinel injected into `phase1.message` appears nowhere in the persisted payload.
+**What the `message` prohibition means, precisely (R2#10).** The existing context already carries `sheet_name`, which IS free text, so "the context contains no free-text member" is false and untestable. The actual contract: **no value derived from `phase1.message` is ever persisted**, and the context gains exactly one new key, `error_code`. The test asserts (a) no `message`-like key exists, and (b) a recognizable sentinel injected into `phase1.message` appears nowhere in the persisted payload.
 
 **Catalog: an alias map, NOT new §12.4 rows.** The producer spellings `MI-2_EMPTY_TITLE` / `MI-3_NO_VALID_DATES` have no catalog rows, but the SAME invariants already have operator-facing rows under different names: `MI-2_TITLE_MISSING` (`lib/messages/catalog.ts:705`) and `MI-3_NO_PARSEABLE_DATE` (`lib/messages/catalog.ts:717`). The producer spellings are the durable persisted values (`lib/messages/__generated__/internal-code-enums.ts:125`). Authoring new rows would put TWO codes in the catalog for one invariant. An alias map bridges them: **no new §12.4 rows, no three-way lockstep, no x1 parity impact.**
 
@@ -171,12 +172,17 @@ An invalid pairing is a COMPILE error, and the extended `_metaAttentionRoutes` t
 
 ```ts
 type SectionAttentionBucket = {
-  sectionTop: ReactNode[];
-  byCrewKey?: Map<string, ReactNode[]>;  // CREW ONLY: absent for every other section
-  byAnchor?: Map<string, ReactNode[]>;
+  sectionTop: ReactNode[];               // pre-rendered cards; opaque by design
+  byCrewKey?: Map<string, ReactNode[]>;  // CREW ONLY
+  byAnchor?: Map<string, ReactNode[]>;   // pre-rendered anchored cards
+  notes?: NoteItem[];                    // DOMAIN items, NOT nodes (R3#1)
 };
 type SectionAttention = Map<RoutedSectionId, SectionAttentionBucket>;
 ```
+
+**Two channels, deliberately (R3#1).** An earlier draft made every bucket member `ReactNode[]`, which cannot work: the parse-note renderer must read `alert.code`, `alert.errorCode`, and `warnings.length` to pick a copy variant, and a `ReactNode` is opaque. Cards CAN be pre-rendered by the modal because nothing downstream inspects them. Notes CANNOT, because only the warnings SECTION knows `warnings.length`. So notes travel as domain items and the section composes them; composition ownership is the section, stated once here.
+
+**This is proved, not asserted.** The transport type drew a finding in all three review rounds, so per the AGENTS.md three-round prose cap the fourth pass is a spike rather than another paragraph: `docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts` declares the types, the ordering function, and the composition function, and COMPILES under the repo's strict tsconfig. It also encodes the PR ordering constraint — it must model `errorCode` explicitly because the field does not exist until PR 1, which is exactly the dependency PR 2 carries.
 
 Bucket arrays preserve `deriveAttentionItems` order (actionable before auto-clearing, then fetch order); no re-sorting. An empty bucket is NOT emitted, so a section with no items renders no wrapper element.
 
@@ -260,7 +266,6 @@ These render as `CompactAlertCard` (unchanged shell), keeping stripe, footer, an
 | `error_code` absent (row predates PR 1) | states 2/4 of the §3.2 matrix; reason sentence omitted |
 | `error_code` present but not allowlisted | never persisted (§3.1), so indistinguishable from absent |
 | allowlisted code with no catalog row / no alias | helper returns `null`; reason sentence omitted (invariant 5: never surface a raw code) |
-| `failed_codes` empty / non-array / all non-allowlisted | key omitted; `error_code` alone drives the sentence |
 | `warnings.length === 0` | states 3/4/6; no "below" clause |
 | both parse notices open | two `<p>` siblings, `PARSE_ERROR_LAST_GOOD` first |
 | archived show | unchanged: banners render, resolve is not lifecycle-gated (`docs/superpowers/specs/2026-07-19-published-show-alerts.md` §7 row) |
@@ -277,7 +282,7 @@ These render as `CompactAlertCard` (unchanged shell), keeping stripe, footer, an
 
 **CREATES** `tests/adminAlerts/_metaAlertProducerScope.test.ts` — the producer-scope registry (§3.0). Discovery is shape-agnostic (any `upsertAdminAlert` callee, plus `upsert_admin_alert(` in SQL); rows are per (call site × emitted code); a new unclassified site, or a dynamic-code site with unenumerated codes, fails by default.
 
-**CREATES** the reachability projection: a code is per-show-reachable iff ANY producer row emitting it has scope `per-show` or `both` (§3.0). Derived from the registry relation, never hand-listed, so `DRIVE_FETCH_FAILED` cannot be wrongly excluded (a hand-listed five-code version would encode the very error this exists to prevent).
+**CREATES** the reachability projection. A code is per-show-reachable iff **(a)** any producer row emitting it has scope `per-show`, AND **(b)** it is not in `HEALTH_CODES` — `fetchPerShowAlerts` filters health codes independently of scope (`lib/adminAlerts/fetchPerShowAlerts.ts:17`), so a scope-only equation would call a per-show-produced health code reachable when it is not (R3#2). Both conjuncts are required to reproduce the §2.2 set. Derived from the registry relation, never hand-listed, so `DRIVE_FETCH_FAILED` cannot be wrongly excluded (a hand-listed five-code version would encode the very error this exists to prevent).
 
 **EXTENDS** `tests/admin/_metaAttentionRoutes.test.ts` — set-equality against the registry still holds after the type widens; adds anchor-validity: every anchor names a slot ITS OWN section declares (§3.2's discriminated union makes the invalid pairing a compile error; the test is the runtime backstop for the route table).
 
@@ -292,6 +297,7 @@ Each entry names the concrete failure it catches.
 - **Producer scope (§3.0).** Catches: a new alert-write call site, in ANY call shape, added without declaring its scope; and a dynamic-code site whose emitted codes are not enumerated. This is the test that would have caught the `DRIVE_FETCH_FAILED` error.
 - **Routing.** Expected `sectionId`/`anchor` per code come from a FROZEN FIXTURE transcribed from the §4 table (the project's established pattern — the sibling warning-card spec freezes its copy table the same way). Deriving them from `ATTENTION_ROUTES` would be tautological; the fixture is an independent oracle whose diff is reviewed. Catches: a route silently changed without a spec edit.
 - **Reason allowlist.** Catches: `PARSE_HARD_FAIL`, an unknown future code, or an interpolated/sensitive string reaching the persisted context. Feeds each explicitly and asserts absence.
+- **Transport spike parity.** The shipped types match the spike's shape (`docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts`). Catches: the notes channel silently collapsing back into `ReactNode[]`, which is the R3#1 defect.
 - **`phase1.message` never persisted.** Catches: a future "helpful" addition of the free-text field. A recognizable sentinel is injected into `phase1.message` and asserted absent from the whole persisted payload. NOT "no free-text member" — `sheet_name` is already free text and legitimately stays (R2#10).
 - **Reason helper.** All eight allowlisted codes resolve to non-empty copy through the alias map + `messageFor` (`lib/messages/lookup.ts:95`); unknown/unaliased/uncataloged → `null`. A structural assertion pins that the helper module does NOT import `MESSAGE_CATALOG` directly (invariant 5, R2#1). Expected strings are the eight titles frozen in §3.1, so the test proves the ALIAS and the composition are right rather than that the catalog equals itself.
 - **Composed copy.** All six §3.2 states assert the FINAL rendered string, scoped to the banner's own testid so the list below cannot satisfy it. Includes the no-em-dash assertion over the composed output for all eight titles. Catches: a "below" clause surviving into an empty-list state, and a catalog title introducing a banned character.
