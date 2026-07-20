@@ -66,10 +66,10 @@ describe("TEST_FAST_DEFERRED contract", () => {
       .filter((l) => !l.trimStart().startsWith("//"))
       .join("\n");
     expect(config).toMatch(
-      /const testFastExcludes =[^;]*VITEST_TEST_FAST[^;]*===\s*"1"[^;]*TEST_FAST_DEFERRED/s,
+      /const testFastExcludes =[^;]*VITEST_TEST_FAST[^;]*===\s*"1"[^;]*TEST_FAST_DEFERRED/,
     );
-    expect(config).toMatch(/exclude:\s*\[[^\]]*\.\.\.testFastExcludes/s);
-    expect(config).toMatch(/VITEST_TEST_FAST[^;]*cacheDir:\s*"node_modules\/\.vite-testfast"/s);
+    expect(config).toMatch(/exclude:\s*\[[^\]]*\.\.\.testFastExcludes/);
+    expect(config).toMatch(/VITEST_TEST_FAST[^;]*cacheDir:\s*"node_modules\/\.vite-testfast"/);
   });
 });
 
