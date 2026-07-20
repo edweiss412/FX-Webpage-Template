@@ -42,9 +42,7 @@ describe("runLint — waiver application (spec §3)", () => {
 
   it("fence-opener waiver suppresses hard findings on DISTINCT fence lines", () => {
     const r = lint(
-      ["<!-- spec-lint: ignore — demo dashes -->", "```ts", "a — b", "c — d", "```", ""].join(
-        "\n",
-      ),
+      ["<!-- spec-lint: ignore — demo dashes -->", "```ts", "a — b", "c — d", "```", ""].join("\n"),
     );
     expect(codes(r)).toEqual([]);
   });

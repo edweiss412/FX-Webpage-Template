@@ -55,7 +55,10 @@ export const CITATION_CASES: CitationCase[] = [
   malformed("/abs/x.ts", "illegal path"),
   malformed("a/../x.ts", "illegal path"),
   // citations
-  { content: "lib/x.ts:12", expected: { kind: "citation", path: "lib/x.ts", bare: false, start: 12 } },
+  {
+    content: "lib/x.ts:12",
+    expected: { kind: "citation", path: "lib/x.ts", bare: false, start: 12 },
+  },
   {
     content: "lib/x.ts:12-14",
     expected: { kind: "citation", path: "lib/x.ts", bare: false, start: 12, end: 14 },
@@ -79,7 +82,12 @@ export const CITATION_CASES: CitationCase[] = [
   },
   {
     content: ".github/workflows/unit-suite.yml:80",
-    expected: { kind: "citation", path: ".github/workflows/unit-suite.yml", bare: false, start: 80 },
+    expected: {
+      kind: "citation",
+      path: ".github/workflows/unit-suite.yml",
+      bare: false,
+      start: 80,
+    },
   },
   {
     content: "foo..bar.ts:12",

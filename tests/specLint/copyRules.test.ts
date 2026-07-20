@@ -5,14 +5,7 @@ import { parseDoc } from "../../lib/specLint/parse";
 const run = (docText: string) => checkCopy(parseDoc(docText));
 const codes = (fs: { code: string }[]) => fs.map((f) => f.code);
 
-const NON_RAW_SPELLINGS = [
-  "&mdash;",
-  "&#8212;",
-  "&#x2014;",
-  "&#X2014;",
-  "\\u2014",
-  "\\u{2014}",
-];
+const NON_RAW_SPELLINGS = ["&mdash;", "&#8212;", "&#x2014;", "&#X2014;", "\\u2014", "\\u{2014}"];
 
 describe("checkCopy — em-dash class (spec §6)", () => {
   it("raw em-dash in straight prose quotes → hard COPY_EM_DASH", () => {
@@ -30,9 +23,7 @@ describe("checkCopy — em-dash class (spec §6)", () => {
   });
 
   it.each(NON_RAW_SPELLINGS)("spelling %s in a ts fence → COPY_EM_DASH", (sp) => {
-    expect(codes(run(["```ts", `const s = "${sp}";`, "```"].join("\n")))).toEqual([
-      "COPY_EM_DASH",
-    ]);
+    expect(codes(run(["```ts", `const s = "${sp}";`, "```"].join("\n")))).toEqual(["COPY_EM_DASH"]);
   });
 
   it.each(["tsx", "typescript", "js", "jsx", "javascript", "mjs", "cjs", "json"])(
@@ -81,17 +72,11 @@ describe("checkCopy — quote pairing (spec §6)", () => {
   });
 
   it("stray closer then straight-paired em-dash on the same line → COPY_EM_DASH still emits", () => {
-    expect(codes(run('” then "a — b"\n')).sort()).toEqual([
-      "COPY_EM_DASH",
-      "COPY_UNPAIRED_QUOTE",
-    ]);
+    expect(codes(run('” then "a — b"\n')).sort()).toEqual(["COPY_EM_DASH", "COPY_UNPAIRED_QUOTE"]);
   });
 
   it("stray closer then curly-paired em-dash → COPY_EM_DASH still emits", () => {
-    expect(codes(run("” then “a — b”\n")).sort()).toEqual([
-      "COPY_EM_DASH",
-      "COPY_UNPAIRED_QUOTE",
-    ]);
+    expect(codes(run("” then “a — b”\n")).sort()).toEqual(["COPY_EM_DASH", "COPY_UNPAIRED_QUOTE"]);
   });
 });
 
@@ -103,7 +88,7 @@ describe("checkCopy — hyphen/apostrophe advisories (spec §6)", () => {
     expect(run(["```sh", "cmd --flag", "```"].join("\n"))).toEqual([]);
   });
 
-  it('"it\'s" in prose quotes → COPY_STRAIGHT_APOSTROPHE advisory; fence \'x\' clean', () => {
+  it("\"it's\" in prose quotes → COPY_STRAIGHT_APOSTROPHE advisory; fence 'x' clean", () => {
     const f = run('say "it\'s fine" ok\n');
     expect(codes(f)).toEqual(["COPY_STRAIGHT_APOSTROPHE"]);
     expect(f[0]!.severity).toBe("advisory");

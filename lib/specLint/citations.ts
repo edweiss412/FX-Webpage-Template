@@ -190,7 +190,9 @@ export function checkCitations(
         hard = true;
       }
       if (cls.end !== undefined && cls.end < cls.start) {
-        findings.push(fail("CITATION_RANGE_INVERTED", span, `inverted range in \`${span.content}\``));
+        findings.push(
+          fail("CITATION_RANGE_INVERTED", span, `inverted range in \`${span.content}\``),
+        );
         hard = true;
       }
       if (!hard) {
@@ -206,9 +208,7 @@ export function checkCitations(
           const lo = Math.max(1, cls.start - PROXIMITY_WINDOW);
           const hi = Math.min(len, end + PROXIMITY_WINDOW);
           const window = lines.slice(lo - 1, hi);
-          const anyFound = identifiers.some((id) =>
-            window.some((l) => l.includes(id.content)),
-          );
+          const anyFound = identifiers.some((id) => window.some((l) => l.includes(id.content)));
           if (!anyFound) {
             findings.push({
               check: "citations",

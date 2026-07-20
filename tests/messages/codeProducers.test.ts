@@ -28,4 +28,12 @@ describe("codeProducers (shared §12.4 producer scan)", () => {
     expect(producers.size).toBeGreaterThan(0); // real §12.4 producers exist in app/+lib/
     expect(producers.has("STRAY_FORENSIC_CODE_XYZ")).toBe(false);
   });
+
+  test("lib/specLint diagnostics are excluded (dev-tool Finding.code, not §12.4 producers)", () => {
+    const producers = codeProducerLiterals();
+    // COPY_EM_DASH is emitted as a literal `code:` in lib/specLint/copyRules.ts;
+    // it must NOT register as a §12.4 producer.
+    expect(producers.has("COPY_EM_DASH")).toBe(false);
+    expect(producers.has("WAIVER_UNUSED")).toBe(false);
+  });
 });

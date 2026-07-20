@@ -107,9 +107,7 @@ export function checkNumerics(
       raw,
       occurrences: occurrences.sort((a, b) => a.docLine - b.docLine || a.column - b.column),
     }))
-    .sort(
-      (a, b) => Number(a.raw) - Number(b.raw) || (a.raw < b.raw ? -1 : a.raw > b.raw ? 1 : 0),
-    );
+    .sort((a, b) => Number(a.raw) - Number(b.raw) || (a.raw < b.raw ? -1 : a.raw > b.raw ? 1 : 0));
 
   return { findings, inventory };
 }

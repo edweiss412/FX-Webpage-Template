@@ -5,12 +5,9 @@ import type { FileResolver } from "../../lib/specLint/types";
 import { CITATION_CASES, MALFORMED_CASES } from "./citationCases";
 
 describe("classifySpan — candidate domain + well-formedness (spec §4)", () => {
-  it.each(CITATION_CASES.map((c) => [c.content, c] as const))(
-    "classifies %j",
-    (_label, c) => {
-      expect(classifySpan(c.content)).toEqual(c.expected);
-    },
-  );
+  it.each(CITATION_CASES.map((c) => [c.content, c] as const))("classifies %j", (_label, c) => {
+    expect(classifySpan(c.content)).toEqual(c.expected);
+  });
 });
 
 function makeResolver(files: Record<string, string | null>): {
@@ -137,10 +134,7 @@ describe("checkCitations — resolution (spec §4)", () => {
     const inv = run("`lib/e.ts:2-1`\n", { "lib/e.ts": "a\nb\n" });
     expect(codes(inv)).toEqual(["CITATION_RANGE_INVERTED"]);
     const both = run("`lib/e.ts:5-3`\n", { "lib/e.ts": "a\nb\n" });
-    expect(codes(both).sort()).toEqual([
-      "CITATION_LINE_OUT_OF_RANGE",
-      "CITATION_RANGE_INVERTED",
-    ]);
+    expect(codes(both).sort()).toEqual(["CITATION_LINE_OUT_OF_RANGE", "CITATION_RANGE_INVERTED"]);
   });
 
   it("resolver null → CITATION_UNREADABLE", () => {

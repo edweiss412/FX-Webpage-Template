@@ -87,7 +87,9 @@ export function parseDoc(text: string): DocModel {
     const line = lines[idx]!;
     const lineNo = idx + 1;
     if (fence) {
-      const closeRe = new RegExp(`^ {0,3}(\\${fence.char === "`" ? "`" : "~"}{${fence.len},})\\s*$`);
+      const closeRe = new RegExp(
+        `^ {0,3}(\\${fence.char === "`" ? "`" : "~"}{${fence.len},})\\s*$`,
+      );
       if (closeRe.test(line)) {
         fencedInfo[idx] = null; // closing delimiter
         fence = null;

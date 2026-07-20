@@ -176,10 +176,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       },
     };
 
-    const result = runLint(
-      { text, repoRelPath, kind: docKind, kindSource },
-      resolver,
-    );
+    const result = runLint({ text, repoRelPath, kind: docKind, kindSource }, resolver);
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
       stderr: "",
