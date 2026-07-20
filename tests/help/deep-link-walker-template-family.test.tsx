@@ -3,6 +3,7 @@ import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import type { AffordanceRow } from "@/app/help/_affordanceMatrix";
 import { AFFORDANCE_MATRIX, testidForErrorCode } from "@/app/help/_affordanceMatrix";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { messageFor } from "@/lib/messages/lookup";
@@ -35,7 +36,8 @@ describe("deep-link walker template-family coverage (Task G.5)", () => {
     // popover on compact alert cards; it is walked by its own surface tests,
     // not by this catalog-driven Learn-more walker.
     const templateRows = AFFORDANCE_MATRIX.filter(
-      (row) => row.kind === "template-family" && row.affordance === "Learn more →",
+      (row): row is Extract<AffordanceRow, { kind: "template-family" }> =>
+        row.kind === "template-family" && row.affordance === "Learn more →",
     );
     expect(templateRows).toHaveLength(1);
     expect(templateRows[0]?.testidPattern).toBe(
