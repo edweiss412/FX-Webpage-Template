@@ -115,11 +115,12 @@ describe("vitest projects split — partition is complete and correctly wired", 
     ).toBe(true);
   });
 
-  it("parallel.include and serial.exclude are both PARALLEL_TEST_GLOBS (single source of truth)", () => {
+  it("parallel.include IS PARALLEL_TEST_GLOBS and serial.exclude CONTAINS every parallel glob (single source of truth)", () => {
     const serial = projects.find((p) => p.test.name === "serial")!.test;
     const parallel = projects.find((p) => p.test.name === "parallel")!.test;
     expect(parallel.include).toEqual(PARALLEL_TEST_GLOBS);
-    // serial must exclude exactly the parallel set so the partition can't double-run
+    // serial must exclude every parallel glob (alongside defaults + nightly)
+    // so the partition can't double-run
     for (const g of PARALLEL_TEST_GLOBS) {
       expect(serial.exclude ?? [], `serial.exclude must contain ${g}`).toContain(g);
     }
