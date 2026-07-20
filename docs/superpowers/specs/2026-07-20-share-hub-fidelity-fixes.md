@@ -633,6 +633,7 @@ export function expectRowText(
   const labelEl = within(button).getByText(label);
   expect(button.contains(labelEl)).toBe(true);
   expect(labelEl.tagName, "the label must be a plain span, never a heading").toBe("SPAN");
+  expect([...labelEl.children], "the label must contain text only").toEqual([]);
   expectNotHidden(labelEl, scope, "row label");
   expect(button.getAttribute("aria-label")).toBe(label);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
@@ -648,6 +649,16 @@ export function expectRowText(
     `description "${description}" must appear exactly once`,
   ).toBe(1);
   expectClasses(descEl!, { exactly: DESCRIPTION_CLASSES });
+  // A plain text carrier: no nested elements. Otherwise
+  // `<span id={descId} class="text-xs text-text-subtle"><a href="/x">…</a></span>`
+  // passes exact text, classes, topology, and containment while nesting an
+  // interactive control INSIDE the row button: invalid HTML and a real
+  // click-target bug.
+  expect(descEl!.tagName, "the description must be a plain span").toBe("SPAN");
+  expect(
+    [...descEl!.children],
+    "the description must contain text only, no nested elements",
+  ).toEqual([]);
 
   // Both strings must be STACKED IN THE COLUMN, not merely present. As direct
   // children of the button they would be flex ROW siblings of the icon and read
@@ -780,9 +791,22 @@ export function expectRowBoundary(
   const wrapper = button.parentElement;
   expect(wrapper, "row button must have a wrapper").not.toBeNull();
   expectClasses(wrapper!, { exactly: WRAPPER_CLASSES });
-  expect([...wrapper!.children], "the idle wrapper contains the button and nothing else").toEqual([
-    button,
-  ]);
+  // The PERSISTENT live region is a legitimate wrapper sibling: PickerResetControl
+  // renders `<div class="sr-only" role="status" aria-live="polite">` on EVERY
+  // render, outcome or not (PCR-1 (a)), precisely so an announcement swaps into a
+  // region already in the a11y tree. Requiring `[button]` outright would fail the
+  // CORRECT reset implementation, so it is excluded BY IDENTITY (a live region),
+  // not by being merely `sr-only`.
+  const isLiveRegion = (el: Element): boolean =>
+    el.getAttribute("role") === "status" && el.hasAttribute("aria-live");
+  expect(
+    [...wrapper!.children].filter((el) => !isLiveRegion(el)),
+    "the idle wrapper contains the button (and at most the live region)",
+  ).toEqual([button]);
+  expect(
+    [...wrapper!.children].filter(isLiveRegion).length,
+    "at most one live region",
+  ).toBeLessThanOrEqual(1);
 
   // No heading ANYWHERE in the component boundary, not merely inside the
   // button: an empty `<h5 aria-label="…"/>` beside the button restores the
@@ -829,7 +853,10 @@ export function expectRowBoundary(
    inside ShareHub, whose popover legitimately holds other content); the optional
    `container` argument applies to STANDALONE renders and proves the component emits one
    wrapper and nothing beside it. Passing `document.body` or the popover as `container`
-   would fail CORRECT code — a call-site defect review caught before implementation. It also
+   would fail CORRECT code, a call-site defect review caught before implementation. For the
+   same reason the wrapper-children check EXCLUDES the persistent `sr-only`
+   `role="status" aria-live` live region by IDENTITY: `PickerResetControl` renders it on
+   every render (PCR-1 (a)), so demanding `[button]` outright would fail the correct reset. It also
    pins description-id CARDINALITY, since `getElementById`
    resolves only the first match, and scans headings by ROLE TOKEN (`role="heading
    presentation"` is a heading; an `[role='heading']` selector misses it).
