@@ -159,6 +159,15 @@ While open, broadcasts coalesce through the bridge's 100ms debounce (`ShowRealti
 5. **CI wiring (the contract must run in real CI, not just locally):** the new spec file is added to the `desktop-chromium` `testMatch` in `playwright.config.ts` AND joins `.github/workflows/published-modal-e2e.yml` (the #493 workflow that already boots the CI prod server + local Supabase — whose stack includes Realtime) under its own env gate (`MODAL_REALTIME_E2E=1`, mirroring the prefetch spec's `MODAL_PREFETCH_E2E` precedent), with path-filter entries for the new spec file, `components/realtime/ShowRealtimeBridge.tsx`, and `app/admin/_showReviewModal.tsx` so bridge/loader changes trigger the gate. The M4-era stale `apply-driven-refresh` testMatch entry is NOT this spec's cleanup. Close-out requires the workflow ACTUALLY green on this PR's real CI run (local green is insufficient — the ratified local-passes-CI-fails discipline).
 6. **No mutation-surface telemetry additions** — invariant 10 N/A: no new mutating route/action (read-only loader change + null-render client mount).
 
+## 8.5 Approved-round advisories (folded into the plan)
+
+Round-6 APPROVE carried four advisories; the plan MUST incorporate them:
+
+1. The e2e quiet window restarts not only on request activity but also on any invalidation frame observed on the socket (a late frame can arm the 100ms debounce inside the window).
+2. "Never cached" (§4.1) gets a pin: a unit/source-scan assertion that the loader's token read is NOT wrapped in `unstable_cache`/`"use cache"` (the crew-page hazard comment at `getShowForViewer.ts:874-876` is the rationale).
+3. The loader error-path unit tests assert the emit's full field set (`source: "admin.show"`, `slug`, `showId`, `error`), not just the code.
+4. Reconnect detection in the e2e includes WebSocket close/error EVENTS, not just frames, if the Playwright API surfaces the disconnect that way.
+
 ## 9. Spec-rule declarations
 
 - **Transition inventory: N/A** — no visual states added (bridge renders `null`); the modal's existing transition pin (const-ternary count) is untouched.
