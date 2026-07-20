@@ -238,7 +238,8 @@ function baseProps(
     hasActionableWarnings: false,
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
     unarchiveAction: vi.fn(async () => {}),
-    shareSlot: <div data-testid="share-slot-fixture" />,
+    crewEmails: [],
+    pickerCrew: [],
     feed: { entries: [feedEntry()], truncated: false },
     undoAction: vi.fn(),
     acceptAction: vi.fn(),
@@ -856,10 +857,14 @@ describe("PublishedReviewModal guards (spec §6.2)", () => {
     expect(screen.getByTestId("overview-section")).toBeTruthy();
   });
 
-  it("not eligible (unpublished) renders the inactive-share notice instead of the share slot", () => {
-    renderModal({ published: false, shareSlot: <div data-testid="share-slot-fixture" /> });
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
-    expect(screen.queryByTestId("share-slot-fixture")).toBeNull();
+  it("unpublished renders the hub's PAUSED arm — the retired Overview notice is gone", () => {
+    // share-hub T4: the crew-link surface moved to the status band. Unpublished
+    // no longer hides it (rotate/reset stay reachable, spec §1.1); it renders
+    // the paused arm instead.
+    renderModal({ published: false });
+    expect(screen.getByTestId("share-hub-primary").textContent).toMatch(/paused/i);
+    expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
+    expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
   });
 
   it("attentionItems=[] renders no banner content — Overview stays healthy", () => {

@@ -66,6 +66,10 @@ const NOOP_OK = async () => ({ ok: true }) as const;
 
 function stripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
+    showId: "11111111-2222-4333-8444-555555555555",
+    crewEmails: [],
+    showTitle: "Harness Show",
+    pickerCrew: [],
     slug: TOGGLE_SLUG,
     archived: false,
     published: true,

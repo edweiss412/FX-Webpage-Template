@@ -59,9 +59,8 @@ import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator, StatusDot } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { syncStatusBucket, showsEditedClause } from "@/lib/admin/syncStatus";
-import { ShareLinkCopyButton } from "@/app/admin/show/[slug]/ShareLinkCopyButton";
-import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
-import { useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
+import { ShareHub } from "@/components/admin/showpage/ShareHub";
+import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -90,6 +89,14 @@ export type StatusStripProps = {
   lastSyncStatus: string | null;
   /** Server "now" for deterministic relative formatting. */
   now: Date;
+  /** Subject id for the hub's rotate/reset actions (share-hub T4). */
+  showId: string;
+  /** Crew addresses for the hub's batched Email-crew rows; [] → no rows. */
+  crewEmails: readonly string[];
+  /** Show title for the mailto subject; "" falls back inside the builder. */
+  showTitle: string;
+  /** Roster rows for the hub's everyone-reset control; [] → empty-roster copy. */
+  pickerCrew: PickerResetCrewRow[];
 };
 
 export function StatusStrip({
@@ -103,9 +110,11 @@ export function StatusStrip({
   lastCheckedAt,
   lastSyncStatus,
   now,
+  showId,
+  crewEmails,
+  showTitle,
+  pickerCrew,
 }: StatusStripProps) {
-  const { token } = useShareToken();
-
   // Sync age: guard null BEFORE formatRelative so the "never" sentinel never renders
   // (spec §11 omit contract). Element existence is gated on lastSyncedAt (a show that
   // never synced shows nothing). For the `ok` bucket the displayed TIME is
@@ -128,10 +137,6 @@ export function StatusStrip({
       ? formatRelative(lastSyncedAt, now)
       : null;
 
-  // Copy-link renders only for an active crew link: published, not archived, token present.
-  const copyUrl =
-    published && !archived && token != null ? `${resolveOrigin()}/show/${slug}/${token}` : null;
-
   // CASP2-4 (item 2, approach A): a control/signal divider so the ON switch (bg-accent) and the
   // Live-now dot (bg-status-live = accent, SAME hue — globals.css:89) stop reading as one orange
   // smear. Renders iff there is a toggle to separate (¬archived) AND ≥1 signal follows. The two
@@ -148,6 +153,11 @@ export function StatusStrip({
 
   return (
     <div
+      // share-hub T4: the #share-access deep-link target (built by
+      // lib/adminAlerts/alertActions.ts:51) lives on this UNCONDITIONAL root so it
+      // survives every lifecycle — including archived, where the hub is absent.
+      // A conditional host would silently dead-link the alert action.
+      id="share-access"
       data-testid="show-status-strip"
       // Full band width is what makes right-flush reachable (§8): `ml-auto` on
       // the copy button only reaches the band's content edge if this row spans
@@ -284,9 +294,21 @@ export function StatusStrip({
         <ReSyncButton slug={slug} />
       ) : null}
 
-      {copyUrl != null ? (
-        <div data-testid="strip-copy-link" className="ml-auto shrink-0">
-          <ShareLinkCopyButton url={copyUrl} variant="outline" />
+      {/* share-hub T4. The hub replaces the standalone copy-link: URL, Copy,
+          Email-crew, rotate and reset all live in its popover. Archived shows
+          get NO hub at all (read-only), matching the Re-sync gate above.
+          `ml-auto` right-flushes the group against the band's content edge —
+          which resolves only because the strip row is `w-full` (see above). */}
+      {!archived ? (
+        <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center">
+          <ShareHub
+            slug={slug}
+            showId={showId}
+            published={published}
+            crewEmails={crewEmails}
+            showTitle={showTitle}
+            pickerCrew={pickerCrew}
+          />
         </div>
       ) : null}
     </div>

@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -70,6 +70,11 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     lastCheckedAt: CHECKED_2M,
     lastSyncStatus: "ok",
     now: NOW,
+    // share-hub T4: threaded through to <ShareHub>.
+    showId: "11111111-2222-4333-8444-555555555555",
+    crewEmails: [],
+    showTitle: "East Coast Broadcast Summit",
+    pickerCrew: [],
     ...overrides,
   };
 }
@@ -128,32 +133,94 @@ describe("StatusStrip", () => {
     );
   });
 
-  it("renders the copy-link (with the token URL) for a published, non-archived show with a token", () => {
-    renderStrip({ published: true, archived: false }, { token: "TOK" });
-    const copy = screen.getByTestId("strip-copy-link");
-    // Scoped to `strip-copy-link`, never the bare testid: that testid appears
-    // TWICE inside the open modal (strip + Overview share panel), so a bare
-    // query silently measures the share panel's button instead (§6.4).
-    const btn = within(copy).getByTestId("admin-current-share-link-copy-button");
-    // modal-header-reconciliation §6.4 (Task 6): the strip's button is the
-    // OUTLINE arm — a visible label, no aria-label. The old accent-arm
-    // aria-label assertion would now be asserting the wrong contract.
-    expect(btn.getAttribute("aria-label")).toBeNull();
-    expect(btn.textContent).toContain("Copy crew link");
-    expect(btn.className).toContain("bg-transparent");
-    // The URL is closed over on the button's click handler; assert the surface is present.
-    expect(copy).toBeTruthy();
+  // share-hub T4: the standalone strip copy-link is RETIRED. Copy now lives
+  // inside the hub popover, so a "hidden when unpublished/tokenless" contract no
+  // longer applies to the strip — the hub renders in both lifecycles and gates
+  // its own crew-link arm (covered by shareHub.test.tsx). What the strip owes is
+  // below: the hub mounts for non-archived shows, is absent when archived, and
+  // the retired testid is gone everywhere.
+  describe("share hub (share-hub T4)", () => {
+    it("mounts the hub right-flushed for a published, non-archived show", () => {
+      renderStrip({ published: true, archived: false }, { token: "TOK" });
+      const group = screen.getByTestId("share-hub-group");
+      expect(within(group).getByTestId("share-hub-primary")).toBeTruthy();
+      expect(within(group).getByTestId("share-hub-kebab")).toBeTruthy();
+      expect(group.className).toContain("ml-auto");
+    });
+
+    it("mounts the hub for an UNPUBLISHED show (paused arm still offers rotate/reset)", () => {
+      renderStrip({ published: false, archived: false }, { token: "TOK" });
+      expect(screen.getByTestId("share-hub-primary").textContent).toMatch(/paused/i);
+    });
+
+    it("omits the hub entirely when archived (read-only)", () => {
+      renderStrip({ archived: true }, { token: "TOK" });
+      expect(screen.queryByTestId("share-hub-group")).toBeNull();
+      expect(screen.queryByTestId("share-hub-primary")).toBeNull();
+    });
+
+    it("THREADS crewEmails / showTitle / pickerCrew all the way into the hub", () => {
+      // The prop chain is _showReviewModal → PublishedReviewModal → StatusStrip
+      // → ShareHub, and every downstream unit test supplies its own fixture. A
+      // dropped prop anywhere in that chain would leave the email rows absent
+      // and the reset control disabled with the whole suite still green, so the
+      // threading is asserted end-to-end HERE, through the real hub.
+      renderStrip(
+        {
+          published: true,
+          archived: false,
+          crewEmails: ["ann@example.com"],
+          showTitle: "East Coast Broadcast Summit",
+          pickerCrew: [{ id: "c1", name: "Ann", role: "A1" }],
+        },
+        { token: "TOK" },
+      );
+      fireEvent.click(screen.getByTestId("share-hub-primary"));
+
+      const mailto = decodeURIComponent(
+        screen.getByTestId("admin-current-share-link-email-button").getAttribute("href") ?? "",
+      );
+      expect(mailto, "crewEmails reached the builder").toContain("ann@example.com");
+      expect(mailto, "showTitle reached the mailto subject").toContain(
+        "East Coast Broadcast Summit",
+      );
+      // A non-empty roster leaves the everyone-reset ENABLED; an empty one
+      // disables it, so this distinguishes threaded from dropped.
+      expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    });
+
+    it("the retired strip-copy-link testid no longer renders in ANY lifecycle", () => {
+      for (const props of [
+        { published: true, archived: false },
+        { published: false, archived: false },
+        { archived: true },
+      ]) {
+        const { unmount } = renderStrip(props, { token: "TOK" });
+        expect(screen.queryByTestId("strip-copy-link")).toBeNull();
+        unmount();
+      }
+    });
   });
 
-  it("hides the copy-link when there is no active share token", () => {
-    renderStrip({ published: true }, { token: null });
-    expect(screen.queryByTestId("strip-copy-link")).toBeNull();
-  });
-
-  it("hides the copy-link when the show is unpublished (crew link paused)", () => {
-    // Token persists across unpublish, but the link is paused — copying it is misleading.
-    renderStrip({ published: false }, { token: "TOK" });
-    expect(screen.queryByTestId("strip-copy-link")).toBeNull();
+  describe("#share-access anchor (share-hub T4)", () => {
+    // lib/adminAlerts/alertActions.ts:51 builds /admin?show=<slug>#share-access.
+    // The anchor moved off OverviewSection onto the strip root so it survives
+    // every lifecycle — including archived, where the hub itself is absent. A
+    // conditional host would silently dead-link the alert action.
+    it("is on the strip root in ALL THREE lifecycles", () => {
+      for (const props of [
+        { published: true, archived: false },
+        { published: false, archived: false },
+        { archived: true },
+      ]) {
+        const { unmount } = renderStrip(props, { token: "TOK" });
+        const strip = screen.getByTestId("show-status-strip");
+        expect(strip.getAttribute("id")).toBe("share-access");
+        unmount();
+      }
+    });
   });
 
   describe("control divider (CASP2-4)", () => {
@@ -220,14 +287,14 @@ describe("StatusStrip", () => {
       expect(screen.queryByTestId("strip-title-divider")).toBeNull();
     });
 
-    it("PublishedToggle, live badge, and copy-link are untouched by the title removal", () => {
+    it("PublishedToggle, live badge, and the share hub are untouched by the title removal", () => {
       renderStrip({ isLive: true, published: true }, { token: "TOK" });
       const wrapper = screen.getByTestId("strip-publish-toggle");
       expect(within(wrapper).getByTestId("published-toggle").getAttribute("aria-checked")).toBe(
         "true",
       );
       expect(screen.getByTestId("strip-live-badge")).toBeTruthy();
-      expect(screen.getByTestId("strip-copy-link")).toBeTruthy();
+      expect(screen.getByTestId("share-hub-group")).toBeTruthy();
     });
 
     it("archived: the badge renders, still no h1 and no divider", () => {
@@ -255,16 +322,16 @@ describe("StatusStrip", () => {
       expect(screen.getAllByTestId("admin-resync-button")).toHaveLength(1);
     });
 
-    it("DOM order is normative: Re-sync precedes the copy-link (§10 confirm-proximity)", () => {
-      // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
-      // still LOOKS correct while producing the tab order toggle → Copy →
+    it("DOM order is normative: Re-sync precedes the share hub (§10 confirm-proximity)", () => {
+      // The hub group is right-flushed by `ml-auto`, so a hub-then-Re-sync DOM
+      // order still LOOKS correct while producing the tab order toggle → hub →
       // Re-sync → confirm controls. This is an a11y contract, not a visual one.
       renderStrip();
       const kids = Array.from(screen.getByTestId("show-status-strip").children);
       const resyncIdx = kids.indexOf(screen.getByTestId("admin-resync-button"));
-      const copyIdx = kids.indexOf(screen.getByTestId("strip-copy-link"));
+      const hubIdx = kids.indexOf(screen.getByTestId("share-hub-group"));
       expect(resyncIdx).toBeGreaterThanOrEqual(0);
-      expect(copyIdx).toBeGreaterThan(resyncIdx);
+      expect(hubIdx).toBeGreaterThan(resyncIdx);
     });
 
     it("T-RESYNC-ARCHIVED: an archived show gets NO Re-sync trigger (it mutates via /api/admin/sync)", () => {

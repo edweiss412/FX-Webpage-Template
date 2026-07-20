@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#e9e6e0;font-family:"Inter",ui-sans-serif,system-ui,sans-serif;color:#1a1b1f;-webkit-font-smoothing:antialiased}
+  a{color:#a65000}
+  a:hover{color:#7a3d00}
+</style>
+</helmet>
+<div style="min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:18px;padding:40px 24px 64px">
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center">
+    <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8b8c92">Preview state</span>
+    <div style="display:inline-flex;background:#fff;border:1px solid #e5e4e0;border-radius:8px;padding:3px;gap:2px">
+      <button onClick="{{ setPub }}" style="{{ segPubStyle }}">Published</button>
+      <button onClick="{{ setUnpub }}" style="{{ segUnpubStyle }}">Unpublished</button>
+      <button onClick="{{ setArch }}" style="{{ segArchStyle }}">Archived</button>
+    </div>
+  </div>
+
+  <!-- modal card -->
+  <div style="width:760px;max-width:100%;background:#fff;border:1px solid #e5e4e0;border-radius:14px;box-shadow:0 24px 60px rgba(20,18,12,.16),0 4px 12px rgba(20,18,12,.06)">
+    <!-- modal header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:18px 22px 16px">
+      <div style="min-width:0">
+        <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em;color:#0e0f12">Aurora Fall Tour</h2>
+        <p style="margin:3px 0 0;font-size:12px;color:#8b8c92">Nov 8 – Nov 24 · Beacon Theatre</p>
+      </div>
+      <button aria-label="Close" style="margin-left:auto;flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:7px;border:none;background:transparent;color:#5a5b62;cursor:pointer;font-family:inherit" style-hover="background:#f4f3f1;color:#1a1b1f"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+
+    <!-- STATUS BAND (action bar) -->
+    <div style="position:relative;border-top:1px solid #e5e4e0;background:#fff">
+      <div style="display:flex;align-items:center;gap:16px;padding:12px 22px;flex-wrap:wrap">
+
+        <!-- published toggle -->
+        <sc-if value="{{ isPub }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ togglePublish }}" style="display:inline-flex;align-items:center;gap:8px;flex:none;background:transparent;border:none;cursor:pointer;font-family:inherit;padding:0"><span style="font-size:13px;font-weight:600;color:#0e0f12">Published</span><span style="position:relative;width:34px;height:20px;border-radius:999px;background:#ff8c1a;flex:none;transition:background .12s"><span style="position:absolute;top:2px;left:16px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .12s"></span></span></button>
+        </sc-if>
+        <sc-if value="{{ isUnpub }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ togglePublish }}" style="display:inline-flex;align-items:center;gap:8px;flex:none;background:transparent;border:none;cursor:pointer;font-family:inherit;padding:0"><span style="font-size:13px;font-weight:600;color:#5a5b62">Unpublished</span><span style="position:relative;width:34px;height:20px;border-radius:999px;background:#cfcdc7;flex:none"><span style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)"></span></span></button>
+        </sc-if>
+        <sc-if value="{{ isArch }}" hint-placeholder-val="{{ false }}">
+          <span style="display:inline-flex;align-items:center;gap:6px;flex:none;border:1px solid #e5e4e0;background:#f4f3f1;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:#5a5b62">Archived · read-only</span>
+        </sc-if>
+
+        <span style="width:1px;height:20px;background:#e5e4e0;flex:none"></span>
+
+        <sc-if value="{{ isPub }}" hint-placeholder-val="{{ true }}">
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#a65000;flex:none"><span style="width:7px;height:7px;border-radius:999px;background:#ff8c1a"></span>Live now</span>
+        </sc-if>
+        <span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#5a5b62;flex:none;font-variant-numeric:tabular-nums"><span style="width:7px;height:7px;border-radius:999px;background:#3f8a83"></span><span>Synced 4m ago</span></span>
+
+        <!-- re-sync (not archived) -->
+        <sc-if value="{{ notArch }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ resync }}" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border-radius:6px;padding:0 8px;font-size:13px;font-weight:600;color:#5a5b62;background:transparent;border:none;cursor:pointer;font-family:inherit;flex:none" style-hover="background:#f4f3f1;color:#1a1b1f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>Re-sync</button>
+        </sc-if>
+
+        <!-- right group -->
+        <sc-if value="{{ notArch }}" hint-placeholder-val="{{ true }}">
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex:none">
+            <sc-if value="{{ isPub }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ toggleMenu }}" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border-radius:6px;background:#ff8c1a;padding:6px 14px;font-size:14px;font-weight:600;color:#0e0f12;border:none;cursor:pointer;font-family:inherit" style-hover="background:#e67a0e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>Share link</button>
+            </sc-if>
+            <sc-if value="{{ isUnpub }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ toggleMenu }}" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border-radius:6px;background:transparent;border:1px solid #cfcdc7;padding:6px 12px;font-size:14px;font-weight:600;color:#5a5b62;cursor:pointer;font-family:inherit" style-hover="background:#f4f3f1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>Share link · paused</button>
+            </sc-if>
+            <button onClick="{{ toggleMenu }}" aria-label="More share actions" style="{{ kebabStyle }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- POPOVER -->
+      <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:100%;right:22px;z-index:20;margin-top:6px;width:308px;background:#fff;border:1px solid #e5e4e0;border-radius:11px;box-shadow:0 12px 34px rgba(20,18,12,.16),0 3px 8px rgba(20,18,12,.08);padding:10px">
+          <span style="position:absolute;top:-6px;right:18px;width:10px;height:10px;background:#fff;border-left:1px solid #e5e4e0;border-top:1px solid #e5e4e0;transform:rotate(45deg)"></span>
+
+          <div style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8b8c92;padding:0 2px 6px">Crew link</div>
+
+          <sc-if value="{{ linkActive }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <code style="flex:1;min-width:0;word-break:break-all;background:#f4f3f1;border-radius:6px;padding:6px 8px;font-size:10.5px;line-height:1.45;color:#0e0f12;font-family:ui-monospace,Menlo,monospace">app.fxav.com/show/aurora-fall-tour/8f3a9c2b7e</code>
+                <button onClick="{{ copyLink }}" style="flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:34px;border-radius:6px;background:#ff8c1a;padding:5px 12px;font-size:12px;font-weight:600;color:#0e0f12;border:none;cursor:pointer;font-family:inherit" style-hover="background:#e67a0e">Copy</button>
+              </div>
+              <button onClick="{{ emailCrew }}" style="display:flex;align-items:center;gap:11px;width:100%;min-height:40px;padding:8px;margin-top:4px;border-radius:7px;background:transparent;border:none;text-align:left;cursor:pointer;color:#1a1b1f;font-family:inherit" style-hover="background:#f4f3f1"><span style="flex:none;color:#5a5b62;display:inline-flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span><span style="font-size:13px;font-weight:500;color:#0e0f12">Email this link to crew</span></button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ linkPaused }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;gap:8px;background:#f4f3f1;border-radius:7px;padding:10px;font-size:11.5px;line-height:1.45;color:#5a5b62">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>The crew link is paused while this show is unpublished. Publish to share it — you can still rotate or reset below.</span>
+            </div>
+          </sc-if>
+
+          <div style="height:1px;background:#e5e4e0;margin:8px 2px"></div>
+          <div style="padding:0 2px 4px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8b8c92">Careful</div>
+
+          <!-- ROTATE -->
+          <sc-if value="{{ idle_rotate }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ openRotate }}" style="display:flex;align-items:center;gap:11px;width:100%;min-height:40px;padding:8px;border-radius:7px;background:transparent;border:none;text-align:left;cursor:pointer;color:#1a1b1f;font-family:inherit" style-hover="background:#f4f3f1"><span style="flex:none;color:#5a5b62;display:inline-flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></span><span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:13px;font-weight:500;color:#0e0f12">Rotate share link</span><span style="font-size:11px;line-height:1.3;color:#8b8c92">Old link stops working immediately</span></span></button>
+          </sc-if>
+          <sc-if value="{{ cf_rotate }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff3d6;border:1px solid #f0e2b8;border-radius:7px;padding:10px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:7px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5c3f00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span style="font-size:12px;font-weight:600;color:#5c3f00">Rotate share link?</span></div>
+              <p style="margin:0;font-size:11px;line-height:1.4;color:#5c3f00">The existing URL stops working and every crew member re-picks their name.</p>
+              <div style="display:flex;gap:8px;justify-content:flex-end"><button onClick="{{ doRotate }}" style="border:none;background:#5c3f00;color:#fff3d6;font-size:12px;font-weight:600;padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:#4a3200">Confirm rotate</button><button onClick="{{ cancelConfirm }}" style="border:1px solid #cfcdc7;background:#fff;color:#1a1b1f;font-size:12px;font-weight:500;padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:#f4f3f1">Cancel</button></div>
+            </div>
+          </sc-if>
+
+          <!-- RESET -->
+          <sc-if value="{{ idle_reset }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ openReset }}" style="display:flex;align-items:center;gap:11px;width:100%;min-height:40px;padding:8px;border-radius:7px;background:transparent;border:none;text-align:left;cursor:pointer;color:#1a1b1f;font-family:inherit" style-hover="background:#f4f3f1"><span style="flex:none;color:#5a5b62;display:inline-flex"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg></span><span style="display:flex;flex-direction:column;gap:1px"><span style="font-size:13px;font-weight:500;color:#0e0f12">Reset everyone's pick</span><span style="font-size:11px;line-height:1.3;color:#8b8c92">Everyone re-picks on next visit</span></span></button>
+          </sc-if>
+          <sc-if value="{{ cf_reset }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff3d6;border:1px solid #f0e2b8;border-radius:7px;padding:10px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:7px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5c3f00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span style="font-size:12px;font-weight:600;color:#5c3f00">Reset everyone's pick?</span></div>
+              <p style="margin:0;font-size:11px;line-height:1.4;color:#5c3f00">Every device re-prompts on its next visit.</p>
+              <div style="display:flex;gap:8px;justify-content:flex-end"><button onClick="{{ doReset }}" style="border:none;background:#5c3f00;color:#fff3d6;font-size:12px;font-weight:600;padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:#4a3200">Confirm reset</button><button onClick="{{ cancelConfirm }}" style="border:1px solid #cfcdc7;background:#fff;color:#1a1b1f;font-size:12px;font-weight:500;padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit" style-hover="background:#f4f3f1">Cancel</button></div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- body placeholder to give the modal height -->
+    <div style="border-top:1px solid #e5e4e0;background:#fafaf9;border-radius:0 0 14px 14px;padding:22px;display:flex;flex-direction:column;gap:14px;min-height:220px">
+      <div style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8b8c92">Overview</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="height:12px;width:62%;border-radius:4px;background:#eceae5"></div>
+        <div style="height:12px;width:80%;border-radius:4px;background:#eceae5"></div>
+        <div style="height:12px;width:45%;border-radius:4px;background:#eceae5"></div>
+      </div>
+      <p style="margin:6px 0 0;font-size:11.5px;line-height:1.5;color:#8b8c92;max-width:460px">The "Current share-link" section is gone — its URL, copy, email, rotate and reset now live in the ⋯ share hub above. Overview keeps the sheet / sync and archive controls.</p>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:60;display:inline-flex;align-items:center;gap:9px;background:#0e0f12;color:#f5f3ee;border-radius:9px;padding:11px 15px;font-size:13px;font-weight:500;box-shadow:0 10px 30px rgba(0,0,0,.28)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffa047" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <span>{{ toast }}</span>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:840,&quot;height&quot;:640},&quot;previewState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;published&quot;,&quot;unpublished&quot;,&quot;archived&quot;],&quot;default&quot;:&quot;published&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototype&quot;}}">
+class Component extends DCLogic {
+  state = {
+    lifecycle: this.props.previewState ?? "published",
+    menuOpen: false,
+    confirming: null,
+    toast: null,
+  };
+  toastTimer = null;
+
+  componentWillUnmount() {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+  }
+
+  showToast(msg) {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.setState({ toast: msg });
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 2800);
+  }
+
+  seg(active) {
+    const base =
+      "border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .12s;";
+    return active
+      ? base + "background:#1a1b1f;color:#fff"
+      : base + "background:transparent;color:#5a5b62";
+  }
+
+  renderVals() {
+    const lc = this.state.lifecycle;
+    const isPub = lc === "published";
+    const isUnpub = lc === "unpublished";
+    const isArch = lc === "archived";
+    const setLc = (v) => () =>
+      this.setState({ lifecycle: v, menuOpen: false, confirming: null });
+    const cf = this.state.confirming;
+
+    return {
+      isPub,
+      isUnpub,
+      isArch,
+      notArch: !isArch,
+      linkActive: isPub,
+      linkPaused: isUnpub,
+      menuOpen: this.state.menuOpen && !isArch,
+
+      segPubStyle: this.seg(isPub),
+      segUnpubStyle: this.seg(isUnpub),
+      segArchStyle: this.seg(isArch),
+      kebabStyle:
+        "display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:6px;border:none;cursor:pointer;color:#1a1b1f;flex:none;font-family:inherit;background:" +
+        (this.state.menuOpen ? "#f4f3f1" : "transparent"),
+
+      setPub: setLc("published"),
+      setUnpub: setLc("unpublished"),
+      setArch: setLc("archived"),
+      togglePublish: () =>
+        this.setState((s) => ({
+          lifecycle: s.lifecycle === "published" ? "unpublished" : "published",
+          menuOpen: false,
+          confirming: null,
+        })),
+
+      toggleMenu: () =>
+        this.setState((s) => ({ menuOpen: !s.menuOpen, confirming: null })),
+      resync: () => this.showToast("Re-syncing from Drive…"),
+
+      idle_rotate: cf !== "rotate",
+      idle_reset: cf !== "reset",
+      cf_rotate: cf === "rotate",
+      cf_reset: cf === "reset",
+      openRotate: () => this.setState({ confirming: "rotate" }),
+      openReset: () => this.setState({ confirming: "reset" }),
+      cancelConfirm: () => this.setState({ confirming: null }),
+      doRotate: () => {
+        this.setState({ confirming: null, menuOpen: false });
+        this.showToast("New crew link minted — the old one no longer works.");
+      },
+      doReset: () => {
+        this.setState({ confirming: null, menuOpen: false });
+        this.showToast("Everyone will pick again on their next visit.");
+      },
+      copyLink: () => this.showToast("Crew link copied to clipboard."),
+      emailCrew: () => {
+        this.setState({ menuOpen: false });
+        this.showToast("Opening your email app…");
+      },
+
+      toast: this.state.toast,
+      hasToast: this.state.toast != null,
+    };
+  }
+}
+</script>
+</body>
+</html>

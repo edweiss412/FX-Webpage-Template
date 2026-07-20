@@ -129,6 +129,85 @@ describe("PickerResetControl (everyone-only)", () => {
     }
   });
 
+  describe("onBusyChange (ShareHub busy contract, spec §6)", () => {
+    // The hub gates ALL FOUR dismissal paths on this signal. A missing rising
+    // edge leaves the popover dismissible mid-mutation (losing the outcome
+    // banner for a destructive action); a missing falling edge wedges it shut.
+    it("reports busy true on entering resolving and false on SUCCESS", async () => {
+      epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+      const onBusyChange = vi.fn();
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} onBusyChange={onBusyChange} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await vi.waitFor(() => expect(screen.getByTestId("picker-reset-ok")).toBeTruthy());
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    it("reports busy false on a RETURNED error", async () => {
+      epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      const onBusyChange = vi.fn();
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} onBusyChange={onBusyChange} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await vi.waitFor(() => expect(screen.getByTestId("picker-reset-error")).toBeTruthy());
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    it("reports busy false on a THROWN action", async () => {
+      epochMock.mockRejectedValue(new Error("network death"));
+      const onBusyChange = vi.fn();
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} onBusyChange={onBusyChange} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await vi.waitFor(() => expect(screen.getByTestId("picker-reset-error")).toBeTruthy());
+      const busyEdges = onBusyChange.mock.calls.map((c) => c[0]);
+      expect(busyEdges).toContain(true);
+      expect(busyEdges[busyEdges.length - 1]).toBe(false);
+    });
+
+    it("reports busy true WHILE the action is in flight, not only after it settles", async () => {
+      // Ordering, not just history: an implementation that emitted `true` after
+      // the mutation settled (immediately followed by `false`) would satisfy a
+      // history-only assertion while leaving ShareHub dismissible for the whole
+      // duration of a reset — the exact window the busy contract exists to gate.
+      let settle: ((v: unknown) => void) | null = null;
+      epochMock.mockImplementation(
+        () =>
+          new Promise((res) => {
+            settle = res;
+          }),
+      );
+      const onBusyChange = vi.fn();
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} onBusyChange={onBusyChange} />);
+      fireEvent.click(allBtn());
+      await act(async () => {
+        fireEvent.click(confirmGo());
+      });
+
+      // Mid-flight: busy is already true and has NOT been cleared.
+      expect(onBusyChange).toHaveBeenCalledWith(true);
+      expect(onBusyChange.mock.calls.at(-1)?.[0]).toBe(true);
+
+      await act(async () => {
+        settle?.({ ok: true, epoch: 2 });
+      });
+      await vi.waitFor(() => expect(onBusyChange.mock.calls.at(-1)?.[0]).toBe(false));
+    });
+
+    it("prop-less usage is unchanged (step3ReviewSections passes nothing)", async () => {
+      epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+      render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await vi.waitFor(() => expect(screen.getByTestId("picker-reset-ok")).toBeTruthy());
+      expect(screen.queryByTestId("picker-reset-confirm-row")).toBeNull();
+    });
+  });
+
   it("success banner auto-dismisses after 5s (fake timers)", async () => {
     epochMock.mockResolvedValue({ ok: true, epoch: 2 });
     vi.useFakeTimers();

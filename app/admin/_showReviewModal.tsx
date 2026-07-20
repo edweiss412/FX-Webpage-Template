@@ -61,13 +61,9 @@ import {
 } from "@/lib/parser/dataGaps";
 import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
-import { CurrentShareLinkPanel } from "@/app/admin/show/[slug]/CurrentShareLinkPanel";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
-import {
-  PickerResetControl,
-  type PickerResetCrewRow,
-} from "@/app/admin/show/[slug]/PickerResetControl";
+import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import {
   archiveShowAction,
   setShowPublishedAction,
@@ -375,11 +371,22 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         .map((c) => c.email)
         .filter((e): e is string => typeof e === "string" && e.includes("@"));
 
-  // Per-crew picker-reset rows (id + name + role) from the snapshot roster.
-  const pickerCrew: PickerResetCrewRow[] = snapshot.crew_members.map((r) => {
-    const row = (r ?? {}) as Record<string, unknown>;
-    return { id: str(row.id) ?? "", name: str(row.name) ?? "", role: str(row.role) };
-  });
+  // Picker-reset roster rows (id + name + role) from the snapshot.
+  //
+  // share-hub T4 widened the serialization gate from `published && !archived`
+  // to `!archived`: the hub keeps rotate/reset reachable while a show is
+  // UNPUBLISHED (spec §1.1), so those affordances must serialize for a held
+  // show. The archived arm of the original gate is unchanged and load-bearing —
+  // reset_crew_member_selection is admin-only but lifecycle-agnostic
+  // (BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD), so a read-only show must not
+  // carry those live action references into its RSC payload at all. Hiding them
+  // client-side is not sufficient.
+  const pickerCrew: PickerResetCrewRow[] = archived
+    ? []
+    : snapshot.crew_members.map((r) => {
+        const row = (r ?? {}) as Record<string, unknown>;
+        return { id: str(row.id) ?? "", name: str(row.name) ?? "", role: str(row.role) };
+      });
 
   // Live-now (§4): the SAME rule the dashboard uses (Dashboard.tsx:483-484);
   // the strip does NOT re-derive it (Task 10 contract).
@@ -400,16 +407,6 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   // share notice for the null case, driven by the published/archived flags (not
   // slot presence). (Archive/unarchive are NOT gated here: archive_show carries
   // its own finalize-owned refusal server-side — defense-in-depth backstop.)
-  const shareSlot = isShowEligibleForCrewLink ? (
-    <CurrentShareLinkPanel
-      showId={showId}
-      slug={slug}
-      crewEmails={crewEmails}
-      showTitle={publishedData.title}
-      isCrewLinkActive={isShowEligibleForCrewLink}
-      resetSlot={<PickerResetControl showId={showId} crew={pickerCrew} />}
-    />
-  ) : null;
 
   return (
     <ShareTokenProvider
@@ -436,9 +433,10 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         alertsDegraded={alertsDegraded}
         openSheetHref={openSheetHref}
         hasActionableWarnings={hasActionableWarnings}
+        crewEmails={crewEmails}
+        pickerCrew={pickerCrew}
         archiveAction={archiveShowAction.bind(null, slug)}
         unarchiveAction={unarchiveShowAction}
-        shareSlot={shareSlot}
         feed={feed}
         undoAction={undoChangeAction}
         acceptAction={acceptChangeAction}

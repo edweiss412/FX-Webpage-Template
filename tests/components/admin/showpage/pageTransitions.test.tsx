@@ -132,7 +132,19 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // brings it back to 7 when the Re-sync slot lands. Verified by RUNNING the
   // scanner, not by reasoning.
   "components/admin/showpage/StatusStrip.tsx": 7, // archived / control-divider / live / sync / edited / re-sync / copy-link
-  "components/admin/showpage/OverviewSection.tsx": 4, // share / sheet-sync / open-sheet / archive-row (heads)
+  // share-hub T4: 4 → 3. The share/inactive-notice head left with the
+  // relocated cluster; sheet-sync, open-sheet and archive-row remain. Count
+  // captured by RUNNING the scanner.
+  "components/admin/showpage/OverviewSection.tsx": 3, // sheet-sync / open-sheet / archive-row (heads)
+  // share-hub §9: the ONE conditional the scanner's regexes see is the
+  // `{linkActive ? (` crew-link arm head. The popover's `{open && (` mounts
+  // (backdrop + panel) and `{mailtos.length > 1 && (` use the multi-line
+  // `&& (` form, which these regexes deliberately do not match — the same
+  // documented blind spot called out for StatusStrip's `{!archived ? (` note
+  // above. Count captured by RUNNING the scanner, not by reasoning. The
+  // popover's instantness is additionally pinned behaviorally in
+  // tests/components/admin/showpage/shareHub.test.tsx.
+  "components/admin/showpage/ShareHub.tsx": 1, // linkActive arm (see note)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
 };
@@ -353,6 +365,10 @@ const NOW = new Date("2026-07-16T12:00:00.000Z");
 
 function baseStripProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps {
   return {
+    showId: "11111111-2222-4333-8444-555555555555",
+    crewEmails: [],
+    showTitle: "Harness Show",
+    pickerCrew: [],
     slug: "east-coast-summit",
     archived: false,
     published: true,

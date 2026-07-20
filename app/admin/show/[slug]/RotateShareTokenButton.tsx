@@ -43,6 +43,7 @@ export function RotateShareTokenButton({
   rowLabel,
   rowDescription,
   onRotated,
+  onBusyChange,
 }: {
   showId: string;
   slug: string;
@@ -63,6 +64,15 @@ export function RotateShareTokenButton({
    * surface instantly. Omitted for standalone use.
    */
   onRotated?: (newToken: string, newEpoch: number) => void;
+  /**
+   * Reports this control's in-flight state (spec §6 busy contract). ShareHub
+   * gates ALL FOUR of its dismissal paths on it, so a missing rising edge lets
+   * a dismissal unmount a rotate mid-flight — the rotation still lands, killing
+   * the crew's old link, with no confirmation rendered — and a missing falling
+   * edge wedges the popover shut. Additive and optional: every existing consumer
+   * omits it and is unaffected.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
@@ -141,15 +151,29 @@ export function RotateShareTokenButton({
     clearAutoRevert();
     setUi("resolving");
     startTransition(async () => {
-      const r = await rotateShareToken({ showId });
-      setResult(r);
-      if (r.ok) {
-        // Push the new token+epoch into the shared cache so the card / chip / crew
-        // link update instantly (only for an active crew link — an inactive show
-        // must not surface a copyable URL). router.refresh() is the backstop that
-        // re-reads other server-derived data.
-        if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
-        router.refresh();
+      try {
+        const r = await rotateShareToken({ showId });
+        setResult(r);
+        if (r.ok) {
+          // Push the new token+epoch into the shared cache so the card / chip / crew
+          // link update instantly (only for an active crew link — an inactive show
+          // must not surface a copyable URL). router.refresh() is the backstop that
+          // re-reads other server-derived data.
+          if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
+          router.refresh();
+        }
+      } catch {
+        // A thrown action (network death, server error boundary) must not strand
+        // the control in resolving — settle through the refused banner. Mirrors
+        // PickerResetControl.tsx and CrewRowActions.tsx, which took this guard in
+        // the R2 class-sweep that missed this file. Without it `result` stays
+        // null, so the `ui === "resolving"` exit effect below never fires.
+        // Reuses the existing failure code rather than minting one: the union
+        // admits exactly this code (rotateShareToken.ts:13), the value is never
+        // rendered (the banner keys on `ok === false` and renders a fixed
+        // sentence), and a new code would fan out across the §12.4 catalog —
+        // explicitly out of scope per spec §1.1.
+        setResult({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
       }
     });
   };
@@ -159,6 +183,20 @@ export function RotateShareTokenButton({
   const refusedMessage =
     result && result.ok === false ? "Couldn't rotate the share link. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
+
+  // Busy contract (spec §6). Keyed on the SAME derived boolean the UI uses, so
+  // the reported state can never disagree with what is on screen — including
+  // the `isPending` tail after `ui` has already left "resolving". Reports a
+  // level, not an event: re-notifying the same value is harmless because the
+  // hub stores one flag per child rather than incrementing a shared counter.
+  // The unmount cleanup releases the flag, so a child torn down by an ancestor
+  // (which the hub's own dismissal paths forbid while busy) cannot wedge it.
+  useEffect(() => {
+    onBusyChange?.(isResolving);
+    return () => {
+      if (isResolving) onBusyChange?.(false);
+    };
+  }, [isResolving, onBusyChange]);
 
   const labelHeader =
     compact && rowLabel ? (

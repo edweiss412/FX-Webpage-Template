@@ -284,24 +284,25 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
     });
 
-    // T-COPY-FLUSH (modal-header-reconciliation §8). The copy button carries
-    // `ml-auto shrink-0` and ALWAYS did (StatusStrip.tsx) — this does NOT test
-    // that `ml-auto` is present. It tests that `ml-auto` resolves against a
-    // FULL-BAND-WIDTH row: the band is deliberately not a flex container, so
-    // without `w-full` on the strip root the strip shrink-wraps its content and
-    // the button flushes to the strip's own right edge, well short of the band.
+    // T-HUB-FLUSH (share-hub T4; replaces T-COPY-FLUSH, whose subject — the
+    // standalone strip copy-link — was retired when the hub absorbed it). The
+    // hub group carries `ml-auto shrink-0` — this does NOT test that `ml-auto`
+    // is present. It tests that `ml-auto` resolves against a FULL-BAND-WIDTH
+    // row: the band is deliberately not a flex container, so without `w-full`
+    // on the strip root the strip shrink-wraps and the group flushes to the
+    // strip's own right edge, well short of the band.
     //
     // Measured against the BAND'S CONTENT BOX, never the panel's: the band
     // carries `px-tile-pad`, so a panel-relative assertion would be off by
     // exactly that padding — and the tempting "fix" would be to delete the
     // padding, which is the wrong repair.
-    test(`T-COPY-FLUSH @ ${width}: Copy's right edge sits at the band's content-box right edge`, async ({
+    test(`T-HUB-FLUSH @ ${width}: the share-hub group's right edge sits at the band's content-box right edge`, async ({
       page,
     }) => {
       await openHarness(page, { width, height: vh });
 
       const flush = await page.locator(SUBHEADER).evaluate((band) => {
-        const copy = band.querySelector('[data-testid="strip-copy-link"]');
+        const copy = band.querySelector('[data-testid="share-hub-group"]');
         if (copy === null) return null;
         const bandRect = band.getBoundingClientRect();
         const padRight = parseFloat(getComputedStyle(band).paddingRight);
@@ -316,7 +317,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // the harness fixture is published + tokened precisely so the button exists.
       expect(
         flush,
-        "copy-link present in the band (fixture is published + tokened)",
+        "share-hub group present in the band (fixture is published + non-archived)",
       ).not.toBeNull();
       expect(
         flush!.padRight,
@@ -324,9 +325,16 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       ).toBeGreaterThan(0);
       expect(
         Math.abs(flush!.copyRight - flush!.contentRight),
-        `copy right ${flush!.copyRight} === band content-box right ${flush!.contentRight} @ ${width}`,
+        `hub right ${flush!.copyRight} === band content-box right ${flush!.contentRight} @ ${width}`,
       ).toBeLessThanOrEqual(1);
     });
+
+    // T-HUB-POPOVER lives in published-review-modal.interactions.spec.ts, not
+    // here. This spec renders a STATIC harness (no hydration), so clicking a
+    // trigger cannot open anything — T-HUB-FLUSH works because the trigger
+    // group is in the server-rendered markup, but the popover only exists
+    // after a real click. Asserting it here failed on a correct
+    // implementation; the interactions spec runs against the hydrated app.
 
     // REWRITTEN, not deleted and not retuned (modal-header-reconciliation
     // §6.1/§14.1). The old "header rhythm" test policed the gap between the
@@ -655,8 +663,14 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   });
 
   // T-CONTRAST (modal-header-reconciliation §6.4 / §7.1 / §7.2, Task 6).
+  // share-hub T4 retargeted the SUBJECT from the retired outline Copy button to
+  // the hub's KEBAB trigger — the band's remaining transparent-background
+  // control, which is exactly what this sampling method exists for. (The
+  // primary trigger is a solid accent fill when published, so it would make the
+  // walk-up trivial and test nothing.) Method and rationale unchanged; the
+  // sampled value is the icon's currentColor rather than a text label.
   //
-  // The sampling method IS the test. The outline Copy button is
+  // The sampling method IS the test. The kebab trigger is
   // `background: transparent`, so reading `backgroundColor` off the element
   // itself yields rgba(0,0,0,0) and ANY ratio computed against it is
   // meaningless — a correct implementation fails, or a broken one passes. The
@@ -671,7 +685,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   // and would force either weakening the test or abandoning the token system.
   // The visible label does the identifying work.
   for (const theme of ["light", "dark"] as const) {
-    test(`T-CONTRAST ${theme}: the outline Copy label clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
+    test(`T-CONTRAST ${theme}: the hub kebab's icon color clears WCAG 1.4.3 (>=4.5:1) on its real backdrop`, async ({
       page,
     }) => {
       await openHarness(page, { width: 1280, height: 900 });
@@ -689,7 +703,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       });
 
       const sample = await page
-        .locator(`${SUBHEADER} [data-testid="strip-copy-link"] button`)
+        .locator(`${SUBHEADER} [data-testid="share-hub-kebab"]`)
         .evaluate((btn) => {
           const parse = (c: string): [number, number, number, number] => {
             const n = c.match(/[\d.]+/g)!.map(Number);

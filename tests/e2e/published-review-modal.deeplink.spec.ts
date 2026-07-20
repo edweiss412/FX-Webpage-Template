@@ -200,12 +200,36 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     );
   });
 
-  test("#share-access fragment scrolls the share panel into view (D7 non-rail fallback)", async ({
+  test("#share-access fragment resolves to the always-visible status band (D7)", async ({
     page,
   }) => {
+    // share-hub T4: the anchor moved off the Overview share panel — which lived
+    // in the modal's SCROLLER — onto the StatusStrip root, which lives in the
+    // pinned subheader band. So the contract is no longer "scrolls into view":
+    // the target is already on screen, in every lifecycle, without scrolling.
+    // Asserting scroller-containment here would fail on a correct
+    // implementation, since the band is not inside the scroller at all.
     await openModal(page, `/admin?show=${show.slug}#share-access`);
     expect(new URL(page.url()).hash, "fragment intact after load").toBe("#share-access");
-    await expectInScrollerViewport(page, `${MODAL} #share-access`, "share-access block");
+
+    const anchor = page.locator(`${MODAL} #share-access`);
+    await expect(anchor, "exactly one #share-access node in the modal").toHaveCount(1);
+    await expect(anchor).toBeVisible();
+
+    // toBeVisible() is not in-viewport, so measure the box against the
+    // viewport. POLLED, not one-shot: a cold run measured before the modal
+    // finished streaming in and read false, then passed on retry. Polling waits
+    // for the settled geometry instead of racing it.
+    await expect
+      .poll(
+        () =>
+          anchor.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return r.top >= 0 && r.bottom <= window.innerHeight && r.height > 0;
+          }),
+        { message: "the band target is on screen without scrolling" },
+      )
+      .toBe(true);
   });
 
   test("SIGNED-IN legacy /admin/show/<slug>?alert_id=x 307s into the modal with the highlight", async ({

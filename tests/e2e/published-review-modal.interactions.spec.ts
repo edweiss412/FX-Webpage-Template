@@ -800,11 +800,82 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     );
   });
 
-  test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → copy, in DOM order", async ({ page }) => {
+  // T-HUB-POPOVER (share-hub T4). Geometry for a surface that only exists after
+  // a real click, so it belongs in this hydrated spec rather than the static
+  // layout harness. Failure modes: a popover that covers the very triggers that
+  // opened it (top-full lost), one that is not the specified 308px, one whose
+  // right edge drifts off the band's content edge, and one that overflows a
+  // 390px phone.
+  for (const width of [390, 1280]) {
+    test(`T-HUB-POPOVER @ ${width}: 308px, below the triggers, right-aligned, inside the modal`, async ({
+      page,
+    }) => {
+      await openModal(page, { width, height: 900 });
+      await page.getByTestId("share-hub-primary").click();
+      await expect(page.getByTestId("share-hub-popover")).toBeVisible();
+
+      const geo = await page.locator(SUBHEADER).evaluate((band) => {
+        const pop = document.querySelector('[data-testid="share-hub-popover"]');
+        const group = band.querySelector('[data-testid="share-hub-group"]');
+        const primary = band.querySelector('[data-testid="share-hub-primary"]');
+        const kebab = band.querySelector('[data-testid="share-hub-kebab"]');
+        if (pop === null || group === null || primary === null || kebab === null) return null;
+        const bandRect = band.getBoundingClientRect();
+        const padRight = parseFloat(getComputedStyle(band).paddingRight);
+        const p = pop.getBoundingClientRect();
+        const k = kebab.getBoundingClientRect();
+        return {
+          popWidth: p.width,
+          popTop: p.top,
+          popRight: p.right,
+          popLeft: p.left,
+          groupBottom: group.getBoundingClientRect().bottom,
+          contentRight: bandRect.right - padRight,
+          primaryHeight: primary.getBoundingClientRect().height,
+          kebabW: k.width,
+          kebabH: k.height,
+          docScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(geo, "hub popover + group present").not.toBeNull();
+
+      // min(308, viewport - 2rem) at EVERY width — one expression exercised on
+      // both bands, so deleting the clamp cannot pass on the wide band alone.
+      const expectedWidth = Math.min(308, geo!.viewportWidth - 32);
+      expect(geo!.popWidth, `width is min(308, viewport-2rem) @ ${width}`).toBeCloseTo(
+        expectedWidth,
+        0,
+      );
+      expect(
+        geo!.popTop,
+        `popover top ${geo!.popTop} is at/below the trigger group bottom ${geo!.groupBottom}`,
+      ).toBeGreaterThanOrEqual(geo!.groupBottom - 1);
+      expect(
+        Math.abs(geo!.popRight - geo!.contentRight),
+        `popover right ${geo!.popRight} === band content-box right ${geo!.contentRight}`,
+      ).toBeLessThanOrEqual(1);
+      expect(geo!.popLeft, `popover left edge on-screen @ ${width}`).toBeGreaterThanOrEqual(-1);
+      expect(geo!.docScrollWidth, `no horizontal overflow @ ${width}`).toBeLessThanOrEqual(
+        geo!.viewportWidth + 1,
+      );
+      expect(geo!.primaryHeight, `primary trigger tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(geo!.kebabH, `kebab tap-min @ ${width}`).toBeGreaterThanOrEqual(43);
+      expect(Math.abs(geo!.kebabW - geo!.kebabH), `kebab is square @ ${width}`).toBeLessThanOrEqual(
+        1,
+      );
+    });
+  }
+
+  test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({
+    page,
+  }) => {
     await openModal(page, POPUP);
-    // Copy is right-flushed by `ml-auto`, so a Copy-then-Re-sync DOM order
-    // still LOOKS correct while producing toggle → Copy → Re-sync. §10 makes
-    // DOM order the contract precisely because tab order follows it.
+    // share-hub T4: the band's right-flushed control is now the hub trigger
+    // group, not the retired standalone copy button (Copy moved inside the
+    // popover). The hub group is right-flushed by `ml-auto`, so a hub-then-
+    // Re-sync DOM order still LOOKS correct while producing toggle → hub →
+    // Re-sync. §10 makes DOM order the contract because tab order follows it.
     const order = await page.evaluate((subSel) => {
       const band = document.querySelector(subSel)!;
       const focusables = Array.from(
@@ -813,10 +884,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       return focusables.map((el) => el.getAttribute("data-testid"));
     }, SUBHEADER);
     const resync = order.indexOf("admin-resync-button");
-    const copy = order.indexOf("admin-current-share-link-copy-button");
+    const copy = order.indexOf("share-hub-primary");
     const toggle = order.findIndex((t) => t !== null && t.startsWith("published-toggle"));
     expect(resync, "Re-sync is focusable in the band").toBeGreaterThanOrEqual(0);
-    expect(copy, "copy is focusable in the band").toBeGreaterThan(resync);
+    expect(copy, "the share-hub trigger is focusable in the band").toBeGreaterThan(resync);
+    // The kebab follows its primary; both live in the same right-flushed group.
+    expect(order.indexOf("share-hub-kebab"), "kebab follows the primary trigger").toBeGreaterThan(
+      copy,
+    );
     expect(toggle, "the publish toggle precedes Re-sync").toBeGreaterThanOrEqual(0);
     expect(resync).toBeGreaterThan(toggle);
   });
@@ -851,14 +926,15 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       }, SUBHEADER);
 
       const resync = order.indexOf("admin-resync-button");
-      const copy = order.indexOf("admin-current-share-link-copy-button");
+      // share-hub T4: the trailing band control is the hub trigger, not Copy.
+      const copy = order.indexOf("share-hub-primary");
       expect(resync, "Re-sync present").toBeGreaterThanOrEqual(0);
-      expect(copy, "Copy present").toBeGreaterThanOrEqual(0);
+      expect(copy, "share-hub trigger present").toBeGreaterThanOrEqual(0);
       for (const id of expected[branch]) {
         const idx = order.indexOf(id);
         expect(idx, `${id} present in the band`).toBeGreaterThanOrEqual(0);
         expect(idx, `${id} follows Re-sync`).toBeGreaterThan(resync);
-        expect(idx, `${id} precedes Copy`).toBeLessThan(copy);
+        expect(idx, `${id} precedes the share-hub trigger`).toBeLessThan(copy);
       }
     });
   }

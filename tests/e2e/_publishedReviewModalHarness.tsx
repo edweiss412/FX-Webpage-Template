@@ -269,7 +269,8 @@ export function modalElement(
     hasActionableWarnings: false,
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
-    shareSlot: React.createElement("div", { "data-testid": "harness-share-slot" }, "share slot"),
+    crewEmails: [],
+    pickerCrew: [],
     // feed: null → ChangesSection renders its calm infra notice and never
     // invokes these actions; inert stubs cast to the exact prop shapes.
     feed: null,

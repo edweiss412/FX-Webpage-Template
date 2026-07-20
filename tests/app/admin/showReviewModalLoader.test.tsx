@@ -204,31 +204,6 @@ function alertRow(id: string): Record<string, unknown> {
   };
 }
 
-// CurrentShareLinkPanel is an async Server shell — stub it, exposing the wired
-// props so the loader's threading (crewEmails/showTitle/isCrewLinkActive) is
-// assertable and the resetSlot passthrough is observable.
-vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
-  const React = await import("react");
-  return {
-    CurrentShareLinkPanel: (props: {
-      resetSlot?: React.ReactNode;
-      isCrewLinkActive?: boolean;
-      crewEmails?: readonly string[];
-      showTitle?: string;
-    }) =>
-      React.createElement(
-        "div",
-        {
-          "data-testid": "admin-current-share-link-panel",
-          "data-crew-emails": JSON.stringify(props.crewEmails ?? null),
-          "data-show-title": props.showTitle ?? "",
-          "data-is-crew-link-active": String(props.isCrewLinkActive ?? ""),
-        },
-        props.resetSlot,
-      ),
-  };
-});
-
 function baseSnapshot(overrides: Partial<Record<string, unknown>> = {}): ShowReviewSnapshot {
   return {
     show: {
@@ -283,8 +258,8 @@ async function renderLoader() {
   render(await buildLoaderElement());
 }
 
-// The loader returns <ShareTokenProvider><PublishedReviewModal shareSlot=… /></…>.
-// Read the shareSlot prop the server loader hands the client shell — the RSC
+// The loader returns <ShareTokenProvider><PublishedReviewModal …/></…>.
+// Read the props the server loader hands the client shell — the RSC
 // serialization boundary — WITHOUT rendering (rendered-tree assertions can't
 // distinguish "withheld from the payload" from "hidden client-side", since
 // OverviewSection hides the slot for ineligible shows either way).
@@ -295,8 +270,8 @@ function modalProps(ui: ReactElement): Record<string, unknown> {
   const shell = Array.isArray(kids) ? (kids[0] as ReactElement) : kids;
   return shell.props as Record<string, unknown>;
 }
-function shareSlotProp(ui: ReactElement): unknown {
-  return modalProps(ui).shareSlot;
+function pickerCrewProp(ui: ReactElement): unknown {
+  return modalProps(ui).pickerCrew;
 }
 
 beforeEach(() => {
@@ -489,34 +464,32 @@ describe("show review modal loader — shell + rail sections (§4/§6)", () => {
   });
 });
 
-describe("show review modal loader — share panel gating (§5.1/§6)", () => {
-  it("published+active: Overview shows the share panel, NOT the inactive notice", async () => {
+describe("show review modal loader — share hub gating (§5.1/§6, share-hub T4)", () => {
+  it("published+active: the status band renders the hub", async () => {
     await renderLoader();
-    expect(screen.getByTestId("admin-current-share-link-panel")).toBeTruthy();
+    expect(screen.getByTestId("share-hub-primary")).toBeTruthy();
+    // The Overview share panel and its inactive notice are retired.
+    expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
     expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
   });
 
-  it("unpublished (held): Overview shows the inactive notice, no share panel", async () => {
+  it("unpublished (held): the hub still renders, in its paused arm", async () => {
+    // share-hub T4 / spec §1.1: rotate + reset stay reachable while held, so the
+    // hub renders — unlike the retired Overview panel, which was hidden here.
     state.snapshot = baseSnapshot({ published: false, archived: false });
     await renderLoader();
-    expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
+    expect(screen.getByTestId("share-hub-primary").textContent).toMatch(/paused/i);
   });
 
-  it("threads fixture-derived non-null emails + title into the share panel", async () => {
+  it("threads fixture-derived non-null emails into the modal's crewEmails prop", async () => {
     state.snapshot = baseSnapshot();
     state.snapshot.crew_members = [
       { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
       { id: "c2", name: "Bob", role: "A2", email: null },
       { id: "c3", name: "Cal", role: "V1", email: "cal@example.com" },
     ];
-    await renderLoader();
-    const panel = screen.getByTestId("admin-current-share-link-panel");
-    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([
-      "ann@example.com",
-      "cal@example.com",
-    ]);
-    expect(panel.getAttribute("data-show-title")).toBe("RPAS Central");
+    const ui = await buildLoaderElement();
+    expect(modalProps(ui).crewEmails).toEqual(["ann@example.com", "cal@example.com"]);
   });
 
   it("ineligible (unpublished) show never serializes the real token to the client", async () => {
@@ -527,42 +500,47 @@ describe("show review modal loader — share panel gating (§5.1/§6)", () => {
   });
 });
 
-describe("show review modal loader — share-cluster serialization gate (§6, server-side)", () => {
-  // The share cluster (CurrentShareLinkPanel + PickerResetControl) carries live
-  // server-action refs (rotate share-token + per-member picker reset). For an
-  // ineligible show OverviewSection HIDES it client-side, but the server loader
-  // must ALSO withhold the slot from the RSC payload — hiding is not enough
-  // because reset_crew_member_selection has no archived/published/finalize
-  // lifecycle guard (admin-only but lifecycle-agnostic). Assert the shareSlot
-  // PROP is null for archived AND unpublished (withheld, not merely hidden), and
-  // a real element for published+active. Old-page parity (merge-base page.tsx:792
-  // gated the cluster with isShowEligibleForCrewLink server-side).
+describe("show review modal loader — reset-roster serialization gate (§6, server-side)", () => {
+  // The hub's reset control carries a live server-action ref, and
+  // reset_crew_member_selection is admin-only but LIFECYCLE-AGNOSTIC
+  // (BL-RPC-RESET-SELECTION-LIFECYCLE-GUARD) — so a read-only show must not
+  // carry that affordance's roster into the RSC payload at all. Hiding it
+  // client-side is not sufficient.
+  //
+  // share-hub T4 WIDENED the gate from `published && !archived` to `!archived`:
+  // the hub keeps rotate/reset reachable while a show is unpublished (spec
+  // §1.1), so a held show now DOES serialize. The archived arm is unchanged and
+  // is the half that actually guards the RPC.
 
-  it("published+active: the share cluster IS serialized (a real element slot)", async () => {
+  it("published+active: the roster IS serialized", async () => {
     const ui = await buildLoaderElement();
-    expect(isValidElement(shareSlotProp(ui))).toBe(true);
+    expect(Array.isArray(pickerCrewProp(ui))).toBe(true);
+    expect((pickerCrewProp(ui) as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it("unpublished (held): shareSlot withheld from the payload (null, not merely hidden)", async () => {
+  it("unpublished (held): the roster IS serialized (widened gate — rotate/reset stay reachable)", async () => {
     state.snapshot = baseSnapshot({ published: false, archived: false });
     const ui = await buildLoaderElement();
-    expect(shareSlotProp(ui)).toBeNull();
+    expect((pickerCrewProp(ui) as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it("archived: shareSlot withheld from the payload (null, not merely hidden)", async () => {
+  it("archived: the roster is WITHHELD from the payload (empty, not merely hidden)", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
     const ui = await buildLoaderElement();
-    expect(shareSlotProp(ui)).toBeNull();
+    expect(pickerCrewProp(ui)).toEqual([]);
   });
 });
 
 describe("show review modal loader — archived read-only posture (§6)", () => {
-  it("archived: strip archived badge, no publish toggle, Overview Unarchive + inactive notice", async () => {
+  it("archived: strip archived badge, no publish toggle, no share hub", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
     await renderLoader();
     expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();
     expect(screen.queryByTestId("strip-publish-toggle")).toBeNull();
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeTruthy();
+    // share-hub T4: archived shows get NO hub at all (read-only), and the
+    // retired Overview inactive notice is gone with the panel.
+    expect(screen.queryByTestId("share-hub-group")).toBeNull();
+    expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
     // Re-sync paused on the read-only surface (no re-sync button in Overview).
     expect(screen.getByTestId("admin-show-resync-archived")).toBeTruthy();
   });
@@ -593,8 +571,10 @@ describe("show review modal loader — Preview-As gating (§5.5)", () => {
     await renderLoader();
     expect(screen.queryByTestId("admin-show-preview-as-link-c0")).toBeNull();
     expect(screen.queryByTestId("crew-row-menu-button-c0")).toBeNull();
-    const panel = screen.getByTestId("admin-current-share-link-panel");
-    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
+    // Over-cap rosters blank the distribution list rather than hand out a
+    // provably-partial one; assert on the prop the loader actually threads.
+    const ui = await buildLoaderElement();
+    expect(modalProps(ui).crewEmails).toEqual([]);
     const call = logSpy.warn.mock.calls.find(
       (c) => (c[1] as { code?: string } | undefined)?.code === "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
     );

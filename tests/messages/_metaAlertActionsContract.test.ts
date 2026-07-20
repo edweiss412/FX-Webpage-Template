@@ -16,13 +16,23 @@
  *    re-sync quality gate audit #3; + ONBOARDING_SHEET_UNREADABLE, setup-scan
  *    folder link), all members of the ADMIN_ALERTS_CODES universe.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { ALERT_ACTIONS, ALERT_ACTION_CODES } from "@/lib/adminAlerts/alertActions";
 
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+
+/** Every .tsx under a directory — filesystem-walked so a NEW component that
+ *  emits a duplicate anchor id fails by default rather than needing a list. */
+function walkFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) return walkFiles(full);
+    return full.endsWith(".tsx") ? [full] : [];
+  });
+}
 
 type RaiseSitePin = {
   code: string;
@@ -149,10 +159,22 @@ describe("alert-action registry ↔ raise-site fidelity", () => {
 
 describe("alert-action internal link targets exist", () => {
   test("the #share-access anchor exists on the show page (spec §4 #1-#3)", () => {
-    // Consolidated-admin-show-page (Task 13): the share/access region moved into
-    // the OverviewSection rail section (always rendered — share panel OR inactive
-    // notice), so the `#share-access` deep-link anchor lives there now.
-    expect(read("components/admin/showpage/OverviewSection.tsx")).toMatch(/id="share-access"/);
+    // share-hub T4: the share/access region became the status band's ShareHub
+    // popover, so the deep-link anchor moved onto the StatusStrip ROOT — an
+    // unconditional element that renders in all three lifecycles, including
+    // archived (where the hub itself is absent). Hosting it on the hub's own
+    // trigger group would dead-link the alert action for archived shows.
+    expect(read("components/admin/showpage/StatusStrip.tsx")).toMatch(/id="share-access"/);
+    // EXACTLY one emitter, counted across the whole component tree — checking
+    // presence here plus absence in one named file would still pass if the id
+    // were duplicated onto the hub, its trigger group, or any other component,
+    // which makes hash navigation resolve to whichever node comes first.
+    const emitters = walkFiles(join(ROOT, "components")).filter((f) =>
+      /id="share-access"/.test(readFileSync(f, "utf8")),
+    );
+    expect(emitters.map((f) => f.replace(ROOT, ""))).toEqual([
+      "/components/admin/showpage/StatusStrip.tsx",
+    ]);
   });
   test("the onboarding wizard route exists (spec §4 #6)", () => {
     expect(existsSync(join(ROOT, "app/admin/onboarding/page.tsx"))).toBe(true);

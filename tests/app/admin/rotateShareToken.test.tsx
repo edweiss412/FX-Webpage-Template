@@ -6,7 +6,7 @@
 // the always-visible share-link card). Instead the rotate hands the new
 // token+epoch to the shared ShareTokenProvider via onRotated, and every crew-URL
 // surface updates instantly. The R28 canonical-origin guarantee therefore now
-// lives on the CARD surfaces (ShareChip / CrewPageLink / ShareLinkBody, all via
+// lives on the CARD surfaces (ShareChip / CrewPageLink / ShareHub popover, all via
 // resolveOrigin), pinned in tests/components/shareTokenInstantUpdate.test.tsx.
 // Here we pin (test 1) that the active banner is confirmation-only and drives
 // onRotated with the fresh token+epoch, and (test 2, R27) the inactive gating.
