@@ -42,88 +42,57 @@ Whether a process detached in one step survives into later steps on a GitHub-hos
 | Sentinel status propagates to the joining step? | **YES** — status 7 written, 7 observed |
 | Is `echo N > file` observably non-atomic to a concurrent reader? | **0 empty reads in 400 create/read races** |
 
-The first two make the design viable. The third says the empty-read race is not observable in practice — but 0/400 is not proof of impossibility, and the fix is free, so §3 publishes the sentinel with a `mv` (atomic rename within one filesystem) rather than relying on it.
+The probe was run against the (now superseded) cross-step design; its results are retained because they are durable facts about the runner, and because they are what let round 4 conclude the mechanism was sound and the FRAGILITY was in the cross-step protocol, not in the idea of overlapping. The simplified §3 design needs none of them. The third says the empty-read race is not observable in practice — but 0/400 is not proof of impossibility, and the fix is free, so §3 publishes the sentinel with a `mv` (atomic rename within one filesystem) rather than relying on it.
 
-## 3. Design
+## 3. Design — one shell, native `wait` (simplified after round 4)
 
-Reorder and background, changing no script. **The cross-step coordination is a completion sentinel, not a PID** — a `run:` step is its own shell, so a later step cannot `wait` on an earlier step's child (`wait` on a non-child returns non-zero, which would fail every leg permanently). Status must be persisted to the filesystem, which outlives the step shell.
+Rounds 1–4 all attacked one vector: proving a CROSS-STEP coordination protocol correct. Round 1 killed `wait` on a foreign PID; rounds 2–4 then found successive regression classes surviving each proof suite (deadline not enforced for a late sentinel, failure-path log surfacing, an unrealizable missing-sentinel trial, no proof the start step returns promptly). Per this project's three-round rule the response is to remove the vector, not to patch it again.
 
-1. `actions/checkout@v4` (unchanged, must be first — the composite action and the bootstrap both live in the repo).
-2. `supabase/setup-cli@v1` moves UP, before the setup composite (2s; the bootstrap needs the CLI on PATH).
-3. Install psql moves UP for the same reason (0s in practice, guarded).
-4. **NEW — start the bootstrap detached, writing a sentinel on completion:**
+**The protocol existed only because the two operations sat in different step shells.** Put them in ONE step and every piece of it dissolves — no sentinel, no PID file, no start marker, no deadline arithmetic, no cross-step liveness assumption, no buffered log:
 
-   ```bash
-   rm -f /tmp/supabase-boot.rc /tmp/supabase-boot.rc.tmp /tmp/supabase-boot.log
-   date +%s > /tmp/supabase-boot.started
-   nohup bash -c '
-     bash scripts/ci/supabase-local-bootstrap.sh
-     rc=$?
-     echo "$rc" > /tmp/supabase-boot.rc.tmp
-     mv /tmp/supabase-boot.rc.tmp /tmp/supabase-boot.rc
-   ' > /tmp/supabase-boot.log 2>&1 &
-   disown
-   ```
+```yaml
+- name: Boot Supabase and install dependencies concurrently
+  # The bootstrap is network-bound (image pull) and pnpm install is
+  # registry-bound; they share no data, so running them in one shell overlaps
+  # the two. `wait` here is a NATIVE wait on a real child of this shell — the
+  # cross-step variant is impossible (a later step is a different process), which
+  # is what made every earlier revision of this design fragile.
+  run: |
+    set -euo pipefail
+    bash scripts/ci/supabase-local-bootstrap.sh &
+    boot_pid=$!
+    pnpm install --frozen-lockfile
+    wait "$boot_pid"
+```
 
-   The inner capture records the bootstrap's real exit status, published by `mv` so the join can never observe a created-but-empty sentinel (§2.1 probe question 3). Background survival across steps is not an assumption here — it is measured in §2.1.
+Properties that come for free, each of which needed explicit machinery in the cross-step form:
 
-5. `./.github/actions/setup` runs while images pull.
-6. **NEW — join: wait for the sentinel, surface the log, adopt the status.**
+- **Fail-closed.** `wait "$boot_pid"` returns the bootstrap's real exit status, and `set -e` fails the step on non-zero. No sentinel to publish atomically, no status to misread.
+- **Fail-closed on the install too.** `pnpm install` failing aborts under `set -e` before the `wait`; the leg fails, as today.
+- **Live log.** Both processes inherit the step's stdout, so output streams exactly as it does now — the round-2/3 finding about losing diagnostics on cancellation or runner timeout evaporates, because nothing is buffered.
+- **No timeout logic.** The job's existing `timeout-minutes: 20` bounds a hung boot, as it does today. There is no second deadline to keep consistent with it.
+- **Overlap is structural, not asserted.** The `&` is on the line before a foreground command in the same shell; there is no way for it to be "secretly sequential" the way a separate start step could be.
 
-   ```bash
-   # Anchor the deadline to when the BOOT started, not when the join did, so a
-   # slow setup step cannot push the effective timeout past the 20-minute job cap.
-   started=$(cat /tmp/supabase-boot.started)
-   deadline=$(( started + 600 ))
-   while [ ! -f /tmp/supabase-boot.rc ]; do
-     if [ "$(date +%s)" -ge "$deadline" ]; then
-       echo "::error::supabase bootstrap did not finish within 600s of starting"
-       cat /tmp/supabase-boot.log || true
-       exit 1
-     fi
-     sleep 2
-   done
-   # Print the log on EVERY path, before the status is consulted — a regression
-   # that logs only when rc=0 would hide the output exactly when it is needed.
-   cat /tmp/supabase-boot.log
-   rc=$(cat /tmp/supabase-boot.rc)
-   echo "bootstrap exit status: $rc"
-   exit "$rc"
-   ```
+The remaining steps are unchanged and keep their order: `checkout` → `supabase/setup-cli@v1` (moved up; the bootstrap needs the CLI on PATH) → psql guard (moved up, same reason) → **this combined step** → vitest.
 
-   `exit "$rc"` is the fail-closed hinge: a non-zero bootstrap fails the leg and therefore the REQUIRED aggregate, exactly as the foreground form does. The start step records the boot start time (date +%s) to a started-marker file under /tmp; the join's 600s deadline is measured from THAT, so a slow setup cannot push the effective timeout past the job's 20-minute cap (round-2 finding 6). The single `|| true` is on the diagnostic `cat` in the timeout path ONLY, where the log may legitimately not exist yet; it can never mask a bootstrap failure because that path exits 1 unconditionally.
+**Cost of the simplification, stated plainly:** this step inlines `pnpm install --frozen-lockfile`, so the leg no longer uses the `./.github/actions/setup` composite. The composite's other two actions (`pnpm/action-setup@v4`, `actions/setup-node@v4` with `cache: pnpm`) must still run BEFORE this step, since pnpm and the warm cache are prerequisites of the install. The composite therefore cannot simply be dropped; §4 pins that those two actions still precede the combined step, and that the install is not run twice.
 
-7. vitest step unchanged.
-
-**Diagnostics on failure paths (round-1 finding 7).** Today the boot log streams live; buffering it until the join would hide it whenever setup fails, the job is cancelled, or the runner times out before the join. An **`if: failure()` log-dump step** placed after the setup composite prints whatever the boot has produced when SETUP fails. Honest limits (round-2 finding 6): it cannot help on job cancellation or a runner-level timeout, where no later step runs at all — those paths lose the buffered log, which is a real if narrow regression versus today's streaming. The join prints the log on both its success and timeout paths.
-
-**Working-tree interleaving (round-1 finding 3).** The bootstrap moves two migration files aside and restores them via `trap restore EXIT`, while `pnpm install` runs concurrently. Disjointness is AUDITED, not inferred from the top-level command (round-2 finding 5): `package.json` defines exactly one install-lifecycle script, `prepare: simple-git-hooks`, whose configuration is `{"pre-commit": "pnpm exec lint-staged"}` — it writes `.git/hooks/` only. No `preinstall`, `install`, `postinstall`, or `prepack` exists. So the concurrent writes are `node_modules/` plus `.git/hooks/` against `supabase/migrations/*.sql`: disjoint. If the job dies between the move and the trap, the mutated tree is discarded with the ephemeral runner — no persistence risk, and no other step reads those files before the join.
-
-**Expected saving — bounded, not asserted.** Contention-free, `16 + 70` becomes `max(16, 70)`, i.e. 16s. But the setup step is not purely network-bound: with `cache: pnpm` it also restores a cache, links/extracts packages, and runs package scripts, competing with Docker layer extraction for disk and CPU. **16s is an upper bound; the realized saving may be materially less.** §5 measures rather than assumes.
+**Expected saving:** unchanged in magnitude — `pnpm install`'s duration disappears into the boot's, bounded above by the install's ~16s and likely less under contention. §5 measures it.
 
 ## 4. Meta-test inventory (mandatory declaration)
 
-EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none.
+EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES none. The surface is far smaller than the cross-step design required — most of what §4 previously had to pin is now impossible by construction.
 
-(a) **Step ordering**: checkout → setup-cli → psql → background-start → setup composite → join → vitest, by index comparison.
-(b) **Executable behavioral proof of the join, plus structural pins for what execution cannot observe.** Round-2 review showed two exit-code trials are necessary but NOT sufficient — several regressions preserve both codes while destroying the point of the change. The proof is therefore layered:
+(a) **Step ordering**: checkout → setup-cli → psql guard → pnpm/setup-node prerequisites → combined boot+install step → vitest, by index comparison.
+(b) **The combined step's shape**, which is the whole contract: its `run:` body contains the bootstrap invocation suffixed with `&`, captures the PID, runs `pnpm install --frozen-lockfile` in the foreground, and ends with `wait` on that captured PID. Assert all four, plus `set -euo pipefail`.
+(c) **Fail-closed**: the `wait` is the step's last command and carries no `|| true`, no `set +e`, and no trailing `exit 0`.
+(d) **Prerequisites preserved**: `pnpm/action-setup` and `actions/setup-node` (with `cache: pnpm`) still run before the combined step — inlining the install must not lose the pnpm binary or the warm cache.
+(e) **Install runs exactly once** in the leg: `pnpm install` appears once in the workflow, and the `./.github/actions/setup` composite is not also invoked in this job (a double install would erase the saving and could race itself).
+(f) **Bootstrap invoked exactly once**, still as `bash scripts/ci/supabase-local-bootstrap.sh` (shared-script contract).
+(g) **Soft-failure inventory**: `|| true` appears zero times in the workflow.
+(h) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
 
-   **Executed** (extract the start and join `run:` bodies from the YAML, run them in a temp dir against a stub bootstrap under `bash -euo pipefail`, matching Actions' shell):
-   - stub exits 0 → join exits 0 (a successful boot lets the leg continue);
-   - stub exits 7 → join exits 7 (a failed boot fails the leg — the fail-closed hinge);
-   - stub never writes a sentinel, with the deadline stubbed short → join exits non-zero and prints the timeout error (the missing-sentinel branch, invisible to the first two trials). Isolation (round-3 finding 5): the trial rewrites the extracted bodies' absolute boot-file paths under /tmp to per-test temp paths so concurrent runs cannot collide, and simulates the missing sentinel by never creating it rather than by leaving a worker hanging, so no detached process is orphaned;
-   - the stub's stdout appears in the join's output on the success path (log surfacing, likewise invisible to exit codes).
-   Running under `-euo pipefail` closes the round-2 gap where a lax shell lets an intermediate failure precede the expected final `exit`.
-
-   **Structural** (things execution in a local shell cannot prove, since it cannot reproduce runner step boundaries):
-   - the start step's command contains `nohup` and a trailing `&` — without detachment the "overlap" silently becomes sequential while both exit-code trials still pass, i.e. the change would be a no-op that looks correct;
-   - the start step does NOT itself wait for the bootstrap;
-   - the START step publishes the sentinel via the `.rc.tmp` + `mv` form, not a bare redirect into the path the join reads;
-   - the START step writes the boot-start marker, and the JOIN computes its deadline from that marker rather than from its own start — a regression to `join_time + timeout` restores the job-cap defect while passing all four executed trials (round-3 finding 3);
-   - an `if: failure()` log-dump step exists after the setup composite — deleting it survives every trial and a green acceptance run (round-3 finding 4).
-(c) **The bootstrap is invoked exactly once** in the workflow, still as `bash scripts/ci/supabase-local-bootstrap.sh` (the shared-script contract other workflows depend on).
-(d) **Soft-failure inventory**: `|| true` appears exactly once, on the timeout path's diagnostic `cat` (§3.6), and never on the bootstrap invocation or the join's exit.
-(e) Unchanged and must stay green: the 8-leg matrix + denominator pins, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, `tests/cross-cutting/ci-workflow-speedup.test.ts`.
+No executable behavioral harness is specified, and that is a deliberate consequence of the simplification rather than a gap: the earlier design needed one because its correctness lived in a hand-rolled protocol; here it lives in `wait` and `set -e`, which are shell semantics, and the real proof is the accept gate in §5 (all 8 legs green means both the boot and the install succeeded and were joined).
 
 ## 5. Accept criteria (real CI)
 
