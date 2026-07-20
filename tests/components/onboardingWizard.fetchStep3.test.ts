@@ -122,6 +122,10 @@ describe("fetchStep3Data — finishable predicate (§7.3)", () => {
       expect(hasBlocking).toBe(true);
       expect(result.finishable).toBe(false);
     },
+    // 15s: the first dynamic import of OnboardingWizard starves under full-suite
+    // concurrency on the 2-core CI runner (5013ms observed, run 29711040467) — the
+    // same class as showReviewModalLoader's parallel-wave test.
+    15000,
   );
 
   test("finishable=true when all rows are clean staged/applied", async () => {
