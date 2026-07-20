@@ -159,6 +159,52 @@ it("rotate idle state is ONE borderless full-width menu row", () => {
 background-filled row; the description surviving only as an `aria-label` fragment rather
 than visible text; a shrink-wrapped wrapper that makes `w-full` resolve short.
 
+### Also failing first — the §4.5 whitespace guards
+
+Bare truthiness for either prop passes every test above while violating §4.5, so both
+guards need their own case. These go in `tests/components/RotateShareTokenButton.test.tsx`
+(the only place `rowLabel` / `rowDescription` can be varied — ShareHub hardcodes them):
+
+```tsx
+it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
+  render(
+    <RotateShareTokenButton
+      showId={SHOW_ID}
+      slug={SLUG}
+      compact
+      rowLabel="Rotate share link"
+      rowDescription="   "
+    />,
+  );
+  const btn = screen.getByTestId("admin-rotate-share-token-button");
+  // An empty described node is worse than none: SRs announce a blank description.
+  expect(btn.getAttribute("aria-describedby")).toBeNull();
+  expect(btn.querySelectorAll("span")).toHaveLength(1); // label column only, no desc span
+});
+
+it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
+  render(
+    <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="   " />,
+  );
+  const btn = screen.getByTestId("admin-rotate-share-token-button");
+  // An empty aria-label strips the accessible name entirely — worse than omitting it.
+  expect(btn.getAttribute("aria-label")).not.toBe("");
+});
+
+it("GUARD rowDescription absent: row renders, no described node", () => {
+  render(
+    <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="Rotate share link" />,
+  );
+  const btn = screen.getByTestId("admin-rotate-share-token-button");
+  expect(btn.getAttribute("aria-describedby")).toBeNull();
+  expect(btn.textContent).toBe("Rotate share link");
+});
+```
+
+Note the second case exercises the §4.5 hybrid path (`compact && rowLabel` is truthy for
+`"   "`, so the ROW renders and the trim-guard applies). A falsy `rowLabel` takes the
+pre-existing non-row path and is out of scope.
+
 ### Implementation
 
 `RotateShareTokenButton.tsx`, the `compact && rowLabel` **idle** branch only.

@@ -57,19 +57,36 @@ export function expectClasses(
   if (spec.exactly) expect([...t].sort()).toEqual([...spec.exactly].sort());
 }
 
-/** Whitespace-normalized text of an element and all its descendants. */
-const composedText = (el: Element): string => (el.textContent ?? "").replace(/\s+/g, " ").trim();
+/** Whitespace-normalized text of an element and all its descendants, with a
+ *  SEPARATOR inserted at every element boundary. Plain `textContent` concatenates
+ *  with no gap, so `<span>Old link</span><span>stops working</span>` yields
+ *  "Old linkstops working": a duplicate that reads identically on screen, with
+ *  the gap supplied by `gap-1` rather than a text node, would go uncounted. */
+const composedText = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  return [...node.childNodes].map(composedText).join(" ");
+};
+const normalize = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 /** jsdom loads no CSS, so real visibility belongs to the Playwright specs. What
  *  IS provable here: the carrier is not deliberately hidden from sight or from
  *  the a11y tree. Without this, `sr-only` / `hidden` text satisfies every
  *  containment assertion while rendering nothing a sighted user sees. */
-function expectNotHidden(el: Element, what: string): void {
-  const t = tokensOf(el);
-  expect(t.has("sr-only"), `${what} must not be sr-only`).toBe(false);
-  expect(t.has("hidden"), `${what} must not be class-hidden`).toBe(false);
-  expect(el.hasAttribute("hidden"), `${what} must not carry the hidden attribute`).toBe(false);
-  expect(el.getAttribute("aria-hidden"), `${what} must not be aria-hidden`).not.toBe("true");
+function expectNotHidden(el: Element, root: Element, what: string): void {
+  // Walk from the carrier UP THROUGH the root. Checking the carrier alone lets
+  // a `hidden` (or sr-only, or aria-hidden) ANCESTOR, including the row button
+  // itself, hide the whole row while every containment assertion still passes.
+  let cur: Element | null = el;
+  while (cur) {
+    const t = tokensOf(cur);
+    const where = cur === el ? what : `${what} ancestor <${cur.tagName.toLowerCase()}>`;
+    expect(t.has("sr-only"), `${where} must not be sr-only`).toBe(false);
+    expect(t.has("hidden"), `${where} must not be class-hidden`).toBe(false);
+    expect(cur.hasAttribute("hidden"), `${where} must not carry the hidden attribute`).toBe(false);
+    expect(cur.getAttribute("aria-hidden"), `${where} must not be aria-hidden`).not.toBe("true");
+    if (cur === root) break;
+    cur = cur.parentElement;
+  }
 }
 
 /** Counts occurrences of `needle` in the scope's COMPOSED text. Testing
@@ -77,7 +94,7 @@ function expectNotHidden(el: Element, what: string): void {
  *  a duplicate split across siblings (<p><span>Old link</span><span> stops…</span></p>)
  *  slips past it. Composed counting catches that. */
 function countComposed(scope: HTMLElement, needle: string): number {
-  return composedText(scope).split(needle.replace(/\s+/g, " ").trim()).length - 1;
+  return normalize(composedText(scope)).split(normalize(needle)).length - 1;
 }
 
 /**
@@ -87,6 +104,11 @@ function countComposed(scope: HTMLElement, needle: string): number {
  * button, its text matches EXACTLY, and each string appears exactly once in the
  * scope, counted over composed text.
  */
+/** The row's prescribed typography (spec §4.1). Asserted with `exactly` so a
+ *  row that renders the right STRINGS at the wrong size/weight/colour fails. */
+export const LABEL_CLASSES = ["text-sm", "font-medium", "text-text-strong"] as const;
+export const DESCRIPTION_CLASSES = ["text-xs", "text-text-subtle"] as const;
+
 export function expectRowText(
   button: HTMLElement,
   scope: HTMLElement,
@@ -94,17 +116,19 @@ export function expectRowText(
 ): void {
   const labelEl = within(button).getByText(label);
   expect(button.contains(labelEl)).toBe(true);
-  expectNotHidden(labelEl, "row label");
+  expectNotHidden(labelEl, button, "row label");
   expect(button.getAttribute("aria-label")).toBe(label);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
+  expectClasses(labelEl, { exactly: LABEL_CLASSES });
 
   const descEl = document.getElementById(button.getAttribute("aria-describedby") ?? "");
   expect(descEl, "aria-describedby must resolve").not.toBeNull();
   expect(button.contains(descEl)).toBe(true);
-  expectNotHidden(descEl!, "row description");
-  expect(composedText(descEl!)).toBe(description);
+  expectNotHidden(descEl!, button, "row description");
+  expect(normalize(composedText(descEl!))).toBe(description);
   expect(
     countComposed(scope, description),
     `description "${description}" must appear exactly once`,
   ).toBe(1);
+  expectClasses(descEl!, { exactly: DESCRIPTION_CLASSES });
 }
