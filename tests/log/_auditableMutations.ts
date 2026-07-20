@@ -629,6 +629,9 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "ADMIN_SHOW_LOOKUP_THREW",
   "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
   "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
+  // Realtime-refresh (2026-07-19): loader viewer_version_token read fault —
+  // fail-open (render without bridge), log-only (inside log.* span; NOT cataloged).
+  "ADMIN_SHOW_VERSION_TOKEN_READ_FAILED",
   // Task 13 retired ADMIN_SHOW_CREW_LOOKUP_FAILED/THREW +
   // ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED/THREW — those direct reads
   // moved into the snapshot RPC (readShowReviewSnapshot logs its own faults).
