@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 16, TypeScript (strict: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Vitest + jsdom, Playwright (standalone harness), Supabase/Postgres RPC (`postgres` client), Tailwind v4.
 
-Canonical spec: `docs/superpowers/specs/2026-07-20-attention-alert-routing.md`. Compiling transport spike: `docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts` - PR2's shipped types must match it, pinned by a parity test (Task 2.2b).
+Canonical spec: `docs/superpowers/specs/2026-07-20-attention-alert-routing.md`. Compiling transport spike: `docs/superpowers/specs/2026-07-20-attention-alert-routing-spike/transport.ts` - PR2's shipped types must match it, pinned by a parity test (Task 2.3a).
 
 ## Global Constraints
 
@@ -470,18 +470,20 @@ describe("_metaAlertProducerScope", () => {
     const stale = PRODUCER_SCOPE.filter((r) => r.discoverable !== false && !disc.has(r.site)).map((r) => r.site);
     expect(stale, "stale rows").toEqual([]);
   });
-  it("STATIC-literal sites: AST-derived (site,code) SET equals the registry (no extra/duplicate codes)", () => {
-    // Full set equality, not toContain: a phantom or duplicate registry code at a static
-    // site would otherwise pass and leak into perShowReachableCodes()/FROZEN_REACHABLE.
+  it("STATIC-literal sites: registry rows equal the AST literals, no duplicates, none dynamic", () => {
     const hits = tsHits().filter((h) => h.code != null);
     const staticSites = new Set(hits.map((h) => h.site));
     const astPairs = [...new Set(hits.map((h) => `${h.site}::${h.code}`))].sort();
-    // Registry rows AT a static site must be exactly the AST literals; a dynamic:true row
-    // on a site the AST resolved statically is itself a defect this equality catches.
-    const regPairs = [...new Set(
-      PRODUCER_SCOPE.filter((r) => staticSites.has(r.site)).map((r) => `${r.site}::${r.code}`),
-    )].sort();
-    expect(regPairs).toEqual(astPairs);
+    const staticRows = PRODUCER_SCOPE.filter((r) => staticSites.has(r.site));
+    // (a) no dynamic:true on an AST-static site.
+    const wrongDynamic = staticRows.filter((r) => r.dynamic).map((r) => `${r.site}::${r.code}`);
+    expect(wrongDynamic, "dynamic:true on AST-static sites").toEqual([]);
+    // (b) no exact-duplicate (site,code) rows (Set dedup would hide them).
+    const rawPairs = staticRows.map((r) => `${r.site}::${r.code}`);
+    const dupes = rawPairs.filter((v, i) => rawPairs.indexOf(v) !== i);
+    expect(dupes, "duplicate registry rows").toEqual([]);
+    // (c) the deduped set equals the AST literals (phantom / missing codes).
+    expect([...new Set(rawPairs)].sort()).toEqual(astPairs);
   });
   it("dynamic rows are flagged dynamic:true with a provenance note", () => {
     const dynamicSites = new Set(tsHits().filter((h) => h.code == null).map((h) => h.site));
