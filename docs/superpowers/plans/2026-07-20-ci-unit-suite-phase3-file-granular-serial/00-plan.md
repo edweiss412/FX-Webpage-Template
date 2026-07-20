@@ -27,7 +27,7 @@
 
 ## Meta-test inventory
 
-EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` (spec §4 a–f; §4g withdrawn by spec §1.0). CREATES one: the new serialAudit unit test under tests/cross-cutting/, which owns the matcher cases and the §4c/§4d list-integrity assertions.
+Two files, disjoint ownership. EXTENDS `tests/cross-cutting/vitest-projects-partition.test.ts` — it owns §4a (matchesParallel), §4b0 (wiring), §4b (resolved-config proof), §4e (serial spot-checks), §4f (env-bound). CREATES the serialAudit unit test under tests/cross-cutting/ — it owns the glob-matcher cases plus §4c (list integrity) and §4d (band). §4g is withdrawn by spec §1.0. No assertion lives in both files.
 
 ---
 
@@ -96,7 +96,7 @@ git commit --no-verify -m "infra: measured PARALLEL_EXTRA_FILES + glob matcher (
 
 **Prerequisite already satisfied by Task 0 Step 5 (the re-export):** `vitest.projects.ts` re-exports `PARALLEL_EXTRA_FILES` from the generated module (plumbing only, membership unchanged), so this task's red run resolves the import and fails on the two wiring assertions rather than on collection. Do NOT inline or append the array into `PARALLEL_TEST_GLOBS`.
 
-- [ ] **Step 1: Import the matcher.** `import { globToRegExp } from "@/lib/test/serialAudit";` — it is an EXPORTED member of the Task-0 core (see that task's Core API block) and is already covered there by the 15-case matrix. Do not redefine or re-test it here.
+- [ ] **Step 1: Import the matcher.** `import { globToRegExp } from "@/lib/test/serialAudit";` — it is the Task-0 core's sole export (Task 0 Steps 1-2) and is already covered there by the 15-case matrix. Do not redefine or re-test it here.
 
 - [ ] **Step 2: Edit the test.** All of:
   - Import `PARALLEL_EXTRA_FILES`.
@@ -159,7 +159,7 @@ git commit --no-verify -m "infra: resolved-config partition proof + wire PARALLE
 
 ### Task 3: Whole-diff cross-model review (BEFORE push)
 
-- [ ] **Step 1:** Dispatch via `node scripts/codex-guard.mjs review`, fresh-eyes, REVIEWER ONLY, do-not-relitigate = spec §1.1 (incl. the withdrawn inverted model) + the spike numbers. Tight file list (every file this phase touches): the new matcher core under lib/test/ and its unit test under tests/cross-cutting/, the new root parallel-extra-files module, `vitest.config.ts`, `vitest.projects.ts`, `tests/cross-cutting/vitest-projects-partition.test.ts`. Iterate to APPROVE.
+- [ ] **Step 1:** Dispatch via `node scripts/codex-guard.mjs review`, fresh-eyes, REVIEWER ONLY, do-not-relitigate = spec §1.1 (incl. the withdrawn inverted model) + the spike numbers. Tight file list (every file this phase touches): the new matcher core under lib/test/ and its unit test under tests/cross-cutting/, the new root parallel-extra-files module, `BACKLOG.md`, `vitest.config.ts`, `vitest.projects.ts`, `tests/cross-cutting/vitest-projects-partition.test.ts`. Iterate to APPROVE.
 - [ ] **Step 2:** Repairs follow the originating task's TDD shape; one commit per finding class.
 
 ---
@@ -178,7 +178,7 @@ Reuse P1's `measure()` helper with `LEGS=8` and its MEASURE-LOOP discipline (pus
 
 ## Self-review notes
 
-- Spec coverage: §3.1→Task 0 Step 3; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→retained as the documented regeneration PROCEDURE (spec §1.0 descope), referenced from the generated module's header in Task 0 Step 3; §3.5→Task 1 (§4c); §4a-f→Task 1 Step 2 (§4g withdrawn by spec §1.0); §5→Task 4. No requirement without a task.
+- Spec coverage: §3.1→Task 0 Step 4; §3.2→Task 1 Step 4; §3.3→Task 1 Step 4 header note; §3.4→retained as the documented regeneration PROCEDURE (spec §1.0 descope), referenced from the generated module's header in Task 0 Step 3; §3.5→Task 0 Step 3 (the §4c assertions); §4a/§4b0/§4b/§4e/§4f→Task 1 Step 2; §4c/§4d→Task 0 Step 3; §4g withdrawn by spec §1.0; §5→Task 4. No requirement without a task.
 - Ordering rationale: Task 0 lands the matcher and the list, each test-first (matcher Steps 1-2; list + re-export Steps 3-5); Task 1's test-then-wire cycle lives inside one task so no commit ever contains a failing suite, and its red state isolates the wiring defect specifically.
 - Anti-tautology: §4b evaluates real config arrays (the round-2/3 finding); §4b0-ii asserts `"parallel"` specifically, which is exactly what an unspread list fails; §4c asserts the list against the live tree and the real config constants rather than restating it.
 - Known risk carried forward: the local DB's degraded state makes the full-suite gate noisy — Task 2 Step 4 prescribes the reseed + A/B protocol that P2 used rather than assuming green.
