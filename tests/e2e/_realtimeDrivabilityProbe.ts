@@ -112,7 +112,9 @@ async function main(): Promise<void> {
       ws.on("framereceived", (f) => frames.push({ at: Date.now(), text: String(f.payload) }));
       ws.on("framesent", (f) => frames.push({ at: Date.now(), text: `SENT ${String(f.payload)}` }));
       ws.on("close", () => socketEvents.push({ at: Date.now(), text: "close" }));
-      ws.on("socketerror", (e) => socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }));
+      ws.on("socketerror", (e) =>
+        socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }),
+      );
     });
     page.on("request", (r) => {
       if (!isTracked(r.url())) return;
@@ -137,9 +139,7 @@ async function main(): Promise<void> {
       const kind = r.request().headers()["rsc"] ? "RSC" : "DOC";
       void r
         .finished()
-        .then(() =>
-          settleOnce(r.request(), `RESP ${kind} ${r.status()} ${u.pathname}${u.search}`),
-        )
+        .then(() => settleOnce(r.request(), `RESP ${kind} ${r.status()} ${u.pathname}${u.search}`))
         .catch(() => settleOnce(r.request(), `RESPERR ${kind} ${u.pathname}${u.search}`));
     });
     page.on("requestfailed", (r) => {
@@ -217,7 +217,9 @@ async function main(): Promise<void> {
           ? `join reply ERROR on ${topic}: ${join.text}`
           : `no join reply on ${topic} within ${JOIN_WAIT_MS}ms — socket events: ${JSON.stringify(socketEvents)}`,
       );
-      console.log("(no healthy subscription means broadcast drivability was NOT tested — diagnose auth/stack first)");
+      console.log(
+        "(no healthy subscription means broadcast drivability was NOT tested — diagnose auth/stack first)",
+      );
       finish("INDETERMINATE (no ok join reply)", true);
       return;
     }
@@ -226,7 +228,10 @@ async function main(): Promise<void> {
     const openResp = await poll(
       () =>
         requests.find(
-          (r) => r.at > gotoAt && r.text.startsWith("RESP RSC") && r.text.includes(`show=${seeded.slug}`),
+          (r) =>
+            r.at > gotoAt &&
+            r.text.startsWith("RESP RSC") &&
+            r.text.includes(`show=${seeded.slug}`),
         ),
       JOIN_WAIT_MS,
     );
@@ -241,9 +246,14 @@ async function main(): Promise<void> {
       const warmupAt = Date.now();
       const rpcRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
       if (rpcRes.error) throw new Error(`warm-up publish failed: ${rpcRes.error.message}`);
-      const frame = await poll(() => frames.find((f) => f.at > warmupAt && isInvalidation(f)), 5_000);
+      const frame = await poll(
+        () => frames.find((f) => f.at > warmupAt && isInvalidation(f)),
+        5_000,
+      );
       warmupOk = frame !== undefined;
-      console.log(`warm-up attempt ${attempt}: ${frame ? `frame in ${frame.at - warmupAt}ms` : "no frame"}`);
+      console.log(
+        `warm-up attempt ${attempt}: ${frame ? `frame in ${frame.at - warmupAt}ms` : "no frame"}`,
+      );
     }
     if (!warmupOk) {
       // NOT_DRIVABLE requires a HEALTHY socket throughout the warm-up window —
@@ -254,9 +264,14 @@ async function main(): Promise<void> {
       );
       if (disruption) {
         console.log("socket disruption during warm-up:", disruption);
-        finish("INDETERMINATE (socket close/error during warm-up — frames may have been missed)", true);
+        finish(
+          "INDETERMINATE (socket close/error during warm-up — frames may have been missed)",
+          true,
+        );
       } else {
-        finish("NOT_DRIVABLE (healthy join + healthy socket; manual publish frames undeliverable after 3 attempts)");
+        finish(
+          "NOT_DRIVABLE (healthy join + healthy socket; manual publish frames undeliverable after 3 attempts)",
+        );
       }
       return;
     }
@@ -297,13 +312,19 @@ async function main(): Promise<void> {
     for (const r of requests) console.log(r.at, r.text);
     console.log("=== TIMINGS (ms) ===");
     console.log("goto→join-reply:", join.at - gotoAt);
-    console.log("goto→open-refresh RSC response:", openResp ? openResp.at - gotoAt : "NONE OBSERVED (floor stands)");
+    console.log(
+      "goto→open-refresh RSC response:",
+      openResp ? openResp.at - gotoAt : "NONE OBSERVED (floor stands)",
+    );
     console.log("commit→frame:", inval ? inval.at - commitAt : "NO FRAME");
     // Request STARTS only, RSC only: a pre-frame request's late response (or the
     // DOC navigation) must never masquerade as the post-frame refresh.
     const rsc = inval
       ? requests.find(
-          (r) => r.at > inval.at && r.text.startsWith("REQ RSC") && r.text.includes(`show=${seeded.slug}`),
+          (r) =>
+            r.at > inval.at &&
+            r.text.startsWith("REQ RSC") &&
+            r.text.includes(`show=${seeded.slug}`),
         )
       : undefined;
     console.log(
@@ -316,11 +337,17 @@ async function main(): Promise<void> {
     } else if (!inval) {
       // Warm-up frames DID deliver, so the broadcast pipeline is healthy — a
       // missing trigger-mutation frame is a TRIGGER/DB fault, not fallback evidence.
-      finish("INDETERMINATE (warm-up delivered but no frame from the crew_members UPDATE — trigger fault, diagnose)", true);
+      finish(
+        "INDETERMINATE (warm-up delivered but no frame from the crew_members UPDATE — trigger fault, diagnose)",
+        true,
+      );
     } else {
       // Frame arrived but the content never swapped: realtime IS drivable but the
       // refresh pipeline is broken — neither branch may be selected until diagnosed.
-      finish("INDETERMINATE (frame received, no content swap — diagnose before selecting a branch)", true);
+      finish(
+        "INDETERMINATE (frame received, no content swap — diagnose before selecting a branch)",
+        true,
+      );
     }
   } finally {
     try {

@@ -160,6 +160,10 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
         });
         return null;
       }
+      // Non-string payload coerces to "" DELIBERATELY (spec §5 guard table):
+      // the bridge mounts and its catch-up compares "" vs live — one extra
+      // refresh worst case, then converges. Fail-open (null) is reserved for
+      // read FAULTS, not malformed-but-successful payloads.
       return typeof data === "string" ? data : "";
     } catch (err) {
       void log.warn("viewer version token read threw:", {

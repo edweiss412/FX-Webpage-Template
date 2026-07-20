@@ -821,7 +821,7 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
     );
   });
 
-  it("null data coerces to renderVersion \"\" (bridge still mounts)", async () => {
+  it('null data coerces to renderVersion "" (bridge still mounts)', async () => {
     state.versionToken = null;
     const ui = await buildLoaderElement();
     const bridge = bridgeChild(ui);
@@ -829,7 +829,7 @@ describe("show review modal loader — realtime bridge (realtime-refresh spec §
     expect((bridge!.props as { renderVersion: string }).renderVersion).toBe("");
   });
 
-  it("non-string (number) data coerces to renderVersion \"\" (bridge still mounts)", async () => {
+  it('non-string (number) data coerces to renderVersion "" (bridge still mounts)', async () => {
     state.versionToken = 42;
     const ui = await buildLoaderElement();
     const bridge = bridgeChild(ui);

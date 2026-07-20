@@ -134,7 +134,9 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       ws.on("framereceived", (f) => frames.push({ at: Date.now(), text: String(f.payload) }));
       ws.on("framesent", (f) => frames.push({ at: Date.now(), text: `SENT ${String(f.payload)}` }));
       ws.on("close", () => socketEvents.push({ at: Date.now(), text: "close" }));
-      ws.on("socketerror", (e) => socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }));
+      ws.on("socketerror", (e) =>
+        socketEvents.push({ at: Date.now(), text: `error ${String(e)}` }),
+      );
     });
     page.on("request", (r) => {
       if (!isTracked(r.url())) return;
@@ -182,7 +184,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
     const openResp = await poll(
       () =>
         requests.find(
-          (r) => r.at > gotoAt && r.text.startsWith("RESP RSC") && r.text.includes(`show=${seeded.slug}`),
+          (r) =>
+            r.at > gotoAt &&
+            r.text.startsWith("RESP RSC") &&
+            r.text.includes(`show=${seeded.slug}`),
         ),
       MODAL_OPEN_TIMEOUT_MS,
     );
@@ -211,15 +216,19 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       const frame = await poll(
         () =>
           frames.find(
-            (f) => f.at > warmupAt && !f.text.startsWith("SENT") && isInvalidationFrame(f.text, seeded.showId),
+            (f) =>
+              f.at > warmupAt &&
+              !f.text.startsWith("SENT") &&
+              isInvalidationFrame(f.text, seeded.showId),
           ),
         INVALIDATION_FRAME_TIMEOUT_MS,
       );
       warmupOk = frame !== undefined;
     }
-    expect(warmupOk, "broadcast pipeline undeliverable: 3 warm-up publishes produced no frame").toBe(
-      true,
-    );
+    expect(
+      warmupOk,
+      "broadcast pipeline undeliverable: 3 warm-up publishes produced no frame",
+    ).toBe(true);
 
     // Gate 3: OBSERVED quiescence — no in-flight tracked request AND no topic
     // frame for QUIET_WINDOW_MS (frames restart the timer), bounded.
@@ -230,7 +239,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       const quietSince = Math.max(lastFrame?.at ?? 0, lastReq?.at ?? 0);
       return inflight === 0 && now - quietSince >= QUIET_WINDOW_MS ? now : undefined;
     }, QUIESCENCE_ACQUIRE_TIMEOUT_MS);
-    expect(quietAt, "quiescence over ?show=//version requests + topic frames (gate 3)").toBeTruthy();
+    expect(
+      quietAt,
+      "quiescence over ?show=//version requests + topic frames (gate 3)",
+    ).toBeTruthy();
 
     // ── Arm the §4.4 oracles ────────────────────────────────────────────────
     const scrollerSel = `[data-testid="wizard-step3-card-${seeded.driveFileId}-review-content"]`;
@@ -263,7 +275,9 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       return { scrollable: true as const, scrollTop: s.scrollTop, scrollHeight: s.scrollHeight };
     }, scrollerSel);
     expect(scrollArm, "modal scroller found").not.toBeNull();
-    expect(scrollArm!.scrollable, "fixture roster must force scrolling (grow it if not)").toBe(true);
+    expect(scrollArm!.scrollable, "fixture roster must force scrolling (grow it if not)").toBe(
+      true,
+    );
     expect(scrollArm!.scrollTop!).toBeGreaterThanOrEqual(100);
 
     const targetGeomBefore = await targetRow.evaluate((el) => ({
@@ -306,7 +320,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
     const inval = await poll(
       () =>
         frames.find(
-          (f) => f.at > commitAt && !f.text.startsWith("SENT") && isInvalidationFrame(f.text, seeded.showId),
+          (f) =>
+            f.at > commitAt &&
+            !f.text.startsWith("SENT") &&
+            isInvalidationFrame(f.text, seeded.showId),
         ),
       INVALIDATION_FRAME_TIMEOUT_MS,
     );
@@ -317,7 +334,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
     const rsc = await poll(
       () =>
         requests.find(
-          (r) => r.at > inval!.at && r.text.startsWith("REQ RSC") && r.text.includes(`show=${seeded.slug}`),
+          (r) =>
+            r.at > inval!.at &&
+            r.text.startsWith("REQ RSC") &&
+            r.text.includes(`show=${seeded.slug}`),
         ),
       POST_FRAME_REQUEST_TIMEOUT_MS,
     );
@@ -325,7 +345,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
     const rscDone = await poll(
       () =>
         requests.find(
-          (r) => r.at > rsc!.at && r.text.startsWith("RESP RSC") && r.text.includes(`show=${seeded.slug}`),
+          (r) =>
+            r.at > rsc!.at &&
+            r.text.startsWith("RESP RSC") &&
+            r.text.includes(`show=${seeded.slug}`),
         ),
       CONTENT_SWAP_TIMEOUT_MS,
     );
@@ -341,10 +364,17 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       (e) => e.at > join!.at && (e.text === "close" || e.text.startsWith("error")),
     );
     const rejoin = frames.find(
-      (f) => f.at > commitAt && f.text.startsWith("SENT") && f.text.includes(wireTopic) && f.text.includes("phx_join"),
+      (f) =>
+        f.at > commitAt &&
+        f.text.startsWith("SENT") &&
+        f.text.includes(wireTopic) &&
+        f.text.includes("phx_join"),
     );
     if (disruption || rejoin) {
-      return { kind: "flake", reason: `socket disruption in window: ${disruption?.text ?? "re-join"}` };
+      return {
+        kind: "flake",
+        reason: `socket disruption in window: ${disruption?.text ?? "re-join"}`,
+      };
     }
     const versionReq = requests.find(
       (r) => r.at > commitAt && r.text.startsWith("REQ") && r.text.includes("/version"),
