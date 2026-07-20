@@ -244,23 +244,6 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
         );
         warmupOk = frame !== undefined;
       }
-      if (!warmupOk) {
-        // TEMPORARY CI triage dump (PR #505): what did the socket actually
-        // receive after the join? Bounded, truncated, list-reporter-visible.
-        console.log("[e2e-diag] socketEvents:", JSON.stringify(socketEvents).slice(0, 800));
-        console.log(
-          "[e2e-diag] last frames:",
-          JSON.stringify(
-            frames.slice(-30).map((f) => `${f.at}:${f.text.slice(0, 140)}`),
-            null,
-            1,
-          ).slice(0, 4000),
-        );
-        console.log(
-          "[e2e-diag] requests tail:",
-          JSON.stringify(requests.slice(-10)).slice(0, 1200),
-        );
-      }
       expect(
         warmupOk,
         "broadcast pipeline undeliverable: 3 warm-up publishes produced no frame",
