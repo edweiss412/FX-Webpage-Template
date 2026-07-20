@@ -230,6 +230,24 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     owningMilestone: "M9",
   },
   {
+    // show-alert-compact (2026-07-20): the compact alert cards render a per-item
+    // "?" popover carrying the catalog's helpfulContext plus, when the route gate
+    // passes, a Learn-more link. Its testid interpolates an alert id or a stable
+    // warning key, so there is no finite id to register as a concrete row — and a
+    // concrete row would break the parity gate's occurs-exactly-once rule. The
+    // call site in components/admin/compactAlertHelp.tsx carries the matching
+    // `// not-a-help-affordance:` exemption.
+    kind: "template-family",
+    sourceSurface:
+      "Per-item help popover on compact alert cards (AttentionBanner, PerShowActionableWarnings)",
+    sourceRoute: "/admin?show=rpas-central-2026",
+    affordance: '"?" popover — What does this mean?',
+    testidPattern:
+      "attention-banner-help-<alertId>-trigger | per-show-actionable-help-<key>-trigger",
+    targetPattern: "in-place popover (helpfulContext); optional /help/errors#<code> Learn more",
+    owningMilestone: "show-alert-compact",
+  },
+  {
     kind: "template-family",
     sourceSurface: "Any error rendered via messageFor(code) in /admin/*",
     sourceRoute: "/admin?show=rpas-central-2026",
