@@ -84,6 +84,12 @@ const REGISTRY: Row[] = [
     "preview-banner CTA: inverted amber as banner emphasis, NOT a destructive confirm; predates spec; intentionally violates C1 (hover:bg-warning-text/90)",
   ),
   R(
+    "components/admin/CompactAlertCard.tsx",
+    0,
+    "exempt-non-confirm",
+    "compact alert card severity glyph: inverted amber on a 16px round marker, NOT a destructive confirm. The pair was adopted deliberately for contrast — the previous bg-status-review/text-warning-bg glyph measured 3.58:1 in light mode at 10px bold, under the 4.5:1 floor (impeccable audit); bg-warning-text/text-warning-bg is 8.79 light / 9.64 dark. aria-hidden, non-interactive, so C1's font-semibold + hover:opacity-90 are meaningless here",
+  ),
+  R(
     "app/admin/show/[slug]/RotateShareTokenButton.tsx",
     0,
     "panel",
