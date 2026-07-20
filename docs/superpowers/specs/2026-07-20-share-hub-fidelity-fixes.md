@@ -533,9 +533,12 @@ const normalize = (s: string): string => s.replace(/\s+/g, " ").trim();
  *  the a11y tree. Without this, `sr-only` / `hidden` text satisfies every
  *  containment assertion while rendering nothing a sighted user sees. */
 function expectNotHidden(el: Element, root: Element, what: string): void {
-  // Walk from the carrier UP THROUGH the root. Checking the carrier alone lets
-  // a `hidden` (or sr-only, or aria-hidden) ANCESTOR, including the row button
-  // itself, hide the whole row while every containment assertion still passes.
+  // Walk from the carrier UP THROUGH the root INCLUSIVE. Two escapes this
+  // closes, both found by review: checking the carrier alone lets a `hidden`
+  // row BUTTON hide everything, and stopping AT the button lets a hidden
+  // wrapper ABOVE it do the same while every token, containment, and composed
+  // -text assertion still passes. `root` is therefore the popover scope, not
+  // the button.
   let cur: Element | null = el;
   while (cur) {
     const t = tokensOf(cur);
@@ -574,9 +577,12 @@ export function expectRowText(
   scope: HTMLElement,
   { label, description }: { label: string; description: string },
 ): void {
+  // The button must itself be inside the scope, or the visibility walk below
+  // would terminate without ever reaching the scope boundary.
+  expect(scope.contains(button), "row button must be inside the asserted scope").toBe(true);
   const labelEl = within(button).getByText(label);
   expect(button.contains(labelEl)).toBe(true);
-  expectNotHidden(labelEl, button, "row label");
+  expectNotHidden(labelEl, scope, "row label");
   expect(button.getAttribute("aria-label")).toBe(label);
   expect(countComposed(scope, label), `label "${label}" must appear exactly once`).toBe(1);
   expectClasses(labelEl, { exactly: LABEL_CLASSES });
@@ -584,7 +590,7 @@ export function expectRowText(
   const descEl = document.getElementById(button.getAttribute("aria-describedby") ?? "");
   expect(descEl, "aria-describedby must resolve").not.toBeNull();
   expect(button.contains(descEl)).toBe(true);
-  expectNotHidden(descEl!, button, "row description");
+  expectNotHidden(descEl!, scope, "row description");
   expect(normalize(composedText(descEl!))).toBe(description);
   expect(
     countComposed(scope, description),
@@ -603,11 +609,12 @@ export function expectRowText(
    merely share the prefix (`border-spacing-*`, `border-collapse`, `border-separate`) are
    not — a probe caught the helper flagging `border-spacing-0`.
 3. Every label/description assertion goes through `expectRowText`, which is the only place
-   the containment + not-hidden-ANYWHERE-UP-TO-THE-BUTTON + exact-text +
+   the containment + not-hidden-ANYWHERE-UP-TO-THE-SCOPE + exact-text +
    composed-uniqueness + prescribed-typography quintuple is written. Two subtleties, each
-   found by review and each closed by a probe: the not-hidden walk must cover ANCESTORS
-   (a `hidden` attribute on the row button itself hides everything while every containment
-   assertion still passes), and composed text must insert a SEPARATOR at element
+   found by review and each closed by a probe: the not-hidden walk must cover ANCESTORS ALL
+   THE WAY TO THE SCOPE (a `hidden` on the row button hides everything, and so does a
+   `hidden` wrapper ABOVE the button — stopping at the button leaves that second escape
+   open), and composed text must insert a SEPARATOR at element
    boundaries (`textContent` concatenates, so a duplicate whose gap is supplied by
    `gap-1` rather than a text node reads identically on screen yet goes uncounted).
 4. **`exactly` is the default posture for every class list this spec fully prescribes** —

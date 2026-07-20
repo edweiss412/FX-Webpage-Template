@@ -179,7 +179,11 @@ it("GUARD whitespace-only rowDescription: no span, no aria-describedby", () => {
   const btn = screen.getByTestId("admin-rotate-share-token-button");
   // An empty described node is worse than none: SRs announce a blank description.
   expect(btn.getAttribute("aria-describedby")).toBeNull();
-  expect(btn.querySelectorAll("span")).toHaveLength(1); // label column only, no desc span
+  // The correct row has TWO spans when the description is absent — the flex
+  // column wrapper AND the label span. Assert the DESCRIPTION is gone, which is
+  // the actual contract, rather than a span count that the correct
+  // implementation fails.
+  expect(btn.textContent).toBe("Rotate share link"); // description text absent entirely
 });
 
 it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
@@ -187,8 +191,10 @@ it("GUARD whitespace-only rowLabel: no EMPTY aria-label", () => {
     <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} compact rowLabel="   " />,
   );
   const btn = screen.getByTestId("admin-rotate-share-token-button");
-  // An empty aria-label strips the accessible name entirely — worse than omitting it.
-  expect(btn.getAttribute("aria-label")).not.toBe("");
+  // ABSENT, not merely non-empty. `.not.toBe("")` would also pass the wrong
+  // implementation `aria-label={rowLabel}`, which yields "   " — a whitespace
+  // accessible name, which is what §4.2 forbids.
+  expect(btn.getAttribute("aria-label")).toBeNull();
 });
 
 it("GUARD rowDescription absent: row renders, no described node", () => {
