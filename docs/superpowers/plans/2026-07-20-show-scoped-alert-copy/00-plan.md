@@ -243,7 +243,9 @@ export function safeDougFacingTemplate(
 }
 ```
 
-Note the validation now interpolates **the selected template**, not `messageFor(code, params).dougFacing`. Import `interpolate` from `@/lib/messages/lookup` if it is not already imported.
+Note the validation now interpolates **the selected template**, not `messageFor(code, params).dougFacing`.
+
+**Imports:** this snippet uses `interpolate`, which `lib/admin/attentionItems.ts` does not currently import (it imports `messageFor` at line 13). Add it: `import { messageFor, interpolate, type MessageParams } from "@/lib/messages/lookup";`. `MESSAGE_CATALOG`, `MessageCode`, and `UNRESOLVED_PLACEHOLDER_RE` are already in scope.
 
 - [ ] **Step 4: Run tests**
 
@@ -1353,7 +1355,7 @@ git commit -m "fix(alerts): label-agnostic resolve-error copy (§12.4 lockstep)"
 - Modify: `tests/components/admin/transitionAudit.test.tsx`
 
 **Interfaces:**
-- Consumes: `resolveActionLabels` (Task 4).
+- Consumes: `resolveActionLabels` (Task 4), indirectly — the harness renders the real button and varies the alert CODE, so nothing in this task imports the label module directly.
 
 - [ ] **Step 0: Add the harness capability FIRST, then watch the spec fail**
 
@@ -1430,7 +1432,7 @@ Expected: PASS. A failing negative control means the harness ignored the param, 
 
 - [ ] **Step 3: Extend the transition audit**
 
-Add to `tests/components/admin/transitionAudit.test.tsx`:
+Add to `tests/components/admin/transitionAudit.test.tsx`. **Imports:** this fragment uses `render`, `screen`, `fireEvent`, `waitFor`, `vi`, and `PerShowAlertResolveButton`; add any the file does not already import.
 
 ```tsx
 // Two cards of DIFFERING intent, resolved in quick succession, observed
