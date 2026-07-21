@@ -58,7 +58,7 @@ Cross-check: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`) al
 
 ## 3. Catalog
 
-**Module (new file):** `lib/dev/attentionScenarios.ts (new)`
+**Module (new):** `lib/dev/attentionScenarios/ (new directory)` — split by responsibility at plan time into `types`, `validate`, `tier1`, `tier2`, `tier3`, and an `index` that assembles them. The spec treats it as one catalog; the decomposition is the plan's.
 
 A scenario declares **storable inputs** — shapes that exist in the database — never pre-built `AttentionItem`s and never derived read-model shapes (§3.3).
 
