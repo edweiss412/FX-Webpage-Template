@@ -38,6 +38,22 @@ describe("renderCrewUnderRowCards — rendered-key split", () => {
     expect(map.get("eric weiss")).toHaveLength(1);
   });
 
+  it("emits ONE node per warning (card-granular, so the row-host cap counts cards)", () => {
+    // whole-diff HIGH: a member with 3 warnings must yield 3 nodes, not 1 wrapper node,
+    // or the cap and 'N more' operate at wrapper granularity.
+    const multi = {
+      warningsByCrewKey: {
+        "eric weiss": [item("Eric Weiss"), item("Eric Weiss"), item("Eric Weiss")],
+      },
+    };
+    const map = renderCrewUnderRowCards({
+      model: multi,
+      published,
+      renderedKeys: new Set(["eric weiss"]),
+    });
+    expect(map.get("eric weiss")).toHaveLength(3);
+  });
+
   it("empty when no keys are rendered", () => {
     const map = renderCrewUnderRowCards({ model, published, renderedKeys: new Set() });
     expect(map.size).toBe(0);

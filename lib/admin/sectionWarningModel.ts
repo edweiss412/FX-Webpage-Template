@@ -118,15 +118,22 @@ export function buildSectionWarningModel(input: {
     }));
     // Index active crew-scoped warnings by canonical subject for under-row placement
     // (§5.2). Non-blank subjects only; render-agnostic (no cap). Empty elsewhere.
-    const warningsByCrewKey: Record<string, SectionWarningItem[]> = {};
+    // Accumulate in a Map — a sheet-derived key (e.g. "constructor", "__proto__")
+    // must not select an inherited Object.prototype member, so bracket-write on a
+    // plain object is unsafe; Map.get/set is collision-free, and Object.fromEntries
+    // materializes OWN properties for the RSC-serializable Record readers iterate.
+    const crewKeyMap = new Map<string, SectionWarningItem[]>();
     for (const it of activeItems) {
       if (!CREW_SCOPED_WARNING_CODES.has(it.warning.code)) continue;
       const subject = it.warning.autocorrect?.subject;
       if (typeof subject !== "string") continue;
       const key = canonicalCrewKey(subject);
       if (key.length === 0) continue; // blank subject → falls back to the group (Task 5)
-      (warningsByCrewKey[key] ??= []).push(it);
+      const bucket = crewKeyMap.get(key);
+      if (bucket) bucket.push(it);
+      else crewKeyMap.set(key, [it]);
     }
+    const warningsByCrewKey: Record<string, SectionWarningItem[]> = Object.fromEntries(crewKeyMap);
     record[sid] = {
       active: activeItems,
       ignored: ignored.map(stamp),

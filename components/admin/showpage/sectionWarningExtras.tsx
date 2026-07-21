@@ -40,24 +40,30 @@ export function renderCrewUnderRowCards(args: {
   const { slug, showId, driveFileId, useRawDecisions } = args.published;
   for (const [key, items] of Object.entries(model.warningsByCrewKey)) {
     if (!args.renderedKeys.has(key) || items.length === 0) continue;
-    out.set(key, [
-      <PerShowActionableWarnings
-        key={`crew-warn-${key}`}
-        items={items.map((it) => it.warning)}
-        driveFileId={driveFileId}
-        renderItemControls={(w, i) => (
-          <SectionWarningItemControls
-            warning={w}
-            reportSurfaceId={items[i]!.reportSurfaceId}
-            mode="active"
-            slug={slug}
-            showId={showId}
-            driveFileId={driveFileId}
-            useRawDecisions={useRawDecisions}
-          />
-        )}
-      />,
-    ]);
+    // ONE node PER WARNING (not one node wrapping all): the row host caps the merged
+    // stack at 2 VISIBLE CARDS, so each card must be its own node or the cap and the
+    // "N more" count operate at wrapper granularity and undercount (whole-diff HIGH).
+    out.set(
+      key,
+      items.map((it, i) => (
+        <PerShowActionableWarnings
+          key={`crew-warn-${key}-${i}`}
+          items={[it.warning]}
+          driveFileId={driveFileId}
+          renderItemControls={(w) => (
+            <SectionWarningItemControls
+              warning={w}
+              reportSurfaceId={it.reportSurfaceId}
+              mode="active"
+              slug={slug}
+              showId={showId}
+              driveFileId={driveFileId}
+              useRawDecisions={useRawDecisions}
+            />
+          )}
+        />
+      )),
+    );
   }
   return out;
 }

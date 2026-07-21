@@ -47,6 +47,24 @@ describe("buildSectionWarningModel — warningsByCrewKey", () => {
     expect(keyed).toHaveLength(2);
   });
 
+  it("prototype-pollution key names do not crash construction (whole-diff HIGH)", () => {
+    // A sheet-derived crew name canonicalizing to an Object.prototype member ("constructor",
+    // "__proto__" — both already lowercase) must index safely; bracket-write on a fresh {}
+    // would select the inherited fn/object and throw on .push.
+    for (const bad of ["constructor", "__proto__"]) {
+      const rec = buildSectionWarningModel({
+        slug: "s",
+        warnings: [crewWarn(bad, "X")],
+        ignoredFingerprints: new Set(),
+        renderedSectionIds: new Set(["crew"]),
+      });
+      const map = rec.crew!.warningsByCrewKey;
+      // Own property holding the warning; own-key iteration is safe.
+      expect(Object.keys(map)).toContain(bad);
+      expect(map[bad]!).toHaveLength(1);
+    }
+  });
+
   it("is empty for a section with no crew-scoped warnings", () => {
     const rec = buildSectionWarningModel({
       slug: "s",
