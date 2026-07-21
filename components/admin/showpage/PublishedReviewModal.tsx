@@ -278,7 +278,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         },
         renderedKeys: renderedCrewKeys,
       }),
-    [bySection.crew, data.slug, data.showId, data.driveFileId, data.useRawDecisions, renderedCrewKeys],
+    [
+      bySection.crew,
+      data.slug,
+      data.showId,
+      data.driveFileId,
+      data.useRawDecisions,
+      renderedCrewKeys,
+    ],
   );
   // warning-surface-trim §3.2: the counts travel WITH the extras hook, because
   // the trim's gate requires both. Derived from the same model the extras render,

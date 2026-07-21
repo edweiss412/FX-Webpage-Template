@@ -68,7 +68,10 @@ describe("_metaAutocorrectProducers", () => {
 
   it("every producer populates autocorrect", () => {
     const missing = sites.filter((s) => !s.hasAutocorrect);
-    expect(missing, `sites missing autocorrect: ${missing.map((s) => `${s.file}:${s.line}`).join(", ")}`).toEqual([]);
+    expect(
+      missing,
+      `sites missing autocorrect: ${missing.map((s) => `${s.file}:${s.line}`).join(", ")}`,
+    ).toEqual([]);
   });
 
   it("the 13 sites cover the five codes with the expected multiplicity", () => {

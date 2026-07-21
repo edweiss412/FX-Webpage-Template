@@ -19,7 +19,10 @@ describe("PerShowActionableWarnings — autocorrect instance copy", () => {
         severity: "warn",
         code: "STAGE_WORD_AUTOCORRECTED",
         message: "internal",
-        autocorrect: { subject: "Eric Weiss", corrections: [{ detected: "Strke", corrected: "Strike" }] },
+        autocorrect: {
+          subject: "Eric Weiss",
+          corrections: [{ detected: "Strke", corrected: "Strike" }],
+        },
       },
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="df" />);

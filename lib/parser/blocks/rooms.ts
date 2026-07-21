@@ -871,7 +871,10 @@ function parseV4RoomBlock(
         message: `Read likely-misspelled room label '${cand.rawLabel}' as field '${field}'`,
         blockRef: { kind: "rooms", name: room.name },
         rawSnippet: cand.rawLabel,
-        autocorrect: { subject: null, corrections: [{ detected: cand.rawLabel, corrected: field }] },
+        autocorrect: {
+          subject: null,
+          corrections: [{ detected: cand.rawLabel, corrected: field }],
+        },
       });
     }
   }

@@ -354,7 +354,10 @@ function harvestFormLayout(
             message: `Read likely-misspelled EVENT DETAILS label '${r.rawLabel}' as field '${r.canon}'`,
             blockRef: { kind: "details" },
             rawSnippet: r.rawLabel,
-            autocorrect: { subject: null, corrections: [{ detected: r.rawLabel, corrected: r.canon }] },
+            autocorrect: {
+              subject: null,
+              corrections: [{ detected: r.rawLabel, corrected: r.canon }],
+            },
           });
         }
       }

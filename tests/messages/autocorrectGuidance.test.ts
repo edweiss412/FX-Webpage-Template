@@ -13,18 +13,21 @@ const ac = (subject: string | null, ...pairs: [string, string][]): AC => ({
 
 describe("autocorrectGuidance — per-code sentences", () => {
   it("STAGE_WORD: possessive role clause", () => {
-    expect(autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", ac("Eric Weiss", ["Strke", "Strike"]))).toBe(
-      "We read 'Strke' as 'Strike' in Eric Weiss's role.",
-    );
+    expect(
+      autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", ac("Eric Weiss", ["Strke", "Strike"])),
+    ).toBe("We read 'Strke' as 'Strike' in Eric Weiss's role.");
   });
   it("ROLE_TOKEN: possessive cell clause", () => {
-    expect(autocorrectGuidance("ROLE_TOKEN_AUTOCORRECTED", ac("Jane Roe", ["Cretion", "Creation"]))).toBe(
-      "We read 'Cretion' as 'Creation' in Jane Roe's cell.",
-    );
+    expect(
+      autocorrectGuidance("ROLE_TOKEN_AUTOCORRECTED", ac("Jane Roe", ["Cretion", "Creation"])),
+    ).toBe("We read 'Cretion' as 'Creation' in Jane Roe's cell.");
   });
   it("SECTION_HEADER: no clause, no trailing instruction", () => {
     expect(
-      autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["Transportaton", "Transportation"])),
+      autocorrectGuidance(
+        "SECTION_HEADER_AUTOCORRECTED",
+        ac(null, ["Transportaton", "Transportation"]),
+      ),
     ).toBe("We read 'Transportaton' as 'Transportation'.");
   });
   it("COLUMN_HEADER: keeps the fix instruction", () => {
@@ -33,7 +36,9 @@ describe("autocorrectGuidance — per-code sentences", () => {
     );
   });
   it("FIELD_LABEL: keeps the fix instruction", () => {
-    expect(autocorrectGuidance("FIELD_LABEL_AUTOCORRECTED", ac(null, ["Venue Adress", "Venue Address"]))).toBe(
+    expect(
+      autocorrectGuidance("FIELD_LABEL_AUTOCORRECTED", ac(null, ["Venue Adress", "Venue Address"])),
+    ).toBe(
       "We read 'Venue Adress' as 'Venue Address'. Fix the label in the sheet if that guess is wrong.",
     );
   });
@@ -42,7 +47,10 @@ describe("autocorrectGuidance — per-code sentences", () => {
 describe("autocorrectGuidance — correction-list joins (surviving pairs)", () => {
   it("two corrections", () => {
     expect(
-      autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", ac("Amy", ["Strke", "Strike"], ["Lod Out", "Load Out"])),
+      autocorrectGuidance(
+        "STAGE_WORD_AUTOCORRECTED",
+        ac("Amy", ["Strke", "Strike"], ["Lod Out", "Load Out"]),
+      ),
     ).toBe("We read 'Strke' as 'Strike' and 'Lod Out' as 'Load Out' in Amy's role.");
   });
   it("three corrections (serial comma)", () => {
@@ -71,7 +79,10 @@ describe("autocorrectGuidance — possessive + normalization", () => {
   });
   it("collapses interior whitespace and trims", () => {
     expect(
-      autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["  Trans\tportaton ", "Transportation"])),
+      autocorrectGuidance(
+        "SECTION_HEADER_AUTOCORRECTED",
+        ac(null, ["  Trans\tportaton ", "Transportation"]),
+      ),
     ).toBe("We read 'Trans portaton' as 'Transportation'.");
   });
 });
@@ -84,7 +95,9 @@ describe("autocorrectGuidance — guards → null (fall back to helpfulContext)"
     expect(autocorrectGuidance("UNKNOWN_ROLE_TOKEN", ac("Eric", ["a", "b"]))).toBeNull();
   });
   it("crew-scoped code with blank subject", () => {
-    expect(autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", ac("   ", ["Strke", "Strike"]))).toBeNull();
+    expect(
+      autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", ac("   ", ["Strke", "Strike"])),
+    ).toBeNull();
   });
   it("crew-scoped code with null subject", () => {
     expect(autocorrectGuidance("ROLE_TOKEN_AUTOCORRECTED", ac(null, ["a", "b"]))).toBeNull();
@@ -93,16 +106,21 @@ describe("autocorrectGuidance — guards → null (fall back to helpfulContext)"
     expect(autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["x", "  "]))).toBeNull();
   });
   it("self-equal-after-normalization pair dropped ('Load  In' vs 'Load In') → null", () => {
-    expect(autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["Load  In", "Load In"]))).toBeNull();
+    expect(
+      autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["Load  In", "Load In"])),
+    ).toBeNull();
   });
   it("one invalid pair dropped, one valid survives", () => {
     expect(
-      autocorrectGuidance("SECTION_HEADER_AUTOCORRECTED", ac(null, ["x", "  "], ["Adress", "Address"])),
+      autocorrectGuidance(
+        "SECTION_HEADER_AUTOCORRECTED",
+        ac(null, ["x", "  "], ["Adress", "Address"]),
+      ),
     ).toBe("We read 'Adress' as 'Address'.");
   });
   it("non-crew code ignores a provided subject", () => {
-    expect(autocorrectGuidance("COLUMN_HEADER_AUTOCORRECTED", ac("Eric", ["E-MAIL", "EMAIL"]))).toBe(
-      "We read 'E-MAIL' as 'EMAIL'. Fix the header in the sheet if that guess is wrong.",
-    );
+    expect(
+      autocorrectGuidance("COLUMN_HEADER_AUTOCORRECTED", ac("Eric", ["E-MAIL", "EMAIL"])),
+    ).toBe("We read 'E-MAIL' as 'EMAIL'. Fix the header in the sheet if that guess is wrong.");
   });
 });

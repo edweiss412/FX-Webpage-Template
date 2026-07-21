@@ -201,7 +201,10 @@ function parseClientV4(
         message: `Read likely-misspelled client label '${cand.rawLabel}' as '${sublabel}'`,
         blockRef: { kind: "client" },
         rawSnippet: cand.rawLabel,
-        autocorrect: { subject: null, corrections: [{ detected: cand.rawLabel, corrected: sublabel }] },
+        autocorrect: {
+          subject: null,
+          corrections: [{ detected: cand.rawLabel, corrected: sublabel }],
+        },
       });
     }
   }

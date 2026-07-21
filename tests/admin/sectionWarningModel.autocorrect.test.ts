@@ -34,7 +34,9 @@ describe("buildSectionWarningModel — warningsByCrewKey", () => {
     expect(crew.warningsByCrewKey).toBeDefined();
     expect(Object.keys(crew.warningsByCrewKey).sort()).toEqual(["carl fenton", "eric weiss"]);
     expect(crew.warningsByCrewKey["eric weiss"]!).toHaveLength(1);
-    expect(crew.warningsByCrewKey["eric weiss"]![0]!.warning.autocorrect!.subject).toBe("Eric Weiss");
+    expect(crew.warningsByCrewKey["eric weiss"]![0]!.warning.autocorrect!.subject).toBe(
+      "Eric Weiss",
+    );
   });
 
   it("excludes blank-subject warnings from the index (they fall back to the group)", () => {
@@ -49,7 +51,13 @@ describe("buildSectionWarningModel — warningsByCrewKey", () => {
     const rec = buildSectionWarningModel({
       slug: "s",
       warnings: [
-        { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "X | y", blockRef: { kind: "venue" } },
+        {
+          severity: "warn",
+          code: "UNKNOWN_FIELD",
+          message: "m",
+          rawSnippet: "X | y",
+          blockRef: { kind: "venue" },
+        },
       ],
       ignoredFingerprints: new Set(),
       renderedSectionIds: new Set(["venue"]),
