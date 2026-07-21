@@ -168,7 +168,7 @@ export const SPEC_CODES = {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
     "dougFacing": "In <show-name>, <email> is shared by <crew-row-count>, so Google login can't safely tell who's who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.",
     "followUp": "Doug → fix sheet duplicate; if persistent, Eric",
-    "helpfulContext": null,
+    "helpfulContext": "Usually a recent typo or paste dropped the same address into two email cells. Once you correct it, the next sync clears this on its own; you can also mark it resolved right away.",
   },
   "APPLY_PROMOTE_PENDING": {
     "crewFacing": null,
@@ -186,19 +186,19 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name>'s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.",
     "followUp": "Doug → trim gallery / Eric → raise cap",
-    "helpfulContext": null,
+    "helpfulContext": "The cap keeps one big gallery from blocking other shows' syncs. Crew see placeholders for the missing diagrams; trim the set under the limit, or ask the developer to raise the ceiling if this show genuinely needs it.",
   },
   "ASSET_RECOVERY_DRIFT_COOLDOWN": {
     "crewFacing": null,
     "dougFacing": "Diagram recovery for <sheet-name> is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     "followUp": "informational only",
-    "helpfulContext": null,
+    "helpfulContext": "The prior attempt raced an Apply, so recovery backs off for this snapshot to bound retry storms while the show keeps changing. It resumes on its own after the cooldown.",
   },
   "ASSET_RECOVERY_REVISION_DRIFT": {
     "crewFacing": null,
     "dougFacing": "Diagram recovery for <sheet-name> paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     "followUp": "informational only",
-    "helpfulContext": null,
+    "helpfulContext": "Recovery verified bytes against an older snapshot but a newer Apply landed first, so it aborted rather than attach stale assets to the current revision. The next run retries against the latest automatically.",
   },
   "BLOCK_DISAPPEARED": {
     "crewFacing": null,
@@ -216,19 +216,19 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     "followUp": "Eric → restore branch protection per X.6 contract",
-    "helpfulContext": null,
+    "helpfulContext": "Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.",
   },
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED": {
     "crewFacing": null,
     "dougFacing": "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     "followUp": "Eric → rotate GH App / PAT within 24h",
-    "helpfulContext": null,
+    "helpfulContext": "Without auth the monitor can't prove the merge gate is still enforced, so drift would go unseen. Rotate the GitHub App token or fallback PAT within 24 hours and confirm the job succeeds.",
   },
   "CALLBACK_CLAIM_THREW": {
     "crewFacing": null,
     "dougFacing": "The OAuth callback's claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.",
     "followUp": "Eric → inspect callback claim logs",
-    "helpfulContext": null,
+    "helpfulContext": "The callback never mints picker cookies, so nothing is left half-claimed. Picker bootstrap retries the claim automatically on the visitor's next show visit.",
   },
   "CLEANUP_REQUIRES_STALE_SESSION": {
     "crewFacing": null,
@@ -324,7 +324,7 @@ export const SPEC_CODES = {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "We couldn't fetch <sheet-name> from Google Drive (likely a transient network issue, or it's been moved or unshared); we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     "followUp": "Doug → check share / Retry",
-    "helpfulContext": null,
+    "helpfulContext": "Crew keep seeing the last synced version while this retries on its own. If it lasts over an hour, confirm the folder is still shared with FXAV and that the sheet hasn't been moved out of it.",
   },
   "DRIVE_METADATA_MISSING": {
     "crewFacing": null,
@@ -342,25 +342,25 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     "followUp": "Eric → check provider key / verified sending domain",
-    "helpfulContext": null,
+    "helpfulContext": "Retries continue on their own. A persistent failure usually points at the provider API key or the verified sending domain in settings.",
   },
   "EMAIL_NOT_CONFIGURED": {
     "crewFacing": null,
     "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. The developer configures this on the deployment.",
     "followUp": "Eric → configure email env (provider key / sending address / site address) on the deployment",
-    "helpfulContext": null,
+    "helpfulContext": "Email needs three settings before anything sends: provider API key, verified sending address, and the public site URL for links. Dashboard alerts and each show's Publish toggle keep working without it.",
   },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,
     "dougFacing": "An embedded diagram in <sheet-name> changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.",
     "followUp": "Doug → re-edit the sheet to re-stage the diagram",
-    "helpfulContext": null,
+    "helpfulContext": "Crew keep the last good image and see a placeholder only for the one that changed. Save the sheet again to pick up the new version.",
   },
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE": {
     "crewFacing": null,
     "dougFacing": "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
     "followUp": "Doug → save sheet to advance version",
-    "helpfulContext": null,
+    "helpfulContext": "Crew see a placeholder because this diagram can't be recovered on its own. Save the sheet (any edit counts) and the next sync restores the image.",
   },
   "EXTRA_REVIEWER_CHOICE": {
     "crewFacing": null,
@@ -402,7 +402,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot's GitHub username and redeploy.",
     "followUp": "Eric → configure env var",
-    "helpfulContext": null,
+    "helpfulContext": "Recovery needs the bot's GitHub username to find issues from earlier attempts. Set GITHUB_BOT_LOGIN to that username and redeploy to restore full recovery coverage.",
   },
   "GOOGLE_NO_CREW_MATCH": {
     "crewFacing": "Your email isn't on the crew list for this show. Text Doug to get added.",
@@ -480,7 +480,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name> is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.",
     "followUp": "Doug → resolve live row from dashboard, then re-run setup",
-    "helpfulContext": null,
+    "helpfulContext": "Setup stepped aside so it wouldn't clobber the live version already in flight. Apply or Discard that row from the dashboard, then re-run setup if you still need to.",
   },
   "LIVE_ROW_REQUIRED": {
     "crewFacing": null,
@@ -654,7 +654,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "In <show-name>, <crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     "followUp": "Informational",
-    "helpfulContext": null,
+    "helpfulContext": "From now on that row skips the picker and goes straight through Google sign-in. Routine success record; no action needed.",
   },
   "OAUTH_REDIRECT_INVALID": {
     "crewFacing": "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
@@ -714,19 +714,19 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Some sheets in your show folder couldn't be read and were skipped: <failed-sheet-names>. Fix or remove them in Drive and this clears on its own; you can also dismiss it now.",
     "followUp": "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
-    "helpfulContext": null,
+    "helpfulContext": "These files never reach any crew page, so nothing is exposed. The usual cause is a missing or renamed section header; fix or remove them in Drive and the next sync clears this, or dismiss it now if they're meant to be skipped.",
   },
   "OPENING_REEL_NOT_VIDEO": {
     "crewFacing": "Opening reel link is not a video file",
     "dougFacing": "The opening-reel link in <sheet-name> is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.",
     "followUp": "Doug → re-edit sheet",
-    "helpfulContext": null,
+    "helpfulContext": "A Doc, image, or PDF can't play inline, so crew see the text status only. Point the opening-reel cell at an actual video file to turn playback back on.",
   },
   "OPENING_REEL_PERMISSION_DENIED": {
     "crewFacing": "Opening reel access revoked",
     "dougFacing": "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file, or replace the link, to restore inline playback.",
     "followUp": "Doug → re-share / replace link",
-    "helpfulContext": null,
+    "helpfulContext": "The video's sharing changed or it moved somewhere FXAV can't read, so crew see the text status only. Re-share it with FXAV, or swap in a video you do share, to restore playback.",
   },
   "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA": {
     "crewFacing": null,
@@ -750,7 +750,7 @@ export const SPEC_CODES = {
     "crewFacing": "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "<sheet-name>'s latest edit didn't parse, so the previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     "followUp": "Doug → fix sheet (see parse panel); Crew → mention to Doug",
-    "helpfulContext": null,
+    "helpfulContext": "The parse panel shows the exact line that failed to read. Fix it in the sheet and the next sync replaces the older version crew currently see; nothing else to do.",
   },
   "PENDING_INGESTION_NOT_FOUND": {
     "crewFacing": null,
@@ -768,7 +768,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A diagram snapshot cleanup for <show-name> is stuck; crew pages are still protected, but storage cleanup needs repair.",
     "followUp": "Doug → run snapshot repair; if persistent, Eric",
-    "helpfulContext": null,
+    "helpfulContext": "A row marked for deletion never had its storage prefix reclaimed. Crew pages are unaffected; this is storage hygiene only. Reconcile and reclaim the prefix to clear it.",
   },
   "PENDING_SNAPSHOT_NOT_STUCK": {
     "crewFacing": null,
@@ -786,13 +786,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-promote-repair admin tool",
-    "helpfulContext": null,
+    "helpfulContext": "It's stuck in the non-reclaimable promote-started state, so cleanup can't reclaim the prefix. The snapshot-promote repair tool reconciles the temp and canonical prefixes to finish it.",
   },
   "PENDING_SNAPSHOT_ROLLBACK_STUCK": {
     "crewFacing": null,
     "dougFacing": "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     "followUp": "Eric → run snapshot-rollback-repair admin tool",
-    "helpfulContext": null,
+    "helpfulContext": "Assets are split across the temp and canonical prefixes after a half-finished rollback. The snapshot-rollback repair tool reconciles both and completes it so cleanup can continue.",
   },
   "PENDING_SYNC_NOT_FOUND": {
     "crewFacing": null,
@@ -804,13 +804,13 @@ export const SPEC_CODES = {
     "crewFacing": "Couldn't sign you in. Please try again in a moment.",
     "dougFacing": "Google picker bootstrap couldn't resolve the show link before session validation, so the visitor saw a retry page.",
     "followUp": "Crew → retry; Eric → inspect resolve_show_by_slug_and_token",
-    "helpfulContext": null,
+    "helpfulContext": "It failed before any signed-in identity existed, so the alert carries no email or share token by design. The visitor saw a retry page and can open the link again.",
   },
   "PICKER_BOOTSTRAP_RPC_FAILED": {
     "crewFacing": "Couldn't sign you in. Please try again in a moment.",
     "dougFacing": "In <show-name>, Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.",
     "followUp": "Crew → retry; Eric → inspect claim_oauth_identity",
-    "helpfulContext": null,
+    "helpfulContext": "The route had a valid Google session but the identity claim errored, so it returned a clean retry page instead of a redirect loop. Repeats on one show may point at a claim-path problem.",
   },
   "PICKER_CREW_MEMBER_NOT_FOUND": {
     "crewFacing": "That crew member was just removed from this show. Pick yourself from the current roster.",
@@ -834,7 +834,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Picker selections for <show-name> were reset. Crew will be asked to pick themselves again on their next visit.",
     "followUp": "Doug → re-share the show link if needed",
-    "helpfulContext": null,
+    "helpfulContext": "The share link itself didn't change, so crew just pick their name again on the next visit, and any open tabs re-prompt on refresh. Nothing to fix; this is a record of the reset.",
   },
   "PICKER_EPOCH_STALE_BANNER": {
     "crewFacing": "Doug reset access for this show. Pick yourself again.",
@@ -888,7 +888,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed: newer selections were left intact.",
     "followUp": "Informational; Eric if frequent",
-    "helpfulContext": null,
+    "helpfulContext": "A browser cleaned up a picker cookie whose epoch or crew member no longer matches the show, typically after a reset or roster change. Compare-and-delete touched only that stale entry. No action.",
   },
   "PICKER_SHOW_UNAVAILABLE": {
     "crewFacing": "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
@@ -948,13 +948,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The opening-reel video in <sheet-name> has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.",
     "followUp": "Doug → re-edit sheet",
-    "helpfulContext": null,
+    "helpfulContext": "The video changed after you last reviewed the show, so crew see the text status without it. Any save to the sheet picks up the current reel on the next sync.",
   },
   "REPORT_DUPLICATE_LIVE_MATCHES": {
     "crewFacing": null,
     "dougFacing": "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     "followUp": "Eric → inspect duplicate report issues and close the incorrect one",
-    "helpfulContext": null,
+    "helpfulContext": "More than one live issue carries the same report marker, so recovery fails closed instead of guessing a winner. Review the duplicates and close all but one to resume it.",
   },
   "REPORT_HORIZON_EXPIRED": {
     "crewFacing": "This report attempt has expired. Please open a fresh report if the issue still applies.",
@@ -966,25 +966,25 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Bug-report processing is thrashing on <show-name>; retries are racing against leases. This usually means the lease window needs tuning.",
     "followUp": "Eric → tune lease window",
-    "helpfulContext": null,
+    "helpfulContext": "Too many retries fire inside the lease window, usually because it's shorter than GitHub's current response time. Widening the lease window settles it.",
   },
   "REPORT_LOOKUP_INCONCLUSIVE": {
     "crewFacing": "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     "dougFacing": "We couldn't confirm whether a report for <show-name> went through. Try again in a few minutes.",
     "followUp": "Eric → review GitHub issue lookup and retry state",
-    "helpfulContext": null,
+    "helpfulContext": "Recovery couldn't reliably list recent issues for this report, so it refused to risk a duplicate. Usually a transient GitHub API blip that clears on the next retry.",
   },
   "REPORT_OPEN_ORPHAN_LABEL": {
     "crewFacing": null,
     "dougFacing": "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     "followUp": "Eric → inspect the labeled issue",
-    "helpfulContext": null,
+    "helpfulContext": "Orphan cleanup only labels closed 'not planned' issues, so an open one means it was reopened or GitHub returned an odd state. Re-close the issue or remove the label.",
   },
   "REPORT_ORPHANED_LOST_LEASE": {
     "crewFacing": null,
     "dougFacing": "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     "followUp": "Eric → review orphan, tune lease window if recurring",
-    "helpfulContext": null,
+    "helpfulContext": "Two retries of the same report both created a GitHub issue in a lease race, so the duplicate was auto-closed. Click through to confirm; if it recurs, the lease window needs widening.",
   },
   "REPORT_PIPELINE_FAILED": {
     "crewFacing": "The report system hit a server error before it could finish. Please try again in a few minutes.",
@@ -1014,19 +1014,19 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name>'s latest edit lost some data quality: one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
     "followUp": "Doug → check parse panel, fix sheet",
-    "helpfulContext": null,
+    "helpfulContext": "Fewer fields or sections came through than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what dropped; fix the sheet and a clean sync restores it.",
   },
   "RESYNC_SHRINK_HELD": {
     "crewFacing": null,
     "dougFacing": "<sheet-name>'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
     "followUp": "Doug → re-sync to accept, or fix sheet",
-    "helpfulContext": null,
+    "helpfulContext": "The update was held so a bad edit can't silently wipe crew or a section. If the drop was intentional, re-sync to apply it; if not, fix the sheet and a clean sync clears this.",
   },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
     "dougFacing": "In <sheet-name>, <role-changes><lead-hint>",
     "followUp": "none (informational)",
-    "helpfulContext": null,
+    "helpfulContext": "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
   },
   "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
     "crewFacing": null,
@@ -1116,7 +1116,7 @@ export const SPEC_CODES = {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "<sheet-name> isn't in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     "followUp": "Doug → re-share sheet",
-    "helpfulContext": null,
+    "helpfulContext": "Until the sheet is back in the watched folder, crew keep the last good version on file. Move or re-share it into the folder and the next sync brings the show back automatically.",
   },
   "SHOW_ARCHIVED_BY_ADMIN": {
     "crewFacing": null,
@@ -1146,7 +1146,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name> is now live for crew at its share-token URL: <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
     "followUp": null,
-    "helpfulContext": null,
+    "helpfulContext": "It auto-published because the sheet came through clean. If it's the wrong sheet or bad timing, flip Published off on the show's page; crew lose access until you turn it back on, and the same link works again when you do.",
   },
   "SHOW_PUBLISHED_BY_ADMIN": {
     "crewFacing": null,
@@ -1194,7 +1194,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name> has been unpublished; crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
     "followUp": "Doug → republish from the show's page when ready",
-    "helpfulContext": null,
+    "helpfulContext": "Nothing was deleted and the sheet keeps syncing in the background, so republishing from the show's page brings the same link back exactly as it was.",
   },
   "SHOW_VERSION_AUTH_FAILED": {
     "crewFacing": null,
@@ -1332,7 +1332,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     "followUp": "Eric → inspect report-reaper logs if this recurs",
-    "helpfulContext": null,
+    "helpfulContext": "The reservation aged past the 24-hour recovery horizon with an expired lease and was reaped before an issue existed. Repeats would point at a stuck submit path worth a look.",
   },
   "STALE_PUSH_ABORTED": {
     "crewFacing": null,
@@ -1374,7 +1374,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
     "followUp": "Doug → check Drive connection / re-run setup",
-    "helpfulContext": null,
+    "helpfulContext": "Already-published pages stay up; only new edits are waiting. It usually recovers on its own, but if it sticks the Drive connection may have lapsed, so re-run setup or check the connection.",
   },
   "SYNC_STATUS_UNKNOWN": {
     "crewFacing": null,
@@ -1392,13 +1392,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
-    "helpfulContext": null,
+    "helpfulContext": "The failed data sources are listed in the alert detail; their sections fell back while the rest loaded. A refresh usually clears it; use Report if it keeps happening.",
   },
   "TILE_SERVER_RENDER_FAILED": {
     "crewFacing": "This section couldn't load; last good data shown.",
     "dougFacing": "<sheet-name>: a section failed to load on the server and will keep retrying. Refresh in a minute. Tell the developer if it persists.",
     "followUp": "Doug → refresh / Report; Eric → investigate",
-    "helpfulContext": null,
+    "helpfulContext": "Only that one section crashed; the rest of the page rendered. It keeps retrying, so a refresh usually clears it. If it recurs, use Report so the developer gets the stack.",
   },
   "TRAVEL_FLIGHT_AMBIGUOUS_TABLE": {
     "crewFacing": null,
@@ -1560,7 +1560,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     "followUp": "Auto-retry hourly; admin Retry now; Eric if escalated",
-    "helpfulContext": null,
+    "helpfulContext": "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
   },
   "WEBHOOK_HEADERS_MISSING": {
     "crewFacing": null,
@@ -1578,7 +1578,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A push notification from Google Drive failed verification: possible spoofing or misconfiguration. The developer has been notified.",
     "followUp": "Eric → investigate",
-    "helpfulContext": null,
+    "helpfulContext": "The bad token usually means a stale Drive subscription is still firing, occasionally a spoof attempt. The developer is notified and rotates it if needed; no admin action.",
   },
   "WIZARD_FINALIZE_BATCHES_PENDING": {
     "crewFacing": null,
@@ -1626,7 +1626,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     "followUp": "Doug → continue in the active wizard tab",
-    "helpfulContext": null,
+    "helpfulContext": "Two wizard tabs for the same sheet overlapped; the newer one won and the older tab's action was cancelled before it could touch state. Its leftovers are inert and auto-cleaned. Informational only.",
   },
 } as const satisfies Record<string, SpecCodePayload>;
 
