@@ -1,8 +1,10 @@
 {
-  "branch": "feat/warning-surface-trim",
-  "stage": "ci",
-  "tasksRemaining": 0,
-  "next": "PR #532 open. Watch CI to green (gh pr checks 532 --watch), confirm mergeStateStatus CLEAN, then gh pr merge 532 --merge, fast-forward local main to 0 0, CronDelete 5d291551.",
+  "branch": "feat/warning-card-identity-placement",
+  "stage": "spec",
+  "tasksRemaining": null,
+  "next": "Stage 1: run the live-code citation-grep pass and numeric sweep against the POST-#531/#532 base (2a868b132), then draft docs/superpowers/specs/2026-07-21-warning-card-identity-placement.md with the mandatory 1.1 do-not-relitigate section carrying all five ratified decisions.",
   "blockedOn": "",
-  "cronJobId": "5d291551"
+  "cronJobId": "576c1af2",
+  "base": "origin/main @ 2a868b132 (post #531 popover-context, post #532 warning-surface-trim)",
+  "rebaseNote": "#532 rewrote PerShowActionableWarnings (followUpCopy), step3ReviewSections, ShowReviewSurface, and cut the published panel to info-only. #531 added helpfulContext popover copy + _metaPopoverContextCoverage gate. EVERY design citation predates both and MUST be re-verified against this base before drafting."
 }
