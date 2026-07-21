@@ -1287,6 +1287,36 @@ export function OpsBreakdown({
   );
 }
 
+/** Merged under-row attention stack (spec 2026-07-21-warning-card-identity-placement
+ *  §5.3): alert banners + warning cards for one crew member, capped at 2 visible with
+ *  the remainder behind an in-place native <details> "N more". items-stretch + w-full
+ *  satisfy §8's dimensional invariants (Tailwind v4 does not default to align-items:
+ *  stretch). Rendered only when there is at least one node (empty-wrapper contract). */
+export function CrewUnderRowStack({ nodes, ckey }: { nodes: React.ReactNode[]; ckey: string }) {
+  const CAP = 2;
+  const visible = nodes.slice(0, CAP);
+  const hidden = nodes.slice(CAP);
+  return (
+    <div
+      data-testid={`crew-warn-stack-${ckey}`}
+      className="mt-2 flex w-full flex-col items-stretch gap-2"
+    >
+      {visible}
+      {hidden.length > 0 ? (
+        <details
+          data-testid={`crew-warn-more-${ckey}`}
+          className="group flex flex-col items-stretch gap-2"
+        >
+          <summary className="cursor-pointer list-none text-xs font-semibold text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden">
+            {hidden.length} more
+          </summary>
+          <div className="mt-2 flex flex-col items-stretch gap-2">{hidden}</div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 export function CrewBreakdown({
   dfid,
   members,
@@ -1445,7 +1475,7 @@ export function CrewBreakdown({
                      shape). */
                   <li className="py-1">
                     <div className="flex items-center gap-3">{rowInner}</div>
-                    <div className="mt-2 flex flex-col gap-2">{rowBanners}</div>
+                    <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
                   </li>
                 ) : (
                   <li className="flex items-center gap-3 py-1">{rowInner}</li>
