@@ -926,6 +926,12 @@ export function ShowReviewSurface({
                   // through the crew section's chrome value only (ABSENT
                   // elsewhere and in staged mode — exactOptional discipline).
                   ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
+                  // attention-alert-routing §3.2: the two parse notices render as
+                  // banner LINES atop the Parse-warnings panel; they travel as
+                  // domain items so WarningsBreakdown composes them with warnings.length.
+                  ...(s.id === "warnings" && sectionAttention?.get("warnings")?.notes?.length
+                    ? { parseNotes: sectionAttention.get("warnings")!.notes }
+                    : {}),
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? {
                         // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with

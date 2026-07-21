@@ -93,6 +93,7 @@ import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 // Type-only (runtime cycle unchanged): the crew chrome value's banner payload.
 import type { CrewAttention } from "@/components/admin/review/ShowReviewSurface";
 import { canonicalCrewKey } from "@/lib/admin/attentionItems";
+import { orderNotes, composeParseNote, type NoteItem } from "@/lib/admin/parseAttentionNote";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import { includesAgenda, includesReport } from "@/components/admin/review/sectionInclusion";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
@@ -491,6 +492,9 @@ export type Step3SectionChrome = {
    * staged mode and on every other section (exactOptionalPropertyTypes).
    */
   crewAttention?: CrewAttention;
+  /** attention-alert-routing §3.2: the two parse notices, composed as banner
+   *  lines atop the Parse-warnings panel. Warnings section only. */
+  parseNotes?: NoteItem[];
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -2385,12 +2389,37 @@ export function WarningsBreakdown({
   // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
   // control state across warnings after a rescan/refresh reorders the array.
   const keys = stableWarningKeys(warnings);
+  // attention-alert-routing §3.2: the two parse notices render as banner LINES
+  // above the list. Domain items composed HERE because the copy variant depends
+  // on warnings.length. NOT cards (no stripe/chrome) — the distinction from the
+  // list below is the absence of card chrome. Page context, so no role/aria-live.
+  const parseNotes = useContext(Step3SectionChromeContext)?.parseNotes;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
       label="Warnings"
       count={warnings.length}
     >
+      {parseNotes && parseNotes.length > 0 ? (
+        <div
+          data-testid="parse-attention-notes"
+          className="mb-1 flex flex-col gap-1 border-b border-border pb-2"
+        >
+          {orderNotes(parseNotes as NoteItem[]).map((note) => {
+            const composed = composeParseNote(note, warnings.length);
+            return (
+              <p
+                key={note.id}
+                data-testid={`parse-attention-note-${note.alert.code}`}
+                className="text-xs/relaxed text-text-subtle"
+              >
+                <strong className="font-medium text-text-strong">{composed.lead}</strong>{" "}
+                {composed.rest}
+              </p>
+            );
+          })}
+        </div>
+      ) : null}
       {warnings.length === 0 ? (
         <p
           data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
