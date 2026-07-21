@@ -423,18 +423,25 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
         expect(def.railCount, `railCount for ${def.id}`).toBeNull();
       }
     }
+    // warning-surface-trim §3.2: every railCount now takes a second `opts`
+    // argument carrying the trim gate. Only the `warnings` row reads it; these
+    // assertions pass the gate-OFF value, which is the staged wizard's state and
+    // therefore the behavior this suite has always pinned.
+    const railOpts = { routedWarningsRenderElsewhere: false };
     // Values derive from the fixture's OWN dimensions (anti-tautology).
-    expect(defById(defs, "crew").railCount!(d)).toBe(d.crewMembers.length);
+    expect(defById(defs, "crew").railCount!(d, railOpts)).toBe(d.crewMembers.length);
     // Rooms rail count = only A/V-scoped rooms (roomHasScope), NOT raw length.
     // The default fixture rooms all carry A/V, so scoped === length here.
-    expect(defById(defs, "rooms").railCount!(d)).toBe(d.rooms.filter(roomHasScope).length);
+    expect(defById(defs, "rooms").railCount!(d, railOpts)).toBe(
+      d.rooms.filter(roomHasScope).length,
+    );
     // And with a no-A/V room MIXED in, the rail count drops it (exclusion path).
     const mixed = sectionData({ rooms: [...d.rooms, { ...d.rooms[0]!, video: null }] });
-    expect(defById(step3Sections(mixed), "rooms").railCount!(mixed)).toBe(d.rooms.length);
-    expect(defById(defs, "warnings").railCount!(d)).toBe(d.warnings.length);
+    expect(defById(step3Sections(mixed), "rooms").railCount!(mixed, railOpts)).toBe(d.rooms.length);
+    expect(defById(defs, "warnings").railCount!(d, railOpts)).toBe(d.warnings.length);
     // Contacts: block count as rendered today — fixture has no client contact
     // and no contacts → 0.
-    expect(defById(defs, "contacts").railCount!(d)).toBe(0);
+    expect(defById(defs, "contacts").railCount!(d, railOpts)).toBe(0);
   });
 });
 

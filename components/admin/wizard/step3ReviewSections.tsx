@@ -101,6 +101,8 @@ import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
+import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
+import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -428,6 +430,10 @@ const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow
  * The heading is `<h3>` so the modal outline stays h2 (title) → h3 (§15); no
  * `id` attributes are emitted anywhere here (§9.4 twin-nav DOM-identity rule).
  */
+/** warning-surface-trim §3.2: the second argument every `railCount` receives.
+ *  A named type so the 17 rows that ignore it stay readable. */
+export type RailCountOpts = { routedWarningsRenderElsewhere: boolean };
+
 export type Step3SectionChrome = {
   /** Registry glyph (§6.1) — the rail, chips, and heading row share it. */
   Icon: LucideIcon;
@@ -500,6 +506,18 @@ export type Step3SectionChrome = {
    *  details section only). ABSENT elsewhere (exactOptionalPropertyTypes). */
   diagramAttention?: React.ReactNode[];
   reelAttention?: React.ReactNode[];
+  /** warning-surface-trim §3.2: true when the routed warn-severity rows already
+   *  render as actionable section extras, so this panel must not list them a
+   *  second time. Derived in `ShowReviewSurface` as the CONJUNCTION of
+   *  `routedWarnings` and `renderSectionExtras` both being present, never
+   *  inferred from `mode`. Absent provider (standalone section tests) reads as
+   *  undefined, which the panel treats as false. */
+  routedWarningsRenderElsewhere?: boolean;
+  /** warning-surface-trim §3.4: ACTIVE warn rows split into those rendering
+   *  directly below this panel (`here`, the fallback bucket) and those in other
+   *  sections (`elsewhere`). Present exactly when the gate above is true, which
+   *  is what makes the four-row body-empty matrix total. */
+  routedWarnings?: RoutedWarnings;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -3096,7 +3114,9 @@ export type Step3SectionDef = {
   /** Lucide glyph per the §6.1 table. */
   Icon: LucideIcon;
   /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
-  railCount: ((d: SectionData) => number) | null;
+  /** warning-surface-trim §3.2: `opts` carries the trim gate. Every row IGNORES
+   *  it except `warnings`, whose count must follow the rows its body renders. */
+  railCount: ((d: SectionData, opts: RailCountOpts) => number) | null;
   /**
    * Follow-ups spec §D2: present-`true` ONLY on `report` — BOTH navs (desktop
    * rail + mobile chips) render no status dot for it. exactOptionalPropertyTypes:

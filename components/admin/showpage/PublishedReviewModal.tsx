@@ -54,6 +54,7 @@ import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
+import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import {
   CREW_CAP,
   RawUnrecognizedCallout,
@@ -250,6 +251,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // §5.3 per-section warning controls: the crypto-free render factory over the
   // server-derived model. Memoized on the record identity (stable per render).
   const renderSectionExtras = useMemo(() => buildSectionWarningExtras({ bySection }), [bySection]);
+  // warning-surface-trim §3.2: the counts travel WITH the extras hook, because
+  // the trim's gate requires both. Derived from the same model the extras render,
+  // so the panel's body-empty copy can never describe a different set of rows
+  // than the cards below it.
+  const routedWarnings = useMemo(() => deriveRoutedWarnings(bySection), [bySection]);
 
   // ── Attention surface state (published-show-alerts §5/§6) ──────────────────
   const [menuOpen, setMenuOpen] = useState(false);
@@ -735,6 +741,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         extraSectionsBefore={overviewHasContent ? [overviewExtra] : []}
         extraSectionsAfter={[changesExtra]}
         renderSectionExtras={renderSectionExtras}
+        routedWarnings={routedWarnings}
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}

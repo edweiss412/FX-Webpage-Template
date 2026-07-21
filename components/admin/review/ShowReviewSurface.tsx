@@ -40,6 +40,7 @@ import {
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
+import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -158,6 +159,7 @@ export function ShowReviewSurface({
   extraSectionsBefore,
   extraSectionsAfter,
   renderSectionExtras,
+  routedWarnings,
   bottomSlot,
   children,
   isPublishRunActive = false,
@@ -175,6 +177,11 @@ export function ShowReviewSurface({
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
   renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
+  // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
+  // bucket rendering below the Parse warnings panel (`here`) and every other
+  // section (`elsewhere`). Passed by the published modal alongside
+  // `renderSectionExtras`; the staged wizard passes neither.
+  routedWarnings?: RoutedWarnings;
   bottomSlot?: ReactNode; // Phase 2 hook: RawUnrecognizedCallout — renders AFTER the registry sections
   // (incl. warnings) and BEFORE extraSectionsAfter. Not a rail item.
   children?: ReactNode; // shell-owned content-pane TOP slot (the modal's re-apply resolution body)
@@ -212,6 +219,15 @@ export function ShowReviewSurface({
   // ── Section registry + statuses (spec §6.1/§7) — ONE memoized derivation
   // feeds both navs and the section panels. ──
   const sections = useMemo(() => step3Sections(data), [data]);
+  // warning-surface-trim §3.2: the trim gate is the CONJUNCTION of both
+  // preconditions. Resting it on `renderSectionExtras` alone would let a mount
+  // enable the trim while supplying no counts, so the panel would drop warn rows
+  // with nothing to select its body-empty copy; requiring both makes "the trim is
+  // on" and "the counts exist" one fact. Both partial configurations fail safe to
+  // today's render.
+  const routedWarningsRenderElsewhere =
+    routedWarnings !== undefined && renderSectionExtras !== undefined;
+
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
   // split reads from THIS map so flags and callouts can never disagree.
@@ -792,7 +808,7 @@ export function ShowReviewSurface({
                         {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                         {s.railCount !== null ? (
                           <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
-                            {s.railCount(data)}
+                            {s.railCount(data, { routedWarningsRenderElsewhere })}
                           </span>
                         ) : null}
                         {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
@@ -910,6 +926,11 @@ export function ShowReviewSurface({
                 value={{
                   Icon: s.Icon,
                   label: s.label,
+                  // warning-surface-trim §3.2/§3.4. exactOptionalPropertyTypes:
+                  // insert the optional pair by SPREAD, never as an explicit
+                  // `undefined` value.
+                  routedWarningsRenderElsewhere,
+                  ...(routedWarnings !== undefined ? { routedWarnings } : {}),
                   flagged: flagged.has(s.id),
                   judgment: judgment.has(s.id),
                   getActiveSection,
