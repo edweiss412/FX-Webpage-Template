@@ -30,9 +30,22 @@ const MENU = `${MODAL} [data-testid="${BASE}-attention-menu"]`;
 
 const SEED_TITLE = "Attention Surface E2E Show";
 const CREW_NAME = "Alice Cooper";
-// Crew-routed, resolution:"manual" (actionable), single-change context → the
-// derivation extracts crewName from the projected sanitized name list (§3.1a).
-const CREW_CODE = "ROLE_FLAGS_NOTICE";
+// Crew-routed and actionable.
+//
+// NOT `ROLE_FLAGS_NOTICE`, which this fixture used until warning-surface-trim
+// §5: it is an info-severity member of `DOUG_EXCLUDED_CODES`
+// (lib/adminAlerts/audience.ts:34) and no longer reaches the modal's attention
+// surface, by the ratified intent of `2026-07-04-alert-audience-split` §3.
+//
+// CONSEQUENCE, deliberately recorded here: `ROLE_FLAGS_NOTICE` was the ONLY
+// live producer of a crew-routed alert carrying a `crewName`
+// (`crewNameFor` special-cases it at lib/adminAlerts/fetchPerShowAlerts.ts:63;
+// every other crew-routed code with a "Crew" identity segment is a health code
+// already filtered upstream at fetchPerShowAlerts.ts:103). `crewKey` is null
+// without a `crewName` (lib/admin/attentionItems.ts:257), so the in-row crew
+// banner of published-show-alerts §5.4 now has NO live producer and its
+// placement test below is skipped with cause. See DEFERRED.md.
+const CREW_CODE = "AMBIGUOUS_EMAIL_BINDING";
 // Not in the production registry → overview fallback route; unknown codes are
 // actionable by classification (not inbox-routed, not auto-resolving) — the
 // same seed code the deeplink suite uses.
@@ -71,8 +84,13 @@ test.describe("published show attention surface (spec §5/§6)", () => {
         { name: "Bob Fields", role: "V2", email: "bob@fxav.test" },
       ],
     });
+    // Identity-map shape for AMBIGUOUS_EMAIL_BINDING (show name, email, crew
+    // count — lib/adminAlerts/alertIdentityMap.ts:60). It carries no "Crew"
+    // segment, so `crewName` is null and the item routes to `crew` WITHOUT a
+    // `crewKey`; see the CREW_CODE note above.
     crewAlertId = await seedAlert(CREW_CODE, {
-      changes: [{ crew_name: CREW_NAME, prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+      email: "alice@fxav.test",
+      crew_member_count: 2,
     });
     overviewAlertId = await seedAlert(OVERVIEW_CODE, {});
   });
@@ -106,7 +124,11 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     expect(visible).toBe("2 to confirm");
   });
 
-  test("crew banner renders INSIDE the matching roster row's <li>, below the row content", async ({
+  // SKIPPED, not deleted: the assertions are still the correct contract for the
+  // in-row banner, and this is the test that should un-skip the moment a
+  // crew-routed, non-health, actionable code carrying a `crewName` exists again.
+  // Deleting it would lose the contract; leaving it failing would be noise.
+  test.skip("crew banner renders INSIDE the matching roster row's <li>, below the row content", async ({
     page,
   }) => {
     await openModal(page);
@@ -129,7 +151,10 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     expect(placement.belowRow, "banner sits below the row content").toBe(true);
   });
 
-  test("menu row click → menu closes, scroller lands on the crew banner, one-shot flash fires and clears", async ({
+  // Retitled: without a `crewKey` the anchor is the CREW SECTION rather than a
+  // roster row (lib/admin/attentionItems.ts:257). The scroll + one-shot flash
+  // contract this test owns is unchanged; only the anchor's granularity is.
+  test("menu row click → menu closes, scroller lands on the crew anchor, one-shot flash fires and clears", async ({
     page,
   }) => {
     await openModal(page);

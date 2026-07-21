@@ -40,6 +40,8 @@ import {
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
+import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
+import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -158,6 +160,7 @@ export function ShowReviewSurface({
   extraSectionsBefore,
   extraSectionsAfter,
   renderSectionExtras,
+  routedWarnings,
   bottomSlot,
   children,
   isPublishRunActive = false,
@@ -175,6 +178,11 @@ export function ShowReviewSurface({
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
   renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
+  // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
+  // bucket rendering below the Parse warnings panel (`here`) and every other
+  // section (`elsewhere`). Passed by the published modal alongside
+  // `renderSectionExtras`; the staged wizard passes neither.
+  routedWarnings?: RoutedWarnings;
   bottomSlot?: ReactNode; // Phase 2 hook: RawUnrecognizedCallout — renders AFTER the registry sections
   // (incl. warnings) and BEFORE extraSectionsAfter. Not a rail item.
   children?: ReactNode; // shell-owned content-pane TOP slot (the modal's re-apply resolution body)
@@ -212,6 +220,33 @@ export function ShowReviewSurface({
   // ── Section registry + statuses (spec §6.1/§7) — ONE memoized derivation
   // feeds both navs and the section panels. ──
   const sections = useMemo(() => step3Sections(data), [data]);
+  // warning-surface-trim §3.2: the trim gate is the CONJUNCTION of both
+  // preconditions. Resting it on `renderSectionExtras` alone would let a mount
+  // enable the trim while supplying no counts, so the panel would drop warn rows
+  // with nothing to select its body-empty copy; requiring both makes "the trim is
+  // on" and "the counts exist" one fact. Both partial configurations fail safe to
+  // today's render.
+  const routedWarningsRenderElsewhere =
+    routedWarnings !== undefined && renderSectionExtras !== undefined;
+
+  // impeccable critique P0a: Silent (body empty, actionable cards rendering
+  // below this section) must not leave an empty bordered card behind. Same
+  // predicate the panel body uses, so the two cannot disagree about emptiness.
+  //
+  // The predicate must cover EVERYTHING the body can render, not just its warning
+  // rows. `parseNotes` also lives inside those children, and
+  // `lib/admin/sectionAttention.ts:105-110` routes PARSE_ERROR_LAST_GOOD and
+  // RESYNC_QUALITY_REGRESSED EXCLUSIVELY there (`continue` — they never become
+  // cards), so suppressing the card on a failed sync would delete "your latest
+  // changes didn't go through" with nothing else rendering it. That is a
+  // structural no-drop violation, and it is what the first version of this guard
+  // shipped.
+  const suppressWarningsPanelCard =
+    routedWarningsRenderElsewhere &&
+    visibleWarningRows(data.warnings, true).length === 0 &&
+    (warningsNotes?.length ?? 0) === 0 &&
+    (routedWarnings?.here ?? 0) > 0;
+
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
   // split reads from THIS map so flags and callouts can never disagree.
@@ -226,21 +261,58 @@ export function ShowReviewSurface({
   const { flagged, judgment } = useMemo(() => {
     const flagged = new Set<SectionId>();
     const judgment = new Set<SectionId>();
+    // warning-surface-trim, whole-diff review finding 2: when the trim is on,
+    // a MAPPED section's live content is its ACTIVE rows — the ignored ones are
+    // folded into that section's collapsed "Ignored (N)" disclosure. Deriving
+    // from every warn row left Crew amber and announcing "Needs a look" after
+    // the operator ignored its last active warning, while this panel said
+    // "Nothing needs a look on this sheet." Same correction the warnings row
+    // already got below; this extends it to the ten routing targets.
+    const activeBySection = routedWarningsRenderElsewhere
+      ? routedWarnings?.activeWarningsBySection
+      : undefined;
     for (const [sid, entries] of bySection) {
-      const st = sectionStatus(entries.map((e) => e.warning));
+      const rows = activeBySection ? (activeBySection[sid] ?? []) : entries.map((e) => e.warning);
+      if (rows.length === 0) continue;
+      const st = sectionStatus(rows);
       if (st === "flagged") flagged.add(sid);
       else if (st === "judgment") judgment.add(sid);
     }
+    // impeccable critique: the warnings heading renders its count and its amber
+    // "Needs a look" pill in ONE text run. `sectionStatus` above reads every warn
+    // row including ignored ones, so a trimmed panel showing "(0)" still wore the
+    // pill, and an all-ignored sheet wore it directly above "Nothing needs a look
+    // on this sheet." When the trim is on, this section's live content is exactly
+    // its ACTIVE bucket rows, so flag it on that.
+    if (routedWarningsRenderElsewhere && routedWarnings !== undefined) {
+      if (routedWarnings.here > 0) flagged.add("warnings");
+      else flagged.delete("warnings");
+    }
     return { flagged, judgment };
-  }, [bySection]);
+  }, [bySection, routedWarnings, routedWarningsRenderElsewhere]);
   // Row-local warnings dot (§6.2): red iff ≥1 warn-severity warning exists,
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
   // UNMAPPED warns so the header count never double-counts).
-  const hasWarnRow = useMemo(
-    () => data.warnings.some((w) => w.severity === "warn"),
-    [data.warnings],
-  );
+  const hasWarnRow = useMemo(() => {
+    // warning-surface-trim, impeccable critique P0b: when the trim is on, the
+    // panel can read "Nothing needs a look on this sheet." while every warn row
+    // is already ignored. Deriving the dot from EVERY warn row put an amber
+    // "needs a look" signal directly above that sentence. `routedWarnings`
+    // already counts ACTIVE rows only, so use it where it exists and fall back
+    // to the original rule everywhere else (the staged wizard, which has no
+    // ignore state on this surface).
+    if (routedWarningsRenderElsewhere && routedWarnings !== undefined) {
+      // `here` ONLY (impeccable audit P1). This dot and its sr-only
+      // " — needs review" describe the WARNINGS row specifically, and after the
+      // trim that row's live content is just its own bucket. Counting
+      // `elsewhere` made a screen reader announce "Parse warnings (0) — needs
+      // review" immediately before the body says "Nothing else to note here",
+      // and those warnings already light their own sections' dots via `flagged`.
+      return routedWarnings.here > 0;
+    }
+    return data.warnings.some((w) => w.severity === "warn");
+  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
   // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in
@@ -792,7 +864,7 @@ export function ShowReviewSurface({
                         {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                         {s.railCount !== null ? (
                           <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
-                            {s.railCount(data)}
+                            {s.railCount(data, { routedWarningsRenderElsewhere })}
                           </span>
                         ) : null}
                         {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
@@ -910,6 +982,14 @@ export function ShowReviewSurface({
                 value={{
                   Icon: s.Icon,
                   label: s.label,
+                  // warning-surface-trim §3.2/§3.4. exactOptionalPropertyTypes:
+                  // insert the optional pair by SPREAD, never as an explicit
+                  // `undefined` value.
+                  routedWarningsRenderElsewhere,
+                  ...(routedWarnings !== undefined ? { routedWarnings } : {}),
+                  ...(s.id === "warnings" && suppressWarningsPanelCard
+                    ? { suppressPanelCard: true }
+                    : {}),
                   flagged: flagged.has(s.id),
                   judgment: judgment.has(s.id),
                   getActiveSection,

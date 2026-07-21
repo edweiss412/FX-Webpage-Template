@@ -9,7 +9,7 @@ import type { FeedEntry } from "@/lib/sync/holds/types";
 import { resolveAlertAction, type AlertActionLink } from "@/lib/adminAlerts/alertActions";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { PARSE_FAILURE_ALLOWLIST } from "@/lib/messages/parseFailureReason";
-import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
+import { isAutoResolving, autoResolveNote, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { messageFor, interpolate, type MessageParams } from "@/lib/messages/lookup";
 import { GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
@@ -304,6 +304,14 @@ export function deriveAttentionItems(args: {
   alerts: AttentionAlertInput[];
   feed: { entries: FeedEntry[] } | null;
   slug: string;
+  /** TEST SEAM (warning-surface-trim §5). Production callers pass nothing and
+   *  get `DOUG_EXCLUDED_CODES`. It exists because only two set members carry an
+   *  `ATTENTION_ROUTES` row today, so behavior over the live set cannot
+   *  distinguish a set-driven filter from a two-code hand-list, and a source
+   *  scan cannot distinguish it from one that slices the set's first two
+   *  members. Injecting two disjoint sets can. Pinned test-only by
+   *  tests/admin/attentionExclusionSet.test.ts. */
+  excludedCodes?: readonly string[];
 }): AttentionItem[] {
   const holdItems = (args.feed?.entries ?? [])
     .map(toHoldItem)
@@ -312,8 +320,21 @@ export function deriveAttentionItems(args: {
   // §1.1): PickerResetControl already shows an inline success banner and
   // logAdminOutcome records the durable audit. Its ATTENTION_ROUTES row remains for
   // registry totality; the cut lives here so the row can stay.
+  // warning-surface-trim §5: info-severity codes leave the attention surface.
+  // `DOUG_EXCLUDED_CODES` is info-severity UNION health, ratified by
+  // docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md §3 as
+  // excluded from Doug's surfaces, and until now had zero production consumers:
+  // the amber banner it governed (PerShowAlertSection) was replaced by this
+  // surface and the exclusion silently stopped applying. The health arm is
+  // already excluded upstream by fetchPerShowAlerts, so adding the whole set is
+  // a no-op there rather than a second filter with different semantics.
+  //
+  // MODAL ONLY. The bell builds its entries from its own feed endpoint and
+  // reads `dougFacing` through its own `rowCopy`, so nothing here can reach it;
+  // the admin_alerts row and its audit trail are untouched.
+  const excluded = new Set(args.excludedCodes ?? DOUG_EXCLUDED_CODES);
   const alertItems = args.alerts
-    .filter((row) => row.code !== "PICKER_EPOCH_RESET")
+    .filter((row) => row.code !== "PICKER_EPOCH_RESET" && !excluded.has(row.code))
     .map((row) => toAlertItem(row, args.slug));
   const actionableAlerts = alertItems.filter((i) => i.actionable);
   const clearing = alertItems.filter((i) => !i.actionable);

@@ -101,6 +101,8 @@ import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
+import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
+import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -428,6 +430,10 @@ const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow
  * The heading is `<h3>` so the modal outline stays h2 (title) → h3 (§15); no
  * `id` attributes are emitted anywhere here (§9.4 twin-nav DOM-identity rule).
  */
+/** warning-surface-trim §3.2: the second argument every `railCount` receives.
+ *  A named type so the 17 rows that ignore it stay readable. */
+export type RailCountOpts = { routedWarningsRenderElsewhere: boolean };
+
 export type Step3SectionChrome = {
   /** Registry glyph (§6.1) — the rail, chips, and heading row share it. */
   Icon: LucideIcon;
@@ -500,6 +506,27 @@ export type Step3SectionChrome = {
    *  details section only). ABSENT elsewhere (exactOptionalPropertyTypes). */
   diagramAttention?: React.ReactNode[];
   reelAttention?: React.ReactNode[];
+  /** warning-surface-trim §3.2: true when the routed warn-severity rows already
+   *  render as actionable section extras, so this panel must not list them a
+   *  second time. Derived in `ShowReviewSurface` as the CONJUNCTION of
+   *  `routedWarnings` and `renderSectionExtras` both being present, never
+   *  inferred from `mode`. Absent provider (standalone section tests) reads as
+   *  undefined, which the panel treats as false. */
+  routedWarningsRenderElsewhere?: boolean;
+  /** warning-surface-trim §3.4: ACTIVE warn rows split into those rendering
+   *  directly below this panel (`here`, the fallback bucket) and those in other
+   *  sections (`elsewhere`). Present exactly when the gate above is true, which
+   *  is what makes the four-row body-empty matrix total. */
+  routedWarnings?: RoutedWarnings;
+  /** warning-surface-trim, impeccable critique P0a: the Silent state renders a
+   *  null body while its actionable cards render BELOW this section, outside the
+   *  panel card. Keeping the card chrome around zero children ships an empty
+   *  bordered, shadowed tile that reads as a failed fetch, so the surface tells
+   *  the chrome to drop the wrapper. Computed where the data lives (the surface
+   *  holds both the gate and the counts); `children` cannot be inspected for it,
+   *  because a body whose expressions all evaluate to null is still a populated
+   *  React children array. */
+  suppressPanelCard?: boolean;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -661,6 +688,14 @@ function ModalSectionChrome({
   children: React.ReactNode;
 }) {
   const { Icon, label, flagged, headingLevel = 3 } = chrome;
+  // warning-surface-trim, impeccable critique P0a: the Silent state renders a
+  // NULL body while its actionable cards render just below, OUTSIDE this
+  // wrapper. Keeping the card chrome around zero children ships an empty
+  // bordered, shadowed tile between an amber heading and the real cards, which
+  // reads as a failed fetch rather than as deliberate quiet. When there is no
+  // body, the heading sits directly on the cards; the extras block already
+  // supplies its own `border-t` seam.
+  const hasBody = chrome.suppressPanelCard !== true;
   // §7.1 judgment status (spec 2026-07-07): mutually exclusive with flagged. Drives
   // a calm info-tone icon chip + pill + callout variant, never the amber flag tone.
   const judgment = chrome.judgment === true && !flagged;
@@ -737,28 +772,30 @@ function ModalSectionChrome({
           </a>
         ) : null}
       </div>
-      <div
-        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
-          flagged ? "border-border-strong" : "border-border"
-        }`}
-      >
-        {/* §H N2: instant — deliberate (callout presence is static with the
+      {hasBody ? (
+        <div
+          className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+            flagged ? "border-border-strong" : "border-border"
+          }`}
+        >
+          {/* §H N2: instant — deliberate (callout presence is static with the
             section render — no mount animation; spec §E3 first child) */}
-        {chrome.calloutEntries &&
-        chrome.calloutEntries.length > 0 &&
-        chrome.onJumpToWarning &&
-        chrome.dfid !== undefined &&
-        chrome.sectionId !== undefined ? (
-          <SectionFlagCallout
-            dfid={chrome.dfid}
-            sectionId={chrome.sectionId}
-            entries={chrome.calloutEntries}
-            onJump={chrome.onJumpToWarning}
-            variant={judgment ? "judgment" : "flagged"}
-          />
-        ) : null}
-        {children}
-      </div>
+          {chrome.calloutEntries &&
+          chrome.calloutEntries.length > 0 &&
+          chrome.onJumpToWarning &&
+          chrome.dfid !== undefined &&
+          chrome.sectionId !== undefined ? (
+            <SectionFlagCallout
+              dfid={chrome.dfid}
+              sectionId={chrome.sectionId}
+              entries={chrome.calloutEntries}
+              onJump={chrome.onJumpToWarning}
+              variant={judgment ? "judgment" : "flagged"}
+            />
+          ) : null}
+          {children}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -2415,19 +2452,30 @@ export function WarningsBreakdown({
   useRawDecisions?: UseRawDecision[];
   wizardSessionId?: string;
 }) {
-  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
-  // control state across warnings after a rescan/refresh reorders the array.
-  const keys = stableWarningKeys(warnings);
   // attention-alert-routing §3.2: the two parse notices render as banner LINES
   // above the list. Domain items composed HERE because the copy variant depends
   // on warnings.length. NOT cards (no stripe/chrome) — the distinction from the
   // list below is the absence of card chrome. Page context, so no role/aria-live.
-  const parseNotes = useContext(Step3SectionChromeContext)?.parseNotes;
+  const chrome = useContext(Step3SectionChromeContext);
+  const parseNotes = chrome?.parseNotes;
+  // warning-surface-trim §3.2: on the published surface the routed warn rows
+  // already render as actionable section extras, so listing them again here
+  // would duplicate them, and the duplicate is the copy with no controls.
+  const routedWarningsRenderElsewhere = chrome?.routedWarningsRenderElsewhere === true;
+  const rows = visibleWarningRows(warnings, routedWarningsRenderElsewhere);
+  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
+  // control state across warnings after a rescan/refresh reorders the array.
+  // Keyed on the RENDERED rows so a trimmed list cannot shift control state.
+  const keys = stableWarningKeys(rows);
+  // §3.4: ACTIVE warn rows split into those rendering directly BELOW this panel
+  // and those in other sections. Present exactly when the gate is on.
+  const here = chrome?.routedWarnings?.here ?? 0;
+  const elsewhere = chrome?.routedWarnings?.elsewhere ?? 0;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
       label="Warnings"
-      count={warnings.length}
+      count={rows.length}
     >
       {parseNotes && parseNotes.length > 0 ? (
         <div
@@ -2435,7 +2483,7 @@ export function WarningsBreakdown({
           className="mb-1 flex flex-col gap-1 border-b border-border pb-2"
         >
           {orderNotes(parseNotes as NoteItem[]).map((note) => {
-            const composed = composeParseNote(note, warnings.length);
+            const composed = composeParseNote(note, rows.length);
             return (
               <p
                 key={note.id}
@@ -2453,30 +2501,82 @@ export function WarningsBreakdown({
           })}
         </div>
       ) : null}
-      {warnings.length === 0 ? (
-        <p
-          data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
-          className="text-sm text-text-subtle"
-        >
-          No parse warnings for this sheet.
-        </p>
+      {rows.length === 0 ? (
+        routedWarningsRenderElsewhere ? (
+          // §3.4 four-row matrix, evaluated top to bottom and mutually exclusive.
+          // Silent first: the actionable cards render immediately BELOW this
+          // panel, so a line above them claiming anything about location would
+          // be noise or a lie.
+          here > 0 ? null : elsewhere > 0 ? (
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-elsewhere`}
+              className="text-sm text-text-subtle"
+            >
+              Nothing else to note here. The warnings that need a look are in their own sections.
+            </p>
+          ) : (
+            // True in BOTH the no-warnings and the all-ignored cases, which is
+            // exactly the pair this row cannot distinguish and does not need to.
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-clean`}
+              className="text-sm text-text-subtle"
+            >
+              Nothing needs a look on this sheet.
+            </p>
+          )
+        ) : (
+          <p
+            data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
+            className="text-sm text-text-subtle"
+          >
+            No parse warnings for this sheet.
+          </p>
+        )
       ) : (
         <>
           {/* Flow 3 (audit 3.1): correction-loop callout — copy-only. The verb is
               mode-derived, never hard-coded: the wizard already carries
               RescanSheetButton (re-scan), the published surface carries the
-              StatusStrip Re-sync. This is the panel that OWNS this guidance;
-              Overview deliberately does not duplicate it. */}
-          <CorrectionLoopCallout mode={mode} />
-          <p
-            data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
-            className="text-xs text-text-subtle"
-          >
-            These warnings don&rsquo;t block publishing. Some include an optional fix you can apply
-            below.
-          </p>
+              StatusStrip Re-sync.
+
+              warning-surface-trim §3.5: PUBLISHED mode retires the NON-BLOCKING
+              line outright — its "below" would point at controls that are no
+              longer below, and its reassurance half is already carried per card
+              by `helpfulContext`.
+
+              The correction-loop callout is retired there only for the rows that
+              LEFT. §3.5 assumed every row the panel used to list acquires a card
+              carrying the sentence in its popover, which holds for warn rows and
+              not for info rows: info is never routed, never becomes a card, and
+              still renders right here. Whole-diff review found the consequence —
+              DAY_RESTRICTION_DOUBLE_LOCATION is info-severity and its copy asks
+              the operator to remove a duplicate (lib/messages/catalog.ts:1194),
+              so on a sheet whose only warnings are info the loop sentence
+              rendered NOWHERE. This branch is inside `rows.length > 0`, so the
+              callout appears exactly when the panel still lists rows of its own
+              and never above one of the three empty states.
+
+              Round 2 caught the missed half of that repair: the CARD copy was
+              gated on `sourceCell` while this panel copy — the SAME sentence,
+              with the same "Edit the cell" referent — was not, so an info row
+              raised without a cell still got told to edit one. Gated here too.
+              The wizard keeps rendering it unconditionally: its panel lists
+              every warning including the cell-bearing warn rows, and that
+              surface's render is contractually unchanged. */}
+          {routedWarningsRenderElsewhere && !rows.some((w) => w.sourceCell) ? null : (
+            <CorrectionLoopCallout mode={mode} />
+          )}
+          {routedWarningsRenderElsewhere ? null : (
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
+              className="text-xs text-text-subtle"
+            >
+              These warnings don&rsquo;t block publishing. Some include an optional fix you can
+              apply below.
+            </p>
+          )}
           <ul className="flex flex-col gap-3">
-            {warnings.map((w, i) => {
+            {rows.map((w, i) => {
               const title = reviewWarningTitle(w);
               const context = isMessageCode(w.code)
                 ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
@@ -3096,7 +3196,9 @@ export type Step3SectionDef = {
   /** Lucide glyph per the §6.1 table. */
   Icon: LucideIcon;
   /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
-  railCount: ((d: SectionData) => number) | null;
+  /** warning-surface-trim §3.2: `opts` carries the trim gate. Every row IGNORES
+   *  it except `warnings`, whose count must follow the rows its body renders. */
+  railCount: ((d: SectionData, opts: RailCountOpts) => number) | null;
   /**
    * Follow-ups spec §D2: present-`true` ONLY on `report` — BOTH navs (desktop
    * rail + mobile chips) render no status dot for it. exactOptionalPropertyTypes:
@@ -3856,7 +3958,8 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Checks",
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).
-      railCount: (s) => s.warnings.length,
+      railCount: (s, opts) =>
+        visibleWarningRows(s.warnings, opts.routedWarningsRenderElsewhere).length,
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).
       // driveFileId is the mode-agnostic SectionCore locator (nullable); the

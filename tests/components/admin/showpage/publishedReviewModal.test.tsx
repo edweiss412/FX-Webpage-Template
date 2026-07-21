@@ -1037,3 +1037,124 @@ describe("revalidate-on-open (spec 2026-07-19-show-modal-prefetch §3.2)", () =>
     expect(routerPrefetch).toHaveBeenCalledWith("/admin");
   });
 });
+
+describe("the warning-surface trim is live end to end from this modal", () => {
+  // Whole-diff review B1/A1: every other suite for this feature injects
+  // `routedWarnings` (and often `renderSectionExtras`) directly into
+  // `ShowReviewSurface`. That proves the surface consumes them and NOTHING about
+  // the component responsible for producing them. This modal could pass one prop
+  // and not the other, pass constant counts, or never call
+  // `deriveRoutedWarnings`, and every one of those suites would stay green while
+  // the live modal rendered the untrimmed panel.
+  //
+  // Mounting the real modal is also what closes the partial-configuration gap:
+  // the trim's two halves are supplied at ONE call site, so "extras without
+  // counts" is unreachable by construction rather than by assertion.
+  const CELL = { title: "INFO", gid: 0, a1: "B7" };
+
+  // UNCATALOGED codes deliberately: a cataloged one renders its catalog TITLE
+  // in both the panel row and the card, so every row of a given code is
+  // textually identical and no assertion can tell one instance from another.
+  // With no catalog entry the rendered title falls back to `.message`, which is
+  // unique per fixture row.
+  function infoWarning(n: number): ParseWarning {
+    return {
+      severity: "info",
+      code: "TEST_ONLY_INFO_ROW",
+      message: `normalized token ${n}`,
+      rawSnippet: `Info | ${n}`,
+    } as ParseWarning;
+  }
+
+  /** Unrouted, so it lands in the fallback `warnings` bucket and its card
+   *  renders directly below the panel body — the trim's visible effect is that
+   *  it is no longer ALSO a flat row inside the body. */
+  function warnWarning(n: number): ParseWarning {
+    return {
+      severity: "warn",
+      code: "TEST_ONLY_WARN_ROW",
+      message: `unrecognized row ${n}`,
+      rawSnippet: `Mystery | ${n}`,
+      sourceCell: CELL,
+    } as ParseWarning;
+  }
+
+  it("lists the info row in the panel while the warn row renders only as a card", () => {
+    const info = infoWarning(1);
+    const warn = warnWarning(1);
+    renderModal({}, [info, warn]);
+
+    const panel = screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-breakdown-warnings`);
+    const rows = within(panel).queryAllByTestId(
+      new RegExp(`^wizard-step3-card-${DRIVE_FILE_ID}-warning-\\d+$`),
+    );
+
+    // Exactly the info row. Identified by its own message, so a build that
+    // trimmed the wrong severity fails rather than counting to one by accident.
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.textContent ?? "").toContain(info.message);
+
+    // The warn row is gone from the body...
+    expect(panel.textContent ?? "").not.toContain(warn.message);
+    // ...and present as a card, so this is a MOVE and not a deletion. Scoped to
+    // the extras block, which is a different subtree from the panel body.
+    const extras = screen.getByTestId("section-warning-controls-warnings");
+    expect(extras.textContent ?? "").toContain(warn.message);
+  });
+
+  it("passes counts that match the model, not a constant", () => {
+    // Two unrouted warns and no info: the body has no rows to list, so the state
+    // it selects is driven purely by the counts the modal derived. `here > 0`
+    // selects Silent, which renders NEITHER empty-state line — a hardcoded
+    // `{here: 0, elsewhere: 0}` would render the Clean line instead.
+    renderModal({}, [warnWarning(1), warnWarning(2)]);
+
+    expect(
+      screen.queryByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-clean`),
+      "Silent, not Clean: the modal's own counts say two rows need a look",
+    ).toBeNull();
+    expect(
+      screen.queryByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-elsewhere`),
+    ).toBeNull();
+    // Both cards still render below.
+    const extras = screen.getByTestId("section-warning-controls-warnings");
+    expect(extras.textContent ?? "").toContain("unrecognized row 1");
+    expect(extras.textContent ?? "").toContain("unrecognized row 2");
+  });
+
+  it("renders the Clean line when the model really is empty, so the state is not pinned", () => {
+    // The complement of the case above. Without it, an implementation that never
+    // renders an empty-state line at all passes.
+    renderModal({}, []);
+    expect(screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-clean`)).toBeTruthy();
+  });
+
+  it("distinguishes here from elsewhere, so the counts cannot be a nonzero constant", () => {
+    // Round 2 of the whole-diff review: the Silent and Clean cases above are
+    // both satisfied by a modal that reports `{here: n>0, elsewhere: 0}` for
+    // every nonempty set and zeroes for the empty one. This fixture has warnings
+    // ONLY in a mapped section, so a correct derivation reports `here: 0,
+    // elsewhere: 1` and the panel must say Elsewhere — the one state that
+    // constant cannot produce.
+    const crewWarn = {
+      severity: "warn",
+      code: "TEST_ONLY_MAPPED_ROW",
+      message: "mapped crew row",
+      rawSnippet: "Role | mapped",
+      sourceCell: CELL,
+      blockRef: { kind: "crew", name: "Alex Kim" },
+    } as ParseWarning;
+
+    renderModal({}, [crewWarn]);
+
+    expect(
+      screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-elsewhere`),
+      "Elsewhere: nothing in the fallback bucket, one warning in a mapped section",
+    ).toBeTruthy();
+    expect(screen.queryByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-clean`)).toBeNull();
+    // And the warning really did route to crew rather than the fallback, or the
+    // state above would be reachable for the wrong reason.
+    expect(screen.queryByTestId("section-warning-controls-crew")).not.toBeNull();
+    expect(screen.queryByTestId("section-warning-controls-warnings")).toBeNull();
+  });
+});
