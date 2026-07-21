@@ -69,10 +69,13 @@ const BATCH_A: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
 
 describe("full-sweep copy batch A (§6.a — 13 codes)", () => {
   test.each(BATCH_A)(
-    "$code: helpfulContext null, longExplanation/title non-null, helpHref pinned, dougFacing updated",
+    "$code: helpfulContext authored, longExplanation/title non-null, helpHref pinned, dougFacing updated",
     ({ code, dougFacingSubstring }) => {
       const entry = MESSAGE_CATALOG[code];
-      expect(entry.helpfulContext).toBeNull();
+      // Superseded by spec 2026-07-20-alert-popover-context: these codes reach
+      // the compact "?" popover, so they now carry a slim helpfulContext
+      // (exact strings pinned in tests/messages/popoverContextCopy.test.ts).
+      expect(entry.helpfulContext).not.toBeNull();
       expect(entry.longExplanation).not.toBeNull();
       expect(entry.title).not.toBeNull();
       expect(entry.helpHref).toBe(`/help/errors#${code}`);
@@ -166,10 +169,13 @@ const BATCH_B: ReadonlyArray<{
 
 describe("full-sweep copy batch B (§6.b — 15 codes)", () => {
   test.each(BATCH_B)(
-    "$code: helpfulContext null, longExplanation/title non-null, helpHref pinned, dougFacing updated",
+    "$code: helpfulContext authored, longExplanation/title non-null, helpHref pinned, dougFacing updated",
     ({ code, dougFacingSubstring, helpHrefOverride }) => {
       const entry = MESSAGE_CATALOG[code];
-      expect(entry.helpfulContext).toBeNull();
+      // Superseded by spec 2026-07-20-alert-popover-context: these codes reach
+      // the compact "?" popover, so they now carry a slim helpfulContext
+      // (exact strings pinned in tests/messages/popoverContextCopy.test.ts).
+      expect(entry.helpfulContext).not.toBeNull();
       expect(entry.longExplanation).not.toBeNull();
       expect(entry.title).not.toBeNull();
       expect(entry.helpHref).toBe(helpHrefOverride ?? `/help/errors#${code}`);
@@ -263,10 +269,13 @@ const BATCH_C: ReadonlyArray<{ code: MessageCode; dougFacingSubstring: string }>
 
 describe("full-sweep copy batch C (§6.c — 17 codes)", () => {
   test.each(BATCH_C)(
-    "$code: helpfulContext null, longExplanation/title non-null, helpHref pinned, dougFacing updated",
+    "$code: helpfulContext authored, longExplanation/title non-null, helpHref pinned, dougFacing updated",
     ({ code, dougFacingSubstring }) => {
       const entry = MESSAGE_CATALOG[code];
-      expect(entry.helpfulContext).toBeNull();
+      // Superseded by spec 2026-07-20-alert-popover-context: these codes reach
+      // the compact "?" popover, so they now carry a slim helpfulContext
+      // (exact strings pinned in tests/messages/popoverContextCopy.test.ts).
+      expect(entry.helpfulContext).not.toBeNull();
       expect(entry.longExplanation).not.toBeNull();
       expect(entry.title).not.toBeNull();
       expect(entry.helpHref).toBe(`/help/errors#${code}`);
