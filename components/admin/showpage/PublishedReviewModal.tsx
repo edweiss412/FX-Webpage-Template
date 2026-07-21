@@ -46,9 +46,11 @@ import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import {
   canonicalCrewKey,
   type AttentionItem,
+  type AttentionAnchor,
   type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
 import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
@@ -383,12 +385,22 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // targets rooms/event at PR2 (the frozen routing fixture keeps the six
   // asset/reel codes on overview), so this is defence-in-depth, not a live path.
   const CARD_CONSUMER_SECTIONS = new Set<RoutedSectionId>(["crew", "overview"]);
+  // §3.3 anchor availability: rooms/event host CARDS only through their content
+  // anchors (Diagrams sub-block / opening_reel field). BOTH predicates read the
+  // SAME map, so a section whose anchor content is ABSENT is not "available" — the
+  // card falls back to Overview (no drop), never to a dead rooms/event sectionTop.
+  const anchors = anchorsForData(data);
   const sectionAttention = bucketAttention(attentionItems, {
     renderCard: bannerFor,
-    // Warnings hosts the NOTE channel (checked by the note branch); every other
-    // consumed section hosts CARDS. Anything else → Overview fallback.
-    sectionAvailable: (id) => id === "warnings" || CARD_CONSUMER_SECTIONS.has(id),
-    anchorAvailable: () => false, // PR3 wires the diagrams/opening_reel anchors.
+    // Warnings hosts the NOTE channel (checked by the note branch); crew/overview
+    // host top-level CARDS; rooms/event are available ONLY when their anchor slot
+    // is present. Anything else → Overview fallback.
+    sectionAvailable: (id) =>
+      id === "warnings" ||
+      CARD_CONSUMER_SECTIONS.has(id) ||
+      (anchors.get(id as "rooms" | "event")?.size ?? 0) > 0,
+    anchorAvailable: (id, anchor) =>
+      anchors.get(id as "rooms" | "event")?.has(anchor as AttentionAnchor) ?? false,
     crewKeyRendered: (key) => renderedKeys.has(key),
   });
   const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
