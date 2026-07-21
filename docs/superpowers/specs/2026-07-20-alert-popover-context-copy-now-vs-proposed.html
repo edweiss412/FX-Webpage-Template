@@ -1,0 +1,809 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec B mockup — 45 alert popovers, now vs proposed</title>
+<style>
+:root {
+  --surface:#ffffff; --sunken:#f4f3f1; --raised:#ffffff;
+  --text:#1a1b1f; --strong:#0e0f12; --subtle:#5a5b62; --faint:#8b8c92;
+  --border:#e5e4e0; --border-strong:#cfcdc7;
+  --accent-on-bg:#a65000; --status-review:#6e4e00;
+  --warn-bg:#fff3d6; --warn-text:#5c3f00;
+  --pop-shadow:0 8px 28px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --surface:#16171c; --sunken:#0b0c10; --raised:#1c1d23;
+   --text:#e8e6e0; --strong:#f5f3ee; --subtle:#9c9a93; --faint:#74736d;
+   --border:#2a2b30; --border-strong:#3a3b40; --accent-on-bg:#ffa047; --status-review:#ffd68a;
+   --warn-bg:#3a2e14; --warn-text:#ffd68a; --pop-shadow:0 10px 30px rgba(0,0,0,.55); }
+}
+:root[data-theme=dark]{ --surface:#16171c; --sunken:#0b0c10; --raised:#1c1d23;
+   --text:#e8e6e0; --strong:#f5f3ee; --subtle:#9c9a93; --faint:#74736d;
+   --border:#2a2b30; --border-strong:#3a3b40; --accent-on-bg:#ffa047; --status-review:#ffd68a;
+   --warn-bg:#3a2e14; --warn-text:#ffd68a; --pop-shadow:0 10px 30px rgba(0,0,0,.55); }
+:root[data-theme=light]{ --surface:#ffffff; --sunken:#f4f3f1; --raised:#ffffff;
+   --text:#1a1b1f; --strong:#0e0f12; --subtle:#5a5b62; --faint:#8b8c92;
+   --border:#e5e4e0; --border-strong:#cfcdc7; --accent-on-bg:#a65000; --status-review:#6e4e00;
+   --warn-bg:#fff3d6; --warn-text:#5c3f00; --pop-shadow:0 8px 28px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.08); }
+*{box-sizing:border-box}
+body{margin:0;background:var(--sunken);color:var(--text);
+ font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+ -webkit-font-smoothing:antialiased;padding:0 0 6rem}
+header{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--border);
+ padding:1rem 1.5rem;display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0;color:var(--strong)}
+header .meta{font-size:.8rem;color:var(--subtle)}
+main{max-width:1080px;margin:0 auto;padding:1.5rem}
+h2{font-size:1.15rem;color:var(--strong);margin:2.5rem 0 .25rem;display:flex;align-items:center;gap:.5rem}
+h2 .count{font-size:.75rem;font-weight:600;background:var(--raised);border:1px solid var(--border);
+ border-radius:999px;padding:.1rem .55rem;color:var(--subtle)}
+.sub{margin:.25rem 0 1.25rem;color:var(--subtle);font-size:.85rem;max-width:70ch}
+.row{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem 1.4rem;margin-bottom:1rem}
+.row-head{display:flex;align-items:baseline;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap}
+.row-head code{font:600 .8rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent-on-bg)}
+.row-head .ttl{font-size:.85rem;color:var(--subtle)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media (max-width:760px){.pair{grid-template-columns:1fr}}
+.col-lbl{font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:.4rem}
+.col-lbl.now{color:var(--faint)}
+.col-lbl.next{color:var(--accent-on-bg)}
+/* faithful card chrome */
+.card{border:1px solid var(--border);border-radius:6px;display:flex;flex-direction:column;overflow:visible}
+.card.warning{background:var(--warn-bg);color:var(--warn-text);border-left:3px solid var(--status-review)}
+.card.neutral{background:var(--surface);color:var(--text)}
+.msg{display:flex;gap:10px;padding:12px 12px 10px;align-items:flex-start;position:relative}
+.sev{margin-top:2px;flex:0 0 auto;width:16px;height:16px;display:grid;place-items:center;border-radius:999px;
+ background:var(--warn-text);color:var(--warn-bg);font-size:10px;font-weight:700;line-height:1}
+.msg-txt{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--strong);word-break:break-word}
+.card.warning .msg-txt{color:var(--warn-text)}
+.trig-wrap{flex:0 0 auto;position:relative}
+.qmark{width:22px;height:22px;display:grid;place-items:center;border-radius:999px;
+ border:1px solid var(--warn-text);color:var(--warn-text);font-size:12px;font-weight:700;cursor:default}
+.card.neutral .qmark{border-color:var(--subtle);color:var(--subtle)}
+.foot{display:flex;align-items:center;gap:12px;border-top:1px solid color-mix(in srgb,var(--warn-text) 20%,transparent);
+ padding:8px 12px;font-size:12px}
+.card.neutral .foot{border-top-color:var(--border)}
+.foot-l{flex:1;min-width:0;color:var(--subtle);font-size:11.5px}
+.card.warning .foot-l{color:color-mix(in srgb,var(--warn-text) 78%,transparent)}
+.foot-r{margin-left:auto;flex:0 0 auto;font-weight:600;font-size:12px;color:var(--accent-on-bg);
+ border:1px solid var(--border-strong);border-radius:6px;padding:3px 10px;background:var(--surface)}
+/* popover — always shown for review (real one is hover-gated) */
+.pop{position:absolute;top:28px;right:0;width:270px;background:var(--raised);color:var(--text);
+ border:1px solid var(--border);border-radius:10px;box-shadow:var(--pop-shadow);padding:11px 12px;z-index:5;
+ font-weight:400}
+.pop-body{font-size:12.5px;line-height:1.5;color:var(--text)}
+.pop .stale{color:var(--faint);font-style:italic}
+.lm{display:inline-block;margin-top:8px;font-size:12px;font-weight:600;color:var(--accent-on-bg);text-decoration:none}
+.lm:hover{text-decoration:underline}
+.legend{font-size:.78rem;color:var(--subtle);background:var(--raised);border:1px solid var(--border);
+ border-radius:8px;padding:.6rem .8rem;margin:.5rem 0 0}
+</style></head>
+<body>
+<header>
+ <h1>Spec B &mdash; alert popover copy: now vs proposed</h1>
+ <span class="meta">45 empty popovers &middot; 20 Doug &middot; 25 developer &middot; chrome replicated from CompactAlertCard + HoverHelp</span>
+</header>
+<main>
+ <p class="legend">Each card shows the real compact-alert chrome with its "?" popover held open. <b>Now</b> = today's fallback lead-in ("More about this alert in the help pages."). <b>Proposed</b> = authored <code>helpfulContext</code>. The alert body, glyph, footer, and "Learn more" link are unchanged; only the popover body changes. Sample values fill the &lt;placeholders&gt;.</p>
+ <h2>Doug&#x27;s alerts <span class="count">20</span></h2><p class="sub">Show modal / notification bell. Register: sheet in, UI out. Popover carries the resolution lever (fix at source, judge intentional, or escalate).</p>
+
+        <div class="row">
+          <div class="row-head"><code>AMBIGUOUS_EMAIL_BINDING</code><span class="ttl">Two crew rows share an email</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">In II - RIA Investment Forum, j.doe@fxav.com is shared by 2 crew rows, so Google login can&#x27;t safely tell who&#x27;s who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; AMBIGUOUS_EMAIL_BINDING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">In II - RIA Investment Forum, j.doe@fxav.com is shared by 2 crew rows, so Google login can&#x27;t safely tell who&#x27;s who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Usually a recent typo or paste dropped the same address into two email cells. Once you correct it, the next sync clears this on its own; you can also mark it resolved right away.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; AMBIGUOUS_EMAIL_BINDING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>DRIVE_FETCH_FAILED</code><span class="ttl">Drive fetch failed</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">We couldn&#x27;t fetch II - RIA Investment Forum from Google Drive (likely a transient network issue, or it&#x27;s been moved or unshared); we&#x27;ll keep retrying. If this stays for more than an hour, click &#x27;Retry&#x27; or check the sheet&#x27;s share settings.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; DRIVE_FETCH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">We couldn&#x27;t fetch II - RIA Investment Forum from Google Drive (likely a transient network issue, or it&#x27;s been moved or unshared); we&#x27;ll keep retrying. If this stays for more than an hour, click &#x27;Retry&#x27; or check the sheet&#x27;s share settings.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Crew keep seeing the last synced version while this retries on its own. If it lasts over an hour, confirm the folder is still shared with FXAV and that the sheet hasn&#x27;t been moved out of it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; DRIVE_FETCH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>SHEET_UNAVAILABLE</code><span class="ttl">Sheet no longer in folder</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum isn&#x27;t in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHEET_UNAVAILABLE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum isn&#x27;t in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Until the sheet is back in the watched folder, crew keep the last good version on file. Move or re-share it into the folder and the next sync brings the show back automatically.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHEET_UNAVAILABLE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PARSE_ERROR_LAST_GOOD</code><span class="ttl">Latest edit didn&#x27;t parse</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest edit didn&#x27;t parse, so the previous approved version is still showing to crew. See the per-show parse panel for the error detail.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PARSE_ERROR_LAST_GOOD</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest edit didn&#x27;t parse, so the previous approved version is still showing to crew. See the per-show parse panel for the error detail.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The parse panel shows the exact line that failed to read. Fix it in the sheet and the next sync replaces the older version crew currently see; nothing else to do.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PARSE_ERROR_LAST_GOOD</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>RESYNC_SHRINK_HELD</code><span class="ttl">Re-sync held: sheet lost data</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; RESYNC_SHRINK_HELD</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The update was held so a bad edit can&#x27;t silently wipe crew or a section. If the drop was intentional, re-sync to apply it; if not, fix the sheet and a clean sync clears this.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; RESYNC_SHRINK_HELD</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>RESYNC_QUALITY_REGRESSED</code><span class="ttl">Latest edit lost data quality</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest edit lost some data quality: one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; RESYNC_QUALITY_REGRESSED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s latest edit lost some data quality: one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Fewer fields or sections read than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what degraded; fix the sheet and a clean sync restores it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; RESYNC_QUALITY_REGRESSED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>WATCH_CHANNEL_ORPHANED</code><span class="ttl">Live updates need attention</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WATCH_CHANNEL_ORPHANED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WATCH_CHANNEL_ORPHANED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REEL_DRIFTED</code><span class="ttl">Opening reel drifted</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel video in II - RIA Investment Forum has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REEL_DRIFTED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel video in II - RIA Investment Forum has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The reviewed parse still points at the old reel, so crew see the text status without the video. Any save to the sheet re-stages the current reel on the next sync.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REEL_DRIFTED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>OPENING_REEL_NOT_VIDEO</code><span class="ttl">Opening reel link is not a video</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel link in II - RIA Investment Forum is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OPENING_REEL_NOT_VIDEO</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel link in II - RIA Investment Forum is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">A Doc, image, or PDF can&#x27;t play inline, so crew see the text status only. Point the opening-reel cell at an actual video file to turn playback back on.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OPENING_REEL_NOT_VIDEO</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>OPENING_REEL_PERMISSION_DENIED</code><span class="ttl">Opening reel access revoked</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel video for II - RIA Investment Forum is no longer shared with FXAV, so crew see the text status only. Re-share the video file, or replace the link, to restore inline playback.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OPENING_REEL_PERMISSION_DENIED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">The opening-reel video for II - RIA Investment Forum is no longer shared with FXAV, so crew see the text status only. Re-share the video file, or replace the link, to restore inline playback.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The video&#x27;s sharing changed or it moved somewhere FXAV can&#x27;t read, so crew see the text status only. Re-share it with FXAV, or swap in a video you do share, to restore playback.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OPENING_REEL_PERMISSION_DENIED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>EMBEDDED_RECOVERY_REQUIRES_RESTAGE</code><span class="ttl">Diagram needs sheet re-save to recover</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">A diagram in II - RIA Investment Forum can&#x27;t be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMBEDDED_RECOVERY_REQUIRES_RESTAGE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">A diagram in II - RIA Investment Forum can&#x27;t be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Crew see a placeholder because this diagram can&#x27;t be re-fetched on its own. Any edit to the sheet advances the version, which re-stages the image on the next sync.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMBEDDED_RECOVERY_REQUIRES_RESTAGE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>ASSET_RECOVERY_BYTES_EXCEEDED</code><span class="ttl">Diagram set too large to recover</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_BYTES_EXCEEDED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum&#x27;s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The cap keeps one big gallery from blocking other shows&#x27; syncs. Crew see placeholders for the missing diagrams; trim the set under the limit, or ask the developer to raise the ceiling if this show genuinely needs it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_BYTES_EXCEEDED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>ROLE_FLAGS_NOTICE</code><span class="ttl">Role change applied</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">In II - RIA Investment Forum, Doug Larson gained LEAD and FINANCIALS.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ROLE_FLAGS_NOTICE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">In II - RIA Investment Forum, Doug Larson gained LEAD and FINANCIALS.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ROLE_FLAGS_NOTICE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>SHOW_FIRST_PUBLISHED</code><span class="ttl">Show published</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum is now live for crew at its share-token URL: 14 crew crew, Nov 12-14. Flip Published off on the show&#x27;s page if this was a mistake; crew can&#x27;t open it again until you do.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHOW_FIRST_PUBLISHED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum is now live for crew at its share-token URL: 14 crew crew, Nov 12-14. Flip Published off on the show&#x27;s page if this was a mistake; crew can&#x27;t open it again until you do.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">It auto-published because the parse came through clean. If it&#x27;s the wrong sheet or bad timing, flip Published off on the show&#x27;s page; crew lose access until you turn it back on, and the same link works again when you do.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHOW_FIRST_PUBLISHED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>SHOW_UNPUBLISHED</code><span class="ttl">Show unpublished</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum has been unpublished; crew who open its link see a &#x27;not available right now&#x27; page. Turn Published back on from the show&#x27;s page when you&#x27;re ready.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHOW_UNPUBLISHED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum has been unpublished; crew who open its link see a &#x27;not available right now&#x27; page. Turn Published back on from the show&#x27;s page when you&#x27;re ready.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Nothing was deleted and the sheet keeps syncing in the background, so republishing from the show&#x27;s page brings the same link back exactly as it was.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SHOW_UNPUBLISHED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>LIVE_ROW_CONFLICT</code><span class="ttl">Live sync owns this sheet</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; LIVE_ROW_CONFLICT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">II - RIA Investment Forum is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Setup stepped aside so it wouldn&#x27;t clobber the live version already in flight. Apply or Discard that row from the dashboard, then re-run setup if you still need to.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; LIVE_ROW_CONFLICT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>ONBOARDING_SHEET_UNREADABLE</code><span class="ttl">Some sheets couldn&#x27;t be read</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Some sheets in your show folder couldn&#x27;t be read and were skipped: Draft copy, Old VB03. Fix or remove them in Drive and this clears on its own; you can also dismiss it now.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ONBOARDING_SHEET_UNREADABLE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Some sheets in your show folder couldn&#x27;t be read and were skipped: Draft copy, Old VB03. Fix or remove them in Drive and this clears on its own; you can also dismiss it now.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">These files never reach any crew page, so nothing is exposed. The usual cause is a missing or renamed section header; fix or remove them in Drive and the next sync clears this, or dismiss it now if they&#x27;re meant to be skipped.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ONBOARDING_SHEET_UNREADABLE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>SYNC_STALLED</code><span class="ttl">Syncing has stalled</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Automatic syncing hasn&#x27;t run in over an hour, so new sheet changes won&#x27;t reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SYNC_STALLED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Automatic syncing hasn&#x27;t run in over an hour, so new sheet changes won&#x27;t reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Already-published pages stay up; only new edits are waiting. It usually recovers on its own, but if it sticks the Drive connection may have lapsed, so re-run setup or check the connection.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; SYNC_STALLED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>EMBEDDED_ASSET_DRIFTED</code><span class="ttl">Embedded diagram changed after staging</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">An embedded diagram in II - RIA Investment Forum changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMBEDDED_ASSET_DRIFTED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">An embedded diagram in II - RIA Investment Forum changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The previously approved image stays live, and crew see a placeholder only for the one that changed. Save the sheet again to re-stage the new version.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMBEDDED_ASSET_DRIFTED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PICKER_EPOCH_RESET</code><span class="ttl">Picker selections reset</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Picker selections for II - RIA Investment Forum were reset. Crew will be asked to pick themselves again on their next visit.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_EPOCH_RESET</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card warning">
+        <div class="msg"><span class="sev">!</span><div class="msg-txt">Picker selections for II - RIA Investment Forum were reset. Crew will be asked to pick themselves again on their next visit.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The share link itself didn&#x27;t change, so crew just pick their name again on the next visit, and any open tabs re-prompt on refresh. Nothing to fix; this is a record of the reset.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_EPOCH_RESET</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div><h2>Developer alerts <span class="count">25</span></h2><p class="sub">Health telemetry panel. Register: technical but plain. Names the subsystem, states meaning plus first triage move.</p>
+
+        <div class="row">
+          <div class="row-head"><code>WIZARD_SESSION_SUPERSEDED_RACE</code><span class="ttl">Stale wizard action cancelled</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A leftover wizard action (retry) for II - RIA Investment Forum was safely cancelled before it could change the new wizard&#x27;s state. Continue in the active wizard tab.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WIZARD_SESSION_SUPERSEDED_RACE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A leftover wizard action (retry) for II - RIA Investment Forum was safely cancelled before it could change the new wizard&#x27;s state. Continue in the active wizard tab.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Two wizard tabs for the same sheet overlapped; the newer one won and the older tab&#x27;s action was cancelled before it could touch state. Its leftovers are inert and auto-cleaned. Informational only.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WIZARD_SESSION_SUPERSEDED_RACE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>WEBHOOK_TOKEN_INVALID</code><span class="ttl">Drive webhook failed verification</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A push notification from Google Drive failed verification: possible spoofing or misconfiguration. The developer has been notified.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WEBHOOK_TOKEN_INVALID</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A push notification from Google Drive failed verification: possible spoofing or misconfiguration. The developer has been notified.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The bad token usually means a stale Drive subscription is still firing, occasionally a spoof attempt. The developer is notified and rotates it if needed; no admin action.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; WEBHOOK_TOKEN_INVALID</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>ASSET_RECOVERY_REVISION_DRIFT</code><span class="ttl">Diagram recovery raced an apply</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Diagram recovery for II - RIA Investment Forum paused because the show changed while recovery was checking files. We&#x27;ll retry against the latest version on the next run.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_REVISION_DRIFT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Diagram recovery for II - RIA Investment Forum paused because the show changed while recovery was checking files. We&#x27;ll retry against the latest version on the next run.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Recovery verified bytes against an older snapshot but a newer Apply landed first, so it aborted rather than attach stale assets to the current revision. The next run retries against the latest automatically.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_REVISION_DRIFT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>ASSET_RECOVERY_DRIFT_COOLDOWN</code><span class="ttl">Diagram recovery cooling down</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Diagram recovery for II - RIA Investment Forum is backing off briefly because this show keeps changing during recovery. We&#x27;ll retry automatically after the cooldown.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_DRIFT_COOLDOWN</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Diagram recovery for II - RIA Investment Forum is backing off briefly because this show keeps changing during recovery. We&#x27;ll retry automatically after the cooldown.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The prior attempt raced an Apply, so recovery backs off for this snapshot to bound retry storms while the show keeps changing. It resumes on its own after the cooldown.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; ASSET_RECOVERY_DRIFT_COOLDOWN</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PENDING_SNAPSHOT_PROMOTE_STUCK</code><span class="ttl">Snapshot promotion stuck</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot promotion for II - RIA Investment Forum has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_PROMOTE_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot promotion for II - RIA Investment Forum has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">It&#x27;s stuck in the non-reclaimable promote-started state, so cleanup can&#x27;t reclaim the prefix. The snapshot-promote repair tool reconciles the temp and canonical prefixes to finish it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_PROMOTE_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PENDING_SNAPSHOT_ROLLBACK_STUCK</code><span class="ttl">Snapshot rollback stalled</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot rollback for II - RIA Investment Forum stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_ROLLBACK_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot rollback for II - RIA Investment Forum stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Assets are split across the temp and canonical prefixes after a half-finished rollback. The snapshot-rollback repair tool reconciles both and completes it so cleanup can continue.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_ROLLBACK_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>BRANCH_PROTECTION_DRIFT</code><span class="ttl">Branch protection drift</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Branch protection on edweiss412/FX-Webpage-Template no longer matches the X.6 contract. Restore the required checks and review settings before merging.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; BRANCH_PROTECTION_DRIFT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Branch protection on edweiss412/FX-Webpage-Template no longer matches the X.6 contract. Restore the required checks and review settings before merging.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; BRANCH_PROTECTION_DRIFT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>BRANCH_PROTECTION_MONITOR_AUTH_FAILED</code><span class="ttl">Branch-protection monitor can&#x27;t auth</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Branch-protection monitoring for edweiss412/FX-Webpage-Template cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; BRANCH_PROTECTION_MONITOR_AUTH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Branch-protection monitoring for edweiss412/FX-Webpage-Template cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Without auth the monitor can&#x27;t prove the merge gate is still enforced, so drift would go unseen. Rotate the GitHub App token or fallback PAT within 24 hours and confirm the job succeeds.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; BRANCH_PROTECTION_MONITOR_AUTH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>EMAIL_DELIVERY_FAILED</code><span class="ttl">Couldn&#x27;t send a notification email</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A notification email for II - RIA Investment Forum couldn&#x27;t be sent. We&#x27;ll keep retrying automatically; if it persists, the developer will check the email provider setup.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMAIL_DELIVERY_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A notification email for II - RIA Investment Forum couldn&#x27;t be sent. We&#x27;ll keep retrying automatically; if it persists, the developer will check the email provider setup.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Retries continue on their own. A persistent failure usually points at the provider API key or the verified sending domain in settings.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMAIL_DELIVERY_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>EMAIL_NOT_CONFIGURED</code><span class="ttl">Email notifications not set up</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Email notifications aren&#x27;t set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won&#x27;t be sent. The developer configures this on the deployment.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMAIL_NOT_CONFIGURED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Email notifications aren&#x27;t set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won&#x27;t be sent. The developer configures this on the deployment.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Email needs three settings before anything sends: provider API key, verified sending address, and the public site URL for links. Dashboard alerts and each show&#x27;s Publish toggle keep working without it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; EMAIL_NOT_CONFIGURED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>TILE_SERVER_RENDER_FAILED</code><span class="ttl">Page section failed to render</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">II - RIA Investment Forum: a section failed to load on the server and will keep retrying. Refresh in a minute. Tell the developer if it persists.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; TILE_SERVER_RENDER_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">II - RIA Investment Forum: a section failed to load on the server and will keep retrying. Refresh in a minute. Tell the developer if it persists.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Only that one section crashed; the rest of the page rendered. It keeps retrying, so a refresh usually clears it. If it recurs, use Report so the developer gets the stack.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; TILE_SERVER_RENDER_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>TILE_PROJECTION_FETCH_FAILED</code><span class="ttl">Some show data couldn&#x27;t load</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">II - RIA Investment Forum: one or more data sources couldn&#x27;t load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; TILE_PROJECTION_FETCH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">II - RIA Investment Forum: one or more data sources couldn&#x27;t load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The failed data sources are listed in the alert detail; their sections fell back while the rest loaded. A refresh usually clears it; use Report if it keeps happening.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; TILE_PROJECTION_FETCH_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REPORT_ORPHANED_LOST_LEASE</code><span class="ttl">Duplicate report issue auto-closed</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A duplicate bug-report issue for II - RIA Investment Forum was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_ORPHANED_LOST_LEASE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A duplicate bug-report issue for II - RIA Investment Forum was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Two retries of the same report both created a GitHub issue in a lease race, so the duplicate was auto-closed. Click through to confirm; if it recurs, the lease window needs widening.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_ORPHANED_LOST_LEASE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>GITHUB_BOT_LOGIN_MISSING</code><span class="ttl">GitHub bot login not configured</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot&#x27;s GitHub username and redeploy.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; GITHUB_BOT_LOGIN_MISSING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot&#x27;s GitHub username and redeploy.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Recovery needs the bot&#x27;s GitHub username to find issues from earlier attempts. Set GITHUB_BOT_LOGIN to that username and redeploy to restore full recovery coverage.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; GITHUB_BOT_LOGIN_MISSING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REPORT_LEASE_THRASHING</code><span class="ttl">Bug-report leases thrashing</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Bug-report processing is thrashing on II - RIA Investment Forum; retries are racing against leases. This usually means the lease window needs tuning.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_LEASE_THRASHING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Bug-report processing is thrashing on II - RIA Investment Forum; retries are racing against leases. This usually means the lease window needs tuning.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Too many retries fire inside the lease window, usually because it&#x27;s shorter than GitHub&#x27;s current response time. Widening the lease window settles it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_LEASE_THRASHING</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PENDING_SNAPSHOT_DELETE_STUCK</code><span class="ttl">Snapshot cleanup stuck</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot cleanup for II - RIA Investment Forum is stuck; crew pages are still protected, but storage cleanup needs repair.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_DELETE_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A diagram snapshot cleanup for II - RIA Investment Forum is stuck; crew pages are still protected, but storage cleanup needs repair.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">A row marked for deletion never had its storage prefix reclaimed. Crew pages are unaffected; this is storage hygiene only. Reconcile and reclaim the prefix to clear it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PENDING_SNAPSHOT_DELETE_STUCK</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REPORT_DUPLICATE_LIVE_MATCHES</code><span class="ttl">Multiple live issues for one report</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Multiple live GitHub issues match one report for II - RIA Investment Forum. Recovery is paused until Eric reviews the duplicates.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_DUPLICATE_LIVE_MATCHES</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Multiple live GitHub issues match one report for II - RIA Investment Forum. Recovery is paused until Eric reviews the duplicates.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">More than one live issue carries the same report marker, so recovery fails closed instead of guessing a winner. Review the duplicates and close all but one to resume it.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_DUPLICATE_LIVE_MATCHES</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REPORT_LOOKUP_INCONCLUSIVE</code><span class="ttl">Report lookup inconclusive</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">We couldn&#x27;t confirm whether a report for II - RIA Investment Forum went through. Try again in a few minutes.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_LOOKUP_INCONCLUSIVE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">We couldn&#x27;t confirm whether a report for II - RIA Investment Forum went through. Try again in a few minutes.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Recovery couldn&#x27;t reliably list recent issues for this report, so it refused to risk a duplicate. Usually a transient GitHub API blip that clears on the next retry.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_LOOKUP_INCONCLUSIVE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>REPORT_OPEN_ORPHAN_LABEL</code><span class="ttl">Open issue carries orphan label</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">An open GitHub issue for II - RIA Investment Forum carries the orphan-cleanup label. Eric needs to re-close it or remove the label.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_OPEN_ORPHAN_LABEL</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">An open GitHub issue for II - RIA Investment Forum carries the orphan-cleanup label. Eric needs to re-close it or remove the label.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">Orphan cleanup only labels closed &#x27;not planned&#x27; issues, so an open one means it was reopened or GitHub returned an odd state. Re-close the issue or remove the label.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; REPORT_OPEN_ORPHAN_LABEL</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>STALE_ORPHAN_REPORT</code><span class="ttl">Stale bug-report reservation expired</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A stale bug-report reservation for II - RIA Investment Forum expired before it could create a GitHub issue. No action needed unless it repeats.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; STALE_ORPHAN_REPORT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">A stale bug-report reservation for II - RIA Investment Forum expired before it could create a GitHub issue. No action needed unless it repeats.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The reservation aged past the 24-hour recovery horizon with an expired lease and was reaped before an issue existed. Repeats would point at a stuck submit path worth a look.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; STALE_ORPHAN_REPORT</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PICKER_SELECTION_RACE</code><span class="ttl">Stale picker selection cleaned</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, a stale picker selection for Doug Larson was cleaned up after the show&#x27;s access state changed. No action needed: newer selections were left intact.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_SELECTION_RACE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, a stale picker selection for Doug Larson was cleaned up after the show&#x27;s access state changed. No action needed: newer selections were left intact.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">A browser cleaned up a picker cookie whose epoch or crew member no longer matches the show, typically after a reset or roster change. Compare-and-delete touched only that stale entry. No action.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_SELECTION_RACE</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PICKER_BOOTSTRAP_RPC_FAILED</code><span class="ttl">Picker bootstrap claim failed</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, Google picker bootstrap couldn&#x27;t claim the signed-in user&#x27;s crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_BOOTSTRAP_RPC_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, Google picker bootstrap couldn&#x27;t claim the signed-in user&#x27;s crew identity, and they saw a retry page. If it keeps happening for the same show, contact the developer.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The route had a valid Google session but the identity claim errored, so it returned a clean retry page instead of a redirect loop. Repeats on one show may point at a claim-path problem.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_BOOTSTRAP_RPC_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED</code><span class="ttl">Picker bootstrap show resolve failed</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Google picker bootstrap couldn&#x27;t resolve the show link before session validation, so the visitor saw a retry page.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">Google picker bootstrap couldn&#x27;t resolve the show link before session validation, so the visitor saw a retry page.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">It failed before any signed-in identity existed, so the alert carries no email or share token by design. The visitor saw a retry page and can open the link again.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>OAUTH_IDENTITY_CLAIMED</code><span class="ttl">Crew identity claimed</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, Doug Larson was claimed through Google sign-in as j.doe@fxav.com. Future picker attempts for that row will route through Google sign-in.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OAUTH_IDENTITY_CLAIMED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">In II - RIA Investment Forum, Doug Larson was claimed through Google sign-in as j.doe@fxav.com. Future picker attempts for that row will route through Google sign-in.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">From now on that row skips the picker and goes straight through Google sign-in. Routine success record; no action needed.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; OAUTH_IDENTITY_CLAIMED</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-head"><code>CALLBACK_CLAIM_THREW</code><span class="ttl">OAuth claim threw</span></div>
+          <div class="pair">
+            <div class="col"><div class="col-lbl now">Now</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">The OAuth callback&#x27;s claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body"><span class="stale">More about this alert in the help pages.</span></div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; CALLBACK_CLAIM_THREW</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+            <div class="col"><div class="col-lbl next">Proposed</div>
+      <div class="card neutral">
+        <div class="msg"><div class="msg-txt">The OAuth callback&#x27;s claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.</div><div class="trig-wrap"><span class="qmark">?</span><div class="pop"><div class="pop-body">The callback never mints picker cookies, so nothing is left half-claimed. Picker bootstrap retries the claim automatically on the visitor&#x27;s next show visit.</div><a class="lm" href="#">Learn more &rarr;</a></div></div></div>
+        <div class="foot"><span class="foot-l">a moment ago &middot; CALLBACK_CLAIM_THREW</span><span class="foot-r">Confirm</span></div>
+      </div></div>
+          </div>
+        </div>
+</main>
+</body></html>
