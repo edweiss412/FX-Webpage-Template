@@ -85,7 +85,7 @@ import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
 import { mockDriveClient, MOCK_MARKER } from "@/lib/sync/mocks/mockDriveClient";
 import type { ParseResult, InvariantOutcome, ParseWarning } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
-import { createClient } from "@supabase/supabase-js";
+import { createMaterializeClient } from "@/lib/dev/materialize/client";
 import { scenarioById } from "@/lib/dev/attentionScenarios/index";
 import { resolveTarget, type EnvInput, type TargetEnv } from "@/lib/dev/materialize/env";
 import { planApply, planClear } from "@/lib/dev/materialize/plan";
@@ -471,20 +471,6 @@ export async function listFixtures(): Promise<string[]> {
 // and funnels thrown rejections to the same typed result.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * The service-role client, narrowed to the slice this file uses. The narrowing
- * is a cast rather than an annotation because contextually typing the
- * `createClient` call against `SupabaseLike` makes tsc instantiate the client's
- * generics deeply enough to bail with TS2589. The runtime object is unchanged;
- * `SupabaseLike` is a structural subset of what `createClient` returns, and the
- * executor's tests exercise every method through it.
- */
-function materializeClient(url: string, key: string): SupabaseLike {
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  }) as unknown as SupabaseLike;
-}
-
 function messageOfUnknown(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String((error as { message: unknown }).message);
@@ -548,7 +534,7 @@ export async function applyAttentionScenario(input: MaterializeInput): Promise<M
   const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
   if (env.kind === "refused") return { kind: "refused", reason: env.reason };
 
-  const client = materializeClient(env.url, env.key);
+  const client = createMaterializeClient(env.url, env.key);
 
   let show: Awaited<ReturnType<typeof resolveShow>>;
   try {
@@ -603,7 +589,7 @@ export async function clearAttentionScenario(
   const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
   if (env.kind === "refused") return { kind: "refused", reason: env.reason };
 
-  const client = materializeClient(env.url, env.key);
+  const client = createMaterializeClient(env.url, env.key);
 
   let show: Awaited<ReturnType<typeof resolveShow>>;
   try {
@@ -658,6 +644,10 @@ function formTarget(fd: FormData): TargetEnv {
 }
 
 export async function applyAttentionScenarioFormAction(fd: FormData): Promise<MaterializeResult> {
+  // Self-gated as its own first line, matching every other exported action in
+  // this file: the wrapper is its own POST entry point, so it must not rely on
+  // the delegate's gate to establish that the caller is a developer.
+  await requireDeveloper();
   return applyAttentionScenario({
     slug: formString(fd, "slug"),
     scenarioId: formString(fd, "scenario"),
@@ -667,6 +657,7 @@ export async function applyAttentionScenarioFormAction(fd: FormData): Promise<Ma
 }
 
 export async function clearAttentionScenarioFormAction(fd: FormData): Promise<MaterializeResult> {
+  await requireDeveloper();
   return clearAttentionScenario({
     slug: formString(fd, "slug"),
     target: formTarget(fd),

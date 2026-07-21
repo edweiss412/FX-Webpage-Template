@@ -228,6 +228,30 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   { file: "app/admin/dev/actions.ts", fn: "resetDevSchema", code: "DEV_SCHEMA_RESET" },
   { file: "app/admin/dev/actions.ts", fn: "parseAndStageFormAction", code: "DEV_PARSE_STAGED" },
   { file: "app/admin/dev/actions.ts", fn: "resetDevSchemaFormAction", code: "DEV_SCHEMA_RESET" },
+  // Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery
+  // §7.1). Same same-module wrapper shape as the parse-stage pair above, and
+  // registered for the same reason: the delegator heuristic is path-based and
+  // does not model a by-name delegation inside one module.
+  {
+    file: "app/admin/dev/actions.ts",
+    fn: "applyAttentionScenario",
+    code: "DEV_SCENARIO_APPLIED",
+  },
+  {
+    file: "app/admin/dev/actions.ts",
+    fn: "clearAttentionScenario",
+    code: "DEV_SCENARIO_CLEARED",
+  },
+  {
+    file: "app/admin/dev/actions.ts",
+    fn: "applyAttentionScenarioFormAction",
+    code: "DEV_SCENARIO_APPLIED",
+  },
+  {
+    file: "app/admin/dev/actions.ts",
+    fn: "clearAttentionScenarioFormAction",
+    code: "DEV_SCENARIO_CLEARED",
+  },
   // Task 11 — onboarding start-over / rerun-setup.
   {
     file: "lib/onboarding/serverActions.ts",
@@ -520,6 +544,12 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // §12.4-exempt (logAdminOutcome-stamped -> stripped from the producer scan); flows into
   // NEW_FORENSIC_CODES via spread.
   "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+  // Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery
+  // §7.1): forensic outcome codes for the dev gallery's Apply and Clear.
+  // §12.4-exempt (logAdminOutcome-stamped -> stripped from the producer scan);
+  // flow into NEW_FORENSIC_CODES via spread.
+  "DEV_SCENARIO_APPLIED",
+  "DEV_SCENARIO_CLEARED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
