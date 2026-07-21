@@ -90,3 +90,6 @@ sdd/
 .superpowers/
 
 .impeccable/
+
+# Codex adversarial-review scratch briefs/results (never source)
+.codex-reviews/
