@@ -569,7 +569,15 @@ Scoped exception ratified in §1.1, enumerated there. All rendered card copy sti
 
 ### 7.4 Invariant 8 — UI quality gate
 
-Gallery route, `ScenarioBlock`, and the dev-panel card are UI. `/impeccable critique` and `/impeccable audit` both run before close-out; P0/P1 fixed or deferred via `DEFERRED.md`.
+Gallery route, `ScenarioBlock`, and the dev-panel card all live under `app/` or `components/`, so the dual gate runs on the diff — this is **not** an exemption request. What needs stating is **scope**, because the surfaces are not alike:
+
+| Surface | Treatment |
+| --- | --- |
+| Materialize dev-panel card | **Full gate.** It has operator-facing copy — confirmation text naming a destructive scope, refusal messages, skip and partial-outcome reporting. The pre-code mechanical checklist applies in full: em-dash ban, apostrophe literals, `min-h-tap-min` on every control, canonical type and token classes. |
+| Gallery route and `ScenarioBlock` chrome | **Gate runs, findings triaged against intent.** The readout is instrument chrome, and the established precedent for this tree is deliberate minimalism: `app/admin/dev/source-link-dim/page.tsx` states its UI is "intentionally minimal/unstyled chrome," and `app/admin/dev/page.tsx` uses raw utilities (`font-bold text-red-700`, `text-lg mb-2`) rather than design tokens. A finding that the readout should adopt product typography is answered with that precedent, not silently ignored. |
+| Production components rendered **inside** the gallery | **Out of scope for findings.** `AttentionMenu`, `AttentionBanner`, `CompactAlertCard`, and `PerShowActionableWarnings` are pre-existing and already gated by their own milestones. The gallery renders them unmodified; a finding about their appearance is a finding about production, not about this diff, and belongs in its own change. |
+
+P0/P1 fixed or deferred via `DEFERRED.md`, per the invariant.
 
 ### 7.5 Invariant 9 — Supabase call boundary
 
