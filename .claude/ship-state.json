@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "implement",
-  "tasksRemaining": 7,
-  "next": "Execute Task 4: retire the published guidance. Write the failing absence test (frozen literals, modal-root textContent, popover elements removed from a clone), gate the CorrectionLoopCallout mount and the non-blocking line on the trim gate being false, and invert tests/components/admin/showpage/sectionWarningControls.test.tsx:424 from presence to absence.",
+  "tasksRemaining": 6,
+  "next": "Execute Task 5: move the loop sentence into the card popover. Step 0 records the staged-card baseline snapshot (every per-show-actionable-item outerHTML) against unmodified code; then export correctionLoopCopy, add optional followUpCopy to PerShowActionableWarnings with one normalization rule, pass it ONLY from the published extras factory, and cover all four guard rows plus the whitespace table and the all-40-codes composition.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }
