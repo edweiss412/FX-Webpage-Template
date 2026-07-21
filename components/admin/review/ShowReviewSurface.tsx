@@ -195,6 +195,11 @@ export function ShowReviewSurface({
   // The two parse notices, composed by the warnings section (§3.2). Read once so
   // the prop value is exactly NoteItem[] (not a re-narrowed Map lookup).
   const warningsNotes = sectionAttention?.get("warnings")?.notes;
+  // attention-alert-routing §3.3: anchored asset/reel cards for the Diagrams
+  // sub-block (Rooms & scope) and the opening_reel field (Event details). Read once
+  // so each prop is exactly ReactNode[]; threaded into the owning section's chrome.
+  const diagramAnchorCards = sectionAttention?.get("rooms")?.byAnchor?.get("diagrams");
+  const reelAnchorCards = sectionAttention?.get("event")?.byAnchor?.get("opening_reel");
   // Staged-only identifiers (spec §3.2): `dfid` fills the section/rail testids;
   // in staged mode it is the drive file id (byte-identical to the modal), in
   // published mode it falls back to the mode-agnostic `driveFileId`.
@@ -934,6 +939,15 @@ export function ShowReviewSurface({
                   // domain items so WarningsBreakdown composes them with warnings.length.
                   ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
                     ? { parseNotes: warningsNotes }
+                    : {}),
+                  // attention-alert-routing §3.3: anchored cards thread into the
+                  // section that OWNS the anchor — rooms hosts diagrams, event hosts
+                  // opening_reel. ABSENT on every other section (exactOptional).
+                  ...(s.id === "rooms" && diagramAnchorCards && diagramAnchorCards.length > 0
+                    ? { diagramAttention: diagramAnchorCards }
+                    : {}),
+                  ...(s.id === "event" && reelAnchorCards && reelAnchorCards.length > 0
+                    ? { reelAttention: reelAnchorCards }
                     : {}),
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? {

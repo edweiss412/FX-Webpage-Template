@@ -495,6 +495,11 @@ export type Step3SectionChrome = {
   /** attention-alert-routing §3.2: the two parse notices, composed as banner
    *  lines atop the Parse-warnings panel. Warnings section only. */
   parseNotes?: NoteItem[];
+  /** attention-alert-routing §3.3: pre-rendered anchored cards for the Diagrams
+   *  sub-block (Rooms & scope section only) and the opening_reel field (Event
+   *  details section only). ABSENT elsewhere (exactOptionalPropertyTypes). */
+  diagramAttention?: React.ReactNode[];
+  reelAttention?: React.ReactNode[];
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -1830,6 +1835,10 @@ export function EventDetailsBreakdown({
   eventDetails: Record<string, string> | null | undefined;
 }) {
   const ed = eventDetails ?? {};
+  // attention-alert-routing §3.3: asset cards routed to the `opening_reel` anchor,
+  // threaded through this section's chrome. Rendered beside the opening_reel field
+  // by EventDetailGroupBody; ABSENT (byte-identical) when there is no attention.
+  const reelCards = useContext(Step3SectionChromeContext)?.reelAttention ?? [];
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
   // is excluded there — folder link) so the operator sees the full picture
   // pre-publish (BL-EVENT-DETAILS-UNRENDERED). This is a REVIEW surface, so
@@ -1871,7 +1880,7 @@ export function EventDetailsBreakdown({
                 </span>
                 <span aria-hidden="true" className="h-px flex-1 bg-border" />
               </div>
-              <EventDetailGroupBody fields={g.fields} />
+              <EventDetailGroupBody fields={g.fields} reelCards={reelCards} />
             </div>
           ))}
         </div>
@@ -1925,8 +1934,13 @@ function BooleanChip({ label, value }: { label: string; value: string }) {
  */
 function EventDetailGroupBody({
   fields,
+  reelCards = [],
 }: {
   fields: { key: string; label: string; value: string }[];
+  // attention-alert-routing §3.3: asset cards for the `opening_reel` anchor,
+  // co-located with the opening_reel field when present. Default [] keeps every
+  // other group + the no-attention path byte-identical.
+  reelCards?: React.ReactNode[];
 }) {
   const chips = fields.filter((f) => EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
   const rows = fields.filter((f) => !EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
@@ -1935,7 +1949,15 @@ function EventDetailGroupBody({
       {rows.length > 0 ? (
         <div className="flex flex-col gap-2.5">
           {rows.map((f) =>
-            f.key === "dress_code" ? (
+            f.key === "opening_reel" && reelCards.length > 0 ? (
+              // The anchored asset cards mount immediately BELOW the reel value,
+              // inside a testid'd wrapper that co-locates both — a DOM-ancestry
+              // check binds the card to the reel field it belongs to (§3.3).
+              <div key={f.key} data-testid="event-opening-reel" className="flex flex-col gap-2.5">
+                <EventDetailRow label={f.label} value={f.value} />
+                <div className="flex flex-col gap-2">{reelCards}</div>
+              </div>
+            ) : f.key === "dress_code" ? (
               <div
                 key={f.key}
                 className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4"
@@ -3250,6 +3272,46 @@ export function DiagramsBreakdown({
 }
 
 /**
+ * attention-alert-routing §3.3: the Diagrams sub-block PLUS any asset cards routed
+ * to the `diagrams` anchor. Reads `diagramAttention` from the OUTER "Rooms & scope"
+ * chrome (the inner Diagrams provider below shadows the context, so the read must
+ * happen here, above it). Anchored cards mount ABOVE the diagrams content inside a
+ * `published-diagrams-subblock` wrapper so a DOM-ancestry check binds them to the
+ * sub-block; with NO anchored cards the fork renders bare — byte-identical to the
+ * pre-anchor sub-block. The mode fork (spec §3.5) is unchanged: staged renders
+ * wizard-session preview URLs; published resolves the persisted snapshot.
+ */
+export function RoomsDiagramsSubBlock({ data }: { data: SectionData }): React.ReactNode {
+  const anchorCards = useContext(Step3SectionChromeContext)?.diagramAttention ?? [];
+  const body = isStaged(data) ? (
+    hasDiagramSignal(data.diagrams) ? (
+      <Step3SectionChromeContext.Provider
+        value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+      >
+        <DiagramsBreakdown
+          dfid={data.dfid}
+          wizardSessionId={data.wizardSessionId}
+          diagrams={data.diagrams}
+        />
+      </Step3SectionChromeContext.Provider>
+    ) : null
+  ) : (
+    <PublishedDiagramsBreakdown
+      showId={data.showId}
+      driveFileId={data.driveFileId}
+      diagrams={data.diagrams}
+    />
+  );
+  if (anchorCards.length === 0) return body;
+  return (
+    <div data-testid="published-diagrams-subblock" className="flex min-w-0 flex-col gap-4">
+      <div className="flex flex-col gap-2">{anchorCards}</div>
+      {body}
+    </div>
+  );
+}
+
+/**
  * Published-mode diagrams sub-block (spec §3.5). Resolves the persisted
  * `shows.diagrams` `{ current }` wrapper to its live `PersistedDiagrams`
  * (`resolveCurrentDiagrams` — the same gate the crew gallery and asset route
@@ -3742,31 +3804,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       render: (s) => (
         <div className="flex min-w-0 flex-col gap-4">
           <RoomsBreakdown dfid={s.driveFileId} rooms={s.rooms} />
-          {/* Diagrams sub-block mode fork (spec §3.5). Staged renders staged
-              preview URLs via the wizard session; published resolves the
-              persisted snapshot and renders asset-route srcs (zero onboarding
-              traffic). Both wrap the sub-block in its OWN chrome provider so it
-              keeps the subordinate "Diagrams" heading (headingLevel 4), never
-              inheriting the outer "Rooms & scope" chrome. */}
-          {isStaged(s) ? (
-            hasDiagramSignal(s.diagrams) ? (
-              <Step3SectionChromeContext.Provider
-                value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
-              >
-                <DiagramsBreakdown
-                  dfid={s.dfid}
-                  wizardSessionId={s.wizardSessionId}
-                  diagrams={s.diagrams}
-                />
-              </Step3SectionChromeContext.Provider>
-            ) : null
-          ) : (
-            <PublishedDiagramsBreakdown
-              showId={s.showId}
-              driveFileId={s.driveFileId}
-              diagrams={s.diagrams}
-            />
-          )}
+          <RoomsDiagramsSubBlock data={s} />
         </div>
       ),
     },
