@@ -54,9 +54,28 @@ describe("anchorsForData", () => {
     ).toBe(false);
   });
 
+  it("BEHAVIORAL: the persisted {current} wrapper is unwrapped (resolveCurrentDiagrams runs)", () => {
+    // A bare signal wrapped in the post-M7 { current, pending } JSONB shape is
+    // available ONLY if resolveCurrentDiagrams unwraps it first — the render path's
+    // exact normalization. A hand-rolled `data.diagrams.linkedFolder` check would
+    // see `undefined` on the wrapper and report unavailable, diverging from render.
+    const m = anchorsForData(published({ diagrams: { current: DIAGRAM_SIGNAL, pending: null } }));
+    expect(m.get("rooms")).toEqual(new Set(["diagrams"]));
+  });
+
   it("non-empty opening_reel → event set has opening_reel", () => {
     const m = anchorsForData(published({ eventDetails: { opening_reel: "https://x/reel" } }));
     expect(m.get("event")).toEqual(new Set(["opening_reel"]));
+  });
+
+  it("BEHAVIORAL: a Drive-URL-only reel strips to empty → unavailable (stripOpeningReelText runs)", () => {
+    // The reel cell can hold only a Drive URL; the render strips it to "" (a clean
+    // line), so availability must too — otherwise a card mounts at a field that
+    // renders no reel value. Proves stripOpeningReelText is actually applied.
+    const m = anchorsForData(
+      published({ eventDetails: { opening_reel: "https://drive.google.com/file/d/abc/view" } }),
+    );
+    expect(m.has("event")).toBe(false);
   });
 
   it("null / empty / whitespace opening_reel → event absent", () => {

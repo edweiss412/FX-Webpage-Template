@@ -38,6 +38,23 @@ type BucketOpts = {
   crewKeyRendered?: (crewKey: string) => boolean;
 };
 
+/**
+ * The section an item's banner ACTUALLY renders in (attention-alert-routing §3.3).
+ * An asset/reel item whose routed section has no mounted consumer for it — e.g. a
+ * `rooms`@`diagrams` item when the show has no diagram signal — falls back to an
+ * Overview card in `bucketAttention` (no drop). The nav dot, the deep-link jump,
+ * and the menu jump must all use THIS section, not the declared route, or the rail
+ * highlights / `#hash`es a section holding no banner. `sectionAvailable` is the
+ * SAME predicate the caller passes to `bucketAttention`, so placement and these
+ * signals cannot disagree.
+ */
+export function resolveEffectiveSection(
+  item: AttentionItem,
+  sectionAvailable: (id: RoutedSectionId) => boolean,
+): RoutedSectionId {
+  return sectionAvailable(item.sectionId) ? item.sectionId : "overview";
+}
+
 function bucket(map: SectionAttention, sectionId: RoutedSectionId): SectionAttentionBucket {
   let b = map.get(sectionId);
   if (!b) {

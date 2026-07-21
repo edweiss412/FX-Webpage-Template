@@ -49,7 +49,7 @@ import {
   type AttentionAnchor,
   type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
-import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
@@ -265,20 +265,38 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   );
   const actionable = useMemo(() => live.filter((i) => i.actionable), [live]);
   const clearingCount = live.length - actionable.length;
+
+  // §3.3 anchor availability drives BOTH the bucketing (below) and the section an
+  // item's banner ACTUALLY renders in. An asset/reel item whose anchor content
+  // (diagram signal / non-empty opening_reel) is ABSENT falls back to an Overview
+  // card (no-drop), so `sectionHasConsumer(rooms|event)` is false and its effective
+  // section is Overview. The nav dot AND the deep-link/menu jump must use that
+  // effective section, not the declared route — otherwise the rail highlights and
+  // #hashes a section that holds no banner (Codex PR3 review P1). React Compiler
+  // memoizes these plain derivations; `anchors` changes identity per render, so a
+  // manual useMemo/useCallback would only capture a stale predicate.
+  const anchors = anchorsForData(data);
+  // Only rooms/event are fallback-eligible: they host CARDS solely through their
+  // content anchor (Diagrams sub-block / opening_reel field), so an absent anchor
+  // means no consumer. EVERY other section (crew, overview, warnings — and changes,
+  // which holds render in) always has a consumer, so it is never remapped. This is
+  // the SINGLE predicate for bucketing, the effective section, and the nav dots.
+  const sectionHasConsumer = (id: RoutedSectionId): boolean =>
+    id === "rooms" || id === "event" ? (anchors.get(id)?.size ?? 0) > 0 : true;
+  const effectiveSectionId = (item: AttentionItem): RoutedSectionId =>
+    resolveEffectiveSection(item, sectionHasConsumer);
+
   // Registry-section amber dots (§5.3): overview/changes are extras with their
-  // own badges, so they are excluded here.
-  const attentionSections = useMemo(
-    () =>
-      new Set<string>(
-        actionable.map((i) => i.sectionId).filter((s) => s !== "overview" && s !== "changes"),
-      ),
-    [actionable],
+  // own badges, so they are excluded here. Keyed on the EFFECTIVE section so a
+  // fallen-back asset/reel item dots Overview (where its card is), not its route.
+  const attentionSections = new Set<string>(
+    actionable.map((i) => effectiveSectionId(i)).filter((s) => s !== "overview" && s !== "changes"),
   );
 
-  const navigateTo = useCallback((item: AttentionItem) => {
+  const navigateTo = (item: AttentionItem) => {
     jumpNonceRef.current += 1;
-    setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
-  }, []);
+    setJump({ itemId: item.id, sectionId: effectiveSectionId(item), nonce: jumpNonceRef.current });
+  };
 
   // Plain function (React Compiler memoizes; a manual useCallback over doneIds
   // trips react-hooks/preserve-manual-memoization). §9 compound handled here in
@@ -332,7 +350,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     const item = attentionItems.find((i) => i.id === targetId);
     if (item) {
       jumpNonceRef.current += 1;
-      setJump({ itemId: item.id, sectionId: item.sectionId, nonce: jumpNonceRef.current });
+      // Effective section (§3.3): a fallen-back asset/reel item's banner is in
+      // Overview, so activate/hash Overview, not its declared route.
+      setJump({
+        itemId: item.id,
+        sectionId: effectiveSectionId(item),
+        nonce: jumpNonceRef.current,
+      });
       return;
     }
     const scroller = scrollerRef.current;
@@ -349,6 +373,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // fires. Top of the scroller is the honest substitute: the modal opens
     // where it would have anyway.
     if (typeof scroller.scrollTo === "function") scroller.scrollTo({ top: 0 });
+    // One-shot (alertScrollFiredRef); effectiveSectionId is a render-local closure
+    // over `anchors` — including it would re-fire on every render, and the ref guard
+    // already blocks re-fire. Read at mount, when `anchors` is current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertId, attentionItems]);
 
   // ── Banner placement buckets (§5.4) ────────────────────────────────────────
@@ -377,35 +405,28 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
   );
   // `sectionAvailable` = "this section has a MOUNTED attention consumer", not
-  // merely "this section renders". At PR2 the consumers are: crew (byCrewKey +
-  // sectionTop, in CrewBreakdown), overview (sectionTop, the Overview slot), and
-  // warnings (the notes banner). rooms/event have NO card consumer until PR3
-  // wires byAnchor, so a card routed there must fall back to Overview — which is
-  // exactly what returning false triggers in bucketAttention. No routed code
-  // targets rooms/event at PR2 (the frozen routing fixture keeps the six
-  // asset/reel codes on overview), so this is defence-in-depth, not a live path.
-  const CARD_CONSUMER_SECTIONS = new Set<RoutedSectionId>(["crew", "overview"]);
-  // §3.3 anchor availability: rooms/event host CARDS only through their content
-  // anchors (Diagrams sub-block / opening_reel field). BOTH predicates read the
-  // SAME map, so a section whose anchor content is ABSENT is not "available" — the
-  // card falls back to Overview (no drop), never to a dead rooms/event sectionTop.
-  const anchors = anchorsForData(data);
+  // merely "this section renders". Consumers: crew (byCrewKey + sectionTop, in
+  // CrewBreakdown), overview (sectionTop, the Overview slot), warnings (the notes
+  // banner), and rooms/event ONLY when their content anchor (Diagrams sub-block /
+  // opening_reel field) is present. `sectionHasConsumer` (defined above, over the
+  // SAME `anchors` map) is the single source for this predicate, the effective
+  // section, and the nav dots — so a card routed to an absent anchor falls back to
+  // Overview (no drop, never a dead rooms/event sectionTop) and its dot + jump
+  // agree with where it renders.
   const sectionAttention = bucketAttention(attentionItems, {
     renderCard: bannerFor,
-    // Warnings hosts the NOTE channel (checked by the note branch); crew/overview
-    // host top-level CARDS; rooms/event are available ONLY when their anchor slot
-    // is present. Anything else → Overview fallback.
-    sectionAvailable: (id) =>
-      id === "warnings" ||
-      CARD_CONSUMER_SECTIONS.has(id) ||
-      (anchors.get(id as "rooms" | "event")?.size ?? 0) > 0,
+    sectionAvailable: sectionHasConsumer,
     anchorAvailable: (id, anchor) =>
       anchors.get(id as "rooms" | "event")?.has(anchor as AttentionAnchor) ?? false,
     crewKeyRendered: (key) => renderedKeys.has(key),
   });
   const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
 
-  const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
+  // Effective section (§3.3): a fallen-back asset/reel item's card is in Overview,
+  // so it counts toward Overview's badge even though its declared route is rooms/event.
+  const overviewActionableCount = actionable.filter(
+    (i) => effectiveSectionId(i) === "overview",
+  ).length;
   const holdCount = actionable.filter((i) => i.kind === "hold").length;
 
   // §3.2 degraded notice (copy parity with the retired PerShowAlertSection

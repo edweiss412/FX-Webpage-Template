@@ -6,7 +6,7 @@
 // SAME anchorsForData map, so an anchorless section never becomes a dead sectionTop).
 import { describe, expect, it } from "vitest";
 import { ATTENTION_ROUTES, type AttentionItem } from "@/lib/admin/attentionItems";
-import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { SectionData } from "@/components/admin/review/sectionData";
 
@@ -31,7 +31,7 @@ describe("asset/reel routes carry content anchors (§3.3)", () => {
 });
 
 // ── bucketing through the modal's anchorsForData-derived availability ──────────
-const item = (code: string, sectionId: "rooms" | "event"): AttentionItem =>
+const item = (code: string, sectionId: AttentionItem["sectionId"]): AttentionItem =>
   ({
     id: `alert:${code}`,
     kind: "alert",
@@ -113,5 +113,40 @@ describe("bucketAttention resolves anchors with no-drop fallback", () => {
     ]);
     expect(m.get("rooms")).toBeUndefined();
     expect(m.get("event")).toBeUndefined();
+  });
+});
+
+// ── resolveEffectiveSection: nav dot + deep-link/menu jump agree with placement ─
+// (Codex PR3 review P1) A fallen-back asset/reel item's banner renders in Overview,
+// so its effective section (used for the amber dot + the jump's setActive/#hash)
+// must be Overview, not its declared route — else the rail highlights an empty
+// section. Only rooms/event are fallback-eligible; every other section is a consumer.
+describe("resolveEffectiveSection", () => {
+  const avail = (present: string[]) => (id: string) =>
+    id === "rooms" || id === "event" ? present.includes(id) : true;
+
+  it("asset item, diagram signal present → rooms (renders in the sub-block)", () =>
+    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), avail(["rooms"]))).toBe(
+      "rooms",
+    ));
+  it("asset item, diagram ABSENT → overview (matches the fallback card)", () =>
+    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), avail([]))).toBe(
+      "overview",
+    ));
+  it("reel item, reel present → event; reel ABSENT → overview", () => {
+    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), avail(["event"]))).toBe("event");
+    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), avail([]))).toBe("overview");
+  });
+  it("non-fallback sections are NEVER remapped, even with no anchors", () => {
+    // crew/overview/warnings/changes always have a consumer — a hold on `changes`
+    // (the regression that inflated the Overview badge) stays on changes.
+    expect(resolveEffectiveSection(item("ROLE_FLAGS_NOTICE", "crew"), avail([]))).toBe("crew");
+    expect(resolveEffectiveSection(item("DRIVE_FETCH_FAILED", "overview"), avail([]))).toBe(
+      "overview",
+    );
+    expect(resolveEffectiveSection(item("PARSE_ERROR_LAST_GOOD", "warnings"), avail([]))).toBe(
+      "warnings",
+    );
+    expect(resolveEffectiveSection(item("SOME_HOLD", "changes"), avail([]))).toBe("changes");
   });
 });
