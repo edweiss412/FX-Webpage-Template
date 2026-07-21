@@ -5,6 +5,8 @@ import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { groupActiveByCode } from "@/lib/dataQuality/groupActiveByCode";
 import { DATA_GAP_CLASS_LABELS } from "@/lib/parser/dataGaps";
+import { CREW_SCOPED_WARNING_CODES } from "@/lib/parser/autocorrectCodes";
+import { canonicalCrewKey } from "@/lib/admin/attentionItems";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import type { BulkIgnoreGroupWithLabel } from "@/components/admin/BulkIgnoreControls";
@@ -52,6 +54,12 @@ export type SectionWarningModel = {
   /** The ACTIVE list grouped by code (first-appearance order) — every active code gets a group
    *  (eyebrow), bulk-eligible or not; the bulk chip rides only groups whose `bulk` is present. */
   activeGroups: ActiveWarningCodeGroup[];
+  /** ACTIVE crew-scoped autocorrect warnings indexed by canonicalCrewKey(subject), for
+   *  under-row placement (spec 2026-07-21-warning-card-identity-placement §5.2). Non-blank
+   *  subjects only; render-agnostic (no CREW_CAP — the render layer decides cap/fallback).
+   *  A plain Record, not a Map, so the model stays RSC-serializable. Empty on sections
+   *  with no crew-scoped warnings. */
+  warningsByCrewKey: Record<string, SectionWarningItem[]>;
 };
 
 /** Plain object (RSC-serializable — a Map is NOT). Only sections with warnings appear. */
@@ -108,11 +116,23 @@ export function buildSectionWarningModel(input: {
       bulk: bulkByCode.get(g.code) ?? null,
       items: itemsByCode.get(g.code)!,
     }));
+    // Index active crew-scoped warnings by canonical subject for under-row placement
+    // (§5.2). Non-blank subjects only; render-agnostic (no cap). Empty elsewhere.
+    const warningsByCrewKey: Record<string, SectionWarningItem[]> = {};
+    for (const it of activeItems) {
+      if (!CREW_SCOPED_WARNING_CODES.has(it.warning.code)) continue;
+      const subject = it.warning.autocorrect?.subject;
+      if (typeof subject !== "string") continue;
+      const key = canonicalCrewKey(subject);
+      if (key.length === 0) continue; // blank subject → falls back to the group (Task 5)
+      (warningsByCrewKey[key] ??= []).push(it);
+    }
     record[sid] = {
       active: activeItems,
       ignored: ignored.map(stamp),
       bulkGroups,
       activeGroups,
+      warningsByCrewKey,
     };
   }
   return record;
