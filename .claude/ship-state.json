@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "implement",
-  "tasksRemaining": 9,
-  "next": "Execute Task 2: gate derivation and context threading with NO behavior change. Widen railCount to (d, opts), add routedWarnings + routedWarningsRenderElsewhere to Step3SectionChrome, derive the conjunction in ShowReviewSurface, pass routedWarnings from PublishedReviewModal. Test at tests/components/admin/review/routedWarningsGate.test.tsx with a context probe, a railCount spy, and the production call-site assertion.",
+  "tasksRemaining": 8,
+  "next": "Execute Task 3: build tests/helpers/warningSurfaceFixture.ts + the no-loss precondition (Step 0), the rail-count test (Step 0b), the body-filter test with all three extraction modes (Step 1), the six-fixture empty-state matrix (Step 2), the cross-tree uniqueness assertion (Step 2b), then implement the body filter and the warnings-row railCount value.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }

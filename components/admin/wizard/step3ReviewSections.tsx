@@ -2433,19 +2433,30 @@ export function WarningsBreakdown({
   useRawDecisions?: UseRawDecision[];
   wizardSessionId?: string;
 }) {
-  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
-  // control state across warnings after a rescan/refresh reorders the array.
-  const keys = stableWarningKeys(warnings);
   // attention-alert-routing §3.2: the two parse notices render as banner LINES
   // above the list. Domain items composed HERE because the copy variant depends
   // on warnings.length. NOT cards (no stripe/chrome) — the distinction from the
   // list below is the absence of card chrome. Page context, so no role/aria-live.
-  const parseNotes = useContext(Step3SectionChromeContext)?.parseNotes;
+  const chrome = useContext(Step3SectionChromeContext);
+  const parseNotes = chrome?.parseNotes;
+  // warning-surface-trim §3.2: on the published surface the routed warn rows
+  // already render as actionable section extras, so listing them again here
+  // would duplicate them, and the duplicate is the copy with no controls.
+  const routedWarningsRenderElsewhere = chrome?.routedWarningsRenderElsewhere === true;
+  const rows = visibleWarningRows(warnings, routedWarningsRenderElsewhere);
+  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
+  // control state across warnings after a rescan/refresh reorders the array.
+  // Keyed on the RENDERED rows so a trimmed list cannot shift control state.
+  const keys = stableWarningKeys(rows);
+  // §3.4: ACTIVE warn rows split into those rendering directly BELOW this panel
+  // and those in other sections. Present exactly when the gate is on.
+  const here = chrome?.routedWarnings?.here ?? 0;
+  const elsewhere = chrome?.routedWarnings?.elsewhere ?? 0;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
       label="Warnings"
-      count={warnings.length}
+      count={rows.length}
     >
       {parseNotes && parseNotes.length > 0 ? (
         <div
@@ -2453,7 +2464,7 @@ export function WarningsBreakdown({
           className="mb-1 flex flex-col gap-1 border-b border-border pb-2"
         >
           {orderNotes(parseNotes as NoteItem[]).map((note) => {
-            const composed = composeParseNote(note, warnings.length);
+            const composed = composeParseNote(note, rows.length);
             return (
               <p
                 key={note.id}
@@ -2471,13 +2482,37 @@ export function WarningsBreakdown({
           })}
         </div>
       ) : null}
-      {warnings.length === 0 ? (
-        <p
-          data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
-          className="text-sm text-text-subtle"
-        >
-          No parse warnings for this sheet.
-        </p>
+      {rows.length === 0 ? (
+        routedWarningsRenderElsewhere ? (
+          // §3.4 four-row matrix, evaluated top to bottom and mutually exclusive.
+          // Silent first: the actionable cards render immediately BELOW this
+          // panel, so a line above them claiming anything about location would
+          // be noise or a lie.
+          here > 0 ? null : elsewhere > 0 ? (
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-elsewhere`}
+              className="text-sm text-text-subtle"
+            >
+              Nothing else to note here. The warnings that need a look are in their own sections.
+            </p>
+          ) : (
+            // True in BOTH the no-warnings and the all-ignored cases, which is
+            // exactly the pair this row cannot distinguish and does not need to.
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-clean`}
+              className="text-sm text-text-subtle"
+            >
+              Nothing needs a look on this sheet.
+            </p>
+          )
+        ) : (
+          <p
+            data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
+            className="text-sm text-text-subtle"
+          >
+            No parse warnings for this sheet.
+          </p>
+        )
       ) : (
         <>
           {/* Flow 3 (audit 3.1): correction-loop callout — copy-only. The verb is
@@ -2494,7 +2529,7 @@ export function WarningsBreakdown({
             below.
           </p>
           <ul className="flex flex-col gap-3">
-            {warnings.map((w, i) => {
+            {rows.map((w, i) => {
               const title = reviewWarningTitle(w);
               const context = isMessageCode(w.code)
                 ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
@@ -3876,7 +3911,8 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Checks",
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).
-      railCount: (s) => s.warnings.length,
+      railCount: (s, opts) =>
+        visibleWarningRows(s.warnings, opts.routedWarningsRenderElsewhere).length,
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).
       // driveFileId is the mode-agnostic SectionCore locator (nullable); the
