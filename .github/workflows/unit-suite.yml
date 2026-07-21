@@ -14,8 +14,12 @@ name: Unit + DB suite (full vitest gate)
 # a connection.
 #
 # Now they are separate matrix jobs:
-#   unit-suite-db   — 8 legs, boots Supabase, runs ONLY --project=serial
-#   unit-suite-nodb — 3 legs, boots NOTHING,  runs ONLY --project=parallel
+#   unit-suite-db   — 3 legs, boots Supabase, runs ONLY --project=serial
+#   unit-suite-nodb — 5 legs, boots NOTHING,  runs ONLY --project=parallel
+# (Rebalanced from 8+3: the DB-free reclassification moved ~532 files serial→
+# parallel, so the boot-heavy serial project shrank and the boot-free parallel
+# project grew; shifting shards keeps total legs at 8, the runner-admission
+# ceiling. Spec 2026-07-20-serial-parallel-reclassification §3.3.)
 #
 # The no-DB legs skip supabase/setup-cli, the psql install, and the ~71s
 # bootstrap entirely, cutting their fixed overhead from ~100s to ~30s. That
@@ -97,7 +101,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -115,12 +119,12 @@ jobs:
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
         # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run serial project, shard ${{ matrix.shard }}/8
+      - name: Run serial project, shard ${{ matrix.shard }}/3
         # fileParallelism:false still holds WITHIN a leg, and legs never share a
         # database (separate runners), so the serial-DB guarantee is unchanged.
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --project=serial --shard=${{ matrix.shard }}/8
+        run: pnpm exec vitest run --project=serial --shard=${{ matrix.shard }}/3
 
   unit-suite-nodb:
     name: unit-suite-nodb
@@ -129,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -139,10 +143,10 @@ jobs:
       # moved to serial in the same change). Adding a boot here would silently
       # hand back the ~71s per leg this job exists to save, so the topology
       # meta-test asserts this job never mentions the bootstrap.
-      - name: Run parallel project, shard ${{ matrix.shard }}/3
+      - name: Run parallel project, shard ${{ matrix.shard }}/5
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run --project=parallel --shard=${{ matrix.shard }}/3
+        run: pnpm exec vitest run --project=parallel --shard=${{ matrix.shard }}/5
 
   unit-suite:
     # Aggregator — PRESERVES the `unit-suite` required check-context name so
