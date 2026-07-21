@@ -65,11 +65,18 @@ describe("db-free-drift.yml wiring", () => {
   });
 
   it("boots Supabase strictly BEFORE the --check, in that one job", () => {
-    const body = directives.slice(jobsIdx);
-    const bootIdx = body.findIndex((l) => /supabase-local-bootstrap\.sh/.test(l));
-    const checkIdx = body.findIndex((l) => /regen-db-free(\.mjs)? --check/.test(l));
-    expect(bootIdx, "bootstrap step present").toBeGreaterThanOrEqual(0);
-    expect(checkIdx, "--check step present").toBeGreaterThanOrEqual(0);
-    expect(bootIdx, "bootstrap must precede --check").toBeLessThan(checkIdx);
+    // Match only EXECUTABLE `run:` scalars (Codex guards-4 round 2): a `name:`,
+    // an `env:` value, or an inline comment containing the token must NOT satisfy
+    // this. Both steps in this workflow are single-line `run:` commands; strip any
+    // trailing ` # comment` before matching the command text.
+    const runCommands = directives
+      .slice(jobsIdx)
+      .filter((l) => /^\s*run:\s*\S/.test(l))
+      .map((l) => l.replace(/^\s*run:\s*/, "").replace(/\s+#.*$/, ""));
+    const bootIdx = runCommands.findIndex((c) => /supabase-local-bootstrap\.sh/.test(c));
+    const checkIdx = runCommands.findIndex((c) => /regen-db-free(\.mjs)? --check/.test(c));
+    expect(bootIdx, "a `run:` bootstrap step must exist").toBeGreaterThanOrEqual(0);
+    expect(checkIdx, "a `run:` --check step must exist").toBeGreaterThanOrEqual(0);
+    expect(bootIdx, "bootstrap `run:` must precede the --check `run:`").toBeLessThan(checkIdx);
   });
 });
