@@ -21,11 +21,16 @@ the plan, and the whole diff.
   postgres.js pool whose async connect the per-file attribution raced (Codex spec
   R1); those 19 were removed by a static DB-binding sweep (driver import, a
   `*DATABASE_URL` env read, or a `*.db.test.ts`/`*real-db*` filename), taking the
-  set from 552 to **533**. Because the set is a closed allowlist and every new or
-  edited file defaults to serial, no file joins the parallel project without an
-  explicit measured addition — the meta-tests below are TRIPWIRES against a stale
-  allowlist, not the sole guarantee. The committed list
-  `tests/probes/db-free-movable.txt` is the record; do not re-derive membership.
+  set from 552 to **533**. Because the set is a closed allowlist, a **newly
+  added** file defaults to serial — nothing joins the parallel project without an
+  explicit measured addition. An **already-allowlisted file that is later edited
+  to add DB access stays parallel** (Codex spec R2b-1): that edit-drift window is
+  bounded, not eliminated, by two layers — the static-guard meta-test (§3.2, a
+  CI-time tripwire; best-effort, since a source scan cannot see an imported
+  helper that connects, a dynamically-built command, or a novel access path) and
+  the periodic re-measurement (§3.4, the authoritative catch that re-runs the
+  instrumented suite). The committed list `tests/probes/db-free-movable.txt` is
+  the record; do not re-derive membership.
 - **Partition model is an explicit committed FILE LIST, not whole-dir globs.**
   Deliberate: a file-list makes a newly-added test default to SERIAL (safe) until
   it is explicitly measured and added, extending the existing "new dirs default
@@ -111,15 +116,22 @@ named `db-free-movable-static-guard`) — the PRIMARY criterion-4/5 guard, a sou
 scan run in every CI leg (no DB needed). For every file in `db-free-movable.txt`,
 assert it does NOT match any DB-binding signal:
 
-- imports the `postgres` driver (`from "postgres"`) — the class that under-counted
-  in the runtime probe (§1.1, Codex spec R1);
-- reads a DB URL env (`process.env.TEST_DATABASE_URL` / `LOCAL_TEST_DATABASE_URL`);
+- imports the `postgres` driver — both `from "postgres"` AND
+  `require("postgres")` (Codex spec R2b-2) — the class that under-counted in the
+  runtime probe (§1.1, Codex spec R1);
+- reads ANY DB URL env — `process.env.<NAME>` where `<NAME>` matches
+  `/[A-Z0-9_]*DATABASE_URL/` (not just `TEST_`/`LOCAL_TEST_`; Codex spec R2b-2, so
+  the CI guard is exactly as wide as the §3.4 regeneration sweep);
 - constructs a client (`postgres(` call) or references a local pg URL literal
   (loopback host with a Postgres/PostgREST port — 5432, 54321, or 54322);
 - imports `child_process` (with OR without the `node:` prefix — Codex spec R4)
   AND references a DB token (`psql`, `databaseUrl`, `postgres://`,
   `_validation-cleanup-helpers`, `supabase db`);
 - has a `*.db.test.ts` or `*real-db*` filename.
+
+The guard signal set MUST be identical to the §3.4 regeneration sweep — a single
+shared constant (`DB_BINDING_SIGNALS`) consumed by both, so the CI tripwire can
+never be narrower than the sweep that built the list.
 
 This deterministically rejects the DB-binding class at CI time in a DB-free leg —
 closing the class that the `unit-suite-nodb` job cannot (a caught/skipped DB
@@ -164,10 +176,12 @@ step that keeps the allowlist honest.
    clean baseline (1 known flake: `email-canonicalization`), 0 DB corruption.
 2. Local: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and the two
    affected meta-tests green.
-3. **Real CI baseline (Codex spec R3 — deterministic protocol):**
-   - **Baseline** = the `unit-suite` wall of the tip-of-`main` run this branch
-     forked from, taken as the median of **2** runs (re-run via
-     `workflow_dispatch` on `main` if only one exists). Record the run IDs.
+3. **Real CI baseline (Codex spec R3 + R2b-3 — deterministic, commit-pinned):**
+   - **Fork-point SHA** = `git merge-base origin/main HEAD`, recorded explicitly.
+   - **Baseline** = median of **2** `unit-suite` runs, both executed against that
+     exact SHA (via `workflow_dispatch` with `ref` = the SHA, or an immutable tag
+     pinned to it — never a moving `main`, which may have advanced past the fork
+     point). Record both run IDs and the SHA.
    - **Candidate** = the median of **2** `unit-suite` runs on this PR's head.
    - **Wall** of a run = `max(completedAt) − min(startedAt)` across both matrix
      jobs; also record start stagger.
