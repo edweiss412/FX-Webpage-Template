@@ -116,7 +116,7 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
-        const footerLeft: ReactNode = href ? (
+        const sheetLink: ReactNode = href ? (
           <a
             href={href}
             target="_blank"
@@ -128,6 +128,22 @@ export function PerShowActionableWarnings({
         ) : null;
 
         const controls = renderItemControls ? renderItemControls(w, i) : null;
+
+        // Single controls band: the "Open in Sheet" link sits inline at the left,
+        // the item controls pushed to the right (ml-auto) — never its own footer row.
+        const controlsBand: ReactNode =
+          sheetLink || controls ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {sheetLink}
+              {controls ? (
+                <div
+                  className={`flex flex-wrap items-center gap-2 ${sheetLink ? "ml-auto" : ""}`}
+                >
+                  {controls}
+                </div>
+              ) : null}
+            </div>
+          ) : null;
 
         return (
           <li key={keys[i]} data-testid="per-show-actionable-item">
@@ -163,8 +179,7 @@ export function PerShowActionableWarnings({
                 ) : null
               }
               detailBand={detailBand}
-              footerLeft={footerLeft}
-              controlsBand={controls}
+              controlsBand={controlsBand}
             />
           </li>
         );
