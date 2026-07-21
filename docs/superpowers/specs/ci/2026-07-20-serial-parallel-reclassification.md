@@ -175,8 +175,9 @@ documented authority for any change to the two lists (mirrors
 `pnpm gen:schema-manifest`).
 
 Edit-drift is temporally bounded by an **enforced nightly job**, not left to
-"whenever someone regenerates": a new workflow `db-free-drift.yml` (owner: CI,
-schedule `cron: '0 7 * * *'`) boots a fresh DB, runs `pnpm ci:regen-db-free
+"whenever someone regenerates": a new nightly workflow under `.github/workflows/`
+(created in the plan, owner: CI, schedule `cron: '0 7 * * *'`) boots a fresh DB,
+runs `pnpm ci:regen-db-free
 --check`, and **fails if the freshly-measured lists differ from the committed
 ones** (a moved file that gained DB access, or a serial file that became movable).
 A failing nightly is the trigger to re-run the generator and commit the diff.
