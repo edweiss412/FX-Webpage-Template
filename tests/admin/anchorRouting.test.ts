@@ -142,31 +142,50 @@ describe("bucketAttention resolves anchors with no-drop fallback", () => {
 // must be Overview, not its declared route — else the rail highlights an empty
 // section. Only rooms/event are fallback-eligible; every other section is a consumer.
 describe("resolveEffectiveSection", () => {
-  const avail = (present: string[]) => (id: string) =>
-    id === "rooms" || id === "event" ? present.includes(id) : true;
+  // `present` = the rooms/event anchors that are available; both predicates read it
+  // so the effective section mirrors bucketAttention's placement exactly.
+  const placement = (present: string[]) => ({
+    sectionAvailable: (id: string) =>
+      id === "rooms" || id === "event" ? present.includes(id) : true,
+    anchorAvailable: (id: string) => present.includes(id),
+  });
 
   it("asset item, diagram signal present → rooms (renders in the sub-block)", () =>
-    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), avail(["rooms"]))).toBe(
-      "rooms",
-    ));
+    expect(
+      resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), placement(["rooms"])),
+    ).toBe("rooms"));
   it("asset item, diagram ABSENT → overview (matches the fallback card)", () =>
-    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), avail([]))).toBe(
+    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), placement([]))).toBe(
       "overview",
     ));
   it("reel item, reel present → event; reel ABSENT → overview", () => {
-    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), avail(["event"]))).toBe("event");
-    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), avail([]))).toBe("overview");
+    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), placement(["event"]))).toBe(
+      "event",
+    );
+    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), placement([]))).toBe("overview");
   });
+
+  it("STRUCTURAL: rooms/event placement follows anchorAvailable, NOT sectionAvailable (Codex R3)", () => {
+    // Section 'available' but anchor NOT — bucketAttention redirects the card to
+    // Overview, so the nav dot/jump must too. sectionAvailable alone would wrongly
+    // return rooms/event and desync the rail highlight from the rendered card.
+    const anchorless = { sectionAvailable: () => true, anchorAvailable: () => false };
+    expect(resolveEffectiveSection(item("EMBEDDED_ASSET_DRIFTED", "rooms"), anchorless)).toBe(
+      "overview",
+    );
+    expect(resolveEffectiveSection(item("REEL_DRIFTED", "event"), anchorless)).toBe("overview");
+  });
+
   it("non-fallback sections are NEVER remapped, even with no anchors", () => {
     // crew/overview/warnings/changes always have a consumer — a hold on `changes`
     // (the regression that inflated the Overview badge) stays on changes.
-    expect(resolveEffectiveSection(item("ROLE_FLAGS_NOTICE", "crew"), avail([]))).toBe("crew");
-    expect(resolveEffectiveSection(item("DRIVE_FETCH_FAILED", "overview"), avail([]))).toBe(
+    expect(resolveEffectiveSection(item("ROLE_FLAGS_NOTICE", "crew"), placement([]))).toBe("crew");
+    expect(resolveEffectiveSection(item("DRIVE_FETCH_FAILED", "overview"), placement([]))).toBe(
       "overview",
     );
-    expect(resolveEffectiveSection(item("PARSE_ERROR_LAST_GOOD", "warnings"), avail([]))).toBe(
+    expect(resolveEffectiveSection(item("PARSE_ERROR_LAST_GOOD", "warnings"), placement([]))).toBe(
       "warnings",
     );
-    expect(resolveEffectiveSection(item("SOME_HOLD", "changes"), avail([]))).toBe("changes");
+    expect(resolveEffectiveSection(item("SOME_HOLD", "changes"), placement([]))).toBe("changes");
   });
 });

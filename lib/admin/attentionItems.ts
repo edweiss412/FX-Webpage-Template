@@ -60,17 +60,25 @@ export type AttentionAlertPayload = {
   errorCode: string | null;
 };
 
-export type AttentionItem = {
+type AttentionItemBase = {
   id: string;
-  kind: "alert" | "hold";
   tone: "critical" | "notice";
   sectionId: RoutedSectionId;
   crewKey: string | null;
   actionable: boolean;
   menuTitle: string;
   menuSubtitle: string | null;
-  alert?: AttentionAlertPayload;
 };
+
+/**
+ * Discriminated by `kind` so an `alert` item ALWAYS carries its payload (Codex PR3
+ * R3): `{ kind: "alert", alert: undefined }` — an item the pill/menu count but
+ * bucketAttention silently skips and AttentionBanner renders null — is now a compile
+ * error. A `hold` never carries a payload. Structural no-drop at the type level.
+ */
+export type AttentionItem =
+  | (AttentionItemBase & { kind: "alert"; alert: AttentionAlertPayload })
+  | (AttentionItemBase & { kind: "hold"; alert?: never });
 
 // The exact PerShowAlertSection fallback line (spec §5.4; invariant 5).
 export const ATTENTION_FALLBACK_TITLE = "Something needs your attention on this show.";

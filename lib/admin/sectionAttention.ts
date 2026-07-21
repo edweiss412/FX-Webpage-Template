@@ -38,21 +38,39 @@ type BucketOpts = {
   crewKeyRendered?: (crewKey: string) => boolean;
 };
 
+/** The availability predicates `bucketAttention` uses to place a card — the same
+ *  pair drives `resolveEffectiveSection` so the nav signal can NEVER disagree with
+ *  placement, even under inconsistent predicates (Codex PR3 R3). */
+export type PlacementPredicates = {
+  sectionAvailable: (id: RoutedSectionId) => boolean;
+  anchorAvailable: (id: RoutedSectionId, anchor: string) => boolean;
+};
+
 /**
- * The section an item's banner ACTUALLY renders in (attention-alert-routing §3.3).
- * An asset/reel item whose routed section has no mounted consumer for it — e.g. a
- * `rooms`@`diagrams` item when the show has no diagram signal — falls back to an
- * Overview card in `bucketAttention` (no drop). The nav dot, the deep-link jump,
- * and the menu jump must all use THIS section, not the declared route, or the rail
- * highlights / `#hash`es a section holding no banner. `sectionAvailable` is the
- * SAME predicate the caller passes to `bucketAttention`, so placement and these
- * signals cannot disagree.
+ * The section an item's banner ACTUALLY renders in (attention-alert-routing §3.3),
+ * computed to MIRROR `bucketAttention`'s placement branch-for-branch so the nav dot,
+ * deep-link jump, and menu jump can never disagree with where the card lands:
+ *   - section unavailable → Overview (fallback);
+ *   - rooms/event with the anchor UNavailable → Overview (bucketAttention's redirect,
+ *     Codex R3: `sectionAvailable` alone was insufficient — rooms/event placement is
+ *     gated by `anchorAvailable`, not `sectionAvailable`);
+ *   - otherwise the declared section (byAnchor / byCrewKey / sectionTop all render there).
  */
 export function resolveEffectiveSection(
   item: AttentionItem,
-  sectionAvailable: (id: RoutedSectionId) => boolean,
+  { sectionAvailable, anchorAvailable }: PlacementPredicates,
 ): RoutedSectionId {
-  return sectionAvailable(item.sectionId) ? item.sectionId : "overview";
+  const declared = item.sectionId;
+  if (!sectionAvailable(declared)) return "overview";
+  const anchor = item.alert ? ATTENTION_ROUTES[item.alert.code]?.anchor : undefined;
+  if (
+    anchor &&
+    (declared === "rooms" || declared === "event") &&
+    !anchorAvailable(declared, anchor)
+  ) {
+    return "overview";
+  }
+  return declared;
 }
 
 function bucket(map: SectionAttention, sectionId: RoutedSectionId): SectionAttentionBucket {

@@ -28,10 +28,26 @@ const _noteWithoutAlert: NoteItem = { id: "x", kind: "alert", tone: "notice" } a
 // @ts-expect-error "SOME_FUTURE_NOTE_CODE" is not a NoteCode
 const _thirdCodeRejected: NoteCode = "SOME_FUTURE_NOTE_CODE";
 
+// Codex PR3 R3: an alert-kind AttentionItem MUST carry its payload — a payload-less
+// alert is counted by the pill/menu but dropped by bucketAttention. The discriminated
+// union makes it a compile error (structural no-drop).
+// @ts-expect-error `alert` is required when kind is "alert"
+const _alertWithoutPayload: AttentionItem = {
+  id: "alert:x",
+  kind: "alert",
+  tone: "notice",
+  sectionId: "overview",
+  crewKey: null,
+  actionable: true,
+  menuTitle: "x",
+  menuSubtitle: null,
+};
+
 void _badPairing;
 void _badAnchorForSection;
 void _noteWithoutAlert;
 void _thirdCodeRejected;
+void _alertWithoutPayload;
 
 describe("spike parity", () => {
   it("the four negative-type cases are enforced at compile time (see @ts-expect-error above)", () => {

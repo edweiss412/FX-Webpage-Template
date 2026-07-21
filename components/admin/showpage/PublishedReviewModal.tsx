@@ -283,8 +283,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // the SINGLE predicate for bucketing, the effective section, and the nav dots.
   const sectionHasConsumer = (id: RoutedSectionId): boolean =>
     id === "rooms" || id === "event" ? (anchors.get(id)?.size ?? 0) > 0 : true;
+  // ONE placement-predicate pair feeds bucketAttention AND resolveEffectiveSection,
+  // so the card's placement and its nav dot / jump target are computed identically.
+  const placement = {
+    sectionAvailable: sectionHasConsumer,
+    anchorAvailable: (id: RoutedSectionId, anchor: string) =>
+      anchors.get(id as "rooms" | "event")?.has(anchor as AttentionAnchor) ?? false,
+  };
   const effectiveSectionId = (item: AttentionItem): RoutedSectionId =>
-    resolveEffectiveSection(item, sectionHasConsumer);
+    resolveEffectiveSection(item, placement);
 
   // Registry-section amber dots (§5.3): overview/changes are extras with their
   // own badges, so they are excluded here. Keyed on the EFFECTIVE section so a
@@ -415,9 +422,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // agree with where it renders.
   const sectionAttention = bucketAttention(attentionItems, {
     renderCard: bannerFor,
-    sectionAvailable: sectionHasConsumer,
-    anchorAvailable: (id, anchor) =>
-      anchors.get(id as "rooms" | "event")?.has(anchor as AttentionAnchor) ?? false,
+    ...placement, // the SAME pair resolveEffectiveSection uses (single source)
     crewKeyRendered: (key) => renderedKeys.has(key),
   });
   const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
