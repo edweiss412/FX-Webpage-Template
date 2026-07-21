@@ -27,7 +27,7 @@ Each decision below is ratified by the user (2026-07-20, brainstorming gate) or 
 - **The second sentence is CUT, not rewritten, for the three unfixable codes.** `STAGE_WORD_AUTOCORRECTED`, `ROLE_TOKEN_AUTOCORRECTED`, and `SECTION_HEADER_AUTOCORRECTED` all match against a CLOSED vocabulary (`normalizeStageWords`, `lib/parser/personalization.ts:196`; `gatedVocabCorrect` via `lib/parser/sectionHeaderNormalize.ts:67`), so re-typing the intended spelling is re-corrected on the next sync. There is no sheet edit to instruct. The card's existing Report and Ignore controls are the actions. Option C of three considered; A ("Report it") and B ("correct the cell, or Report") were rejected as copy that explains visible buttons. (User decision, 2026-07-20.)
 - **`COLUMN_HEADER_AUTOCORRECTED` and `FIELD_LABEL_AUTOCORRECTED` KEEP their fix instruction.** They correct a LABEL, not a vocabulary token; renaming the header or row label in the sheet genuinely escapes the matcher. Cutting their guidance too was considered and rejected — it would discard working advice for symmetry. (User decision, 2026-07-20.)
 - **Instance copy REPLACES the generic guidance line; it is not added alongside it.** Rendering both would state one fact twice and make the operator read the vague version first. The catalog `helpfulContext` survives as the FALLBACK string only. (User decision, 2026-07-20; option B of three.)
-- **The instance copy REUSES the catalog's existing `dougFacing` template; it does not author new strings for the crew-scoped codes.** The citation pass established that `dougFacing` already carries a `_<crew-name>_` slot for both crew-scoped codes (`lib/messages/catalog.ts:1271`, `lib/messages/catalog.ts:1285`) and that `interpolate` already resolves that param in production (`lib/adminAlerts/deriveMessageParams.ts:323`). The original design's hand-written strings were a reinvention of ratified copy and are RETIRED. See §4.1. (Citation pass, 2026-07-21.)
+- **The instance line is COMPOSED by a pure function, matching the catalog's reviewed phrasing but not reusing the template.** The citation pass confirmed the target phrasing is already ratified: `dougFacing` carries a `_<crew-name>_` slot for both crew-scoped codes (`STAGE_WORD_AUTOCORRECTED` at `lib/messages/catalog.ts:1270`, `ROLE_TOKEN_AUTOCORRECTED` at `lib/messages/catalog.ts:1285`; see the §2.2 line map). Spec R1 then established that REUSING those templates is the wrong implementation path — the three non-crew templates carry a `_<sheet-name>_` slot the card cannot fill, and per-template string surgery couples the card to email/alert copy. So the card OWNS its composed line (`autocorrectGuidance`, §4.1) while its wording matches the ratified `dougFacing` phrasing. The original hand-written §4.1 strings and the intermediate template-reuse proposal are both RETIRED. See §4.1. (Citation pass 2026-07-21; spec review R1.)
 - **Crew-scoped cards render under the row ALWAYS, regardless of instance count.** The N=1-under-row / N≥2-grouped rule was explicitly considered and REJECTED: placement would flip on a count the operator cannot see, so a card would relocate when a coworker's sheet row gained an unrelated typo. (User decision, 2026-07-20.)
 - **`ParseWarning.autocorrect` is a structured field. Nothing parses `message`.** `message` stays byte-identical for logs and telemetry. This mirrors the two existing additive optionals, `roleToken` (`lib/parser/types.ts:66`) and `resolution` (`lib/parser/types.ts:76`) — both jsonb-persisted, both absence-discriminates, neither requiring a migration.
 - **NO `§12.4` catalog row edit and NO `pnpm gen:spec-codes` run.** The instance line is a NEW render path in the card component. Catalog `helpfulContext` is unchanged and remains the fallback, so the `x1-catalog-parity` gate and #531's `_metaPopoverContextCoverage` gate (`tests/messages/_metaPopoverContextCoverage.test.ts`) both stay green by construction. `triggerContext` popover copy is untouched.
@@ -57,7 +57,17 @@ That string never reaches the operator. `PerShowActionableWarnings` renders the 
 
 "Update the sheet if the spelling was intentional" describes a condition and names no operation. Following it literally — re-typing the same intentional word — produces the same correction on the next sync, because the matcher is unchanged. The escapes that actually exist are: spell a different real stage word; use a token in `ROLE_NORMALIZATIONS`, which is role-excluded and never rewritten (`lib/parser/personalization.ts:211`); or use a word ≥2 edits from every vocabulary member. None is expressible as an instruction on a card.
 
-`ROLE_TOKEN_AUTOCORRECTED` (`lib/messages/catalog.ts:1271`) and `SECTION_HEADER_AUTOCORRECTED` (`lib/messages/catalog.ts:1398`) carry the same sentence with the same dead end.
+`ROLE_TOKEN_AUTOCORRECTED` (`lib/messages/catalog.ts:1285`) and `SECTION_HEADER_AUTOCORRECTED` (`lib/messages/catalog.ts:1412`) carry the same sentence with the same dead end.
+
+**Canonical `dougFacing` line map** (single source of truth; every other section cites through this):
+
+| Code | `dougFacing` |
+|---|---|
+| `STAGE_WORD_AUTOCORRECTED` | `lib/messages/catalog.ts:1270` |
+| `ROLE_TOKEN_AUTOCORRECTED` | `lib/messages/catalog.ts:1285` |
+| `COLUMN_HEADER_AUTOCORRECTED` | `lib/messages/catalog.ts:1299` |
+| `SECTION_HEADER_AUTOCORRECTED` | `lib/messages/catalog.ts:1412` |
+| `FIELD_LABEL_AUTOCORRECTED` | `lib/messages/catalog.ts:1426` |
 
 Two sibling codes do NOT have this problem, and their copy already shows the right shape: `COLUMN_HEADER_AUTOCORRECTED` (`lib/messages/catalog.ts:1285`) and `FIELD_LABEL_AUTOCORRECTED` (`lib/messages/catalog.ts:1412`) say "Fix the header/label in the sheet if that guess is wrong", which is actionable because a label rename is not a vocabulary lookup.
 
@@ -104,7 +114,7 @@ autocorrect?: {
 
 The design's original blanket rule ("populate at the emit site") does not survive the citation pass. `extractRoleFlags` is a PURE function receiving only `roleCell` — the crew member's name is not in scope there. `ROLE_TOKEN_AUTOCORRECTED` must therefore be populated where the existing `blockRef` stamp already happens.
 
-**There are ELEVEN emit sites across the five codes, not five.** A producer sweep (`rg 'code: "(STAGE_WORD|ROLE_TOKEN|SECTION_HEADER|COLUMN_HEADER|FIELD_LABEL)_AUTOCORRECTED"' lib`) is the authority; the count is stated here because an earlier draft of this spec listed one site per code and would have shipped six silently-unpopulated producers, each rendering a permanently generic card.
+**There are THIRTEEN emit sites across the five codes, not five** (8 `FIELD_LABEL`, 2 `COLUMN_HEADER`, 1 each of the other three). A producer sweep (`rg 'code: "(STAGE_WORD|ROLE_TOKEN|SECTION_HEADER|COLUMN_HEADER|FIELD_LABEL)_AUTOCORRECTED"' lib`) is the authority; the count is stated here because an earlier draft of this spec listed one site per code and would have shipped six silently-unpopulated producers, each rendering a permanently generic card.
 
 | # | Code | Site | `subject` | Mechanism |
 |---|---|---|---|---|
@@ -124,9 +134,18 @@ The design's original blanket rule ("populate at the emit site") does not surviv
 
 Row 2's stamp extends the existing `stampedRoleWarnings` map, which already rewrites `ROLE_TOKEN_AUTOCORRECTED` to attach `blockRef`. It adds `autocorrect.subject` in the same pass: the emitter sets `corrections` with `subject: null`, and the stamp fills the name.
 
+**No-escape proof for the ROLE stamp.** The reviewer's concern is that a `ROLE_TOKEN_AUTOCORRECTED` warning could reach a surface with `subject` still null. It cannot, and this is structural, not incidental:
+
+- `extractRoleFlags` has EXACTLY ONE call site in the codebase (`lib/parser/blocks/crew.ts:364`; verified by `rg 'extractRoleFlags\(' lib`, one non-definition hit).
+- Its `.warnings` array is consumed by EXACTLY ONE expression — the `stampedRoleWarnings` map at `lib/parser/blocks/crew.ts:367-373` — and only `stampedRoleWarnings` is pushed onward. `roleFlagResult.warnings` is never pushed raw.
+
+So the emit-with-null and the stamp-the-name are not two points that could drift apart; they are one call followed immediately by its sole consumer. The `subject: null` state has no observable lifetime outside those two adjacent lines.
+
+**This is nonetheless made a hard invariant, not left as prose.** The intermediate `subject: null` is a deliberate, momentary state, so §10 test 2 (the ROLE boundary assertion) asserts the STRONGER post-parse property: every `ROLE_TOKEN_AUTOCORRECTED` warning EXITING `parseCrewBlock` carries a non-null `subject`. A future refactor that added a second `extractRoleFlags` caller, or that pushed the raw warnings, would fail that assertion rather than silently ship generic cards. The emit-site `subject: null` is thus an implementation detail of one function, provable-complete at its single boundary.
+
 `message` is unchanged at all thirteen sites.
 
-**A missed producer is invisible at runtime** — the guard in §4.3 falls back to `helpfulContext`, so an unpopulated site renders exactly today's copy and no test fails unless one asserts otherwise. §10 test 11 is therefore a filesystem-walking meta-test, not a fixed list: it discovers every `code: "*_AUTOCORRECTED"` literal under `lib/parser/**` and asserts each emitted warning carries `autocorrect`. A NEW producer added later fails by default rather than silently degrading.
+**A missed producer is invisible at runtime** — the guard in §4.3 falls back to `helpfulContext`, so an unpopulated site renders exactly today's copy and no test fails unless one asserts otherwise. §10 test 10 is therefore a filesystem-walking meta-test, not a fixed list: it discovers every `code: "*_AUTOCORRECTED"` literal under `lib/parser/**` and asserts each emitted warning carries `autocorrect`. A NEW producer added later fails by default rather than silently degrading.
 
 ### 3.3 Persistence
 
@@ -134,84 +153,86 @@ The field rides the existing jsonb columns with no migration, exactly as `roleTo
 
 ## 4. Change 2: instance copy
 
-### 4.1 The copy already exists; the card is not wired to it
+### 4.1 A pure composer, not template reuse
 
-The citation pass found that this spec's original §4.1 strings independently reinvented copy the catalog ALREADY carries. `STAGE_WORD_AUTOCORRECTED.dougFacing` (`lib/messages/catalog.ts:1271`) reads:
+The card must show the ACTUAL correction and, for the two crew-scoped codes, the crew member's name. The citation pass first proposed reusing the catalog `dougFacing` templates, which already carry the right phrasing. Reading all five templates verbatim (§2.2 line map) refuted that as the implementation path:
 
-> We read a likely-misspelled stage word in _<crew-name>_'s role (for example 'Strke' as 'Strike') and used the corrected version, so their schedule still reads correctly. If it was intentional, update the sheet.
+- Every non-crew template carries a `_<sheet-name>_` slot, not the "no subject" this spec assumed. `COLUMN_HEADER_AUTOCORRECTED.dougFacing` is "…column header on _<sheet-name>_'s crew table…"; `SECTION_HEADER` and `FIELD_LABEL` likewise. Reusing them would require sourcing a `sheet-name` param that the warning card does not have, and an unresolved slot renders a literal `<sheet-name>` on screen (`interpolate` returns the match, `lib/messages/lookup.ts:33`).
+- Each of the five templates has a DIFFERENT fixed parenthetical anchor and a different trailing clause, so "swap the parenthetical, strip the suffix" is five distinct string surgeries on prose that two other surfaces (notify email, alert path) can edit at any time.
 
-`ROLE_TOKEN_AUTOCORRECTED.dougFacing` (`lib/messages/catalog.ts:1285`) has the same shape. Both carry a live `_<crew-name>_` interpolation slot, and `interpolate` (`lib/messages/lookup.ts:20-36`) is production machinery already resolving that exact param on the alert path (`lib/adminAlerts/deriveMessageParams.ts:323`).
+So the instance line is COMPOSED by a pure function from `autocorrect`, not lifted from a template. This honors the ratified decision (instance copy REPLACES the generic line) while owning its own copy instead of coupling to `dougFacing`. The composed phrasing MATCHES the reviewed `dougFacing` wording ("We read … in _<name>_'s role") so nothing novel reaches the operator; it simply is not the same string object.
 
-The warning card never reaches any of it: it renders `helpfulContext` (`components/admin/PerShowActionableWarnings.tsx:97`), the one field with no slot. So a ratified, crew-name-aware sentence sits in the catalog unused while the card shows the generic one.
+`lib/messages/autocorrectGuidance.ts (new)` (new, pure, no I/O, client-safe):
 
-**Therefore this spec does NOT author new copy for the two crew-scoped codes.** It renders the EXISTING `dougFacing` template with real params. This is strictly smaller than the original design, reuses copy that already passed catalog review, and keeps one string per code instead of two that can drift.
+```ts
+export function autocorrectGuidance(
+  code: string,
+  autocorrect: { subject: string | null; corrections: { detected: string; corrected: string }[] } | undefined,
+): string | null;  // null => caller falls back to catalog helpfulContext
+```
 
-Two deltas from the raw `dougFacing` text:
+It returns `null` (fall back) whenever the input cannot produce an honest, fully-attributed line; otherwise a plain-text string with NO emphasis markers.
 
-- **The trailing "If it was intentional, update the sheet." sentence is STRIPPED** for the three unfixable codes, per the §1.1 ratified decision. Stripping is by exact suffix match against the catalog string, asserted in tests, so a catalog reword fails loudly instead of silently leaving the dead-end sentence on screen.
-- **The parenthetical "(for example 'Strke' as 'Strike')" is REPLACED** by the actual corrections from `autocorrect.corrections`. A fixed example is misleading when the real correction differs.
+### 4.2 Composition rules
 
-### 4.2 Params and composition
+**Correction phrase** from the surviving valid pairs (see §4.3 for which pairs survive):
 
-| Code | Template source | `crew-name` | Trailing sentence |
-|---|---|---|---|
-| `STAGE_WORD_AUTOCORRECTED` | `dougFacing` | `autocorrect.subject` | stripped |
-| `ROLE_TOKEN_AUTOCORRECTED` | `dougFacing` | `autocorrect.subject` | stripped |
-| `SECTION_HEADER_AUTOCORRECTED` | `dougFacing` | n/a | stripped |
-| `COLUMN_HEADER_AUTOCORRECTED` | `dougFacing` | n/a | KEPT |
-| `FIELD_LABEL_AUTOCORRECTED` | `dougFacing` | n/a | KEPT |
+- **One:** `'X' as 'Y'`
+- **Two:** `'X' as 'Y' and 'P' as 'Q'`
+- **Three:** `'X' as 'Y', 'P' as 'Q', and 'M' as 'N'` (serial comma, repo copy convention)
+- **Four or more:** first three, then `, and N more`, where **N counts SURVIVING valid pairs only**: `N = validPairs.length - 3`. Truncation and the remainder count operate on the post-validation array, never the raw one, so a card can never read "and 2 more" when nothing remains.
 
-Correction-list composition, substituted into the parenthetical:
+**Per-code sentence template** (`<phrase>` = the correction phrase, `<subj>` = `subject`):
 
-- **One:** `'X' as 'Y'`.
-- **Two:** `'X' as 'Y' and 'P' as 'Q'`.
-- **Three:** `'X' as 'Y', 'P' as 'Q', and 'M' as 'N'` (serial comma, matching repo copy convention).
-- **Four or more:** first three, then `, and N more` where N = `corrections.length - 3`.
+| Code | Composed line |
+|---|---|
+| `STAGE_WORD_AUTOCORRECTED` | `We read <phrase> in <subj>'s role.` |
+| `ROLE_TOKEN_AUTOCORRECTED` | `We read <phrase> in <subj>'s cell.` |
+| `SECTION_HEADER_AUTOCORRECTED` | `We read <phrase>.` |
+| `COLUMN_HEADER_AUTOCORRECTED` | `We read <phrase>. Fix the header in the sheet if that guess is wrong.` |
+| `FIELD_LABEL_AUTOCORRECTED` | `We read <phrase>. Fix the label in the sheet if that guess is wrong.` |
 
-The possessive is the catalog's, not this spec's: the template already writes `_<crew-name>_'s role`, so `interpolate` substituting `Chris` yields `Chris's role` with no possessive helper needed. That removes the design's invented apostrophe rule entirely.
+"role" vs "cell" matches each code's own `dougFacing` wording (stage words live in the role, a role token in its cell). The trailing "Fix the …" sentence appears for exactly the two label-correcting codes (ratified §1.1); the other three end after the phrase, the dead-end instruction cut.
 
-Em-dash ban applies (AGENTS.md mechanical UI gate). `renderEmphasis` already handles the `_..._` markers on this surface (`components/admin/PerShowActionableWarnings.tsx:204`), so the markers render as emphasis rather than literal underscores.
+**Possessive:** `<subj>'s` unconditionally, including names already ending in `s` (`Chris's`). This matches what `interpolate` would have produced substituting into the template's pre-baked `_<crew-name>_'s`, so it is the reviewed behavior, not an invented variant. One rule, pinned by §10 test 1.
+
+Em-dash ban applies (AGENTS.md mechanical UI gate).
 
 ### 4.3 Guards
 
-Every guard degrades to CURRENT behavior — the catalog `helpfulContext` line — so no state renders a blank card.
+`autocorrectGuidance` returns `null` (caller renders catalog `helpfulContext`) in every case where a composed line would be dishonest, unattributed, or malformed. Because the fallback is always today's exact behavior, no guard can produce a blank card.
 
 | Condition | Result |
 |---|---|
-| `autocorrect` absent (legacy persisted warning, or non-autocorrect code) | catalog `helpfulContext` |
-| `autocorrect.corrections` empty | catalog `helpfulContext` |
-| `subject` null or blank, crew-scoped code | catalog `helpfulContext` (never a template with an unresolved `_<crew-name>_` slot on screen) |
-| `detected` or `corrected` empty/whitespace | that PAIR is skipped; if no pairs survive, catalog `helpfulContext` |
-| trailing-sentence suffix not found where §4.2 expects a strip | catalog `helpfulContext`, and the meta-test in §10.9 FAILS |
-| code not one of the five | catalog `helpfulContext` (unreachable by construction; defensive) |
+| `autocorrect` absent (legacy persisted warning, or non-autocorrect code) | `null` → `helpfulContext` |
+| `code` not one of the five | `null` → `helpfulContext` (defensive; unreachable by construction) |
+| a pair whose `detected` OR `corrected` is empty/whitespace | that pair is DROPPED before composition |
+| zero pairs survive dropping | `null` → `helpfulContext` |
+| crew-scoped code (`STAGE_WORD`, `ROLE_TOKEN`) with `subject` null/empty/whitespace | `null` → `helpfulContext` — a crew-scoped line with no name is exactly the generic card we are replacing, so generic is the honest fallback |
+| non-crew code with any `subject` value | `subject` IGNORED; those templates take no name |
 
-The `subject`-missing row matters because `interpolate` leaves an unresolved placeholder INTACT rather than blanking it (`lib/messages/lookup.ts:33` returns `match` when the param is absent). Rendering the template without a resolved name would put a literal `<crew-name>` on screen, so the guard falls back to `helpfulContext` instead.
+**Whitespace of surviving values:** `detected`/`corrected`/`subject` are used TRIMMED in the composed line (leading/trailing whitespace removed), so a padded sheet cell cannot render a visibly malformed quote or name. Interior whitespace is preserved (`Content Creation` stays two words).
 
-The renderer is a pure function of the warning, so every row above is a unit test with no DOM.
+Values are plain text and are NEVER parsed as markup — see §4.4.
 
-### 4.4 Where it renders
+### 4.4 Where and how it renders
 
-`warningCardCopyFields` (`components/admin/PerShowActionableWarnings.tsx:39`) gains the instance path. It returns the TEMPLATE plus its params, NOT a pre-interpolated string — see §4.5 for why that distinction is load-bearing. When `autocorrect` is unusable it returns today's `pick(entry?.helpfulContext)` unchanged.
+`warningCardCopyFields` (`components/admin/PerShowActionableWarnings.tsx:39`) calls `autocorrectGuidance(w.code, w.autocorrect)`. On a non-null result it returns a discriminated guidance value `{ kind: "instance", text }`; otherwise `{ kind: "catalog", markup: pick(entry?.helpfulContext) }`, i.e. today's value.
 
-`trigger` (the `?` popover, `triggerContext`) is untouched, and #532's `followUpCopy`, which composes into the POPOVER body rather than the inline guidance line (`components/admin/PerShowActionableWarnings.tsx:114`), is unaffected. The inline `guidance` slot at `components/admin/PerShowActionableWarnings.tsx:199-205` renders the result with no structural change.
+The render site at `components/admin/PerShowActionableWarnings.tsx:199-205` branches on `kind`:
 
-### 4.5 Interpolation order is load-bearing (do not pre-interpolate)
+- `instance` → rendered as a PLAIN TEXT node (`{text}`), NOT through `renderEmphasis`. The composed string contains no catalog emphasis markers, so there is nothing to parse; and because `subject`/`detected` are operator-sheet free text, running them through any markup parser is the exact injection defect (`renderEmphasis.tsx:61-74`, a prior Codex R1 MEDIUM). Emitting them as an opaque text node is injection-safe by construction: a member named `Foo *draft*` renders literally.
+- `catalog` → rendered via `renderEmphasis` exactly as today, preserving the fallback's existing emphasis behavior.
 
-The guidance line MUST render through `renderCatalogEmphasis(template, params)` (`components/messages/renderEmphasis.tsx:75`), NOT through `renderEmphasis(interpolate(template, params))`.
+`trigger` (the `?` popover, `triggerContext`) is untouched, and #532's `followUpCopy`, which composes into the POPOVER body rather than the inline guidance line (`components/admin/PerShowActionableWarnings.tsx:114`), is unaffected.
 
-`renderCatalogEmphasis` parses emphasis markers on the RAW template first, then substitutes params into the resulting text nodes, so a param value is opaque text that is byte-preserved and never parsed as markup. Its doc comment records the defect this ordering exists to prevent: a value containing marker characters is otherwise consumed as emphasis and splits the catalog-authored marker pair (logged there as a prior Codex R1 MEDIUM).
-
-This is not hypothetical for THIS feature. `autocorrect.subject` is a crew member's name read from the operator's spreadsheet, and `detected` is by definition a malformed token from that same sheet. Both are attacker-adjacent-shaped free text flowing into a `_<crew-name>_` slot inside an emphasis-marked template. A member named `Foo *draft*`, or a detected token containing an underscore, would corrupt the rendered line under the wrong ordering.
-
-The correction pairs substituted into the parenthetical are subject to the same rule: they are params, not template text.
-
-`renderCatalogEmphasis` is already the established call for this on other surfaces, so this is conformance with an existing contract rather than a new mechanism. §10 test 10 pins it with a marker-bearing name fixture.
+This removes the design's earlier "interpolation order" section: with a plain-text composed line there is no interpolation into a marked template at render time, so the ordering hazard does not arise. §10 test 10 still asserts the injection-safety property directly (a marker-bearing `subject` renders literally), because it is the invariant that matters regardless of mechanism.
 
 ## 5. Change 3: under-row placement
 
 ### 5.1 Which codes
 
-Crew-scoped = `STAGE_WORD_AUTOCORRECTED` and `ROLE_TOKEN_AUTOCORRECTED`. These are the two whose `autocorrect.subject` is a crew member. The other three are column-, document-, and venue-scoped respectively and keep their section-group placement unchanged.
+Crew-scoped = `STAGE_WORD_AUTOCORRECTED` and `ROLE_TOKEN_AUTOCORRECTED`. These are the two whose `autocorrect.subject` is a crew member. The other three are document-scoped (`SECTION_HEADER_AUTOCORRECTED`), column-scoped (`COLUMN_HEADER_AUTOCORRECTED`, produced in crew and transport), and field-scoped (`FIELD_LABEL_AUTOCORRECTED`, produced in venue, client, event, ops, rooms, and transport). All three keep their existing section-group placement unchanged; none is crew-scoped.
 
 The set is declared as one exported constant, `CREW_SCOPED_WARNING_CODES`, so the copy layer, the placement layer, and the tests read the same list.
 
@@ -225,17 +246,27 @@ Keying uses `canonicalCrewKey(m.name || "")`, identical to the alert path (`comp
 
 At the row host, admin alert banners render FIRST, then warning cards. Rationale: alerts are `critical`/`notice` tone and can require a Confirm; warnings are advisory.
 
-**Cap: 2 visible on the MERGED stack.** The remainder collapses into a native `<details>` reading `N more`, expanding IN PLACE. Native `<details>` matches the existing `Ignored (N)` disclosure idiom (`components/admin/showpage/sectionWarningExtras.tsx:130-146`) — chevron transform only, body instant, no `AnimatePresence`, so §9's transition inventory stays trivial.
+**Only ACTIVE warnings are eligible for under-row placement.** An IGNORED crew-scoped warning is not placed under a row; it remains in its section's existing `Ignored (N)` disclosure (`components/admin/showpage/sectionWarningExtras.tsx:130-146`), unchanged by this spec. This keeps the ignore lifecycle single-homed: ignoring an under-row card moves it OUT of the row and into that disclosure on the next render, exactly as ignoring any section card does today. `warningsByCrewKey` is built from the ACTIVE partition of the section-warning model only.
 
-The cap counts the merged stack, not each kind separately: a member with 2 alerts and 1 warning shows 2 items and `1 more`.
+**Cap: 2 visible on the MERGED stack.** The remainder collapses into a native `<details>` reading `N more`, expanding IN PLACE. Native `<details>` matches the existing `Ignored (N)` idiom: chevron transform only, body instant, no `AnimatePresence`.
+
+The cap counts the merged stack, not each kind separately: a member with 2 alerts and 1 warning shows 2 items and `1 more`. Alerts occupy the visible slots first (they sort first), so a member with 2+ alerts shows only alerts above the fold and every warning is inside the disclosure.
 
 ### 5.4 Structural no-drop
 
-A crew-scoped warning whose member is NOT rendered — beyond `CREW_CAP = 30` (`components/admin/wizard/step3ReviewSections.tsx:152`), or whose canonical key matches no rendered row — falls back to the section code group. This mirrors `crewKeyRendered` for alerts (`lib/admin/sectionAttention.ts:122`).
+A crew-scoped ACTIVE warning is placed under a row when its `subject` matches a rendered row (see below). Otherwise it FALLS BACK to the section group as a real card:
 
-The conservation invariant: **every crew-scoped warning renders exactly once — under its row, or in the group, never both and never neither.** §9 test 3 proves it by identity over a fixture where members exceed `CREW_CAP`.
+- member beyond `CREW_CAP = 30` (`components/admin/wizard/step3ReviewSections.tsx:152`), so no row is rendered;
+- `subject` matches no rendered row's canonical key;
+- `subject` null/empty/whitespace (blank-name guard below).
 
-Duplicate-name handling matches the alert path's `consumedAttentionKeys` rule (`components/admin/wizard/step3ReviewSections.tsx:1379`): the FIRST row with a given canonical key consumes that key's cards; a second row with the same canonical name renders none. This is pre-existing behavior for alerts and is adopted verbatim rather than redesigned.
+Fallback mirrors `crewKeyRendered` for alerts (`lib/admin/sectionAttention.ts:122`).
+
+**Conservation invariant (active):** every ACTIVE crew-scoped warning renders EXACTLY ONCE — under its row, or as a fallback card in the section group — never both, never neither. Ignored crew-scoped warnings render exactly once in the section's `Ignored (N)` disclosure. The two partitions are disjoint and each is conserved. §10 test 3 proves the active invariant by identity over a fixture where members exceed `CREW_CAP` (forcing fallback) AND a matched member coexists (forcing under-row), asserting against the MODEL's active list, not DOM node counts. §10 test 5b proves an ignored under-row card lands in the disclosure and nowhere else.
+
+Duplicate-name handling matches the alert path's `consumedAttentionKeys` rule (`components/admin/wizard/step3ReviewSections.tsx:1379`): the FIRST row with a given canonical key consumes that key's cards; a second row with the same canonical name renders none, and those cards fall back to the group rather than vanishing (a divergence from the alert path, which simply drops them — noted as intentional so the reviewer does not flag it as inconsistency). §10 test 11b covers duplicate non-blank names.
+
+**Blank-name guard.** `canonicalCrewKey` is `name.trim().toLowerCase()` (`lib/admin/attentionItems.ts:223-225`), so an empty/whitespace name canonicalizes to the EMPTY STRING and every unnamed member collides on that one key. A crew-scoped warning whose `subject` is null/empty/whitespace is therefore NOT eligible for under-row placement: it falls back to the section group. Independent reasons: the empty key cannot identify a row, and §4.3 already returns the generic `helpfulContext` for a blank subject, so an under-row card there would be an unattributed generic card under an arbitrary row — worse than the group it came from. The empty string is never used as a `warningsByCrewKey` key. §10 test 11 pins it with a two-unnamed-member fixture.
 
 ## 6. Change 4: group nesting
 
@@ -243,17 +274,26 @@ Duplicate-name handling matches the alert path's `consumedAttentionKeys` rule (`
 
 Warning groups move from sibling-after-panel (`components/admin/review/ShowReviewSurface.tsx:1055`) to INSIDE the section body, threaded via `Step3SectionChromeContext` exactly as `parseNotes`, `diagramAttention`, and `reelAttention` already are (`components/admin/review/ShowReviewSurface.tsx:1020-1031`).
 
-The extras wrapper's `border-t border-border pt-3` (`components/admin/showpage/sectionWarningExtras.tsx:127`) is deleted — containment now carries the hierarchy, so the full-bleed rule would double-signal.
+The extras wrapper's `border-t border-border pt-3` (`components/admin/showpage/sectionWarningExtras.tsx:127`) is deleted: containment now carries the hierarchy, so the full-bleed rule would double-signal.
 
-This applies to EVERY section's warning group, not just crew.
+**This applies to EVERY section's warning group, not just crew — so every section that renders extras today must consume the new context field, or its group silently disappears.** The affected sections are exactly those `renderSectionExtras` covers. §10 test 3b enumerates every section id that has an active warning group in a fixture and asserts each still renders its group after the sibling mount is deleted; a section renderer that forgets the context field fails it. This is the finding-9 no-drop gate and is NOT crew-specific.
 
-### 6.2 Bulk-ignore split
+### 6.2 Bulk-ignore: fallback cards in the slot, count over all instances
 
-`BulkIgnoreControls` (`components/admin/BulkIgnoreControls.tsx:127-190`) currently renders the eyebrow, the chip, and the group's cards together. For crew-scoped codes the cards now live under rows, so the component gains a **headless mode**: eyebrow and chip render at section level with an empty `cards` slot.
+`BulkIgnoreControls` (`components/admin/BulkIgnoreControls.tsx:127-195`) already supports a group with `bulk` present and any `cards` node, including empty — the chip renders iff `bulk` is present (`BulkIgnoreControls.tsx:159`, `{bulk ? … : null}`), and the type context lives in the EYEBROW label, not the chip (the chip is `Ignore all N`, `BulkIgnoreControls.tsx:140-142`). So NO new "headless mode" is introduced; the crew-scoped group is an ordinary group whose `cards` slot is filtered.
 
-The chip label names the scatter so the operator knows what it will hit — `Ignore all 3 stage-word corrections` rather than a bare `Ignore all 3` next to no visible cards.
+For a crew-scoped code, let `N` = the count of ACTIVE instances of that code in the section (under-row PLUS fallback), and `fallbackCards` = the instances that fell back to the group (§5.4).
 
-Ignoring from the chip must clear the under-row cards in the same pass; the fingerprint set the chip acts on is unchanged, so this follows from existing behavior provided the under-row cards read the same active/ignored partition. §9 test 5 pins it.
+- **`cards` slot** = `fallbackCards` only (the under-row cards are not repeated here). Usually empty.
+- **`bulk`** is present iff `N ≥ 2`, with `bulk.items` = ALL `N` active fingerprints, so the chip count is honest across both placements: `Ignore all N`. Bulk-ignore then ignores every instance of the code in the section by fingerprint, which clears BOTH the under-row cards and any fallback cards in one pass — the existing fingerprint semantics, unchanged.
+- **Group emission:** the group is emitted iff `fallbackCards.length ≥ 1` OR `N ≥ 2`. So:
+  - `N=1`, under a row → NOT emitted; the single card's own Ignore is the control (no `Ignore all 1`).
+  - `N=1`, fallback → emitted with 1 card and NO chip.
+  - `N≥2` → emitted with chip `Ignore all N`; `cards` shows only the fallback subset (possibly empty).
+
+The eyebrow label is the code's existing group label (`model.activeGroups[].label`), unchanged. There is no per-code custom chip text; finding-14's `Ignore all 1` and zero-count cases cannot arise because the chip exists only at `N ≥ 2`.
+
+§10 test 5 covers the scattered case (`N≥2`, empty `cards`, chip present, ignore clears under-row cards); §10 test 5c covers the mixed case (fallback card + under-row cards under one chip); §10 test 5d covers `N=1`-under-row emitting no group.
 
 ## 7. What does not change
 
@@ -262,69 +302,112 @@ Ignoring from the chip must clear the under-row cards in the same pass; the fing
 - `§12.4` prose, `pnpm gen:spec-codes`, `lib/messages/__generated__/spec-codes.ts`.
 - `triggerContext` popover copy and #531's coverage gate.
 - `AttentionItem`, `ATTENTION_ROUTES`, `bucketAttention`, `deriveAttentionItems`, and every attention structural test.
-- `ParseWarning.message` at all five emit sites.
+- `ParseWarning.message` at all thirteen emit sites (§3.2).
 - The eyebrow's type treatment.
 - Any DB schema, migration, RPC, or advisory-lock path.
 
 ## 8. Dimensional invariants
 
-The under-row stack introduces a flex parent with children that must fill it. Tailwind v4 does NOT default `.flex` to `align-items: stretch` (AGENTS.md), so each relationship is stated and browser-verified.
+The under-row stack is a flex parent whose children must fill it. Tailwind v4 does NOT default `.flex` to `align-items: stretch` (AGENTS.md), so each relationship is stated and browser-verified against a named `data-testid`.
 
-| Parent | Child | Relationship | Guaranteed by |
+Named test ids (added by this change): the stack container is `crew-warn-stack-<key>`, the disclosure is `crew-warn-more-<key>`, and each card keeps its existing `per-show-actionable-item`.
+
+| Parent (testid) | Child (testid) | Asserted equality | Guaranteed by |
 |---|---|---|---|
-| row stack container | each card (`per-show-actionable-item`) | child width === parent width | `flex flex-col` + `items-stretch` explicit |
-| row stack container | `<details>` disclosure | child width === parent width | `items-stretch` explicit |
-| `<details>` body | each collapsed card | child width === parent width | `flex flex-col` + `items-stretch` explicit |
-| crew row `<li>` | row stack container | container width === row content width | `w-full` explicit |
+| `crew-warn-stack-<key>` | each `per-show-actionable-item` | `child.width === parent.width` (content-box, both) | container `flex flex-col items-stretch` |
+| `crew-warn-stack-<key>` | `crew-warn-more-<key>` | `child.width === parent.width` | `items-stretch` |
+| `crew-warn-more-<key>` (open) | each disclosed `per-show-actionable-item` | `child.width === parent.width` | body `flex flex-col items-stretch` |
+| the crew row `<li>` inner content wrapper | `crew-warn-stack-<key>` | `stack.width === wrapper.contentWidth` (wrapper `clientWidth` minus its horizontal padding) | stack `w-full`, wrapper already `min-w-0 flex-1` (`step3ReviewSections.tsx:1350`) |
 
-§9 test 6 asserts each with `getBoundingClientRect()` in a real browser at ≤0.5px tolerance. jsdom is insufficient and is not accepted for these four rows.
+The fourth row measures the stack against the wrapper's CONTENT width (its `clientWidth` less left+right padding read from computed style), not the border-box, because `w-full` equals the content box of a padded parent. That distinction was underspecified before and is the one the reviewer flagged.
+
+§10 test 6 asserts each row with `getBoundingClientRect()`/computed style in a real browser at ≤0.5px, at BOTH a mobile (375px) and a desktop (1280px) viewport, since the modal is mobile-first and `w-full` can hold at one width while an inner element overflows at another. jsdom is not accepted for these rows.
 
 ## 9. Transition inventory
 
-The stack has two visual states: collapsed (cap applied) and expanded (`<details>` open).
+The stack disclosure has THREE states, not two: **absent** (merged active count ≤ 2, no `<details>` rendered), **collapsed** (count ≥ 3, `<details>` closed), **expanded** (`<details>` open). Enumerating all three and the count-crossing transitions between them:
 
-| From | To | Treatment |
-|---|---|---|
-| collapsed | expanded | chevron `rotate-90` transform; body appears instantly (native `<details>`) |
-| expanded | collapsed | chevron rotates back; body disappears instantly |
+| From | To | Trigger | Treatment |
+|---|---|---|---|
+| absent | collapsed | count crosses 2→3 (a warning/alert added on live refresh) | disclosure mounts closed; chevron at 0°; instant (no `AnimatePresence`) |
+| collapsed | absent | count crosses 3→2 (a card ignored/resolved) | disclosure unmounts; the freed item joins the ≤2 visible; instant |
+| collapsed | expanded | operator clicks the disclosure | chevron `rotate-90` transform; body appears instantly (native `<details>`) |
+| expanded | collapsed | operator clicks again | chevron rotates back; body instant |
+| absent | absent | count changes within 0..2 | visible slots re-render in place; instant |
 
-Compound: a card RESOLVED while the disclosure is open swaps in place and the disclosure stays open — resolution does not re-collapse the stack. No `AnimatePresence` is introduced by this change.
+Compound transitions (a mutation while the disclosure is OPEN):
+
+- A card is ignored/resolved while expanded and the count stays ≥ 3: the card leaves in place, the disclosure STAYS OPEN, remaining hidden cards renumber. §10 test 4b asserts the open state and chevron survive the mutation.
+- A card is ignored/resolved while expanded and the count crosses 3→2: the disclosure transitions expanded→absent (its two survivors promote to visible). §10 test 4c asserts no orphaned open `<details>` and no dropped card.
+
+No `AnimatePresence` is introduced. Every transition above is either a native `<details>` toggle or an instant mount/unmount, so the inventory is complete and animation-free by construction.
 
 ## 10. Test plan
 
-Anti-tautology applies throughout: expected strings derive from FIXTURE corrections, never hardcoded next to the assertion.
+Anti-tautology applies throughout: expected values derive from FIXTURE data (correction arrays, member names, fixture dimensions), never hardcoded beside the assertion; where a test scans rendered DOM for a label it first removes sibling nodes that independently render it.
 
-1. **Copy composition (unit, no DOM).** Every row of the §4.2 table and every row of the §4.3 guard table. Expected strings derive from the fixture's `corrections` array and from `MESSAGE_CATALOG[code].dougFacing`, never hardcoded beside the assertion. Catches: a guard that renders a blank card, a 4+ join that drops the count, an unresolved `<crew-name>` reaching the screen.
+1. **Copy composition (unit, no DOM).** Every row of the §4.2 sentence table and every row of the §4.3 guard table. Expected phrase derives from the fixture's `corrections`; the possessive case includes a name ending in `s` (`Chris's`). Catches: a guard that returns a non-null line where it must fall back, a 4+ remainder computed on the raw rather than surviving pairs, a dropped/duplicated pair, a wrong per-code sentence, a kept trailing sentence on a strip-code or a stripped one on a keep-code.
 
-9. **Trailing-strip fidelity (meta).** For each of the three strip-codes, assert the exact suffix this spec strips is PRESENT in the live catalog `dougFacing`. This is the tripwire for §4.1's second delta: if a future catalog reword changes that sentence, the strip silently no-ops and the dead-end instruction returns to the card. Fails loudly instead.
+2. **Emitter population (unit + boundary).** Each of the thirteen producers emits `autocorrect` with the right `subject` and pairs; `message` is byte-identical to a pre-change oracle captured by snapshotting each producer's output on the merge-base commit (not hand-transcribed). The ROLE stamp gets a dedicated boundary assertion: every `ROLE_TOKEN_AUTOCORRECTED` warning EXITING `parseCrewBlock` carries a non-null `subject` (§3.2 no-escape proof), so a second `extractRoleFlags` caller or a raw-push would fail.
 
-10. **Marker-bearing param safety (component).** Render the card with `subject` = `Foo *draft*` and with a `detected` token containing an underscore. Assert the catalog's own emphasis structure is intact and the param text appears byte-identical inside it. This is the §4.5 regression test: it FAILS under `renderEmphasis(interpolate(...))` and passes under `renderCatalogEmphasis(template, params)`, so it pins the ordering rather than merely exercising it.
+3. **Active placement conservation (component).** Fixture with members exceeding `CREW_CAP` AND a matched member, so both fallback and under-row placement occur at once. Assert every ACTIVE crew-scoped warning appears exactly once by identity against the section MODEL's active list, not by counting DOM nodes in a container that renders both graphic and card. Failure mode caught: a warning that renders in both places, or in neither.
 
-11. **Producer completeness (structural meta-test).** Filesystem-walk `lib/parser/**` for every `code: "<X>_AUTOCORRECTED"` literal, and assert each producing site emits a warning carrying `autocorrect`. Fails by default when a NEW producer is added. This is the one meta-test this spec CREATES (writing-plans meta-test inventory). It exists because §3.2's failure mode is invisible: an unpopulated producer renders today's copy and breaks no other test. Registry-with-inline-exemption style, matching `tests/log/_metaMutationSurfaceObservability.test.ts`: a site legitimately outside scope carries an inline justification rather than being silently absent.
-2. **Emitter population (unit, per code).** All five codes populate `autocorrect` with the right `subject` and the right pairs. Includes the §3.2 row-2 mechanism specifically: assert `ROLE_TOKEN_AUTOCORRECTED` arrives at the section model WITH `subject` set, proving the stamp ran — a test at `personalization.ts` alone would pass with `subject` permanently null. Also asserts `message` is byte-identical to pre-change output at all thirteen sites.
-3. **Placement conservation (component).** Over a fixture whose members exceed `CREW_CAP`: every crew-scoped warning renders exactly once, under its row or in the group. Assert by warning identity against the MODEL, not by counting DOM nodes in a container that renders both.
-4. **Cap behavior (component).** 1, 2, 3, and 5 merged items; alerts-before-warnings ordering; `N more` count correct; expansion reveals exactly the remainder.
-5. **Bulk-ignore headless mode (component).** Chip renders at section level with no cards beside it; acting on it clears the under-row cards for that code in the same pass.
-6. **Layout dimensions (real browser, Playwright).** The four §8 rows via `getBoundingClientRect()`, ≤0.5px. Runs against a hydrated harness — the stack's disclosure is click-dependent, so a static layout harness cannot cover it.
-7. **Staged parity (component).** Staged surfaces byte-identical: `StagedReviewCard` cards unchanged.
-8. **Registry/meta.** `tests/messages/warningCardCopyRegistry.ts` frozen strings still match the catalog (unchanged by this spec — the instance path does not touch catalog rows); #531's `_metaPopoverContextCoverage` still green; `bucketAttention` conservation still green.
+   3b. **All-section group no-drop (component).** Finding-9 gate. A fixture giving EVERY section that `renderSectionExtras` covers at least one active warning group; after the sibling mount is deleted and groups thread through context, assert each section id still renders its group exactly once. A section renderer that omits the context field fails. NOT crew-specific.
+
+4. **Cap behavior (component).** Merged counts of 1, 2, 3, 5; alerts occupy visible slots first; `N more` equals the hidden remainder; expanding reveals exactly the remainder and nothing duplicated.
+
+   4b. **Compound: mutation while open, count stays ≥3 (component).** Ignore a disclosed card; assert the `<details>` stays open, chevron stays rotated, remainder renumbers, no card dropped.
+
+   4c. **Compound: mutation while open crossing 3→2 (component).** Assert the disclosure unmounts, both survivors are visible, no orphaned open `<details>`, no card dropped.
+
+5. **Bulk-ignore scattered case (component).** Crew-scoped code with `N≥2` all under rows: the section group renders eyebrow + `Ignore all N` chip with an EMPTY cards slot; clicking the chip ignores all N by fingerprint, clearing every under-row card in one pass.
+
+   5b. **Ignored under-row card lands once (component).** Ignore an under-row card; assert it appears in the section's `Ignored (N)` disclosure and NOT under the row, and is not double-counted.
+
+   5c. **Bulk-ignore mixed case (component).** `N≥2` with one fallback card and the rest under rows: one chip reads `Ignore all N`, the fallback card shows in the group slot, and the chip clears both placements.
+
+   5d. **N=1 under-row emits no group (component).** A single active crew-scoped warning matched to a row renders no section group header and no `Ignore all 1` chip; the card's own Ignore is the only control.
+
+6. **Layout dimensions (real browser, Playwright).** The four §8 rows via `getBoundingClientRect()`/computed style at ≤0.5px, at 375px and 1280px. Hydrated harness — the disclosure is click-dependent, so a static layout harness cannot reach the expanded state.
+
+7. **Staged parity (component).** `StagedReviewCard` and every staged surface byte-identical; the new behavior is published-only, gated by caller.
+
+8. **Registry/meta stability.** `tests/messages/warningCardCopyRegistry.ts` frozen strings still match the catalog (this spec edits no catalog row); #531's `_metaPopoverContextCoverage` still green; `bucketAttention` conservation still green.
+
+9. **Injection safety (component).** Render with `subject` = `Foo *draft*` and a `detected` token containing `_`. Assert the composed instance line renders those characters LITERALLY (the line is a plain text node, §4.4) — no `<em>`/`<strong>` introduced by the param, no split markers. This is a differential guard: it fails if an implementer routes the composed line through `renderEmphasis`.
+
+10. **Producer completeness (structural meta-test — the one this spec CREATES).** Filesystem-walk `lib/parser/**` for every `code: "<X>_AUTOCORRECTED"` literal and assert each producing site emits a warning carrying `autocorrect`; a new producer fails by default. Registry-with-inline-exemption style (`tests/log/_metaMutationSurfaceObservability.test.ts`). Exists because §3.2's failure mode is invisible: an unpopulated producer renders today's copy and breaks nothing else. The walk keys on the literal, so a producer that constructs the code by any non-literal means (alias, computed string, helper) is NOT discovered — that limitation is stated in the test so a future such producer is added deliberately, and `CREW_SCOPED_WARNING_CODES` classification is asserted here too so a miscategorized code cannot let production and tests agree.
+
+11. **Blank-name collision (component).** Two members with empty/whitespace names, each carrying a crew-scoped warning. Assert neither renders under a row, both render as fallback cards in the section group, none dropped.
+
+    11b. **Duplicate non-blank names (component).** Two rendered rows with the same canonical non-blank key, each with a crew-scoped warning. Assert the first row hosts its card, the second row's card falls back to the group (not silently dropped), and conservation holds.
 
 ## 11. Fan-out checklist
 
 | Surface | Action |
 |---|---|
 | `lib/parser/types.ts` | add `autocorrect` optional |
+| `lib/messages/autocorrectGuidance.ts (new)` | NEW pure composer (§4.1) |
 | 13 emitter sites (§3.2) | populate; `message` unchanged |
 | `components/admin/PerShowActionableWarnings.tsx` | instance-copy path in `warningCardCopyFields` |
-| `lib/admin/sectionWarningModel.ts` | partition crew-scoped codes out of the group |
+| `lib/admin/sectionWarningModel.ts` | build `warningsByCrewKey` (active); partition crew-scoped fallback vs under-row; declare `CREW_SCOPED_WARNING_CODES` |
 | `components/admin/wizard/step3ReviewSections.tsx` | row-stack host, cap, disclosure |
 | `components/admin/review/ShowReviewSurface.tsx` | thread groups into section body |
 | `components/admin/showpage/sectionWarningExtras.tsx` | delete wrapper `border-t` |
-| `components/admin/BulkIgnoreControls.tsx` | headless mode + chip label |
+| `components/admin/BulkIgnoreControls.tsx` | crew-scoped group: `cards`=fallback subset, `bulk` counts all N (§6.2); no new mode |
 | `tests/messages/warningCardCopyRegistry.ts` | verify unaffected |
+| `tests/parser/_metaAutocorrectProducers.test.ts (new)` | NEW producer-completeness meta-test (§10.10) |
 | impeccable critique + audit | invariant 8 (UI surface) |
 | Playwright real-browser spec | §8 dimensional invariants |
 
-## 12. Open questions
+## 12. Review history
 
-None. All five design decisions are ratified in §1.1; the citation pass corrected §3.2 row 2 before drafting.
+- **Citation pass (2026-07-21, pre-draft):** corrected the ROLE emit-vs-stamp asymmetry (§3.2) and found the `dougFacing` crew-name slot.
+- **Self-review (pre-R1):** found the 13-vs-5 producer miscount and the interpolation-order hazard.
+- **Spec review R1 (Codex, inlined):** 15 findings, verdict BLOCKING. Resolved in this revision: producer-inventory coherence (§3.2, single count + line map); ROLE stamp no-escape proof (§3.2, single call site + boundary test); catalog line-ownership map (§2.2); the `dougFacing`-reuse fragility, resolved by pivoting to a pure composer (§4, `autocorrectGuidance`), which also eliminated the `_<sheet-name>_` gap, the cross-surface coupling, and the markup-injection hazard; truncation/`N` on surviving pairs (§4.2-4.3); the headless-vs-fallback placement contradiction (§6.2, `cards`=fallback subset, chip counts all N); conservation scoped to active/ignored (§5.3-5.4); all-section no-drop (§6.1, test 3b); transition absent-state + compound cases (§9); dimensional testids + viewport (§8); anti-tautology gaps and test renumber (§10).
+
+**Meta-test inventory (writing-plans):** this milestone CREATES one structural meta-test — `tests/parser/_metaAutocorrectProducers.test.ts (new)` (§10.10, producer completeness). It EXTENDS none. The `bucketAttention` conservation test and `_metaPopoverContextCoverage` are asserted UNAFFECTED (§10.8), not extended.
+
+## 13. Open questions
+
+None. All ratified decisions are in §1.1; every R1 finding is resolved above.
