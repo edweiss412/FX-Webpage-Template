@@ -270,7 +270,11 @@ Both R1 (#25) and R2a (#12) reported the same class: catalog and input guards en
 
 R1 #6 is correct: `AttentionMenu` requires `pillRef: RefObject<HTMLButtonElement | null>`, `onClose: () => void`, and `onNavigate: (item) => void` (`components/admin/showpage/AttentionMenu.tsx:30-34`). None can be created in or passed from a Server Component.
 
-**Bucketing runs on the server** (R2a): `BucketOpts` holds predicate *functions*, which cannot cross the RSC boundary. The page calls `bucketAttention(items, opts)` itself — it has the scenario's `bucket` predicates in scope — and passes the **resulting groups** down. `ScenarioBlock` never receives `BucketOpts` and never calls `bucketAttention`.
+**Bucketing runs on the server** (R2a): `BucketOpts` holds predicate *functions*, which cannot cross the RSC boundary. The page calls `bucketAttention(items, opts)` itself — it has the scenario's `bucket` predicates in scope — and passes the result down. `ScenarioBlock` never receives `BucketOpts` and never calls `bucketAttention`.
+
+**What bucketing actually returns** (verified at plan time): `SectionAttention` is `Map<RoutedSectionId, SectionAttentionBucket>`, and a bucket holds **pre-rendered `ReactNode[]`** — `sectionTop`, optional `byCrewKey` and `byAnchor` maps, and a `notes: NoteItem[]` of domain objects (`lib/admin/sectionAttention.ts:17-28`). It does **not** return `AttentionItem[]` per section. The cards are rendered by the `renderCard` callback during bucketing, on the server.
+
+This is fine across the RSC boundary — a Server Component passing rendered JSX into a Client Component is the ordinary pattern, and `AttentionBanner` is itself a client component, so what crosses is a client-component reference plus serializable props. It does change the prop shape below: `ScenarioBlock` receives **rendered nodes**, not items to render.
 
 Resolution: the page (server) computes derived items, buckets them, and renders **one client component per scenario**, `ScenarioBlock` (`components/admin/dev/ScenarioBlock.tsx (new)`, `"use client"`). Its complete prop surface:
 
@@ -279,7 +283,14 @@ type ScenarioBlockProps = {
   scenarioId: string;              // DOM anchor
   label: string;
   items: AttentionItem[];          // derived, serializable
-  groups: Array<{ sectionId: RoutedSectionId; items: AttentionItem[] }>; // server-bucketed
+  // Server-bucketed, flattened for rendering. `nodes` are already-rendered cards
+  // (lib/admin/sectionAttention.ts:17-19), NOT items awaiting render.
+  groups: Array<{
+    sectionId: RoutedSectionId;
+    placement: "sectionTop" | "crewRow" | "anchor";
+    anchorOrCrewKey: string | null; // set for crewRow and anchor placements
+    nodes: ReactNode[];
+  }>;
   holdItems: AttentionItem[];      // kind: "hold", excluded from groups by bucketAttention
   readout: ReadoutRow[];           // plain strings, section 4.1 step 2
   warnings: ParseWarning[] | null; // null = scenario does not declare warnings (3.4)
@@ -288,7 +299,7 @@ type ScenarioBlockProps = {
 };
 ```
 
-Every field is serializable. `AttentionItem` is a plain discriminated union of scalars, arrays, and objects (`lib/admin/attentionItems.ts:79-81`) with no functions. Absent behavior: `warnings: null` renders no warning cards and no muted duplicate; `maxWidthPx: null` applies no wrapper constraint; empty `items`, `groups`, and `holdItems` render their respective empty states.
+Every field is serializable or is rendered JSX. `AttentionItem` is a plain discriminated union of scalars, arrays, and objects (`lib/admin/attentionItems.ts:79-81`) with no functions; `groups[].nodes` are server-rendered elements, which cross the boundary by the standard RSC mechanism. The page **flattens** the `SectionAttention` map into the `groups` array above, so `ScenarioBlock` never touches a `Map` (maps do serialize, but a flat array keeps the client component's contract obvious and its render a single pass). Absent behavior: `warnings: null` renders no warning cards and no muted duplicate; `maxWidthPx: null` applies no wrapper constraint; empty `items`, `groups`, and `holdItems` render their respective empty states.
 
 **Malformed props are unreachable, and that is the contract** (R5d). These props are not authored — the page derives every one of them from a scenario that already passed `validateScenario` (§3.6), through `deriveAttentionItems` and `bucketAttention`, both of which are typed. So an empty `scenarioId`, a blank `label`, a malformed `readout` row, a non-boolean `degraded`, or an out-of-range `maxWidthPx` cannot occur: the first two are rejected by the validator, the middle ones are constructed by typed code, and `maxWidthPx` is normalized by §4.5's parse rule before it reaches the component. `ScenarioBlock` therefore performs **no defensive validation of its own** — deliberately, since a guard for an unreachable state is untestable and would rot. The guard contract lives at the catalog boundary where the values actually enter the system.
 
