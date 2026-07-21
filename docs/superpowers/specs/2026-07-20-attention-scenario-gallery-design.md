@@ -387,7 +387,9 @@ Apply makes the target show's synthetic state **equal to** the selected scenario
 1. Delete **every** `__devScenario`-tagged `admin_alerts` row for the show — any scenario, not only the selected one.
 2. Delete every `__devScenario`-tagged `sync_holds` row for the show, same scope.
 3. Insert `scenario.alerts` (skipping collisions, §5.1a) and `scenario.holds` (skipping `(domain, entity_key)` collisions, §3.0a).
-4. If and only if `scenario.warnings` is present, overwrite `shows_internal.parse_warnings` (§3.4).
+4. If and only if `scenario.warnings` is present **and the target is local**, overwrite `shows_internal.parse_warnings` (§3.4). **On validation, warnings are never written**, and Apply reports `warnings_skipped_validation`.
+
+   The asymmetry is deliberate (R3b): `parse_warnings` is untagged, and validation Clear does not regenerate (§5.5), so a validation warning write would have **no cleanup path at all** and would accumulate permanently. Refusing the write is the only way to keep Clear's guarantee honest on validation. Alerts and holds are unaffected — they are tag-scoped and fully cleanable in both environments.
 
 **Scope of the replacement guarantee** (R3a: the unqualified claim was false when `warnings` is omitted):
 
@@ -518,7 +520,7 @@ The previous revision cited a `FILES`-membership assertion in `tests/admin/withA
 
 Net: today, **nothing in CI catches a new `app/admin/dev/**` route that was never added to the `FILES` array.** The rename gate protects only files it knows about, and membership is unchecked. This affects the load-bearing production-safety claim in §1.1 and §5.5, so it is stated rather than assumed.
 
-**Structural defense, created by this change** (cheap, CI-runnable, fails by default): a filesystem-walking meta-test asserting that **every** `app/admin/dev/**/page.tsx` and `app/admin/dev/**/actions.ts` — excluding the deliberately prod-available `telemetry` route, which the artifact test already treats as an exception — appears in `scripts/with-admin-dev-flag.mjs`'s `FILES` array. It reads the filesystem and the script, needs no build, and runs in milliseconds. A future dev route added without registration fails immediately instead of silently shipping to production.
+**Structural defense, created by this change** (cheap, CI-runnable, fails by default): a filesystem-walking meta-test asserting that **every route-defining or server-action file** under `app/admin/dev/**` appears in `scripts/with-admin-dev-flag.mjs`'s `FILES` array. The walked set is `page.tsx`, `route.ts`, `actions.ts`, `layout.tsx`, `default.tsx (route-tree files)`, and any `*.ts` containing a `"use server"` directive — not just `page.tsx` and `actions.ts` (R3b: an unregistered `route.ts` API handler would otherwise evade the check and ship in the production artifact, which is exactly the fail-by-default protection this test exists to provide). The deliberately prod-available `telemetry` route is the single declared exception, matching the artifact test's own carve-out. It reads the filesystem and the script, needs no build, and runs in milliseconds. A future dev route added without registration fails immediately instead of silently shipping to production.
 
 **Artifact-level proof at both flag states** (R1 #20) remains the `RUN_BUILD_ARTIFACT_GATE_TEST=1` path, extended with the enabled-flag case:
 
@@ -552,7 +554,9 @@ No wrapper exemptions are claimed.
 
 Materialize writes `admin_alerts`, `sync_holds`, and `shows_internal.parse_warnings`. None is in the guarded set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`).
 
-The local Clear's re-sync acquires the per-show lock **inside existing code**: `runManualSyncForShow` (`lib/sync/runManualSyncForShow.ts:297`) is the sole acquirer, and `runManualSyncForShow_unlocked` calls `assertShowLockHeld` (`lib/sync/runManualSyncForShow.ts:286`) so a second acquisition surfaces as an assertion failure rather than a deadlock. Materialize adds **no acquisition of its own at any layer** — it calls the locked entry point and lets it own the lock, which is the single-holder rule.
+The local Clear's re-sync acquires the per-show lock **inside existing code**: `runManualSyncForShow` (`lib/sync/runManualSyncForShow.ts:297`) is the sole acquirer. Materialize adds **no acquisition of its own at any layer** — it calls the locked entry point and lets it own the lock, which is the single-holder rule.
+
+**Correction (R3b):** an earlier revision claimed `assertShowLockHeld` (`lib/sync/runManualSyncForShow.ts:286`) would make a second acquisition fail loudly. That is false — it asserts the lock **is** held, which a nested acquirer would also satisfy. It documents a precondition; it does not detect double-acquisition. The actual protection is the enumerated topology below, not a runtime assertion.
 
 Enumerated holders for the `show:<drive_file_id>` hashkey touched by this design: (1) `runManualSyncForShow`, JS-side, pre-existing, unchanged. That is the complete list.
 
@@ -584,7 +588,9 @@ That annotation's stated rationale is that every helper in the file throws on bo
 
 The two new actions **break that premise deliberately**: they return `MaterializeResult` above, because the card must render skip lists, partial outcomes, and refusals as ordinary UI. Throwing would surface a recoverable, expected condition — a collision skip, an unconfirmed environment — through the dev error boundary, which is the wrong behavior.
 
-Therefore the new actions are **not exempt; they comply directly** — they destructure `{ data, error }`, distinguish returned from thrown, and map infra faults onto `{ kind: "infra_error" }`. The implementation task **amends the file-level annotation** so it no longer claims file-wide that nothing returns a typed union: the legacy helpers keep their throwing contract and their exemption, the two materialize actions are called out as honoring the invariant directly. Leaving the annotation as-is would make it a false statement about its own file.
+**Structural registration is still required** (R3b: complying with the contract does not waive the requirement to be *registered or annotated* — those are separate obligations). Since no registry's scope covers this tree, the mechanism is the inline form: each new action carries `// not-subject-to-meta: honors the boundary contract inline — returns a typed MaterializeResult; no invariant-9 registry covers app/admin/dev (see spec §7.5)`. The comment records the reason it is outside a registry, not a claim of exemption from the contract.
+
+With that in place, the new actions are **not exempt; they comply directly** — they destructure `{ data, error }`, distinguish returned from thrown, and map infra faults onto `{ kind: "infra_error" }`. The implementation task **amends the file-level annotation** so it no longer claims file-wide that nothing returns a typed union: the legacy helpers keep their throwing contract and their exemption, the two materialize actions are called out as honoring the invariant directly. Leaving the annotation as-is would make it a false statement about its own file.
 
 ## 8. Dimensional invariants
 
@@ -604,8 +610,11 @@ The gallery adds no animated component; transitions inside `AttentionMenu`, `Att
 | menu open | menu closed | same transition, reversed; `motion-reduce:transition-none` already honored |
 | navigation readout unset | set (an item was activated) | instant — a text node appears; animating it would obscure what it records |
 | readout set | set to a different item | instant |
-| help popover closed | open, **while the menu is open** | independent; the popover is inside a menu row, so the compound case is "menu open + popover open" and both are already covered by `tests/components/admin/compactAlertCompoundTransitions.test.tsx` |
-| warning card collapsed | expanded, while the menu is open | independent; no shared animation state |
+| help popover closed | open, **while the menu is open** | instant for the composition — the popover carries its own treatment; opening it does not alter the menu's state or transition |
+| menu open | **closed while the help popover is open** | the menu's own exit transition runs; the popover unmounts with it because it lives inside a menu row. Explicitly **not** animated separately — a second animation on an unmounting subtree is what produces the orphaned-overlay class of bug |
+| warning card collapsed | expanded, **while the menu is open** | instant; the warning cards are siblings of the menu, not descendants, so neither transition observes the other |
+| menu closed | opened **while a warning card is expanded** | the menu's own entry transition, unchanged; the expanded card is unaffected |
+| help popover or warning card toggled | **while the menu is mid-transition** | instant, and deliberately not queued or blocked: the menu's transition is on `opacity`/`transform` only, so a sibling's state change cannot interfere with it |
 
 No new `AnimatePresence` and no new animated branch is introduced: every transition above is either an existing component's own, or deliberately instant.
 
@@ -633,17 +642,23 @@ Compound: changing scenario, show, or environment **while a request is in flight
 | `context.__devScenario` | `admin_alerts.context` | Apply | Apply + Clear | scopes deletion |
 | `sync_holds.created_by` | column | Apply | Apply + Clear | scopes deletion |
 | target environment | form field | user | materialize action | local vs validation client (§5.5) |
+| validation confirmation | form field, per submit — **not persisted** | user, only while target is validation | materialize action | absent, empty, false, or not the expected token → refusal (§5.3). Resets to unconfirmed whenever the target changes, so a confirmation cannot carry across environments |
 
 No empty column; no zombie flag.
 
 ## 11. DB completeness matrix
+
+Dimensioned by tier as well as table (R3b). **Tier applies only to the write path**, because materialize accepts T3 only (§5.0): T1 and T2 have no DB dimension at all — they are gallery-only and touch no table in any layer. Every row below is therefore the T3 row, and the T1/T2 rows are "N/A, never materialized".
 
 | Layer | `admin_alerts` | `sync_holds` | `shows_internal.parse_warnings` |
 | --- | --- | --- | --- |
 | DDL / CHECK / migration | none — no schema change | none | none |
 | Constraints honored | partial unique index (§5.1a) | `unique (show_id, domain, entity_key)` + domain/kind/kind_shape CHECKs (§3.0a) | none |
 | RPC read path | unchanged (`fetchPerShowAlerts`) | unchanged (`readShowChangeFeed`) | unchanged (snapshot RPC) |
-| Write path | service-role insert/delete | service-role insert/delete | service-role update |
+| RPC write path | N/A — no RPC; direct service-role insert/delete | N/A — no RPC; direct service-role insert/delete | N/A — no RPC; direct service-role update |
+| Direct write path | service-role insert/delete | service-role insert/delete | service-role update, **local only** (§5.1 step 4) |
+| Propagation trigger | N/A — none defined on this table | N/A — none defined on this table | N/A — none defined on this column |
+| Audit page | unchanged — the existing admin alerts view reads these rows and needs no change; synthetic rows appear there exactly as real ones do, which is intended | unchanged | unchanged |
 | Cleanup | tag-scoped | tag-scoped | local re-sync only (§5.2) |
 | Frontend | gallery + card | gallery hold group + card | `PerShowActionableWarnings` |
 | Tests | §12 | §12 | §12 |
@@ -671,8 +686,15 @@ No empty column; no zombie flag.
 | Apply A then Apply B leaves exactly B's synthetic rows and none of A's | the union/first-wins/last-wins mixture of R1 #2 |
 | Apply with `warnings` absent leaves `parse_warnings` byte-identical; with `[]` writes `[]` | the destructive-erase of R1 #3 |
 | Apply → Clear leaves **zero** tagged rows, counted directly against the DB, not from the action's own report | a Clear that strands rows while reporting success |
+| **Clear preserves authentic rows.** Seed untagged `admin_alerts` and `sync_holds` rows alongside synthetic ones, Clear, then assert every authentic row is **byte-identical** — same id, timestamps, and payload — not merely still counted | a Clear whose predicate is too broad and sweeps production rows out with the synthetic ones. Counting tagged rows alone cannot see this (R3b) |
+| **Apply → Clear observes the warning column**, not just tagged rows: on local, `parse_warnings` returns to its authentic content; on validation, Apply never wrote it (§5.1 step 4) so it is unchanged throughout | synthetic warnings surviving a Clear that reports success because alerts and holds went away. `parse_warnings` is untagged, so a tagged-row count is blind to it (R3b) |
+| **Authentic hold collision.** Seed a real `sync_holds` row, apply a scenario whose hold shares `(domain, entity_key)`; assert the scenario's hold is skipped and named, and the real row is byte-identical | overwriting or deleting a real hold. The catalog duplicate check cannot catch this — it only sees within-scenario duplicates (R3b) |
 | Apply twice yields the same row count as once | non-idempotent accumulation |
-| Guards: unknown/empty/whitespace slug, archived show, unknown scenario id, T1/T2 id, unknown environment, unconfirmed validation, wrong project ref, empty scenario — each commits **no writes**, asserted by before/after row counts | a guard that returns an error after having already written |
+| Guards (§5.3, Apply-only and both-verb rows): each commits **no writes**, asserted by a **full before/after content snapshot** of `admin_alerts`, `sync_holds`, and `parse_warnings` for the show — not row counts | a guard that returns an error after having already written. Counts alone pass when a field was updated in place, `parse_warnings` was mutated, or a delete and insert offset each other (R3b) |
+| **Clear is not blocked by Apply-only guards**: Clear succeeds on an archived show, and with an unknown, malformed, or since-deleted scenario id | a guard table applied to both verbs, which would strand synthetic state permanently (R3a) |
+| **Environment gate**: a `local` target whose URL host is not loopback is refused; a `validation` target whose URL-derived ref is not `VALIDATION_PROJECT_REF` is refused even when `VALIDATION_SUPABASE_PROJECT_REF` says otherwise | the R3a P0 — a production URL passing the gate because a separate env string carried the expected value |
+| **Invariant-9 boundaries**: inject a returned `{ error }` and a thrown rejection at **each** Supabase call inside Apply and Clear; assert each yields `{ kind: "infra_error" }` or `{ kind: "partial" }` with the failed step named, never a silent success | a boundary that swallows an error or conflates returned with thrown (R3b — the previous plan asserted the typed union existed but never exercised the paths that produce it) |
+| **Telemetry semantics**: a partially committed Apply emits once after the final write attempt with accurate step counts; an Apply whose first write fails emits **nothing**; the Clear emit happens after the re-sync has returned, i.e. outside the lock | a post-commit emit that fires inside the lock, double-emits, or reports a partial as a success (R3b) |
 | Reserved-key test: no catalog `context` contains `__devScenario`; no production emitter writes it | Clear deleting authentic rows (R1 #12) |
 | Fidelity: derived fields the gallery computes equal those `fetchPerShowAlerts` returns for the same row and identity, compared across the two call paths rather than to a hand-written expectation | the gallery and the real modal rendering different copy — the failure that makes the instrument misleading rather than merely incomplete |
 | Hold shaping: a scenario hold inserted and read back through `readShowChangeFeed` yields the same `FeedEntry` the gallery shaped | drift between the two shaping call sites |
@@ -680,7 +702,7 @@ No empty column; no zombie flag.
 | T2: each §4.2 row asserts its stated outcome | a fallback predicate that no longer routes as documented |
 | Build gate at both flag states (§6) | a gate that permanently deletes, or one that leaks |
 | Query-param guards and `scenario`-over-`tier` precedence (§4.5) | the self-contradictory clamp of R1 #24 |
-| Layout: adjacent open menus do not intersect at min and max `w` (§8) | overlapping portals invalidating the sweep |
+| Layout: adjacent open menus do not intersect at min and max `w`, **and** a `MENU_CAP`-item menu's `scrollHeight` exceeds its `clientHeight` | overlapping menus invalidating the sweep, and a cap chosen too low to actually exercise the scroll state it claims to demonstrate (R3b) |
 
 **Not covered, deliberately:** live `resolveAlertIdentities` behavior against real crew rows (the inherent divergence of §3.3, labelled in the UI), and validation-target writes (exercised by hand, not in CI, since CI has no validation credentials).
 
