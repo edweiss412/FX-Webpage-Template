@@ -46,22 +46,28 @@ export const GALLERY_NOW = new Date("2026-07-01T18:00:00.000Z");
 export const GALLERY_SLUG = "gallery";
 
 // ── Compile-time guards (no runtime cost) ───────────────────────────────────
+// `Assert<T>` only accepts `true`; using it in a type position fails to compile
+// when its argument resolves to `false`. The `[X] extends [never]` tuple wrap
+// stops `never` from distributing (a bare `never extends ...` is vacuously true
+// and would mask leaks — the exact defect a naive union guard has).
+type Assert<T extends true> = T;
+type IsFn<V> = NonNullable<V> extends (...a: never[]) => unknown ? true : false;
+/** Keys of T whose (optional-stripped) value is a function. */
+type FnKeys<T> = { [K in keyof T]-?: IsFn<T[K]> extends true ? K : never }[keyof T];
+
 // (a) every ActionKeys key EXISTS on the props type.
-type _KeysExist = ActionKeys extends keyof PublishedReviewModalProps ? true : never;
-const _keysExist: _KeysExist = true;
-void _keysExist;
+type _KeysExist = Assert<ActionKeys extends keyof PublishedReviewModalProps ? true : false>;
 
-// (b) every ActionKeys prop is FUNCTION-valued (so it is right to strip them).
-type _AllFns = {
-  [K in ActionKeys]: PublishedReviewModalProps[K] extends (...a: never[]) => unknown ? true : never;
+// (b) every ActionKeys prop is FUNCTION-valued — the NON-function action keys
+// must be `never` (one valid function can no longer mask a non-function key).
+type _NonFnActionKeys = {
+  [K in ActionKeys]: IsFn<PublishedReviewModalProps[K]> extends true ? never : K;
 }[ActionKeys];
-const _allFns: _AllFns = true;
-void _allFns;
+type _AllActionsAreFns = Assert<[_NonFnActionKeys] extends [never] ? true : false>;
 
-// (c) GalleryModalData carries NO function-valued key — a leaked function makes
-// this union non-`never`, and assigning `never` fails to compile.
-type _FnKeysInData = {
-  [K in keyof GalleryModalData]: GalleryModalData[K] extends (...a: never[]) => unknown ? K : never;
-}[keyof GalleryModalData];
-const _noFnKeys: _FnKeysInData = undefined as never;
-void _noFnKeys;
+// (c) GalleryModalData carries NO function-valued key — a single leaked closure
+// makes `FnKeys<GalleryModalData>` non-`never`, flipping this to `false`.
+type _NoFnsInData = Assert<[FnKeys<GalleryModalData>] extends [never] ? true : false>;
+
+// Reference the guard aliases so they are not "unused" under strict lint.
+export type _GalleryTypeGuards = [_KeysExist, _AllActionsAreFns, _NoFnsInData];
