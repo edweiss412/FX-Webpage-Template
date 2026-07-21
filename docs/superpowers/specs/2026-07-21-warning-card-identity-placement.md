@@ -57,9 +57,9 @@ That string never reaches the operator. `PerShowActionableWarnings` renders the 
 
 "Update the sheet if the spelling was intentional" describes a condition and names no operation. Following it literally — re-typing the same intentional word — produces the same correction on the next sync, because the matcher is unchanged. The escapes that actually exist are: spell a different real stage word; use a token in `ROLE_NORMALIZATIONS`, which is role-excluded and never rewritten (`lib/parser/personalization.ts:211`); or use a word ≥2 edits from every vocabulary member. None is expressible as an instruction on a card.
 
-`ROLE_TOKEN_AUTOCORRECTED` and `SECTION_HEADER_AUTOCORRECTED` carry the same sentence with the same dead end (their `dougFacing` lines are in the map below; this is the single place line numbers appear, to avoid the cross-wiring a reviewer flagged twice).
+`ROLE_TOKEN_AUTOCORRECTED` and `SECTION_HEADER_AUTOCORRECTED` carry the same sentence with the same dead end (their `dougFacing` lines are in the CANONICAL map below; any other mention of these codes cites through it and must match it).
 
-**Canonical `dougFacing` line map** (single source of truth; every other section cites through this):
+**Canonical `dougFacing` line map** (the authoritative source for these five line numbers; §1.1 and §4.1 mention the two crew lines and MUST match this table):
 
 | Code | `dougFacing` |
 |---|---|
@@ -69,7 +69,7 @@ That string never reaches the operator. `PerShowActionableWarnings` renders the 
 | `SECTION_HEADER_AUTOCORRECTED` | `lib/messages/catalog.ts:1412` |
 | `FIELD_LABEL_AUTOCORRECTED` | `lib/messages/catalog.ts:1426` |
 
-Two sibling codes do NOT have this problem, and their copy already shows the right shape: `COLUMN_HEADER_AUTOCORRECTED` (`lib/messages/catalog.ts:1285`) and `FIELD_LABEL_AUTOCORRECTED` (`lib/messages/catalog.ts:1412`) say "Fix the header/label in the sheet if that guess is wrong", which is actionable because a label rename is not a vocabulary lookup.
+Two sibling codes do NOT have this problem, and their copy already shows the right shape: `COLUMN_HEADER_AUTOCORRECTED` and `FIELD_LABEL_AUTOCORRECTED` (lines in the map above) say "Fix the header/label in the sheet if that guess is wrong", which is actionable because a label rename is not a vocabulary lookup.
 
 ### 2.3 The card is not near its subject
 
@@ -207,12 +207,12 @@ Em-dash ban applies (AGENTS.md mechanical UI gate).
 | `autocorrect` absent (legacy persisted warning, or non-autocorrect code) | `null` → `helpfulContext` |
 | `code` not one of the five | `null` → `helpfulContext` (defensive; unreachable by construction) |
 | a pair whose `detected` OR `corrected` is empty/whitespace | that pair is DROPPED before composition |
-| a pair whose TRIMMED `detected` equals its trimmed `corrected` | that pair is DROPPED — a `'Strike' as 'Strike'` self-correction is never shown (guards against a whitespace-only or no-op correction reaching the card) |
+| a pair whose FULLY-NORMALIZED `detected` equals its normalized `corrected` | that pair is DROPPED. Normalization (trim + interior-whitespace collapse, below) is applied BEFORE the equality test, so `'Load  In'` vs `'Load In'` — which differ only in whitespace — normalize to the same value and are dropped rather than rendered as a `'Load In' as 'Load In'` self-correction |
 | zero pairs survive dropping | `null` → `helpfulContext` |
 | crew-scoped code (`STAGE_WORD`, `ROLE_TOKEN`) with `subject` null/empty/whitespace | `null` → `helpfulContext` — a crew-scoped line with no name is exactly the generic card we are replacing, so generic is the honest fallback |
 | non-crew code with any `subject` value | `subject` IGNORED; those templates take no name |
 
-**Whitespace of surviving values:** `detected`/`corrected`/`subject` are used TRIMMED (leading/trailing removed) AND with interior whitespace runs collapsed to a single space, so a padded cell, a tab, or an embedded newline cannot break the sentence or the card layout. A single interior space is preserved (`Content Creation` stays two words); a tab, newline, or run of spaces becomes one space. This is `value.trim().replace(/\s+/g, " ")`, applied to `subject` and to both members of every surviving pair.
+**Whitespace of surviving values:** `detected`/`corrected`/`subject` are used TRIMMED (leading/trailing removed) AND with interior whitespace runs collapsed to a single space, so a padded cell, a tab, or an embedded newline cannot break the sentence or the card layout. A single interior space is preserved (`Content Creation` stays two words); a tab, newline, or run of spaces becomes one space. This is `value.trim().replace(/\s+/g, " ")`, applied to `subject` and to both members of every pair. **Order is load-bearing (R4 HIGH):** each pair is normalized FIRST, THEN tested for empty (drop) and self-equality (drop); only surviving normalized pairs are composed. Equality is never evaluated on un-collapsed values.
 
 Values are plain text and are NEVER parsed as markup — see §4.4.
 
@@ -360,7 +360,7 @@ Compound transitions (a mutation while the disclosure is OPEN, count stays ≥ 3
 
 - A DISCLOSED card is ignored/resolved: it leaves in place, disclosure STAYS OPEN, hidden cards renumber. §10 test 4b.
 - A VISIBLE (above-fold) card is ignored/resolved: a former hidden card PROMOTES to visible, disclosure stays open, `N more` decrements. §10 test 4d.
-- An item is ADDED on live refresh (a re-sync surfaces a new warning/alert): it lands in the hidden set, `N more` increments, disclosure stays open, existing cards do not reorder above the fold. §10 test 4e.
+- An item is ADDED on live refresh (a re-sync surfaces a new warning/alert): the stack re-derives per §5.3. A new WARNING appends after existing warnings (usually landing hidden); a new ALERT takes its alert-first position and can push a warning below the fold. Either way `N more` increments and the disclosure stays open. §10 test 4e covers both. (There is no append-hidden-without-reordering rule; the earlier draft's claim to that effect is retired.)
 
 `expanded→absent` (count crosses 3→2 while open) is the one compound case that changes disclosure state: §10 test 4c asserts no orphaned open `<details>` and no dropped card.
 
@@ -374,7 +374,7 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
 2. **Emitter population (unit + boundary).** Each of the thirteen producers emits `autocorrect` with the right `subject` and pairs; `message` is byte-identical to a pre-change oracle captured by snapshotting each producer's output on the merge-base commit (not hand-transcribed). The ROLE stamp gets a dedicated boundary assertion: every `ROLE_TOKEN_AUTOCORRECTED` warning EXITING `parseCrewBlock` carries a non-null `subject` (§3.2 no-escape proof), so a second `extractRoleFlags` caller or a raw-push would fail.
 
-3. **Active placement conservation (component).** Fixture with members exceeding `CREW_CAP` AND a matched member, so both fallback and under-row placement occur at once. Assert every ACTIVE crew-scoped warning appears exactly once by identity against the section MODEL's active list, not by counting DOM nodes in a container that renders both graphic and card. Failure mode caught: a warning that renders in both places, or in neither.
+3. **Active placement conservation (component).** Fixture with members exceeding `CREW_CAP` AND a matched member, so both fallback and under-row placement occur at once. The expected identity set is derived INDEPENDENTLY from the fixture INPUT (the warnings whose code is in the hardcoded crew-scoped list AND whose severity is warn/active), NOT from the section model's active list — the model is the thing under change, so an oracle read from it would shrink in lockstep with a production omission (R4 MED). Assert every expected identity appears exactly once across {under-row placements ∪ fallback group}, by identity, not by counting DOM nodes in a container that renders both graphic and card. Failure modes caught: a warning that renders in both places, in neither, or is silently dropped from the model.
 
    3b. **All-section group no-drop (component).** Finding-9 gate. The expected section-id set is stated INDEPENDENTLY here so the test cannot derive it from the same routing it guards: `venue, event, crew, contacts, schedule, agenda, hotels, transport, rooms, diagrams, packlist, billing, report` (the `SectionId` union minus `warnings`, `lib/admin/step3SectionStatus.ts:6-20`; `warnings` is excluded because it is the panel itself, not an extras host). The fixture gives EACH of those sections one active warning group; after the sibling mount is deleted and groups thread through context, assert each of the named ids still renders its group exactly once. A hardcoded literal id list (not a value read from the model under change) is required, so a section dropped from BOTH production and model still fails the test.
 
@@ -443,6 +443,8 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 - **Spec review R2 (Codex, inlined):** 9 findings, verdict BLOCKING (R1 15→R2 9, convergent). Resolved: the duplicate-name key-model impossibility (§5.4 — `warningsByCrewKey` keys by name, so same-name warnings share an entry; the split was unrepresentable, now all cards render under the FIRST matching row, conservation intact); post-bulk-ignore conservation into the `Ignored (N)` disclosure (§10.5/5c); the N=2→1 group-emission transition (§10.5e); composer guards for equal-value pairs and interior tab/newline whitespace (§4.3); the absent↔expanded transition pair and visible-card/add compound cases (§9, §10.4d/4e); alert children in the dimensional invariants (§8); an INDEPENDENT hardcoded section-id oracle for all-section no-drop (§10.3b); a merge-base snapshot oracle + empty-wrapper contract for staged parity (§10.7); a stale `§10 test 10`→`9` reference (§4.4).
 
 - **Spec review R3 (Codex, inlined):** 6 findings, 2 BLOCKING (15→9→6, converging). Resolved: the staged-scope error — instance COPY is universal (change 2), only PLACEMENT/nesting are published-only, so §7 now states the scope split and test 7 asserts it rather than blanket staged byte-identity; test 11b was still specifying the R2-retired duplicate-name split and now matches the all-under-first-row rule; live-alert ordering — §5.3 now defines the stack as a deterministic pure re-derivation (alerts then warnings, cap 2), replacing the unsatisfiable "lands hidden without reordering" claim (tests 4e); the §8 table grew to five rows in R2 but the prose/test still said "four" (fixed to five); bulk-ignore while the disclosure is open was uncovered (test 4f); and the §2.2 line map is now the SOLE place line numbers for those codes appear, killing the twice-flagged cross-wiring.
+
+- **Spec review R4 (Codex, inlined):** 4 findings, verdict NEEDS-ATTENTION (no BLOCKING; 6→4, converging). Resolved: §9's added-item compound bullet still described the retired "append hidden without reordering" behavior and now matches §5.3's deterministic re-derivation; the equal-pair guard was evaluated before interior-whitespace collapse, so `'Load  In'` vs `'Load In'` escaped it and rendered a self-correction — normalization is now explicitly BEFORE the equality test; test 3's oracle read from the model under change and now derives its expected set independently from fixture input; and the genuinely stale line-72 citations (COLUMN/FIELD cited at the ROLE/SECTION lines — flagged R2/R3 and wrongly dismissed as a misread both times, a lesson in verifying over assuming) are removed, with the over-strong "single place" claim softened to "canonical, others must match."
 
 **Meta-test inventory (writing-plans):** this milestone CREATES one structural meta-test — `tests/parser/_metaAutocorrectProducers.test.ts (new)` (§10.10, producer completeness). It EXTENDS none. The `bucketAttention` conservation test and `_metaPopoverContextCoverage` are asserted UNAFFECTED (§10.8), not extended.
 
