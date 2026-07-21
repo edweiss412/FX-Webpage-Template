@@ -53,7 +53,9 @@ import {
 } from "@/components/admin/review/ShowReviewSurface";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
-import { canonicalCrewKey, type AttentionItem } from "@/lib/admin/attentionItems";
+import { canonicalCrewKey, type AttentionItem, type RoutedSectionId } from "@/lib/admin/attentionItems";
+import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
@@ -371,37 +373,29 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       onResolved={onResolved}
     />
   );
-  const { crewAttention, overviewBanners } = (() => {
-    const byCrewKey = new Map<string, ReactNode[]>();
-    const sectionTop: ReactNode[] = [];
-    const overview: ReactNode[] = [];
-    // Under-row placement targets only the RENDERED rows (CREW_CAP slice, §4).
-    const renderedKeys = new Set(
-      data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
-    );
-    // Buckets iterate the FULL list, not the doneIds-filtered one: a resolved
-    // banner swaps to "✓ Confirmed" IN PLACE and stays mounted until
-    // router.refresh() reconciles (spec §6.3) — only counts/menu/dots shrink.
-    for (const item of attentionItems) {
-      if (item.kind !== "alert") continue;
-      if (item.sectionId === "crew") {
-        if (item.crewKey && renderedKeys.has(item.crewKey)) {
-          const list = byCrewKey.get(item.crewKey) ?? [];
-          list.push(bannerFor(item));
-          byCrewKey.set(item.crewKey, list);
-        } else {
-          sectionTop.push(bannerFor(item));
-        }
-      } else if (item.sectionId === "overview") {
-        overview.push(bannerFor(item));
-      } else {
-        // Defensive: unknown-routed alerts land in Overview (spec §4 fallback).
-        overview.push(bannerFor(item));
-      }
-    }
-    const crew: CrewAttention = { byCrewKey, sectionTop };
-    return { crewAttention: crew, overviewBanners: overview };
-  })();
+  // Generalized bucketing (attention-alert-routing §2.5/§3.2). Under-row crew
+  // placement still targets only the RENDERED rows (CREW_CAP slice, §4). Section
+  // availability: rooms/event/warnings are unconditional today, so every routed
+  // section is present; the check exists for future conditional sections and the
+  // Overview terminal fallback. Anchors are unrouted at PR2 (PR3 wires them), so
+  // anchorAvailable is false here. The FULL item list is bucketed, not the
+  // doneIds-filtered one: a resolved banner swaps to "✓ Confirmed" in place and
+  // stays mounted until router.refresh() reconciles (spec §6.3).
+  const renderedKeys = new Set(
+    data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
+  );
+  const availableSections = new Set<RoutedSectionId>([
+    ...renderedSectionIds(data),
+    "overview",
+    "changes",
+  ]);
+  const sectionAttention = bucketAttention(attentionItems, {
+    renderCard: bannerFor,
+    sectionAvailable: (id) => availableSections.has(id),
+    anchorAvailable: () => false,
+    crewKeyRendered: (key) => renderedKeys.has(key),
+  });
+  const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
 
   const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
   const holdCount = actionable.filter((i) => i.kind === "hold").length;
@@ -710,7 +704,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}
-        crewAttention={crewAttention}
+        sectionAttention={sectionAttention}
       />
     </ReviewModalShell>
   );

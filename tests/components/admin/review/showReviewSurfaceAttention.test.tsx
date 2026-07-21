@@ -138,7 +138,16 @@ function Harness({
         scrollerRef={scrollerRef}
         layout="page"
         {...(attentionSections ? { attentionSections } : {})}
-        {...(crewAttention ? { crewAttention } : {})}
+        {...(crewAttention
+          ? {
+              sectionAttention: new Map([
+                [
+                  "crew" as const,
+                  { sectionTop: crewAttention.sectionTop, byCrewKey: new Map(crewAttention.byCrewKey) },
+                ],
+              ]),
+            }
+          : {})}
         attentionJump={jump}
       />
     </>
