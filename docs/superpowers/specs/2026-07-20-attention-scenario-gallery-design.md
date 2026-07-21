@@ -57,19 +57,32 @@ Cross-check: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`) al
 
 **Module (new file):** `lib/dev/attentionScenarios.ts (new)`
 
-A scenario declares **raw inputs**, never pre-built `AttentionItem`s:
+A scenario declares **storable inputs** — the shapes that actually live in the database — never pre-built `AttentionItem`s and never derived read-model shapes. This is the load-bearing constraint of the whole design (§3.3):
 
 ```ts
 export type AttentionScenario = {
   id: string;                      // stable slug, used as the DB tag and the gallery anchor
   tier: 1 | 2 | 3;
   label: string;
-  alerts: AttentionAlertInput[];   // lib/admin/attentionItems.ts:35-44
-  holds: FeedEntry[];              // entries with status "pending" + action "approve_reject" + gate
-  warnings: ParseWarning[];        // lib/parser/types.ts:48
+  alerts: ScenarioAlertRow[];      // storable admin_alerts columns only, see below
+  holds: ScenarioHoldRow[];        // storable sync_holds columns only, see below
+  warnings: ParseWarning[];        // lib/parser/types.ts:48 - stored verbatim as jsonb
   bucket?: Partial<BucketOpts>;    // T2 only: see §4.2
   degraded?: boolean;              // T2 only: see §4.2
 };
+
+// Exactly the columns fetchPerShowAlerts selects (lib/adminAlerts/fetchPerShowAlerts.ts:100),
+// plus the identity the gallery cannot resolve for synthetic rows (§3.3).
+export type ScenarioAlertRow = {
+  code: string;
+  context: Record<string, unknown>; // NOT NULL in the DDL - use {} not null
+  raisedAt: string;
+  occurrenceCount: number;
+  galleryIdentity?: AlertIdentity | null; // gallery-only; materialize resolves for real
+};
+
+// The storable hold shape (lib/sync/holds/types.ts:12-25), not the derived FeedEntry.
+export type ScenarioHoldRow = Omit<SyncHold, "id" | "showId">;
 ```
 
 Both consumers run the **real** `deriveAttentionItems` (`lib/admin/attentionItems.ts:303`) and the **real** `bucketAttention` (`lib/admin/sectionAttention.ts:85`). Nothing hand-builds an `AttentionItem`. Consequence: routing, `tone`, `actionable`, `autoClearNote`, `crewKey` derivation, `safeDougFacingTemplate` fallback, `catalogHelpHref`, `readFailedKeys`, `readDataGapsDigest`, and `readErrorCode` are all exercised for real. The catalog cannot misrepresent routing, because it never states routing.
@@ -81,10 +94,12 @@ T1 alert scenarios are **derived at runtime** from `Object.keys(ATTENTION_ROUTES
 Realistic params come from an override map keyed by code:
 
 ```ts
-const ALERT_PARAM_OVERRIDES: Partial<Record<string, Partial<AttentionAlertInput>>> = { ... };
+const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<ScenarioAlertRow>>> = { ... };
 ```
 
-A code with no override gets a generic default row (`occurrence_count: 1`, `identityText: null`, `crewName: null`, `context: null`, fixed `raised_at`). Codes whose card content depends on context **must** carry an override or the gallery shows their degenerate form:
+A code with no override gets a generic default row (`occurrenceCount: 1`, `context: {}`, `galleryIdentity: null`, fixed `raisedAt`). `context` defaults to `{}` and never `null`: `admin_alerts.context` is `jsonb not null` (`supabase/migrations/20260501001000_internal_and_admin.sql`), so a null default would be gallery-legal but un-insertable, and the two consumers would diverge at exactly the point §3.3 forbids.
+
+Codes whose card content depends on context **must** carry an override or the gallery shows their degenerate form:
 
 | Code | Required override | Why |
 | --- | --- | --- |
@@ -117,6 +132,26 @@ Measured difference between the two registries:
 **Decision:** the warning universe is `INTERNAL_CODE_ENUMS` filtered to `parse_warnings.code`, **plus** an explicit `EXTRA_WARNING_CODES` constant holding the `N_WARN_GAP` codes above, each with the `file:line` comment justifying its presence. Total `N_WARN_CODES`. This is mostly self-updating (new codes in scanned files appear free) and honest about the residue.
 
 **Backlog, not in scope:** widen the generator's scan heuristic so `EXTRA_WARNING_CODES` can be deleted. Filed as `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`.
+
+### 3.3 Fidelity contract between the two consumers
+
+The instrument's entire value rests on one property: **what the gallery shows for a scenario is what materialize produces for that scenario.** A catalog field the gallery honors but materialize cannot reproduce is worse than no tool, because it teaches the operator a state that does not exist.
+
+The database stores less than the modal renders. `fetchPerShowAlerts` selects only `id, code, context, raised_at, occurrence_count` (`lib/adminAlerts/fetchPerShowAlerts.ts:100`) and then **derives** `identityText`, `messageParams`, and `crewName` (`lib/adminAlerts/fetchPerShowAlerts.ts:169-172`) from `context` plus a DB-resolved `AlertIdentity`. Likewise `FeedEntry` (`lib/sync/holds/types.ts:60-77`) is derived by `readShowChangeFeed` from `sync_holds` rows; its `summary` is generated from the hold's disposition, not authored.
+
+Therefore the catalog declares **only storable fields** (§3), and each derived field is produced by the same code in both consumers:
+
+| Field | Stored? | Gallery | Materialize | Divergence risk |
+| --- | --- | --- | --- | --- |
+| `code`, `context`, `raisedAt`, `occurrenceCount` | yes | honored verbatim | inserted verbatim | none |
+| `identityText`, `messageParams`, `crewName` | no — derived | shared pure derivation, given `galleryIdentity` | shared pure derivation, given the resolved identity | none, **provided the derivation is one function** (below) |
+| `AlertIdentity` itself | no — resolved from real crew rows | **declared** via `galleryIdentity` | **resolved** by `resolveAlertIdentities` | inherent, see below |
+| hold `summary`, `action`, `status` | no — derived | shared feed shaping | shared feed shaping | none, same condition |
+| `ParseWarning[]` | yes, jsonb | honored verbatim | written verbatim | none |
+
+**Required refactor:** extract the DB-independent tail of `fetchPerShowAlerts` — the `(row, identity) -> { identityText, messageParams, crewName }` step at `lib/adminAlerts/fetchPerShowAlerts.ts:169-172` — into an exported pure function, and have both `fetchPerShowAlerts` and the gallery call it. Same for the `FeedEntry` shaping step in `readShowChangeFeed` (`lib/sync/feed/readShowChangeFeed.ts:286-318`) if it is not already callable in isolation. Without this the fidelity contract is an aspiration; with it, drift is a compile-or-test failure rather than a silent divergence.
+
+**The one inherent divergence:** identity *resolution* needs real crew rows, which synthetic alerts do not have. The gallery therefore takes a declared `galleryIdentity` where materialize resolves the real thing. This is stated, not hidden: the routing readout (§4.1 step 2) labels the identity as `declared (gallery)`, so the operator knows that one field is the instrument's assumption rather than the system's answer.
 
 ## 4. Gallery
 
@@ -191,6 +226,22 @@ Guards: an unparseable or out-of-range `w` falls back to unconstrained; an unkno
 
 Apply is **idempotent per (show, scenario)**: it first deletes existing rows tagged with that scenario id for that show, then inserts. Re-applying does not accumulate duplicates.
 
+#### 5.1a The one-unresolved-alert-per-code constraint
+
+`admin_alerts` carries a partial unique index (`supabase/migrations/20260501001000_internal_and_admin.sql`):
+
+```sql
+create unique index admin_alerts_one_unresolved_idx
+  on public.admin_alerts (coalesce(show_id::text, ''), code) where resolved_at is null;
+```
+
+**At most one unresolved row per (show, code).** Two consequences the design must honor rather than discover at implementation:
+
+1. **A scenario may not carry two alert rows of the same code.** Enforced in the catalog by construction and asserted by a test (§12); a duplicate would fail the insert at runtime.
+2. **A code that already has a real unresolved row on the target show cannot be inserted.** Apply therefore **skips** that code and names it in the result: `skipped: [{ code, reason: "unresolved row already present" }]`. It does **not** resolve, delete, or overwrite the real row — the promise that Apply never touches untagged rows is kept by declining, not by clobbering.
+
+This also settles materialize's scope. The full per-code sweep (T1, `N_ALERT_RENDERABLE` codes) belongs to the gallery, which has no DB and no constraint. Materialize's scenarios are T3 composites carrying a handful of codes, where a skip is rare, visible, and harmless.
+
 ### 5.2 Clear
 
 1. Delete every `admin_alerts` row for the show whose `context.__devScenario` is set — **any** scenario, not just the selected one, so a half-applied state cannot strand rows.
@@ -208,7 +259,10 @@ Clear reports which of the three steps succeeded.
 | Scenario id unknown | refuse, no writes |
 | Zero tagged rows at Clear | succeed, report "nothing to clear", still run the re-sync |
 | Re-sync unreachable (no Drive creds locally) | Clear reports `warnings_not_regenerated`; tagged alert/hold deletion still committed. Synthetic warnings persist until the next successful sync; the operator escape hatch is a reseed. This is the one non-self-healing edge and it is stated in the card's copy. |
-| Apply against a show that already has real (untagged) alerts | allowed; real rows are never touched by Apply or Clear, only tagged ones |
+| Apply against a show that already has real (untagged) alerts | allowed. Codes that do not collide are inserted; codes whose unresolved row already exists are **skipped and named** in the result (§5.1a). Real rows are never resolved, deleted, or overwritten. |
+| Scenario carries duplicate alert codes | rejected before any write, with the duplicate named (§5.1a) |
+| Apply interrupted partway | the next Apply or Clear is safe: both are keyed on the `__devScenario` tag, so a partial write is fully addressable. Clear deletes **every** tagged row for the show regardless of which scenario wrote it (§5.2 step 1). |
+| Two Applies race on the same show | last writer wins per code; no lock is taken (invariant 2 does not cover these tables, §7.2). Acceptable because materialize is a single-operator dev instrument, never a concurrent surface. Stated rather than defended. |
 
 ### 5.4 Why `parse_warnings` is overwritten rather than backed up
 
@@ -321,6 +375,9 @@ No column is empty; no zombie flag introduced.
 - Apply → Clear round trip leaves **zero** rows tagged `__devScenario` for the show, asserted by counting tagged rows directly against the DB, not by trusting the action's own report. Failure mode caught: a Clear that deletes only the selected scenario's rows and strands the rest.
 - Apply twice with the same (show, scenario) yields the same row count as applying once. Failure mode caught: non-idempotent insert accumulating duplicates.
 - Guard cases from §5.3 (unknown slug, archived show, unknown scenario id) commit no writes — asserted by row counts before and after, not by the returned error alone.
+- **No scenario carries two alert rows of the same code** (§5.1a). Asserted across the whole catalog, not a sampled scenario. Failure mode caught: a catalog addition that renders fine in the gallery and fails the unique index the first time anyone materializes it.
+- **Apply skips a colliding code and names it.** Seed a real unresolved alert of code C on the target show, apply a scenario containing C plus a non-colliding code D. Assert: D inserted, C reported in `skipped`, and the pre-existing C row is **byte-identical afterward** — same `id`, `raised_at`, `occurrence_count`, `resolved_at`. Failure mode caught: an Apply that "handles" the collision by resolving or overwriting the operator's real alert.
+- **Fidelity contract (§3.3).** For a scenario applied to the DB, the derived fields the gallery computes (`identityText`, `messageParams`, `crewName`) equal the fields `fetchPerShowAlerts` returns for the same row, given the same identity. Asserted against the two call paths' outputs, not against a hand-written expectation, so the test fails if the shared derivation is forked. Failure mode caught: the gallery and the real modal rendering different copy for the same scenario — the one failure that makes the whole instrument misleading rather than merely incomplete.
 
 ## 13. Out of scope
 
