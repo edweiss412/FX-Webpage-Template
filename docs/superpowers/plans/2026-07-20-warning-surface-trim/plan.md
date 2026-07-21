@@ -19,7 +19,7 @@
 - **Test wiring:** none needed. `BASE_INCLUDE` in `vitest.projects.ts:34` is `tests/**/*.test.ts(x)`, so every new file is collected automatically. `tests/admin/` and `tests/components/` are SERIAL dirs, which is correct for these (jsdom, no DB). No `testMatch` entry, no workflow path filter, no CI change.
 - **Layout-dimensions task:** N/A, declared. Spec §6 establishes there is no fixed-dimension parent and no new parent-child dimension relationship; every touched element is a block-flow child of a content-height panel. No `getBoundingClientRect` assertion is warranted.
 - **Transition-audit task:** REQUIRED (spec §7 carries a Transition Inventory). Task 10.
-- **TDD exemption, explicit.** Tasks 1 and 2 are CHARACTERIZATION tasks, not TDD tasks. They capture the pre-change truth and must PASS on unmodified code; there is no red phase because there is no behavior to add. Every other task follows red-green-commit. Plan review R1a finding 5 correctly caught an earlier draft calling these "failing assertions" and then requiring them to pass, which is contradictory.
+- **Tasks 1 and 2 add NO implementation, so invariant 1 is satisfied vacuously rather than waived.** Invariant 1 forbids writing implementation before the test that exercises it. These two tasks write only tests, against code that already exists, so there is no implementation for a red phase to precede. Plan review R2a finding 1 correctly rejected an earlier draft that claimed an "exemption" from a non-negotiable invariant; nothing here overrides invariant 1, and every task that adds implementation follows red-green-commit.
 - **Fix-round regression budget:** when a review round patches a surface for a class, the next round's preparation re-greps that class across the surface, confirms the relevant meta-test still passes, and notes both in the round closure.
 
 ## Baseline verification (RUN, not described)
@@ -67,7 +67,7 @@ The published surface's claim that every warn-severity warning already renders a
 - [ ] **Step 1: Build the shared fixture module** at `tests/helpers/warningSurfaceFixture.ts`.
 Per spec §12, the fixture carries 3 info rows with distinct titles; 2 active warn rows mapped to two DIFFERENT sections, one `UNKNOWN_ROLE_TOKEN` (recognize-role in scope) and one use-raw-eligible structural code; 2 active warn rows routing to the fallback `warnings` bucket; 1 ignored warn row mapped to a section; 1 ignored warn row in the bucket. Asymmetric counts by construction.
 
-- [ ] **Step 2: Write the failing assertions**
+- [ ] **Step 2: Write the characterization assertions**
 Assert against the composed published mount, scoped to the EXTRAS subtree only:
   - every warn-severity identity in the fixture appears in the extras, using `stableWarningKeys` read from each rendered row root;
   - each appears under the section id `warningsBySection` routes it to;
@@ -138,6 +138,8 @@ export function visibleWarningRows(
 - Modify: `components/admin/review/ShowReviewSurface.tsx` (derive the gate; thread it and `routedWarnings` into the chrome context at `components/admin/review/ShowReviewSurface.tsx:909`; pass opts at the rail-count call at `components/admin/review/ShowReviewSurface.tsx:795`)
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (`Step3SectionChrome` type at `components/admin/wizard/step3ReviewSections.tsx:431`; `railCount` type at `components/admin/wizard/step3ReviewSections.tsx:3099`; the `warnings` row's `railCount` at `components/admin/wizard/step3ReviewSections.tsx:3859`)
 - Modify: `components/admin/showpage/PublishedReviewModal.tsx` (derive and pass `routedWarnings` alongside `renderSectionExtras` at `components/admin/showpage/PublishedReviewModal.tsx:737`)
+<!-- spec-lint: ignore — file created by this plan -->
+- Create: `tests/components/admin/review/routedWarningsGate.test.tsx`
 
 **Interfaces:**
 - Produces: `routedWarnings?: { here: number; elsewhere: number }` on `ShowReviewSurfaceProps` and on `Step3SectionChrome`; `routedWarningsRenderElsewhere: boolean` on `Step3SectionChrome`; widened `railCount`.
@@ -155,7 +157,13 @@ railCount: ((d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) =
 
 **This task changes NO rendered output.** Plan review R1a finding 2 correctly caught an earlier ordering in which the rail count switched to the info-only value while the body still rendered every row, so the task's own equality assertion could not pass. The rail-count VALUE and the body filter now land together in Task 5, because they are one behavior.
 
-- [ ] **Step 1: Write the failing plumbing test.** Assert the gate is `true` for a mount given both `routedWarnings` and `renderSectionExtras`, and `false` for each of the three partial configurations (neither, only one, only the other). Assert `railCount` for every section is UNCHANGED from its current value under both gate states, which is what pins "no behavior change" for this task.
+<!-- spec-lint: ignore — file created by this plan -->
+- [ ] **Step 1: Write the failing plumbing test** in `tests/components/admin/review/routedWarningsGate.test.tsx`. Plan review R2a finding 2 correctly caught that an earlier draft named no test file and could observe the gate ONLY through `railCount`, so an implementation that passed the right gate to the rail while omitting or corrupting the context values would pass and defer its own verification to Task 5.
+
+  Observe BOTH channels. Mount the surface with a probe consumer of `Step3SectionChromeContext` rendered inside the provider, which serializes `routedWarningsRenderElsewhere` and `routedWarnings` into a testid, and assert:
+  - the gate is `true` given both `routedWarnings` and `renderSectionExtras`, and `false` for each of the three partial configurations (neither, only extras, only counts);
+  - the probe's `routedWarnings` equals the `{ here, elsewhere }` the mount was given, for a fixture where `here` and `elsewhere` DIFFER, so a swapped pair fails;
+  - `railCount` for every section is UNCHANGED from its current value under all four configurations, which is what pins "no behavior change" for this task.
 - [ ] **Step 2: Widen the `railCount` type and update all 17 rows** to accept and ignore the second parameter. The `warnings` row keeps `s.warnings.length` in THIS task.
 - [ ] **Step 3: Add the two context fields and derive the gate in the surface.** Under `exactOptionalPropertyTypes`, insert the optional field by spread, never as an explicit `undefined` value (plan review R1a finding 6):
 
@@ -184,9 +192,22 @@ railCount: ((d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) =
 
 - [ ] **Step 0: Write the failing rail-count test** (spec §12 test 4). Published expected value is the fixture's info-row count; staged expected is the fixture's total. BOTH computed from the fixture definition in the test body, NOT by calling `visibleWarningRows`, or the production predicate becomes its own oracle. Then, separately, assert each equals its mode's rendered row count. This lands here rather than in Task 4 because the equality half cannot hold until the body is filtered in the same commit.
 - [ ] **Step 1: Write the failing body test** (spec §12 tests 2 and 9), carrying all three extraction modes: identity equality against the fixture's 3 info identities; the body's row-ELEMENT count equals 3; and a `textContent` scan of the body container finding none of the warn rows' catalog titles, raw codes, or messages.
-- [ ] **Step 2: Write the failing empty-state tests** (spec §12 test 5), one fixture per state, five fixtures for four states because Clean has two meanings:
+- [ ] **Step 2: Write the failing empty-state tests** (spec §12 test 5). Plan review R2a finding 3 correctly caught that an earlier draft left `here`, `elsewhere`, and the visible-row count implicit, so several different state machines satisfied every assertion. Exact values per fixture:
+
+| Fixture | info rows | `here` | `elsewhere` | Expected |
+| --- | --- | --- | --- | --- |
+| (a) List | 3 | 2 | 2 | the list; NEITHER line |
+| (b) Silent | 0 | 2 | 0 | no body content at all |
+| (c) Elsewhere | 0 | 0 | 2 | the Elsewhere line |
+| (d) Clean, no warnings | 0 | 0 | 0 | the Clean line |
+| (e) Clean, all ignored | 0 | 0 | 0 | the Clean line |
+| (f) Silent precedence | 0 | 2 | 2 | no body content; NOT the Elsewhere line |
+
+Fixture (a) carries `here > 0` AND `elsewhere > 0` so List provably outranks every body-empty row. Fixture (f) is the case R2a finding 3 named: with both counts positive, Silent must win, and without it the branch order is untested. Fixtures (d) and (e) differ only in whether the ignored warnings exist, which is the pair a wrong active/ignored predicate confuses.
+
+Five states, six fixtures:
   - (a) List with `here > 0` AND rows elsewhere: the list renders, NEITHER line testid is present;
-  - (b) Silent: the body container's `childNodes` is empty while the extras below are non-empty;
+  - (b) Silent: the body container's `childNodes` is empty while the extras below are non-empty; same assertion for (f);
   - (c) Elsewhere: the line's `textContent` equals `Nothing else to note here. The warnings that need a look are in their own sections.` exactly;
   - (d) Clean with zero warnings and (e) Clean with warnings that are ALL ignored: the line equals `Nothing needs a look on this sheet.` exactly.
   For (c), (d), (e): the element is a `<p>` carrying `text-sm text-text-subtle`, with no `hidden` attribute, no inline `display:none`, no hiding class, and no ancestor inside the panel carrying any of those.
@@ -232,12 +253,12 @@ const popoverBody = [pick(context), pick(followUpCopy)].filter((s): s is string 
 ```
 
 - [ ] **Step 1: Write the failing composition tests** (spec §12 test 6):
-  - (a) for EVERY member of `WARNING_CARD_COPY_CODES`, a published card's popover text equals that code's `triggerContext` followed by the loop sentence, in that order, exactly. Iterating all 40 is what excludes an implementation that appends the follow-up only where sampled;
+  - (a) for EVERY member of `WARNING_CARD_COPY_CODES`, a published card's popover text equals that code's `triggerContext` followed by the loop sentence, in that order, exactly. The loop sentence is a FROZEN LITERAL written in the test, not `correctionLoopCopy("resync")`. Plan review R2a finding 4 correctly caught that comparing published output to staged output, when both derive from the same helper, gives the suite no independent oracle: a wrong edit to the shared copy changes both identically and passes. The frozen literal is that oracle. Iterating all 40 is what excludes an implementation that appends the follow-up only where sampled;
   - (b) staged mount: popover equals `triggerContext` alone;
   - (c) uncataloged code with follow-up: a trigger renders carrying the follow-up alone;
   - (d) neither input: no trigger;
   - (e) normalization table, per input independently: `undefined`, `null`, `""`, a space run, a tab, a newline, AND U+00A0 all behave as ABSENT. `String.prototype.trim` strips the ECMAScript `WhiteSpace` production, which includes U+00A0; verified by `node -e '"\u00a0".trim().length'` returning `0`. An earlier draft of this plan and of spec §4.3 asserted the opposite from memory; plan review R1a finding 3 caught it and both documents were corrected. Measure, do not recall;
-  - (f) the published popover's follow-up substring equals the staged callout's rendered text, which catches a duplicate assembled from concatenated fragments in a way a source scan for a literal cannot.
+  - (f) the published popover's follow-up substring equals the staged callout's rendered text. This is a CONSISTENCY assertion, not a correctness one: (a)'s frozen literal is what pins the value, and (f) is what catches a duplicate assembled from concatenated fragments in a way a source scan for a literal cannot.
 - [ ] **Step 2: Export `correctionLoopCopy`, add the prop, compose, and wire the extras factory** with `correctionLoopCopy("resync")`. `StagedReviewCard.tsx:521` passes nothing and is not edited.
 - [ ] **Step 3: Add the source-scan guard** that `StagedReviewCard`'s mount passes no `followUpCopy` (spec §12 test 8c).
 - [ ] **Step 4: Run, confirm Task 2's baseline snapshot still passes unchanged, commit** `feat(admin): move the correction-loop sentence into the warning card popover`
@@ -277,7 +298,9 @@ export function deriveAttentionItems(args: {
   - (c) the live-set loop: one synthetic row per `DOUG_EXCLUDED_CODES` member, asserting an empty result;
   - (d) explicit rows for `ROLE_FLAGS_NOTICE`, `SHOW_FIRST_PUBLISHED`, `SHOW_UNPUBLISHED`, `LIVE_ROW_CONFLICT`: first two absent, last two present.
 - [ ] **Step 2: Implement the filter and the seam.**
-- [ ] **Step 2b: Guard the seam against production use.** Add a source-scan assertion that no file outside `tests/` passes `excludedCodes` to `deriveAttentionItems`. Plan review R1b correctly noted an exported optional parameter is externally usable production API, so seam and production semantics could drift through ordinary call-site evolution; the guard makes that drift a CI failure rather than a convention.
+- [ ] **Step 2b: Guard the seam against production use.** Add an AST-based assertion (the pattern `tests/log` already uses for log-code stamps, not a regex) that walks every non-test source file, finds each `CallExpression` whose callee resolves to `deriveAttentionItems`, and asserts no argument object literal carries an `excludedCodes` property. Plan review R1b correctly noted an exported optional parameter is externally usable production API.
+
+  **Stated limit** (plan review R2b finding 5): an AST walk over call sites cannot see a value forwarded through a spread of a preconstructed object, an alias, or a wrapper function. The guard detects the direct form, which is the form a future caller would actually write; it is a strong signal, not a proof, and is described at that strength.
 - [ ] **Step 3: Extend `roleFlagsNoticeReclassify.test.ts`** with the behavioral assertion, so it proves the exclusion rather than proving the set contains a string.
 - [ ] **Step 4: Run, confirm `tests/admin/_metaAttentionRoutes.test.ts` still passes** (no route row is deleted, so set-equality holds), **commit** `feat(admin): exclude info-severity alerts from the show modal attention surface`
 
@@ -303,7 +326,7 @@ export function deriveAttentionItems(args: {
 <!-- spec-lint: ignore — file created by this plan -->
 - Create: `tests/components/admin/showpage/warningsPanelTransitions.test.tsx`
 
-- [ ] **Step 1: Audit a NAMED file inventory**, not "the touched surfaces" (plan review R1b): `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` body and its empty branches), `components/admin/showpage/sectionWarningExtras.tsx` (the `<details>` disclosure), and `components/admin/PerShowActionableWarnings.tsx` (the popover trigger). For each, assert every `AnimatePresence`, ternary render, and conditional block either carries `exit` / `initial` / `animate` props or is on the deliberately-instant list below. The mechanical criterion for "deliberately instant" is: no `AnimatePresence` ancestor within the file and no `transition-*` utility class on the element itself. Spec §7's inventory, verbatim:
+- [ ] **Step 1: Audit a NAMED file inventory**, not "the touched surfaces" (plan review R1b): `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` body and its empty branches), `components/admin/showpage/sectionWarningExtras.tsx` (the `<details>` disclosure), and `components/admin/PerShowActionableWarnings.tsx` (the popover trigger). For each, assert every `AnimatePresence`, ternary render, and conditional block either carries `exit` / `initial` / `animate` props or is on the deliberately-instant list below. The mechanical criterion for "deliberately instant" is: no `AnimatePresence` ancestor within the file and no `transition-*` utility class on the element itself. **Each discovered conditional block is additionally mapped to the inventory pair or pairs whose rendering it controls, and the audit asserts the mapping is total in both directions**: every block maps to at least one pair, and every pair has at least one block. Plan review R2b finding 4 correctly caught that an absence-of-animation criterion alone cannot detect a MISSING state branch, which a totality assertion can. Spec §7's inventory, verbatim:
 
 | Pair | Treatment |
 | --- | --- |
@@ -316,7 +339,20 @@ export function deriveAttentionItems(args: {
 
   Reverse directions: the body-empty trio reverses by un-ignoring a WARN row; the three pairs involving List reverse by un-ignoring an INFO row.
 
-  **Transitions that must actually be EXERCISED, not merely listed:** Silent to Clean (Step 2, the compound case) and List to Elsewhere (a second render assertion), because those are the two that cross both a body-content change and an extras-membership change. The remaining four are asserted structurally by the audit above, since all six share one mechanism (a wholesale re-render from new props) and exercising all six would test the same code path six times.
+  **Every one of the six pairs is EXERCISED**, not four of them argued away. Plan review R2b finding 3 correctly rejected an earlier draft that exercised one pair fully, gestured at a second, and left four to a source audit: "wholesale re-render from new props" is a claim about React reconciliation, which a static audit cannot establish, and distinct conditional branches are not equivalent merely because they share a trigger.
+
+  Each pair is a rerender from fixture A's props to fixture B's props using the §12 test-5 fixture table, asserting the destination state's body content exactly as that table specifies. The six are cheap because they share one harness and differ only in the two fixtures passed:
+
+  | Pair | From fixture | To fixture |
+  | --- | --- | --- |
+  | List to Silent | (a) | (b) |
+  | List to Elsewhere | (a) | (c) |
+  | List to Clean | (a) | (d) |
+  | Silent to Elsewhere | (b) | (c) |
+  | Silent to Clean | (b) | (d) |
+  | Elsewhere to Clean | (c) | (d) |
+
+  Silent to Clean additionally carries the node-identity contract in Step 2, because it is the only pair that also changes extras membership while a disclosure is open.
 
 - [ ] **Step 2: Write the compound-transition test** (spec §12 test 10). With the section's `Ignored (N)` disclosure open and the body in Silent, capture the `<details>` DOM node reference, ignore the last active warn row, then assert: the body renders the Clean line, the disclosure's count incremented, it is still open, and the CAPTURED NODE is the same object still in the document. Node identity is the only assertion that excludes a remount; a replacement `<details open>` passes every state assertion.
 - [ ] **Step 3: Run, commit** `test(admin): transition audit and compound disclosure transition`
@@ -329,7 +365,9 @@ export function deriveAttentionItems(args: {
 
 - [ ] **Step 1: Run `/impeccable critique` on the diff**, with the canonical v3 setup gates: the skill's context load (PRODUCT.md + DESIGN.md), then the register reference read.
 - [ ] **Step 2: Run `/impeccable audit` on the same diff.**
-- [ ] **Step 3: Fix every P0 and P1, or defer explicitly via a `DEFERRED.md` entry**, each fix as its own commit. **Then RERUN both commands**, because a gate whose repairs are never re-gated has not passed (plan review R1b). Record findings and dispositions in this plan's close-out section, which is this change's equivalent of the milestone handoff §12 required by invariant 8; this change is a standalone PR with no milestone handoff doc, and that substitution is stated here rather than left implicit.
+- [ ] **Step 3: Fix every P0 and P1, or defer explicitly via a `DEFERRED.md` entry**, each fix as its own commit. **Then RERUN both commands**, because a gate whose repairs are never re-gated has not passed (plan review R1b).
+<!-- spec-lint: ignore — file created by this plan -->
+- [ ] **Step 4: Record findings and dispositions in `docs/superpowers/plans/2026-07-20-warning-surface-trim/impeccable.md`**, following the format of `docs/superpowers/plans/2026-07-19-published-show-alerts/impeccable.md`: run header naming the impeccable version and the setup gates, critique and audit sections, and a severity/finding/disposition table where every P0 and P1 reads FIXED with its commit sha or carries an explicit deferral. Plan review R2b finding 1 correctly rejected an earlier draft that called a plan close-out section an "equivalent" of the invariant-8 handoff §12: no ratified exception authorizes that substitution, and the published-show-alerts PR establishes the real convention for a standalone change, which is a sibling `impeccable.md` in the plan directory. This plan now lives in that directory for the same reason.
 - [ ] **Step 0 (run this FIRST, before Step 1): pre-empt the mechanical invariants rather than discovering them in the gate:** em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type and token classes (`text-xs/relaxed`, `text-subtle`). The two authored sentences in spec §3.4 already comply by construction.
 
 ---
@@ -342,5 +380,5 @@ export function deriveAttentionItems(args: {
 - [ ] **Step 4: `pnpm test`** in full, not scoped. A components-only run skips `tests/styles` and `tests/help`, which carry the token-disposition and UI-label crosswalk registries.
 - [ ] **Step 5: Confirm the four baseline files from the plan preamble still pass**, and that Task 1's no-loss guard and Task 2's snapshot are both green.
 - [ ] **Step 6: Cross-model review to APPROVE.** Dispatch tight-scope splits per surface, AND a final integrated pass whose explicit scope is cross-surface behavior: the deliberate divergence between the modal derivation and the independently constructed bell entries, and the interaction between the trim and the extras. Plan review R1b correctly noted that per-surface coverage summed is not the same as an integrated review, and the bell divergence is exactly the property no single-surface reviewer would see.
-- [ ] **Step 6b: If Step 6 produces UI repairs, rerun Task 11's dual gate and Steps 1 through 5 of this task** before pushing. Verification that precedes its own repairs has not verified them.
+- [ ] **Step 6b: If Step 6 produces ANY repair, rerun Steps 1 through 5 of this task; if the repair touched a UI surface, ALSO rerun Task 11's dual gate.** Plan review R2b finding 2 correctly caught an earlier draft that reran only for UI repairs, which let a test, fixture, or config repair reach push and CI with no local verification. Verification that precedes its own repairs has not verified them.
 - [ ] **Step 7: Push, real CI green, `gh pr merge --merge`, fast-forward local main and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.**
