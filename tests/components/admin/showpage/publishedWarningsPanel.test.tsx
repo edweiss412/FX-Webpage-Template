@@ -61,6 +61,9 @@ const ELSEWHERE_COPY =
   "Nothing else to note here. The warnings that need a look are in their own sections.";
 const CLEAN_COPY = "Nothing needs a look on this sheet.";
 
+/** Silent-producing warnings, hoisted for the no-drop case below. */
+const SILENT_ONLY: readonly ParseWarning[] = [...UNMAPPED_WARNINGS];
+
 function buildData(warnings: readonly ParseWarning[]): PublishedSectionData {
   return buildPublishedSectionData(fixtureSnapshot(warnings) as never, { slug: FIXTURE_SLUG });
 }
@@ -289,5 +292,79 @@ describe("the four body-empty states", () => {
     const legacy = within(panelBody()).getByTestId(EMPTY_TESTID);
     expect((legacy.textContent ?? "").trim()).toBe("No parse warnings for this sheet.");
     expect(within(panelBody()).queryByTestId(CLEAN_TESTID)).toBeNull();
+  });
+});
+
+describe("the panel card is never suppressed while it still holds content", () => {
+  it("keeps the card when a parse notice is the body's only content", () => {
+    // The two parse codes route EXCLUSIVELY to the notes bucket
+    // (lib/admin/sectionAttention.ts:105-110 uses `continue`, so they never
+    // become cards). Suppressing the card in Silent would therefore delete the
+    // only render site for "your latest changes didn't go through" — a
+    // structural no-drop violation, and exactly what the first version of the
+    // P0a guard shipped.
+    const note = {
+      id: "note-1",
+      alert: { code: "PARSE_ERROR_LAST_GOOD" },
+      lead: "Your latest changes did not go through.",
+      rest: "Crew are still seeing the last good version.",
+    };
+    const sectionAttention = new Map([["warnings", { notes: [note] }]]);
+
+    const data = buildData(SILENT_ONLY);
+    const bySection = buildSectionWarningModel({
+      slug: FIXTURE_SLUG,
+      warnings: SILENT_ONLY,
+      ignoredFingerprints: new Set<string>(),
+      renderedSectionIds: new Set<SectionId>(step3Sections(data).map((s) => s.id)),
+    });
+
+    function NoteHarness() {
+      const scrollerRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <div ref={scrollerRef}>
+          <ShowReviewSurface
+            data={data}
+            scrollerRef={scrollerRef}
+            layout="modal"
+            renderSectionExtras={buildSectionWarningExtras({ bySection })}
+            routedWarnings={deriveRoutedWarnings(bySection)}
+            sectionAttention={sectionAttention as never}
+          />
+        </div>
+      );
+    }
+
+    render(<NoteHarness />);
+    const section = screen.getByTestId(PANEL_TESTID);
+    // The card survives...
+    expect(section.querySelectorAll("div.rounded-md.border.bg-surface").length).toBe(1);
+    // ...and the notice is actually rendered, not merely wrapped.
+    const notes = screen.queryByTestId("parse-attention-notes");
+    expect(notes).not.toBeNull();
+    // Text comes from the CATALOG via composeParseNote, not from the fixture, so
+    // assert it is non-empty rather than pinning copy this test does not own.
+    expect((notes!.textContent ?? "").trim().length).toBeGreaterThan(0);
+    expect(notes!.textContent ?? "").toContain("last good version");
+  });
+});
+
+describe("the heading's pill agrees with the rows it shows", () => {
+  it("all-ignored wears NO amber pill above 'Nothing needs a look on this sheet.'", () => {
+    // impeccable critique P0b: the count and the pill render in ONE text run, so
+    // "(0) Needs a look" contradicted itself, and an all-ignored sheet wore the
+    // pill directly above the reassurance line.
+    const allIgnored = [...MAPPED_WARNINGS, ...UNMAPPED_WARNINGS];
+    render(<Harness warnings={allIgnored} ignored={allIgnored} />);
+    const section = screen.getByTestId(PANEL_TESTID);
+    expect(within(section).queryByTestId(CLEAN_TESTID)).not.toBeNull();
+    expect(section.textContent ?? "").not.toContain("Needs a look");
+  });
+
+  it("still wears the pill when active rows really are routed here", () => {
+    // The inverse, so the fix cannot be "never flag the section".
+    render(<Harness warnings={[...UNMAPPED_WARNINGS]} ignored={[]} />);
+    const section = screen.getByTestId(PANEL_TESTID);
+    expect(section.textContent ?? "").toContain("Needs a look");
   });
 });

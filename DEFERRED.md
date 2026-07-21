@@ -86,3 +86,25 @@ are recorded here with dispositions; none is a P0 and none blocks merge.
 - **[P3] Caret lacks `shadow-popover`.** A drop shadow on a rotated 10px diamond casts an odd
   smudge rather than continuing the panel's elevation; the caret reads as continuous with the
   panel via matching `bg-surface` + border + same `z-40`. **Noted, not changed.**
+
+## warning-surface-trim (2026-07-21) — impeccable critique
+
+- **[P1] The heading count reads "(0)" in the Silent state while cards render below it.**
+  Spec §3.3 ratifies the rail count as "the rows the panel renders", with extras signalled
+  separately. The critique argues the heading count is a different surface from the rail and
+  should include the `here` bucket, since those cards sit inside the same `<section>`. Both
+  readings are defensible and they disagree about a ratified number, so the count is left as
+  specified rather than changed unilaterally at implementation time. The self-contradiction the
+  critique actually named, "(0)" wearing an amber "Needs a look" pill in one text run, IS fixed:
+  the pill now derives from the ACTIVE bucket count. **Noted, not changed.** Un-defer trigger:
+  an owner decision on whether the heading count and the rail count may diverge.
+
+- **[P3] The panel is still titled "Parse warnings" though it now holds info-severity
+  leftovers.** Ratified user decision, spec §1.1 ("a published-only rename splits the rail label
+  between staged and published for a panel whose identity is unchanged"). **Noted, not changed.**
+
+- **[P2] The popover renders two sentences as one run, not two paragraphs.** `HoverHelp` renders
+  its body in a plain `<div>` with no `whitespace-pre-line` (`components/admin/HoverHelp.tsx:254`),
+  so a real break would mean changing the SHARED popover body and every other popover on the
+  surface. The composed text is honest prose either way. **Noted, not changed.** Un-defer trigger:
+  a deliberate typographic pass on the shared popover.

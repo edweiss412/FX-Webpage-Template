@@ -232,9 +232,19 @@ export function ShowReviewSurface({
   // impeccable critique P0a: Silent (body empty, actionable cards rendering
   // below this section) must not leave an empty bordered card behind. Same
   // predicate the panel body uses, so the two cannot disagree about emptiness.
+  //
+  // The predicate must cover EVERYTHING the body can render, not just its warning
+  // rows. `parseNotes` also lives inside those children, and
+  // `lib/admin/sectionAttention.ts:105-110` routes PARSE_ERROR_LAST_GOOD and
+  // RESYNC_QUALITY_REGRESSED EXCLUSIVELY there (`continue` — they never become
+  // cards), so suppressing the card on a failed sync would delete "your latest
+  // changes didn't go through" with nothing else rendering it. That is a
+  // structural no-drop violation, and it is what the first version of this guard
+  // shipped.
   const suppressWarningsPanelCard =
     routedWarningsRenderElsewhere &&
     visibleWarningRows(data.warnings, true).length === 0 &&
+    (warningsNotes?.length ?? 0) === 0 &&
     (routedWarnings?.here ?? 0) > 0;
 
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
@@ -256,8 +266,18 @@ export function ShowReviewSurface({
       if (st === "flagged") flagged.add(sid);
       else if (st === "judgment") judgment.add(sid);
     }
+    // impeccable critique: the warnings heading renders its count and its amber
+    // "Needs a look" pill in ONE text run. `sectionStatus` above reads every warn
+    // row including ignored ones, so a trimmed panel showing "(0)" still wore the
+    // pill, and an all-ignored sheet wore it directly above "Nothing needs a look
+    // on this sheet." When the trim is on, this section's live content is exactly
+    // its ACTIVE bucket rows, so flag it on that.
+    if (routedWarningsRenderElsewhere && routedWarnings !== undefined) {
+      if (routedWarnings.here > 0) flagged.add("warnings");
+      else flagged.delete("warnings");
+    }
     return { flagged, judgment };
-  }, [bySection]);
+  }, [bySection, routedWarnings, routedWarningsRenderElsewhere]);
   // Row-local warnings dot (§6.2): red iff ≥1 warn-severity warning exists,
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
@@ -270,9 +290,11 @@ export function ShowReviewSurface({
     // already counts ACTIVE rows only, so use it where it exists and fall back
     // to the original rule everywhere else (the staged wizard, which has no
     // ignore state on this surface).
-    if (routedWarnings !== undefined) return routedWarnings.here + routedWarnings.elsewhere > 0;
+    if (routedWarningsRenderElsewhere && routedWarnings !== undefined) {
+      return routedWarnings.here + routedWarnings.elsewhere > 0;
+    }
     return data.warnings.some((w) => w.severity === "warn");
-  }, [data.warnings, routedWarnings]);
+  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
   // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in
