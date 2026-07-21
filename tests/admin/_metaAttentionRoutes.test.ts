@@ -25,4 +25,16 @@ describe("_metaAttentionRoutes — ATTENTION_ROUTES covers the production regist
       "ROLE_FLAGS_NOTICE",
     ]);
   });
+
+  // attention-alert-routing §3.2/§3.3: anchors are section-scoped. The discriminated
+  // route union makes an invalid pairing a compile error; this is the runtime backstop
+  // for the route table, and pins the invariant before PR3 adds the anchor routes.
+  it("every anchor names a slot its own section declares", () => {
+    const LEGAL: Record<string, string> = { diagrams: "rooms", opening_reel: "event" };
+    for (const [code, r] of Object.entries(ATTENTION_ROUTES)) {
+      if ("anchor" in r && r.anchor) {
+        expect(LEGAL[r.anchor], `${code}: anchor ${r.anchor}`).toBe(r.sectionId);
+      }
+    }
+  });
 });
