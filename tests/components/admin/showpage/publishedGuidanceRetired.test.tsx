@@ -97,27 +97,31 @@ function Harness({ warnings, gate = true }: { warnings: readonly ParseWarning[];
  * would be unfalsifiable. Removing those elements structurally, rather than
  * subtracting a substring, keeps the scan honest.
  */
-function modalTextWithoutPopovers(): string {
+function modalTextWithoutPopovers(): { text: string; removedCount: number } {
   const root = screen.getByTestId("modal-root");
   const clone = root.cloneNode(true) as HTMLElement;
-  for (const el of Array.from(clone.querySelectorAll("[data-testid*='help-popover']"))) {
-    el.remove();
-  }
-  for (const el of Array.from(clone.querySelectorAll("[data-testid*='compact-alert-help']"))) {
-    el.remove();
-  }
-  return clone.textContent ?? "";
+  // The help family is per-item: `per-show-actionable-help-<key>-trigger` and
+  // `-body` (components/admin/PerShowActionableWarnings.tsx:177 feeding
+  // components/admin/HoverHelp.tsx:245). The BODY is always mounted, so it must
+  // be removed structurally or this scan can never fail once task 5 lands.
+  const removed = Array.from(clone.querySelectorAll("[data-testid*='-help-']"));
+  for (const el of removed) el.remove();
+  return { text: clone.textContent ?? "", removedCount: removed.length };
 }
 
 describe("the published panel retires its panel-level guidance", () => {
   it("does not render the correction-loop sentence anywhere outside a popover", () => {
     render(<Harness warnings={ALL_WARNINGS} />);
-    expect(modalTextWithoutPopovers()).not.toContain(LOOP_SENTENCE);
+    const { text, removedCount } = modalTextWithoutPopovers();
+    // The exclusion must actually have excluded something, or this assertion
+    // degrades into a plain whole-tree scan that passes for the wrong reason.
+    expect(removedCount).toBeGreaterThan(0);
+    expect(text).not.toContain(LOOP_SENTENCE);
   });
 
   it("does not render the non-blocking sentence", () => {
     render(<Harness warnings={ALL_WARNINGS} />);
-    expect(modalTextWithoutPopovers()).not.toContain(NON_BLOCKING_SENTENCE);
+    expect(modalTextWithoutPopovers().text).not.toContain(NON_BLOCKING_SENTENCE);
   });
 
   it("keeps BOTH sentences on the ungated (wizard) surface, verbatim", () => {
@@ -125,7 +129,9 @@ describe("the published panel retires its panel-level guidance", () => {
     // string drifts in the component, this assertion fails and tells us the
     // absence assertions above went stale rather than silently passing.
     render(<Harness warnings={ALL_WARNINGS} gate={false} />);
-    const text = modalTextWithoutPopovers();
+    // The ungated surface mounts no extras, so there are no popovers to remove
+    // here; the sentences are asserted PRESENT as panel-level copy.
+    const { text } = modalTextWithoutPopovers();
     expect(text).toContain(LOOP_SENTENCE);
     expect(text).toContain(NON_BLOCKING_SENTENCE);
   });

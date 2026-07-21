@@ -22,8 +22,14 @@ import type { ReactNode } from "react";
 
 const CORRECTION_LOOP_VERB = { resync: "re-sync", rescan: "re-scan" } as const;
 
-/** The shared prefix/suffix live here once; only the verb varies by mode. */
-function correctionLoopCopy(mode: "resync" | "rescan"): string {
+/** The shared prefix/suffix live here once; only the verb varies by mode.
+ *
+ *  EXPORTED for warning-surface-trim §4.2: the published surface renders this
+ *  same sentence inside each warning card's help popover instead of as a
+ *  panel-level callout. It is exported rather than re-authored because this
+ *  module's contract is one template string parameterized by a verb map, NOT
+ *  two independently-authored literals that can drift. */
+export function correctionLoopCopy(mode: "resync" | "rescan"): string {
   return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-read the sheet and clear this.`;
 }
 

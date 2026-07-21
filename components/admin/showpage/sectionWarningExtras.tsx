@@ -9,6 +9,7 @@ import {
   type SectionData,
 } from "@/components/admin/review/sectionData";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
@@ -101,6 +102,10 @@ export function buildSectionWarningExtras(args: {
         <PerShowActionableWarnings
           items={g.items.map((it) => it.warning)}
           driveFileId={driveFileId}
+          // warning-surface-trim §4.2: the SAME sentence the panel used to show
+          // once, now per card and on demand. Sourced from the single exported
+          // helper, never re-authored, so the two cannot drift.
+          followUpCopy={correctionLoopCopy("resync")}
           renderItemControls={(w, i) => (
             <SectionWarningItemControls
               warning={w}
@@ -146,6 +151,7 @@ export function buildSectionWarningExtras(args: {
               <PerShowActionableWarnings
                 items={ignoredWarnings}
                 driveFileId={driveFileId}
+                followUpCopy={correctionLoopCopy("resync")}
                 tone="muted"
                 renderItemControls={(w, i) => (
                   <SectionWarningItemControls

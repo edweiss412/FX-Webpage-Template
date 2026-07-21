@@ -49,6 +49,7 @@ export function PerShowActionableWarnings({
   driveFileId,
   renderItemControls,
   tone = "warning",
+  followUpCopy,
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
@@ -58,6 +59,17 @@ export function PerShowActionableWarnings({
    *  the collapsed "Ignored (N)" list — reads as resolved, not active. AA contrast kept
    *  (text-strong title + text-subtle body on surface-sunken); no opacity dimming. */
   tone?: "warning" | "muted";
+  /** warning-surface-trim §4.1/§4.3: appended to each card's help popover after
+   *  the code's `triggerContext`. Supplied by the PUBLISHED extras factory only
+   *  (`components/admin/showpage/sectionWarningExtras.tsx`); `StagedReviewCard`
+   *  passes nothing and is unchanged. Caller-supplied rather than hardcoded here
+   *  because the sentence names the Re-sync affordance, which exists on the
+   *  published surface and not on the staged one.
+   *
+   *  Normalized by the SAME rule as `triggerContext` (see `warningCardCopyFields`
+   *  above): trimmed, and an empty result is treated as absent, so a
+   *  whitespace-only value cannot manufacture an empty popover. */
+  followUpCopy?: string;
 }) {
   if (items.length === 0) return null;
   // Order-independent keys so an ignore-driven refresh does not remount surviving
@@ -83,6 +95,14 @@ export function PerShowActionableWarnings({
         // Inline guidance = condensed helpfulContext; popover = triggerContext
         // (spec 2026-07-20-warning-card-copy-restore §3.3 - reverses #509 G2).
         const { guidance, trigger: context } = warningCardCopyFields(entry);
+        // §4.3 four-row guard table. Both inputs collapse to "absent" under one
+        // rule, so `undefined`, null, "", and any whitespace run behave alike
+        // and the table is total over each input's full domain.
+        const followUp =
+          typeof followUpCopy === "string" && followUpCopy.trim().length > 0
+            ? followUpCopy.trim()
+            : null;
+        const popoverBody = [context, followUp].filter((v): v is string => v !== null).join("\n\n");
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
@@ -166,10 +186,10 @@ export function PerShowActionableWarnings({
                 </span>
               }
               helpTrigger={
-                context ? (
+                popoverBody.length > 0 ? (
                   <CompactAlertHelp
                     subject={typeof title === "string" ? title : null}
-                    popoverCopy={context}
+                    popoverCopy={popoverBody}
                     // No helpHref on this surface, so the Learn-more route gate
                     // is never consulted; the constant keeps this a server component.
                     helpHref={null}

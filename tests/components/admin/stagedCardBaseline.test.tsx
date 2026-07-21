@@ -21,6 +21,8 @@
  * unrelated change to `StagedReviewCard`'s surrounding chrome does not create
  * noise here while a change to the cards themselves still fails.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
@@ -42,7 +44,10 @@ describe("staged warning-card markup baseline", () => {
     // set is the point: a snapshot taken with different props would not be a
     // baseline for the staged surface.
     render(
-      <PerShowActionableWarnings items={[...MAPPED_WARNINGS]} driveFileId={FIXTURE_DRIVE_FILE_ID} />,
+      <PerShowActionableWarnings
+        items={[...MAPPED_WARNINGS]}
+        driveFileId={FIXTURE_DRIVE_FILE_ID}
+      />,
     );
 
     const cards = screen.queryAllByTestId("per-show-actionable-item");
@@ -51,5 +56,21 @@ describe("staged warning-card markup baseline", () => {
 
     // One snapshot per card, in document order.
     expect(cards.map((el) => el.outerHTML)).toMatchSnapshot();
+  });
+});
+
+describe("the staged mount passes no follow-up copy", () => {
+  it("StagedReviewCard's PerShowActionableWarnings mount carries only items and driveFileId", () => {
+    // Source scan, not a render assertion: the render assertions above prove
+    // this card's OUTPUT is unchanged, and this proves the INPUT is, so a future
+    // edit that starts passing followUpCopy from the staged surface fails here
+    // even if the resulting markup happened to look similar.
+    const src = readFileSync(
+      resolve(process.cwd(), "components/admin/StagedReviewCard.tsx"),
+      "utf8",
+    );
+    const mount = src.match(/<PerShowActionableWarnings[^>]*\/>/s);
+    expect(mount, "the staged mount is still a single self-closing element").not.toBeNull();
+    expect(mount![0]).not.toContain("followUpCopy");
   });
 });
