@@ -137,3 +137,42 @@ are recorded here with dispositions; none is a P0 and none blocks merge.
 - **[P3] `data-warning-index` comment still says "FULL-array index"** though `i` now indexes the
   trimmed rows (`components/admin/wizard/step3ReviewSections.tsx:2573-2576`). Harmless today: the
   only consumer is the staged jump path, which is never gated. **Noted, not changed.**
+
+### warning-surface-trim — whole-diff cross-model review (2026-07-21)
+
+- **[MEDIUM] The staged-mode byte-identical guarantee rests on a leaf render plus a card-level
+  snapshot.** `tests/components/admin/stagedCardBaseline.test.tsx` renders `StagedReviewCard`
+  directly and snapshots the card `<li>` elements, so a change to the surrounding wizard chrome,
+  to card ordering relative to other content, or to a wizard-only prop is invisible to it. The
+  ungated assertions in the other suites use PUBLISHED data with the gate off, which exercises
+  the ungated code path but not the staged surface. **Noted, not changed.** A real staged-surface
+  snapshot needs a wizard-session fixture (staged sessions, use-raw decisions, rescan state) that
+  no current suite builds, and this diff's staged path is one boolean that is false there.
+  Un-defer trigger: any change that touches the wizard's Step-3 composition rather than only the
+  shared registry.
+
+- **[MEDIUM] The alert cut is discoverable only through the bell.** `SHOW_FIRST_PUBLISHED` and
+  `ROLE_FLAGS_NOTICE` leave the modal's attention surface, and while the underlying STATE stays
+  visible (Published in the status strip, roles in Crew), the EVENT and its point-in-time
+  data-gaps digest exist only in the bell feed. An operator who only ever opens show modals can
+  miss both. This is the ratified intent of `2026-07-04-alert-audience-split` §3 rather than a
+  regression — the codes are info-severity and not actionable by default — but the dependency on
+  the operator noticing a separate surface is real. **Noted, not changed.** Un-defer trigger: an
+  owner decision to rehome the data-gaps digest onto the show modal.
+
+### warning-surface-trim — impeccable re-gate on the repair diff (2026-07-21)
+
+- **[P2] The correction sentence is reachable twice on one screen in the List state.** The panel
+  callout renders it visibly whenever the published body still lists info rows, and each active
+  warn card carries it on demand in its `?` popover. Versus `origin/main` this is strictly less
+  callout rendering, not more, so it is not a regression — but it is a partial un-retirement of
+  what spec §3.5 removed. The alternatives are worse: dropping it for info rows is the P0 this
+  repair fixed, and suppressing the per-card copy when the panel body is non-empty would require
+  teaching `sectionWarningExtras` about the panel's body state, which is exactly the cross-layer
+  coupling the context-threaded gate exists to avoid. **Noted, not changed.** Un-defer trigger: an
+  owner decision on whether the panel callout or the per-card popover is the canonical site.
+
+- **[P3] The callout renders even when the only listed info row needs no action** (e.g. a sheet
+  whose sole warning is `TYPO_NORMALIZED`). Its copy is conditional ("Fixed it in the sheet?"), so
+  it asserts nothing false; scoping it to actionable info codes would mean a per-code registry for
+  one sentence. **Noted, not changed.**

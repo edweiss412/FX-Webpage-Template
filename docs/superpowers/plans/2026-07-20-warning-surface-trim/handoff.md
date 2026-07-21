@@ -154,3 +154,45 @@ New empty-state lines measure 6.8:1 light and 6.4:1 dark on `bg-surface`, cleari
 no interactive element, no fixed width, no `transition-*` or `animate-*`, and no one-off class.
 
 **Every P0 and P1 is FIXED. No P0 or P1 is deferred.**
+
+## 13. Whole-diff cross-model review
+
+Dispatched as three tight-scope briefs rather than one whole-diff pass, per the AGENTS.md
+split-review default: the source diff, the test diff, and an integrated cross-surface pass whose
+brief asked six composition questions instead of requesting a line-by-line read. All three returned
+NEEDS-ATTENTION on the first round; every finding is dispositioned below.
+
+**The integrated pass earned its separate dispatch.** Two of the three defects it found are
+invisible in either file alone, and the one it shares with the source-diff reviewer — reached from
+the opposite direction — is the one that shipped a user-visible contradiction.
+
+### Source and cross-surface findings
+
+| Sev | Finding | Disposition |
+| --- | --- | --- |
+| HIGH ×2 | A mapped section's rail state derived from every warn row including ignored ones, while the panel's new empty-state copy reads ACTIVE counts. Ignoring the last active Crew warning left Crew amber and announcing "needs review" beside "Nothing needs a look on this sheet." Found INDEPENDENTLY by the source-diff and cross-surface reviewers. | **FIXED** `ad1ca9402`. `RoutedWarnings` carries the active rows per section, not two totals: `sectionStatus` splits flagged from judgment by inspecting CODES, so a count cannot answer it. Verified by mutation — 2 of 3 assertions fail against the old derivation. |
+| HIGH | The correction-loop sentence rendered NOWHERE for info-severity rows. §3.5 retired the callout assuming every listed row acquires a card carrying the sentence; info rows are never routed, never become cards, and still render in the panel. `DAY_RESTRICTION_DOUBLE_LOCATION` is info-severity and asks the operator to remove a duplicate. | **FIXED** `ad1ca9402`. The callout renders whenever the panel still lists rows of its own. Strictly fewer renders than `origin/main`, so not a regression against the baseline. |
+| MEDIUM | The sentence says "Edit the cell" and was attaching to cards with no cell — the asset/Drive codes carry no `sourceCell`, and two carry no `triggerContext`, so they gained a popover whose entire content was inapplicable advice. | **FIXED** `ad1ca9402`. Gated on the referent the copy already names. |
+| MEDIUM | The alert cut leaves the publish receipt and its data-gaps digest discoverable only through the bell. | **DEFERRED** — ratified intent of `2026-07-04-alert-audience-split` §3; see `DEFERRED.md`. |
+
+### Test findings
+
+Thirteen findings, all one shape: an assertion that stays green against a real defect. Fixed in
+`fb4adde2b` — placement asserted against its own routing oracle, Report controls counted
+document-wide, empty states not actually exclusive, `visibleWarningRows` compared codes rather than
+identities (so a lossy copy could drop the `rawSnippet` that makes a row ignorable), the seam scan
+reading one hardcoded caller, and the bell suite proving the exclusion list omits the codes but not
+that the feed uses it.
+
+One was self-proving: the "discovered branch set" test discovered nothing — it checked three
+substrings were present, so an ADDED branch passed. Rewritten to actually discover, it failed on its
+first run against a fourth conditional the inventory had omitted (`parseNotes.length > 0`, the
+exclusive render site the earlier P0 repair turned on). The two staged-surface and
+alert-discoverability findings are deferred with reasoning in `DEFERRED.md`; no P0 or P1 is deferred.
+
+### Impeccable re-gate on the repair diff
+
+The repairs touched three UI surfaces, so invariant 8 re-ran on `f834501fd..HEAD -- components/`.
+No P0, no P1. The rail fix is an accessibility improvement (it stops AT announcing a contradiction);
+`useMemo` deps already covered both new inputs; no new token, fixed width, or animation utility. Two
+P2/P3 copy-placement notes deferred in `DEFERRED.md`.
