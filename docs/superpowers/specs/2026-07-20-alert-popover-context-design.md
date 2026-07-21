@@ -1,7 +1,7 @@
 # Alert popover context copy (spec B) — design
 
 **Date:** 2026-07-20
-**Status:** Draft for autonomous ship. Supersedes nothing; extends the compact-alert help affordance (`components/admin/compactAlertHelp.tsx`) with authored copy.
+**Status:** APPROVED (Codex adversarial review R2, 2026-07-20). Supersedes nothing; extends the compact-alert help affordance (`components/admin/compactAlertHelp.tsx`) with authored copy.
 **Depends on:** the `helpfulContext` field (`lib/messages/catalog.ts:50`) and the compact-card popover (`components/admin/compactAlertHelp.tsx:64-82`), both already shipped. No new mechanism, component, or render-path change.
 
 <!-- spec-lint: not-ui — copy + meta-test only; no layout, component, token, or dimensional change -->
@@ -125,7 +125,7 @@ Four assertions, all walking the LIVE catalog so a new code fails by default:
 1. **Completeness.** For every `MessageCatalogEntry` with `helpHref != null`: `helpfulContext != null`, OR its `code` appears in `POPOVER_CONTEXT_EXEMPT`. A new help-linked code with neither fails here.
 2. **Per-string validity.** For every entry that satisfies rule 1 via `helpfulContext` (not via exemption): the string is **normalized the same way production does** — trimmed FIRST (mirroring `nonEmpty`, `components/admin/compactAlertHelp.tsx:54-58`, which returns the trimmed value), THEN rendered through `renderEmphasis` — and the resulting text is non-empty AND is not equal to `HELP_ONLY_LEARN_MORE_LEAD_IN`. (Popover strings carry no `<placeholder>` tokens, so there is no interpolation/param step; the trimmed string is rendered directly.) Trimming before comparison is load-bearing: a whitespace-only string, or the lead-in padded with whitespace, would pass a naive raw-string check yet trims in production to an absent context or the exact fallback. Catches an author pasting (or padding) the lead-in to pass rule 1.
 3. **Exemption and authored copy are mutually exclusive.** An exempt `code` MUST have `helpfulContext == null`. A code cannot be both exempt and authored. Without this, a stale exemption outlives authored copy, and an exempt entry carrying whitespace or the lead-in could bypass rule 2 (rule 2 skips exempt codes). Enforcing exclusivity keeps "exempt" meaning exactly "intentionally context-free."
-4. **Ledger is closed and non-vacuous.** Every `code` in `POPOVER_CONTEXT_EXEMPT` exists in the catalog, has `helpHref != null` (else the row is vacuous — the code never carries a help link, so it needs no exemption), and carries a non-empty `reason`. No duplicate rows.
+4. **Ledger is closed and non-vacuous.** Every `code` in `POPOVER_CONTEXT_EXEMPT` exists in the catalog, has `helpHref != null` (else the row is vacuous — the code never carries a help link, so it needs no exemption), and carries a `reason` whose trimmed length `> 0`. **Duplicates are keyed by `code`** (two rows with the same `code` are a duplicate regardless of `reason` — a code is either exempt or not).
 
 **Structure — pure checker + synthetic proofs.** The four rules are implemented as a pure function `checkPopoverContextCoverage(entries, exempt)` that returns a list of violations (each `{ rule, code, detail }`). Two consumers:
 - the **live meta-test** calls it on the real `MESSAGE_CATALOG` + the shipped ledger and asserts zero violations (the fails-by-default guard);
@@ -144,7 +144,8 @@ This makes the gate TDD-natural (the synthetic tests are RED before `checkPopove
 ## 6. Testing
 
 - **Copy correctness** — extend the existing catalog copy test surface: assert each of the 45 codes now has a non-null `helpfulContext` equal to the frozen authored string (frozen-literal oracle: the catalog is the subject under test, so the expected strings are hardcoded, inverting the usual derive-never-hardcode rule — same posture as `_metaShowScopedTemplates` `PAIRED`).
-- **Gate meta-test** — `_metaPopoverContextCoverage` (§4), verified fails-by-default by temporarily nulling one code's `helpfulContext` and one string set to the lead-in during development (proof recorded in the plan, not shipped).
+<!-- spec-lint: ignore — file created by this spec; not yet tracked -->
+- **Gate** — `checkPopoverContextCoverage` (§4) proven RED-first by synthetic-input unit tests that fail before the checker exists and exercise every rule/branch; the live meta-assertion (`_metaPopoverContextCoverage.test.ts`) then asserts zero violations on the real catalog + shipped ledger. No manual break/revert of the live catalog.
 - **Hygiene** — `_metaCatalogCopyHygiene` already covers em-dash / curly / asterisk on `helpfulContext`; the 45 additions are exercised by its existing walk.
 - **No render/component test** — no component changed; `buildHelpPopoverBody`'s context-vs-lead-in branch is already covered by its existing tests.
 
