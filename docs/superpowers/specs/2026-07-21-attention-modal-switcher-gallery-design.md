@@ -32,7 +32,7 @@ Grounding done by reading live modal + shell source (findings are DATA, per the 
 ### 2.1 RSC boundary
 1. **The modal is a `fixed inset-0 z-50` dialog portaled to `document.body`** (`ReviewModalShell.tsx:582`), `open`-controlled (`PublishedReviewModal.tsx:551` passes `open={!closing}`).
 2. **Production already passes all data props across the Server→Client boundary** (`app/admin/_showReviewModal.tsx:406` is a Server Component rendering the client `PublishedReviewModal`). React Flight serializes `Date`/`Map`/`Set`/plain objects; **the only non-serializable props are the 8 action functions** — in production `"use server"` refs, in the gallery plain closures. This is the RSC throw that shipped a blank page last run (`onResolved` from a Server Component). **Therefore the 8 action props are owned by the Client switcher, never passed from the server page.**
-3. **Serializability is PROVEN, not asserted `[R1-5, R1-6, R1-7, R1-20]`:** `Omit` + type-reuse + a source-scan can miss nested callbacks, getters, class instances, or a newly-added optional function field. The real proof is behavioral, two-layer: (a) a **unit test that `structuredClone`s every scenario's `data`** — `structuredClone` throws on function / symbol / class-instance-with-methods nesting, which is exactly the blank-page defect class; the repo has no `react-server-dom` package, so a true Flight-encode round-trip is not available and `structuredClone` is the feasible fast guard; and (b) the **ground truth: the e2e iterates EVERY scenario** through the real build-gated route (the actual Server→Client Flight boundary) asserting each renders non-blank (not one representative). Layer (b) is the authoritative proof; (a) is the fast per-scenario tripwire. Value-dependent failures are caught per-scenario, not by construction.
+3. **Serializability is PROVEN, not asserted `[R1-5, R1-6, R1-7, R1-20, R3-4]`:** `Omit` + type-reuse + a source-scan can miss nested callbacks, getters, or a newly-added optional function field. The real proof is behavioral, two-layer: (a) a **unit test that `structuredClone`s every scenario's `data`** — `structuredClone` throws `DataCloneError` on **function or symbol** values, which is precisely the blank-page defect class (a stray closure or `"use server"`-shaped value leaking into the data props). NOTE its limits: `structuredClone` does NOT throw on a class instance (it clones own-enumerable data and drops the prototype) and does not flag getters — so it is a **narrow tripwire for function/symbol leakage, not a full Flight-fidelity check**; the repo has no `react-server-dom` package, so a true Flight-encode round-trip is unavailable. (b) The **ground truth: the e2e iterates EVERY scenario** through the real build-gated route (the actual Server→Client Flight boundary) asserting each renders non-blank (not one representative). **Layer (b) is the authoritative proof**; (a) is the fast per-scenario tripwire for the specific function-leak defect. Value-dependent failures are caught per-scenario, not by construction.
 
 ### 2.2 Portal, inert, focus trap, and aria-modal (the corrected grounding)
 4. **DOM inerting is scoped to `[data-inert-root]`** (`ReviewModalShell.tsx:179`); the **admin layout is that root** (`app/admin/layout.tsx:159`). Controls left in the page body are DOM-inerted when the modal opens. Portaling to `document.body` escapes that.
@@ -49,10 +49,10 @@ Grounding done by reading live modal + shell source (findings are DATA, per the 
 app/admin/dev/attention-gallery/page.tsx          (Server Component, gated — REWRITTEN body)
   requireDeveloper()                                first line (unchanged auth chain)
   const searchParams = await props.searchParams     Next 16 async searchParams
-  const scenarios = buildSwitcherScenarios()        GallerySwitcherScenario[] (serializable data only)
-  const initialId = resolveInitialScenario(searchParams?.scenario, scenarios)
+  const { rendered, excluded } = partitionScenarios()   rendered + excluded {id,label}[] (serializable)
+  const initialId = resolveInitialScenario(searchParams?.scenario, rendered)
   <GalleryWriteGuard/>                              (KEPT — network write containment)
-  <AttentionModalSwitcher scenarios={scenarios} initialId={initialId}/>   (Client Component)
+  <AttentionModalSwitcher scenarios={rendered} excluded={excluded} initialId={initialId}/>   (Client)
 
 components/admin/dev/AttentionModalSwitcher.tsx     (Client Component — new)
   owns index state (functional updates), document capture keydown (←/→ + swallow Esc)
@@ -80,18 +80,18 @@ lib/dev/publishedModalFixture.ts                    (shared fixture factory — 
 - `now` is a real `Date` (Flight-serializable); `attentionItems: []` default; `alertsDegraded: false` default; `alertId: null`; `pickerCrew: []`; `crewEmails: []`; `feed` a minimal non-null feed.
 
 ### 3.2 `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts (new)` — Server module
-- `buildSwitcherScenarios(): GallerySwitcherScenario[]`, `GallerySwitcherScenario = { id: string; tier: 1|2; label: string; codes: string[]; data: GalleryModalData }`.
+- `partitionScenarios(): { rendered: GallerySwitcherScenario[]; excluded: { id: string; label: string }[] }`, `GallerySwitcherScenario = { id: string; tier: 1|2; label: string; codes: string[]; data: GalleryModalData }`.
 - **`codes` is computed server-side `[R1-13]`** from `scenario.alerts.map(a => a.code)` plus any warning codes (`scenario.warnings?.map(w => w.code)`), so `SwitcherControls` reads a field and never re-derives on the client.
-- **Rendered set excludes non-modal-expressible scenarios `[R2-3]`:** `ALL_SCENARIOS.filter(s => s.tier !== 3 && isModalExpressible(s))`. `isModalExpressible(s) = !(s.bucket?.sectionAvailable || s.bucket?.crewKeyRendered)` — the modal derives section-availability (only rooms/event are gated) and crew-row-rendered state from its own `data`, so a scenario overriding those predicates cannot be reproduced by fixture data; rendering it would MISPLACE the item, which a switcher note cannot undo. `anchorAvailable` IS reproducible (data-shaping), so it does not exclude. **Excluded set today** (pinned by a test): `T2_SECTION_ABSENT`, `T2_OVERVIEW_ABSENT`, `T2_CREW_ROW_ABSENT` (`lib/dev/attentionScenarios/tier2.ts:171`, and lines 176 / 190). Excluded scenarios are NOT rendered in the modal; they are listed in a `SwitcherControls` footnote ("card-only structural probes, not modal-expressible: …") and in the handoff.
+- **One canonical partition, used by filtering, rendering, footnote, AND the pinning test `[R2-3 R3-3]`:** `partitionScenarios()` returns `{ rendered: GallerySwitcherScenario[], excluded: { id: string; label: string }[] }`. `rendered` = `ALL_SCENARIOS.filter(s => s.tier !== 3 && isModalExpressible(s))` mapped to full scenarios; `excluded` = the tier-1/2 scenarios where `!isModalExpressible(s)`, projected to serializable `{id, label}`. `isModalExpressible(s) = !(s.bucket?.sectionAvailable || s.bucket?.crewKeyRendered)` — the modal derives section-availability (only rooms/event gated) and crew-row-rendered state from its own `data`, so a scenario overriding those predicates cannot be reproduced by fixture data; rendering it would MISPLACE the item. `anchorAvailable` IS reproducible (data-shaping), so it does not exclude. **Excluded set today** (pinned by the test asserting `excluded.map(e=>e.id)`): `T2_SECTION_ABSENT`, `T2_OVERVIEW_ABSENT`, `T2_CREW_ROW_ABSENT` (`lib/dev/attentionScenarios/tier2.ts:171`, and lines 176 / 190). The server passes BOTH `rendered` and `excluded` to the switcher; the footnote reads the `excluded` prop (serializable `{id,label}[]`) — no client-side re-derivation, no hardcoded duplicate. The single `isModalExpressible` predicate is the sole source, protected by the pinning test.
 - Per rendered scenario: `const { attentionItems, alertsDegraded } = deriveScenarioAttention(s)` then `buildGalleryModalData({ attentionItems, data: buildData(s), alertsDegraded })`.
 - **`deriveScenarioAttention(s)`** is extracted from `buildBlockProps` (the `deriveAlertRowFields → deriveAttentionItems` path, `buildBlockProps.ts:163`), shared so gallery and any future caller agree. Card-only helpers (`toGroups`, `buildReadout`) are NOT used.
 - **`buildData(s)` shapes `data` so the modal's OWN placement reproduces the intent** — see §2.4. For `T2_ANCHOR_ABSENT` it clears the anchor content (`data.diagrams` signal + `data.eventDetails.opening_reel`) so `anchorsForData` yields no anchor and the modal's bucketer redirects to Overview. For warning scenarios it sets `data.warnings` (feeding `bySection`). Anchored tier-1 alerts keep anchors present so they land in rooms/event.
-- **Tier-1 empty-derivation is a request-time invariant `[R1-15 R2-7]`:** `buildSwitcherScenarios` runs at request time (the page consumes async `searchParams`), so a tier-1 alert scenario deriving zero `attentionItems` throws at render, NOT at `next build`. The enforcing guard is a **unit test over the catalog** asserting every tier-1 scenario yields ≥1 item (CI-time). Tier-2 structural/degraded legitimately yield `[]`.
+- **Tier-1 empty-derivation is a request-time invariant `[R1-15 R2-7]`:** `partitionScenarios` runs at request time (the page consumes async `searchParams`), so a tier-1 alert scenario deriving zero `attentionItems` throws at render, NOT at `next build`. The enforcing guard is a **unit test over the catalog** asserting every tier-1 scenario yields ≥1 item (CI-time). Tier-2 structural/degraded legitimately yield `[]`.
 - **Warning visibility is per-scenario `[R1-14 R2-5]`:** `buildData` routes each warning to a section in the modal's default render; `codes` + nav-dot mark it. The e2e asserts, **for every warning scenario**, that the warning copy is present in the rendered modal DOM and its nav-dot section is marked; the representative case additionally asserts initial-viewport visibility. (The universal claim is DOM-presence + marked section; only the representative adds no-scroll visibility.)
 - **Ordering:** catalog order (`index.ts:12` spread); deterministic, no sort.
 
 ### 3.3 `components/admin/dev/AttentionModalSwitcher.tsx (new)` — Client Component
-- Props: `{ scenarios: GallerySwitcherScenario[]; initialId: string | null }`.
+- Props: `{ scenarios: GallerySwitcherScenario[]; excluded: { id: string; label: string }[]; initialId: string | null }` (both partitions from §3.2's `partitionScenarios`).
 - **Empty catalog first `[R1-17]`:** `if (scenarios.length === 0) return <EmptyState/>;` returns BEFORE any `scenarios[index]` dereference.
 - State: `const [index, setIndex] = useState(() => indexOfId(scenarios, initialId))` (invalid/absent id → 0). `const [closed, setClosed] = useState(false)`.
 - **Functional index updates `[R1-16]`:** `const step = (d:1|-1) => setIndex(i => (i + d + scenarios.length) % scenarios.length)` — no stale-`index` collapse under rapid events.
@@ -104,10 +104,12 @@ lib/dev/publishedModalFixture.ts                    (shared fixture factory — 
 - Wraps the modal in **both** providers: `<ReviewModalCloseContext.Provider value={galleryClose}>` (intercepts close, §2.2(7)) inside `<ShareTokenProvider initialToken={null} initialEpoch={0}>` `[R1-19]` (null token → StatusStrip renders no share affordance side-effects; verified by a render test), wrapping `<PublishedReviewModal key={current.id} {...current.data} {...noopActions}/>`. **`key={current.id}` remounts on switch.**
   - `galleryClose = () => { closingRef.current = true; setClosed(true); }` — synchronous ref first (closes the race window), then the terminal state.
 - **Close handling `[R1-2 R2-1 R2-2]`:** a `useEffect` document `keydown` listener registered with `{ capture: true }`. `←`/`→` call `step`, **guarded on `closingRef.current || closed`** and skipped when focus is in a text input. `Escape` → `preventDefault()` + `stopPropagation()` — the capture phase runs before the shell's bubble-phase Escape listener (`ReviewModalShell.tsx:245`), so close is swallowed. When the modal's X fires `handleClose`, `galleryClose` runs synchronously (via the provided context) → `closed` true → the modal stays hidden (self-heal never fires, §2.2(7)) and a "Reopen scenario N" button shows; `←`/`→` are disabled until Reopen.
+- **`closed` conditionally unmounts + Reopen resets the guard `[R3-1]`:** the render is `{!closed && <ReviewModalCloseContext.Provider …><PublishedReviewModal key={current.id} …/></...>}` — `closed === true` unmounts the modal entirely (so its internal `closing` state is discarded). **Reopen** sets `closingRef.current = false` FIRST, then `setClosed(false)`; the modal remounts fresh at `key={current.id}` (a new instance, `closing=false`). Without the `closingRef` reset, `←`/`→` would stay permanently disabled — so the reset is mandatory and covered by a switcher unit test (close → reopen → arrow advances).
 - **Portal mount gate `[R1-10]`:** `useHasMounted()`; **pre-mount the portal renders `null`** (not inline) — a single, defined behavior; the modal itself SSRs in place then portals (unchanged shell behavior). Controls appear only post-mount, avoiding an inline→portal focus move.
 
 ### 3.4 `SwitcherControls` (sub-component, portaled)
 - Content: `‹ Prev`, `Next ›`, `Scenario <n> / <total>`, current `label`, `tier` chip, `codes.join(", ")` in `font-mono` (raw-code carve-out).
+- **Excluded footnote reads the `excluded` prop `[R3-3]`:** when `excluded.length > 0`, a one-line note lists `excluded.map(e => e.label)` ("card-only structural probes, not modal-expressible: …"). No client re-derivation.
 - `min-h-tap-min` (44px) on both step buttons.
 - `role="group" aria-label="Scenario switcher"`; the count is `aria-live="polite"`.
 - **Layout invariant `[R1-12]`:** the bar is `fixed`, `z-[60]`, positioned **top-center**, height ≤ 56px, and MUST NOT overlap: the modal close button (top-right), nav rail (left), section controls, banners, or the modal footer. On mobile it respects `env(safe-area-inset-top)` and never covers modal body content (top strip only, never bottom-center). A real-browser test asserts non-overlap with the modal's `[data-testid]` header/close/footer boxes.
@@ -140,12 +142,12 @@ The card gallery injected arbitrary placement predicates into `bucketAttention` 
 | `scenarios` empty | filtered catalog empty | `<EmptyState/>` returned before any dereference `[R1-17]`. |
 | `initialId` invalid / tier-3 / absent | | index 0 `[R1-4]`. |
 | `index` wrap | prev at 0 / next at last | functional modulo wrap `[R1-16]`. |
-| tier-1 derives 0 items | | build-time throw `[R1-15]`. |
+| tier-1 derives 0 items | | request-time (render) throw, enforced by a catalog unit test `[R1-15 R2-7]`. |
 | tier-2 `attentionItems: []` | structural/degraded | modal renders sections + degraded/empty attention region — the state under review. |
-| warning-only scenario | | warning in a default-rendered section, visible without extra nav `[R1-14]`. |
-| close / Escape | | Escape swallowed; X → terminal closed state, nav disabled `[R1-2]`. |
+| warning scenario | | warning routed to a default-rendered section; its copy is present in the modal DOM and its nav-dot section marked (per-scenario e2e); only the representative case asserts initial-viewport visibility `[R1-14 R2-5]`. |
+| close / Escape | | Escape swallowed; X → terminal closed state, nav disabled; Reopen resets `closingRef`+`closed` `[R1-2 R3-1]`. |
 | resolve/ignore click | `PerShowAlertResolveButton` `fetch(POST)` | `GalleryWriteGuard` 403s it; e2e drives the REAL control `[R1-25]`. |
-| mutating no-op (publish/archive/accept/undo) | | returns rejection / void; e2e asserts scenario visually unchanged `[R1-18]`. |
+| mutating no-op (publish/archive/accept/undo) | | publish/archive return `{ok:true}` (prop-driven toggle, no banner); accept/undo return void; e2e asserts scenario visually unchanged + no error banner `[R1-18 R2-4]`. |
 | rapid prev/next / held key | remount churn | exactly one dialog, admin root inert, body scroll locked — asserted in browser `[R1-11, R1-23]`. |
 
 ## 5. Risks & correctness surfaces
@@ -164,8 +166,8 @@ States: **S0** viewing scenario *i* (open); **Sc** closed (terminal).
 | --- | --- | --- |
 | S0(i) → S0(i±1) | prev/next or `←`/`→` | `key` remount; the shell's open animation replays. No custom cross-fade. |
 | S0 rapid repeat | held key / fast click | each step an independent remount; functional `setIndex` prevents collapse; exactly one dialog after settle `[R1-11, R1-16, R1-23]`. |
-| S0 → Sc | X close | shell `closing` → unmount; switcher shows Reopen; nav disabled. |
-| Sc → S0 | Reopen | remount scenario *i*. |
+| S0 → Sc | X close | `galleryClose` sets `closingRef`+`closed`; `!closed` unmounts the modal; switcher shows Reopen; nav disabled. |
+| Sc → S0 | Reopen | `closingRef.current = false` then `setClosed(false)`; modal remounts fresh at `key=i` (`closing=false`); nav re-enabled `[R3-1]`. |
 | S0 → S0 while closing | (unreachable) | Escape swallowed; once close begins, nav is disabled → no switch. `[R1-2]` |
 
 ## 8. Meta-test inventory
@@ -181,7 +183,7 @@ Tier-3 materialize (unchanged), any change to `PublishedReviewModal`/`ReviewModa
 ## 10. Testing strategy
 TDD per task.
 - **Unit (vitest/jsdom):** fixture shape + no-function props; `deriveScenarioAttention` output derived **independently** from catalog inputs (expected codes/sections computed from the scenario, not from the helper — anti-tautology `[R1-26]`); `isModalExpressible` excluded set == `{T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_CREW_ROW_ABSENT}` (pins the boundary, `[R2-3]`); every **tier-1** scenario derives ≥1 item `[R1-15]`; `resolveInitialScenario` over `string | string[] | undefined` `[R2-6]`; switcher prev/next/wrap/empty/functional-update/closed-state; no-op action return shapes are `{ok:true}`/void `[R2-4]`.
-- **Serializability (vitest):** `structuredClone(scenario.data)` for **every** rendered scenario throws nothing — the feasible per-scenario tripwire for function/class-instance nesting (no `react-server-dom` in repo; §2.1(3)) `[R1-5, R1-20]`.
+- **Serializability (vitest):** `structuredClone(scenario.data)` for **every** rendered scenario throws nothing — the feasible per-scenario tripwire for **function/symbol** leakage (its limits noted in §2.1(3): it does not catch class instances or getters; the e2e is the authoritative Flight proof) `[R1-5, R1-20, R3-4]`.
 - **Real-browser (Playwright, `dev-build` project built WITH `ADMIN_DEV_PANEL_ENABLED=true` `[R1-27]`):**
   - Every rendered scenario renders non-blank (iterate the full rendered set, not one) — the authoritative Flight-boundary proof `[R1-20]`.
   - `←`/`→` advance the count while the modal is open and focus is trapped inside the dialog `[R1-1, R1-21]`.

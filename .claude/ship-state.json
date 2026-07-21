@@ -2,7 +2,7 @@
   "branch": "feat/attention-modal-gallery",
   "stage": "spec-review",
   "tasksRemaining": "all",
-  "next": "Codex spec R2 re-dispatched (bp866gds9) after models_cache wedge cleared. On verdict: apply findings + 2 verified groundings ({ok:true} no-op, close-interception via exported ReviewModalCloseContext+sync ref). Then writing-plans.",
+  "next": "Codex spec R3 dispatched. On APPROVE: writing-plans. On findings: repair + R4.",
   "blockedOn": "",
   "cronJobId": "33c5f0fd"
 }
