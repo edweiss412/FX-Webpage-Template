@@ -18,6 +18,8 @@ import {
   type FeedGate,
 } from "@/lib/sync/holds/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { shapeHoldEntry, type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
+import { toIso, sortKeyFromRaw } from "@/lib/sync/feed/sortKey";
 
 const DEFAULT_LIMIT = 50;
 
@@ -77,108 +79,6 @@ type ChangeLogRow = {
   source: string;
   acknowledged_at: string | null;
 };
-
-type HoldRow = {
-  id: string;
-  entity_key: string;
-  held_value: unknown;
-  proposed_value: Disposition;
-  base_modified_time: string | null;
-  created_at: string;
-};
-
-// Render the timestamptz the read layer returns as a stable ISO-8601 string |
-// null. postgres-rest returns timestamptz as an ISO-ish string; normalize it
-// via Date so the feed-rendered token is the canonical ISO form Phase 6
-// submits back as p_expected_base_modified_time (resolution #26 / PF40).
-function toIso(value: string | null): string | null {
-  if (value === null) return null;
-  return new Date(value).toISOString();
-}
-
-// Build a FULL-PRECISION chronological sort key from a raw timestamptz string
-// (P5-F5 microsecond-truncation class — the feed merge must NOT sort on the
-// Date/toIso-truncated display value, which loses sub-millisecond precision so
-// same-ms cross-source rows compare equal and the holds-before-logs build order
-// floats an older hold ahead of a newer change). Key = millisecond instant
-// (zero-padded, monotonic) + the 6-digit fractional-second micros, so lexical
-// comparison is chronological even across rows that share a millisecond.
-function sortKeyFromRaw(value: string): string {
-  const ms = new Date(value).getTime(); // millisecond instant (offset-agnostic)
-  const msKey = String(ms).padStart(16, "0");
-  // Extract the fractional seconds digits (microseconds) from the raw string;
-  // pad to 6 so 0.12 < 0.123456. Absent fractional part → all zeros.
-  const frac = /\.(\d+)/.exec(value)?.[1] ?? "";
-  const microKey = frac.padEnd(6, "0").slice(0, 6);
-  return `${msKey}.${microKey}`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function strOrEmpty(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-// Render the pending MI-11 summary via lib/messages (invariant 5 — no raw
-// codes). The catalog dougFacing carries {name}/{old}/{new} placeholders; this
-// layer interpolates them from the hold's held_value (old) + proposed_value
-// (proposed) — the only renderer for pending holds, which have no
-// show_change_log row of their own.
-function renderPendingSummary(hold: HoldRow): string {
-  const disposition = hold.proposed_value;
-  const held = asRecord(hold.held_value);
-  const proposed = asRecord(hold.proposed_value);
-
-  if (disposition.disposition === "email_change") {
-    return fill(getRequiredDougFacing("mi11_pending_email_change"), {
-      name: hold.entity_key,
-      old: strOrEmpty(held.email),
-      new: strOrEmpty(proposed.email),
-    });
-  }
-  if (disposition.disposition === "rename") {
-    // P5-F3: a FOLDED rename (Phase-2 Task 2.5 retargets an open email_change
-    // hold to {disposition:'rename', name, email} when an added row matches the
-    // held/proposed email) ALSO moves the email / OAuth-login anchor. Doug sees
-    // ONLY entry.summary, so a folded rename must warn that the email changes
-    // too — the settled contract reserves `mi11_pending_rename_folded` for
-    // exactly this. The anchor MOVES iff the proposed email differs from the
-    // held identity email (the email the OAuth claim currently uses). A future
-    // pure rename (same email) keeps the plain `mi11_pending_rename` copy — the
-    // branch is conditional, never hardcoded-folded. Compare canonicalized so
-    // it matches the fold's own canonEmail-keyed match (holdAwareApply.ts:241).
-    const heldEmail = canonEmail(strOrEmpty(held.email) || null);
-    const proposedEmail = canonEmail(strOrEmpty(proposed.email) || null);
-    const emailAnchorMoved = proposedEmail !== heldEmail;
-    if (emailAnchorMoved) {
-      return fill(getRequiredDougFacing("mi11_pending_rename_folded"), {
-        name: hold.entity_key,
-        old: strOrEmpty(held.name) || hold.entity_key,
-        new: strOrEmpty(proposed.name),
-      });
-    }
-    return fill(getRequiredDougFacing("mi11_pending_rename"), {
-      name: hold.entity_key,
-      old: strOrEmpty(held.name) || hold.entity_key,
-      new: strOrEmpty(proposed.name),
-    });
-  }
-  // removal
-  return fill(getRequiredDougFacing("mi11_pending_removal"), {
-    name: hold.entity_key,
-    old: "",
-    new: "",
-  });
-}
-
-function fill(template: string, params: { name: string; old: string; new: string }): string {
-  return template
-    .replaceAll("{name}", params.name)
-    .replaceAll("{old}", params.old)
-    .replaceAll("{new}", params.new);
-}
 
 /**
  * Server-only (service-role) read of the per-show changes feed.
@@ -282,34 +182,7 @@ export async function readShowChangeFeed(
     return base;
   });
 
-  const holdEntries: RankedEntry[] = ((holdData ?? []) as HoldRow[]).map((hold) => {
-    const gate: FeedGate = {
-      holdId: hold.id,
-      disposition: hold.proposed_value,
-      // P5-F4 / PF40: gate.baseModifiedTime is the OPAQUE optimistic-concurrency
-      // token the MI-11 RPCs compare EXACTLY (base_modified_time IS DISTINCT FROM
-      // p_expected_base_modified_time). It MUST carry the raw timestamptz string
-      // as returned by the query (full PostgreSQL microsecond precision) — NOT a
-      // Date/toIso()-normalized value, which drops postgres microseconds
-      // (...123456Z → ...123Z) and would falsely trip MI11_TARGET_MOVED on a hold
-      // that never retargeted. Display timestamps (occurredAt below) stay
-      // normalized; only this concurrency token must be byte-exact.
-      baseModifiedTime: hold.base_modified_time,
-    };
-    return {
-      id: hold.id,
-      occurredAt: toIso(hold.created_at) ?? hold.created_at, // display only (Date-normalized)
-      sortKey: sortKeyFromRaw(hold.created_at), // sort key — full precision (P5-F5)
-      status: "pending",
-      summary: renderPendingSummary(hold),
-      action: "approve_reject",
-      entityRef: hold.entity_key,
-      // Hold-derived entries never carry the disposition axis (spec §2).
-      acceptable: false,
-      acknowledgedAt: null,
-      gate,
-    };
-  });
+  const holdEntries: RankedEntry[] = ((holdData ?? []) as HoldRow[]).map(shapeHoldEntry);
 
   // Sort newest-first on the FULL-PRECISION raw sortKey, NOT the ms-truncated
   // display value — otherwise a hold and a change-log row in the same ms but

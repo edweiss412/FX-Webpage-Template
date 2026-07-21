@@ -116,7 +116,7 @@ describe.skipIf(!RUN)("Round 2 Finding 1 — pnpm build canonical-path artifact 
       existsSync(telemetryDir),
       `expected ${telemetryDir} to EXIST; the prod-available /admin/dev/telemetry route was not compiled into the canonical build`,
     ).toBe(true);
-    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim"]) {
+    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim", "attention-gallery"]) {
       const leaked = join(adminDevDir, devOnly);
       expect(
         existsSync(leaked),
@@ -174,7 +174,7 @@ describe.skipIf(!RUN)("Round 2 Finding 1 — pnpm build canonical-path artifact 
     // DEV-ONLY surfaces (the panel page + BOTH dim harnesses) — the exact set the
     // flag-unset primary test asserts ABSENT — ARE compiled back in when the flag
     // is set. If any is missing, the wrapper is disabling dev routes despite the flag.
-    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim"]) {
+    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim", "attention-gallery"]) {
       const restored = join(adminDevDir, devOnly);
       expect(
         existsSync(restored),

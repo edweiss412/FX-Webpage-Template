@@ -13,12 +13,11 @@
  * the registry row's path points here.
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { deriveAlertRowFields } from "./deriveAlertRowFields";
 import { log } from "@/lib/log";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
 import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
-import { describeAlert } from "@/lib/adminAlerts/describeAlert";
-import { deriveAlertMessageParams } from "@/lib/adminAlerts/deriveMessageParams";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { MessageParams } from "@/lib/messages/lookup";
 
@@ -48,29 +47,6 @@ export type AdminAlertRow = {
    */
   crewName: string | null;
 };
-
-/**
- * §3.1a crewName rule. `projected` is the SAME sanitized projection the
- * resolver consumed (projectIdentityContext — capped, control-char-stripped),
- * never raw context; the segment fallback reads the resolved identity's
- * "Crew"-labeled segment (resolveAlertIdentities.ts label literal).
- */
-function crewNameFor(
-  code: string,
-  projected: ReturnType<typeof projectIdentityContext>,
-  identity: AlertIdentity | undefined,
-): string | null {
-  if (code === "ROLE_FLAGS_NOTICE") {
-    const names = projected.display.role_change_crew_names;
-    if (projected.counts.role_change_count !== 1 || !names || names.length !== 1) return null;
-    const name = names[0]!;
-    return name.trim().length > 0 ? name : null;
-  }
-  const crewSegs = (identity?.segments ?? []).filter((s) => s.label === "Crew");
-  if (crewSegs.length !== 1) return null;
-  const value = crewSegs[0]!.value;
-  return value.trim().length > 0 ? value : null;
-}
 
 // Registered row for the §B Supabase call-boundary contract (AGENTS.md §1.9).
 export async function fetchPerShowAlerts(
@@ -164,11 +140,5 @@ export async function fetchPerShowAlerts(
       error: err,
     });
   }
-  return rows.map((r) => {
-    const identity = identities.get(r.id);
-    const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
-    const messageParams = deriveAlertMessageParams(r.code, r.context, identity ?? null, "show");
-    const crewName = crewNameFor(r.code, projectedById.get(r.id)!, identity);
-    return { ...r, identityText, messageParams, crewName };
-  });
+  return rows.map((r) => ({ ...r, ...deriveAlertRowFields(r, identities.get(r.id)) }));
 }

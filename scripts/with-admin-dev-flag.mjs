@@ -53,6 +53,14 @@ const FILES = [
   // flag-UNSET builds so the prod artifact never contains the route. Pure render
   // harness with a requireAdmin() chokepoint; no actions.ts.
   "app/admin/dev/telemetry-dim/page.tsx",
+  // Attention scenario gallery (spec 2026-07-20-attention-scenario-gallery §6).
+  // Same build-gate rationale as the harnesses above: it MUST be renamed aside on
+  // flag-UNSET builds so the prod artifact never contains the route. Verified
+  // empirically — with this entry absent, a canonical flag-unset `pnpm build`
+  // emitted server/app/admin/dev/attention-gallery. Only page.tsx is listed:
+  // params.ts and buildBlockProps.ts are plain modules, not route entry points,
+  // so with the page renamed aside nothing imports them.
+  "app/admin/dev/attention-gallery/page.tsx",
 ];
 const DISABLED_SUFFIX = ".disabled-by-build-gate";
 
