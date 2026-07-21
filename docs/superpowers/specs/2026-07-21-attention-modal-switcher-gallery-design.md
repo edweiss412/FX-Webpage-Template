@@ -1,7 +1,7 @@
 # Attention Modal Switcher Gallery — Design Spec
 
 **Date:** 2026-07-21
-**Status:** DRAFT → (self-review → cross-model review R2 → APPROVE)
+**Status:** APPROVED (Codex cross-model review R1-R4; R4 APPROVE, no findings)
 **Supersedes the renderer of:** `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md` (the scenario *catalog*, derivation, safety gates, and materialize path are unchanged; only the gallery's *presentation* is replaced).
 
 **Revision note:** R2 folds in Codex spec-review R1 (27 findings) + a tier-2 faithfulness boundary found during plan pre-verification. Numbered resolutions are cited inline as `[R1-#n]`.

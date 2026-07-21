@@ -1,8 +1,8 @@
 {
   "branch": "feat/attention-modal-gallery",
-  "stage": "spec-review",
+  "stage": "plan-review",
   "tasksRemaining": "all",
-  "next": "Codex spec R3 dispatched. On APPROVE: writing-plans. On findings: repair + R4.",
+  "next": "Spec APPROVED (R4). Plan drafted. Run plan self-review (typecheck snippets) + Codex plan adversarial review to APPROVE, then TDD implementation.",
   "blockedOn": "",
   "cronJobId": "33c5f0fd"
 }
