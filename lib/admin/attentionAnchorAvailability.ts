@@ -15,9 +15,7 @@ import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 import type { AttentionAnchor } from "@/lib/admin/attentionItems";
 
-export function anchorsForData(
-  data: SectionData,
-): Map<"rooms" | "event", Set<AttentionAnchor>> {
+export function anchorsForData(data: SectionData): Map<"rooms" | "event", Set<AttentionAnchor>> {
   const map = new Map<"rooms" | "event", Set<AttentionAnchor>>();
 
   // Mirror the sub-block render fork EXACTLY (step3ReviewSections.tsx): staged reads

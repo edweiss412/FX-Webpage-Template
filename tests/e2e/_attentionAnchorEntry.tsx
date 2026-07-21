@@ -88,7 +88,10 @@ function Harness() {
             reelAttention: [<AnchorCard key="r" code="REEL_DRIFTED" />],
           }}
         >
-          <EventDetailsBreakdown dfid="drive-1" eventDetails={{ opening_reel: "Sizzle reel intro" }} />
+          <EventDetailsBreakdown
+            dfid="drive-1"
+            eventDetails={{ opening_reel: "Sizzle reel intro" }}
+          />
         </Step3SectionChromeContext.Provider>
       </section>
     </div>

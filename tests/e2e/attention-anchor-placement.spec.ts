@@ -87,11 +87,7 @@ test.beforeAll(async () => {
       const body = readFileSync(join(workDir, file));
       res.setHeader(
         "content-type",
-        file.endsWith(".css")
-          ? "text/css"
-          : file.endsWith(".js")
-            ? "text/javascript"
-            : "text/html",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
       );
       res.end(body);
     } catch {

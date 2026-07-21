@@ -1,20 +1,20 @@
 {
   "branch": "feat/attention-alert-routing",
-  "stage": "pr2-review+impeccable",
-  "tasksRemaining": 3,
-  "next": "Read codex-pr2/result.json. Run impeccable critique+audit on warnings-panel notes. Both pass -> push, real CI, merge. Local test:fast 8 fails are DB-contention + validation-seed-pollution, NOT regressions (verified: skip on clean origin/main, PR2 touches none).",
+  "stage": "pr3-impl",
+  "tasksRemaining": 1,
+  "next": "PR3 (anchors): Task 3.1 anchorsForData (reuse hasDiagramSignal + reel accessor) -> 3.2 route 6 codes + re-freeze -> 3.3 mount byAnchor at Diagrams sub-block + opening_reel field -> 3.4 real-browser placement spec + standalone testMatch wiring -> impeccable dual-gate -> whole-diff Codex review -> real CI green -> gh pr merge --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b.",
   "blockedOn": "",
   "cronJobId": "d806af7b",
-  "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
+  "base": "origin/main (post-#524+#526 merge)",
   "specCommit": "9d7dcf897",
   "planNotes": [
-    "tests/components/admin/review/showReviewSurfaceAttention.test.tsx asserts DOM BYTE-IDENTITY when attention props are absent \u2014 the crewAttention -> sectionAttention rename must preserve it; this is the regression proof for PR2's mount generalization.",
-    "AGENTS.md cites tests/messages/codes.test.ts:92 for the x1 parity gate; the real path is tests/cross-cutting/codes.test.ts. Fix as a one-line docs correction in PR1.",
-    "Real-browser assertions must expect a 22x22 ? trigger (sibling feat/warning-card-copy-restore geometry), not the historical 44px box."
+    "Real-browser ? trigger is 22x22 (sibling feat/warning-card-copy-restore geometry); anchor spec is geometry-agnostic per spec 9.",
+    "Verify step3ReviewSections.tsx cited line numbers post-PR2 (parseNotes added ~33 lines)."
   ],
   "siblings": {
-    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; already committed my 13-code handoff at 3aba6f8f5; rebase when it merges",
-    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner"
+    "feat/warning-card-copy-restore": "owns parse-warning card copy; still in flight"
   },
-  "pr1": "MERGED #524"
+  "pr1": "MERGED #524",
+  "pr2": "MERGED #526",
+  "pr3": "in progress"
 }

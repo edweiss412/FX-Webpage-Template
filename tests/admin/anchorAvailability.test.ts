@@ -62,12 +62,12 @@ describe("anchorsForData", () => {
   it("null / empty / whitespace opening_reel → event absent", () => {
     expect(anchorsForData(published({ eventDetails: null })).has("event")).toBe(false);
     expect(anchorsForData(published({ eventDetails: {} })).has("event")).toBe(false);
-    expect(
-      anchorsForData(published({ eventDetails: { opening_reel: "" } })).has("event"),
-    ).toBe(false);
-    expect(
-      anchorsForData(published({ eventDetails: { opening_reel: "   " } })).has("event"),
-    ).toBe(false);
+    expect(anchorsForData(published({ eventDetails: { opening_reel: "" } })).has("event")).toBe(
+      false,
+    );
+    expect(anchorsForData(published({ eventDetails: { opening_reel: "   " } })).has("event")).toBe(
+      false,
+    );
   });
 
   it("returns a Map keyed by anchor-hosting section; crew never appears", () => {
