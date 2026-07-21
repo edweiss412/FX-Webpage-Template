@@ -1,15 +1,15 @@
 {
   "branch": "feat/attention-alert-routing",
-  "stage": "pr3-review",
+  "stage": "pr3-review-r2",
   "tasksRemaining": 1,
-  "next": "PR3 (#529) rebased onto current origin/main. Impeccable dual-gate PASSED (no P0/P1; P3s applied). Dispatch whole-diff Codex review -> on APPROVE + real CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b.",
+  "next": "PR3 (#529) Codex R1 was NEEDS-ATTENTION (1 P1 + 3 P2, all fixed: resolveEffectiveSection single-source + test-strength). Pushed. R2 Codex review + CI both watched. On R2 APPROVE + CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b.",
   "blockedOn": "",
   "cronJobId": "d806af7b",
-  "base": "origin/main (rebased post-sibling-merge)",
+  "base": "origin/main (rebased)",
   "specCommit": "9d7dcf897",
   "planNotes": [
-    "Branch was behind origin/main after a sibling merged post-rebase; rebased clean, diff now only PR3 files.",
-    "impeccable: no P0/P1; applied 2 P3s (min-w-0 parity + gap binding)."
+    "Codex R1 P1: fallen-back asset/reel cards were dotting/hashing declared route not Overview. Fixed via resolveEffectiveSection (single source: jump + dot + badge). Only rooms/event fallback-eligible.",
+    "impeccable: no P0/P1; 2 P3s applied."
   ],
   "pr1": "MERGED #524",
   "pr2": "MERGED #526",
