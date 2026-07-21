@@ -107,10 +107,17 @@ async function apply(scenario: AttentionScenario, target: "local" | "validation"
   return executeApply(scenario, plan, show(), target, { client });
 }
 
-async function clear(target: "local" | "validation" = "local") {
-  // resync is omitted deliberately: this suite proves the DELETE semantics, and
-  // a real sync would need Drive.
-  return executeClear(planClear({ slug: SLUG, target }), show(), target, { client });
+/**
+ * A stub re-sync. The real one needs Drive, which this suite deliberately does
+ * not reach; it is SUPPLIED rather than omitted because a local Clear with no
+ * implementation is now a partial, and passing `{ ok: true }` here keeps the
+ * DELETE semantics under test without pretending warnings were regenerated.
+ */
+async function clear(target: "local" | "validation" = "local", resyncOk = true) {
+  return executeClear(planClear({ slug: SLUG, target }), show(), target, {
+    client,
+    resync: async () => ({ ok: resyncOk, detail: resyncOk ? "stubbed" : "blocked: stub" }),
+  });
 }
 
 /** Every alert row for the fixture show, ordered so comparisons are stable. */
@@ -346,6 +353,19 @@ SUITE("materialize round-trip against a real database", () => {
     expect(alertRows()).toBe(alertsBefore);
     expect(holdRows()).toBe(holdsBefore);
     expect(warningsJson()).toBe(warningsBefore);
+  });
+
+  test("a Clear whose re-sync does not regenerate is PARTIAL, and still deletes", async () => {
+    // The stranded-warnings case: the tagged rows must go even when regeneration
+    // fails, and the caller must be told regeneration did not happen.
+    await apply(s(T3_CREW_COLLISION));
+    expect(alertRows()).not.toBe("");
+    const r = await clear("local", false);
+    expect(r.kind).toBe("partial");
+    if (r.kind === "partial") expect(r.failedStep).toBe("resync");
+    // Deletes still committed, so a retry is not required to clean up.
+    expect(alertRows()).toBe("");
+    expect(holdRows()).toBe("");
   });
 
   test("Clear succeeds on an ARCHIVED show, so cleanup is never stranded", async () => {

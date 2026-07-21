@@ -72,6 +72,11 @@ function holdItem(id: string): AttentionItem {
 afterEach(cleanup);
 
 describe("ScenarioBlock", () => {
+  // NOTE (cross-model review P0): this covers only FORM-POSTED actions. The
+  // resolve control that actually ships is `type="button"` + `fetch`, which no
+  // submit handler can see; that containment lives in GalleryWriteGuard and is
+  // proven in tests/components/admin/dev/galleryWriteGuard.test.tsx. Neither
+  // guard alone is sufficient, so neither test alone is the containment proof.
   test("a form submit inside the block never fires its action", () => {
     const action = vi.fn();
     render(

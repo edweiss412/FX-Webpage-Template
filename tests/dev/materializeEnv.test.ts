@@ -63,6 +63,17 @@ describe("resolveTarget — local", () => {
     }
   });
 
+  test("a non-HTTP scheme is refused even with a loopback hostname", () => {
+    // These parse with hostname "localhost" but make Supabase throw
+    // synchronously at client construction, escaping the typed result.
+    for (const url of ["ftp://localhost", "file://localhost/tmp/x", "ws://localhost:54321"]) {
+      expect(resolveTarget(input({ localUrl: url })), url).toEqual({
+        kind: "refused",
+        reason: "local_not_loopback",
+      });
+    }
+  });
+
   test("an unparseable URL is refused, not treated as loopback", () => {
     expect(resolveTarget(input({ localUrl: "not a url" }))).toEqual({
       kind: "refused",
@@ -101,6 +112,17 @@ describe("resolveTarget — validation", () => {
       expect(r.url).toBe(VALIDATION_URL);
       expect(r.key).toBe("validation-secret");
       expect(r.target).toBe("validation");
+    }
+  });
+
+  test("confirmation must be EXACTLY true, not merely truthy", () => {
+    // The core actions are independently exported server actions, so a caller
+    // can pass a value TypeScript would have rejected.
+    for (const bogus of ["false", "true", 1, {}, [] as unknown]) {
+      expect(v({ confirmed: bogus as unknown as boolean }), String(bogus)).toEqual({
+        kind: "refused",
+        reason: "validation_unconfirmed",
+      });
     }
   });
 

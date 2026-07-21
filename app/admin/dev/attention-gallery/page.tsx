@@ -36,6 +36,7 @@ import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { ALL_SCENARIOS, scenarioById } from "@/lib/dev/attentionScenarios/index";
 import { ScenarioBlock } from "@/components/admin/dev/ScenarioBlock";
 import { GalleryCard } from "@/components/admin/dev/GalleryCard";
+import { GalleryWriteGuard } from "@/components/admin/dev/GalleryWriteGuard";
 import { buildBlockProps, GALLERY_NOW, GALLERY_SLUG } from "./buildBlockProps";
 import { parseGalleryParams } from "./params";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
@@ -56,9 +57,19 @@ export default async function AttentionGalleryPage({
   // silently intersecting the two would show an empty page for a valid id.
   const requested = scenarioId === null ? null : scenarioById(scenarioId);
   const unknownScenario = scenarioId !== null && requested === undefined;
-  const shown = requested
-    ? [requested]
-    : ALL_SCENARIOS.filter((s) => tier === null || s.tier === tier);
+  // Tier 3 is MATERIALIZE-ONLY (spec §4.3, §5.0). Rendering a composite here
+  // would show it through a gallery-shaped surface rather than the real modal,
+  // which is the one thing the tier exists to avoid. It is listed by name below
+  // with a pointer at the dev panel instead.
+  const galleryScenarios = ALL_SCENARIOS.filter((s) => s.tier !== 3);
+  const requestedIsTier3 = requested?.tier === 3;
+  const shown =
+    requested && !requestedIsTier3
+      ? [requested]
+      : requested
+        ? []
+        : galleryScenarios.filter((s) => tier === null || s.tier === tier);
+  const materializeOnly = ALL_SCENARIOS.filter((s) => s.tier === 3);
 
   // Rendered through GalleryCard rather than AttentionBanner directly:
   // AttentionBanner requires an `onResolved` FUNCTION prop, and a function
@@ -70,6 +81,10 @@ export default async function AttentionGalleryPage({
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
+      {/* Total containment for imperative writes; see the component header. The
+          submit-capture guard in ScenarioBlock covers form-posted actions, and
+          neither alone is sufficient. */}
+      <GalleryWriteGuard />
       {/* text-2xl over the blocks' text-lg h2 is a 1.33x step, clearing
           DESIGN.md's 1.25x floor; text-xl was 1.11x and read as a flat scale. */}
       <h1 className="text-2xl font-bold text-text-strong">Attention scenario gallery</h1>
@@ -87,6 +102,17 @@ export default async function AttentionGalleryPage({
         Showing {shown.length} of {ALL_SCENARIOS.length} scenarios
         {tier === null ? "" : ` (tier ${tier})`}.
       </p>
+
+      {requestedIsTier3 ? (
+        <p className="mt-4 max-w-prose text-xs/relaxed text-text-strong">
+          <code>{scenarioId}</code> is a composite, which is materialize-only. Use the materialize
+          card on{" "}
+          <a className="underline" href="/admin/dev">
+            the dev panel
+          </a>
+          , then review it in the real show modal.
+        </p>
+      ) : null}
 
       {unknownScenario ? (
         <p className="mt-4 text-xs/relaxed text-text-strong">
@@ -112,6 +138,30 @@ export default async function AttentionGalleryPage({
             ))}
           </ul>
         </nav>
+      )}
+
+      {tier !== null && tier !== 3 ? null : (
+        <section className="mt-6 rounded-md border border-border p-3">
+          <h2 className="text-xs font-semibold text-text-strong">
+            Composites (materialize-only, not rendered here)
+          </h2>
+          <p className="mt-1 max-w-prose text-xs/relaxed text-text-subtle">
+            These carry whole realistic show states. They are written onto a real show with the
+            materialize card on{" "}
+            <a className="underline" href="/admin/dev">
+              the dev panel
+            </a>{" "}
+            and then reviewed in the real show modal, because a composite rendered here would be a
+            gallery-shaped approximation of the surface it exists to exercise.
+          </p>
+          <ul className="mt-2">
+            {materializeOnly.map((s) => (
+              <li key={s.id} className="text-xs/relaxed text-text-subtle">
+                <span className="font-mono">{s.id}</span> — {s.label}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <div className="mt-8">

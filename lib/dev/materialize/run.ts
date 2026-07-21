@@ -89,10 +89,21 @@ export type SupabaseLike = {
   };
 };
 
+/**
+ * The re-sync outcome, reduced to what Clear needs to decide. REQUIRED for a
+ * local target and REPORTED, not ignored: `runManualSyncForShow` RESOLVES with
+ * non-success outcomes (`blocked` on an archived show, `skipped` under a
+ * concurrent sync, `hard_fail`, `parse_error`, ...) rather than throwing. An
+ * earlier version awaited it and discarded the value, so a Clear that deleted
+ * the tagged rows but never regenerated authentic warnings reported `ok` and
+ * left synthetic `parse_warnings` stranded with no way to remove them.
+ */
+export type ResyncOutcome = { ok: boolean; detail: string };
+
 export type RunDeps = {
   client: SupabaseLike;
   /** Called DIRECTLY — never as an HTTP request to the app's own route. */
-  resync?: (driveFileId: string) => Promise<unknown>;
+  resync?: (driveFileId: string) => Promise<ResyncOutcome>;
 };
 
 /** A failure that carries which step produced it, so the caller can decide
@@ -247,13 +258,23 @@ async function writeWarnings(
   show: ShowRef,
   scenario: AttentionScenario,
 ): Promise<void> {
-  await run(
-    "writeWarnings",
-    deps.client
-      .from("shows_internal")
-      .update({ parse_warnings: scenario.warnings ?? [] })
-      .eq("show_id", show.id),
+  // `.select("show_id")` so the update RETURNS the rows it touched. `shows`
+  // existing does not imply a `shows_internal` row exists, and without a
+  // returned row a no-match update yields `{ error: null }` and would be
+  // reported as "written" when nothing was.
+  const rows = rowsOf(
+    await run(
+      "writeWarnings",
+      deps.client
+        .from("shows_internal")
+        .update({ parse_warnings: scenario.warnings ?? [] })
+        .eq("show_id", show.id)
+        .select("show_id"),
+    ),
   );
+  if (rows.length === 0) {
+    throw new StepFailure("writeWarnings", `no shows_internal row for show ${show.id}`);
+  }
 }
 
 function failureResult(
@@ -350,11 +371,19 @@ export async function executeClear(
         await deleteTaggedHolds(deps, show);
         committed.anything = true;
       } else if (step.step === "resync") {
+        // REQUIRED, not optional-chained. A missing implementation used to make
+        // the local regeneration step a silent no-op that still reported success.
+        if (!deps.resync) {
+          throw new StepFailure("resync", "no re-sync implementation supplied for a local Clear");
+        }
+        let outcome: ResyncOutcome;
         try {
-          await deps.resync?.(show.driveFileId);
+          outcome = await deps.resync(show.driveFileId);
         } catch (err) {
           throw new StepFailure("resync", messageOf(err));
         }
+        // A RESOLVED non-success is still a failure to regenerate.
+        if (!outcome.ok) throw new StepFailure("resync", outcome.detail);
       }
     }
   } catch (err) {

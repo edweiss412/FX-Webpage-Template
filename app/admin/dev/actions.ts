@@ -612,7 +612,18 @@ export async function clearAttentionScenario(
       client,
       // Called DIRECTLY, never as an HTTP request to this app's own route: a
       // self-request would re-enter auth and lose the developer identity.
-      resync: (driveFileId) => runManualSyncForShow(driveFileId, "manual"),
+      //
+      // The OUTCOME is interpreted, not discarded. runManualSyncForShow RESOLVES
+      // with non-success outcomes rather than throwing - `blocked` on an archived
+      // show, `skipped` under a concurrent sync, `hard_fail`, `parse_error`. Only
+      // an applied/stage outcome actually regenerates authentic warnings, so
+      // anything else must surface as a partial Clear rather than a silent ok.
+      resync: async (driveFileId) => {
+        const result = await runManualSyncForShow(driveFileId, "manual");
+        const outcome = (result as { outcome?: string }).outcome ?? "unknown";
+        const ok = outcome === "applied" || outcome === "stage";
+        return { ok, detail: ok ? outcome : `re-sync did not regenerate warnings: ${outcome}` };
+      },
     },
   );
 

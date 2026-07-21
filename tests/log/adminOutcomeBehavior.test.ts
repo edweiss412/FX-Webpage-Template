@@ -1232,12 +1232,27 @@ describe("attention scenario materialize outcome telemetry", () => {
   };
   const SHOW_ROW = [{ id: "show-uuid", drive_file_id: "drive-1", archived: false }];
 
+  // Saved and RESTORED: these tests mutate process.env, and vitest shares one
+  // process per worker, so leaving the mutation in place leaks a loopback
+  // SUPABASE_URL into every later test in this shard. That is invisible locally
+  // (the dev env already points at loopback) and only surfaces in CI, where a
+  // sibling suite reads a URL this file invented.
+  const savedEnv: Record<string, string | undefined> = {};
   beforeEach(() => {
+    savedEnv.SUPABASE_URL = process.env.SUPABASE_URL;
+    savedEnv.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
     // Loopback, or resolveTarget refuses before a single write is attempted and
     // every assertion below would pass for the wrong reason.
     process.env.SUPABASE_URL = "http://127.0.0.1:54321";
     process.env.SUPABASE_SECRET_KEY = "local-secret";
     materializeScript.current = { shows: { data: SHOW_ROW } };
+  });
+
+  afterEach(() => {
+    for (const key of ["SUPABASE_URL", "SUPABASE_SECRET_KEY"] as const) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
   });
 
   test("applyAttentionScenario emits DEV_SCENARIO_APPLIED on the committed-success branch", async () => {

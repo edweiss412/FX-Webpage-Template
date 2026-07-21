@@ -56,7 +56,13 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 /** Hostname equality, never substring: `127.0.0.1.evil.test` is not loopback. */
 function isLoopback(url: string): boolean {
   try {
-    return LOOPBACK_HOSTS.has(new URL(url).hostname);
+    const parsed = new URL(url);
+    // Scheme is checked too: `ftp://localhost` and `file://localhost/...` parse
+    // with a loopback hostname but make Supabase throw SYNCHRONOUSLY at client
+    // construction, which is outside the caller's try and would escape the
+    // promised MaterializeResult instead of returning a refusal.
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return LOOPBACK_HOSTS.has(parsed.hostname);
   } catch {
     return false;
   }
@@ -78,7 +84,10 @@ export function resolveTarget(input: EnvInput): EnvResolution {
     // Consent is checked FIRST, before the triple: an operator who has not
     // confirmed should be told to confirm, not sent to debug an env var they
     // never got far enough to use.
-    if (!input.confirmed) return { kind: "refused", reason: "validation_unconfirmed" };
+    // Runtime-EXACT, not merely truthy. The two core actions are independently
+    // exported server actions, so a caller can pass `"false"` or `1` past the
+    // TypeScript signature; only `true` may authorize a remote write.
+    if (input.confirmed !== true) return { kind: "refused", reason: "validation_unconfirmed" };
     if (
       !present(input.validationUrl) ||
       !present(input.validationKey) ||

@@ -6,7 +6,8 @@
 // catalog moved.
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
-import { isAutoResolving } from "@/lib/adminAlerts/audience";
+import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
+import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
 export const MENU_CAP = 12;
@@ -62,12 +63,23 @@ const CONTEXT_REQUIRED = new Set([
 ]);
 
 /**
+ * A code that `deriveAttentionItems` removes before anything renders: the
+ * PICKER_EPOCH_RESET cut, plus DOUG_EXCLUDED_CODES (info-severity UNION health)
+ * which warning-surface-trim §5 took off Doug's attention surface. A structural
+ * axis built on one of these renders NOTHING, so the axis would silently stop
+ * testing what it names.
+ */
+export function isCutFromSurface(code: string): boolean {
+  return code === "PICKER_EPOCH_RESET" || DOUG_EXCLUDED_CODES.includes(code);
+}
+
+/**
  * Throwing is deliberate: an empty class means the catalog moved in a way this
  * matrix must be updated for, not an axis to quietly skip.
  */
 function pickCode(kind: "inbox" | "auto" | "actionable"): string {
   const codes = Object.keys(ATTENTION_ROUTES)
-    .filter((c) => c !== "PICKER_EPOCH_RESET" && !CONTEXT_REQUIRED.has(c))
+    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c))
     .sort();
   const found = codes.find((c) => {
     const inbox = isInboxRouted(c);
@@ -83,7 +95,10 @@ function pickCode(kind: "inbox" | "auto" | "actionable"): string {
 /** An anchored (rooms) code, read from the routing table so it cannot disagree. */
 function anchoredCode(): string {
   const found = Object.keys(ATTENTION_ROUTES).find(
-    (c) => ATTENTION_ROUTES[c]?.sectionId === "rooms" && !CONTEXT_REQUIRED.has(c),
+    (c) =>
+      ATTENTION_ROUTES[c]?.sectionId === "rooms" &&
+      !CONTEXT_REQUIRED.has(c) &&
+      !isCutFromSurface(c),
   );
   if (found === undefined) throw new Error("tier2: no context-free rooms-anchored code");
   return found;
@@ -100,12 +115,32 @@ function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {})
 }
 
 /**
- * Every crew-routed code requires context (all three are identity or
- * role-change codes), so the crew axes use ROLE_FLAGS_NOTICE with the shape
- * projectIdentityContext actually reads: ctx.changes[].crew_name.
+ * The crew axes need a crew-routed code that still REACHES the surface.
+ * ATTENTION_ROUTES has three crew codes and warning-surface-trim §5 cut two of
+ * them (ROLE_FLAGS_NOTICE and OAUTH_IDENTITY_CLAIMED are info-severity, so they
+ * are in DOUG_EXCLUDED_CODES), leaving AMBIGUOUS_EMAIL_BINDING. Chosen at
+ * RUNTIME rather than hardcoded, so if the surviving code changes again the
+ * axis follows instead of silently rendering nothing.
+ *
+ * Its crewKey comes from the resolved identity (deriveAlertRowFields reads a
+ * single "Crew" segment), not from context, so the identity is declared here.
  */
+function crewCode(): string {
+  const found = Object.keys(ATTENTION_ROUTES).find(
+    (c) => ATTENTION_ROUTES[c]?.sectionId === "crew" && !isCutFromSurface(c),
+  );
+  if (found === undefined) throw new Error("tier2: no crew-routed code survives the surface cut");
+  return found;
+}
+
 function crewAlert(): ScenarioAlertRow {
-  return alert("ROLE_FLAGS_NOTICE", { context: { changes: [{ crew_name: "Dana Reed" }] } });
+  return alert(crewCode(), {
+    context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
+    galleryIdentity: {
+      segments: [{ label: "Crew", value: "Dana Reed" }],
+      global: null,
+    } as unknown as AlertIdentity,
+  });
 }
 
 function hold(entityKey: string): ScenarioHoldRow {
@@ -135,16 +170,20 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
       bucket: { sectionAvailable: (s) => s === "overview" },
     }),
-    scenario(T2_OVERVIEW_ABSENT, "No section available, card is dropped", {
+    scenario(T2_OVERVIEW_ABSENT, "No section available, card still lands in Overview (no-drop)", {
       alerts: [crewAlert()],
       holds: [],
       bucket: { sectionAvailable: () => false },
     }),
-    scenario(T2_ANCHOR_ABSENT, "Anchor slot absent, falls back to the section top", {
-      alerts: [alert(anchoredCode())],
-      holds: [],
-      bucket: { anchorAvailable: () => false },
-    }),
+    scenario(
+      T2_ANCHOR_ABSENT,
+      "Anchor slot absent, redirects to Overview (rooms has no section top)",
+      {
+        alerts: [alert(anchoredCode())],
+        holds: [],
+        bucket: { anchorAvailable: () => false },
+      },
+    ),
     scenario(T2_CREW_ROW_ABSENT, "Crew key unrendered, falls back to the crew section top", {
       alerts: [crewAlert()],
       holds: [],

@@ -49,7 +49,13 @@ function mockClient(
           return node;
         };
       }
-      const outcome = script[`${table}.${verb}`] ?? {};
+      // shows_internal.update defaults to returning ONE row: writeWarnings now
+      // asks the update to return what it touched, because `shows` existing does
+      // not imply a `shows_internal` row and a no-match update would otherwise
+      // report "written" having written nothing.
+      const fallback: { data?: unknown; error?: unknown; throws?: boolean } =
+        table === "shows_internal" && verb === "update" ? { data: [{ show_id: SHOW.id }] } : {};
+      const outcome = script[`${table}.${verb}`] ?? fallback;
       node.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
         if (outcome.throws)
           return Promise.reject(new Error(`boom ${table}.${verb}`)).then(resolve, reject);
@@ -267,7 +273,7 @@ describe("executeApply — the Supabase call boundary (invariant 9)", () => {
 describe("executeClear", () => {
   test("issues both tag-scoped deletes and calls re-sync directly on local", async () => {
     const { client, calls } = mockClient();
-    const resync = vi.fn(async () => {});
+    const resync = vi.fn(async () => ({ ok: true, detail: "synced" }));
     const r = await executeClear(planClear({ slug: "demo", target: "local" }), SHOW, "local", {
       client,
       resync,
@@ -283,7 +289,7 @@ describe("executeClear", () => {
 
   test("validation skips re-sync as POLICY, distinct from a re-sync that failed", async () => {
     const { client } = mockClient();
-    const resync = vi.fn(async () => {});
+    const resync = vi.fn(async () => ({ ok: true, detail: "synced" }));
     const r = await executeClear(
       planClear({ slug: "demo", target: "validation" }),
       SHOW,
@@ -294,9 +300,9 @@ describe("executeClear", () => {
     expect(resync).not.toHaveBeenCalled();
   });
 
-  test("a failing re-sync after successful deletes is partial, not a lost cleanup", async () => {
+  test("a THROWN re-sync after successful deletes is partial, not a lost cleanup", async () => {
     const { client } = mockClient();
-    const resync = vi.fn(async () => {
+    const resync = vi.fn(async (): Promise<{ ok: boolean; detail: string }> => {
       throw new Error("sync unreachable");
     });
     const r = await executeClear(planClear({ slug: "demo", target: "local" }), SHOW, "local", {
@@ -307,11 +313,38 @@ describe("executeClear", () => {
     if (r.kind === "partial") expect(r.failedStep).toBe("resync");
   });
 
+  test("a RESOLVED non-success re-sync is partial, never a silent success", async () => {
+    // runManualSyncForShow RESOLVES with outcomes like `blocked` (archived show)
+    // and `skipped` (concurrent sync) rather than throwing. Ignoring the value
+    // let Clear delete the tagged rows, fail to regenerate warnings, and still
+    // report ok — stranding synthetic parse_warnings with no way to remove them.
+    const { client } = mockClient();
+    const resync = vi.fn(async () => ({ ok: false, detail: "blocked: show archived" }));
+    const r = await executeClear(planClear({ slug: "demo", target: "local" }), SHOW, "local", {
+      client,
+      resync,
+    });
+    expect(r.kind).toBe("partial");
+    if (r.kind === "partial") {
+      expect(r.failedStep).toBe("resync");
+      expect(r.message).toContain("archived");
+    }
+  });
+
+  test("a local Clear with NO re-sync implementation is partial, not a silent no-op", async () => {
+    const { client } = mockClient();
+    const r = await executeClear(planClear({ slug: "demo", target: "local" }), SHOW, "local", {
+      client,
+    });
+    expect(r.kind).toBe("partial");
+    if (r.kind === "partial") expect(r.failedStep).toBe("resync");
+  });
+
   test("clearing when nothing is tagged still succeeds", async () => {
     const { client } = mockClient();
     const r = await executeClear(planClear({ slug: "demo", target: "local" }), SHOW, "local", {
       client,
-      resync: async () => {},
+      resync: async () => ({ ok: true, detail: "synced" }),
     });
     expect(r.kind).toBe("ok");
   });
