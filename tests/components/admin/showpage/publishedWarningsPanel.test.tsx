@@ -204,22 +204,32 @@ describe("the four body-empty states", () => {
     // EVERY leaf element, not just `<p>` (round 2): a stray legacy line rendered
     // in a `<div>` or `<span>` left a paragraph-only inventory unchanged and
     // passed with incorrect copy visible.
-    const heading = panelBody().querySelector("h3, h4");
+    const body = panelBody();
+    const heading = body.querySelector("h3, h4");
     const headingRow = heading?.parentElement ?? null;
-    const paragraphs = Array.from(panelBody().querySelectorAll("*"))
-      // Leaves only, so a wrapper's concatenated text is not reported as its own
-      // stray line.
-      .filter((el) => el.children.length === 0)
-      // PANEL-LEVEL copy only. Each listed row renders its own guidance
-      // paragraph inside its `<li>`; those are the row's content, not stray
-      // panel copy, and including them would make the List case unassertable.
-      .filter((el) => el.closest("li[data-warning-index]") === null)
+
+    // TEXT NODES, not leaf elements (round 3): a direct text node inside an
+    // element that also has element children belongs to no leaf, so
+    // `<div>Legacy guidance<span aria-hidden /></div>` escaped a leaf-element
+    // enumeration entirely while displaying stray copy.
+    const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const paragraphs: string[] = [];
+    for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+      const text = (n.textContent ?? "").trim();
+      if (text.length === 0) continue;
+      const parent = n.parentElement;
+      if (parent === null) continue;
       // The heading ROW (icon, title, count, pill, "In sheet" link) is chrome,
       // not body copy, and has its own tests. Located from the heading element
-      // itself rather than by a testid, because the row carries none.
-      .filter((el) => headingRow === null || !headingRow.contains(el))
-      .map((el) => (el.textContent ?? "").trim())
-      .filter((t) => t.length > 0);
+      // rather than by a testid, because the row carries none.
+      if (headingRow !== null && headingRow.contains(parent)) continue;
+      // Each listed row renders its own guidance inside its `<li>`; that is the
+      // row's content, not stray panel copy, and including it would make the
+      // List case unassertable.
+      if (parent.closest("li[data-warning-index]") !== null) continue;
+      paragraphs.push(text);
+    }
+
     for (const text of paragraphs) {
       expect(allowed, `unexpected body paragraph: ${JSON.stringify(text)}`).toContain(text);
     }

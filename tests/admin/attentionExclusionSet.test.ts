@@ -162,8 +162,20 @@ describe("the seam is test-only", () => {
     // A real caller must be among them, or the walk is pointed at the wrong
     // trees. (Round 2: this is the non-vacuity check — a raw file COUNT is
     // unrelated to the invariant and fails on an unrelated cleanup.)
+    // Comments stripped BEFORE discovery (round 3): a stale comment naming the
+    // function would otherwise satisfy the non-vacuity check after the real call
+    // was removed.
+    const stripped = new Map<string, string>();
+    for (const f of files) {
+      stripped.set(
+        f,
+        readFileSync(f, "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/\/\/[^\n]*/g, ""),
+      );
+    }
     const callers = files.filter(
-      (f) => f !== definition && readFileSync(f, "utf8").includes("deriveAttentionItems"),
+      (f) => f !== definition && stripped.get(f)!.includes("deriveAttentionItems("),
     );
     expect(callers.length, "at least one production caller must exist").toBeGreaterThan(0);
 
@@ -172,10 +184,23 @@ describe("the seam is test-only", () => {
     // object built in a third module would evade it; closing that statically
     // needs type-level analysis this suite does not run.
     for (const file of callers) {
-      const src = readFileSync(file, "utf8")
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\/\/[^\n]*/g, "");
-      expect(src, `${file} must not pass the test seam`).not.toContain("excludedCodes");
+      // Scoped to the CALL, not the file (round 3): an unrelated `excludedCodes`
+      // variable elsewhere in a genuine caller module is not this seam being
+      // passed, and failing on it would be a false positive.
+      const src = stripped.get(file)!;
+      for (const m of src.matchAll(/deriveAttentionItems\s*\(/g)) {
+        // The argument list: from the open paren to its match, which for this
+        // call is always a single object literal.
+        const from = m.index! + m[0].length;
+        let depth = 1;
+        let i = from;
+        for (; i < src.length && depth > 0; i += 1) {
+          if (src[i] === "(" || src[i] === "{") depth += 1;
+          else if (src[i] === ")" || src[i] === "}") depth -= 1;
+        }
+        const args = src.slice(from, i);
+        expect(args, `${file} must not pass the test seam`).not.toContain("excludedCodes");
+      }
     }
   });
 });

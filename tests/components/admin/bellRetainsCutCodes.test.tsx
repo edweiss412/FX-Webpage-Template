@@ -131,14 +131,26 @@ describe("the bell's own exclusion mechanism keeps them", () => {
     // Exactly one, or a second call site could filter differently.
     expect(calls.length).toBe(1);
 
-    // The argument must BE the helper's result, not merely CONTAIN a call to it
-    // (round 2: `[...bellExcludedCodes(v), ...DOUG_EXCLUDED_CODES]` satisfies a
-    // containment check while filtering the cut codes). A bare identifier is
-    // accepted so a `const excluded = bellExcludedCodes(...)` refactor does not
-    // fail for the wrong reason; the whole-module code scan below is what covers
-    // that form.
+    // The argument must RESOLVE to the helper's result, not merely contain a
+    // call to it: `[...bellExcludedCodes(v), ...DOUG_EXCLUDED_CODES]` satisfies
+    // a containment check while filtering the cut codes anyway (round 2).
+    //
+    // Round 3 closed the other half: accepting any bare identifier let
+    // `const excluded = DOUG_EXCLUDED_CODES` through. An identifier is still
+    // allowed — a hoisted `const` is a correct refactor and should not fail —
+    // but it must be ASSIGNED from the helper in this module.
     const argument = calls[0]!.replace(/^p_excluded_codes:\s*/, "").trim();
-    expect(argument).toMatch(/^(bellExcludedCodes\([^)]*\)|[A-Za-z_$][\w$]*)$/);
+    const inlineCall = /^bellExcludedCodes\(/.test(argument);
+    if (!inlineCall) {
+      expect(argument, "a non-call argument must be a plain identifier").toMatch(
+        /^[A-Za-z_$][\w$]*$/,
+      );
+      // ...and that identifier must be bound to the helper's result.
+      const binding = new RegExp(
+        `\\b(?:const|let|var)\\s+${argument}\\s*(?::[^=]+)?=\\s*bellExcludedCodes\\(`,
+      );
+      expect(src, `${argument} must be assigned from bellExcludedCodes`).toMatch(binding);
+    }
 
     // And no cut code is NAMED anywhere in the module, in code or in a list —
     // which is what an added literal would look like regardless of how the

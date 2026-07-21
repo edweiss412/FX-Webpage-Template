@@ -196,3 +196,41 @@ The repairs touched three UI surfaces, so invariant 8 re-ran on `f834501fd..HEAD
 No P0, no P1. The rail fix is an accessibility improvement (it stops AT announcing a contradiction);
 `useMemo` deps already covered both new inputs; no new token, fixed width, or animation utility. Two
 P2/P3 copy-placement notes deferred in `DEFERRED.md`.
+
+## 14. Review rounds 2 and 3
+
+The repair round is where this feature kept breaking, so each repair round got its own review.
+
+**Round 2** found that repair 3 was incomplete in exactly the way the original defect was: the
+follow-up sentence was gated on `sourceCell` for the CARD copy and NOT for the PANEL callout — the
+same sentence, the same "Edit the cell" referent, a different surface. That is the second time in
+this feature a repair produced a new defect of the class it was fixing (round 1's first P0 repair
+dropped `parseNotes`). It is the class-sweep rule stated in AGENTS.md, failed twice, in the same
+diff. **FIXED** `d7437230f`, gated in the published path only; the wizard keeps rendering it
+unconditionally under the byte-identical contract.
+
+Round 2 also found six more assertions that could not fail, including a modal state test satisfied
+by a constant `{here: n, elsewhere: 0}` (closed with the Elsewhere case, the one state a constant
+cannot produce) and a branch inventory that counted comparisons rather than branch positions.
+
+**Round 3** returned BLOCKING on a claim that the branch-position counts were stale and the suite
+would fail on this diff. **REFUTED**: the test passes, and the scanned region ends at the legacy
+empty line, before the callout the new gate wraps. Recorded here so a later round does not re-derive
+it — the reviewer reasons from the diff alone and cannot see where a region boundary falls. Its four
+substantive findings were real and are **FIXED** in `<this commit>`:
+
+- The bell scan accepted any bare identifier, so `const excluded = DOUG_EXCLUDED_CODES` passed. An
+  identifier is still allowed (a hoisted const is a correct refactor) but must be assigned from the
+  helper in the same module.
+- The seam scan discovered callers in unstripped source, so a stale comment satisfied the
+  non-vacuity check; and it scanned whole files, so an unrelated `excludedCodes` variable in a
+  genuine caller would fail it. Now strips comments first and scopes to the call's argument list.
+- The stray-copy scan enumerated leaf ELEMENTS, so a direct text node in an element that also has
+  element children belonged to no leaf and escaped entirely. Walks text nodes now.
+- The one-carrier assertion rendered only the `warnings` section and counted elements, so a
+  duplicate mount on another section, or the sentence repeated inside one node, was invisible. Now
+  renders every section and counts occurrences by splitting the text.
+
+Round 3's own verdict on the source repair: "semantically correct: `some` preserves guidance for
+mixed rows, the short-circuit leaves the wizard unchanged, and no third non-deferred published
+surface is visible."

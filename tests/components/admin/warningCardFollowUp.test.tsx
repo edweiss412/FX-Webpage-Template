@@ -319,10 +319,21 @@ describe("the ignored list makes no promise about clearing", () => {
       renderedSectionIds: new Set<SectionId>(step3Sections(data).map((s) => s.id)),
     });
 
-    const { container } = render(<>{buildSectionWarningExtras({ bySection })("warnings", data)}</>);
-    const carriers = Array.from(container.querySelectorAll("*")).filter(
-      (el) => el.children.length === 0 && (el.textContent ?? "").includes(LOOP_SENTENCE),
-    );
-    expect(carriers.length, "exactly one element renders the sentence").toBe(1);
+    // EVERY section the factory can render, not just "warnings" (round 3): a
+    // duplicate mount added to the crew list would be invisible to a
+    // single-section render. And occurrences are counted by SPLITTING the text,
+    // so the sentence repeated twice inside one node is caught too.
+    const sections = step3Sections(data).map((s) => s.id);
+    expect(sections.length).toBeGreaterThan(1);
+
+    let occurrences = 0;
+    for (const id of sections) {
+      const node = buildSectionWarningExtras({ bySection })(id, data);
+      if (node === null) continue;
+      const { container, unmount } = render(<>{node}</>);
+      occurrences += (container.textContent ?? "").split(LOOP_SENTENCE).length - 1;
+      unmount();
+    }
+    expect(occurrences, "the sentence renders exactly once across every section").toBe(1);
   });
 });
