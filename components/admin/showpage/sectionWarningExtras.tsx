@@ -157,20 +157,35 @@ export function buildSectionWarningExtras(args: {
     // groups are unchanged. Filtering shifts indices, so reportSurfaceId reads groupItems[i].
     const excludedKeys =
       renderedCrewKeys && id === "crew" ? underRowKeys(model, renderedCrewKeys) : null;
-    const activeGroups: ActiveWarningGroup[] = model.activeGroups.map((g) => {
-      const groupItems =
-        excludedKeys && CREW_SCOPED_WARNING_CODES.has(g.code)
-          ? g.items.filter(
-              (it) => !excludedKeys.has(canonicalCrewKey(it.warning.autocorrect?.subject ?? "")),
-            )
-          : g.items;
-      return {
+    const activeGroups: ActiveWarningGroup[] = model.activeGroups
+      .map((g) => {
+        const groupItems =
+          excludedKeys && CREW_SCOPED_WARNING_CODES.has(g.code)
+            ? g.items.filter(
+                (it) => !excludedKeys.has(canonicalCrewKey(it.warning.autocorrect?.subject ?? "")),
+              )
+            : g.items;
+        // §6.2 emission: a crew-scoped code whose cards all moved under rows and has no
+        // bulk chip (N<2) emits NO group — otherwise an orphan eyebrow. The chip (bulk,
+        // counts ALL active N) stays whenever N>=2, even with an empty fallback cards slot.
+        if (CREW_SCOPED_WARNING_CODES.has(g.code) && groupItems.length === 0 && !g.bulk) {
+          return null;
+        }
+        return {
+          code: g.code,
+          label: g.label,
+          bulk: g.bulk,
+          items: groupItems,
+        };
+      })
+      .filter((g): g is NonNullable<typeof g> => g !== null)
+      .map((g) => ({
         code: g.code,
         label: g.label,
         bulk: g.bulk,
         cards: (
           <PerShowActionableWarnings
-            items={groupItems.map((it) => it.warning)}
+            items={g.items.map((it) => it.warning)}
             driveFileId={driveFileId}
             // warning-surface-trim §4.2: the SAME sentence the panel used to show
             // once, now per card and on demand. Sourced from the single exported
@@ -179,7 +194,7 @@ export function buildSectionWarningExtras(args: {
             renderItemControls={(w, i) => (
               <SectionWarningItemControls
                 warning={w}
-                reportSurfaceId={groupItems[i]!.reportSurfaceId}
+                reportSurfaceId={g.items[i]!.reportSurfaceId}
                 mode="active"
                 slug={slug}
                 showId={showId}
@@ -189,8 +204,7 @@ export function buildSectionWarningExtras(args: {
             )}
           />
         ),
-      };
-    });
+      }));
 
     return (
       <div

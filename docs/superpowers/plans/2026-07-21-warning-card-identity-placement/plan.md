@@ -62,7 +62,25 @@ This task owns the ENTIRE placement partition so conservation is provable within
 
 **Commit:** `feat(admin): under-row merged stack + group-fallback partition`
 
-## Task 6 — group nesting into section body + delete wrapper border-t
+## Task 6 — DESCOPED (live-code collision with #532 Silent-state seam)
+
+**Implementation finding (invariant 7):** the spec §6.1 nesting + `border-t` deletion
+collides with shipped #532 design. `step3ReviewSections.tsx:693` documents that the
+extras' `border-t` is an INTENTIONAL seam for the Silent-state (heading-directly-on-cards)
+layout, and #532's impeccable-P0a decision deliberately renders the extras OUTSIDE the
+panel wrapper (an empty bordered tile "reads as a failed fetch rather than deliberate
+quiet"). Nesting the group into the panel fights that decision; deleting the `border-t`
+breaks the Silent-state seam. The spec cited the line numbers but not the P0a rationale.
+
+**Resolution:** descope the structural nesting. The core §2.3 concern — the CREW warning
+group reading as a top-level sibling — is ALREADY addressed by Tasks 4-5: crew-scoped
+cards now render UNDER their member's row, out of the group entirely (the group holds only
+over-cap/unmatched fallback). The residual group-eyebrow-reads-as-top-level applies only to
+non-crew codes and is #532's intentional, impeccable-reviewed design. No safe change is
+available without reopening #532's Silent-state contract, which is out of scope. The
+all-section no-drop test (§10.3b) is therefore not applicable (no nesting change ships).
+
+## Task 6 (original) — group nesting into section body + delete wrapper border-t
 
 **Test** (`tests/admin/review/sectionGroupNesting.test.tsx (new)`): the all-section no-drop gate (spec §10.3b) with the HARDCODED section-id oracle (`venue,event,crew,contacts,schedule,agenda,hotels,transport,rooms,diagrams,packlist,billing,report`). Fixture gives each an active group. Assert, PER SECTION: (a) the group renders exactly once, AND (b) **DOM ancestry** — the group node is a DESCENDANT of that section's body element (the `s.render(data)` output), NOT a following sibling of it. Assertion (b) is what makes the test FAIL against today's sibling mount (`ShowReviewSurface.tsx:1055`) and pass only after threading; without it the test passes against the old placement (R1 HIGH). Also assert the wrapper no longer carries `border-t`.
 
