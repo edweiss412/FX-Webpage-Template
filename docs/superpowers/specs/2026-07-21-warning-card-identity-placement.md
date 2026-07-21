@@ -57,7 +57,7 @@ That string never reaches the operator. `PerShowActionableWarnings` renders the 
 
 "Update the sheet if the spelling was intentional" describes a condition and names no operation. Following it literally — re-typing the same intentional word — produces the same correction on the next sync, because the matcher is unchanged. The escapes that actually exist are: spell a different real stage word; use a token in `ROLE_NORMALIZATIONS`, which is role-excluded and never rewritten (`lib/parser/personalization.ts:211`); or use a word ≥2 edits from every vocabulary member. None is expressible as an instruction on a card.
 
-`ROLE_TOKEN_AUTOCORRECTED` (`lib/messages/catalog.ts:1285`) and `SECTION_HEADER_AUTOCORRECTED` (`lib/messages/catalog.ts:1412`) carry the same sentence with the same dead end.
+`ROLE_TOKEN_AUTOCORRECTED` and `SECTION_HEADER_AUTOCORRECTED` carry the same sentence with the same dead end (their `dougFacing` lines are in the map below; this is the single place line numbers appear, to avoid the cross-wiring a reviewer flagged twice).
 
 **Canonical `dougFacing` line map** (single source of truth; every other section cites through this):
 
@@ -251,7 +251,9 @@ At the row host, admin alert banners render FIRST, then warning cards. Rationale
 
 **Cap: 2 visible on the MERGED stack.** The remainder collapses into a native `<details>` reading `N more`, expanding IN PLACE. Native `<details>` matches the existing `Ignored (N)` idiom: chevron transform only, body instant, no `AnimatePresence`.
 
-The cap counts the merged stack, not each kind separately: a member with 2 alerts and 1 warning shows 2 items and `1 more`. Alerts occupy the visible slots first (they sort first), so a member with 2+ alerts shows only alerts above the fold and every warning is inside the disclosure.
+**Deterministic order (pure function of the current sets).** The merged stack is re-derived on EVERY render from the current (alerts, warnings) as: alerts in their existing attention order (`crewAttention.byCrewKey` order, unchanged), THEN warnings in section-model active order, THEN cap the first 2 as visible and the rest into the disclosure. There is no incremental "new item lands hidden" rule — a mutation re-runs this derivation, so a newly arrived ALERT takes its alert-first position and may push a warning below the fold. `<details>` open/closed is native DOM state that persists across re-render; only the CONTENT re-derives.
+
+The cap counts the merged stack, not each kind separately: a member with 2 alerts and 1 warning shows the 2 alerts visible and the warning in `1 more`. A member with 1 alert and 2 warnings shows the alert + first warning visible, second warning in `1 more`.
 
 ### 5.4 Structural no-drop
 
@@ -298,9 +300,16 @@ The eyebrow label is the code's existing group label (`model.activeGroups[].labe
 
 §10 test 5 covers the scattered case (`N≥2`, empty `cards`, chip present, ignore clears under-row cards); §10 test 5c covers the mixed case (fallback card + under-row cards under one chip); §10 test 5d covers `N=1`-under-row emitting no group.
 
-## 7. What does not change
+## 7. What does not change — and the one thing that changes everywhere
 
-- Every STAGED surface. All behavior here is published-only, gated by caller (the staged wizard passes no `renderSectionExtras`, `components/admin/review/ShowReviewSurface.tsx:184`), not by a mode branch inside a leaf.
+**Scope boundary, stated precisely (R3 BLOCKING).** The four changes do NOT share a scope:
+
+- **Change 2 (instance copy) is UNIVERSAL.** `warningCardCopyFields` calls `autocorrectGuidance` unconditionally, and staged warnings carry `autocorrect` too (same parser output, persisted in `pending_syncs.parse_result`). So a staged autocorrect card ALSO shows the instance line. This is intended: naming the correction is a strict improvement everywhere, and there is no reason to withhold it from the staged wizard. Staged card COPY is therefore NOT byte-identical after this change.
+- **Change 3 (under-row placement) is PUBLISHED-ONLY** — gated by caller: only `PublishedReviewModal` populates the `crewAttention`/`warningsByCrewKey` context; the staged wizard passes none, so staged rows grow no under-row stacks.
+- **Change 4 (group nesting) is PUBLISHED-ONLY** — gated by `renderSectionExtras`, which the staged wizard does not pass (`components/admin/review/ShowReviewSurface.tsx:184`).
+
+So the accurate parity claim is: **staged PLACEMENT and structure are unchanged; staged card COPY improves in lockstep with published.** §10 test 7 asserts exactly that split, not blanket byte-identity.
+
 - `lib/messages/catalog.ts` — no row edited, added, or removed.
 - `§12.4` prose, `pnpm gen:spec-codes`, `lib/messages/__generated__/spec-codes.ts`.
 - `triggerContext` popover copy and #531's coverage gate.
@@ -325,7 +334,7 @@ Named test ids (added by this change): the stack container is `crew-warn-stack-<
 
 The stack is a MERGED alert+warning stack (§5.3), so both child kinds must fill it. Alerts already render through `attention-banner-<alertId>` in the existing under-row alert path; the invariant applies to them in the new shared container exactly as to warning cards, both above the fold and inside the open disclosure.
 
-The fourth row measures the stack against the wrapper's CONTENT width (its `clientWidth` less left+right padding read from computed style), not the border-box, because `w-full` equals the content box of a padded parent. That distinction was underspecified before and is the one the reviewer flagged.
+The last row (row-wrapper vs stack) measures the stack against the wrapper's CONTENT width (its `clientWidth` less left+right padding read from computed style), not the border-box, because `w-full` equals the content box of a padded parent. That distinction was underspecified before and is the one the reviewer flagged.
 
 §10 test 6 asserts each row with `getBoundingClientRect()`/computed style in a real browser at ≤0.5px, at BOTH a mobile (375px) and a desktop (1280px) viewport, since the modal is mobile-first and `w-full` can hold at one width while an inner element overflows at another. jsdom is not accepted for these rows.
 
@@ -377,7 +386,9 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
    4d. **Compound: VISIBLE card ignored while open, count stays ≥3 (component).** A former hidden card promotes to visible, disclosure stays open, `N more` decrements by one, no card dropped or duplicated.
 
-   4e. **Compound: item ADDED on live refresh while open (component).** A new warning/alert lands in the hidden set, `N more` increments, disclosure stays open, above-fold cards do not reorder.
+   4e. **Compound: item ADDED on live refresh while open (component).** Add a new WARNING while expanded: it re-derives into its model-order position (after existing warnings), `N more` increments, disclosure stays open. Add a new ALERT while expanded with a warning currently visible: the alert takes its alert-first visible slot, the displaced warning moves below the fold, `N more` increments, disclosure stays open. Both assert the deterministic order of §5.3, not a "lands hidden without reordering" rule.
+
+   4f. **Compound: BULK-ignore while open (component, R3 MED).** Open the disclosure at `N≥3`, then bulk-ignore the whole code. Assert the `<details>` unmounts cleanly (no orphaned open node), every active card of the code clears from both visible and hidden slots, and all N appear exactly once in the `Ignored (N)` disclosure.
 
 5. **Bulk-ignore scattered case (component).** Crew-scoped code with `N≥2` all under rows: the section group renders eyebrow + `Ignore all N` chip with an EMPTY cards slot; clicking the chip ignores all N by fingerprint, clearing every under-row card in one pass AND asserting all N identities then appear EXACTLY ONCE in the section's `Ignored (N)` disclosure (post-bulk conservation, not just disappearance).
 
@@ -385,13 +396,16 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
    5c. **Bulk-ignore mixed case (component).** `N≥2` with one fallback card and the rest under rows: one chip reads `Ignore all N`, the fallback card shows in the group slot, and the chip clears both placements AND all N appear exactly once in the `Ignored (N)` disclosure afterward.
 
-   5e. **Individual ignore crossing N=2→1 (component).** Two active instances of a crew-scoped code, both under rows; ignore one via its own card control. Assert the group header + `Ignore all N` chip DISAPPEAR (N now 1, below the emit threshold), the surviving card stays under its row, and the ignored one appears once in the `Ignored (N)` disclosure.
-
    5d. **N=1 under-row emits no group (component).** A single active crew-scoped warning matched to a row renders no section group header and no `Ignore all 1` chip; the card's own Ignore is the only control.
 
-6. **Layout dimensions (real browser, Playwright).** The four §8 rows via `getBoundingClientRect()`/computed style at ≤0.5px, at 375px and 1280px. Hydrated harness — the disclosure is click-dependent, so a static layout harness cannot reach the expanded state.
+   5e. **Individual ignore crossing N=2→1 (component).** Two active instances of a crew-scoped code, both under rows; ignore one via its own card control. Assert the group header + `Ignore all N` chip DISAPPEAR (N now 1, below the emit threshold), the surviving card stays under its row, and the ignored one appears once in the `Ignored (N)` disclosure.
 
-7. **Staged parity (component).** Oracle = an `outerHTML` snapshot of each staged surface captured on the MERGE-BASE commit (`2a868b132`), not a hand-authored expectation. Surfaces: `StagedReviewCard`'s `per-show-actionable-item` list and its `section-warning-controls-<id>` blocks. Assert byte-identity of each against its merge-base snapshot. Additionally pin the EMPTY-WRAPPER contract: the new `crew-warn-stack-<key>` container is NOT rendered for a row with zero alerts and zero warnings (no empty wrapper, no stray test id), on BOTH staged and published surfaces — an empty wrapper would break staged byte-identity and add dead nodes to published rows.
+6. **Layout dimensions (real browser, Playwright).** ALL five §8 rows (warning-card, alert-child, disclosure, disclosed-child, row-wrapper) via `getBoundingClientRect()`/computed style at ≤0.5px, at 375px and 1280px. Hydrated harness — the disclosure is click-dependent, so a static layout harness cannot reach the expanded state.
+
+7. **Staged scope split (component).** Per §7, staged PLACEMENT/structure is unchanged but staged card COPY improves. So this test asserts the SPLIT, not blanket byte-identity:
+   - **Placement unchanged:** staged rows grow NO `crew-warn-stack-<key>` under-row stacks, and staged warning GROUPS render where they do today (StagedReviewCard is not threaded through `renderSectionExtras`). Assert no under-row stack testid appears on any staged row.
+   - **Copy improves in lockstep:** a staged autocorrect card renders the SAME `autocorrectGuidance` instance line as the published card for the same warning (assert equality of the two rendered guidance strings from one fixture warning), proving the copy path is not accidentally gated to published.
+   - **Empty-wrapper contract:** the `crew-warn-stack-<key>` container is NOT rendered for a row with zero alerts and zero warnings (no empty wrapper, no stray testid), on the published surface. A published row's pre-existing structure for a no-attention member is unchanged.
 
 8. **Registry/meta stability.** `tests/messages/warningCardCopyRegistry.ts` frozen strings still match the catalog (this spec edits no catalog row); #531's `_metaPopoverContextCoverage` still green; `bucketAttention` conservation still green.
 
@@ -401,7 +415,7 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
 11. **Blank-name collision (component).** Two members with empty/whitespace names, each carrying a crew-scoped warning. Assert neither renders under a row, both render as fallback cards in the section group, none dropped.
 
-    11b. **Duplicate non-blank names (component).** Two rendered rows with the same canonical non-blank key, each with a crew-scoped warning. Assert the first row hosts its card, the second row's card falls back to the group (not silently dropped), and conservation holds.
+    11b. **Duplicate non-blank names (component).** Two rendered rows with the same canonical non-blank key, each with a crew-scoped warning. Assert BOTH cards render under the FIRST matching row (per §5.4), the second row renders none, neither card is dropped or duplicated, and neither reaches the section group.
 
 ## 11. Fan-out checklist
 
@@ -427,6 +441,8 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 - **Self-review (pre-R1):** found the 13-vs-5 producer miscount and the interpolation-order hazard.
 - **Spec review R1 (Codex, inlined):** 15 findings, verdict BLOCKING. Resolved: producer-inventory coherence (§3.2, single count + line map); ROLE stamp no-escape proof (§3.2, single call site + boundary test); catalog line-ownership map (§2.2); the `dougFacing`-reuse fragility, resolved by pivoting to a pure composer (§4, `autocorrectGuidance`), which also eliminated the `_<sheet-name>_` gap, the cross-surface coupling, and the markup-injection hazard; truncation/`N` on surviving pairs (§4.2-4.3); the headless-vs-fallback placement contradiction (§6.2); conservation scoped to active/ignored (§5.3-5.4); all-section no-drop (§6.1); transition absent-state (§9); dimensional testids + viewport (§8); anti-tautology gaps and test renumber (§10).
 - **Spec review R2 (Codex, inlined):** 9 findings, verdict BLOCKING (R1 15→R2 9, convergent). Resolved: the duplicate-name key-model impossibility (§5.4 — `warningsByCrewKey` keys by name, so same-name warnings share an entry; the split was unrepresentable, now all cards render under the FIRST matching row, conservation intact); post-bulk-ignore conservation into the `Ignored (N)` disclosure (§10.5/5c); the N=2→1 group-emission transition (§10.5e); composer guards for equal-value pairs and interior tab/newline whitespace (§4.3); the absent↔expanded transition pair and visible-card/add compound cases (§9, §10.4d/4e); alert children in the dimensional invariants (§8); an INDEPENDENT hardcoded section-id oracle for all-section no-drop (§10.3b); a merge-base snapshot oracle + empty-wrapper contract for staged parity (§10.7); a stale `§10 test 10`→`9` reference (§4.4).
+
+- **Spec review R3 (Codex, inlined):** 6 findings, 2 BLOCKING (15→9→6, converging). Resolved: the staged-scope error — instance COPY is universal (change 2), only PLACEMENT/nesting are published-only, so §7 now states the scope split and test 7 asserts it rather than blanket staged byte-identity; test 11b was still specifying the R2-retired duplicate-name split and now matches the all-under-first-row rule; live-alert ordering — §5.3 now defines the stack as a deterministic pure re-derivation (alerts then warnings, cap 2), replacing the unsatisfiable "lands hidden without reordering" claim (tests 4e); the §8 table grew to five rows in R2 but the prose/test still said "four" (fixed to five); bulk-ignore while the disclosure is open was uncovered (test 4f); and the §2.2 line map is now the SOLE place line numbers for those codes appear, killing the twice-flagged cross-wiring.
 
 **Meta-test inventory (writing-plans):** this milestone CREATES one structural meta-test — `tests/parser/_metaAutocorrectProducers.test.ts (new)` (§10.10, producer completeness). It EXTENDS none. The `bucketAttention` conservation test and `_metaPopoverContextCoverage` are asserted UNAFFECTED (§10.8), not extended.
 
