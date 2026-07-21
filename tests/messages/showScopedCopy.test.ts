@@ -131,7 +131,12 @@ describe("production callers pass the correct scope", () => {
   // caller could pass the wrong scope and every other gate would still pass:
   // typecheck proves an argument EXISTS, not that it is the right one.
   it.each([
-    ["lib/adminAlerts/fetchPerShowAlerts.ts", '"show"'],
+    // The show-scoped call moved OUT of fetchPerShowAlerts.ts and into the
+    // shared derivation when the attention gallery needed the same fields
+    // (2026-07-21). The pin follows the call, not the old filename: left
+    // pointing at fetchPerShowAlerts.ts this scanned a file with zero calls,
+    // which the length guard below correctly caught.
+    ["lib/adminAlerts/deriveAlertRowFields.ts", '"show"'],
     ["lib/admin/bellFeed.ts", '"global"'],
     ["components/admin/telemetry/HealthAlertsPanel.tsx", '"global"'],
   ])("%s passes %s", (file, scope) => {

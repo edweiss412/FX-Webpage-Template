@@ -188,12 +188,52 @@ vi.mock("@/lib/parser/invariants", () => ({
   runInvariants: (...a: unknown[]) => runInvariantsMock(...a),
 }));
 
+// Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery
+// §7.1). The client factory is mocked rather than @supabase/supabase-js itself:
+// a file-wide mock of the driver would reach every other surface in this file.
+const materializeFromMock = vi.fn((table: string) => makeMaterializeTable(table));
+vi.mock("@/lib/dev/materialize/client", () => ({
+  createMaterializeClient: () => ({ from: (t: string) => materializeFromMock(t) }),
+}));
+
 import {
   parseAndStage,
   resetDevSchema,
   parseAndStageFormAction,
   resetDevSchemaFormAction,
+  applyAttentionScenario,
+  clearAttentionScenario,
+  applyAttentionScenarioFormAction,
+  clearAttentionScenarioFormAction,
 } from "@/app/admin/dev/actions";
+import { T3_CREW_COLLISION, T3_SHEET_MISSING } from "@/lib/dev/attentionScenarios/tier3";
+
+/**
+ * A chainable stub whose per-TABLE outcome is scripted. Distinct from
+ * `chainResult` above because the materialize path issues several calls against
+ * different tables in one run, and the partial-write proof needs a LATER call to
+ * fail while earlier ones succeed.
+ */
+const materializeScript = { current: {} as Record<string, { data?: unknown; error?: unknown }> };
+function makeMaterializeTable(table: string) {
+  const build = () => {
+    const node: Record<string, unknown> = {};
+    for (const m of ["eq", "is", "not", "in", "select", "limit"]) node[m] = () => node;
+    node.then = (resolve: (v: unknown) => unknown) => {
+      const outcome = materializeScript.current[table] ?? {};
+      return Promise.resolve({ data: outcome.data ?? [], error: outcome.error ?? null }).then(
+        resolve,
+      );
+    };
+    return node;
+  };
+  return {
+    delete: build,
+    insert: build,
+    update: build,
+    select: build,
+  };
+}
 
 // ── Task 11: onboarding serverActions ───────────────────────────────────────
 const purgeAndRotateOnboardingSessionMock = vi.fn(
@@ -1179,6 +1219,133 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
       fn: "resetDevSchemaFormAction",
       code: "DEV_SCHEMA_RESET",
     });
+  });
+});
+
+// ── Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery §7.1) ──
+describe("attention scenario materialize outcome telemetry", () => {
+  const APPLY_INPUT = {
+    slug: "demo-show",
+    scenarioId: T3_SHEET_MISSING,
+    target: "local" as const,
+    confirmed: false,
+  };
+  const SHOW_ROW = [{ id: "show-uuid", drive_file_id: "drive-1", archived: false }];
+
+  // Saved and RESTORED: these tests mutate process.env, and vitest shares one
+  // process per worker, so leaving the mutation in place leaks a loopback
+  // SUPABASE_URL into every later test in this shard. That is invisible locally
+  // (the dev env already points at loopback) and only surfaces in CI, where a
+  // sibling suite reads a URL this file invented.
+  const savedEnv: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    savedEnv.SUPABASE_URL = process.env.SUPABASE_URL;
+    savedEnv.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+    // Loopback, or resolveTarget refuses before a single write is attempted and
+    // every assertion below would pass for the wrong reason.
+    process.env.SUPABASE_URL = "http://127.0.0.1:54321";
+    process.env.SUPABASE_SECRET_KEY = "local-secret";
+    materializeScript.current = { shows: { data: SHOW_ROW } };
+  });
+
+  afterEach(() => {
+    for (const key of ["SUPABASE_URL", "SUPABASE_SECRET_KEY"] as const) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+
+  test("applyAttentionScenario emits DEV_SCENARIO_APPLIED on the committed-success branch", async () => {
+    const codes = await observeSuccessCodes(() => applyAttentionScenario(APPLY_INPUT));
+    expect(codes).toContain("DEV_SCENARIO_APPLIED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "applyAttentionScenario",
+      code: "DEV_SCENARIO_APPLIED",
+    });
+  });
+
+  test("clearAttentionScenario emits DEV_SCENARIO_CLEARED on the committed-success branch", async () => {
+    const codes = await observeSuccessCodes(() =>
+      clearAttentionScenario({ slug: "demo-show", target: "local", confirmed: false }),
+    );
+    expect(codes).toContain("DEV_SCENARIO_CLEARED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "clearAttentionScenario",
+      code: "DEV_SCENARIO_CLEARED",
+    });
+  });
+
+  test("applyAttentionScenarioFormAction transitively emits DEV_SCENARIO_APPLIED", async () => {
+    const fd = new FormData();
+    fd.set("slug", "demo-show");
+    fd.set("scenario", T3_SHEET_MISSING);
+    fd.set("target", "local");
+    const codes = await observeSuccessCodes(() => applyAttentionScenarioFormAction(fd));
+    expect(codes).toContain("DEV_SCENARIO_APPLIED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "applyAttentionScenarioFormAction",
+      code: "DEV_SCENARIO_APPLIED",
+    });
+  });
+
+  test("clearAttentionScenarioFormAction transitively emits DEV_SCENARIO_CLEARED", async () => {
+    const fd = new FormData();
+    fd.set("slug", "demo-show");
+    fd.set("target", "local");
+    const codes = await observeSuccessCodes(() => clearAttentionScenarioFormAction(fd));
+    expect(codes).toContain("DEV_SCENARIO_CLEARED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "clearAttentionScenarioFormAction",
+      code: "DEV_SCENARIO_CLEARED",
+    });
+  });
+
+  // The next two are DIFFERENT branches, not a contradiction: the rule is
+  // "emit when the database changed", so a failure before anything committed is
+  // silent and a failure after one is not.
+  test("a ZERO-WRITE failure emits nothing, because no mutation happened", async () => {
+    materializeScript.current = {
+      shows: { data: SHOW_ROW },
+      admin_alerts: { error: { message: "first write failed" } },
+    };
+    const codes = await observeCodes(() => applyAttentionScenario(APPLY_INPUT));
+    expect(codes).not.toContain("DEV_SCENARIO_APPLIED");
+  });
+
+  test("a POST-COMMIT partial DOES emit, exactly once, with result partial", async () => {
+    const records: LogRecord[] = [];
+    setLogSink((r: LogRecord) => {
+      records.push(r);
+    });
+    try {
+      // The deletes and the alert insert land; the warnings write fails.
+      materializeScript.current = {
+        shows: { data: SHOW_ROW },
+        shows_internal: { error: { message: "late failure" } },
+      };
+      const result = await applyAttentionScenario({
+        ...APPLY_INPUT,
+        scenarioId: T3_CREW_COLLISION,
+      });
+      expect(result.kind).toBe("partial");
+    } finally {
+      resetLogSink();
+    }
+    const emitted = records.filter((r) => r.code === "DEV_SCENARIO_APPLIED");
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.context?.result).toBe("partial");
+  });
+
+  test("a refused target emits nothing and attempts no write", async () => {
+    process.env.SUPABASE_URL = "https://someproject.supabase.co";
+    materializeFromMock.mockClear();
+    const codes = await observeCodes(() => applyAttentionScenario(APPLY_INPUT));
+    expect(codes).not.toContain("DEV_SCENARIO_APPLIED");
+    expect(materializeFromMock).not.toHaveBeenCalled();
   });
 });
 

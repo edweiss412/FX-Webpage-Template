@@ -74,6 +74,14 @@ const DEVELOPER_GATED_SURFACES: readonly DeveloperGatedSurface[] = [
       "resetDevSchema",
       "resetDevSchemaFormAction",
       "listFixtures",
+      // Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery).
+      // All four gate with requireDeveloper as their first line, including the two
+      // form wrappers: each is its own POST entry point and must not rely on the
+      // delegate's gate to establish who the caller is.
+      "applyAttentionScenario",
+      "applyAttentionScenarioFormAction",
+      "clearAttentionScenario",
+      "clearAttentionScenarioFormAction",
     ],
   },
   {
@@ -164,6 +172,11 @@ function hasFileLevelUseServer(sf: SourceFile): boolean {
  * detector: a moved/removed gate, or any non-gate first statement, yields a
  * name that fails the `.toBe(gate)` assertion.
  */
+/** A gate and its identity-returning variant, which enforce identically. */
+function acceptableGates(gate: string): string[] {
+  return [gate, `${gate}Identity`];
+}
+
 function awaitCalleeNameOf(stmt: Statement | undefined): string | null {
   if (!stmt) return null;
   let expr: Node | undefined;
@@ -269,10 +282,18 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
 
           if (surface.declaredPosture === "boundary-500") {
             const first = statements[0];
+            // The identity-returning variant satisfies the same posture: it is
+            // the SAME function with its return value kept - requireDeveloper is
+            // literally `await resolveDeveloperIdentity()` with the result
+            // discarded (lib/auth/requireDeveloper.ts:220-249), so it throws
+            // identically and the throw still reaches the 500 boundary. The
+            // header comment already documents the gate as `requireDeveloper*()`;
+            // this assertion was stricter than its own spec, which blocked an
+            // action that needs the actor email for post-commit telemetry.
             expect(
-              awaitCalleeNameOf(first),
-              `${surface.file}#${name}: boundary-500 requires "await ${surface.gate}()" as the FIRST statement, OUTSIDE any try (got ${first?.getKindName() ?? "none"})`,
-            ).toBe(surface.gate);
+              acceptableGates(surface.gate),
+              `${surface.file}#${name}: boundary-500 requires "await ${surface.gate}()" (or its Identity variant) as the FIRST statement, OUTSIDE any try (got ${first?.getKindName() ?? "none"}, callee ${awaitCalleeNameOf(first) ?? "none"})`,
+            ).toContain(awaitCalleeNameOf(first));
           } else if (surface.declaredPosture === "inline-typed-exception") {
             const first = statements[0];
             if (!first || !Node.isTryStatement(first)) {

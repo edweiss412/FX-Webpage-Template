@@ -61,11 +61,20 @@ describe("attention-items call topology", () => {
     ]);
   });
 
-  it("deriveAttentionItems is referenced exactly once, from the show modal", () => {
+  it("deriveAttentionItems is referenced only from the show modal and the dev gallery", () => {
     // Its declaration is stripped before counting and it makes no recursive
     // call, so the defining module contributes zero.
+    //
+    // The gallery is an ADMITTED second caller, not a widened invariant. The
+    // rule this file defends is that show-scoped copy must not leak to a
+    // GLOBAL surface. The gallery is the opposite of that: a developer-only
+    // instrument, build-gated out of production, whose entire purpose is to
+    // render exactly what the show modal renders. Inheriting show-scoped copy
+    // there is the intent, and a gallery showing global copy would be the bug.
+    // Any THIRD caller still fails here.
     expect(callSites("deriveAttentionItems")).toEqual([
       { file: "app/admin/_showReviewModal.tsx", count: 1 },
+      { file: "app/admin/dev/attention-gallery/buildBlockProps.ts", count: 1 },
     ]);
   });
 

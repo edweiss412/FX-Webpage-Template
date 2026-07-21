@@ -27,7 +27,7 @@ export type SectionAttentionBucket = {
 
 export type SectionAttention = Map<RoutedSectionId, SectionAttentionBucket>;
 
-type BucketOpts = {
+export type BucketOpts = {
   renderCard: (item: AttentionItem) => ReactNode;
   /** Whether the routed section is rendered for this show; else fall back to Overview. */
   sectionAvailable: (sectionId: RoutedSectionId) => boolean;

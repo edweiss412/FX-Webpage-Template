@@ -1,13 +1,20 @@
 "use server";
 /*
- * not-subject-to-meta: every Supabase call site in this file is dev-only
+ * not-subject-to-meta: every Supabase call site in the DEV-PANEL SEEDING
+ * helpers below (parseAndStage / getStagedResult / resetDevSchema) is dev-only
  * scaffolding for the build-gated /admin/dev panel (scripts/with-admin-
  * dev-flag.mjs guards production builds against shipping these routes).
  * The functions throw `new Error(...)` on both returned `.error` and
  * thrown-await paths — Next.js routes both through its dev error
  * boundary, which is the intended contract for an internal-only seeding
- * surface. None of these helpers return a typed `{ kind: "infra_error" }`
+ * surface. None of THOSE helpers return a typed `{ kind: "infra_error" }`
  * union, so no §1.9 caller contract exists to silently violate.
+ *
+ * The attention-scenario materialize actions at the END of this file are NOT
+ * covered by that note: they DO return a discriminable typed union, their
+ * Supabase boundary lives in lib/dev/materialize/run.ts (every call
+ * destructures { data, error }; thrown rejections funnel to the same typed
+ * result), and each of their call sites carries its own annotation.
  */
 /**
  * app/admin/dev/actions.ts (M3 Task 3.1)
@@ -78,6 +85,17 @@ import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
 import { mockDriveClient, MOCK_MARKER } from "@/lib/sync/mocks/mockDriveClient";
 import type { ParseResult, InvariantOutcome, ParseWarning } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { createMaterializeClient } from "@/lib/dev/materialize/client";
+import { scenarioById } from "@/lib/dev/attentionScenarios/index";
+import { resolveTarget, type EnvInput, type TargetEnv } from "@/lib/dev/materialize/env";
+import { planApply, planClear } from "@/lib/dev/materialize/plan";
+import {
+  executeApply,
+  executeClear,
+  type MaterializeResult,
+  type SupabaseLike,
+} from "@/lib/dev/materialize/run";
+import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 
 export type ParseAndStageResult = {
   filename: string;
@@ -437,4 +455,223 @@ export async function listFixtures(): Promise<string[]> {
   // dev-panel dropdown prevents an operator running `pnpm test tests/sync/`
   // in one terminal from seeing test-only fixtures in the panel UI in another.
   return entries.filter((n) => n.endsWith(".md") && !n.startsWith("_")).sort();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attention scenario materialize (spec 2026-07-20-attention-scenario-gallery
+// §5.1, §5.2, §7.1). Writes a tier-3 composite's stored rows onto a real show
+// so the REAL modal shows the state, and removes them again.
+//
+// These four exports are the exception to this file's header note: unlike the
+// dev-panel seeding helpers above, they return a DISCRIMINABLE typed union
+// (MaterializeResult) rather than throwing, because the card renders the
+// outcome and an operator has to be able to tell a refusal from an infra fault
+// from a partial write. The Supabase boundary discipline lives in
+// lib/dev/materialize/run.ts, which destructures { data, error } at every call
+// and funnels thrown rejections to the same typed result.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function messageOfUnknown(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
+/** Resolves the target show. Returns null when the slug names nothing. */
+async function resolveShow(
+  client: SupabaseLike,
+  slug: string,
+): Promise<{ id: string; driveFileId: string; archived: boolean } | null> {
+  // not-subject-to-meta: read-only accessor local to the materialize actions;
+  // its callers convert both the returned-error and empty-row cases into the
+  // typed MaterializeResult below rather than continuing.
+  const { data, error } = await client
+    .from("shows")
+    .select("id, drive_file_id, archived")
+    .eq("slug", slug)
+    .limit(1);
+  const rows = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+  if (error) throw new Error(`resolveShow: ${messageOfUnknown(error)}`);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    driveFileId: String(row.drive_file_id),
+    archived: row.archived === true,
+  };
+}
+
+function materializeEnvInput(target: TargetEnv, confirmed: boolean): EnvInput {
+  return {
+    target,
+    confirmed,
+    localUrl: process.env.SUPABASE_URL,
+    localKey: process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY,
+    validationUrl: process.env.VALIDATION_SUPABASE_URL,
+    validationKey: process.env.VALIDATION_SUPABASE_SECRET_KEY,
+    validationRef: process.env.VALIDATION_SUPABASE_PROJECT_REF,
+  };
+}
+
+/** True when the run changed the database, which is what makes telemetry due. */
+function committedSomething(result: MaterializeResult): boolean {
+  if (result.kind === "partial") return true;
+  if (result.kind !== "ok") return false;
+  return result.alerts > 0 || result.holds > 0 || result.warnings === "written";
+}
+
+export type MaterializeInput = {
+  slug: string;
+  scenarioId: string;
+  target: TargetEnv;
+  confirmed: boolean;
+};
+
+export async function applyAttentionScenario(input: MaterializeInput): Promise<MaterializeResult> {
+  const identity = await requireDeveloperIdentity();
+
+  const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
+  if (env.kind === "refused") return { kind: "refused", reason: env.reason };
+
+  const client = createMaterializeClient(env.url, env.key);
+
+  let show: Awaited<ReturnType<typeof resolveShow>>;
+  try {
+    show = await resolveShow(client, input.slug.trim());
+  } catch (err) {
+    return { kind: "infra_error", message: err instanceof Error ? err.message : String(err) };
+  }
+  if (!show) return { kind: "refused", reason: "slug_missing" };
+
+  const scenario = scenarioById(input.scenarioId.trim());
+  const plan = planApply(scenario, {
+    slug: input.slug.trim(),
+    archived: show.archived,
+    target: env.target,
+  });
+  if (plan.kind === "refused") return { kind: "refused", reason: plan.reason };
+  // planApply already refused an undefined scenario, so this narrowing cannot
+  // fail; the assert keeps the executor's signature honest without a cast.
+  if (!scenario) return { kind: "refused", reason: "scenario_unknown" };
+
+  const result = await executeApply(
+    scenario,
+    plan,
+    { id: show.id, driveFileId: show.driveFileId },
+    env.target,
+    { client },
+  );
+
+  // POST-COMMIT, outside any lock (invariant 10). Emitted only when the run
+  // actually changed the database: a refusal or a zero-write infra fault has no
+  // durable outcome to audit, and emitting one would make the ledger claim a
+  // mutation that never happened.
+  if (committedSomething(result)) {
+    await logAdminOutcome({
+      code: "DEV_SCENARIO_APPLIED",
+      source: "admin.dev.applyAttentionScenario",
+      actorEmail: identity.email,
+      showId: show.id,
+      driveFileId: show.driveFileId,
+      result: result.kind === "partial" ? "partial" : "applied",
+      extra: { scenarioId: scenario.id, target: env.target },
+    });
+  }
+  return result;
+}
+
+export async function clearAttentionScenario(
+  input: Omit<MaterializeInput, "scenarioId">,
+): Promise<MaterializeResult> {
+  const identity = await requireDeveloperIdentity();
+
+  const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
+  if (env.kind === "refused") return { kind: "refused", reason: env.reason };
+
+  const client = createMaterializeClient(env.url, env.key);
+
+  let show: Awaited<ReturnType<typeof resolveShow>>;
+  try {
+    show = await resolveShow(client, input.slug.trim());
+  } catch (err) {
+    return { kind: "infra_error", message: err instanceof Error ? err.message : String(err) };
+  }
+  // Deliberately NOT gated on `archived` (§5.3): a guard that can block cleanup
+  // strands synthetic rows on any show that gets archived after materializing.
+  if (!show) return { kind: "refused", reason: "slug_missing" };
+
+  const plan = planClear({ slug: input.slug.trim(), target: env.target });
+  if (plan.kind === "refused") return { kind: "refused", reason: plan.reason };
+
+  const result = await executeClear(
+    plan,
+    { id: show.id, driveFileId: show.driveFileId },
+    env.target,
+    {
+      client,
+      // Called DIRECTLY, never as an HTTP request to this app's own route: a
+      // self-request would re-enter auth and lose the developer identity.
+      //
+      // The OUTCOME is interpreted, not discarded. runManualSyncForShow RESOLVES
+      // with non-success outcomes rather than throwing - `blocked` on an archived
+      // show, `skipped` under a concurrent sync, `hard_fail`, `parse_error`. Only
+      // an applied/stage outcome actually regenerates authentic warnings, so
+      // anything else must surface as a partial Clear rather than a silent ok.
+      resync: async (driveFileId) => {
+        const result = await runManualSyncForShow(driveFileId, "manual");
+        const outcome = (result as { outcome?: string }).outcome ?? "unknown";
+        const ok = outcome === "applied" || outcome === "stage";
+        return { ok, detail: ok ? outcome : `re-sync did not regenerate warnings: ${outcome}` };
+      },
+    },
+  );
+
+  if (committedSomething(result) || result.kind === "ok") {
+    await logAdminOutcome({
+      code: "DEV_SCENARIO_CLEARED",
+      source: "admin.dev.clearAttentionScenario",
+      actorEmail: identity.email,
+      showId: show.id,
+      driveFileId: show.driveFileId,
+      result: result.kind === "partial" ? "partial" : "cleared",
+      extra: { target: env.target },
+    });
+  }
+  return result;
+}
+
+function formString(fd: FormData, key: string): string {
+  const v = fd.get(key);
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function formTarget(fd: FormData): TargetEnv {
+  // Anything unrecognized stays "validation"-shaped ONLY if spelled exactly;
+  // otherwise resolveTarget refuses it as unknown_target rather than silently
+  // defaulting to a writable environment.
+  const raw = formString(fd, "target");
+  return raw === "validation" ? "validation" : raw === "local" ? "local" : (raw as TargetEnv);
+}
+
+export async function applyAttentionScenarioFormAction(fd: FormData): Promise<MaterializeResult> {
+  // Self-gated as its own first line, matching every other exported action in
+  // this file: the wrapper is its own POST entry point, so it must not rely on
+  // the delegate's gate to establish that the caller is a developer.
+  await requireDeveloper();
+  return applyAttentionScenario({
+    slug: formString(fd, "slug"),
+    scenarioId: formString(fd, "scenario"),
+    target: formTarget(fd),
+    confirmed: formString(fd, "confirm") === "VALIDATION",
+  });
+}
+
+export async function clearAttentionScenarioFormAction(fd: FormData): Promise<MaterializeResult> {
+  await requireDeveloper();
+  return clearAttentionScenario({
+    slug: formString(fd, "slug"),
+    target: formTarget(fd),
+    confirmed: formString(fd, "confirm") === "VALIDATION",
+  });
 }

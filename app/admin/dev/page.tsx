@@ -37,8 +37,12 @@ import {
   listFixtures,
   parseAndStageFormAction,
   resetDevSchemaFormAction,
+  applyAttentionScenarioFormAction,
+  clearAttentionScenarioFormAction,
   type ParseAndStageResult,
 } from "./actions";
+import { MaterializeCard } from "@/components/admin/dev/MaterializeCard";
+import { materializableScenarios } from "@/lib/dev/attentionScenarios/index";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +110,17 @@ export default async function AdminDevPage({
       ) : null}
 
       {result ? <ParsePanel result={result} /> : null}
+
+      <div className="mt-8">
+        <MaterializeCard
+          scenarios={materializableScenarios().map((sc) => ({ id: sc.id, label: sc.label }))}
+          applyAction={applyAttentionScenarioFormAction}
+          clearAction={clearAttentionScenarioFormAction}
+          // No server-provided seed: this page has no result to render on a
+          // fresh load, and the live outcome arrives through the action return.
+          lastResult={null}
+        />
+      </div>
     </main>
   );
 }

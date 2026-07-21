@@ -51,6 +51,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Dev-only dimensional-invariant harness for the telemetry timeline (spec §8
   // + G7); build-renamed-aside in prod; same requireDeveloper chokepoint as /admin/dev.
   { path: "app/admin/dev/telemetry-dim/page.tsx", chain: ["requireDeveloper"] },
+  // Attention scenario gallery (spec 2026-07-20-attention-scenario-gallery §6);
+  // build-renamed-aside in prod; same requireDeveloper chokepoint as /admin/dev.
+  { path: "app/admin/dev/attention-gallery/page.tsx", chain: ["requireDeveloper"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
   // spec 2026-07-15-extend-role-scope-vocab §8.2 — "Roles you've added" settings
