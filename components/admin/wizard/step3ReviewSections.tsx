@@ -1307,8 +1307,15 @@ export function CrewUnderRowStack({ nodes, ckey }: { nodes: React.ReactNode[]; c
           data-testid={`crew-warn-more-${ckey}`}
           className="group flex flex-col items-stretch gap-2"
         >
-          <summary className="cursor-pointer list-none text-xs font-semibold text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden">
+          {/* Accordion handle: 44px tap floor (DESIGN.md --spacing-tap-min) for the
+              venue-floor phone context; chevron affordance mirrors the Ignored(N)
+              disclosure idiom. */}
+          <summary className="flex min-h-tap-min cursor-pointer list-none items-center text-xs font-semibold text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden">
             {hidden.length} more
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform group-open:rotate-90"
+            />
           </summary>
           <div className="mt-2 flex flex-col items-stretch gap-2">{hidden}</div>
         </details>

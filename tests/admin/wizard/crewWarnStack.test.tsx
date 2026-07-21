@@ -41,4 +41,11 @@ describe("CrewUnderRowStack — cap + disclosure", () => {
     render(<CrewUnderRowStack nodes={[node("a"), node("b"), node("c")]} ckey="k" />);
     expect(screen.getByTestId("crew-warn-more-k").textContent).toContain("1 more");
   });
+
+  test("the disclosure handle meets the 44px tap floor (impeccable audit P1)", () => {
+    render(<CrewUnderRowStack nodes={[node("a"), node("b"), node("c")]} ckey="k" />);
+    const summary = screen.getByTestId("crew-warn-more-k").querySelector("summary");
+    // DESIGN.md --spacing-tap-min: every accordion handle ≥44px for the phone context.
+    expect(summary!.className).toContain("min-h-tap-min");
+  });
 });
