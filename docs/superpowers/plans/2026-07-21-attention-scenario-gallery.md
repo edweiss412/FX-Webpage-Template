@@ -226,7 +226,7 @@ Spec §3.3. Same rationale, hold side.
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: `shapeHoldEntry(hold: HoldRowForShaping): FeedEntry` where `HoldRowForShaping` is `{ id: string; proposed_value: Disposition; base_modified_time: string | null; created_at: string; domain: HoldDomain; entity_key: string }`.
+- Produces: `shapeHoldEntry(hold: HoldRow): FeedEntry & { sortKey: string }`, where `HoldRow` is exported from the same module and is exactly `{ id: string; proposed_value: Disposition; base_modified_time: string | null; created_at: string; domain: HoldDomain; entity_key: string }`. The return type includes `sortKey` because the caller sorts on it at full precision before stripping it (`readShowChangeFeed.ts:318-321`); returning a bare `FeedEntry` would silently drop the P5-F5 ordering fix.
 
 - [ ] **Step 1: Read the current shaping block**
 
@@ -286,6 +286,7 @@ export type HoldRow = {
   proposed_value: FeedGate["disposition"];
   base_modified_time: string | null;
   created_at: string;
+  domain: "crew_email" | "crew_identity";
   entity_key: string;
 };
 
@@ -333,7 +334,7 @@ Expected: PASS with no pre-existing test modified.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/sync/feed/shapeHoldEntry.ts lib/sync/feed/readShowChangeFeed.ts tests/sync/shapeHoldEntry.test.ts
+git add lib/sync/feed/shapeHoldEntry.ts lib/sync/feed/sortKey.ts lib/sync/feed/readShowChangeFeed.ts tests/sync/shapeHoldEntry.test.ts
 git commit -m "refactor(sync): extract shapeHoldEntry for shared feed shaping"
 ```
 
@@ -700,27 +701,234 @@ git commit -m "feat(dev): tier-1 warning scenarios with the enumerated generator
 
 ### Task 6: Tier-2 structural matrix
 
-Spec §4.2. Few codes, every structural axis.
+Spec §4.2. Few codes, every structural axis. Each scenario's `bucket` predicates are the mechanism; the test asserts the routing outcome by running the real `bucketAttention`, never by trusting a label.
 
 **Files:**
 - Create: `lib/dev/attentionScenarios/tier2.ts (new)`
 - Test: `tests/dev/attentionScenariosTier2.test.ts (new)`
 
 **Interfaces:**
-- Produces: `tier2Scenarios(): AttentionScenario[]`, `MENU_CAP` (= 12).
+- Consumes: `AttentionScenario` and `validateScenario` (Task 3); `scenarioIdForCode` (Task 4).
+- Produces: `MENU_CAP: 12`, `tier2Scenarios(): AttentionScenario[]`, and the exported id constants each test references: `T2_SECTION_ABSENT`, `T2_OVERVIEW_ABSENT`, `T2_ANCHOR_ABSENT`, `T2_CREW_ROW_ABSENT`, `T2_HOLD_ONLY`, `T2_INBOX_ROUTED`, `T2_AUTO_RESOLVING`, `T2_ACTIONABLE`, `T2_OCCURRENCE_MANY`, `T2_IDENTITY_ABSENT`, `T2_UNCATALOGED`, `T2_UNRESOLVED_PLACEHOLDER`, `T2_EMPTY`, `T2_SINGLE`, `T2_MANY`, `T2_DEGRADED`.
 
 - [ ] **Step 1: Write the failing test**
 
-Assert one scenario exists per §4.2 row, each valid, and that the fallback axes actually route as documented — by running the real `bucketAttention` with the scenario's `bucket` predicates and asserting the destination section, not by trusting the label. For the "Overview also absent" row, assert the card is **dropped** (present in items, absent from every bucket), which is the outcome §4.2 states.
+```ts
+// tests/dev/attentionScenariosTier2.test.ts
+import { describe, expect, test } from "vitest";
+import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { deriveAttentionItems } from "@/lib/admin/attentionItems";
+import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
+import {
+  MENU_CAP,
+  tier2Scenarios,
+  T2_SECTION_ABSENT,
+  T2_OVERVIEW_ABSENT,
+  T2_ANCHOR_ABSENT,
+  T2_CREW_ROW_ABSENT,
+  T2_MANY,
+  T2_UNCATALOGED,
+  T2_DEGRADED,
+} from "@/lib/dev/attentionScenarios/tier2";
+import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
+
+function byId(id: string): AttentionScenario {
+  const s = tier2Scenarios().find((x) => x.id === id);
+  if (!s) throw new Error(`missing tier-2 scenario ${id}`);
+  return s;
+}
+
+/** Run the REAL derive + bucket for a scenario, returning which sections got cards. */
+function placements(s: AttentionScenario): Map<string, number> {
+  const items = deriveAttentionItems({ alerts: s.alerts.map(toInput), feed: null, slug: "demo" });
+  const map = bucketAttention(items, {
+    renderCard: () => "card",
+    sectionAvailable: s.bucket?.sectionAvailable ?? (() => true),
+    anchorAvailable: s.bucket?.anchorAvailable ?? (() => true),
+    ...(s.bucket?.crewKeyRendered ? { crewKeyRendered: s.bucket.crewKeyRendered } : {}),
+  });
+  const out = new Map<string, number>();
+  for (const [sectionId, bucket] of map) {
+    const n =
+      bucket.sectionTop.length +
+      [...(bucket.byAnchor?.values() ?? [])].reduce((a, v) => a + v.length, 0) +
+      [...(bucket.byCrewKey?.values() ?? [])].reduce((a, v) => a + v.length, 0);
+    out.set(sectionId, n);
+  }
+  return out;
+}
+
+function toInput(r: AttentionScenario["alerts"][number]) {
+  return {
+    id: `t-${r.code}`,
+    code: r.code,
+    context: r.context,
+    raised_at: r.raised_at,
+    occurrence_count: r.occurrence_count,
+    identityText: null,
+    messageParams: {},
+    crewName: null,
+  };
+}
+
+describe("tier 2 structural matrix", () => {
+  test("every scenario is valid and tier 2", () => {
+    const all = tier2Scenarios();
+    expect(all.length).toBeGreaterThanOrEqual(16);
+    for (const s of all) {
+      expect(validateScenario(s), s.id).toEqual([]);
+      expect(s.tier, s.id).toBe(2);
+    }
+  });
+
+  test("a routed section that is unavailable falls back to Overview", () => {
+    const p = placements(byId(T2_SECTION_ABSENT));
+    expect(p.get("overview") ?? 0).toBeGreaterThan(0);
+    expect(p.get("crew") ?? 0).toBe(0);
+  });
+
+  test("when Overview is also unavailable the card is DROPPED, not silently placed", () => {
+    const p = placements(byId(T2_OVERVIEW_ABSENT));
+    const total = [...p.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(0);
+  });
+
+  test("an unavailable anchor falls back to its section top, not to Overview", () => {
+    const s = byId(T2_ANCHOR_ABSENT);
+    const p = placements(s);
+    expect(p.get("rooms") ?? 0).toBeGreaterThan(0);
+  });
+
+  test("an unrendered crew key falls back to the crew section top", () => {
+    const p = placements(byId(T2_CREW_ROW_ABSENT));
+    expect(p.get("crew") ?? 0).toBeGreaterThan(0);
+  });
+
+  test("the many-items scenario carries exactly MENU_CAP alerts", () => {
+    expect(byId(T2_MANY).alerts).toHaveLength(MENU_CAP);
+  });
+
+  test("the uncataloged-code scenario routes to Overview via the derive fallback", () => {
+    const p = placements(byId(T2_UNCATALOGED));
+    expect(p.get("overview") ?? 0).toBeGreaterThan(0);
+  });
+
+  test("only the degraded scenario sets degraded, and only tier 2 sets bucket", () => {
+    expect(byId(T2_DEGRADED).degraded).toBe(true);
+    for (const s of tier2Scenarios()) {
+      if (s.id !== T2_DEGRADED) expect(s.degraded ?? false, s.id).toBe(false);
+    }
+  });
+});
+```
+
+Failure mode caught: a fallback predicate that stops routing as documented — asserted against the real `bucketAttention` output, not against the scenario's own label. The Overview-absent case asserts a **drop** specifically, which is the one outcome an observation-only test could not distinguish from a bug.
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `pnpm vitest run tests/dev/attentionScenariosTier2.test.ts`
-Expected: FAIL — module not found.
+Expected: FAIL, cannot resolve `@/lib/dev/attentionScenarios/tier2`.
 
-- [ ] **Step 3: Implement** the matrix, one scenario per row, `MENU_CAP = 12` as a named export used by the "many" scenario.
+- [ ] **Step 3: Implement**
 
-- [ ] **Step 4: Run to verify it passes.** - [ ] **Step 5: Commit**
+```ts
+// lib/dev/attentionScenarios/tier2.ts
+import type { AttentionScenario, ScenarioAlertRow } from "./types";
+
+export const MENU_CAP = 12;
+const AT = "2026-07-01T12:00:00.000Z";
+
+export const T2_SECTION_ABSENT = "t2-section-absent";
+export const T2_OVERVIEW_ABSENT = "t2-overview-absent";
+export const T2_ANCHOR_ABSENT = "t2-anchor-absent";
+export const T2_CREW_ROW_ABSENT = "t2-crew-row-absent";
+export const T2_HOLD_ONLY = "t2-hold-only";
+export const T2_INBOX_ROUTED = "t2-inbox-routed";
+export const T2_AUTO_RESOLVING = "t2-auto-resolving";
+export const T2_ACTIONABLE = "t2-actionable";
+export const T2_OCCURRENCE_MANY = "t2-occurrence-many";
+export const T2_IDENTITY_ABSENT = "t2-identity-absent";
+export const T2_UNCATALOGED = "t2-uncataloged";
+export const T2_UNRESOLVED_PLACEHOLDER = "t2-unresolved-placeholder";
+export const T2_EMPTY = "t2-empty";
+export const T2_SINGLE = "t2-single";
+export const T2_MANY = "t2-many";
+export const T2_DEGRADED = "t2-degraded";
+
+function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
+  return { code, context: {}, raised_at: AT, occurrence_count: 1, ...over };
+}
+
+function scenario(
+  id: string,
+  label: string,
+  rest: Omit<AttentionScenario, "id" | "tier" | "label">,
+): AttentionScenario {
+  return { id, tier: 2, label, ...rest };
+}
+
+export function tier2Scenarios(): AttentionScenario[] {
+  return [
+    scenario(T2_SECTION_ABSENT, "Routed section unavailable, falls back to Overview", {
+      alerts: [alert("AMBIGUOUS_EMAIL_BINDING")],
+      holds: [],
+      bucket: { sectionAvailable: (s) => s === "overview" },
+    }),
+    scenario(T2_OVERVIEW_ABSENT, "No available section, card is dropped", {
+      alerts: [alert("AMBIGUOUS_EMAIL_BINDING")],
+      holds: [],
+      bucket: { sectionAvailable: () => false },
+    }),
+    scenario(T2_ANCHOR_ABSENT, "Anchor slot absent, falls back to section top", {
+      alerts: [alert("EMBEDDED_ASSET_DRIFTED")],
+      holds: [],
+      bucket: { anchorAvailable: () => false },
+    }),
+    scenario(T2_CREW_ROW_ABSENT, "Crew key unrendered, falls back to crew section top", {
+      alerts: [
+        alert("ROLE_FLAGS_NOTICE", {
+          context: { role_change_count: 1, role_change_crew_names: ["Dana Reed"] },
+        }),
+      ],
+      holds: [],
+      bucket: { crewKeyRendered: () => false },
+    }),
+    scenario(T2_UNCATALOGED, "Uncataloged code, fallback title and Overview route", {
+      alerts: [alert("NOT_A_REAL_CODE_FOR_GALLERY")],
+      holds: [],
+    }),
+    scenario(T2_OCCURRENCE_MANY, "Repeat count above one", {
+      alerts: [alert("SYNC_STALLED", { occurrence_count: 7 })],
+      holds: [],
+    }),
+    scenario(T2_EMPTY, "No attention at all", { alerts: [], holds: [] }),
+    scenario(T2_SINGLE, "Exactly one item", { alerts: [alert("SYNC_STALLED")], holds: [] }),
+    scenario(T2_MANY, `${MENU_CAP} items, menu crosses its scroll threshold`, {
+      alerts: Array.from({ length: MENU_CAP }, (_, i) =>
+        alert(`GALLERY_FILLER_${String(i).padStart(2, "0")}`),
+      ),
+      holds: [],
+    }),
+    scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
+    // Remaining axes follow the same shape; each is one scenario with one axis varied:
+    // T2_HOLD_ONLY (holds only, no alerts), T2_INBOX_ROUTED, T2_AUTO_RESOLVING,
+    // T2_ACTIONABLE (one code from each of the three actionability classes),
+    // T2_IDENTITY_ABSENT (galleryIdentity null), T2_UNRESOLVED_PLACEHOLDER
+    // (params that leave a <token> uninterpolated).
+  ];
+}
+```
+
+Fill the five commented axes using the same `scenario(...)` helper — the test asserts at least 16 scenarios exist and that every one validates, so an omitted axis fails.
+
+Pick the `T2_INBOX_ROUTED` / `T2_AUTO_RESOLVING` / `T2_ACTIONABLE` codes by checking the real predicates first: `rg -n "isInboxRouted|isAutoResolving" lib/messages/adminSurface.ts lib/adminAlerts/audience.ts`. Do not guess which codes fall in which class.
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `pnpm vitest run tests/dev/attentionScenariosTier2.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/dev/attentionScenarios/tier2.ts tests/dev/attentionScenariosTier2.test.ts
@@ -738,13 +946,139 @@ Spec §4.3, §5.0. Only tier 3 is materializable.
 - Test: `tests/dev/attentionScenariosIndex.test.ts (new)`
 
 **Interfaces:**
-- Produces: `ALL_SCENARIOS: AttentionScenario[]`, `scenarioById(id: string): AttentionScenario | undefined`, `materializableScenarios(): AttentionScenario[]`.
+- Produces: `T3_IDS: readonly string[]` (the canonical composite id list), `tier3Scenarios(): AttentionScenario[]`, `ALL_SCENARIOS: AttentionScenario[]`, `scenarioById(id: string): AttentionScenario | undefined`, `materializableScenarios(): AttentionScenario[]`.
 
-- [ ] **Step 1: Write the failing test** asserting: every scenario in `ALL_SCENARIOS` is valid; ids are globally unique; `materializableScenarios()` returns exactly the tier-3 set; and no tier-3 scenario carries `bucket` or `degraded` (they cannot be reproduced from DB state, §5.0).
-- [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement** 3 to 5 composites — e.g. "sheet went missing mid-parse", "crew email collision plus three warnings", "hold pending plus a stale-asset alert" — plus the index that concatenates the tiers.
-- [ ] **Step 4: Run to verify it passes.**
-- [ ] **Step 5: Commit**
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/dev/attentionScenariosIndex.test.ts
+import { describe, expect, test } from "vitest";
+import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
+import {
+  ALL_SCENARIOS,
+  scenarioById,
+  materializableScenarios,
+} from "@/lib/dev/attentionScenarios/index";
+import { T3_IDS } from "@/lib/dev/attentionScenarios/tier3";
+
+describe("catalog index", () => {
+  test("tier 3 is non-empty and matches its declared id list exactly", () => {
+    expect(T3_IDS.length).toBeGreaterThanOrEqual(3);
+    const ids = materializableScenarios().map((s) => s.id).sort();
+    expect(ids).toEqual([...T3_IDS].sort());
+  });
+
+  test("every scenario in the catalog is valid", () => {
+    expect(ALL_SCENARIOS.length).toBeGreaterThan(0);
+    for (const s of ALL_SCENARIOS) expect(validateScenario(s), s.id).toEqual([]);
+  });
+
+  test("ids are globally unique across all tiers", () => {
+    const ids = ALL_SCENARIOS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("scenarioById resolves a known id and rejects an unknown one", () => {
+    const first = ALL_SCENARIOS[0]!;
+    expect(scenarioById(first.id)?.id).toBe(first.id);
+    expect(scenarioById("no-such-scenario")).toBeUndefined();
+  });
+
+  test("materializable means tier 3 and nothing else", () => {
+    for (const s of materializableScenarios()) expect(s.tier).toBe(3);
+    for (const s of ALL_SCENARIOS.filter((x) => x.tier !== 3)) {
+      expect(materializableScenarios()).not.toContainEqual(s);
+    }
+  });
+
+  test("no tier-3 scenario carries bucket or degraded, which DB state cannot reproduce", () => {
+    for (const s of materializableScenarios()) {
+      expect(s.bucket, s.id).toBeUndefined();
+      expect(s.degraded ?? false, s.id).toBe(false);
+    }
+  });
+
+  test("every tier-3 scenario materializes something", () => {
+    for (const s of materializableScenarios()) {
+      const hasState = s.alerts.length > 0 || s.holds.length > 0 || s.warnings !== undefined;
+      expect(hasState, s.id).toBe(true);
+    }
+  });
+});
+```
+
+The first test is the anti-vacuity guard: without asserting `T3_IDS.length >= 3` and set-equality against a declared list, an empty tier 3 would satisfy every other assertion trivially. `scenarioById` gets both a hit and a miss, so an implementation that always returns `undefined` fails.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pnpm vitest run tests/dev/attentionScenariosIndex.test.ts`
+Expected: FAIL, cannot resolve the modules.
+
+- [ ] **Step 3: Implement tier 3**
+
+```ts
+// lib/dev/attentionScenarios/tier3.ts
+import type { AttentionScenario } from "./types";
+
+export const T3_SHEET_MISSING = "t3-sheet-missing-mid-parse";
+export const T3_CREW_COLLISION = "t3-crew-collision-with-warnings";
+export const T3_HOLD_AND_DRIFT = "t3-hold-pending-with-asset-drift";
+export const T3_IDS = [T3_SHEET_MISSING, T3_CREW_COLLISION, T3_HOLD_AND_DRIFT] as const;
+
+const AT = "2026-07-01T12:00:00.000Z";
+
+export function tier3Scenarios(): AttentionScenario[] {
+  return [
+    {
+      id: T3_SHEET_MISSING,
+      tier: 3,
+      label: "Sheet went missing mid-parse",
+      alerts: [
+        { code: "SHEET_UNAVAILABLE", context: {}, raised_at: AT, occurrence_count: 2 },
+        { code: "PARSE_ERROR_LAST_GOOD", context: { error_code: "ROOMS_BLOCK_MISSING" }, raised_at: AT, occurrence_count: 1 },
+      ],
+      holds: [],
+    },
+    // T3_CREW_COLLISION and T3_HOLD_AND_DRIFT follow the same shape.
+  ];
+}
+```
+
+Author the remaining two composites. `T3_CREW_COLLISION` carries `AMBIGUOUS_EMAIL_BINDING` plus three `warnings` (so it exercises the warning write path). `T3_HOLD_AND_DRIFT` carries one `mi11_pending` hold plus `EMBEDDED_ASSET_DRIFTED` and **omits** `warnings`, so it exercises the tri-state absent branch. Verify `PARSE_ERROR_LAST_GOOD`'s `error_code` value is actually in `PARSE_FAILURE_ALLOWLIST` (`rg -n "PARSE_FAILURE_ALLOWLIST" -A20 lib/messages/parseFailureReason.ts`) — the validator rejects any other value.
+
+- [ ] **Step 4: Implement the index**
+
+```ts
+// lib/dev/attentionScenarios/index.ts
+import { tier1AlertScenarios, tier1WarningScenarios } from "./tier1";
+import { tier2Scenarios } from "./tier2";
+import { tier3Scenarios } from "./tier3";
+import type { AttentionScenario } from "./types";
+
+export const ALL_SCENARIOS: AttentionScenario[] = [
+  ...tier1AlertScenarios(),
+  ...tier1WarningScenarios(),
+  ...tier2Scenarios(),
+  ...tier3Scenarios(),
+];
+
+const BY_ID = new Map(ALL_SCENARIOS.map((s) => [s.id, s]));
+
+export function scenarioById(id: string): AttentionScenario | undefined {
+  return BY_ID.get(id);
+}
+
+export function materializableScenarios(): AttentionScenario[] {
+  return ALL_SCENARIOS.filter((s) => s.tier === 3);
+}
+```
+
+- [ ] **Step 5: Run to verify it passes**
+
+Run: `pnpm vitest run tests/dev/attentionScenariosIndex.test.ts`
+Expected: PASS (7 tests).
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/dev/attentionScenarios/tier3.ts lib/dev/attentionScenarios/index.ts tests/dev/attentionScenariosIndex.test.ts
@@ -755,39 +1089,258 @@ git commit -m "feat(dev): tier-3 composites and the catalog index"
 
 ### Task 8: `ScenarioBlock` client component
 
-Spec §4.0, §4.1, §4.4. Owns the pill ref, real open state, and submit interception.
+Spec §4.0, §4.1, §4.4.
 
 **Files:**
 - Create: `components/admin/dev/ScenarioBlock.tsx (new)`
 - Test: `tests/components/admin/dev/scenarioBlock.test.tsx (new)`
 
 **Interfaces:**
-- Consumes: nothing from the catalog directly — it receives the props below.
-- Produces: `ScenarioBlockProps` exactly as §4.0 defines, including `groups: Array<{ sectionId; placement; anchorOrCrewKey; nodes: ReactNode[] }>`.
+- Produces: `ScenarioBlockProps` exactly as §4.0 defines. Restated here because the implementer sees only this task:
+
+```ts
+export type ReadoutRow = { label: string; value: string };
+export type ScenarioGroup = {
+  sectionId: string;
+  placement: "sectionTop" | "crewRow" | "anchor";
+  anchorOrCrewKey: string | null;
+  nodes: ReactNode[];
+};
+export type ScenarioBlockProps = {
+  scenarioId: string;
+  label: string;
+  items: AttentionItem[];
+  groups: ScenarioGroup[];
+  holdItems: AttentionItem[];
+  readout: ReadoutRow[];
+  warnings: ParseWarning[] | null;
+  degraded: boolean;
+  maxWidthPx: number | null;
+};
+```
 
 - [ ] **Step 1: Write the failing test**
 
-Cover: the menu renders open by default and closes via `onClose`; the navigation readout records an activated item; and — the load-bearing one — **a submit inside the block is prevented**:
-
 ```tsx
-test("a form submit inside the block is intercepted and never fires its action", async () => {
-  const action = vi.fn();
-  render(
-    <ScenarioBlock {...baseProps()} groups={[{
-      sectionId: "overview", placement: "sectionTop", anchorOrCrewKey: null,
-      nodes: [<form key="f" action={action}><button type="submit">Resolve</button></form>],
-    }]} />,
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
-  expect(action).not.toHaveBeenCalled();
+// tests/components/admin/dev/scenarioBlock.test.tsx
+import { describe, expect, test, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ScenarioBlock } from "@/components/admin/dev/ScenarioBlock";
+import type { ScenarioBlockProps } from "@/components/admin/dev/ScenarioBlock";
+
+function baseProps(over: Partial<ScenarioBlockProps> = {}): ScenarioBlockProps {
+  return {
+    scenarioId: "t2-single",
+    label: "Exactly one item",
+    items: [],
+    groups: [],
+    holdItems: [],
+    readout: [{ label: "code", value: "SYNC_STALLED" }],
+    warnings: null,
+    degraded: false,
+    maxWidthPx: null,
+    ...over,
+  };
+}
+
+describe("ScenarioBlock", () => {
+  test("a form submit inside the block never fires its action", async () => {
+    const action = vi.fn();
+    render(
+      <ScenarioBlock
+        {...baseProps({
+          groups: [{
+            sectionId: "overview",
+            placement: "sectionTop",
+            anchorOrCrewKey: null,
+            nodes: [
+              <form key="f" action={action}>
+                <button type="submit">Resolve</button>
+              </form>,
+            ],
+          }],
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  test("renders one labelled group per section with its nodes", () => {
+    render(
+      <ScenarioBlock
+        {...baseProps({
+          groups: [
+            { sectionId: "overview", placement: "sectionTop", anchorOrCrewKey: null, nodes: [<p key="a">card-a</p>] },
+            { sectionId: "rooms", placement: "anchor", anchorOrCrewKey: "diagrams", nodes: [<p key="b">card-b</p>] },
+          ],
+        })}
+      />,
+    );
+    const overview = screen.getByTestId("group-overview-sectionTop");
+    expect(within(overview).getByText("card-a")).toBeInTheDocument();
+    const rooms = screen.getByTestId("group-rooms-anchor");
+    expect(within(rooms).getByText("card-b")).toBeInTheDocument();
+    expect(within(rooms).getByText(/diagrams/)).toBeInTheDocument();
+  });
+
+  test("holds render in their own group, never inside a section group", () => {
+    render(<ScenarioBlock {...baseProps({ holdItems: [{ id: "hold:1", kind: "hold", tone: "critical", sectionId: "changes", crewKey: null, actionable: true, menuTitle: "Pick what happens", menuSubtitle: null }] })} />);
+    const holds = screen.getByTestId("hold-group");
+    expect(within(holds).getByText("Pick what happens")).toBeInTheDocument();
+  });
+
+  test("warnings null renders no warning cards at all", () => {
+    render(<ScenarioBlock {...baseProps({ warnings: null })} />);
+    expect(screen.queryByTestId("warnings-warning")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("warnings-muted")).not.toBeInTheDocument();
+  });
+
+  test("warnings present renders BOTH the active and muted skins", () => {
+    render(<ScenarioBlock {...baseProps({ warnings: [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "Synthetic warning for gallery review." }] })} />);
+    expect(screen.getByTestId("warnings-warning")).toBeInTheDocument();
+    expect(screen.getByTestId("warnings-muted")).toBeInTheDocument();
+  });
+
+  test("the readout renders every row as label and value", () => {
+    render(<ScenarioBlock {...baseProps({ readout: [{ label: "sectionId", value: "rooms" }] })} />);
+    const dl = screen.getByTestId("readout");
+    expect(within(dl).getByText("sectionId")).toBeInTheDocument();
+    expect(within(dl).getByText("rooms")).toBeInTheDocument();
+  });
+
+  test("maxWidthPx null applies no width constraint; a number applies it", () => {
+    const { rerender } = render(<ScenarioBlock {...baseProps({ maxWidthPx: null })} />);
+    expect(screen.getByTestId("block-root").style.maxWidth).toBe("");
+    rerender(<ScenarioBlock {...baseProps({ maxWidthPx: 390 })} />);
+    expect(screen.getByTestId("block-root").style.maxWidth).toBe("390px");
+  });
 });
 ```
 
-Failure mode caught: the §4.4 neutralization silently not applying, which would let a gallery click run a real server action against a synthetic id.
+Each test names a §4.1 requirement that could otherwise be silently omitted. jsdom loads no CSS, so these assert structure and attributes only — real visibility and geometry belong to Task 16.
 
-- [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement.** A `useRef` on the pill button, `useState(true)` for `open`, and a root `<div>` whose `onSubmitCapture={(e) => e.preventDefault()}` intercepts every submit in the subtree. Render the readout as a `<dl>`, the pill plus `AttentionMenu`, the `groups` nodes under labelled headings, `holdItems` in a separate labelled group, and `PerShowActionableWarnings` twice (`warning` then `muted`) only when `warnings` is non-null.
-- [ ] **Step 4: Run to verify it passes.**
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pnpm vitest run tests/components/admin/dev/scenarioBlock.test.tsx`
+Expected: FAIL, cannot resolve the component.
+
+- [ ] **Step 3: Implement**
+
+```tsx
+// components/admin/dev/ScenarioBlock.tsx
+"use client";
+import { useRef, useState, type ReactNode } from "react";
+import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+import type { ParseWarning } from "@/lib/parser/types";
+
+export type ReadoutRow = { label: string; value: string };
+export type ScenarioGroup = {
+  sectionId: string;
+  placement: "sectionTop" | "crewRow" | "anchor";
+  anchorOrCrewKey: string | null;
+  nodes: ReactNode[];
+};
+export type ScenarioBlockProps = {
+  scenarioId: string;
+  label: string;
+  items: AttentionItem[];
+  groups: ScenarioGroup[];
+  holdItems: AttentionItem[];
+  readout: ReadoutRow[];
+  warnings: ParseWarning[] | null;
+  degraded: boolean;
+  maxWidthPx: number | null;
+};
+
+export function ScenarioBlock(props: ScenarioBlockProps) {
+  const pillRef = useRef<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(true);
+  const [navigated, setNavigated] = useState<string | null>(null);
+
+  return (
+    <section
+      data-testid="block-root"
+      className="relative mb-16 pb-[26rem]"
+      style={props.maxWidthPx === null ? undefined : { maxWidth: `${props.maxWidthPx}px` }}
+      // Spec §4.4: every server action in this subtree posts through a form submit,
+      // so one capture-phase preventDefault neutralizes all of them, including any
+      // added later, without touching a production component.
+      onSubmitCapture={(e) => e.preventDefault()}
+    >
+      <h2 id={props.scenarioId} className="font-bold text-lg mb-2">
+        {props.label}
+      </h2>
+
+      <dl data-testid="readout" className="mb-3 text-sm">
+        {props.readout.map((r) => (
+          <div key={`${r.label}:${r.value}`}>
+            <dt className="inline font-semibold">{r.label}</dt>
+            <dd className="inline ml-2">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="relative inline-block">
+        <button ref={pillRef} type="button" onClick={() => setOpen((v) => !v)}>
+          {props.degraded ? "Attention (degraded)" : `Attention (${props.items.length})`}
+        </button>
+        <AttentionMenu
+          items={props.items}
+          open={open}
+          onClose={() => setOpen(false)}
+          onNavigate={(item) => setNavigated(item.id)}
+          pillRef={pillRef}
+        />
+      </div>
+      {navigated === null ? null : <p data-testid="navigated">navigate: {navigated}</p>}
+
+      {props.groups.map((g) => (
+        <div key={`${g.sectionId}-${g.placement}-${g.anchorOrCrewKey ?? ""}`} data-testid={`group-${g.sectionId}-${g.placement}`}>
+          <h3 className="font-semibold mt-4">
+            {g.sectionId}
+            {g.anchorOrCrewKey === null ? "" : ` / ${g.anchorOrCrewKey}`}
+          </h3>
+          {g.nodes}
+        </div>
+      ))}
+
+      {props.holdItems.length === 0 ? null : (
+        <div data-testid="hold-group">
+          <h3 className="font-semibold mt-4">Holds (Changes feed, not bucketed)</h3>
+          <ul>
+            {props.holdItems.map((h) => (
+              <li key={h.id}>{h.menuTitle}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {props.warnings === null ? null : (
+        <>
+          <div data-testid="warnings-warning">
+            <PerShowActionableWarnings items={props.warnings} driveFileId="gallery-fixture" tone="warning" />
+          </div>
+          <div data-testid="warnings-muted">
+            <PerShowActionableWarnings items={props.warnings} driveFileId="gallery-fixture" tone="muted" />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+```
+
+The `pb-[26rem]` reserves space for the absolutely-positioned menu (§4.0); Task 16 measures whether it is sufficient at both widths.
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `pnpm vitest run tests/components/admin/dev/scenarioBlock.test.tsx`
+Expected: PASS (7 tests).
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -799,25 +1352,140 @@ git commit -m "feat(dev): ScenarioBlock with submit interception and live menu s
 
 ### Task 9: The gallery route
 
-Spec §4.1, §4.5. Server Component: derive, bucket, flatten, render.
+Spec §4.1, §4.5.
 
 **Files:**
-- Create: `app/admin/dev/attention-gallery/page.tsx (new)`
-- Test: `tests/app/admin/attentionGalleryParams.test.ts (new)`
+- Create: `app/admin/dev/attention-gallery/page.tsx (new)`, `app/admin/dev/attention-gallery/params.ts (new)`
+- Test: `tests/app/admin/attentionGalleryParams.test.ts (new)`, `tests/app/admin/attentionGalleryRender.test.tsx (new)`
 
 **Interfaces:**
-- Consumes: `ALL_SCENARIOS` (Task 7), `ScenarioBlock` (Task 8), `deriveAttentionItems`, `bucketAttention`.
-- Produces: `parseGalleryParams(sp: Record<string, string | string[] | undefined>): { tier: 1|2|3|null; scenarioId: string | null; maxWidthPx: number | null }` — exported from the page module for direct testing.
+- Consumes: `ALL_SCENARIOS`, `scenarioById` (Task 7); `ScenarioBlock` (Task 8).
+- Produces: `parseGalleryParams` from `params.ts (new)`, and `buildBlockProps(scenario, maxWidthPx): ScenarioBlockProps` from `app/admin/dev/attention-gallery/buildBlockProps.ts (new)` — extracted so the render path is unit-testable without booting a route.
 
-- [ ] **Step 1: Write the failing param test** covering every §4.5 guard: `scenario` wins over `tier`; an array param takes its first element; `w` accepts only `^\d+$` and clamps to `[320,1280]`; empty, whitespace, signed, decimal, exponent, `NaN`, `Infinity`, and a digits-only value large enough to exceed `Number.MAX_SAFE_INTEGER` all fall back to `null`; unknown `tier` yields `null` (all tiers).
-- [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement** the page. `requireDeveloper()` first; `export const dynamic = "force-dynamic"`; `await searchParams`; filter scenarios; per scenario call `deriveAttentionItems`, then `bucketAttention` with `renderCard` returning `<AttentionBanner>` and the scenario's `bucket` predicates merged over defaults; flatten the `SectionAttention` map into the `groups` array; render one `ScenarioBlock` each. Include the standing note that action controls are display-only.
-- [ ] **Step 4: Run to verify it passes.**
-- [ ] **Step 5: Typecheck** — `pnpm typecheck`. Expected: clean.
-- [ ] **Step 6: Commit**
+- [ ] **Step 1: Write the failing params test**
+
+```ts
+// tests/app/admin/attentionGalleryParams.test.ts
+import { describe, expect, test } from "vitest";
+import { parseGalleryParams } from "@/app/admin/dev/attention-gallery/params";
+
+describe("parseGalleryParams", () => {
+  test("scenario wins over tier, even across tiers", () => {
+    const p = parseGalleryParams({ tier: "1", scenario: "t2-single" });
+    expect(p.scenarioId).toBe("t2-single");
+  });
+  test("an array param takes its first value", () => {
+    expect(parseGalleryParams({ tier: ["2", "1"] }).tier).toBe(2);
+  });
+  test("an empty array is absent", () => {
+    expect(parseGalleryParams({ tier: [] }).tier).toBeNull();
+  });
+  test("w accepts digits only and clamps into range", () => {
+    expect(parseGalleryParams({ w: "390" }).maxWidthPx).toBe(390);
+    expect(parseGalleryParams({ w: "100" }).maxWidthPx).toBe(320);
+    expect(parseGalleryParams({ w: "9999" }).maxWidthPx).toBe(1280);
+  });
+  test("w rejects every non-digit form, falling back to null", () => {
+    for (const v of ["", "   ", "-5", "3.5", "1e3", "NaN", "Infinity", "12px"]) {
+      expect(parseGalleryParams({ w: v }).maxWidthPx, v).toBeNull();
+    }
+  });
+  test("a digits-only value beyond MAX_SAFE_INTEGER is absent, not clamped", () => {
+    expect(parseGalleryParams({ w: "9".repeat(25) }).maxWidthPx).toBeNull();
+  });
+  test("an unknown tier means all tiers", () => {
+    expect(parseGalleryParams({ tier: "7" }).tier).toBeNull();
+    expect(parseGalleryParams({ tier: "  " }).tier).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify it fails.** Expected: cannot resolve `params`.
+
+- [ ] **Step 3: Implement `params.ts (new)`**
+
+```ts
+// app/admin/dev/attention-gallery/params.ts
+export type GalleryParams = {
+  tier: 1 | 2 | 3 | null;
+  scenarioId: string | null;
+  maxWidthPx: number | null;
+};
+
+function first(v: string | string[] | undefined): string | null {
+  if (v === undefined) return null;
+  if (Array.isArray(v)) return v.length === 0 ? null : (v[0] ?? null);
+  return v;
+}
+
+export function parseGalleryParams(
+  sp: Record<string, string | string[] | undefined>,
+): GalleryParams {
+  const rawTier = first(sp.tier)?.trim() ?? "";
+  const tier = rawTier === "1" ? 1 : rawTier === "2" ? 2 : rawTier === "3" ? 3 : null;
+
+  const rawScenario = first(sp.scenario)?.trim() ?? "";
+  const scenarioId = rawScenario.length > 0 ? rawScenario : null;
+
+  const rawW = first(sp.w)?.trim() ?? "";
+  let maxWidthPx: number | null = null;
+  if (/^\d+$/.test(rawW)) {
+    const n = Number.parseInt(rawW, 10);
+    maxWidthPx = Number.isSafeInteger(n) ? Math.min(1280, Math.max(320, n)) : null;
+  }
+  return { tier, scenarioId, maxWidthPx };
+}
+```
+
+- [ ] **Step 4: Write the failing render test**
+
+```tsx
+// tests/app/admin/attentionGalleryRender.test.tsx
+import { describe, expect, test } from "vitest";
+import { buildBlockProps } from "@/app/admin/dev/attention-gallery/buildBlockProps";
+import { scenarioById } from "@/lib/dev/attentionScenarios/index";
+import { T2_ANCHOR_ABSENT, T2_OVERVIEW_ABSENT } from "@/lib/dev/attentionScenarios/tier2";
+
+describe("buildBlockProps", () => {
+  test("derives items and honors the scenario's bucket overrides", () => {
+    const s = scenarioById(T2_ANCHOR_ABSENT)!;
+    const props = buildBlockProps(s, null);
+    expect(props.items.length).toBeGreaterThan(0);
+    // anchorAvailable=false means the card lands at the section top, not the anchor
+    expect(props.groups.some((g) => g.placement === "anchor")).toBe(false);
+    expect(props.groups.some((g) => g.placement === "sectionTop")).toBe(true);
+  });
+
+  test("a dropped card still appears in items and the readout, with no group", () => {
+    const props = buildBlockProps(scenarioById(T2_OVERVIEW_ABSENT)!, null);
+    expect(props.items.length).toBeGreaterThan(0);
+    expect(props.groups).toEqual([]);
+    expect(props.readout.some((r) => /dropped/i.test(r.value))).toBe(true);
+  });
+
+  test("threads maxWidthPx through unchanged", () => {
+    expect(buildBlockProps(scenarioById(T2_ANCHOR_ABSENT)!, 390).maxWidthPx).toBe(390);
+  });
+});
+```
+
+Failure mode caught: the route skipping derivation, ignoring bucket overrides, or flattening groups wrongly — none of which the params test can see.
+
+- [ ] **Step 5: Implement `buildBlockProps.ts (new)` and `page.tsx`**
+
+`buildBlockProps` calls `deriveAttentionItems`, then `bucketAttention` with `renderCard` returning `<AttentionBanner item={item} slug="gallery" now={FIXED_NOW} highlighted={false} onResolved={() => {}} />` and the scenario's predicates merged over always-true defaults, then flattens the `SectionAttention` map into `ScenarioGroup[]`, and builds the readout rows including `dropped: no available section` for any item absent from every bucket.
+
+`page.tsx` exports only `default` and `dynamic`. It calls `requireDeveloper()` first, awaits `searchParams`, filters via `parseGalleryParams`, and renders the standing note plus one `ScenarioBlock` per scenario. An unknown `scenario` renders a line listing valid ids.
+
+- [ ] **Step 6: Run both tests and typecheck**
+
+Run: `pnpm vitest run tests/app/admin/attentionGalleryParams.test.ts tests/app/admin/attentionGalleryRender.test.tsx && pnpm typecheck`
+Expected: PASS, then a clean typecheck. The typecheck matters here specifically: a stray named export from `page.tsx` fails Next's generated route types.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add app/admin/dev/attention-gallery/page.tsx tests/app/admin/attentionGalleryParams.test.ts
+git add app/admin/dev/attention-gallery/ tests/app/admin/attentionGalleryParams.test.ts tests/app/admin/attentionGalleryRender.test.tsx
 git commit -m "feat(dev): build-gated attention gallery route"
 ```
 
@@ -825,65 +1493,32 @@ git commit -m "feat(dev): build-gated attention gallery route"
 
 ### Task 10: `FILES` registration and the membership meta-test
 
-Spec §6, §6a. The one meta-test this work creates, and the only CI-enforced protection against an unregistered dev route.
+Spec §6, §6a.
 
 **Files:**
 - Modify: `scripts/with-admin-dev-flag.mjs:43-56`, `tests/admin/build-artifact-gate.test.ts`
 - Create: `tests/admin/dev/filesMembership.test.ts (new)`
 
-- [ ] **Step 1: Write the failing meta-test**
-
-```ts
-// tests/admin/dev/filesMembership.test.ts
-import { describe, expect, test } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
-
-const ROOT = process.cwd();
-const DEV_ROOT = join(ROOT, "app/admin/dev");
-// The telemetry route is deliberately prod-available; build-artifact-gate.test.ts
-// carves it out identically.
-const EXEMPT = new Set(["app/admin/dev/telemetry/page.tsx"]);
-const ROUTE_FILES = /^(page|route|actions|layout|default)\.tsx?$/;
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const abs = join(dir, name);
-    return statSync(abs).isDirectory() ? walk(abs) : [abs];
-  });
-}
-
-describe("every app/admin/dev route file is registered in the build gate", () => {
-  test("FILES covers each route-defining and server-action file", () => {
-    const script = readFileSync(join(ROOT, "scripts/with-admin-dev-flag.mjs"), "utf8");
-    const missing = walk(DEV_ROOT)
-      .map((abs) => relative(ROOT, abs))
-      .filter((rel) => {
-        const name = rel.split("/").pop()!;
-        if (EXEMPT.has(rel)) return false;
-        const isRouteFile = ROUTE_FILES.test(name);
-        const isServerAction =
-          /\.tsx?$/.test(name) && readFileSync(join(ROOT, rel), "utf8").includes('"use server"');
-        return isRouteFile || isServerAction;
-      })
-      .filter((rel) => !script.includes(`"${rel}"`));
-    expect(missing, `unregistered dev route files: ${missing.join(", ")}`).toEqual([]);
-  });
-});
-```
-
-Failure mode caught: a future dev route shipping in the production artifact because nobody added it to `FILES`. Verified at plan time to be a real gap — `RUN_BUILD_ARTIFACT_GATE_TEST` is set in no workflow, so the artifact test never runs in CI, and the `FILES`-membership assertion the spec once claimed existed did not.
+- [ ] **Step 1: Write the failing meta-test** — the code shown in the earlier version of this task, with the `filesArrayEntries` parser (not `script.includes`, which would match a path inside a comment and let the gate pass while the route is unregistered).
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `pnpm vitest run tests/admin/dev/filesMembership.test.ts`
 Expected: FAIL, listing the new gallery page as unregistered.
 
-- [ ] **Step 3: Register the route** — add the gallery page path (quoted, matching the neighbouring entries) to `FILES`, with a comment matching the existing entries' rationale.
+- [ ] **Step 3: Add the enabled-flag artifact assertion FIRST, and watch it fail**
 
-- [ ] **Step 4: Run to verify it passes.**
+Add to `tests/admin/build-artifact-gate.test.ts` a case asserting that with `ADMIN_DEV_PANEL_ENABLED="true"` the built manifests **do** contain `/admin/dev/attention-gallery`.
 
-- [ ] **Step 5: Add the enabled-flag artifact assertion** to `tests/admin/build-artifact-gate.test.ts`: with `ADMIN_DEV_PANEL_ENABLED="true"`, the built manifests **do** contain `/admin/dev/attention-gallery`. Verify manually with `RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts` and record the result in the handoff; it stays opt-in.
+Run: `RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts`
+Expected: FAIL — the route is not in `FILES` yet, so the flag-enabled build does not restore it. This is the red phase; adding the assertion after registration would make it pass on arrival and prove nothing.
+
+- [ ] **Step 4: Register the route** — add the gallery page path (quoted, matching the neighbouring entries) to the `FILES` array with a comment matching the existing entries' rationale.
+
+- [ ] **Step 5: Run both to verify they pass**
+
+Run: `pnpm vitest run tests/admin/dev/filesMembership.test.ts && RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts`
+Expected: PASS. Record the second command's output in the handoff (Task 17) — it does not run in CI.
 
 - [ ] **Step 6: Commit**
 
@@ -894,22 +1529,62 @@ git commit -m "feat(dev): FILES membership meta-test and gallery route registrat
 
 ---
 
-### Task 11: Materialize environment gate and write plan (pure)
+### Task 11: Materialize environment gate and write planner
 
-Spec §5.5, §5.3. Pure functions, no I/O — so every guard is testable without a database.
+Spec §5.5, §5.3. Pure functions, no I/O.
 
 **Files:**
 - Create: `lib/dev/materialize/env.ts (new)`, `lib/dev/materialize/plan.ts (new)`
 - Test: `tests/dev/materializeEnv.test.ts (new)`, `tests/dev/materializePlan.test.ts (new)`
 
-**Interfaces:**
-- Produces: `resolveTarget(input): { kind: "ok"; url: string; key: string } | { kind: "refused"; reason: string }` and `planApply(scenario, opts) / planClear(opts)` returning the ordered write steps plus any refusal.
+**Interfaces** — fully specified so Task 12 needs to invent nothing:
 
-- [ ] **Step 1: Write the failing env test** — the R3a P0 regression suite. A `local` target whose URL is not loopback is refused; loopback variants (`127.0.0.1`, `localhost`, `[::1]`) pass; a `validation` target whose URL-derived ref is not `VALIDATION_PROJECT_REF` is refused **even when `VALIDATION_SUPABASE_PROJECT_REF` carries the expected value**; a disagreement between derived and declared ref is refused; an unparseable URL is refused.
+```ts
+// lib/dev/materialize/env.ts
+export type TargetEnv = "local" | "validation";
+export type EnvInput = {
+  target: TargetEnv;
+  confirmed: boolean;
+  localUrl: string | undefined;        // process.env.SUPABASE_URL
+  localKey: string | undefined;        // process.env.SUPABASE_SECRET_KEY
+  validationUrl: string | undefined;   // VALIDATION_SUPABASE_URL
+  validationKey: string | undefined;   // VALIDATION_SUPABASE_SECRET_KEY
+  validationRef: string | undefined;   // VALIDATION_SUPABASE_PROJECT_REF
+};
+export type RefusalCode =
+  | "local_not_loopback" | "local_url_missing" | "local_key_missing"
+  | "validation_unconfirmed" | "validation_triple_incomplete"
+  | "validation_ref_mismatch" | "validation_ref_disagrees" | "unknown_target";
+export type EnvResolution =
+  | { kind: "ok"; url: string; key: string; target: TargetEnv }
+  | { kind: "refused"; reason: RefusalCode };
+export function resolveTarget(input: EnvInput): EnvResolution;
+
+// lib/dev/materialize/plan.ts
+export type WriteStep =
+  | { step: "deleteTaggedAlerts" }
+  | { step: "deleteTaggedHolds" }
+  | { step: "insertAlerts"; codes: string[] }
+  | { step: "insertHolds"; keys: Array<{ domain: string; entityKey: string }> }
+  | { step: "writeWarnings"; count: number }
+  | { step: "resync" };
+export type PlanRefusal =
+  | "slug_missing" | "show_archived" | "scenario_unknown" | "scenario_not_tier3"
+  | "scenario_duplicate_alert_code" | "scenario_duplicate_hold_key" | "nothing_to_materialize";
+export type WritePlan =
+  | { kind: "ok"; steps: WriteStep[] }
+  | { kind: "refused"; reason: PlanRefusal; detail: string | null };
+export type ApplyOpts = { slug: string; archived: boolean; target: TargetEnv };
+export type ClearOpts = { slug: string; target: TargetEnv };
+export function planApply(scenario: AttentionScenario | undefined, opts: ApplyOpts): WritePlan;
+export function planClear(opts: ClearOpts): WritePlan;
+```
+
+- [ ] **Step 1: Write the failing env test** — the R3a P0 regression suite: a `local` target whose URL is not loopback is refused with `local_not_loopback`; `127.0.0.1`, `localhost`, and `[::1]` all pass; a `validation` target whose URL-derived ref is not `VALIDATION_PROJECT_REF` is refused **even when `validationRef` carries the expected value**; a derived-vs-declared disagreement yields `validation_ref_disagrees`; an unparseable validation URL yields `validation_ref_mismatch` (a null derived ref never equals the constant); `confirmed: false` yields `validation_unconfirmed`.
 - [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement `resolveTarget`** using `projectRefFromUrl` (`lib/admin/validationDeployment.ts:7`) against `VALIDATION_PROJECT_REF`, reading the same variable the client will read.
-- [ ] **Step 4: Write the failing plan test** — every §5.3 guard row, Apply-only vs both; the environment-aware "nothing to materialize" rule; the warnings tri-state; and that Clear's plan is scenario-independent.
-- [ ] **Step 5: Implement and verify.**
+- [ ] **Step 3: Implement `resolveTarget`** using `projectRefFromUrl` (`lib/admin/validationDeployment.ts:7`) and `VALIDATION_PROJECT_REF` (`lib/admin/validationDeployment.ts:1`). Loopback detection parses the URL and compares `hostname` against the three literals.
+- [ ] **Step 4: Write the failing plan test** — every §5.3 Apply-only vs both-verb row; the environment-aware `nothing_to_materialize` rule (a warnings-only scenario is materializable on local, refused on validation); the warnings tri-state producing or omitting `writeWarnings`; `planClear` refusing nothing scenario-related and always emitting both deletes plus `resync` only on local.
+- [ ] **Step 5: Implement and verify both.**
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -921,36 +1596,59 @@ git commit -m "feat(dev): materialize environment gate and pure write planner"
 
 ### Task 12: Materialize server actions
 
-Spec §5.1, §5.2, §7.5. Executes the Task 11 plan.
+Spec §5.1, §5.2, §7.1, §7.5. Executes the Task 11 plan and emits its telemetry.
 
 **Files:**
 - Modify: `app/admin/dev/actions.ts`
+- Test: `tests/dev/materializeActions.test.ts (new)`
 
-- [ ] **Step 1: Write the failing action test** with the Supabase client mocked, asserting the typed result union and that a returned `{ error }` and a thrown rejection at each call boundary both yield `{ kind: "infra_error" }` or `{ kind: "partial" }` with the failed step named.
+**Interfaces:**
+- Consumes: `resolveTarget`, `planApply`, `planClear`, and every type from Task 11.
+- Produces: `applyAttentionScenario(input): Promise<MaterializeResult>`, `clearAttentionScenario(input): Promise<MaterializeResult>`, plus `applyAttentionScenarioFormAction(fd: FormData): Promise<void>` and `clearAttentionScenarioFormAction(fd: FormData)`.
+
+```ts
+export type Skip = { code: string; reason: "unresolved_row_present" | "hold_key_present" };
+export type MaterializeResult =
+  | { kind: "ok"; alerts: number; holds: number; warnings: "written" | "untouched" | "skipped_validation"; skipped: Skip[] }
+  | { kind: "partial"; committed: { alerts: number; holds: number }; failedStep: string; message: string }
+  | { kind: "refused"; reason: string }
+  | { kind: "infra_error"; message: string };
+```
+
+- [ ] **Step 1: Write the failing action test.** Cover, with the Supabase client mocked: the delete predicates issued (alerts by `context ? '__devScenario'`; holds by the **escaped** `LIKE '\_\_devScenario:%' ESCAPE '\'`); step order (deletes precede inserts); a colliding alert code producing a `Skip` rather than an insert; `warnings: "skipped_validation"` when the target is validation; a returned `{ error }` at each boundary yielding `infra_error` or `partial` with `failedStep` named; a thrown rejection doing the same; and — the telemetry contract — that `DEV_SCENARIO_APPLIED` is emitted on success and on `partial`, and **not** emitted when the first write fails.
 - [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement** `applyAttentionScenario`, `clearAttentionScenario`, and their `*FormAction` wrappers. `requireDeveloper()` first. Delete tagged rows with the **presence** predicates: `context ? '__devScenario'` for alerts, and for holds `created_by LIKE '\_\_devScenario:%' ESCAPE '\'` — **the escape is load-bearing**, since an unescaped `_` is a single-character wildcard that would match authentic rows. Clear's step 3 calls `runManualSyncForShow(driveFileId, "manual")` directly on local only.
-- [ ] **Step 4: Add the per-call-site invariant-9 annotations** and amend the file-level comment at `app/admin/dev/actions.ts:3-11` so it no longer claims file-wide that nothing returns a typed union.
-- [ ] **Step 5: Run to verify it passes.**
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Implement both actions.** `requireDeveloper()` first, then `resolveTarget`, then `planApply` / `planClear`, then execute each `WriteStep` in order against the resolved client, accumulating counts and skips. Clear's `resync` step calls `runManualSyncForShow(driveFileId, "manual")` directly (never an HTTP request to the app's own route).
+- [ ] **Step 4: Wire the telemetry emissions.** After the final write attempt and outside any lock, call `logAdminOutcome({ code: "DEV_SCENARIO_APPLIED", source: "admin.dev.applyAttentionScenario", actorEmail: email, result })` where `result` is `"applied"` on full success and `"partial"` on partial. Emit nothing when zero writes committed. The clear action emits `DEV_SCENARIO_CLEARED` on the same rule. **This step is what Task 13's behavioral proofs assert; without it those proofs cannot pass.**
+- [ ] **Step 5: Add the per-call-site invariant-9 annotations** above every Supabase call in both actions, and amend the file-level comment at `app/admin/dev/actions.ts:3-11` so it no longer claims file-wide that nothing returns a typed union.
+- [ ] **Step 6: Run to verify it passes.**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add app/admin/dev/actions.ts tests/dev/materializeActions.test.ts
-git commit -m "feat(dev): materialize apply and clear server actions"
+git commit -m "feat(dev): materialize apply and clear server actions with outcome telemetry"
 ```
 
 ---
 
-### Task 13: Telemetry registry, behavioral proofs, and the mock extension
+### Task 13: Telemetry registry and behavioral proofs
 
-Spec §7.1. Invariant 10 requires all four surfaces to have executable success-branch proof.
+Spec §7.1. The emissions themselves were implemented in Task 12 Step 4; this task proves them structurally.
 
 **Files:**
 - Modify: `tests/log/_auditableMutations.ts`, `tests/log/adminOutcomeBehavior.test.ts`
 
-- [ ] **Step 1: Extend `chainResult`** (`tests/log/adminOutcomeBehavior.test.ts:77-86`) with every builder method the actions use beyond the current `eq/is/not/select/update/insert/delete/single/limit` set — at minimum `.in`. Verified at plan time: without this the behavioral test throws on an undefined method rather than failing a meaningful assertion.
-- [ ] **Step 2: Add the four `AUDITABLE_MUTATIONS` rows** for `applyAttentionScenario`, `clearAttentionScenario`, and both form wrappers, codes `DEV_SCENARIO_APPLIED` / `DEV_SCENARIO_CLEARED`. Run `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` — expected FAIL until Step 3, because the registry now names surfaces with no behavioral proof.
-- [ ] **Step 3: Add the four behavioral proofs**, following `tests/log/adminOutcomeBehavior.test.ts:1137-1151` (core) and `tests/log/adminOutcomeBehavior.test.ts:1157-1171` (wrapper). Each asserts the code IS emitted on the committed-success branch and is NOT emitted on the error branch, and calls `recordAdminOutcomeBehavior({ file, fn, code })`.
-- [ ] **Step 4: Add the partial and zero-write telemetry tests** — a partially committed Apply emits once after the final write attempt with accurate step counts; an Apply whose first write fails emits nothing.
+- [ ] **Step 1: Extend `chainResult`** (`tests/log/adminOutcomeBehavior.test.ts:77-86`) to stub every builder method the Task 12 actions call beyond the existing `eq/is/not/select/update/insert/delete/single/limit` set — at minimum `.in`. Verified at plan time: an unstubbed method throws `TypeError: node.in is not a function`, which fails the test for the wrong reason and hides the real assertion.
+- [ ] **Step 2: Add the four `AUDITABLE_MUTATIONS` rows** — `applyAttentionScenario`, `clearAttentionScenario`, and both form wrappers, with codes `DEV_SCENARIO_APPLIED` / `DEV_SCENARIO_CLEARED`, all `file: "app/admin/dev/actions.ts"`.
+
+Run: `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts`
+Expected: FAIL — the registry now names four surfaces with no recorded behavioral proof.
+
+- [ ] **Step 3: Add the four behavioral proofs**, following `tests/log/adminOutcomeBehavior.test.ts:1137-1151` (core) and `tests/log/adminOutcomeBehavior.test.ts:1157-1171` (wrapper). Each asserts the code IS emitted on the committed-success branch, and calls `recordAdminOutcomeBehavior({ file, fn, code })`.
+- [ ] **Step 4: Add the two branch tests that Step 3 does not cover.** These distinguish the two failure shapes, which are **not** the same branch:
+  - **Zero-write failure** — the first Supabase call returns `{ error }`; assert **no** code is emitted, because nothing committed.
+  - **Post-commit partial** — an early call succeeds and a later one fails; assert the code **is** emitted exactly once, with `result: "partial"`.
+
+  Stating both explicitly resolves what would otherwise read as a contradiction between "not emitted on the error branch" and "emitted for a partial".
 - [ ] **Step 5: Run both meta-tests to verify they pass.**
 - [ ] **Step 6: Commit**
 
@@ -963,17 +1661,90 @@ git commit -m "test(dev): auditable-mutation rows and behavioral proofs for mate
 
 ### Task 14: The materialize dev-panel card
 
-Spec §5.3, §9. Full mechanical UI checklist applies here — this surface has operator-facing copy.
+Spec §5.3, §9, §7.4. Full mechanical UI checklist applies — this surface has operator-facing copy.
 
 **Files:**
 - Create: `components/admin/dev/MaterializeCard.tsx (new)`
 - Modify: `app/admin/dev/page.tsx`
 - Test: `tests/components/admin/dev/materializeCard.test.tsx (new)`
 
-- [ ] **Step 1: Write the failing test** — controls disable while a request is in flight (the double-submit guard); switching target resets confirmation to unconfirmed; a displayed result clears when any control changes; the confirmation control appears only for validation; and the destructive-scope copy states that Clear removes **all** synthetic rows for the show, not just the selected scenario.
+**Interfaces:**
+
+```ts
+export type MaterializeCardProps = {
+  scenarios: Array<{ id: string; label: string }>; // tier-3 only, from materializableScenarios()
+  applyAction: (fd: FormData) => Promise<void>;    // applyAttentionScenarioFormAction
+  clearAction: (fd: FormData) => Promise<void>;    // clearAttentionScenarioFormAction
+  lastResult: MaterializeResult | null;            // rendered as operator copy, never raw
+};
+```
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+// tests/components/admin/dev/materializeCard.test.tsx
+import { describe, expect, test, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MaterializeCard } from "@/components/admin/dev/MaterializeCard";
+
+function props(over = {}) {
+  return {
+    scenarios: [{ id: "t3-sheet-missing-mid-parse", label: "Sheet went missing mid-parse" }],
+    applyAction: vi.fn(async () => {}),
+    clearAction: vi.fn(async () => {}),
+    lastResult: null,
+    ...over,
+  };
+}
+
+describe("MaterializeCard", () => {
+  test("the confirmation control appears only for the validation target", async () => {
+    render(<MaterializeCard {...props()} />);
+    expect(screen.queryByLabelText(/confirm/i)).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText(/environment/i), "validation");
+    expect(screen.getByLabelText(/confirm/i)).toBeInTheDocument();
+  });
+
+  test("switching target back to local resets confirmation to unconfirmed", async () => {
+    render(<MaterializeCard {...props()} />);
+    const env = screen.getByLabelText(/environment/i);
+    await userEvent.selectOptions(env, "validation");
+    await userEvent.click(screen.getByLabelText(/confirm/i));
+    expect(screen.getByLabelText(/confirm/i)).toBeChecked();
+    await userEvent.selectOptions(env, "local");
+    await userEvent.selectOptions(env, "validation");
+    expect(screen.getByLabelText(/confirm/i)).not.toBeChecked();
+  });
+
+  test("the Clear control states that it removes ALL synthetic rows for the show", () => {
+    render(<MaterializeCard {...props()} />);
+    expect(screen.getByTestId("clear-scope-note").textContent ?? "").toMatch(
+      /all synthetic rows for this show/i,
+    );
+  });
+
+  test("a displayed result clears when any control changes", async () => {
+    render(<MaterializeCard {...props({ lastResult: { kind: "ok", alerts: 2, holds: 0, warnings: "untouched", skipped: [] } })} />);
+    expect(screen.getByTestId("result")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText(/environment/i), "validation");
+    expect(screen.queryByTestId("result")).not.toBeInTheDocument();
+  });
+
+  test("every control meets the tap-target minimum", () => {
+    render(<MaterializeCard {...props()} />);
+    for (const el of screen.getAllByRole("button")) {
+      expect(el.className).toContain("min-h-tap-min");
+    }
+  });
+});
+```
+
 - [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement** the card. Copy resolves through `lib/messages/lookup.ts` for operator-facing outcomes. `min-h-tap-min` on every control. No em-dashes.
-- [ ] **Step 4: Run to verify it passes.** - [ ] **Step 5: Commit**
+- [ ] **Step 3: Implement the card.** A `<form action={applyAction}>` and a `<form action={clearAction}>`, sharing a scenario `<select>`, a slug `<input>`, and an environment `<select>`. Local state: `env`, `confirmed`, `resultDismissed`. `confirmed` resets to `false` in the environment `onChange`. Any control change sets `resultDismissed`, which hides `lastResult`. Both submit buttons carry `min-h-tap-min` and disable while `useFormStatus().pending`. Result copy resolves through `lib/messages/lookup.ts`; raw `MaterializeResult` codes appear only in a developer detail line, per the §1.1 exception. No em-dashes.
+- [ ] **Step 4: Mount it** in `app/admin/dev/page.tsx`, passing `materializableScenarios()` mapped to `{ id, label }` and the two form actions.
+- [ ] **Step 5: Run to verify it passes.**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add components/admin/dev/MaterializeCard.tsx app/admin/dev/page.tsx tests/components/admin/dev/materializeCard.test.tsx
@@ -984,27 +1755,32 @@ git commit -m "feat(dev): materialize card on the dev panel"
 
 ### Task 15: Database behavioral tests
 
-Spec §12. Every test here states the failure mode it catches; none passes merely because a function was called.
+Spec §12. These are the acceptance gate for Tasks 11 and 12, so **any fix they surface is part of this task's commit** — the staged paths below include the implementation files deliberately.
 
 **Files:**
 - Create: `tests/dev/materializeRoundTrip.realdb.test.ts (new)`
+- Modify (as the tests require): `app/admin/dev/actions.ts`, `lib/dev/materialize/plan.ts (new)`, `lib/dev/materialize/env.ts (new)`
 
-Requires a local Supabase (`pnpm preflight` green). Each test seeds, acts, and asserts against the database directly — never against the action's own report.
+Requires a local Supabase (`pnpm preflight` green). Every assertion reads the database directly, never the action's own report.
 
-- [ ] **Step 1: Write the failing tests.** In order of value:
-  1. **`LIKE` wildcard safety** — seed `created_by = 'xxdevScenario:real'` and `'a_bdevScenario:real'`; run Apply and Clear; assert both survive byte-identical. Catches the unescaped `_` deleting authentic rows, which every correctly-tagged fixture would miss.
-  2. **Clear preserves authentic rows** — seed untagged alerts and holds; Clear; assert byte-identical, not merely counted.
+- [ ] **Step 1: Write the failing tests**, in this order:
+  1. **`LIKE` wildcard safety** — seed `sync_holds` rows with `created_by` of `xxdevScenario:real` and `a_bdevScenario:real`; run Apply then Clear; assert both survive byte-identical. Catches the unescaped `_` single-character wildcard, which every correctly-tagged fixture would miss.
+  2. **Clear preserves authentic rows** — seed untagged alerts and holds; Clear; assert byte-identical.
   3. **Apply A then Apply B** leaves exactly B's synthetic alerts and holds, minus skips.
-  4. **Collision skip** — seed a real unresolved alert of code C; apply a scenario with C and D; assert D inserted, C reported skipped, and the real C row byte-identical.
-  5. **Authentic hold collision** on `(domain, entity_key)` — same shape.
-  6. **Warnings tri-state** — absent leaves the column byte-identical; `[]` writes `[]`.
-  7. **Guards commit no writes** — full before/after content snapshots, not row counts.
-- [ ] **Step 2: Run to verify they fail** (or error) against the current implementation.
-- [ ] **Step 3: Fix whatever they surface.** These tests are the acceptance gate for Tasks 11 and 12.
-- [ ] **Step 4: Run to verify they pass.** - [ ] **Step 5: Commit**
+  4. **Alert collision skip** — seed a real unresolved alert of code C; apply a scenario containing C and D; assert D inserted, C reported skipped, real C row byte-identical.
+  5. **Hold collision skip** on `(show_id, domain, entity_key)` — same shape.
+  6. **Warnings tri-state** — absent leaves `parse_warnings` byte-identical; `[]` writes `[]`; validation target never writes.
+  7. **Guards commit no writes** — full before/after content snapshots of all three tables.
+- [ ] **Step 2: Run to verify they fail or error.**
+
+Run: `pnpm vitest run tests/dev/materializeRoundTrip.realdb.test.ts`
+
+- [ ] **Step 3: Fix what they surface** in the files listed above. Expect the `LIKE` escape and the collision-skip paths to need work; they are the two the unit tests cannot fully cover.
+- [ ] **Step 4: Run to verify they pass.**
+- [ ] **Step 5: Commit — staging the implementation fixes with the tests**
 
 ```bash
-git add tests/dev/materializeRoundTrip.realdb.test.ts
+git add tests/dev/materializeRoundTrip.realdb.test.ts app/admin/dev/actions.ts lib/dev/materialize/
 git commit -m "test(dev): materialize round-trip, collision, and wildcard-safety proofs"
 ```
 
@@ -1012,34 +1788,147 @@ git commit -m "test(dev): materialize round-trip, collision, and wildcard-safety
 
 ### Task 16: Real-browser layout and transition audit
 
-Spec §8, §9. jsdom cannot answer these — Tailwind v4 here does not default `.flex` to `align-items: stretch`, and jsdom computes no layout.
+Spec §8, §9. jsdom computes no layout and loads no CSS, so neither assertion here can be made in Vitest.
 
 **Files:**
 - Create: `tests/e2e/attention-gallery-layout.spec.ts (new)`
+- Modify: `playwright.config.ts`
 
-**e2e harness readiness (declared per AGENTS.md):**
-- **Server boot:** `next dev` on a scratch port via a standalone Playwright config, with `ADMIN_DEV_PANEL_ENABLED=true` so the route exists. Do **not** reuse port 3000 — a sibling worktree's dev server there would serve the wrong code.
-- **Readiness gate:** await a `data-testid="scenario-block"` element to be attached **and** its menu to have `aria-expanded="true"`, never `networkidle` alone.
-- **Detach safety:** every `locator.evaluate` that samples geometry runs on a locator re-queried immediately before use; auto-wait hangs on an unmounted node.
+**Harness readiness — verified at plan time:**
+- **Server:** the existing **`dev-build` project on port 3001**, which is already built with `ADMIN_DEV_PANEL_ENABLED=true` and already hosts the sibling dev harnesses (`source-link-dimensional`, `telemetry-layout`). Do **not** add a standalone config: `tests/e2e/standalone.config.ts` is for specs that boot their own server and need no Next route, which does not describe a route-based spec. Do **not** use port 3000 — a sibling worktree's dev server there would serve the wrong code.
+- **Discovery:** `playwright.config.ts`'s `testMatch` is an **explicit allow-list**. Add `attention-gallery-layout` to the `dev-build` project's regex, or the spec runs nowhere and silently proves nothing.
+- **Readiness gate:** the menu renders **open by default** (`useState(true)`, Task 8), so the gate is: wait for `[data-testid="block-root"]` to be attached, then wait for the pill's `aria-expanded="true"`. No click is required to reach that state. Never `networkidle` alone.
+- **Detach safety:** re-query each locator immediately before every `evaluate`; auto-wait hangs on an unmounted node.
 
-- [ ] **Step 1: Write the failing spec.** Two assertions: adjacent open menus do **not** intersect at the narrowest (`?w=320`) and widest (`?w=1280`) widths, via `getBoundingClientRect()` on consecutive blocks' menus; and a `MENU_CAP`-item menu's list has `scrollHeight > clientHeight`, proving the cap actually crosses the scroll threshold rather than being assumed to.
-- [ ] **Step 2: Run to verify it fails.**
-- [ ] **Step 3: Implement** the reserved-space rule from §4.0 — the pill sits in a `relative` wrapper and the block reserves bottom space at least the menu's max height while open.
+- [ ] **Step 1: Add the spec to `testMatch` and write the failing spec.**
+
+```ts
+// tests/e2e/attention-gallery-layout.spec.ts
+import { expect, test } from "@playwright/test";
+
+const URL_NARROW = "/admin/dev/attention-gallery?tier=2&w=320";
+const URL_WIDE = "/admin/dev/attention-gallery?tier=2&w=1280";
+
+async function ready(page: import("@playwright/test").Page, url: string) {
+  await page.goto(url);
+  await page.locator('[data-testid="block-root"]').first().waitFor({ state: "attached" });
+  await expect(page.locator('[aria-expanded="true"]').first()).toBeAttached();
+}
+
+for (const [name, url] of [["narrow", URL_NARROW], ["wide", URL_WIDE]] as const) {
+  test(`adjacent open menus do not overlap (${name})`, async ({ page }) => {
+    await ready(page, url);
+    const menus = page.locator('[data-testid="attention-menu"]');
+    const count = await menus.count();
+    expect(count).toBeGreaterThan(1);
+    for (let i = 0; i + 1 < count; i++) {
+      const a = await menus.nth(i).boundingBox();
+      const b = await menus.nth(i + 1).boundingBox();
+      expect(a && b).toBeTruthy();
+      if (a && b) expect(a.y + a.height).toBeLessThanOrEqual(b.y + 0.5);
+    }
+  });
+}
+
+test("a MENU_CAP-item menu actually crosses its scroll threshold", async ({ page }) => {
+  await ready(page, "/admin/dev/attention-gallery?scenario=t2-many");
+  const list = page.locator('[data-testid="attention-menu"] .overflow-y-auto').first();
+  const { scrollHeight, clientHeight } = await list.evaluate((el) => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+  expect(scrollHeight).toBeGreaterThan(clientHeight);
+});
+```
+
+The scroll assertion is why `MENU_CAP` is 12 rather than an assumed-sufficient number: it proves the cap reaches the state it claims to demonstrate.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `node_modules/.bin/playwright test tests/e2e/attention-gallery-layout.spec.ts --project=dev-build`
+Expected: FAIL on overlap, because the reserved space in Task 8 is unverified.
+
+- [ ] **Step 3: Adjust the reserved space** in `ScenarioBlock` until both widths pass. The menu is `absolute` with a `max-h-96` list, so the reservation must cover the list plus header and footer plus the `8px` offset.
+
 - [ ] **Step 4: Run to verify it passes.**
-- [ ] **Step 5: Transition audit.** Enumerate every conditional render in `ScenarioBlock` and `MaterializeCard`; assert each has an explicit animation or is deliberately instant per the §9 inventory; test the compound cases (toggle the help popover while the menu is mid-transition; change target while a result is displayed).
-- [ ] **Step 6: Commit**
+
+- [ ] **Step 5: Write the failing transition audit.** This is a TDD cycle of its own, not an afterthought. The inventory it enforces is the spec's §9 table, restated here so the implementer needs no second document:
+
+| From | To | Required treatment |
+| --- | --- | --- |
+| menu closed | menu open | `AttentionMenu`'s own `transition-[opacity,transform] duration-fast`, inherited unchanged |
+| menu open | menu closed | same transition, reversed; `motion-reduce:transition-none` honored |
+| navigation readout unset | set | instant |
+| readout set | set to a different item | instant |
+| help popover closed | open, menu open | instant for the composition |
+| help popover open | closed, menu open | instant |
+| menu open | closed while the help popover is open | the menu's exit transition only; the popover is a **descendant** and unmounts with it, deliberately not animated separately |
+| warning collapsed | expanded, menu open | instant; warnings are **siblings** of the menu |
+| warning expanded | collapsed, menu open | instant |
+| warning collapsed | expanded, menu closed | instant |
+| warning expanded | collapsed, menu closed | instant |
+| menu closed | opened while a warning is expanded | the menu's entry transition; the card is unaffected |
+| menu open | closed while a warning is expanded | the menu's exit transition; the card stays expanded |
+| warning toggled | while the menu is mid-transition | instant, not queued |
+| help popover toggled | while the menu is mid-transition | instant; a descendant toggling inside an animating ancestor, safe because the menu animates only `opacity`/`transform` |
+| materialize: idle | submitting | instant, controls disable |
+| materialize: submitting | result | instant |
+| materialize: result | idle | instant, on any control change |
+| materialize: local | validation | instant, reveals confirmation |
+| materialize: validation | local | instant, hides and **resets** confirmation |
+| materialize: unconfirmed | confirmed | instant |
+| materialize: confirmed | unconfirmed | instant |
+
+The audit asserts: every `AnimatePresence`, ternary render, and conditional block in `ScenarioBlock.tsx (new)` and `MaterializeCard.tsx (new)` appears in this table; each either carries the named transition classes or is deliberately instant; and the two compound cases are exercised for real — toggle the help popover while the menu is mid-transition, and change the environment while a result is displayed.
+
+- [ ] **Step 6: Run, fix, and verify the audit passes.**
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add tests/e2e/attention-gallery-layout.spec.ts components/admin/dev/ScenarioBlock.tsx
-git commit -m "test(dev): real-browser menu overlap and scroll-threshold proofs"
+git add tests/e2e/attention-gallery-layout.spec.ts playwright.config.ts components/admin/dev/ScenarioBlock.tsx
+git commit -m "test(dev): real-browser menu overlap, scroll threshold, and transition audit"
 ```
 
 ---
 
 ### Task 17: Close-out
 
-- [ ] **Step 1: Full local gates.** `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test`. All must pass; a scoped run is not sufficient.
-- [ ] **Step 2: impeccable dual-gate** on the diff, scoped per §7.4: full mechanical checklist on `MaterializeCard`; findings on gallery chrome triaged against the `source-link-dim` minimal-chrome precedent; findings about the production components the gallery renders unmodified are out of scope for this diff. Record findings and dispositions in the handoff.
-- [ ] **Step 3: Manual artifact verification.** `RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts` at both flag states. Record both results — this check does not run in CI.
-- [ ] **Step 4: Whole-diff Codex review** to APPROVE. Split briefs by surface, each under ~330 lines: catalog and validator; gallery route and `ScenarioBlock`; materialize actions and guards; tests and meta-tests. Verified at plan time: briefs above ~330 lines fail silently with empty transcripts.
-- [ ] **Step 5: Push, real CI green, `gh pr merge --merge`, fast-forward local main.** Confirm `git rev-list --left-right --count main...origin/main` reports `0	0`.
+**Files:**
+- Create: `docs/superpowers/plans/2026-07-21-attention-scenario-gallery-handoff.md (new)` — the close-out record. It is a real file with a real path, and it is committed; without it the mandated evidence has nowhere to live.
+
+- [ ] **Step 1: Full local gates**
+
+Run: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test`
+All must pass. A scoped run is not sufficient — `tests/styles` and `tests/help` carry registry checks a components-only run skips.
+
+- [ ] **Step 2: impeccable dual-gate**, scoped per §7.4: full mechanical checklist on `MaterializeCard`; findings on gallery chrome triaged against the `source-link-dim` minimal-chrome precedent; findings about the production components the gallery renders unmodified are out of scope for this diff. Record every finding and its disposition in §12 of the handoff file.
+
+- [ ] **Step 3: Manual artifact verification at BOTH flag states.** Two distinct commands, because the variable must actually differ between them:
+
+```bash
+# disabled posture: the route must be ABSENT from the artifact
+ADMIN_DEV_PANEL_ENABLED= RUN_BUILD_ARTIFACT_GATE_TEST=1 \
+  pnpm vitest run tests/admin/build-artifact-gate.test.ts
+
+# enabled posture: the route must be PRESENT
+ADMIN_DEV_PANEL_ENABLED=true RUN_BUILD_ARTIFACT_GATE_TEST=1 \
+  pnpm vitest run tests/admin/build-artifact-gate.test.ts
+```
+
+Paste both outputs into the handoff. This check does not run in CI (§6a), so the handoff is the only record that it was performed.
+
+- [ ] **Step 4: Whole-diff Codex review to APPROVE.** Split by surface, each brief **under 330 lines** — measured this run: a 325-line brief returned a verdict on the first attempt, while 381- and 409-line briefs failed silently with empty transcripts. Suggested split: catalog and validator; gallery route and `ScenarioBlock`; materialize actions, env gate, and planner; tests and meta-tests.
+
+- [ ] **Step 5: Commit the handoff, then ship**
+
+```bash
+git add docs/superpowers/plans/2026-07-21-attention-scenario-gallery-handoff.md
+git commit -m "docs(admin): close-out record for the attention scenario gallery"
+git push -u origin feat/attention-scenario-gallery
+gh pr create --fill
+gh pr checks --watch   # pass the PR number, not a SHA
+gh pr merge --merge
+git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
+git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main  # must be 0	0
+```
