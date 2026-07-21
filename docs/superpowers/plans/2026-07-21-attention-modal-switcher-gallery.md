@@ -29,7 +29,7 @@
 
 - [ ] **Step 1: Failing test** — assert `GALLERY_SLUG === "gallery"`, `GALLERY_NOW` is a `Date`. Type-level assertions live in the module itself (typecheck is the gate); the runtime test also imports `GalleryModalData`/`GallerySwitcherScenario` to prove they resolve.
 - [ ] **Step 2: Verify fail** — `pnpm vitest run tests/dev/galleryModalTypes.test.ts` (module missing).
-- [ ] **Step 3: Implement** — define types + constants. `type ActionKeys = "setPublished"|...|"rejectAction";`. **Genuine type-level assertions against `PublishedReviewModalProps` `[plan-R2 §4]`** (fail compile if wrong): (a) every `ActionKeys` key EXISTS on the props — `type _KeysExist = ActionKeys extends keyof PublishedReviewModalProps ? true : never; const _k: _KeysExist = true;`; (b) every `ActionKeys` prop is FUNCTION-valued — `type _AllFns = { [K in ActionKeys]: PublishedReviewModalProps[K] extends (...a: never[]) => unknown ? true : never }[ActionKeys]; const _f: _AllFns = true;`; (c) `GalleryModalData` carries NO function-valued key — `type _NoFns = { [K in keyof GalleryModalData]: GalleryModalData[K] extends (...a: never[]) => unknown ? K : never }[keyof GalleryModalData]; const _n: _NoFns = undefined as never;` (any leaked function key makes `_n`'s type non-`never` → compile error).
+- [ ] **Step 3: Implement** — define types + constants. **Genuine type-level assertions against `PublishedReviewModalProps` `[plan-R2 §4, plan-R3 §1,§2]`** using `type Assert<T extends true> = T;`, `type IsFn<V> = NonNullable<V> extends (...a: never[]) => unknown ? true : false;`, `type FnKeys<T> = { [K in keyof T]-?: IsFn<T[K]> extends true ? K : never }[keyof T];`: (a) keys exist — `type _KeysExist = Assert<ActionKeys extends keyof PublishedReviewModalProps ? true : false>;`; (b) all `ActionKeys` are functions — build the union of NON-function action keys and assert it is `never` (a bare union guard collapses `true|never→true` and masks a non-fn key): `type _NonFn = { [K in ActionKeys]: IsFn<PublishedReviewModalProps[K]> extends true ? never : K }[ActionKeys]; type _AllFns = Assert<[_NonFn] extends [never] ? true : false>;`; (c) NO function key in `GalleryModalData` — `type _NoFns = Assert<[FnKeys<GalleryModalData>] extends [never] ? true : false>;` (the `[X] extends [never]` tuple wrap stops `never` distribution; `undefined as never` proves nothing and is banned). **Verify the guard bites:** a throwaway type with a leaked `() => void` key must produce `TS2344`.
 - [ ] **Step 4: Verify pass** + `pnpm typecheck`.
 - [ ] **Step 5: Commit** — `git add lib/dev/galleryModalTypes.ts tests/dev/galleryModalTypes.test.ts && git commit --no-verify -m "feat(dev): shared gallery modal types + constants"`
 
@@ -45,7 +45,7 @@
 
 - [ ] **Step 1: Failing test** — use a **single-alert** fixture scenario whose one alert code is a literal (e.g. build a minimal `AttentionScenario` with `alerts: [{ code: "AMBIGUOUS_EMAIL_BINDING", ... }]`); assert `result.some(i => i.kind === "alert" && i.alert.code === "AMBIGUOUS_EMAIL_BINDING")` (input/output assertion, order-independent — `[plan-R2 §2.4, §4.2]`). Plus catalog assertion: `for (every tier-1 scenario) expect(deriveScenarioAttention(s).length).toBeGreaterThan(0)` `[§3.2 R1-15]`.
 - [ ] **Step 2: Verify fail.**
-- [ ] **Step 3: Implement** — move `toAlertInputs`/`toHoldRows` + the `deriveAttentionItems` call (`buildBlockProps.ts:45-65,163-167`) into the new module; `buildBlockProps` imports it (no behavior change). **Update `_metaAttentionItemsTopology.test.ts:77`** to `{ file: "lib/dev/deriveScenarioAttention.ts", count: 1 }`.
+- [ ] **Step 3: Implement** — move `toAlertInputs`/`toHoldRows` + the `deriveAttentionItems` call (`buildBlockProps.ts:45`) into the new module; `buildBlockProps` imports it (no behavior change). **Update `_metaAttentionItemsTopology.test.ts:77`** to `{ file: "lib/dev/deriveScenarioAttention.ts", count: 1 }`.
 - [ ] **Step 4: Verify pass** + `tests/admin/_metaAttentionItemsTopology.test.ts` GREEN + existing `tests/app/admin/attentionGalleryRender.test.tsx` still green.
 - [ ] **Step 5: Commit** (git add both + the meta-test) — `refactor(dev): extract deriveScenarioAttention + repath topology gate`
 
@@ -60,7 +60,7 @@
 - `buildGalleryModalData(over?: Partial<GalleryModalData>): GalleryModalData` — base defaults (no functions), lifted from `baseProps` data half (`publishedReviewModal.test.tsx:214`), using `GALLERY_SLUG`/`GALLERY_NOW`; its own base `data` uses `buildGallerySnapshot([])`.
 - `buildScenarioModalData(s: AttentionScenario): GalleryModalData` — the ATOMIC builder `[§1.1]`: from ONE scenario it derives `data`, `bySection`, and `attentionItems` **correlated to the same scenario**. Steps: (a) `const warnings = s.warnings ?? []`; (b) compute anchors needed — `const wantAnchors = anchorsWantedFor(s)` = union over `s.alerts` of `ATTENTION_ROUTES[a.code]?.anchor` mapped to `{diagrams|openingReel}`, EXCEPT return `{}` for `s.id === T2_ANCHOR_ABSENT` (its intent is absent anchors); (c) `const snap = buildGallerySnapshot(warnings, { anchors: wantAnchors })`; (d) `const data = buildPublishedSectionData(snap, { slug: GALLERY_SLUG })`; (e) `const bySection = buildSectionWarningModel({ slug: GALLERY_SLUG, warnings: data.warnings, ignoredFingerprints: new Set(), renderedSectionIds: new Set(step3Sections(data).map(x=>x.id)) })`; (f) `const attentionItems = deriveScenarioAttention(s)`; (g) `return buildGalleryModalData({ data, bySection, attentionItems, alertsDegraded: s.degraded ?? false })`.
 
-- [ ] **Step 1: Failing test** — (i) `structuredClone(buildScenarioModalData(s))` throws nothing for a warning scenario AND an anchored-alert scenario; (ii) for a warning scenario, `bySection` reflects the scenario's warnings (assert a section key derived INDEPENDENTLY from the scenario's warning `blockRef` is present in `bySection`) — proving correlation, not default; (iii) **exact-anchor `[plan-R2 §6]`:** for a scenario whose alert code routes to `rooms→diagrams`, `anchorsForData(data).get("rooms")` contains `"diagrams"` (and `.get("event")` is absent unless also routed); for a code routing to `event→opening_reel`, `anchorsForData(data).get("event")` contains `"opening_reel"`; (iv) for `T2_ANCHOR_ABSENT`, `anchorsForData(data).size === 0` (exact absence).
+- [ ] **Step 1: Failing test** — (i) `structuredClone(buildScenarioModalData(s))` throws nothing for a warning scenario AND an anchored-alert scenario; (ii) for a warning scenario, `bySection` reflects the scenario's warnings (assert a section key derived INDEPENDENTLY from the scenario's warning `blockRef` is present in `bySection`) — proving correlation, not default; (iii) **exact-anchor equality with ISOLATED single-alert fixtures `[plan-R2 §6, plan-R3 §3]`:** for a synthetic scenario with ONE alert whose code routes `rooms→diagrams`, assert the WHOLE map equals `new Map([["rooms", new Set(["diagrams"])]])` (exact — proves no extra anchor and `event` absent); for ONE alert routing `event→opening_reel`, assert the map equals `new Map([["event", new Set(["opening_reel"])]])` (reciprocal `rooms` absence); (iv) for `T2_ANCHOR_ABSENT`, `anchorsForData(data).size === 0` (exact absence).
 - [ ] **Step 2: Verify fail.**
 - [ ] **Step 3: Implement** the modules (`buildGallerySnapshot`, `buildGalleryModalData`, `buildScenarioModalData`, `anchorsWantedFor`).
 - [ ] **Step 4: Verify pass** + typecheck.
@@ -106,6 +106,35 @@ Implementation: `isModalExpressible = (s) => s.bucket?.sectionAvailable === unde
 
 ---
 
+### Task 5b (acceptance definition, authored BEFORE the switcher): e2e spec skeleton
+
+**Placement `[plan-R2 §2]`:** authored immediately after Task 5, BEFORE the switcher (Task 6) and route (Task 7) exist — the acceptance suite is the integration test-first artifact. It runs RED against the current card route until Tasks 6-7 land; Task 9 iterates it to GREEN. (Per-component TDD lives in Tasks 1-8.)
+
+**Files:** Create `tests/e2e/attention-modal-gallery.spec.ts`; possibly Modify `playwright.config.ts` (declared here `[plan-R2 §12]` if the `dev-build` webServer needs a fresh-build/`reuseExistingServer:false` guard).
+
+**Harness readiness (operationalized) `[§5]`:**
+- **Build + server `[§5.1, §5.6, plan-R2 §12]`:** the gallery e2e MUST run against a FRESH `dev-build` artifact built with `ADMIN_DEV_PANEL_ENABLED=true`. Verify `playwright.config.ts`'s `dev-build` `webServer` runs `pnpm build` (not just `next start`) and set `reuseExistingServer: false` for that project so a stale port-3001 server cannot be reused; if the config lacks the build, add it (config edit committed with this task). Playwright waits on the port; the TEST then awaits authenticated gallery content BEFORE the dialog `[§5.6]`.
+- **Auth `[§5.2]`:** mint a developer session via the test-only session minter `app/api/test-auth/set-session` in `test.beforeAll` (the `developer-tier.spec.ts:15,122` pattern — confirmed grounding). Assert the landed URL is `/admin/dev/attention-gallery` (not a sign-in redirect) before any modal assertion.
+- **Per-navigation readiness + detach-safety `[§5.3, §5.4]`:** after EACH deep-link/scenario change, RE-QUERY and await exactly one visible `[role="dialog"]`; never retain a locator/handle/bounding-box across a keyed remount.
+- **Key repeat `[§5.5]`:** rapid stepping = N discrete `keyboard.press("ArrowRight")` calls (not one `keyboard.down` OS-repeat); settle on observable count/dialog state, not a fixed timeout.
+- **Scenario→control coverage ledger `[plan-R2 §14, plan-R3 §5]`:** maintain an explicit map of which scenario exposes which mutation control; at the end assert every named control (publish, archive, Accept, Accept All, Undo, Approve, Reject, resolve) was exercised at least once. The ledger accumulates and asserts **within a single `test()` body** (one worker) so retries/parallel workers cannot fragment the aggregate; a control hidden in all chosen scenarios fails the ledger, not silently skips.
+
+**Acceptance assertions (RED until Tasks 6-7, GREEN in Task 9) `[§2.1]`:**
+- [ ] iterate EVERY rendered scenario via `?scenario=<id>`; assert a **scenario-specific marker INSIDE the freshly-queried dialog** (its `code`/attention content scoped to `[role="dialog"]`, NOT `SwitcherControls` which also shows codes `[plan-R2 §13]`) — the authoritative Flight proof `[§1.4]`.
+- [ ] `←`/`→` advance the `aria-live` count while the modal is open and focus is inside the dialog `[R1-1]`.
+- [ ] controls (`[data-testid="attention-switcher-controls"]`) are OUTSIDE `[data-inert-root]`, remain non-inert, and are clickable while the modal is active; the admin root IS inert `[§1.5]`.
+- [ ] rapid stepping (N discrete presses) → exactly ONE `[role="dialog"]` AND exactly ONE `[data-testid="attention-switcher-controls"]` `[plan-R2 §17, §6.5]`; body scroll locked.
+- [ ] EVERY warning scenario: EACH warning item's exact copy present INSIDE the dialog + its section dot marked `[§1.9]`; representative also in initial viewport.
+- [ ] degraded scenario shows the degraded banner.
+- [ ] **Write containment across ALL mutation controls (via the ledger) `[§1.8, §6.4, plan-R2 §14-16, plan-R3 §5]`:** for each control, in `try/finally`: record ALL requests into an array via a named `page.on("request")` handler attached BEFORE the click; click; **await a control-specific completion observable, NOT a poll of an already-unchanged value** — for the fetch-blocked resolve control await `data-gallery-blocked-write` to appear; for form-action controls (publish/archive/accept/etc.) await the button's own transient pending→settled cycle (`useFormStatus`-driven `disabled` toggling back), which is the definitive post-submit boundary; as a backstop keep the listener attached across a subsequent `page.goBack()`/re-navigation so a delayed request is still captured before assertion. Then assert the recorded array contains NO non-GET request, and remove the EXACT handler in `finally`. **Guard-attribute sequencing `[plan-R2 §16]`:** run the fetch-blocked resolve control LAST (or fresh-navigate after it); assert `data-gallery-blocked-write` ABSENT before any action, SET only for the resolve control, ABSENT again after a fresh navigation. Pair "UI unchanged" with request-absence (a controlled prop is naturally unchanged `[§2.6]`).
+- [ ] close: X → inert + scroll-lock released, Reopen restores dialog + locks + nav works after reopen; Escape while OPEN does nothing; **Escape while CLOSED is NOT intercepted `[plan-R2 §11]`** `[§1.6]`.
+- [ ] excluded IDs `[plan-R2 §18]`: deep-link EACH excluded id (`?scenario=<excluded>`) → assert it resolves to the documented fallback (index 0, `resolveInitialScenario`→null) rather than rendering that scenario; AND the footnote lists all three excluded labels (outside the inert root).
+
+- [ ] **Steps:** author the spec now (RED). Commit (git add + any config edit) — `test(dev): e2e acceptance spec for attention modal switcher (red)`
+
+---
+
+
 ### Task 6: `AttentionModalSwitcher` client component
 
 **Files:** Create `components/admin/dev/AttentionModalSwitcher.tsx`; Test `tests/components/admin/dev/attentionModalSwitcher.test.tsx`.
@@ -150,34 +179,6 @@ Implementation: `isModalExpressible = (s) => s.bucket?.sectionAvailable === unde
 - [ ] **Step 3: Delete** the files; `pnpm typecheck` → fix any dangling import.
 - [ ] **Step 4: Verify** — `noCardRenderer.test.ts` GREEN; `pnpm vitest run tests/admin/dev/filesMembership.test.ts tests/admin/build-artifact-gate.test.ts tests/admin/_metaAttentionItemsTopology.test.ts tests/components/admin/dev/galleryWriteGuard.test.tsx` all GREEN; full `pnpm typecheck` + `pnpm lint` green.
 - [ ] **Step 5: Commit** (git add -A for deletions) — `refactor(dev): remove card renderer, reconcile registries`
-
----
-
-### Task 5b (acceptance definition, authored BEFORE the switcher): e2e spec skeleton
-
-**Placement `[plan-R2 §2]`:** authored immediately after Task 5, BEFORE the switcher (Task 6) and route (Task 7) exist — the acceptance suite is the integration test-first artifact. It runs RED against the current card route until Tasks 6-7 land; Task 9 iterates it to GREEN. (Per-component TDD lives in Tasks 1-8.)
-
-**Files:** Create `tests/e2e/attention-modal-gallery.spec.ts`; possibly Modify `playwright.config.ts` (declared here `[plan-R2 §12]` if the `dev-build` webServer needs a fresh-build/`reuseExistingServer:false` guard).
-
-**Harness readiness (operationalized) `[§5]`:**
-- **Build + server `[§5.1, §5.6, plan-R2 §12]`:** the gallery e2e MUST run against a FRESH `dev-build` artifact built with `ADMIN_DEV_PANEL_ENABLED=true`. Verify `playwright.config.ts`'s `dev-build` `webServer` runs `pnpm build` (not just `next start`) and set `reuseExistingServer: false` for that project so a stale port-3001 server cannot be reused; if the config lacks the build, add it (config edit committed with this task). Playwright waits on the port; the TEST then awaits authenticated gallery content BEFORE the dialog `[§5.6]`.
-- **Auth `[§5.2]`:** mint a developer session via the test-only session minter `app/api/test-auth/set-session` in `test.beforeAll` (the `developer-tier.spec.ts:15,122` pattern — confirmed grounding). Assert the landed URL is `/admin/dev/attention-gallery` (not a sign-in redirect) before any modal assertion.
-- **Per-navigation readiness + detach-safety `[§5.3, §5.4]`:** after EACH deep-link/scenario change, RE-QUERY and await exactly one visible `[role="dialog"]`; never retain a locator/handle/bounding-box across a keyed remount.
-- **Key repeat `[§5.5]`:** rapid stepping = N discrete `keyboard.press("ArrowRight")` calls (not one `keyboard.down` OS-repeat); settle on observable count/dialog state, not a fixed timeout.
-- **Scenario→control coverage ledger `[plan-R2 §14]`:** maintain an explicit map of which scenario exposes which mutation control; at the end assert every named control (publish, archive, Accept, Accept All, Undo, Approve, Reject, resolve) was exercised at least once — a control hidden in all chosen scenarios fails the ledger, not silently skips.
-
-**Acceptance assertions (RED until Tasks 6-7, GREEN in Task 9) `[§2.1]`:**
-- [ ] iterate EVERY rendered scenario via `?scenario=<id>`; assert a **scenario-specific marker INSIDE the freshly-queried dialog** (its `code`/attention content scoped to `[role="dialog"]`, NOT `SwitcherControls` which also shows codes `[plan-R2 §13]`) — the authoritative Flight proof `[§1.4]`.
-- [ ] `←`/`→` advance the `aria-live` count while the modal is open and focus is inside the dialog `[R1-1]`.
-- [ ] controls (`[data-testid="attention-switcher-controls"]`) are OUTSIDE `[data-inert-root]`, remain non-inert, and are clickable while the modal is active; the admin root IS inert `[§1.5]`.
-- [ ] rapid stepping (N discrete presses) → exactly ONE `[role="dialog"]` AND exactly ONE `[data-testid="attention-switcher-controls"]` `[plan-R2 §17, §6.5]`; body scroll locked.
-- [ ] EVERY warning scenario: EACH warning item's exact copy present INSIDE the dialog + its section dot marked `[§1.9]`; representative also in initial viewport.
-- [ ] degraded scenario shows the degraded banner.
-- [ ] **Write containment across ALL mutation controls (via the ledger) `[§1.8, §6.4, plan-R2 §14-16]`:** for each control, in `try/finally`: attach a named `page.on("request")` handler BEFORE the click, click, **await a quiescence point** (`page.waitForTimeout` is banned; await the guard's `data-gallery-blocked-write` attribute to appear for the fetch control, or `expect.poll` a settled state for the rest `[plan-R2 §15]`), assert no non-GET request, then remove the EXACT handler in `finally`. **Guard-attribute sequencing `[plan-R2 §16]`:** run the fetch-blocked resolve control LAST (or fresh-navigate after it); assert `data-gallery-blocked-write` ABSENT before any action, SET only for the resolve control, and ABSENT again after a fresh navigation. Pair "UI unchanged" with request-absence (a controlled prop is naturally unchanged `[§2.6]`).
-- [ ] close: X → inert + scroll-lock released, Reopen restores dialog + locks + nav works after reopen; Escape while OPEN does nothing; **Escape while CLOSED is NOT intercepted `[plan-R2 §11]`** `[§1.6]`.
-- [ ] excluded IDs `[plan-R2 §18]`: deep-link EACH excluded id (`?scenario=<excluded>`) → assert it resolves to the documented fallback (index 0, `resolveInitialScenario`→null) rather than rendering that scenario; AND the footnote lists all three excluded labels (outside the inert root).
-
-- [ ] **Steps:** author the spec now (RED). Commit (git add + any config edit) — `test(dev): e2e acceptance spec for attention modal switcher (red)`
 
 ---
 

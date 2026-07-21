@@ -1,8 +1,8 @@
 {
   "branch": "feat/attention-modal-gallery",
-  "stage": "plan-review",
-  "tasksRemaining": "all",
-  "next": "Spec APPROVED (R4). Plan drafted. Run plan self-review (typecheck snippets) + Codex plan adversarial review to APPROVE, then TDD implementation.",
+  "stage": "implementing",
+  "tasksRemaining": "Task 1 DONE (5d4dcb603). Awaiting plan R3 verdict then Tasks 2-11.",
+  "next": "On plan R3 APPROVE: Task 2 (extract deriveScenarioAttention + repath topology gate :77), then Tasks 3-11 TDD. Plan converged 35->20->R3 pending. prep notes: scratchpad/plan-prep-notes.md",
   "blockedOn": "",
   "cronJobId": "33c5f0fd"
 }
