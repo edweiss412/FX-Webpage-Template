@@ -222,15 +222,92 @@ at both widths, each guarded against vacuity by requiring a group to exist.
 
 ## 8. Cross-model review
 
-_Filled at close-out._
+Two scoped Codex dispatches (split by surface, per the repo rule that whole-diff reviews
+die silently on large diffs). **Both returned BLOCKING, and both were correct.** Every
+brief was verified for citation accuracy before dispatch and carried the REVIEWER-ONLY
+framing plus a do-not-relitigate list.
 
-## 9. CI
+### The P0: interaction containment was false
+
+Spec §4.4 asserted "every server action in this subtree posts through a form submit, so
+one capture-phase `preventDefault` neutralizes all of them". **That is false for the
+control that actually ships.** `AttentionBanner` renders `PerShowAlertResolveButton`,
+which is `type="button"` with an onClick calling `fetch(POST .../resolve)` directly
+(`components/admin/PerShowAlertResolveButton.tsx:59-66`). No submit event is dispatched,
+so a click would have run authorization, the route handler, the Supabase call, the error
+path, and telemetry against a show slug that does not exist.
+
+Two compounding failures, both mine:
+
+1. **A citation I did not verify.** The spec cited `ResolveAlertButton` — a different
+   component. The live-code citation pass exists precisely to catch this and I did not
+   apply it to a claim I inherited from the spec.
+2. **A tautological test.** My containment test injected a synthetic `<form action>`
+   rather than exercising an imperative write, so it passed against an unguarded surface.
+   The anti-tautology rule names this exact shape.
+
+Fixed at the **network boundary** (`GalleryWriteGuard`) rather than by allowlisting UI
+shapes: an allowlist needs maintaining against components that change, which is the whole
+premise of a gallery, whereas a fetch guard holds for controls added later and for shapes
+nobody anticipated. Both guards now carry a comment naming what they do NOT cover, so
+neither reads as the whole proof.
+
+### Other BLOCKING findings
+
+| Finding | Why it mattered |
+| --- | --- |
+| Clear reported success when re-sync never regenerated | `runManualSyncForShow` RESOLVES with `blocked` (archived show), `skipped` (concurrent sync), `hard_fail`, `parse_error` rather than throwing, and the result was discarded. Clear could delete the tagged rows, fail to regenerate authentic warnings, and report `ok` — stranding synthetic `parse_warnings` with no way to remove them, defeating the guarantee the Apply/Clear asymmetry exists to provide |
+| Validation confirmation was bypassable | `if (!input.confirmed)` accepts any truthy value, and the core actions are independently exported server actions reachable with runtime values TypeScript never checked. Now requires exactly `true` |
+| Local Clear with no re-sync implementation was a silent no-op | Optional chaining made a required step vanish. Now a `partial` |
+
+### P1 findings fixed
+
+- A zero-row `shows_internal` update reported `"written"`. `shows` existing does not imply
+  a `shows_internal` row; the update now returns what it touched.
+- `ftp://localhost` / `file://localhost` passed the loopback gate, then made Supabase throw
+  SYNCHRONOUSLY outside the caller's try — escaping the promised typed result.
+- Tier 3 rendered in the gallery, violating the ratified materialize-only boundary
+  (§4.3, §5.0). Now listed by name with a pointer at the dev panel.
+- Two scenario labels still described pre-correction behavior ("card is dropped", "falls
+  back to the section top"), contradicting the guarantees this branch proved.
+
+### Accepted, not fixed
+
+- **Warning totality is heuristic, not structural** (alert totality is structural). The
+  generated `parse_warnings.code` enum plus a four-code manual residue is the best
+  available source; a new emitter the generator misses can still fall out of the gallery.
+  Recorded rather than silently accepted.
+- Identity fixtures use a cast for `AlertIdentity`. The shape is display-only in the
+  gallery and materialize resolves the real identity, but the validator does not yet check
+  segment field types.
+
+## 9. Base-moved-under-us: the 27-code surface cut
+
+The first CI run failed two tests that passed locally, on a shard my local run had not
+even assigned that file to. Root cause was not flakiness:
+
+**PR #532 (warning-surface-trim) merged 41 commits into main while this branch was in
+flight**, and now filters `DOUG_EXCLUDED_CODES` (info-severity UNION health) out of
+`deriveAttentionItems`. **27 of 45 routed alert codes no longer reach the attention
+surface at all.** CI builds the merge ref, so it saw the cut; this worktree, based at
+`222c25bd7`, did not.
+
+The two failing axes used `ROLE_FLAGS_NOTICE`, now excluded. Fixed by merging main and
+making the crew axes resolve the surviving crew code at RUNTIME
+(`AMBIGUOUS_EMAIL_BINDING` is the only crew-routed code left), so the axis follows the
+catalog rather than silently rendering nothing. `pickCode`/`anchoredCode` skip cut codes
+for the same reason.
+
+This is the "local passes, CI fails" class in its most instructive form: the local suite
+was not wrong, it was answering a question about a base that no longer existed.
+
+## 10. CI
 
 _Filled at close-out._
 
 ---
 
-## 10. Operational note for future runs in this repo
+## 11. Operational note for future runs in this repo
 
 Playwright boots **every** `webServer` in `playwright.config.ts`, not only the ones a
 selected `--project` needs. The `prod-build` and `prod-runtime-flip` servers build with
