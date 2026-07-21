@@ -214,8 +214,8 @@ export async function enrichAgenda(
           });
           warnings.push(
             warn(
-              "AGENDA_PDF_UNREADABLE",
-              `Agenda link "${link.label}" doesn't point at a readable PDF, so crew see the embed only.`,
+              "AGENDA_FILE_INACCESSIBLE",
+              `Agenda link "${link.label}" couldn't be opened (deleted, or not shared with us), so crew may not see the agenda.`,
             ),
           );
           perLink.push({
@@ -251,8 +251,8 @@ export async function enrichAgenda(
       if (fileMeta.mimeType !== "application/pdf" || trashed) {
         warnings.push(
           warn(
-            "AGENDA_PDF_UNREADABLE",
-            `Agenda link "${link.label}" doesn't point at a readable PDF, so crew see the embed only.`,
+            "AGENDA_FILE_INACCESSIBLE",
+            `Agenda link "${link.label}" isn't a readable PDF (wrong file type or trashed), so crew may not see the agenda.`,
           ),
         );
         // Rev was readable but content is non-extractable → "known_stale".
@@ -324,8 +324,8 @@ export async function enrichAgenda(
       if (download.kind === "unavailable") {
         warnings.push(
           warn(
-            "AGENDA_PDF_UNREADABLE",
-            `Agenda PDF for "${link.label}" couldn't be downloaded, so crew see the embed only.`,
+            "AGENDA_FILE_INACCESSIBLE",
+            `Agenda PDF for "${link.label}" couldn't be downloaded (blocked or too large), so crew may not see the agenda.`,
           ),
         );
         perLink.push({
@@ -415,7 +415,7 @@ export async function enrichAgenda(
           warnings.push(
             warn(
               "AGENDA_PDF_UNREADABLE",
-              `Agenda PDF for "${link.label}" produced no readable sessions, so crew see the embed only.`,
+              `Agenda PDF for "${link.label}" produced no readable sessions, so crew see the agenda document but no schedule.`,
             ),
           );
         } else {

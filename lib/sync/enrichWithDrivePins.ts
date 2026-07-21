@@ -100,7 +100,7 @@ export interface DriveClient {
    * Drive `files.get({ alt: 'media', supportsAllDrives: true })` byte download
    * for an agenda PDF (spec §4.5.3). Bytes-only — the mime/revision gate lives in
    * `enrichAgenda` via `getFile`. The outcome is a discriminated union (invariant
-   * 9): `unavailable` = trashed/non-PDF/404/permission (→ AGENDA_PDF_UNREADABLE);
+   * 9): `unavailable` = trashed/non-PDF/404/permission/byte-cap (→ AGENDA_FILE_INACCESSIBLE);
    * `infra_error` = transient/5xx/network (NOT cached, NOT a data-quality note —
    * retried next sync); `bytes` = success. Optional so existing mocks/impls compile;
    * the Task 11 meta-test asserts every concrete impl provides it.

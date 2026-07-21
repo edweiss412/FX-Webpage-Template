@@ -33,7 +33,7 @@ import { familyFor } from "@/app/help/errors/_families";
 
 // ── Layer 1: the editorial partition (every PERSISTED ParseWarning code) ──────
 
-/** 32 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 33 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
@@ -201,12 +201,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 52 (32/7/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(32);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 53 (33/7/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(33);
     expect(BENIGN_WARN_CODES.size).toBe(7);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(52); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(53); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [
