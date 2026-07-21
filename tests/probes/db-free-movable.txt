@@ -415,8 +415,8 @@ tests/specLint/run.test.ts
 tests/specLint/sections.test.ts
 tests/supabase/env.test.ts
 tests/sync/_advisoryLockSingleHolderContract.test.ts
-tests/sync/_insertParamsArityContract.test.ts
 tests/sync/_inTxAdminAlertContract.test.ts
+tests/sync/_insertParamsArityContract.test.ts
 tests/sync/_livePartitionClassificationContract.test.ts
 tests/sync/_metaInfraContract.test.ts
 tests/sync/_metaLeadRoleAppliedTopology.test.ts

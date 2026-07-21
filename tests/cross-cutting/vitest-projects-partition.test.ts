@@ -1,15 +1,17 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
 import vitestConfig from "@/vitest.config";
 import {
+  BASE_INCLUDE,
   DB_FREE_MOVABLE,
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
   PARALLEL_TEST_GLOBS,
+  TEST_FAST_DEFERRED,
 } from "@/vitest.projects";
 import { globToRegExp as globRe } from "@/lib/test/serialAudit";
 
@@ -476,5 +478,44 @@ describe("empirically DB-dependent files live in the serial project", () => {
       expect(inProject(old, parallel), `${old} must have been a parallel member`).toBe(true);
       expect(allTestFiles, `${old} must no longer exist — it was moved`).not.toContain(old);
     }
+  });
+});
+
+// The committed DB-free allowlist (spec 2026-07-20-serial-parallel-reclassification
+// §3.2) must stay well-formed and safe. These assertions are TRIPWIRES against a
+// stale allowlist: each names the concrete failure mode it catches.
+describe("db-free-movable list is well-formed and safe", () => {
+  const DB_TOUCHING = readFileSync(join(ROOT, "tests/probes/db-touching-serial.txt"), "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const matchesBaseInclude = (f: string) => BASE_INCLUDE.some((g) => globRe(g).test(f));
+
+  it("A1 every entry exists and is a real BASE_INCLUDE test file (catches a stale/renamed path)", () => {
+    for (const f of DB_FREE_MOVABLE) {
+      expect(existsSync(join(ROOT, f)), `${f} missing`).toBe(true);
+      expect(matchesBaseInclude(f), `${f} not a BASE_INCLUDE test`).toBe(true);
+    }
+  });
+  it("A2 no entry is in a PARALLEL_TEST_GLOBS dir (catches a no-op / double-include)", () => {
+    for (const f of DB_FREE_MOVABLE) expect(matchesParallel(f), f).toBe(false);
+  });
+  it("A3 sorted + unique (catches an unstable-diff append)", () => {
+    expect([...DB_FREE_MOVABLE]).toEqual([...new Set(DB_FREE_MOVABLE)].sort());
+  });
+  it("A4 disjoint from the DB-touching record (catches a mislabeled DB file)", () => {
+    const db = new Set(DB_TOUCHING);
+    expect(DB_FREE_MOVABLE.filter((f) => db.has(f))).toEqual([]);
+  });
+  it("A5 held starver is NOT movable (catches a criterion-3 regression)", () => {
+    expect(DB_FREE_MOVABLE).not.toContain("tests/cross-cutting/no-global-cursor.test.ts");
+  });
+  it("A6 disjoint from ENV_BOUND_EXCLUDES (spec R5 — env-bound must not survive in parallel)", () => {
+    const env = new Set(ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, "")));
+    expect(DB_FREE_MOVABLE.filter((f) => env.has(f))).toEqual([]);
+  });
+  it("A7 disjoint from TEST_FAST_DEFERRED (no test:fast project-selection clash)", () => {
+    const tf = new Set(TEST_FAST_DEFERRED);
+    expect(DB_FREE_MOVABLE.filter((f) => tf.has(f))).toEqual([]);
   });
 });

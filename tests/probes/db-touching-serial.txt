@@ -29,10 +29,10 @@ tests/db/driveFileIdNonblank.db.test.ts
 tests/db/feed-tables-read-lockdown.test.ts
 tests/db/geocodeCacheCoordExpiry.test.ts
 tests/db/isSessionLive.test.ts
+tests/db/mi11GateActionsPermission.test.ts
 tests/db/mi11_approve_hold.test.ts
 tests/db/mi11_collision_graph.test.ts
 tests/db/mi11_reject_hold.test.ts
-tests/db/mi11GateActionsPermission.test.ts
 tests/db/notify-toggle-rls.test.ts
 tests/db/onboarding-fixups-remediation.test.ts
 tests/db/onboarding-publish-intent-column.test.ts
@@ -40,14 +40,14 @@ tests/db/postgrest-dml-lockdown.test.ts
 tests/db/publish_show_rpc.test.ts
 tests/db/readfinalizeowned-admin-gate.test.ts
 tests/db/reseedFixtures.test.ts
-tests/db/reset_crew_member_selection_lifecycle_guard.test.ts
 tests/db/resetValidationData.test.ts
 tests/db/resetValidationDataConcurrency.test.ts
 tests/db/resetValidationDataDriveKeyedAudit.test.ts
 tests/db/resetValidationDataFkAudit.test.ts
 tests/db/resetValidationDataPostgrest.test.ts
-tests/db/roleMappingsStampPredicate.db.test.ts
+tests/db/reset_crew_member_selection_lifecycle_guard.test.ts
 tests/db/roleMappingUndoInterplay.db.test.ts
+tests/db/roleMappingsStampPredicate.db.test.ts
 tests/db/roleTokenMappingsPosture.test.ts
 tests/db/roleVocabDriftPredicate.db.test.ts
 tests/db/roster-shift-counts.test.ts
@@ -56,9 +56,8 @@ tests/db/showsLastCheckedAt.schema.test.ts
 tests/db/supersession-both-writers.test.ts
 tests/db/sync-holds-schema.test.ts
 tests/db/telemetryConsoleReads.test.ts
-tests/db/unarchive_show_rpc.test.ts
 tests/db/unarchiveShowBehaviorPreserved.db.test.ts
-tests/db/undo_change_lifecycle_guard.test.ts
+tests/db/unarchive_show_rpc.test.ts
 tests/db/undo-before-image-cleanup.test.ts
 tests/db/undo-before-image-pre-apply.test.ts
 tests/db/undo-change-direction-a.test.ts
@@ -68,6 +67,7 @@ tests/db/undo-closed-group-not-undoable.test.ts
 tests/db/undo-rename-reversal.test.ts
 tests/db/undo-rename-successor-supersession.test.ts
 tests/db/undo-tombstone-direct-call-boundary.test.ts
+tests/db/undo_change_lifecycle_guard.test.ts
 tests/db/unpublish_show_rpc.test.ts
 tests/db/use-raw-decisions-columns.test.ts
 tests/log/adminOutcomeBehavior.test.ts
