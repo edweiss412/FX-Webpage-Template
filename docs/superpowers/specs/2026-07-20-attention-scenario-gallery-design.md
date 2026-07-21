@@ -100,7 +100,7 @@ export type ScenarioHoldRow = {
 };
 ```
 
-**Injected at materialize time, never authored:** `id` (DB default `gen_random_uuid()`), `show_id` (the target show), the `__devScenario` tag (§5.1b). **`id` is likewise injected in the gallery** — a deterministic synthetic `gallery:<scenario id>:<index>` — which is what §4.4's "synthetic ids" refers to. (R1 #8.)
+**The insert mapping is authored-columns plus three transforms, not identity:** inject `id` (DB default `gen_random_uuid()`) and `show_id` (the target show), add the `__devScenario` key to `context` (§5.1b), and **strip `galleryIdentity`**, which is gallery-only and has no column. **`id` is likewise injected in the gallery** — a deterministic synthetic `gallery:<scenario id>:<index>` — which is what §4.4's "synthetic ids" refers to. (R1 #8.)
 
 #### 3.0a Every scenario hold must satisfy the `sync_holds` CHECK constraints
 
@@ -207,7 +207,8 @@ The database stores less than the modal renders. `fetchPerShowAlerts` selects on
 
 | Field | Stored? | Gallery | Materialize | Divergence |
 | --- | --- | --- | --- | --- |
-| `code`, `context`, `raised_at`, `occurrence_count` | yes | verbatim | inserted verbatim | none |
+| `code`, `raised_at`, `occurrence_count` | yes | verbatim | inserted verbatim | none |
+| `context` | yes | the authored object, verbatim | the authored object **plus the injected `__devScenario` key** (§5.1b) | **not literally identical** (R5c). The added key is not read by any derivation — `projectIdentityContext` allowlists specific keys and ignores unknown ones — so nothing rendered differs. But the mapping is authored-context-plus-tag, not identity, and `galleryIdentity` is stripped before insert. Stated because "verbatim" was literally false |
 | `identityText`, `messageParams`, `crewName` — **context-only codes** (incl. `ROLE_FLAGS_NOTICE`) | derived | shared function | shared function | none by construction |
 | `identityText`, `messageParams`, `crewName` — **identity-dependent codes** (`AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED`) | derived | shared function, given the **declared** `galleryIdentity` | shared function, given the **resolved** identity | **inherits the identity row's divergence** — if the target show has no matching crew row, materialize yields no `"Crew"` segment, so `crewName` is null, `crewKey` does not bind, and the card routes to the crew section top rather than a crew row. The gallery shows the bound state. (R2a: the previous revision claimed "none by construction" for all three fields, which was false for these two codes.) |
 | `AlertIdentity` | resolved from real crew rows | **declared** | **resolved** | inherent, labelled (below) |
@@ -250,9 +251,12 @@ Both R1 (#25) and R2a (#12) reported the same class: catalog and input guards en
 | `alerts[].context` | a plain object, never null or an array; must not contain the reserved `__devScenario` key (§5.1b) | reject |
 | `alerts[].raised_at` | parses to a finite `Date` | reject |
 | `alerts[].occurrence_count` | integer, finite, `>= 1` — excludes 0, negative, fractional, `NaN`, `Infinity` | reject |
-| `alerts[].galleryIdentity` | absent, `null`, or an object with a `segments` array | reject other shapes |
-| `holds[]` | `domain` and `kind` in their CHECK sets; `entity_key` and `drive_file_id` non-empty after trim; `base_modified_time` parses; `proposed_value.disposition` in the CHECK set; no duplicate `(domain, entity_key)` within a scenario (§3.0a) | reject |
-| `warnings[]` | when present, every element has a non-empty `code` and a `severity` of `"warn"` | reject |
+| `alerts[].galleryIdentity` | absent, `null`, or an object whose `segments` is an array of `{ label: string, value: string }` with non-blank `label` (`lib/adminAlerts/identityTypes.ts:49` and `lib/adminAlerts/identityTypes.ts:60`) | reject |
+| `alerts[].context` — **per-code requirements of §3.1** | `TILE_PROJECTION_FETCH_FAILED` has `context.failedKeys` as a string array; `SHOW_FIRST_PUBLISHED` has `context.data_gaps.total > 0` and an object `classes`; `PARSE_ERROR_LAST_GOOD` has `context.error_code` in `PARSE_FAILURE_ALLOWLIST`; `ROLE_FLAGS_NOTICE` has `role_change_count === 1` and exactly one non-blank `role_change_crew_names` entry; `AMBIGUOUS_EMAIL_BINDING` and `OAUTH_IDENTITY_CLAIMED` have a `UUID_RE`-shaped `context.crew_member_id` **and** a `galleryIdentity` carrying exactly one `"Crew"` segment | reject. Without this, a code listed in §3.1 as requiring context could ship with `{}` and silently render its degenerate form while the spec promises the bound state (R5c) |
+| `holds[]` | `domain` and `kind` in their CHECK sets; `entity_key` and `drive_file_id` non-empty after trim; `base_modified_time` parses; **`held_value` is a plain object** (NOT NULL in the DDL); **`proposed_value` matches a full `Disposition` variant** — `email_change` and `rename` require a non-blank `name` and a `string \| null` `email`, `removal` takes no other field (`lib/sync/holds/types.ts:7-10`); **`reservation_collisions`, when present, is an array of `{ name: string, email: string \| null }`**; no duplicate `(domain, entity_key)` within a scenario (§3.0a) | reject |
+| `warnings[]` | every element has a non-empty `code`, `severity === "warn"`, and a **non-empty `message` that does NOT contain its own `code`** — enforced, not merely requested in §3.2a, because warnings materialize **verbatim** into the real modal, so a code embedded in a message escapes §1.1's exception scope and reaches an operator surface (R5c). Where §3.2a requires a per-code payload — `roleToken`, or a use-raw resolution object — the payload is present and shaped | reject |
+| `bucket` | when present, every key is one of `sectionAvailable`, `anchorAvailable`, `crewKeyRendered`, and every value is a function | reject |
+| `degraded` | when present, a boolean | reject |
 
 "Reject" means the catalog is invalid and the test fails — a malformed scenario never reaches either consumer. The gallery therefore renders only valid scenarios, which is why §4 specifies rendering behavior rather than per-field malformed-input behavior: the malformed cases are unreachable by construction.
 
@@ -286,6 +290,8 @@ type ScenarioBlockProps = {
 
 Every field is serializable. `AttentionItem` is a plain discriminated union of scalars, arrays, and objects (`lib/admin/attentionItems.ts:79-81`) with no functions. Absent behavior: `warnings: null` renders no warning cards and no muted duplicate; `maxWidthPx: null` applies no wrapper constraint; empty `items`, `groups`, and `holdItems` render their respective empty states.
 
+**Malformed props are unreachable, and that is the contract** (R5d). These props are not authored — the page derives every one of them from a scenario that already passed `validateScenario` (§3.6), through `deriveAttentionItems` and `bucketAttention`, both of which are typed. So an empty `scenarioId`, a blank `label`, a malformed `readout` row, a non-boolean `degraded`, or an out-of-range `maxWidthPx` cannot occur: the first two are rejected by the validator, the middle ones are constructed by typed code, and `maxWidthPx` is normalized by §4.5's parse rule before it reaches the component. `ScenarioBlock` therefore performs **no defensive validation of its own** — deliberately, since a guard for an unreachable state is untestable and would rot. The guard contract lives at the catalog boundary where the values actually enter the system.
+
 `ScenarioBlock` owns:
 
 - the pill `<button>` and its ref (the ref target R1 #6 said was unidentified),
@@ -297,6 +303,8 @@ Every field is serializable. `AttentionItem` is a plain discriminated union of s
 1. It is **absolutely positioned, therefore out of flow** — it does not "stack vertically," it **overlays whatever follows**. Each block wraps the pill in a `relative` element (establishing the containing block) and, while its menu is open, reserves bottom space of at least the menu's maximum height (`24rem` list + header/footer + the `8px` offset). Adjacent open menus then cannot intersect, which §8 asserts in a real browser rather than assuming.
 2. Its width is `min(400px, 100vw - 32px)` — sized off the **viewport**, not the container. The `w` control (§4.5) therefore does **not** narrow the menu. `w` narrows the cards and the block; menu width is a viewport property and cannot be simulated by a wrapper.
 3. The scroll threshold is the list's `max-h-96` (384px). `MENU_CAP` = 12 rows, each `min-h-tap-min` (44px) plus padding, clears it comfortably — but §8 measures it rather than relying on this arithmetic.
+
+**Transition inventory:** `ScenarioBlock` is a multi-state client component, and its full state-pair table — menu open/closed, navigation readout, and every compound case with help popovers and warning expansion — lives in §9 alongside the materialize card's. It is stated there rather than here so the two inventories sit together.
 
 `degraded: true` renders the same degraded pill and Overview notice the loader produces (`app/admin/_showReviewModal.tsx:304-310`), from the same components the modal uses, not a lookalike (R1 #17).
 
@@ -346,7 +354,11 @@ Live for real: menu open/close (§4.0), `?` help popovers, expand/collapse, hove
 
 **Server actions are neutralized structurally, not by having fake ids** (R2a — the previous revision claimed synthetic ids made the actions inert, which was false: the resolve control still rendered and still submitted, so a click would run authorization, parsing, the Supabase call, the error path, and telemetry, and a non-UUID id against a `uuid` column throws before it can be a harmless no-match).
 
-The mechanism: `ScenarioBlock` renders its banners inside a container with `inert` applied to the **action controls only** — the resolve form and any other submit — leaving the rest of the card interactive. `inert` removes them from the tab order and suppresses click and submit events at the platform level, so no action can fire regardless of what id it carries. The disabled controls stay **visible**, because their presence, placement, and label are exactly what the sweep exists to evaluate; only their activation is suppressed.
+**The mechanism is submit interception, not `inert`** (R5d correctly showed `inert` cannot work here: `ScenarioBlock` renders whole `AttentionBanner`s and has no injection point to reach the nested control, and applying `inert` to the banner would also kill the help popover and hover states §4.4 promises stay live).
+
+The resolve control is a `<form action={resolveAdminAlertFormAction}>` wrapping a `useFormStatus` button (`components/admin/ResolveAlertButton.tsx:42-47`). So `ScenarioBlock` attaches a **capture-phase `submit` listener on its root element** that calls `preventDefault()` unconditionally. Every server action in the subtree posts through a form submit, so one listener neutralizes all of them — including any added later — without touching a production component or a single prop.
+
+Everything else stays genuinely live: the resolve button's own two-step confirm (`components/admin/ResolveAlertButton.tsx:13` — click arms a confirm state, a second click submits) still runs and is **worth seeing**, since the armed state is itself a state the sweep should show. Only the terminal submit is stopped. `useFormStatus` never reports pending because no submission starts, so the button rests visibly idle rather than spinning forever.
 
 A standing note at the top of the page states that action controls are display-only here and points at the dev panel. The `gallery:<id>:<n>` ids of §3.0 remain useful as stable React keys and readout identifiers — they are simply no longer load-bearing for safety.
 
