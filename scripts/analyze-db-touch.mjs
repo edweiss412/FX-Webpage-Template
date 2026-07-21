@@ -47,9 +47,7 @@ for (const entry of fs.readdirSync(probeDir)) {
     const prior = rows.get(row.file);
     rows.set(
       row.file,
-      prior
-        ? { ...row, total: prior.total + row.total, db: prior.db + row.db }
-        : { ...row },
+      prior ? { ...row, total: prior.total + row.total, db: prior.db + row.db } : { ...row },
     );
   }
 }

@@ -52,5 +52,7 @@ const NEGATIVE: [string, string, string][] = [
 
 describe("hasDbBindingSignal", () => {
   it.each(POSITIVE)("flags %s", (_n, p, src) => expect(hasDbBindingSignal(p, src)).toBe(true));
-  it.each(NEGATIVE)("does NOT flag %s", (_n, p, src) => expect(hasDbBindingSignal(p, src)).toBe(false));
+  it.each(NEGATIVE)("does NOT flag %s", (_n, p, src) =>
+    expect(hasDbBindingSignal(p, src)).toBe(false),
+  );
 });

@@ -6,11 +6,7 @@ import {
   uninstallSubprocessDbProbe,
   looksLikeDbCommand,
 } from "./subprocessDbProbe";
-import {
-  setCurrentTestFile,
-  recordedTouches,
-  resetRecordedTouches,
-} from "./dbTouchProbe";
+import { setCurrentTestFile, recordedTouches, resetRecordedTouches } from "./dbTouchProbe";
 
 beforeEach(() => {
   resetRecordedTouches();

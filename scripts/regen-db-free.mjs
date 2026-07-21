@@ -27,7 +27,10 @@ const DBTOUCH = join(ROOT, "tests/probes/db-touching-serial.txt");
 const FIXTURE = join(ROOT, "tests/probes/__fixtures__/drift-classification.json");
 
 const readList = (p) =>
-  readFileSync(p, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+  readFileSync(p, "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 const serialize = (arr) => [...new Set(arr)].sort().join("\n") + "\n";
 
 /** Produce the fresh {movable, dbTouching} classification. */
@@ -48,8 +51,14 @@ function computeFresh() {
     stdio: "inherit",
     env: { ...process.env, DB_TOUCH_PROBE: "1", DB_TOUCH_PROBE_DIR: ".db-touch-probe" },
   });
-  execFileSync("pnpm", ["exec", "tsx", "scripts/analyze-db-touch.mjs"], { cwd: ROOT, stdio: "inherit" });
-  execFileSync("pnpm", ["exec", "tsx", "scripts/movable-serial.mjs"], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("pnpm", ["exec", "tsx", "scripts/analyze-db-touch.mjs"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  execFileSync("pnpm", ["exec", "tsx", "scripts/movable-serial.mjs"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
   const runtimeMovable = JSON.parse(
     readFileSync(join(ROOT, ".db-touch-probe/movable-serial.json"), "utf8"),
   );

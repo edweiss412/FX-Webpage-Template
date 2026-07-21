@@ -18,6 +18,9 @@ describe("db-free-movable static DB-binding guard", () => {
       const p = join(ROOT, f);
       return existsSync(p) && hasDbBindingSignal(f, readFileSync(p, "utf8"));
     });
-    expect(offenders, `these movable files now show a DB-binding signal:\n${offenders.join("\n")}`).toEqual([]);
+    expect(
+      offenders,
+      `these movable files now show a DB-binding signal:\n${offenders.join("\n")}`,
+    ).toEqual([]);
   });
 });

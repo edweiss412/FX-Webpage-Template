@@ -5,7 +5,11 @@
 // previous spike could not measure: "neither needs nor writes to a DB".
 import fs from "node:fs";
 import path from "node:path";
-import { PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES, MUTATION_TEST_GLOBS } from "../vitest.projects.ts";
+import {
+  PARALLEL_TEST_GLOBS,
+  ENV_BOUND_EXCLUDES,
+  MUTATION_TEST_GLOBS,
+} from "../vitest.projects.ts";
 
 const probeDir = process.argv[2] ?? ".db-touch-probe";
 const classification = JSON.parse(
@@ -23,8 +27,7 @@ const mutationPrefixes = MUTATION_TEST_GLOBS.map((g) => g.replace(/\*.*$/, ""));
 const envBound = new Set(ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, "")));
 
 const hasPrefix = (file, prefixes) => prefixes.some((p) => file.startsWith(p));
-const isSerial = (file) =>
-  !hasPrefix(file, parallelPrefixes) && !hasPrefix(file, mutationPrefixes);
+const isSerial = (file) => !hasPrefix(file, parallelPrefixes) && !hasPrefix(file, mutationPrefixes);
 
 // Static subprocess-DB backstop. The runtime probe catches in-process DB access
 // (postgres.js, the Supabase HTTP client) precisely, but it CANNOT catch a child
@@ -32,8 +35,10 @@ const isSerial = (file) =>
 // — that binding is captured before any probe can patch child_process, proven
 // empirically. So a candidate that statically imports child_process AND names a
 // DB target is treated as DB-touching regardless of what the runtime saw.
-const importsChildProcess = /from\s+["']node:child_process["']|require\(["']node:child_process["']\)/;
-const dbToken = /\bpsql\b|databaseUrl|postgres(?:ql)?:\/\/|_validation-cleanup-helpers|supabase\s+db/;
+const importsChildProcess =
+  /from\s+["']node:child_process["']|require\(["']node:child_process["']\)/;
+const dbToken =
+  /\bpsql\b|databaseUrl|postgres(?:ql)?:\/\/|_validation-cleanup-helpers|supabase\s+db/;
 function staticSubprocessDb(file) {
   let src;
   try {
