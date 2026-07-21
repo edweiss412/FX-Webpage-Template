@@ -27,7 +27,7 @@ Decided during brainstorming, or ratified in R1 triage. Cite the ratification be
 | **No CI gate.** No screenshot byte-comparison, no catalog-completeness meta-test. Totality on the alert axis is achieved structurally instead (§3.1). | §3.1, §12 |
 | **No migration.** | §5.4 |
 | **No new advisory-lock holder.** | §7.2 |
-| Gallery server actions are inert by design (synthetic ids). | §4.4 |
+| Gallery action controls render but cannot fire: they are neutralized with `inert`, not by carrying synthetic ids. | §4.4 |
 | The gallery route is dev-only and absent from the production artifact. | §6 |
 | **Invariant 5 carries a scoped exception for this instrument, ratified here.** The gallery and the materialize card display raw `code` strings, scenario ids, and result codes. Invariant 5 protects *operators* from raw codes in the product UI; these two surfaces are developer instruments behind `requireDeveloper`, renamed out of the production artifact at build time (§6), whose entire subject matter **is** the code catalog. A gallery that hid codes could not perform its function. Scope of the exception is exactly: the routing readout (§4.1), scenario ids, the `PICKER_EPOCH_RESET` non-render row, the unknown-scenario id list, the materialize selector, and the §5.3 result codes. Everywhere else — including all rendered card copy — codes resolve through `lib/messages/lookup.ts` as normal. (Codex R1 #1: correct that R1 asserted an exception §1.1 had not ratified. Ratified now rather than argued.) | this row |
 | **Validation targeting stays**, but Clear on validation does **not** re-sync (§5.5). The user chose local + validation; R1 #5 showed the re-sync step cannot be made env-correct cheaply, so that one step is dropped on validation rather than the whole capability. | §5.5 |
@@ -117,8 +117,15 @@ T1 alert scenarios are **derived at runtime** from `Object.keys(ATTENTION_ROUTES
 Realistic content comes from an override map keyed by code. **Overrides set storable fields only** — in practice `context`, since that is what the derivation reads:
 
 ```ts
-const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<ScenarioAlertRow>>> = { ... };
+// `code` is NOT overridable: the key IS the code. Allowing an override to emit a
+// different code would let a row keyed by one route emit another, breaking the
+// structural totality of 3.1 (R2a).
+const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAlertRow, "code">>>> = {
+  ...
+};
 ```
+
+`galleryIdentity` **is** overridable and appears in this type deliberately, even though it is not storable. It is the one gallery-only field (§3.0), and the identity-dependent codes below require it. The "storable fields only" rule governs what materialize *inserts*, not what the catalog may declare.
 
 Default row: `context: {}`, `occurrence_count: 1`, `galleryIdentity: null`, fixed `raised_at`. `context` is `{}` and never `null` because `admin_alerts.context` is `jsonb not null`; a null default would be gallery-legal but un-insertable, diverging exactly where §3.3 forbids.
 
@@ -127,9 +134,10 @@ Codes whose rendered content depends on context need an override. **Each row bel
 | Code | Storable input required | Derived consequence |
 | --- | --- | --- |
 | `TILE_PROJECTION_FETCH_FAILED` | `context.failedKeys: string[]` | `readFailedKeys` (`lib/admin/attentionItems.ts:233-236`) returns null for any other code or a non-array |
-| `SHOW_FIRST_PUBLISHED` | `context` shaped for `readDataGapsDigest` | gated on that exact code (`lib/admin/attentionItems.ts:279`) |
+| `SHOW_FIRST_PUBLISHED` | `context.data_gaps = { total: <number greater than 0>, classes: Record<GapCode, number> }`, keys from `GAP_CLASSES` (`lib/parser/dataGaps.ts:30`) | `readDataGapsDigest` (`lib/admin/attentionItems.ts:191-207`) returns null unless `data_gaps` is an object, `total` is a number greater than zero, and `classes` is an object; missing per-class counts coerce to 0 |
 | `PARSE_ERROR_LAST_GOOD` | `context.error_code` ∈ `PARSE_FAILURE_ALLOWLIST` | `readErrorCode` (`lib/admin/attentionItems.ts:242-246`) drops anything else |
-| `AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED`, `ROLE_FLAGS_NOTICE` | `galleryIdentity` carrying a crew name, **and** the matching identity context keys that `projectIdentityContext` allowlists | `crewNameFor` (`lib/adminAlerts/fetchPerShowAlerts.ts:58`) reads the projected context and the resolved identity; `crewKey` binds only when it yields a name (`lib/admin/attentionItems.ts:255-256`) |
+| `ROLE_FLAGS_NOTICE` | `context.role_change_crew_names: [string]` (exactly one element, non-blank after trim) **and** `context.role_change_count: 1` | `crewNameFor` (`lib/adminAlerts/fetchPerShowAlerts.ts:63-68`) returns the single name from the **projected context alone**. No identity is consulted, so this code is fully reproducible in both consumers |
+| `AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED` | `context.crew_member_id` matching `UUID_RE` (`lib/adminAlerts/projectIdentityContext.ts:16`) so the resolver has a target, **plus** `galleryIdentity` carrying exactly one `segments` entry labelled `"Crew"` | `crewNameFor` (`lib/adminAlerts/fetchPerShowAlerts.ts:69-72`) reads the **resolved identity's** single `"Crew"` segment; `crewKey` binds only when it yields a name (`lib/admin/attentionItems.ts:255-256`). These two are the identity-dependent codes of §3.3 |
 
 Any code whose catalog `dougFacing` template carries `<placeholder>` tokens needs context that fully interpolates, or `safeDougFacingTemplate` returns null and the card falls back — itself a state worth seeing, so T2 keeps one deliberate non-interpolating scenario.
 
@@ -164,10 +172,32 @@ Enumerating codes does not produce renderable warnings (R1 #18). Every generated
 | --- | --- |
 | `code` | the enumerated code |
 | `severity` | `"warn"` — the card surface is the warn-severity surface; `info` rows render elsewhere and are out of scope |
-| `message` | fixed synthetic prose naming the code, so a card whose copy comes from `message` is visibly distinguishable from one whose copy comes from the catalog |
+| `message` | fixed synthetic prose that does **not** contain the raw code — e.g. `"Synthetic warning for gallery review."`. The raw code must not appear here: `message` is rendered card copy, which §1.1's exception explicitly excludes, and warnings are materialized **verbatim**, so a code embedded here would leak into the real modal too (R2a). Distinguishing synthetic from authentic is the readout's job (§4.1), not the card's |
 | `blockRef`, `rawSnippet`, `roleToken`, resolution payloads | **absent by default.** Optional fields are set only by the per-code override table below, keeping `exactOptionalPropertyTypes` satisfied and absence meaningful |
 
-Per-code overrides are required where absence changes the rendered card: `UNKNOWN_ROLE_TOKEN` always carries `roleToken` (`lib/parser/types.ts` documents absence as discriminating), and the three recoverable structural-transform codes (`ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`) always carry their use-raw resolution payload. T2 additionally carries one deliberately malformed warning (unknown code, empty message) to exercise the fallback path.
+Per-code overrides, where absence changes the rendered card (R2a: the previous revision promised this table and omitted it):
+
+| Code | Required field | Shape |
+| --- | --- | --- |
+| `UNKNOWN_ROLE_TOKEN` | `roleToken` | the canonical role token that failed lookup; absence discriminates on every other code (`lib/parser/types.ts`) |
+| `ROOM_HEADER_SPLIT_AMBIGUOUS` | use-raw resolution payload | `{ resolvable: true, replacement: { kind: "rooms", name, dimensions: null, floor: null } }` (`lib/parser/types.ts:41`) |
+| `HOTEL_GUEST_SPLIT_AMBIGUOUS` | use-raw resolution payload | `{ resolvable: true, replacement: { kind: "hotels", names: [string], confirmationNo: null } }` (`lib/parser/types.ts:42`) |
+| `DATE_ORDER_SUGGESTS_DMY` | use-raw resolution payload | `{ resolvable: true, replacement: { kind: "dates", dmyDates } }` (`lib/parser/types.ts:43`) |
+
+T2 additionally carries one deliberately unresolvable warning (`{ resolvable: false, reason: "empty-raw" }`, `lib/parser/types.ts:46`) and one with an uncataloged code, to exercise both fallback paths.
+
+### 3.2b Scenario id generation
+
+T1 scenarios are generated from codes, so their ids must be derived, not authored (R2a). The algorithm:
+
+```
+id = <namespace> + "-" + lowercase(code).replaceAll("_", "-")
+namespace = "alert" | "warn"
+```
+
+`ALERT_ROW_OVERRIDES` keys are `ATTENTION_ROUTES` keys, and warning codes come from §3.2, so both source sets are already `^[A-Z][A-Z0-9_]*$`. The transform is therefore total, injective within a namespace, and the namespace prefix prevents an alert and a warning of the same code colliding. T2 and T3 ids are authored literals.
+
+Every id — generated or authored — must match `^[a-z0-9][a-z0-9-]{2,47}$` (§3). The longest current code yields an id well inside 48 characters, but the validator (§3.6) enforces the bound rather than assuming it, and rejects duplicates across the whole catalog. The same string is the DOM anchor (§4.1), the `scenario` query value (§4.5), the synthetic row id prefix (§3.0), and the DB tag (§5.1b), so one rule governs all four.
 
 ### 3.3 Fidelity contract between the two consumers
 
@@ -178,7 +208,8 @@ The database stores less than the modal renders. `fetchPerShowAlerts` selects on
 | Field | Stored? | Gallery | Materialize | Divergence |
 | --- | --- | --- | --- | --- |
 | `code`, `context`, `raised_at`, `occurrence_count` | yes | verbatim | inserted verbatim | none |
-| `identityText`, `messageParams`, `crewName` | derived | shared function, given `galleryIdentity` | shared function, given the resolved identity | none by construction |
+| `identityText`, `messageParams`, `crewName` — **context-only codes** (incl. `ROLE_FLAGS_NOTICE`) | derived | shared function | shared function | none by construction |
+| `identityText`, `messageParams`, `crewName` — **identity-dependent codes** (`AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED`) | derived | shared function, given the **declared** `galleryIdentity` | shared function, given the **resolved** identity | **inherits the identity row's divergence** — if the target show has no matching crew row, materialize yields no `"Crew"` segment, so `crewName` is null, `crewKey` does not bind, and the card routes to the crew section top rather than a crew row. The gallery shows the bound state. (R2a: the previous revision claimed "none by construction" for all three fields, which was false for these two codes.) |
 | `AlertIdentity` | resolved from real crew rows | **declared** | **resolved** | inherent, labelled (below) |
 | hold `summary`, `action`, `status` | derived | shared shaping | shared shaping | none by construction |
 | `ParseWarning[]` | yes, jsonb | verbatim | written verbatim | none |
@@ -204,6 +235,29 @@ R1 #3: a required `warnings: []` on an alert-only scenario silently erased authe
 
 Every T1 alert scenario and every alert-only or hold-only T3 composite omits the field. Only a scenario that deliberately controls warnings sets it.
 
+### 3.6 Catalog validation is executable, not prose
+
+Both R1 (#25) and R2a (#12) reported the same class: catalog and input guards enumerated incompletely. A third prose enumeration would fail the same way, so the guard contract is **code**: `validateScenario(s): ValidationError[]`, run over the whole catalog by a test (§12) and at module load in development.
+
+| Field | Rule | On violation |
+| --- | --- | --- |
+| `id` | matches `^[a-z0-9][a-z0-9-]{2,47}$`; unique across the catalog | reject |
+| `label` | non-empty after trim | reject |
+| `tier` | `1 \| 2 \| 3` | reject |
+| `bucket`, `degraded` | present only when `tier === 2` | reject |
+| `alerts`, `holds` | arrays, possibly empty; a scenario with no alerts, no holds, and no `warnings` is rejected for materialize (§5.3) but **legal** in the gallery as the empty-state scenario | reject only the non-array case |
+| `alerts[].code` | non-empty; matches `^[A-Z][A-Z0-9_]*$`; no duplicate code within a scenario (§5.1a) | reject |
+| `alerts[].context` | a plain object, never null or an array; must not contain the reserved `__devScenario` key (§5.1b) | reject |
+| `alerts[].raised_at` | parses to a finite `Date` | reject |
+| `alerts[].occurrence_count` | integer, finite, `>= 1` — excludes 0, negative, fractional, `NaN`, `Infinity` | reject |
+| `alerts[].galleryIdentity` | absent, `null`, or an object with a `segments` array | reject other shapes |
+| `holds[]` | `domain` and `kind` in their CHECK sets; `entity_key` and `drive_file_id` non-empty after trim; `base_modified_time` parses; `proposed_value.disposition` in the CHECK set; no duplicate `(domain, entity_key)` within a scenario (§3.0a) | reject |
+| `warnings[]` | when present, every element has a non-empty `code` and a `severity` of `"warn"` | reject |
+
+"Reject" means the catalog is invalid and the test fails — a malformed scenario never reaches either consumer. The gallery therefore renders only valid scenarios, which is why §4 specifies rendering behavior rather than per-field malformed-input behavior: the malformed cases are unreachable by construction.
+
+**`ScenarioBlock`'s props are a separate boundary** and are not covered by this validator, because they are produced by the page from already-valid scenarios rather than authored. Its contract is the prop list in §4.0; each optional prop states its absent behavior there.
+
 ## 4. Gallery
 
 **Route:** `app/admin/dev/attention-gallery/page.tsx (new)` — Server Component, `export const dynamic = "force-dynamic"`, `requireDeveloper()` at the top, matching `app/admin/dev/source-link-dim/page.tsx` and `app/admin/dev/telemetry-dim/page.tsx`.
@@ -212,15 +266,39 @@ Every T1 alert scenario and every alert-only or hold-only T3 composite omits the
 
 R1 #6 is correct: `AttentionMenu` requires `pillRef: RefObject<HTMLButtonElement | null>`, `onClose: () => void`, and `onNavigate: (item) => void` (`components/admin/showpage/AttentionMenu.tsx:30-34`). None can be created in or passed from a Server Component.
 
-Resolution: the page (server) computes derived items and renders **one client component per scenario**, `ScenarioBlock` (`components/admin/dev/ScenarioBlock.tsx (new)`, `"use client"`). It receives only serializable props — the derived `AttentionItem[]`, the routing readout rows, warnings — and owns:
+**Bucketing runs on the server** (R2a): `BucketOpts` holds predicate *functions*, which cannot cross the RSC boundary. The page calls `bucketAttention(items, opts)` itself — it has the scenario's `bucket` predicates in scope — and passes the **resulting groups** down. `ScenarioBlock` never receives `BucketOpts` and never calls `bucketAttention`.
+
+Resolution: the page (server) computes derived items, buckets them, and renders **one client component per scenario**, `ScenarioBlock` (`components/admin/dev/ScenarioBlock.tsx (new)`, `"use client"`). Its complete prop surface:
+
+```ts
+type ScenarioBlockProps = {
+  scenarioId: string;              // DOM anchor
+  label: string;
+  items: AttentionItem[];          // derived, serializable
+  groups: Array<{ sectionId: RoutedSectionId; items: AttentionItem[] }>; // server-bucketed
+  holdItems: AttentionItem[];      // kind: "hold", excluded from groups by bucketAttention
+  readout: ReadoutRow[];           // plain strings, section 4.1 step 2
+  warnings: ParseWarning[] | null; // null = scenario does not declare warnings (3.4)
+  degraded: boolean;
+  maxWidthPx: number | null;       // null = unconstrained
+};
+```
+
+Every field is serializable. `AttentionItem` is a plain discriminated union of scalars, arrays, and objects (`lib/admin/attentionItems.ts:79-81`) with no functions. Absent behavior: `warnings: null` renders no warning cards and no muted duplicate; `maxWidthPx: null` applies no wrapper constraint; empty `items`, `groups`, and `holdItems` render their respective empty states.
+
+`ScenarioBlock` owns:
 
 - the pill `<button>` and its ref (the ref target R1 #6 said was unidentified),
 - `open` as real `useState`, defaulting to **true** so the menu is visible without a click, with a working `onClose` and a re-open control. This makes §4.4's "menu open/close is genuinely live" true rather than contradicted by a no-op,
 - `onNavigate` as a no-op that records the item id into visible on-page text, so navigation intent is observable without a router.
 
-`AttentionMenu` renders in normal flow inside the block (no portal), so simultaneously-open menus stack vertically rather than overlapping (R1 #6, #28). If a menu turns out to be portal- or fixed-positioned in production, the block renders it inside a `relative` containing block and the plan's layout task measures overlap — the one place where a real-browser check is warranted (§8).
+**Menu positioning — measured, not hedged** (R2a correctly attacked the previous "if it turns out to be" wording). `AttentionMenu`'s root is `absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))]` with an inner `max-h-96 overflow-y-auto` list (`components/admin/showpage/AttentionMenu.tsx:99` and `components/admin/showpage/AttentionMenu.tsx:108`). No portal, no `position: fixed`. Three consequences the previous revision got wrong:
 
-`degraded: true` renders the same degraded pill and Overview notice the loader produces (`app/admin/_showReviewModal.tsx:304-310`); the block takes a `degraded` prop and reproduces that branch from the same components the modal uses, not a lookalike (R1 #17).
+1. It is **absolutely positioned, therefore out of flow** — it does not "stack vertically," it **overlays whatever follows**. Each block wraps the pill in a `relative` element (establishing the containing block) and, while its menu is open, reserves bottom space of at least the menu's maximum height (`24rem` list + header/footer + the `8px` offset). Adjacent open menus then cannot intersect, which §8 asserts in a real browser rather than assuming.
+2. Its width is `min(400px, 100vw - 32px)` — sized off the **viewport**, not the container. The `w` control (§4.5) therefore does **not** narrow the menu. `w` narrows the cards and the block; menu width is a viewport property and cannot be simulated by a wrapper.
+3. The scroll threshold is the list's `max-h-96` (384px). `MENU_CAP` = 12 rows, each `min-h-tap-min` (44px) plus padding, clears it comfortably — but §8 measures it rather than relying on this arithmetic.
+
+`degraded: true` renders the same degraded pill and Overview notice the loader produces (`app/admin/_showReviewModal.tsx:304-310`), from the same components the modal uses, not a lookalike (R1 #17).
 
 ### 4.1 What a scenario block renders
 
@@ -240,7 +318,7 @@ Actual DOM, in order:
 | Axis | Exact mechanism | Expected outcome |
 | --- | --- | --- |
 | Routed section absent | `sectionAvailable: (s) => s === "overview"` — Overview stays available, so the fallback has a destination | banner falls back to Overview |
-| Overview also absent | `sectionAvailable: () => false` | the no-destination case; the block asserts what actually renders and the readout names it |
+| Overview also absent | `sectionAvailable: () => false` | **the card is dropped** — `bucketAttention` has no destination, so the item appears in the pill count and the menu but in no section group. The readout names it `dropped: no available section`, and §12 asserts exactly this rather than accepting whatever renders (R2a: a row that delegates its outcome to observation cannot distinguish an intended drop from an accidental one) |
 | Anchor slot absent | `anchorAvailable: () => false`, `sectionAvailable: () => true` | anchored card falls back to its section top |
 | Crew key unrendered | `crewKeyRendered: () => false` | crew banner goes to the crew section top |
 | Alert vs hold | scenario carries only `alerts` / only `holds` | hold appears in the hold group, never a banner |
@@ -264,7 +342,13 @@ Actual DOM, in order:
 
 ### 4.4 Interactivity boundary
 
-Live for real: menu open/close (§4.0), `?` help popovers, expand/collapse, hover, focus. **Not** live: server actions, whose alert ids are the synthetic `gallery:<id>:<n>` of §3.0. A standing note at the top of the page says so and points at the dev panel.
+Live for real: menu open/close (§4.0), `?` help popovers, expand/collapse, hover, focus.
+
+**Server actions are neutralized structurally, not by having fake ids** (R2a — the previous revision claimed synthetic ids made the actions inert, which was false: the resolve control still rendered and still submitted, so a click would run authorization, parsing, the Supabase call, the error path, and telemetry, and a non-UUID id against a `uuid` column throws before it can be a harmless no-match).
+
+The mechanism: `ScenarioBlock` renders its banners inside a container with `inert` applied to the **action controls only** — the resolve form and any other submit — leaving the rest of the card interactive. `inert` removes them from the tab order and suppresses click and submit events at the platform level, so no action can fire regardless of what id it carries. The disabled controls stay **visible**, because their presence, placement, and label are exactly what the sweep exists to evaluate; only their activation is suppressed.
+
+A standing note at the top of the page states that action controls are display-only here and points at the dev panel. The `gallery:<id>:<n>` ids of §3.0 remain useful as stable React keys and readout identifiers — they are simply no longer load-bearing for safety.
 
 **Known fidelity caveat:** `AttentionBanner` reads `usePathname()` (`components/admin/review/AttentionBanner.tsx:101`) for a route-gated Learn-more link. Under the gallery that value is the gallery path, so the gate evaluates differently than in production. The readout prints the value (§4.1 item 2), making the difference explicit rather than silently misleading.
 
@@ -281,8 +365,8 @@ Query params only.
 **Guards** (R1 #24):
 
 - `scenario` **wins over** `tier` when both are present, including when the named scenario is not in the named tier. Precedence is stated because it is otherwise undefined.
-- Repeated params: the **first** value is used (`URLSearchParams.get` semantics), never a concatenation.
-- `w`: parsed with `Number.parseInt` on a `^\d+$` match. Anything failing that — empty, whitespace, signed, decimal, exponent, `NaN`, `Infinity` — falls back to unconstrained. In-range integers apply; **out-of-range integers clamp** to the nearest bound. (The previous revision said clamp *and* fall back, which contradicted itself.)
+- **`searchParams` shape.** A Next.js 16 App Router page receives an awaited `searchParams` whose values are `string | string[] | undefined` — not a `URLSearchParams` instance (R2a: the previous revision cited `.get()` semantics, which do not apply). Normalization is explicit: `undefined` means absent; an **array** takes its first element; an empty array is treated as absent.
+- **`w` parsing, single rule, no overlap.** Trim, then require a full match of `^\d+$` (digits only — this already excludes empty, whitespace, signed, decimal, exponent, `NaN`, and `Infinity`, so those never reach the numeric stage). Parse with `Number.parseInt`. Then: if the result is not a finite integer — the digits-only-but-astronomically-long case R2a identified — treat as **absent**. Otherwise **clamp** into `[320, 1280]`. A negative value cannot reach the clamp because `-` fails the regex, which removes the previous revision's contradiction between "signed falls back" and "out-of-range clamps".
 - `tier` outside `{1,2,3}`, empty, or whitespace → all tiers.
 - Unknown `scenario` → an explicit "no such scenario" line listing valid ids, never a blank page.
 
@@ -448,7 +532,20 @@ One real-browser assertion **is** required, for a claim §4.2 makes rather than 
 
 The gallery adds no animated component; transitions inside `AttentionMenu`, `AttentionBanner`, and `CompactAlertCard` are pre-existing and covered (`tests/components/admin/compactAlertCompoundTransitions.test.tsx`, `transitionAudit.test.tsx`). The gallery's own filter changes are server navigations — instant, no animation.
 
-The **materialize card** has a state model of its own, omitted from the previous revision (R1 #22):
+**`ScenarioBlock`** is a new multi-state client component and carries its own inventory (R2a):
+
+| From | To | Treatment |
+| --- | --- | --- |
+| menu closed | menu open | the component's existing `transition-[opacity,transform] duration-fast` on the menu root (`components/admin/showpage/AttentionMenu.tsx:99`), inherited unchanged |
+| menu open | menu closed | same transition, reversed; `motion-reduce:transition-none` already honored |
+| navigation readout unset | set (an item was activated) | instant — a text node appears; animating it would obscure what it records |
+| readout set | set to a different item | instant |
+| help popover closed | open, **while the menu is open** | independent; the popover is inside a menu row, so the compound case is "menu open + popover open" and both are already covered by `tests/components/admin/compactAlertCompoundTransitions.test.tsx` |
+| warning card collapsed | expanded, while the menu is open | independent; no shared animation state |
+
+No new `AnimatePresence` and no new animated branch is introduced: every transition above is either an existing component's own, or deliberately instant.
+
+The **materialize card** has a state model of its own, omitted from the R1 revision (R1 #22):
 
 | From | To | Treatment |
 | --- | --- | --- |
