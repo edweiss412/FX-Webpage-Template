@@ -81,27 +81,60 @@ describe("transition audit: nothing in the four-state path animates", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const region = src.slice(start, end);
-    // "Deliberately instant" means all three, not just the first two: a branch
-    // carrying `animate-pulse` would otherwise qualify.
-    expect(region).not.toMatch(/\btransition-/);
-    expect(region).not.toMatch(/\banimate-/);
-    expect(region).not.toContain("AnimatePresence");
+    // Whole-diff review B10: the first draft matched only the hyphenated
+    // utility prefixes, which misses the bare `transition` class, Tailwind's
+    // arbitrary-property form (`transition-[opacity]`, caught by the prefix but
+    // worth naming), a `motion.*` element, an inline `style={{ transition }}` /
+    // `animation`, and a CSS custom property driving either. Each alternative
+    // below is a way this region could animate while the previous assertion
+    // still passed.
+    const ANIMATION_TELLS: { name: string; pattern: RegExp }[] = [
+      { name: "transition utility", pattern: /\btransition(-|\b)/ },
+      { name: "animate utility", pattern: /\banimate-/ },
+      { name: "duration utility", pattern: /\bduration-\[?\d/ },
+      { name: "framer motion element", pattern: /\bmotion\./ },
+      { name: "AnimatePresence", pattern: /AnimatePresence/ },
+      { name: "inline transition style", pattern: /transition\s*:/ },
+      { name: "inline animation style", pattern: /animation\s*:/ },
+    ];
+    for (const { name, pattern } of ANIMATION_TELLS) {
+      expect(region, `the four-state region must carry no ${name}`).not.toMatch(pattern);
+    }
   });
 
-  it("the DISCOVERED branch set equals the expected inventory", () => {
-    // Expected blocks controlling the four-state selection, written out so a
-    // DELETED branch fails here rather than vanishing from the domain.
+  it("the branch set in the four-state region is EXACTLY the expected inventory", () => {
+    // Whole-diff review B10: the first draft was named "discovered set equals
+    // expected" but only checked that three substrings were still present, so an
+    // ADDED conditional — a fourth state, an early return, a nested ternary —
+    // passed silently. This discovers the region's conditionals and compares the
+    // whole set, which is what the name claimed.
     const EXPECTED = [
       "rows.length === 0", // List vs the three body-empty states
       "here > 0", // Silent
       "elsewhere > 0", // Elsewhere
+      // The parse-notice banner. NOT part of the four-state selection, but it
+      // renders inside this region and is the EXCLUSIVE site for
+      // PARSE_ERROR_LAST_GOOD / RESYNC_QUALITY_REGRESSED, which is why the
+      // card-suppression predicate has to account for it. The discovery pass
+      // surfaced it on its first run; the previous substring version of this
+      // test could not have.
+      "parseNotes.length > 0",
     ];
     const src = readFileSync(resolve(process.cwd(), FILES[0]!), "utf8");
     const start = src.indexOf("const routedWarningsRenderElsewhere = chrome?.");
     const region = src.slice(start, src.indexOf("No parse warnings for this sheet."));
-    for (const expr of EXPECTED) {
-      expect(region, `branch \`${expr}\` must still exist`).toContain(expr);
-    }
+
+    // Every ternary condition in the region: the text between a line start (or
+    // an opening brace/paren) and its `?`. Comments are stripped first so a
+    // question mark in prose is not read as a branch.
+    const code = region.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const discovered = (code.match(/[\w.?[\]]+\s*(===?|>|<|>=|<=)\s*[\w."']+/g) ?? [])
+      .map((c) => c.replace(/\s+/g, " ").trim())
+      // `chrome?.x === true` is the gate read, not a state branch.
+      .filter((c) => !c.includes("chrome?."));
+
+    expect(new Set(discovered), "the region's comparison set").toEqual(new Set(EXPECTED));
+
     // And the two lines those branches select, so a branch that survives while
     // its outcome is deleted also fails.
     expect(region).toContain("warnings-elsewhere");

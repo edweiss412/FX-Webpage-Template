@@ -193,6 +193,28 @@ describe("the four body-empty states", () => {
   const ELSEWHERE = [...MAPPED_WARNINGS];
   const SILENT_PRECEDENCE = [...UNMAPPED_WARNINGS, ...MAPPED_WARNINGS];
 
+  /**
+   * Whole-diff review B5: rejecting the OTHER state's node is not exclusivity.
+   * Elsewhere and Clean each allowed arbitrary extra copy to sit beside them,
+   * and every state allowed the legacy "No parse warnings for this sheet." line
+   * to coexist. This asserts the body's paragraph set, so a survivor from any
+   * previous version of this branch fails wherever it appears.
+   */
+  function expectNoStrayBodyCopy(allowed: string[]) {
+    const paragraphs = Array.from(panelBody().querySelectorAll("p"))
+      // PANEL-LEVEL copy only. Each listed row renders its own guidance
+      // paragraph inside its `<li>`; those are the row's content, not stray
+      // panel copy, and including them would make the List case unassertable.
+      .filter((el) => el.closest("li[data-warning-index]") === null)
+      .map((el) => (el.textContent ?? "").trim())
+      .filter((t) => t.length > 0);
+    for (const text of paragraphs) {
+      expect(allowed, `unexpected body paragraph: ${JSON.stringify(text)}`).toContain(text);
+    }
+    // The legacy line belongs to the UNGATED branch only, in every state.
+    expect(within(panelBody()).queryByTestId(EMPTY_TESTID)).toBeNull();
+  }
+
   function expectOnly(which: "list" | "silent" | "elsewhere" | "clean") {
     const body = panelBody();
     const elsewhere = within(body).queryByTestId(ELSEWHERE_TESTID);
@@ -219,6 +241,22 @@ describe("the four body-empty states", () => {
       expect(elsewhere).toBeNull();
       expect(clean).toBeNull();
     }
+
+    // And nothing ELSE. `list` carries the correction-loop callout, which is
+    // panel copy the trim deliberately keeps whenever the panel still lists rows
+    // of its own (whole-diff review C1); every other state's body is exactly one
+    // line or nothing.
+    const allowed =
+      which === "elsewhere"
+        ? [ELSEWHERE_COPY]
+        : which === "clean"
+          ? [CLEAN_COPY]
+          : which === "list"
+            ? [
+                "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.",
+              ]
+            : [];
+    expectNoStrayBodyCopy(allowed);
   }
 
   it("(a) List: rows present, and neither empty line, even with warnings here AND elsewhere", () => {

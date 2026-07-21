@@ -121,6 +121,23 @@ describe("the bell's own exclusion mechanism keeps them", () => {
     }
   });
 
+  it("the feed's ONLY code-filter input is that list, not a literal beside it", () => {
+    // Whole-diff review B8: asserting `bellExcludedCodes` omits the codes proves
+    // nothing if the feed passes something else. `lib/admin/bellFeed.ts:222` is
+    // the single RPC call site, and `p_excluded_codes` is its only
+    // code-filtering parameter, so pin that the argument IS the helper's result.
+    const src = readFileSync(resolve(process.cwd(), "lib/admin/bellFeed.ts"), "utf8");
+    const calls = src.match(/p_excluded_codes:\s*([^,\n]+)/g) ?? [];
+    // Exactly one, or a second call site could filter differently.
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toContain("bellExcludedCodes(");
+    // And neither cut code is named anywhere in the module, which is how a
+    // hardcoded addition alongside the helper would look.
+    for (const code of CUT_FROM_MODAL) {
+      expect(src, `bellFeed must not name ${code}`).not.toContain(code);
+    }
+  });
+
   it("the modal's exclusion set and the bell's are genuinely different lists", () => {
     // If they ever became the same list, every assertion above would still pass
     // while the cut silently propagated to the bell.

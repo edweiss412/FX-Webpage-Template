@@ -34,15 +34,24 @@ const warnCodes = FIXTURE.filter((w) => w.severity === "warn").map((w) => w.code
 describe("visibleWarningRows", () => {
   it("gate false returns the input unchanged, same identities in the same order", () => {
     const rows = visibleWarningRows(FIXTURE, false);
-    expect(rows.map((w) => w.code)).toEqual(FIXTURE.map((w) => w.code));
+    // OBJECT IDENTITY, not codes (whole-diff review B12). Comparing code strings
+    // lets either arm clone rows or drop `message` / `rawSnippet` / `blockRef`
+    // while every assertion passes — and downstream, `warningFingerprint` reads
+    // `rawSnippet` and the routing reads `blockRef`, so a lossy copy would
+    // silently unignorable-ify or misroute the row.
+    expect(rows.length).toBe(FIXTURE.length);
+    rows.forEach((row, i) => expect(row).toBe(FIXTURE[i]));
   });
 
-  it("gate true drops every warn row and keeps every non-warn row", () => {
+  it("gate true drops every warn row and keeps every non-warn row, unmodified", () => {
     const rows = visibleWarningRows(FIXTURE, true);
     expect(rows.map((w) => w.code)).toEqual(infoCodes);
     for (const code of warnCodes) {
       expect(rows.map((w) => w.code)).not.toContain(code);
     }
+    // The survivors are the SAME objects, in fixture order.
+    const survivors = FIXTURE.filter((w) => w.severity !== "warn");
+    rows.forEach((row, i) => expect(row).toBe(survivors[i]));
   });
 
   it("the two arms are different sizes, so neither result could stand in for the other", () => {

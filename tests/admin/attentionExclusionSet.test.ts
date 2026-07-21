@@ -16,8 +16,8 @@
  * source scan cannot distinguish it from one that slices the set's first two
  * members. An injected set can: see the disjoint-sets test below.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deriveAttentionItems, ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
@@ -129,17 +129,48 @@ describe("the four named codes", () => {
 });
 
 describe("the seam is test-only", () => {
-  it("no non-test source file passes excludedCodes to deriveAttentionItems", () => {
+  it("NO non-test source file passes excludedCodes to deriveAttentionItems", () => {
     // An exported optional parameter is externally usable production API, so
     // seam and production semantics could drift through ordinary call-site
-    // evolution. Stated limit: this sees the DIRECT form, which is the form a
-    // future caller would actually write, and not a value forwarded through a
-    // spread, an alias, or a wrapper.
-    const callers = ["app/admin/_showReviewModal.tsx"];
-    for (const rel of callers) {
-      const src = readFileSync(resolve(process.cwd(), rel), "utf8");
-      expect(src).toContain("deriveAttentionItems");
-      expect(src, `${rel} must not pass the test seam`).not.toContain("excludedCodes");
+    // evolution.
+    //
+    // Whole-diff review B9: a hardcoded one-file list does not pin a
+    // repository-wide invariant — a NEW caller anywhere else evades it. This
+    // walks every non-test source tree instead, so a new caller fails by
+    // default. Stated limit: it sees the DIRECT form, which is the form a future
+    // caller would write, and not a value forwarded through a spread or alias.
+    const roots = ["app", "components", "lib", "scripts"];
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name === "node_modules" || e.name === "__generated__") continue;
+          walk(full);
+        } else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          files.push(full);
+        }
+      }
+    };
+    for (const root of roots) walk(resolve(process.cwd(), root));
+    // The walk must have found something, or "no file passes it" is vacuous.
+    expect(files.length).toBeGreaterThan(100);
+
+    const callers = files.filter((f) => readFileSync(f, "utf8").includes("deriveAttentionItems"));
+    // And it must have found the real caller, or the walk is looking in the
+    // wrong place.
+    expect(callers.length).toBeGreaterThan(0);
+
+    // The DEFINING module names the parameter by construction; every other
+    // module naming it is a caller.
+    const definition = resolve(process.cwd(), "lib/admin/attentionItems.ts");
+    expect(files, "the walk must reach the defining module").toContain(definition);
+
+    for (const file of files) {
+      if (file === definition) continue;
+      const src = readFileSync(file, "utf8");
+      if (!src.includes("deriveAttentionItems")) continue;
+      expect(src, `${file} must not pass the test seam`).not.toContain("excludedCodes");
     }
   });
 });

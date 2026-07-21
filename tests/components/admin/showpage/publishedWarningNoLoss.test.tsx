@@ -36,6 +36,7 @@ import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -154,15 +155,65 @@ describe("published warning no-loss precondition", () => {
     expect(totalIgnored).toBe(IGNORED_WARNINGS.length);
   });
 
-  it("gives every ACTIVE warn row a Report control that is enabled and named", () => {
+  it("gives every ACTIVE warn row its OWN enabled, named Report control", () => {
+    // Whole-diff review B4: a document-wide `>= activeWarnCount` count is
+    // satisfiable by unrelated Report buttons elsewhere on the modal while an
+    // actual warning card has none. Scoped PER CARD instead, so the assertion is
+    // about each row rather than about a total.
     render(<Harness warnings={ALL_WARNINGS} />);
-    const buttons = screen.queryAllByRole("button", { name: /report/i });
-    // One per active warn row, derived from the fixture rather than hardcoded.
+
+    const cards = screen
+      .queryAllByTestId("per-show-actionable-item")
+      .filter((el) => el.closest("[data-testid^='section-warning-active-']") !== null);
     const activeWarnCount = WARN_WARNINGS.length - IGNORED_WARNINGS.length;
-    expect(buttons.length).toBeGreaterThanOrEqual(activeWarnCount);
-    for (const b of buttons) {
-      expect((b as HTMLButtonElement).disabled).toBe(false);
-      expect((b.textContent ?? "").trim().length).toBeGreaterThan(0);
+    expect(cards.length, "one active card per active warn row").toBe(activeWarnCount);
+
+    for (const card of cards) {
+      const buttons = within(card).queryAllByRole("button", { name: /report/i });
+      expect(buttons.length, `Report control inside ${card.textContent?.slice(0, 40)}`).toBe(1);
+      const button = buttons[0] as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect((button.textContent ?? "").trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("places each warn CODE in the section its routing key names, independently derived", () => {
+    // Whole-diff review B3: the placement assertion above derives its oracle
+    // from `warningsBySection`, the same authority that feeds the render. Swap
+    // two destinations and oracle and output move together. These three
+    // expectations are written out, so a routing change has to be deliberate.
+    render(<Harness warnings={ALL_WARNINGS} />);
+
+    const EXPECTED: { code: string; section: string }[] = [
+      { code: "UNKNOWN_ROLE_TOKEN", section: "crew" },
+      { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", section: "rooms" },
+      { code: "UNKNOWN_FIELD", section: "warnings" },
+    ];
+
+    for (const { code, section } of EXPECTED) {
+      expect(
+        ALL_WARNINGS.some((w) => w.code === code),
+        `${code} must be in the fixture`,
+      ).toBe(true);
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as { title: string };
+      const title = entry.title;
+      expect(title.length).toBeGreaterThan(0);
+
+      // Present in the section its routing key names...
+      expect(
+        screen.getByTestId(`section-warning-controls-${section}`).textContent ?? "",
+        `${code} belongs to ${section}`,
+      ).toContain(title);
+
+      // ...and ABSENT from the other two. Without this half, a build that
+      // rendered every code into every section would pass.
+      for (const other of EXPECTED) {
+        if (other.section === section) continue;
+        expect(
+          screen.getByTestId(`section-warning-controls-${other.section}`).textContent ?? "",
+          `${code} must NOT appear in ${other.section}`,
+        ).not.toContain(title);
+      }
     }
   });
 });
