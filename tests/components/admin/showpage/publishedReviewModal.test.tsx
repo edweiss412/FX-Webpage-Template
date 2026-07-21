@@ -182,6 +182,7 @@ function alertItem(
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
       ...payload,
     },
   };

@@ -121,6 +121,7 @@ function LiveHarness() {
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
     },
   };
   return (

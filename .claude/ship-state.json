@@ -1,0 +1,19 @@
+{
+  "branch": "feat/attention-alert-routing",
+  "stage": "pr1-real-ci",
+  "tasksRemaining": 3,
+  "next": "On CI green: gh pr merge 524 --merge, fast-forward main, rebase, start PR2 Task 2.1. On CI fail: triage the failing check.",
+  "blockedOn": "",
+  "cronJobId": "d806af7b",
+  "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
+  "specCommit": "9d7dcf897",
+  "planNotes": [
+    "tests/components/admin/review/showReviewSurfaceAttention.test.tsx asserts DOM BYTE-IDENTITY when attention props are absent \u2014 the crewAttention -> sectionAttention rename must preserve it; this is the regression proof for PR2's mount generalization.",
+    "AGENTS.md cites tests/messages/codes.test.ts:92 for the x1 parity gate; the real path is tests/cross-cutting/codes.test.ts. Fix as a one-line docs correction in PR1.",
+    "Real-browser assertions must expect a 22x22 ? trigger (sibling feat/warning-card-copy-restore geometry), not the historical 44px box."
+  ],
+  "siblings": {
+    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; already committed my 13-code handoff at 3aba6f8f5; rebase when it merges",
+    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner"
+  }
+}
