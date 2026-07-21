@@ -1,15 +1,15 @@
 {
   "branch": "feat/attention-alert-routing",
-  "stage": "pr3-review-r3",
+  "stage": "pr3-review-r4",
   "tasksRemaining": 1,
-  "next": "PR3 (#529) Codex R2 NEEDS-ATTENTION (2 P2, all fixed: required-anchor type + bucket redirect no-drop + real ShowReviewSurface threading test). Pushed 452e93473. R3 Codex + CI watched. On R3 APPROVE + CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b.",
+  "next": "PR3 (#529) Codex R3 NEEDS-ATTENTION (2 P2, closed at TYPE level: PlacementPredicates mirror + discriminated AttentionItem). Pushed 7064defd6. R4 closure-confirm + CI watched. On R4 APPROVE + CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b. If R4 raises another 'latent not reachable' same-vector edge, treat vector as structurally closed (type forbids the state) per structural-defense calibration and proceed to merge.",
   "blockedOn": "",
   "cronJobId": "d806af7b",
   "base": "origin/main (rebased)",
   "specCommit": "9d7dcf897",
   "planNotes": [
-    "R2 structural: AttentionRoute requires anchor on rooms/event (compile error otherwise); bucketAttention redirects unplaced rooms/event card to Overview; _metaAttentionRoutes backstop; showReviewSurfaceAnchors integration test through real threading.",
-    "impeccable: no P0/P1; 2 P3s applied."
+    "no-drop/nav vector closed at compile time: required-anchor union + discriminated AttentionItem (payload required on alert-kind) + resolveEffectiveSection mirrors bucketAttention via shared PlacementPredicates + bucket redirect + meta/negative tests.",
+    "impeccable: no P0/P1."
   ],
   "pr1": "MERGED #524",
   "pr2": "MERGED #526",
