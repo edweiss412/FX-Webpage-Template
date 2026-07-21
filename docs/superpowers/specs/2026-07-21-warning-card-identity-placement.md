@@ -85,8 +85,8 @@ Before #532 a warn-severity warning rendered twice: once as a section card, once
 
 ```ts
 // The correction an autocorrect code performed, structured so a surface can
-// state it without parsing `message`. ALWAYS set on the five autocorrect codes
-// when at least one correction occurred; ABSENT on every other code (absence
+// state it without parsing `message`. ALWAYS set by every producer of the five
+// autocorrect codes when a correction occurred; ABSENT on every other code (absence
 // discriminates). `subject` names the entity the correction happened TO: the
 // crew member for crew-scoped codes, null where the correction is not
 // person-scoped (section header, column header, field label).
@@ -104,17 +104,29 @@ autocorrect?: {
 
 The design's original blanket rule ("populate at the emit site") does not survive the citation pass. `extractRoleFlags` is a PURE function receiving only `roleCell` — the crew member's name is not in scope there. `ROLE_TOKEN_AUTOCORRECTED` must therefore be populated where the existing `blockRef` stamp already happens.
 
+**There are ELEVEN emit sites across the five codes, not five.** A producer sweep (`rg 'code: "(STAGE_WORD|ROLE_TOKEN|SECTION_HEADER|COLUMN_HEADER|FIELD_LABEL)_AUTOCORRECTED"' lib`) is the authority; the count is stated here because an earlier draft of this spec listed one site per code and would have shipped six silently-unpopulated producers, each rendering a permanently generic card.
+
 | # | Code | Site | `subject` | Mechanism |
 |---|---|---|---|---|
-| 1 | `STAGE_WORD_AUTOCORRECTED` | `lib/parser/blocks/crew.ts:342` | `displayName` | emit-site — both values in scope |
-| 2 | `ROLE_TOKEN_AUTOCORRECTED` | emit `lib/parser/personalization.ts:340`; **`subject` stamped at `lib/parser/blocks/crew.ts:367-372`** | `displayName` | stamp-site — name not in scope at emit |
+| 1 | `STAGE_WORD_AUTOCORRECTED` | `lib/parser/blocks/crew.ts:345` | `displayName` | emit-site, both values in scope |
+| 2 | `ROLE_TOKEN_AUTOCORRECTED` | emit `lib/parser/personalization.ts:340`; **`subject` stamped at `lib/parser/blocks/crew.ts:367-372`** | `displayName` | stamp-site, name not in scope at emit |
 | 3 | `SECTION_HEADER_AUTOCORRECTED` | `lib/parser/sectionHeaderNormalize.ts:128` | `null` | emit-site |
 | 4 | `COLUMN_HEADER_AUTOCORRECTED` | `lib/parser/blocks/crew.ts:148` | `null` | emit-site |
-| 5 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/venue.ts:159` | `null` | emit-site |
+| 5 | `COLUMN_HEADER_AUTOCORRECTED` | `lib/parser/blocks/transport.ts:596` | `null` | emit-site |
+| 6 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/venue.ts:159` | `null` | emit-site |
+| 7 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/client.ts:200` | `null` | emit-site |
+| 8 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/client.ts:348` | `null` | emit-site |
+| 9 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/event.ts:246` | `null` | emit-site |
+| 10 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/event.ts:352` | `null` | emit-site |
+| 11 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/ops.ts:154` | `null` | emit-site |
+| 12 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/rooms.ts:870` | `null` | emit-site |
+| 13 | `FIELD_LABEL_AUTOCORRECTED` | `lib/parser/blocks/transport.ts:430` | `null` | emit-site |
 
-Row 2's stamp extends the existing `stampedRoleWarnings` map, which already rewrites `ROLE_TOKEN_AUTOCORRECTED` to attach `blockRef`. It adds `autocorrect.subject` in the same pass — the emitter sets `corrections` with `subject: null`, and the stamp fills the name.
+Row 2's stamp extends the existing `stampedRoleWarnings` map, which already rewrites `ROLE_TOKEN_AUTOCORRECTED` to attach `blockRef`. It adds `autocorrect.subject` in the same pass: the emitter sets `corrections` with `subject: null`, and the stamp fills the name.
 
-`message` is unchanged at all five sites.
+`message` is unchanged at all thirteen sites.
+
+**A missed producer is invisible at runtime** — the guard in §4.3 falls back to `helpfulContext`, so an unpopulated site renders exactly today's copy and no test fails unless one asserts otherwise. §10 test 11 is therefore a filesystem-walking meta-test, not a fixed list: it discovers every `code: "*_AUTOCORRECTED"` literal under `lib/parser/**` and asserts each emitted warning carries `autocorrect`. A NEW producer added later fails by default rather than silently degrading.
 
 ### 3.3 Persistence
 
@@ -179,9 +191,21 @@ The renderer is a pure function of the warning, so every row above is a unit tes
 
 ### 4.4 Where it renders
 
-`warningCardCopyFields` (`components/admin/PerShowActionableWarnings.tsx:39`) gains the instance path: when `autocorrect` is usable it returns the composed line as `guidance`; otherwise it returns today's `pick(entry?.helpfulContext)` unchanged.
+`warningCardCopyFields` (`components/admin/PerShowActionableWarnings.tsx:39`) gains the instance path. It returns the TEMPLATE plus its params, NOT a pre-interpolated string — see §4.5 for why that distinction is load-bearing. When `autocorrect` is unusable it returns today's `pick(entry?.helpfulContext)` unchanged.
 
-`trigger` (the `?` popover, `triggerContext`) is untouched, and #532's `followUpCopy` — which composes into the POPOVER body, not the inline guidance line (`components/admin/PerShowActionableWarnings.tsx:114`) — is unaffected. The inline `guidance` slot at `components/admin/PerShowActionableWarnings.tsx:199-205` renders the new string with no structural change.
+`trigger` (the `?` popover, `triggerContext`) is untouched, and #532's `followUpCopy`, which composes into the POPOVER body rather than the inline guidance line (`components/admin/PerShowActionableWarnings.tsx:114`), is unaffected. The inline `guidance` slot at `components/admin/PerShowActionableWarnings.tsx:199-205` renders the result with no structural change.
+
+### 4.5 Interpolation order is load-bearing (do not pre-interpolate)
+
+The guidance line MUST render through `renderCatalogEmphasis(template, params)` (`components/messages/renderEmphasis.tsx:75`), NOT through `renderEmphasis(interpolate(template, params))`.
+
+`renderCatalogEmphasis` parses emphasis markers on the RAW template first, then substitutes params into the resulting text nodes, so a param value is opaque text that is byte-preserved and never parsed as markup. Its doc comment records the defect this ordering exists to prevent: a value containing marker characters is otherwise consumed as emphasis and splits the catalog-authored marker pair (logged there as a prior Codex R1 MEDIUM).
+
+This is not hypothetical for THIS feature. `autocorrect.subject` is a crew member's name read from the operator's spreadsheet, and `detected` is by definition a malformed token from that same sheet. Both are attacker-adjacent-shaped free text flowing into a `_<crew-name>_` slot inside an emphasis-marked template. A member named `Foo *draft*`, or a detected token containing an underscore, would corrupt the rendered line under the wrong ordering.
+
+The correction pairs substituted into the parenthetical are subject to the same rule: they are params, not template text.
+
+`renderCatalogEmphasis` is already the established call for this on other surfaces, so this is conformance with an existing contract rather than a new mechanism. §10 test 10 pins it with a marker-bearing name fixture.
 
 ## 5. Change 3: under-row placement
 
@@ -273,7 +297,11 @@ Anti-tautology applies throughout: expected strings derive from FIXTURE correcti
 1. **Copy composition (unit, no DOM).** Every row of the §4.2 table and every row of the §4.3 guard table. Expected strings derive from the fixture's `corrections` array and from `MESSAGE_CATALOG[code].dougFacing`, never hardcoded beside the assertion. Catches: a guard that renders a blank card, a 4+ join that drops the count, an unresolved `<crew-name>` reaching the screen.
 
 9. **Trailing-strip fidelity (meta).** For each of the three strip-codes, assert the exact suffix this spec strips is PRESENT in the live catalog `dougFacing`. This is the tripwire for §4.1's second delta: if a future catalog reword changes that sentence, the strip silently no-ops and the dead-end instruction returns to the card. Fails loudly instead.
-2. **Emitter population (unit, per code).** All five codes populate `autocorrect` with the right `subject` and the right pairs. Includes the §3.2 row-2 mechanism specifically: assert `ROLE_TOKEN_AUTOCORRECTED` arrives at the section model WITH `subject` set, proving the stamp ran — a test at `personalization.ts` alone would pass with `subject` permanently null. Also asserts `message` is byte-identical to pre-change output at all five sites.
+
+10. **Marker-bearing param safety (component).** Render the card with `subject` = `Foo *draft*` and with a `detected` token containing an underscore. Assert the catalog's own emphasis structure is intact and the param text appears byte-identical inside it. This is the §4.5 regression test: it FAILS under `renderEmphasis(interpolate(...))` and passes under `renderCatalogEmphasis(template, params)`, so it pins the ordering rather than merely exercising it.
+
+11. **Producer completeness (structural meta-test).** Filesystem-walk `lib/parser/**` for every `code: "<X>_AUTOCORRECTED"` literal, and assert each producing site emits a warning carrying `autocorrect`. Fails by default when a NEW producer is added. This is the one meta-test this spec CREATES (writing-plans meta-test inventory). It exists because §3.2's failure mode is invisible: an unpopulated producer renders today's copy and breaks no other test. Registry-with-inline-exemption style, matching `tests/log/_metaMutationSurfaceObservability.test.ts`: a site legitimately outside scope carries an inline justification rather than being silently absent.
+2. **Emitter population (unit, per code).** All five codes populate `autocorrect` with the right `subject` and the right pairs. Includes the §3.2 row-2 mechanism specifically: assert `ROLE_TOKEN_AUTOCORRECTED` arrives at the section model WITH `subject` set, proving the stamp ran — a test at `personalization.ts` alone would pass with `subject` permanently null. Also asserts `message` is byte-identical to pre-change output at all thirteen sites.
 3. **Placement conservation (component).** Over a fixture whose members exceed `CREW_CAP`: every crew-scoped warning renders exactly once, under its row or in the group. Assert by warning identity against the MODEL, not by counting DOM nodes in a container that renders both.
 4. **Cap behavior (component).** 1, 2, 3, and 5 merged items; alerts-before-warnings ordering; `N more` count correct; expansion reveals exactly the remainder.
 5. **Bulk-ignore headless mode (component).** Chip renders at section level with no cards beside it; acting on it clears the under-row cards for that code in the same pass.
@@ -286,7 +314,7 @@ Anti-tautology applies throughout: expected strings derive from FIXTURE correcti
 | Surface | Action |
 |---|---|
 | `lib/parser/types.ts` | add `autocorrect` optional |
-| 5 emitter sites (§3.2) | populate; `message` unchanged |
+| 13 emitter sites (§3.2) | populate; `message` unchanged |
 | `components/admin/PerShowActionableWarnings.tsx` | instance-copy path in `warningCardCopyFields` |
 | `lib/admin/sectionWarningModel.ts` | partition crew-scoped codes out of the group |
 | `components/admin/wizard/step3ReviewSections.tsx` | row-stack host, cap, disclosure |
