@@ -37,4 +37,19 @@ describe("_metaAttentionRoutes — ATTENTION_ROUTES covers the production regist
       }
     }
   });
+
+  // Codex PR3 R2: rooms/event have NO section-top consumer, so a card routed there
+  // MUST carry an anchor or it lands in a consumerless section-top (silent drop).
+  // The route union makes the anchor REQUIRED there (an anchorless `{sectionId:
+  // "rooms"}` is a compile error); this is the runtime backstop for that class.
+  it("every rooms/event route carries an anchor (no consumerless section-top route)", () => {
+    for (const [code, r] of Object.entries(ATTENTION_ROUTES)) {
+      if (r.sectionId === "rooms" || r.sectionId === "event") {
+        expect(
+          "anchor" in r && Boolean(r.anchor),
+          `${code} routes to ${r.sectionId} sans anchor`,
+        ).toBe(true);
+      }
+    }
+  });
 });

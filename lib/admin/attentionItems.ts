@@ -20,11 +20,15 @@ export type RoutedSectionId = SectionId | "overview" | "changes";
 export type AttentionAnchor = "diagrams" | "opening_reel";
 
 /** Section-scoped route: anchors are declared per section, so an invalid pairing
- *  (e.g. crew + diagrams) is a COMPILE error, not a runtime drop (§3.2). PR2 uses
- *  only the anchorless arms; PR3 sets the rooms/event anchors. */
+ *  (e.g. crew + diagrams) is a COMPILE error, not a runtime drop (§3.2). rooms and
+ *  event host attention cards ONLY through their content anchor (Diagrams sub-block
+ *  / opening_reel field) — they have no section-top consumer — so the anchor is
+ *  REQUIRED there: an anchorless `{ sectionId: "rooms" }` is a compile error, which
+ *  structurally prevents a card from being routed to a consumerless section-top
+ *  (Codex PR3 R2). Every other section is a section-top consumer and takes no anchor. */
 export type AttentionRoute =
-  | { sectionId: "rooms"; anchor?: "diagrams" }
-  | { sectionId: "event"; anchor?: "opening_reel" }
+  | { sectionId: "rooms"; anchor: "diagrams" }
+  | { sectionId: "event"; anchor: "opening_reel" }
   | { sectionId: Exclude<RoutedSectionId, "rooms" | "event">; anchor?: never };
 
 /** Structural input row — lib/adminAlerts/fetchPerShowAlerts' AdminAlertRow satisfies this. */
@@ -56,17 +60,25 @@ export type AttentionAlertPayload = {
   errorCode: string | null;
 };
 
-export type AttentionItem = {
+type AttentionItemBase = {
   id: string;
-  kind: "alert" | "hold";
   tone: "critical" | "notice";
   sectionId: RoutedSectionId;
   crewKey: string | null;
   actionable: boolean;
   menuTitle: string;
   menuSubtitle: string | null;
-  alert?: AttentionAlertPayload;
 };
+
+/**
+ * Discriminated by `kind` so an `alert` item ALWAYS carries its payload (Codex PR3
+ * R3): `{ kind: "alert", alert: undefined }` — an item the pill/menu count but
+ * bucketAttention silently skips and AttentionBanner renders null — is now a compile
+ * error. A `hold` never carries a payload. Structural no-drop at the type level.
+ */
+export type AttentionItem =
+  | (AttentionItemBase & { kind: "alert"; alert: AttentionAlertPayload })
+  | (AttentionItemBase & { kind: "hold"; alert?: never });
 
 // The exact PerShowAlertSection fallback line (spec §5.4; invariant 5).
 export const ATTENTION_FALLBACK_TITLE = "Something needs your attention on this show.";
@@ -91,12 +103,12 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   CALLBACK_CLAIM_THREW: { sectionId: "overview" },
   PICKER_SELECTION_RACE: { sectionId: "overview" },
   PICKER_EPOCH_RESET: { sectionId: "overview" },
-  ASSET_RECOVERY_BYTES_EXCEEDED: { sectionId: "overview" },
+  ASSET_RECOVERY_BYTES_EXCEEDED: { sectionId: "rooms", anchor: "diagrams" },
   ASSET_RECOVERY_REVISION_DRIFT: { sectionId: "overview" },
   ASSET_RECOVERY_DRIFT_COOLDOWN: { sectionId: "overview" },
   WATCH_CHANNEL_ORPHANED: { sectionId: "overview" },
   WEBHOOK_TOKEN_INVALID: { sectionId: "overview" },
-  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: { sectionId: "overview" },
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: { sectionId: "rooms", anchor: "diagrams" },
   LIVE_ROW_CONFLICT: { sectionId: "overview" },
   DRIVE_FETCH_FAILED: { sectionId: "overview" },
   PARSE_ERROR_LAST_GOOD: { sectionId: "warnings" },
@@ -111,10 +123,10 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   PENDING_SNAPSHOT_PROMOTE_STUCK: { sectionId: "overview" },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: { sectionId: "overview" },
   PENDING_SNAPSHOT_DELETE_STUCK: { sectionId: "overview" },
-  OPENING_REEL_PERMISSION_DENIED: { sectionId: "overview" },
-  OPENING_REEL_NOT_VIDEO: { sectionId: "overview" },
-  REEL_DRIFTED: { sectionId: "overview" },
-  EMBEDDED_ASSET_DRIFTED: { sectionId: "overview" },
+  OPENING_REEL_PERMISSION_DENIED: { sectionId: "event", anchor: "opening_reel" },
+  OPENING_REEL_NOT_VIDEO: { sectionId: "event", anchor: "opening_reel" },
+  REEL_DRIFTED: { sectionId: "event", anchor: "opening_reel" },
+  EMBEDDED_ASSET_DRIFTED: { sectionId: "rooms", anchor: "diagrams" },
   REPORT_ORPHANED_LOST_LEASE: { sectionId: "overview" },
   REPORT_LOOKUP_INCONCLUSIVE: { sectionId: "overview" },
   GITHUB_BOT_LOGIN_MISSING: { sectionId: "overview" },

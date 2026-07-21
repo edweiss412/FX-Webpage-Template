@@ -160,16 +160,19 @@ function alertItem(
   payload: Partial<NonNullable<AttentionItem["alert"]>> = {},
 ): AttentionItem {
   const alertId = (over.id ?? `alert:${ALERT_ID}`).replace(/^alert:/, "");
+  // Drop kind/alert from the override so the discriminated `kind: "alert"` literal
+  // wins (AttentionItem now REQUIRES a payload on alert-kind items).
+  const { kind: _k, alert: _a, ...rest } = over;
   return {
-    id: `alert:${alertId}`,
-    kind: "alert",
     tone: "notice",
     sectionId: "overview",
     crewKey: null,
     actionable: true,
     menuTitle: "Role flags changed",
     menuSubtitle: "Crew · John Redcorn",
-    ...over,
+    ...rest,
+    id: `alert:${alertId}`,
+    kind: "alert",
     alert: {
       alertId,
       code: "TEST_FAKE_ATTENTION_CODE",

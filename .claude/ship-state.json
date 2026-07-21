@@ -1,20 +1,17 @@
 {
   "branch": "feat/attention-alert-routing",
-  "stage": "pr2-review+impeccable",
-  "tasksRemaining": 3,
-  "next": "Read codex-pr2/result.json. Run impeccable critique+audit on warnings-panel notes. Both pass -> push, real CI, merge. Local test:fast 8 fails are DB-contention + validation-seed-pollution, NOT regressions (verified: skip on clean origin/main, PR2 touches none).",
+  "stage": "pr3-review-r4",
+  "tasksRemaining": 1,
+  "next": "PR3 (#529) Codex R3 NEEDS-ATTENTION (2 P2, closed at TYPE level: PlacementPredicates mirror + discriminated AttentionItem). Pushed 7064defd6. R4 closure-confirm + CI watched. On R4 APPROVE + CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b. If R4 raises another 'latent not reachable' same-vector edge, treat vector as structurally closed (type forbids the state) per structural-defense calibration and proceed to merge.",
   "blockedOn": "",
   "cronJobId": "d806af7b",
-  "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
+  "base": "origin/main (rebased)",
   "specCommit": "9d7dcf897",
   "planNotes": [
-    "tests/components/admin/review/showReviewSurfaceAttention.test.tsx asserts DOM BYTE-IDENTITY when attention props are absent \u2014 the crewAttention -> sectionAttention rename must preserve it; this is the regression proof for PR2's mount generalization.",
-    "AGENTS.md cites tests/messages/codes.test.ts:92 for the x1 parity gate; the real path is tests/cross-cutting/codes.test.ts. Fix as a one-line docs correction in PR1.",
-    "Real-browser assertions must expect a 22x22 ? trigger (sibling feat/warning-card-copy-restore geometry), not the historical 44px box."
+    "no-drop/nav vector closed at compile time: required-anchor union + discriminated AttentionItem (payload required on alert-kind) + resolveEffectiveSection mirrors bucketAttention via shared PlacementPredicates + bucket redirect + meta/negative tests.",
+    "impeccable: no P0/P1."
   ],
-  "siblings": {
-    "feat/show-scoped-alert-copy": "owns admin-alert copy + spec B; already committed my 13-code handoff at 3aba6f8f5; rebase when it merges",
-    "feat/warning-card-copy-restore": "owns parse-warning card copy; shrinks the ? trigger to 22px including AttentionBanner"
-  },
-  "pr1": "MERGED #524"
+  "pr1": "MERGED #524",
+  "pr2": "MERGED #526",
+  "pr3": "#529"
 }
