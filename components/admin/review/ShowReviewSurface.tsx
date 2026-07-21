@@ -192,6 +192,9 @@ export function ShowReviewSurface({
   const crewAttention: CrewAttention | undefined = crewBucket
     ? { byCrewKey: crewBucket.byCrewKey ?? new Map(), sectionTop: crewBucket.sectionTop }
     : undefined;
+  // The two parse notices, composed by the warnings section (§3.2). Read once so
+  // the prop value is exactly NoteItem[] (not a re-narrowed Map lookup).
+  const warningsNotes = sectionAttention?.get("warnings")?.notes;
   // Staged-only identifiers (spec §3.2): `dfid` fills the section/rail testids;
   // in staged mode it is the drive file id (byte-identical to the modal), in
   // published mode it falls back to the mode-agnostic `driveFileId`.
@@ -929,8 +932,8 @@ export function ShowReviewSurface({
                   // attention-alert-routing §3.2: the two parse notices render as
                   // banner LINES atop the Parse-warnings panel; they travel as
                   // domain items so WarningsBreakdown composes them with warnings.length.
-                  ...(s.id === "warnings" && sectionAttention?.get("warnings")?.notes?.length
-                    ? { parseNotes: sectionAttention.get("warnings")!.notes }
+                  ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
+                    ? { parseNotes: warningsNotes }
                     : {}),
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? {

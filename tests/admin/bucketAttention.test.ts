@@ -59,4 +59,44 @@ describe("bucketAttention", () => {
     });
     expect(m.get("overview")!.sectionTop).toEqual(["CARD:EMBEDDED_ASSET_DRIFTED"]);
   });
+
+  it("a parse note whose warnings section is UNAVAILABLE falls back to an overview card (no drop)", () => {
+    const m = bucketAttention([it_("PARSE_ERROR_LAST_GOOD", "warnings")], {
+      ...opts,
+      sectionAvailable: (s: string) => s !== "warnings",
+    });
+    expect(m.get("warnings")?.notes ?? []).toEqual([]);
+    expect(m.get("overview")!.sectionTop).toEqual(["CARD:PARSE_ERROR_LAST_GOOD"]);
+  });
+
+  it("alert-item conservation: every alert lands in exactly one channel; holds are excluded by design", () => {
+    const alerts = [
+      it_("PARSE_ERROR_LAST_GOOD", "warnings"),
+      it_("DRIVE_FETCH_FAILED", "overview"),
+      it_("ROLE_FLAGS_NOTICE", "crew", "doug"),
+    ];
+    const hold: AttentionItem = {
+      id: "hold:h1",
+      kind: "hold",
+      tone: "critical",
+      sectionId: "changes",
+      crewKey: null,
+      actionable: true,
+      menuTitle: "x",
+      menuSubtitle: null,
+    } as AttentionItem;
+    const m = bucketAttention([...alerts, hold], opts);
+    const placed =
+      (m.get("warnings")?.notes?.length ?? 0) +
+      [...m.values()].reduce(
+        (n, b) =>
+          n +
+          b.sectionTop.length +
+          [...(b.byCrewKey?.values() ?? [])].reduce((k, arr) => k + arr.length, 0) +
+          [...(b.byAnchor?.values() ?? [])].reduce((k, arr) => k + arr.length, 0),
+        0,
+      );
+    // 3 alerts placed, the hold excluded (it renders in the Changes feed).
+    expect(placed).toBe(3);
+  });
 });

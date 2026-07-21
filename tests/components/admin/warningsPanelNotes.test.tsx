@@ -61,14 +61,32 @@ function renderPanel(parseNotes: NoteItem[] | undefined, warnings: ParseWarning[
 }
 
 describe("parse notices render as banner lines in the warnings panel", () => {
-  it("PARSE note with items: full composed line, in its own testid, above the list", () => {
-    renderPanel([note("PARSE_ERROR_LAST_GOOD", "MI-4_NO_CREW")], [warning("UNKNOWN_FIELD")]);
+  it("PARSE note with items: full composed line, in its own testid, above the list, not a card", () => {
+    const { container: root } = renderPanel(
+      [note("PARSE_ERROR_LAST_GOOD", "MI-4_NO_CREW")],
+      [warning("UNKNOWN_FIELD")],
+    );
     const container = screen.getByTestId("parse-attention-notes");
     const p = within(container).getByTestId("parse-attention-note-PARSE_ERROR_LAST_GOOD");
     const expected = composeParseNote(note("PARSE_ERROR_LAST_GOOD", "MI-4_NO_CREW"), 1);
     expect(p.textContent).toBe(`${expected.lead} ${expected.rest}`);
-    // NOT a CompactAlertCard — banner line only.
-    expect(p.querySelector('[data-testid^="compact-alert-card"]')).toBeNull();
+    // NOT a CompactAlertCard anywhere in the notes container (a wrapping/sibling
+    // card would evade a check scoped to the <p>).
+    expect(container.querySelector('[data-testid^="compact-alert-card"]')).toBeNull();
+    // No live-region semantics — page context, not an announcement.
+    expect(container.getAttribute("role")).toBeNull();
+    expect(container.getAttribute("aria-live")).toBeNull();
+    // DOM ORDER: the notes container precedes the warnings-list / empty-state.
+    const panel = container.parentElement!;
+    const kids = [...panel.children];
+    const notesIdx = kids.indexOf(container);
+    const list = panel.querySelector("ul, ol");
+    if (list) {
+      const listIdx = kids.indexOf(list.closest(":scope > *") ?? list);
+      expect(notesIdx).toBeLessThan(listIdx);
+    }
+    // The container is the FIRST child of the panel body either way.
+    expect(root.querySelector('[data-testid="parse-attention-notes"]')).toBe(container);
   });
 
   it("empty list: the 'below' clause is absent (state 4 variant)", () => {

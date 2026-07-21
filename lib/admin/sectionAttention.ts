@@ -55,12 +55,20 @@ export function bucketAttention(
   const crewKeyRendered = opts.crewKeyRendered ?? (() => true);
 
   for (const item of items) {
+    // Hold items are NOT an attention-bucket surface: they render in the Changes
+    // feed via Mi11GateActions and are counted separately (holdCount), never as a
+    // banner or card. Excluding them here preserves the pre-existing bucketing
+    // behavior (the retired inline modal code was also alert-only). No drop: they
+    // have their own consumer. Pinned by the conservation test.
     if (item.kind !== "alert" || !item.alert) continue;
 
     // Notes channel: the two parse codes travel as domain items to the warnings
-    // section, which composes them. They never become cards.
+    // section, which composes them (the copy variant needs warnings.length). They
+    // never become cards — UNLESS the warnings section is unavailable, in which
+    // case they fall through to the card path and land in Overview (no drop). The
+    // warnings section is unconditional today, so the fallback is defensive.
     const note = toNoteItem(item);
-    if (note && item.sectionId === "warnings") {
+    if (note && item.sectionId === "warnings" && opts.sectionAvailable("warnings")) {
       const b = bucket(map, "warnings");
       (b.notes ??= []).push(note);
       continue;

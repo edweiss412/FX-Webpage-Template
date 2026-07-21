@@ -80,17 +80,22 @@ function discoverTs(): Hit[] {
 }
 function discoverSql(): string[] {
   const out: string[] = [];
-  for (const file of walk("supabase", [".sql"]))
-    readFileSync(file, "utf8")
-      .split("\n")
-      .forEach((ln, i) => {
-        if (
-          /upsert_admin_alert\s*\(/.test(ln) &&
-          !/(drop|create|replace|revoke|grant)\b.*function/i.test(ln)
-        )
-          out.push(`${file}:${i + 1}`);
-      });
-  return out;
+  for (const file of walk("supabase", [".sql"])) {
+    const text = readFileSync(file, "utf8");
+    // Scan the whole file (not per-line): the call name and its `(` may sit on
+    // separate lines, which a per-line regex would miss (review R2 finding 6).
+    const re = /upsert_admin_alert\s*\(/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const lineStart = text.lastIndexOf("\n", m.index) + 1;
+      const nl = text.indexOf("\n", m.index);
+      const line = text.slice(lineStart, nl === -1 ? undefined : nl);
+      // Keep invocations; skip CREATE/DROP/REVOKE/GRANT ... FUNCTION DDL.
+      if (/(drop|create|replace|revoke|grant)\b[\s\S]*function/i.test(line)) continue;
+      out.push(`${file}:${text.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  return [...new Set(out)];
 }
 
 describe("_metaAlertProducerScope", () => {

@@ -31,15 +31,7 @@
  * the URL up in the background.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -57,7 +49,6 @@ import {
   type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
 import { bucketAttention } from "@/lib/admin/sectionAttention";
-import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
@@ -376,25 +367,28 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     />
   );
   // Generalized bucketing (attention-alert-routing §2.5/§3.2). Under-row crew
-  // placement still targets only the RENDERED rows (CREW_CAP slice, §4). Section
-  // availability: rooms/event/warnings are unconditional today, so every routed
-  // section is present; the check exists for future conditional sections and the
-  // Overview terminal fallback. Anchors are unrouted at PR2 (PR3 wires them), so
-  // anchorAvailable is false here. The FULL item list is bucketed, not the
-  // doneIds-filtered one: a resolved banner swaps to "✓ Confirmed" in place and
-  // stays mounted until router.refresh() reconciles (spec §6.3).
+  // placement targets only the RENDERED rows (CREW_CAP slice, §4). The FULL item
+  // list is bucketed, not the doneIds-filtered one: a resolved banner swaps to
+  // "✓ Confirmed" in place and stays mounted until router.refresh() reconciles
+  // (spec §6.3).
   const renderedKeys = new Set(
     data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
   );
-  const availableSections = new Set<RoutedSectionId>([
-    ...renderedSectionIds(data),
-    "overview",
-    "changes",
-  ]);
+  // `sectionAvailable` = "this section has a MOUNTED attention consumer", not
+  // merely "this section renders". At PR2 the consumers are: crew (byCrewKey +
+  // sectionTop, in CrewBreakdown), overview (sectionTop, the Overview slot), and
+  // warnings (the notes banner). rooms/event have NO card consumer until PR3
+  // wires byAnchor, so a card routed there must fall back to Overview — which is
+  // exactly what returning false triggers in bucketAttention. No routed code
+  // targets rooms/event at PR2 (the frozen routing fixture keeps the six
+  // asset/reel codes on overview), so this is defence-in-depth, not a live path.
+  const CARD_CONSUMER_SECTIONS = new Set<RoutedSectionId>(["crew", "overview"]);
   const sectionAttention = bucketAttention(attentionItems, {
     renderCard: bannerFor,
-    sectionAvailable: (id) => availableSections.has(id),
-    anchorAvailable: () => false,
+    // Warnings hosts the NOTE channel (checked by the note branch); every other
+    // consumed section hosts CARDS. Anything else → Overview fallback.
+    sectionAvailable: (id) => id === "warnings" || CARD_CONSUMER_SECTIONS.has(id),
+    anchorAvailable: () => false, // PR3 wires the diagrams/opening_reel anchors.
     crewKeyRendered: (key) => renderedKeys.has(key),
   });
   const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
