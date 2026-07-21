@@ -2,13 +2,13 @@
 
 **Date:** 2026-07-20
 **Branch:** `feat/attention-scenario-gallery`
-**Status:** draft (pending cross-model adversarial review)
+**Status:** draft, revision 2 (post Codex R1)
 
 ---
 
 ## 1. Problem
 
-The admin show modal's attention surface — alert pills, section banners, compact alert cards, parse-warning cards — is only observable when live sheet data or an operator action happens to raise the underlying row. Most of the 45 registered alert codes and 43 parse-warning codes never fire against the test shows, so their copy, routing, tone, and layout are unverified by eye. The existing unit and meta tests pin *structure* (routing totality, no-drop, copy parity) but nothing renders the surface for a human.
+The admin show modal's attention surface — alert pills, section banners, compact alert cards, parse-warning cards — is only observable when live sheet data or an operator action happens to raise the underlying row. Most alert codes and parse-warning codes never fire against the test shows, so their copy, routing, tone, and layout are unverified by eye. The existing unit and meta tests pin *structure* (routing totality, no-drop, copy parity) but nothing renders the surface for a human.
 
 Two distinct gaps:
 
@@ -19,17 +19,19 @@ This design closes both from one catalog.
 
 ## 1.1 Resolved scope — do not relitigate
 
-These were decided during brainstorming. Cite the ratification before re-opening.
+Decided during brainstorming, or ratified in R1 triage. Cite the ratification before re-opening.
 
 | Decision | Ratification |
 | --- | --- |
-| Gallery renders **T1 + T2 only**; T3 composites are materialize-only. Duplicating a full `get_admin_show_review_snapshot` fixture to mount `ShowReviewSurface` was considered and rejected as a drift liability. | §4.3, §5.1 |
-| **No CI gate.** No screenshot byte-comparison, no catalog-completeness meta-test. The eyeball tool is the deliverable. Totality is instead achieved structurally (§3.1) so a gate is not needed for the alert axis. | §3.1, §9 |
-| **No migration.** Clear regenerates authentic warnings via the existing re-sync path rather than stashing a backup in a new column or table. | §5.4 |
-| **No new advisory-lock holder.** Materialize writes only `admin_alerts`, `shows_internal.parse_warnings`, and `sync_holds` — none in the invariant-2 guarded set. The Clear path's re-sync acquires the lock inside existing code (`POST /api/admin/sync/[slug]`), so the single-holder rule is untouched. | §7.2 |
-| Gallery **server actions are dead ends by design** (fake alert ids). Client-side affordances are live. Driving actions for real is materialize's job, not the gallery's. | §4.4 |
-| The gallery route is **dev-only and absent from the production artifact**, gated by the existing build-time rename mechanism, not by a runtime check alone. | §6 |
-| `attention-gallery-full.png` (an earlier ad-hoc screenshot at the repo root) is **discarded**, not folded in. | user decision, 2026-07-20 |
+| Gallery renders **T1 + T2 only**; T3 composites are materialize-only. Mounting the whole surface against a synthetic snapshot fixture was considered and rejected as a drift liability. | §4.3, §5.0 |
+| **No CI gate.** No screenshot byte-comparison, no catalog-completeness meta-test. Totality on the alert axis is achieved structurally instead (§3.1). | §3.1, §12 |
+| **No migration.** | §5.4 |
+| **No new advisory-lock holder.** | §7.2 |
+| Gallery server actions are inert by design (synthetic ids). | §4.4 |
+| The gallery route is dev-only and absent from the production artifact. | §6 |
+| **Invariant 5 carries a scoped exception for this instrument, ratified here.** The gallery and the materialize card display raw `code` strings, scenario ids, and result codes. Invariant 5 protects *operators* from raw codes in the product UI; these two surfaces are developer instruments behind `requireDeveloper`, renamed out of the production artifact at build time (§6), whose entire subject matter **is** the code catalog. A gallery that hid codes could not perform its function. Scope of the exception is exactly: the routing readout (§4.1), scenario ids, the `PICKER_EPOCH_RESET` non-render row, the unknown-scenario id list, the materialize selector, and the §5.3 result codes. Everywhere else — including all rendered card copy — codes resolve through `lib/messages/lookup.ts` as normal. (Codex R1 #1: correct that R1 asserted an exception §1.1 had not ratified. Ratified now rather than argued.) | this row |
+| **Validation targeting stays**, but Clear on validation does **not** re-sync (§5.5). The user chose local + validation; R1 #5 showed the re-sync step cannot be made env-correct cheaply, so that one step is dropped on validation rather than the whole capability. | §5.5 |
+| `attention-gallery-full.png` (an earlier ad-hoc screenshot at the repo root) is discarded, not folded in. | user decision, 2026-07-20 |
 
 ## 2. Canonical numbers
 
@@ -48,79 +50,100 @@ Every count in this document resolves here. Later sections reference this table;
 | `N_WARN_ENUM` | 39 | `lib/messages/__generated__/internal-code-enums.ts` entries with `source: "parse_warnings.code"` |
 | `N_WARN_GAP` | 4 | §3.2 — parse-warning codes the generator's scan heuristic misses |
 | `N_WARN_CODES` | 43 | `N_WARN_ENUM` + `N_WARN_GAP` |
+| `MENU_CAP` | 12 | §4.2 — item count for the "many" scenario |
 
 `N_ROUTES_OVERVIEW + N_ROUTES_CREW + N_ROUTES_EVENT + N_ROUTES_ROOMS + N_ROUTES_WARNINGS = N_ALERT_CODES` (34+3+3+3+2 = 45).
 
 Cross-check: `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`) also has 45 entries and is pinned set-equal to `ATTENTION_ROUTES` by `tests/admin/_metaAttentionRoutes.test.ts`.
 
-## 3. Catalog — the single source of truth
+## 3. Catalog
 
 **Module (new file):** `lib/dev/attentionScenarios.ts (new)`
 
-A scenario declares **storable inputs** — the shapes that actually live in the database — never pre-built `AttentionItem`s and never derived read-model shapes. This is the load-bearing constraint of the whole design (§3.3):
+A scenario declares **storable inputs** — shapes that exist in the database — never pre-built `AttentionItem`s and never derived read-model shapes (§3.3).
 
 ```ts
 export type AttentionScenario = {
-  id: string;                      // stable slug, used as the DB tag and the gallery anchor
+  id: string;                      // ^[a-z0-9][a-z0-9-]{2,47}$ - DOM anchor and DB tag
   tier: 1 | 2 | 3;
-  label: string;
-  alerts: ScenarioAlertRow[];      // storable admin_alerts columns only, see below
-  holds: ScenarioHoldRow[];        // storable sync_holds columns only, see below
-  warnings: ParseWarning[];        // lib/parser/types.ts:48 - stored verbatim as jsonb
-  bucket?: Partial<BucketOpts>;    // T2 only: see §4.2
-  degraded?: boolean;              // T2 only: see §4.2
+  label: string;                   // non-empty
+  alerts: ScenarioAlertRow[];
+  holds: ScenarioHoldRow[];
+  warnings?: ParseWarning[];       // TRI-STATE, see 3.4
+  bucket?: Partial<BucketOpts>;    // T2 only
+  degraded?: boolean;              // T2 only
 };
-
-// Exactly the columns fetchPerShowAlerts selects (lib/adminAlerts/fetchPerShowAlerts.ts:100),
-// plus the identity the gallery cannot resolve for synthetic rows (§3.3).
-export type ScenarioAlertRow = {
-  code: string;
-  context: Record<string, unknown>; // NOT NULL in the DDL - use {} not null
-  raisedAt: string;
-  occurrenceCount: number;
-  galleryIdentity?: AlertIdentity | null; // gallery-only; materialize resolves for real
-};
-
-// The storable hold shape (lib/sync/holds/types.ts:12-25), not the derived FeedEntry.
-export type ScenarioHoldRow = Omit<SyncHold, "id" | "showId">;
 ```
 
-Both consumers run the **real** `deriveAttentionItems` (`lib/admin/attentionItems.ts:303`) and the **real** `bucketAttention` (`lib/admin/sectionAttention.ts:85`). Nothing hand-builds an `AttentionItem`. Consequence: routing, `tone`, `actionable`, `autoClearNote`, `crewKey` derivation, `safeDougFacingTemplate` fallback, `catalogHelpHref`, `readFailedKeys`, `readDataGapsDigest`, and `readErrorCode` are all exercised for real. The catalog cannot misrepresent routing, because it never states routing.
+### 3.0 Alert and hold row shapes
+
+The catalog is authored in the DB's own column names, so the mapping to an insert is identity plus three injected fields. This removes the camel/snake conversion boundary R1 #8 found undefined.
+
+```ts
+export type ScenarioAlertRow = {
+  code: string;
+  context: Record<string, unknown>; // NOT NULL in DDL - {} never null
+  raised_at: string;                // ISO 8601
+  occurrence_count: number;         // integer >= 1
+  galleryIdentity?: AlertIdentity | null; // GALLERY-ONLY, never inserted (3.3)
+};
+
+export type ScenarioHoldRow = {
+  drive_file_id: string;
+  domain: "crew_email" | "crew_identity";
+  entity_key: string;
+  held_value: Record<string, unknown>;         // NOT NULL
+  proposed_value: Disposition;                  // NOT NULL for mi11_pending
+  base_modified_time: string;                   // NOT NULL for mi11_pending
+  kind: "mi11_pending";                         // see 3.0a
+  reservation_collisions?: Array<{ name: string; email: string | null }>;
+};
+```
+
+**Injected at materialize time, never authored:** `id` (DB default `gen_random_uuid()`), `show_id` (the target show), the `__devScenario` tag (§5.1b). **`id` is likewise injected in the gallery** — a deterministic synthetic `gallery:<scenario id>:<index>` — which is what §4.4's "synthetic ids" refers to. (R1 #8.)
+
+#### 3.0a Every scenario hold must satisfy the `sync_holds` CHECK constraints
+
+`supabase/migrations/20260608000000_sync_holds.sql:29-37` constrains `mi11_pending` rows: `proposed_value` NOT NULL, `base_modified_time` NOT NULL, and `proposed_value->>'disposition' in ('email_change','rename','removal')`. `domain` is constrained to `crew_email | crew_identity` (line 21-23).
+
+`kind` is fixed to `"mi11_pending"` in the type because it is the only kind that becomes an attention item: `toHoldItem` (`lib/admin/attentionItems.ts:284-286`) returns null unless `status === "pending"` and `action === "approve_reject"`, which only an open `mi11_pending` hold produces. An `undo_override` row is expressible in the DB but is dead weight here, so the type forbids it.
+
+**`unique (show_id, domain, entity_key)`** (line 39-41) is the hold analogue of the alert unique index. It is handled identically to §5.1a: a scenario may not carry two holds sharing `(domain, entity_key)`, and a collision with a pre-existing real hold causes a skip-and-report, never an overwrite. (R1 #11 correctly noted this constraint analysis was missing.)
 
 ### 3.1 Alert totality is structural, not listed
 
-T1 alert scenarios are **derived at runtime** from `Object.keys(ATTENTION_ROUTES)`, not hand-listed. A new alert code appears in the gallery the moment its `ATTENTION_ROUTES` row lands — no catalog edit, no drift, and no completeness meta-test needed (which is why §1.1 can decline the gate without accepting drift).
+T1 alert scenarios are **derived at runtime** from `Object.keys(ATTENTION_ROUTES)`, not hand-listed. A new alert code appears in the gallery the moment its `ATTENTION_ROUTES` row lands — no catalog edit, no drift, no completeness meta-test.
 
-Realistic params come from an override map keyed by code:
+Realistic content comes from an override map keyed by code. **Overrides set storable fields only** — in practice `context`, since that is what the derivation reads:
 
 ```ts
 const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<ScenarioAlertRow>>> = { ... };
 ```
 
-A code with no override gets a generic default row (`occurrenceCount: 1`, `context: {}`, `galleryIdentity: null`, fixed `raisedAt`). `context` defaults to `{}` and never `null`: `admin_alerts.context` is `jsonb not null` (`supabase/migrations/20260501001000_internal_and_admin.sql`), so a null default would be gallery-legal but un-insertable, and the two consumers would diverge at exactly the point §3.3 forbids.
+Default row: `context: {}`, `occurrence_count: 1`, `galleryIdentity: null`, fixed `raised_at`. `context` is `{}` and never `null` because `admin_alerts.context` is `jsonb not null`; a null default would be gallery-legal but un-insertable, diverging exactly where §3.3 forbids.
 
-Codes whose card content depends on context **must** carry an override or the gallery shows their degenerate form:
+Codes whose rendered content depends on context need an override. **Each row below names the storable context key, not the derived field** (R1 #9 — the previous revision listed `crewName`/`messageParams`/`identityText`, which are derived and unauthorable):
 
-| Code | Required override | Why |
+| Code | Storable input required | Derived consequence |
 | --- | --- | --- |
 | `TILE_PROJECTION_FETCH_FAILED` | `context.failedKeys: string[]` | `readFailedKeys` (`lib/admin/attentionItems.ts:233-236`) returns null for any other code or a non-array |
 | `SHOW_FIRST_PUBLISHED` | `context` shaped for `readDataGapsDigest` | gated on that exact code (`lib/admin/attentionItems.ts:279`) |
 | `PARSE_ERROR_LAST_GOOD` | `context.error_code` ∈ `PARSE_FAILURE_ALLOWLIST` | `readErrorCode` (`lib/admin/attentionItems.ts:242-246`) drops anything else |
-| `AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED`, `ROLE_FLAGS_NOTICE` | `crewName` | crew-routed codes bind `crewKey` only when `crewName` is set (`lib/admin/attentionItems.ts:255-256`) |
+| `AMBIGUOUS_EMAIL_BINDING`, `OAUTH_IDENTITY_CLAIMED`, `ROLE_FLAGS_NOTICE` | `galleryIdentity` carrying a crew name, **and** the matching identity context keys that `projectIdentityContext` allowlists | `crewNameFor` (`lib/adminAlerts/fetchPerShowAlerts.ts:58`) reads the projected context and the resolved identity; `crewKey` binds only when it yields a name (`lib/admin/attentionItems.ts:255-256`) |
 
-Any code whose catalog `dougFacing` template carries `<placeholder>` tokens needs `messageParams` that fully interpolate, or `safeDougFacingTemplate` returns null and the card falls back — which is itself a state worth seeing, so T2 keeps one deliberate non-interpolating scenario (§4.2).
+Any code whose catalog `dougFacing` template carries `<placeholder>` tokens needs context that fully interpolates, or `safeDougFacingTemplate` returns null and the card falls back — itself a state worth seeing, so T2 keeps one deliberate non-interpolating scenario.
 
-**Guard — `PICKER_EPOCH_RESET`:** it has an `ATTENTION_ROUTES` row for registry totality but is filtered out in derive. The gallery renders it as an explicit **"cut in derive, renders nothing"** row rather than silently omitting it, so the absence is legible instead of looking like a bug.
+**`PICKER_EPOCH_RESET`** has an `ATTENTION_ROUTES` row for registry totality but is filtered out in derive. The gallery renders it as an explicit "cut in derive, renders nothing" row so the absence is legible rather than looking like a bug. It is **not materializable** (§5.0).
 
 ### 3.2 Warning totality and its known gap
 
 No single runtime module enumerates the parse-warning universe:
 
-- `INTERNAL_CODE_ENUMS` (`lib/messages/__generated__/internal-code-enums.ts`) is generated, runtime-importable from `lib/`, and yields `N_WARN_ENUM` codes with `source: "parse_warnings.code"`. Its generator (`scripts/extract-internal-code-enums.ts:71-72`) only scans files matching `/\bParseWarning\b|\bwarnings\b|hardErrors/`, so emitters in other files are missed.
-- `WARNING_CARD_COPY_CODES` (`tests/messages/warningCardCopyRegistry.ts:4`) has 40 codes but lives under `tests/` — `lib/` must not import it — and is itself not a superset.
-- `MESSAGE_CATALOG` (`lib/messages/catalog.ts`) contains all of them but carries no severity or source field to partition on (see e.g. the all-null `TYPO_NORMALIZED` row at `lib/messages/catalog.ts:1709-1718`).
+- `INTERNAL_CODE_ENUMS` (`lib/messages/__generated__/internal-code-enums.ts`) is generated, runtime-importable from `lib/`, and yields `N_WARN_ENUM` codes with `source: "parse_warnings.code"`. Its generator (`scripts/extract-internal-code-enums.ts:71-72`) only scans files matching `/\bParseWarning\b|\bwarnings\b|hardErrors/`, so emitters elsewhere are missed.
+- `WARNING_CARD_COPY_CODES` (`tests/messages/warningCardCopyRegistry.ts:4`) has 40 codes but lives under `tests/` — `lib/` must not import it — and is not a superset either.
+- `MESSAGE_CATALOG` contains all of them but carries no severity or source field to partition on (e.g. the all-null `TYPO_NORMALIZED` row at `lib/messages/catalog.ts:1709-1718`).
 
-Measured difference between the two registries:
+Measured difference:
 
 | In copy registry, absent from generated enum (`N_WARN_GAP` = 4) | In generated enum, absent from copy registry (3) |
 | --- | --- |
@@ -129,102 +152,160 @@ Measured difference between the two registries:
 | `PULL_SHEET_ON_ARCHIVED_TAB` (`lib/sync/pullSheetOverride.ts`) | `TYPO_NORMALIZED` (`lib/parser/blocks/venue.ts`) |
 | `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (`lib/sync/pullSheetOverride.ts`) | |
 
-**Decision:** the warning universe is `INTERNAL_CODE_ENUMS` filtered to `parse_warnings.code`, **plus** an explicit `EXTRA_WARNING_CODES` constant holding the `N_WARN_GAP` codes above, each with the `file:line` comment justifying its presence. Total `N_WARN_CODES`. This is mostly self-updating (new codes in scanned files appear free) and honest about the residue.
+**Decision:** the warning universe is `INTERNAL_CODE_ENUMS` filtered to `parse_warnings.code`, **plus** `EXTRA_WARNING_CODES` holding the `N_WARN_GAP` codes above with `file:line` justification each. The union is de-duplicated, so a later generator fix that absorbs one of the four silently reduces `EXTRA_WARNING_CODES` to a no-op rather than double-rendering it (R1 #18).
 
-**Backlog, not in scope:** widen the generator's scan heuristic so `EXTRA_WARNING_CODES` can be deleted. Filed as `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`.
+**Backlog:** widen the generator's scan heuristic so `EXTRA_WARNING_CODES` can be deleted. `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`.
+
+#### 3.2a Warning construction contract
+
+Enumerating codes does not produce renderable warnings (R1 #18). Every generated `ParseWarning` is built by one function with this contract:
+
+| Field | Value |
+| --- | --- |
+| `code` | the enumerated code |
+| `severity` | `"warn"` — the card surface is the warn-severity surface; `info` rows render elsewhere and are out of scope |
+| `message` | fixed synthetic prose naming the code, so a card whose copy comes from `message` is visibly distinguishable from one whose copy comes from the catalog |
+| `blockRef`, `rawSnippet`, `roleToken`, resolution payloads | **absent by default.** Optional fields are set only by the per-code override table below, keeping `exactOptionalPropertyTypes` satisfied and absence meaningful |
+
+Per-code overrides are required where absence changes the rendered card: `UNKNOWN_ROLE_TOKEN` always carries `roleToken` (`lib/parser/types.ts` documents absence as discriminating), and the three recoverable structural-transform codes (`ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`) always carry their use-raw resolution payload. T2 additionally carries one deliberately malformed warning (unknown code, empty message) to exercise the fallback path.
 
 ### 3.3 Fidelity contract between the two consumers
 
-The instrument's entire value rests on one property: **what the gallery shows for a scenario is what materialize produces for that scenario.** A catalog field the gallery honors but materialize cannot reproduce is worse than no tool, because it teaches the operator a state that does not exist.
+The instrument's value rests on one property: **what the gallery shows for a scenario is what materialize produces for it.** A field the gallery honors but materialize cannot reproduce is worse than no tool, because it teaches a state that does not exist.
 
-The database stores less than the modal renders. `fetchPerShowAlerts` selects only `id, code, context, raised_at, occurrence_count` (`lib/adminAlerts/fetchPerShowAlerts.ts:100`) and then **derives** `identityText`, `messageParams`, and `crewName` (`lib/adminAlerts/fetchPerShowAlerts.ts:169-172`) from `context` plus a DB-resolved `AlertIdentity`. Likewise `FeedEntry` (`lib/sync/holds/types.ts:60-77`) is derived by `readShowChangeFeed` from `sync_holds` rows; its `summary` is generated from the hold's disposition, not authored.
+The database stores less than the modal renders. `fetchPerShowAlerts` selects only `id, code, context, raised_at, occurrence_count` (`lib/adminAlerts/fetchPerShowAlerts.ts:100`) and **derives** `identityText`, `messageParams`, `crewName` (`lib/adminAlerts/fetchPerShowAlerts.ts:169-172`) from `context` plus a resolved `AlertIdentity`. `FeedEntry` (`lib/sync/holds/types.ts:60-77`) is likewise derived by `readShowChangeFeed` from `sync_holds` rows; its `summary` is generated from the disposition, not authored.
 
-Therefore the catalog declares **only storable fields** (§3), and each derived field is produced by the same code in both consumers:
-
-| Field | Stored? | Gallery | Materialize | Divergence risk |
+| Field | Stored? | Gallery | Materialize | Divergence |
 | --- | --- | --- | --- | --- |
-| `code`, `context`, `raisedAt`, `occurrenceCount` | yes | honored verbatim | inserted verbatim | none |
-| `identityText`, `messageParams`, `crewName` | no — derived | shared pure derivation, given `galleryIdentity` | shared pure derivation, given the resolved identity | none, **provided the derivation is one function** (below) |
-| `AlertIdentity` itself | no — resolved from real crew rows | **declared** via `galleryIdentity` | **resolved** by `resolveAlertIdentities` | inherent, see below |
-| hold `summary`, `action`, `status` | no — derived | shared feed shaping | shared feed shaping | none, same condition |
-| `ParseWarning[]` | yes, jsonb | honored verbatim | written verbatim | none |
+| `code`, `context`, `raised_at`, `occurrence_count` | yes | verbatim | inserted verbatim | none |
+| `identityText`, `messageParams`, `crewName` | derived | shared function, given `galleryIdentity` | shared function, given the resolved identity | none by construction |
+| `AlertIdentity` | resolved from real crew rows | **declared** | **resolved** | inherent, labelled (below) |
+| hold `summary`, `action`, `status` | derived | shared shaping | shared shaping | none by construction |
+| `ParseWarning[]` | yes, jsonb | verbatim | written verbatim | none |
 
-**Required refactor:** extract the DB-independent tail of `fetchPerShowAlerts` — the `(row, identity) -> { identityText, messageParams, crewName }` step at `lib/adminAlerts/fetchPerShowAlerts.ts:169-172` — into an exported pure function, and have both `fetchPerShowAlerts` and the gallery call it. Same for the `FeedEntry` shaping step in `readShowChangeFeed` (`lib/sync/feed/readShowChangeFeed.ts:286-318`) if it is not already callable in isolation. Without this the fidelity contract is an aspiration; with it, drift is a compile-or-test failure rather than a silent divergence.
+**Required refactor — unconditional, not discovered at implementation time** (R1 #10):
 
-**The one inherent divergence:** identity *resolution* needs real crew rows, which synthetic alerts do not have. The gallery therefore takes a declared `galleryIdentity` where materialize resolves the real thing. This is stated, not hidden: the routing readout (§4.1 step 2) labels the identity as `declared (gallery)`, so the operator knows that one field is the instrument's assumption rather than the system's answer.
+1. Extract the identity-derivation tail of `fetchPerShowAlerts` (`lib/adminAlerts/fetchPerShowAlerts.ts:169-172`) into an exported pure function `deriveAlertRowFields(row, identity) -> { identityText, messageParams, crewName }`, moving the module-local `crewNameFor` (`lib/adminAlerts/fetchPerShowAlerts.ts:58`) with it. `fetchPerShowAlerts` then calls it; so does the gallery. Verified precondition: `describeAlert`, `deriveAlertMessageParams`, and `projectIdentityContext` are already separate exported modules, so only `crewNameFor` moves.
+2. Extract the hold→`FeedEntry` shaping step of `readShowChangeFeed` (`lib/sync/feed/readShowChangeFeed.ts:286-318`) into an exported pure function `shapeHoldEntry(holdRow) -> FeedEntry`. `readShowChangeFeed` calls it; so does the gallery.
+
+Both are behavior-preserving extractions on production read paths (see §13 — this design **does** touch production code, contrary to the previous revision's claim).
+
+**The one inherent divergence:** identity *resolution* needs real crew rows, which synthetic alerts lack. The gallery takes a declared `galleryIdentity` where materialize resolves the real thing. Stated, not hidden: the routing readout labels it `identity: declared (gallery)`.
+
+### 3.4 `warnings` is tri-state
+
+R1 #3: a required `warnings: []` on an alert-only scenario silently erased authentic warnings, because §5.1 overwrote the column unconditionally. The field is now optional and carries three distinct meanings:
+
+| Value | Gallery | Materialize |
+| --- | --- | --- |
+| `undefined` (absent) | renders no warning cards | **does not touch** `shows_internal.parse_warnings` |
+| `[]` | renders the empty-warnings state | overwrites the column with `[]` — deliberate "this show has zero warnings" |
+| non-empty | renders the cards | overwrites the column with the array |
+
+Every T1 alert scenario and every alert-only or hold-only T3 composite omits the field. Only a scenario that deliberately controls warnings sets it.
 
 ## 4. Gallery
 
-**Route (new file):** `app/admin/dev/attention-gallery/page.tsx (new)` — Server Component, `export const dynamic = "force-dynamic"`, `requireDeveloper()` at the top, matching the posture of `app/admin/dev/source-link-dim/page.tsx` and `app/admin/dev/telemetry-dim/page.tsx`.
+**Route:** `app/admin/dev/attention-gallery/page.tsx (new)` — Server Component, `export const dynamic = "force-dynamic"`, `requireDeveloper()` at the top, matching `app/admin/dev/source-link-dim/page.tsx` and `app/admin/dev/telemetry-dim/page.tsx`.
+
+### 4.0 The client boundary
+
+R1 #6 is correct: `AttentionMenu` requires `pillRef: RefObject<HTMLButtonElement | null>`, `onClose: () => void`, and `onNavigate: (item) => void` (`components/admin/showpage/AttentionMenu.tsx:30-34`). None can be created in or passed from a Server Component.
+
+Resolution: the page (server) computes derived items and renders **one client component per scenario**, `ScenarioBlock` (`components/admin/dev/ScenarioBlock.tsx (new)`, `"use client"`). It receives only serializable props — the derived `AttentionItem[]`, the routing readout rows, warnings — and owns:
+
+- the pill `<button>` and its ref (the ref target R1 #6 said was unidentified),
+- `open` as real `useState`, defaulting to **true** so the menu is visible without a click, with a working `onClose` and a re-open control. This makes §4.4's "menu open/close is genuinely live" true rather than contradicted by a no-op,
+- `onNavigate` as a no-op that records the item id into visible on-page text, so navigation intent is observable without a router.
+
+`AttentionMenu` renders in normal flow inside the block (no portal), so simultaneously-open menus stack vertically rather than overlapping (R1 #6, #28). If a menu turns out to be portal- or fixed-positioned in production, the block renders it inside a `relative` containing block and the plan's layout task measures overlap — the one place where a real-browser check is warranted (§8).
+
+`degraded: true` renders the same degraded pill and Overview notice the loader produces (`app/admin/_showReviewModal.tsx:304-310`); the block takes a `degraded` prop and reproduces that branch from the same components the modal uses, not a lookalike (R1 #17).
 
 ### 4.1 What a scenario block renders
 
-Rendered elements, in order, per scenario — these are actual DOM, not conceptual descriptions:
+Actual DOM, in order:
 
-1. **Heading** — `<h2>` with the scenario `id` as its `id` attribute (deep-linkable anchor) and `label` as text.
-2. **Routing readout** — a `<dl>` listing, per derived item: `code`, `kind`, `tone`, `sectionId`, `anchor` (or `—`), `actionable`, `autoClearNote` (or `—`), `template` resolved vs `fallback`. Wrong routing is then legible as text, not merely as a card in the wrong place.
-3. **`AttentionMenu`** (`components/admin/showpage/AttentionMenu.tsx:42`) with `items` = derived items, `open` = true so the menu body is visible without a click, `onClose`/`onNavigate` = no-ops, `pillRef` = a local ref.
-4. **Bucketed banners** — `bucketAttention(items, opts)` with `renderCard` = `AttentionBanner` (`components/admin/review/AttentionBanner.tsx:91`), one group per bucketed section, each labelled with its `sectionId`.
-5. **Hold rows** — rendered separately and labelled as such, because `bucketAttention` deliberately excludes `kind: "hold"` items (`lib/admin/sectionAttention.ts:93-97`); they belong to the Changes feed via `Mi11GateActions`. Omitting them here would misread as a drop.
-6. **`PerShowActionableWarnings`** (`components/admin/PerShowActionableWarnings.tsx:47`) with `items` = `scenario.warnings`, `driveFileId` = a fixed fake id, `renderItemControls` omitted, rendered **twice** for tiers where the scenario declares it — once `tone="warning"`, once `tone="muted"` — since the muted skin is the collapsed "Ignored (N)" state and has its own contrast posture.
+1. **Heading** — `<h2 id="<scenario id>">` with the label.
+2. **Routing readout** — a `<dl>` per derived item: `code`, `kind`, `tone`, `sectionId`, `anchor` (or `—`), `actionable`, `autoClearNote` (or `—`), `template` resolved-vs-fallback, `identity: declared (gallery)`, and the `usePathname()` value passed to the card (§4.4). Wrong routing is legible as text, not merely a card in the wrong place.
+3. **Pill + `AttentionMenu`** — per §4.0.
+4. **Bucketed banners** — `bucketAttention(items, opts)` with `renderCard` = `AttentionBanner`, one labelled group per section.
+5. **Hold rows** — rendered separately and labelled, because `bucketAttention` deliberately excludes `kind: "hold"` (`lib/admin/sectionAttention.ts:93-97`); holds belong to the Changes feed via `Mi11GateActions`. Omitting them would misread as a drop.
+6. **`PerShowActionableWarnings`** — only when the scenario declares `warnings` (§3.4), rendered twice: `tone="warning"` and `tone="muted"` (the collapsed "Ignored (N)" skin, which has its own contrast posture). The double render is driven by the presence of the field, which is the declaration R1 #17 found missing.
 
 ### 4.2 T2 structural axes
 
-`BucketOpts` (`lib/admin/sectionAttention.ts:30-39`) already exposes the fallback predicates as injectable functions, so T2 drives them directly with no fake show:
+`BucketOpts` (`lib/admin/sectionAttention.ts:30-39`) exposes the fallback predicates as injectable functions, so T2 drives them with no fake show. Each row states the exact predicate and the expected outcome (R1 #17):
 
-| Axis | Mechanism | Expected visible outcome |
+| Axis | Exact mechanism | Expected outcome |
 | --- | --- | --- |
-| Routed section not rendered | `sectionAvailable: () => false` | banner falls back to Overview |
-| Anchor slot absent | `anchorAvailable: () => false` | anchored card falls back to its section top |
-| Crew key has no rendered row | `crewKeyRendered: () => false` | crew banner goes to the crew section top |
+| Routed section absent | `sectionAvailable: (s) => s === "overview"` — Overview stays available, so the fallback has a destination | banner falls back to Overview |
+| Overview also absent | `sectionAvailable: () => false` | the no-destination case; the block asserts what actually renders and the readout names it |
+| Anchor slot absent | `anchorAvailable: () => false`, `sectionAvailable: () => true` | anchored card falls back to its section top |
+| Crew key unrendered | `crewKeyRendered: () => false` | crew banner goes to the crew section top |
 | Alert vs hold | scenario carries only `alerts` / only `holds` | hold appears in the hold group, never a banner |
-| Actionable vs auto-clearing | inbox-routed and auto-resolving codes | resolve control absent; `autoClearNote` line present |
+| Auto-clearing, inbox-routed | one code with `isInboxRouted` true | resolve control absent; `autoClearNote` = the inbox line (`lib/admin/attentionItems.ts:86`) |
+| Auto-clearing, auto-resolving | one code with `isAutoResolving` true | resolve control absent; `autoClearNote` = `autoResolveNote(code)` |
+| Actionable | one code that is neither | resolve control present |
 | Occurrence 1 vs N | `occurrence_count: 1` / `7` | repeat-count affordance |
-| Identity present/absent | `identityText` set / null | `menuSubtitle` present / absent |
-| Uncataloged code | code absent from `MESSAGE_CATALOG` | `ATTENTION_FALLBACK_TITLE` (`lib/admin/attentionItems.ts:84`) |
-| Unresolved placeholder | params that leave a `<token>` | `template` null, card falls back |
-| Item count 0 / 1 / many | scenario item lists | empty state, single, and a menu long enough to exercise scroll |
-| Degraded alert read | `degraded: true` | derived items from holds only, plus the degraded pill + Overview notice the loader produces at `app/admin/_showReviewModal.tsx:304-310` |
+| Identity present/absent | `galleryIdentity` set / null | `menuSubtitle` present / absent |
+| Uncataloged code | a code absent from both `MESSAGE_CATALOG` and `ATTENTION_ROUTES` | `ATTENTION_FALLBACK_TITLE` (`lib/admin/attentionItems.ts:84`); routes to Overview via the `?? { sectionId: "overview" }` fallback (`lib/admin/attentionItems.ts:254`) |
+| Unresolved placeholder | context leaving a `<token>` uninterpolated | `template` null, card falls back |
+| Alert count 0 / 1 / `MENU_CAP` | the **alert** list length; holds and warnings are separately axed | empty state, single, and a menu long enough to cross its scroll threshold |
+| Degraded alert read | `degraded: true` | §4.0 |
 
-**Cap:** the "many" scenario is fixed at 12 items. Above that the menu is a scroll container, and 12 is enough to cross the threshold without turning the gallery into a wall. The cap is a named constant in the catalog, referenced by the scenario, not a bare literal.
+`MENU_CAP` is a named constant (§2), not a bare literal. Whether it actually crosses the production scroll threshold at every `w` is asserted by the layout task (§8), not assumed (R1 #28).
 
 ### 4.3 Tier boundaries
 
-- **T1** — one scenario per alert code (`N_ALERT_CODES`, of which `N_ALERT_RENDERABLE` render) and one per warning code (`N_WARN_CODES`). Copy and routing sweep.
-- **T2** — the §4.2 matrix. Structural sweep.
-- **T3** — composites. **Rendered by materialize only.** The gallery lists T3 scenarios by `id` and `label` with a note pointing at the dev panel, so they are discoverable but not faked.
+- **T1** — one scenario per alert code (`N_ALERT_CODES`, of which `N_ALERT_RENDERABLE` render) and one per warning code (`N_WARN_CODES`).
+- **T2** — the §4.2 matrix.
+- **T3** — composites, **rendered by materialize only**. The gallery lists them by id and label with a pointer to the dev panel.
 
 ### 4.4 Interactivity boundary
 
-Client-side affordances are genuinely live: menu open/close, `?` help popovers (`components/admin/compactAlertHelp.tsx`), expand/collapse, hover, focus rings. Server actions are **not** — alert ids are synthetic, so a resolve submit fails. This is deliberate and stated on the page: a short standing note at the top reading that actions are inert here and that the dev panel materializes a scenario for real interaction.
+Live for real: menu open/close (§4.0), `?` help popovers, expand/collapse, hover, focus. **Not** live: server actions, whose alert ids are the synthetic `gallery:<id>:<n>` of §3.0. A standing note at the top of the page says so and points at the dev panel.
 
-**Known fidelity caveat:** `AttentionBanner` reads `usePathname()` (`components/admin/review/AttentionBanner.tsx:101`) and feeds it to a route-gated Learn-more link. Under the gallery the pathname is `/admin/dev/attention-gallery`, not the modal route, so that gate evaluates differently than in production. The routing readout (§4.1 step 2) therefore prints the `route` value it passed, making the difference explicit rather than silently misleading.
+**Known fidelity caveat:** `AttentionBanner` reads `usePathname()` (`components/admin/review/AttentionBanner.tsx:101`) for a route-gated Learn-more link. Under the gallery that value is the gallery path, so the gate evaluates differently than in production. The readout prints the value (§4.1 item 2), making the difference explicit rather than silently misleading.
 
 ### 4.5 Controls
 
-Query params only; no client state.
+Query params only.
 
-| Param | Values | Effect | Default |
+| Param | Accepted | Effect | Default |
 | --- | --- | --- | --- |
-| `tier` | `1`, `2` | render only that tier | both |
-| `scenario` | scenario `id` | render only that scenario | all |
-| `w` | integer px, clamped `[320, 1280]` | wrap each block in a fixed-width column | unconstrained |
+| `tier` | `1`, `2`, `3` | restrict to that tier; `3` renders the T3 list of §4.3 | all |
+| `scenario` | a scenario id | restrict to that one scenario | all |
+| `w` | integer in `[320, 1280]` | sets `max-width` on each block wrapper | unconstrained |
 
-Guards: an unparseable or out-of-range `w` falls back to unconstrained; an unknown `scenario` renders an explicit "no such scenario" line listing valid ids, never an empty page; `tier` outside `{1,2}` renders both. A `tier=3` request renders the T3 list from §4.3 with its materialize note.
+**Guards** (R1 #24):
+
+- `scenario` **wins over** `tier` when both are present, including when the named scenario is not in the named tier. Precedence is stated because it is otherwise undefined.
+- Repeated params: the **first** value is used (`URLSearchParams.get` semantics), never a concatenation.
+- `w`: parsed with `Number.parseInt` on a `^\d+$` match. Anything failing that — empty, whitespace, signed, decimal, exponent, `NaN`, `Infinity` — falls back to unconstrained. In-range integers apply; **out-of-range integers clamp** to the nearest bound. (The previous revision said clamp *and* fall back, which contradicted itself.)
+- `tier` outside `{1,2,3}`, empty, or whitespace → all tiers.
+- Unknown `scenario` → an explicit "no such scenario" line listing valid ids, never a blank page.
+
+`w` sets `max-width`, not a fixed width: it narrows the column the way a narrower viewport would, but it is **not** a viewport emulator (media queries still see the real viewport). §8 depends on this being `max-width`; §4.5 and §8 previously disagreed (R1 #21).
 
 ## 5. Materialize
 
-**Where:** a new card on the existing `/admin/dev` panel (`app/admin/dev/page.tsx`), which is already `requireDeveloper`-gated and build-gated. Controls: scenario select (all three tiers), target show slug, target environment, **Apply** and **Clear**.
+**Where:** a card on the existing `/admin/dev` panel (`app/admin/dev/page.tsx`), already `requireDeveloper`-gated and build-gated. Controls: scenario select, target show slug, target environment, Apply, Clear.
 
-### 5.1 Apply writes
+### 5.0 Only T3 scenarios are materializable
 
-| Target | Write | Tag |
-| --- | --- | --- |
-| `admin_alerts` | insert one row per `scenario.alerts` | `context.__devScenario = "<scenario id>"` |
-| `sync_holds` (`lib/sync/holds/holdPort.ts`) | insert one pending row per `scenario.holds` | same key in the row's context/payload |
-| `shows_internal.parse_warnings` | overwrite with `scenario.warnings` (`components/admin/review/publishedAdapter.ts:92` reads this column) | not taggable — jsonb array of `ParseWarning`; see §5.4 |
+R1 #15 found §5 and §5.1a contradicting each other. Resolved: **the selector lists T3 scenarios only.** T1 and T2 are gallery-only, because their distinguishing inputs cannot exist as database state — `bucket` predicates are functions, `degraded` is a loader fault, and `PICKER_EPOCH_RESET` is cut in derive so a materialized row would render nothing and read as a bug. A T1/T2 id submitted directly is refused (§5.3).
 
-Apply is **idempotent per (show, scenario)**: it first deletes existing rows tagged with that scenario id for that show, then inserts. Re-applying does not accumulate duplicates.
+### 5.1 Apply
+
+Apply makes the target show's synthetic state **equal to** the selected scenario — a replacement, not an accumulation (R1 #2, which correctly showed the previous asymmetry made sequential applies a union/first-wins/last-wins mixture):
+
+1. Delete **every** `__devScenario`-tagged `admin_alerts` row for the show — any scenario, not only the selected one.
+2. Delete every `__devScenario`-tagged `sync_holds` row for the show, same scope.
+3. Insert `scenario.alerts` (skipping collisions, §5.1a) and `scenario.holds` (skipping `(domain, entity_key)` collisions, §3.0a).
+4. If and only if `scenario.warnings` is present, overwrite `shows_internal.parse_warnings` (§3.4).
+
+Apply is therefore idempotent **and** replacing: applying A then B leaves exactly B's synthetic rows.
 
 #### 5.1a The one-unresolved-alert-per-code constraint
 
@@ -235,154 +316,208 @@ create unique index admin_alerts_one_unresolved_idx
   on public.admin_alerts (coalesce(show_id::text, ''), code) where resolved_at is null;
 ```
 
-**At most one unresolved row per (show, code).** Two consequences the design must honor rather than discover at implementation:
+At most one unresolved row per (show, code). Therefore:
 
-1. **A scenario may not carry two alert rows of the same code.** Enforced in the catalog by construction and asserted by a test (§12); a duplicate would fail the insert at runtime.
-2. **A code that already has a real unresolved row on the target show cannot be inserted.** Apply therefore **skips** that code and names it in the result: `skipped: [{ code, reason: "unresolved row already present" }]`. It does **not** resolve, delete, or overwrite the real row — the promise that Apply never touches untagged rows is kept by declining, not by clobbering.
+1. A scenario may not carry two alert rows of the same code — rejected before any write, asserted across the whole catalog by a test (§12).
+2. A code with a pre-existing **real** unresolved row is **skipped** and named in the result: `skipped: [{ code, reason: "unresolved_row_present" }]`. Apply never resolves, deletes, or overwrites an untagged row — the promise is kept by declining, not clobbering.
 
-This also settles materialize's scope. The full per-code sweep (T1, `N_ALERT_RENDERABLE` codes) belongs to the gallery, which has no DB and no constraint. Materialize's scenarios are T3 composites carrying a handful of codes, where a skip is rare, visible, and harmless.
+#### 5.1b The tag, and why it cannot hit real data
+
+| Table | Tag |
+| --- | --- |
+| `admin_alerts` | `context.__devScenario = "<scenario id>"` |
+| `sync_holds` | `created_by = "__devScenario:<scenario id>"` — `created_by text not null` (`supabase/migrations/20260608000000_sync_holds.sql:18`) is a real column, so no jsonb-path or unknown-key-preservation question arises (R1 #11) |
+
+Reservation (R1 #12): `__devScenario` is a **reserved key**. A test asserts no catalog scenario's authored `context` contains it, and that no production emitter writes it (grep over `lib/` and `app/`). Deletion matches the exact shape written — `context->>'__devScenario'` equal to a known catalog id, and `created_by` matching `__devScenario:%` — never merely "the key is set", so a null, empty, non-string, or foreign value is not swept up.
 
 ### 5.2 Clear
 
-1. Delete every `admin_alerts` row for the show whose `context.__devScenario` is set — **any** scenario, not just the selected one, so a half-applied state cannot strand rows.
-2. Delete every correspondingly tagged `sync_holds` row.
-3. Trigger `POST /api/admin/sync/[slug]` (the path `ReSyncButton` already uses, `components/admin/ReSyncButton.tsx:243`) to re-parse from source and full-replace `parse_warnings` with authentic content.
+1. Delete every tagged `admin_alerts` row for the show (any scenario).
+2. Delete every tagged `sync_holds` row for the show.
+3. **Local target only:** trigger the re-sync (§5.5) to regenerate authentic `parse_warnings`. **Validation target: skipped**, reported as `warnings_not_regenerated`.
 
-Clear reports which of the three steps succeeded.
+Clear reports per-step outcomes. Its destructive scope is **all synthetic rows for the show**, not only the selected scenario; the card's confirmation copy says exactly that, since the selector sits beside it (R1 #27).
 
-### 5.3 Guard conditions
+### 5.3 Guards
 
 | Condition | Behavior |
 | --- | --- |
-| Show slug not found | refuse, no writes, named error |
-| Show archived | refuse — archived shows have their own modal posture and are not the surface under evaluation |
-| Scenario id unknown | refuse, no writes |
-| Zero tagged rows at Clear | succeed, report "nothing to clear", still run the re-sync |
-| Re-sync unreachable (no Drive creds locally) | Clear reports `warnings_not_regenerated`; tagged alert/hold deletion still committed. Synthetic warnings persist until the next successful sync; the operator escape hatch is a reseed. This is the one non-self-healing edge and it is stated in the card's copy. |
-| Apply against a show that already has real (untagged) alerts | allowed. Codes that do not collide are inserted; codes whose unresolved row already exists are **skipped and named** in the result (§5.1a). Real rows are never resolved, deleted, or overwritten. |
-| Scenario carries duplicate alert codes | rejected before any write, with the duplicate named (§5.1a) |
-| Apply interrupted partway | the next Apply or Clear is safe: both are keyed on the `__devScenario` tag, so a partial write is fully addressable. Clear deletes **every** tagged row for the show regardless of which scenario wrote it (§5.2 step 1). |
-| Two Applies race on the same show | last writer wins per code; no lock is taken (invariant 2 does not cover these tables, §7.2). Acceptable because materialize is a single-operator dev instrument, never a concurrent surface. Stated rather than defended. |
+| Slug empty, whitespace, or not found | refuse, no writes |
+| Show archived | refuse |
+| Show archived between precheck and write | the write proceeds; archival does not corrupt state, and re-checking inside a transaction is not available without a lock this design declines to take (§7.2). Stated, not defended. |
+| Scenario id unknown, empty, or whitespace | refuse |
+| Scenario id names a T1/T2 scenario | refuse — not materializable (§5.0) |
+| Scenario carries duplicate alert codes, or duplicate hold `(domain, entity_key)` | refuse before any write, naming the duplicate |
+| Show already has real unresolved alerts | non-colliding codes inserted; colliding codes skipped and named (§5.1a). Real rows untouched. |
+| Target environment value not `local` or `validation` | refuse |
+| Validation selected without confirmation, or confirmation field repeated | refuse |
+| Validation triple incomplete, or its project ref ≠ `VALIDATION_PROJECT_REF` | refuse (§5.5) |
+| Apply of a scenario with no alerts, no holds, and no `warnings` | refuse — nothing to materialize |
+| Partial failure mid-Apply | the completed writes stand; the result names which steps committed and the overall outcome is `partial` (§7.1). The next Apply or Clear fully repairs alerts and holds, since both are tag-scoped. **Warnings are not tag-scoped**, so an interrupted Apply that already overwrote them is repaired only by a successful local Clear — stated plainly rather than claimed safe (R1 #14). |
+| Zero tagged rows at Clear | succeed, report "nothing to clear", still run step 3 on local |
+| Re-sync unreachable | `warnings_not_regenerated`; deletions still committed. Escape hatch is a reseed. |
+| Two Applies race | the delete/insert sequence is not atomic, so a concurrent pair can leave a mixture, and the unique index can fail one insert outright rather than "last writer wins" (R1 #13 — the previous revision's race claim was wrong). Not defended against: this is a single-operator dev instrument. The card disables its submit while a request is in flight, which removes double-submit, the only realistic case. |
 
 ### 5.4 Why `parse_warnings` is overwritten rather than backed up
 
-A backup would need durable storage: a new column or a new dev table, i.e. a migration plus the `validation-schema-parity` post-migration checklist. Re-sync already regenerates the column authentically from source, so the backup buys nothing that the existing path does not. The cost is the §5.3 unreachable-Drive edge, accepted explicitly.
+A backup needs durable storage — a new column or table, i.e. a migration plus the `validation-schema-parity` checklist. Re-sync already regenerates the column authentically. The cost is the unreachable-Drive and validation edges above, accepted explicitly.
 
 ### 5.5 Environment targeting
 
-Default target is **local**. Validation requires an explicit confirm in the UI **and** a complete `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SECRET_KEY` + `VALIDATION_SUPABASE_PROJECT_REF` triple, resolved exclusively from that triple with no fallback to ambient `SUPABASE_URL` / `SUPABASE_SECRET_KEY` — the same guardrail shape the observe CLI uses (AGENTS.md, Telemetry access). A non-loopback ambient `SUPABASE_URL` is refused without the explicit validation confirm. Any missing or invalid member of the triple is a hard error.
+Default **local**. Validation requires an explicit confirmation **and** a complete `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SECRET_KEY` + `VALIDATION_SUPABASE_PROJECT_REF` triple, resolved exclusively from that triple with no fallback to ambient `SUPABASE_URL` / `SUPABASE_SECRET_KEY` — the observe CLI's guardrail shape.
 
-Production is never a target: the route does not exist in the production artifact (§6).
+**Production cannot be reached** (R1 #4 — build-artifact absence is not a database-target guarantee, which was the previous revision's error). The concrete gate: the resolved project ref must equal `VALIDATION_PROJECT_REF` (`lib/admin/validationDeployment.ts:1` — `"vzakgrxqwcalbmagufjh"`). Any other ref, including a syntactically valid one, is refused. This is an equality check against a known constant, not a shape check.
+
+**Clear does not re-sync on validation** (R1 #5). The re-sync is `POST /api/admin/sync/[slug]`, an application route bound to the ambient database and the caller's session; it has no target-environment parameter, and giving it one would mean a cross-environment HTTP call with its own auth and cookie-propagation design. Rather than build that, validation Clear performs steps 1–2 and reports `warnings_not_regenerated`. Regenerating validation warnings is the validation cron's job or a reseed.
 
 ## 6. Build-vs-runtime gate
 
-The gate is **build-time**, not runtime. `scripts/with-admin-dev-flag.mjs` renames the files in its `FILES` array (`scripts/with-admin-dev-flag.mjs:43-55`) to `.disabled-by-build-gate` before `next build` whenever `ADMIN_DEV_PANEL_ENABLED` is not the literal `"true"` at invocation time, so the artifact does not contain the route at all. `requireDeveloper()` remains as runtime defense in depth for dev builds where the panel is enabled.
+Build-time, not runtime. `scripts/with-admin-dev-flag.mjs` renames the files in its `FILES` array (`scripts/with-admin-dev-flag.mjs:43-55`) to `.disabled-by-build-gate` before `next build` whenever `ADMIN_DEV_PANEL_ENABLED` is not the literal `"true"`, so the artifact does not contain the route. `requireDeveloper()` remains runtime defense in depth.
 
-**Files added to `FILES`:** `app/admin/dev/attention-gallery/page.tsx (new)`. The materialize card lives inside the already-registered `app/admin/dev/page.tsx` and `app/admin/dev/actions.ts`, so it inherits their registration.
+**Added to `FILES`:** `app/admin/dev/attention-gallery/page.tsx (new)`. The materialize card lives inside the already-registered `app/admin/dev/page.tsx` and `actions.ts`.
 
-**Gate test shape (build-time, not runtime):** extend the existing build-artifact assertion (`tests/admin/build-artifact-gate.test.ts`) so a build produced with the flag **unset** contains no reference to the gallery route, and the `FILES`-membership assertion in `tests/admin/withAdminDevFlagDevPanelPresent.test.ts` covers the new path. A runtime probe alone would not prove the artifact claim.
+**Gate proof at both flag states** (R1 #20 — the previous revision proved only the unset state, and "no reference" was ambiguous):
+
+| Flag | Assertion | Meaning of the claim |
+| --- | --- | --- |
+| unset | the built route manifest contains no entry for `/admin/dev/attention-gallery` | **route-manifest absence**, the load-bearing claim — a source-text grep is weaker and a 404 probe tests routing rather than the artifact |
+| `"true"` | the manifest **does** contain it | proves the gate is a gate and not a permanent deletion |
+
+Plus the existing `FILES`-membership assertion in `tests/admin/withAdminDevFlagDevPanelPresent.test.ts`.
 
 ## 7. Invariant compliance
 
 ### 7.1 Invariant 10 — mutation surface observability
 
-Two new admin-gated server actions in `app/admin/dev/actions.ts`, mirroring the existing `parseAndStage` / `resetDevSchema` precedent (`tests/log/_auditableMutations.ts:227-230`):
+Four exported mutation surfaces, each needing executable success-branch proof (R1 #7 — the previous revision registered four but promised proof for two):
 
-| Action | Code | Registry |
+| Surface | Code | Proof |
 | --- | --- | --- |
-| `applyAttentionScenario` | `DEV_SCENARIO_APPLIED` | `AUDITABLE_MUTATIONS` row + success-branch behavioral proof |
-| `clearAttentionScenario` | `DEV_SCENARIO_CLEARED` | same |
-| their `*FormAction` wrappers | same codes | rows, as the existing wrappers have |
+| `applyAttentionScenario` | `DEV_SCENARIO_APPLIED` | registry row + behavioral proof |
+| `clearAttentionScenario` | `DEV_SCENARIO_CLEARED` | registry row + behavioral proof |
+| `applyAttentionScenarioFormAction` | `DEV_SCENARIO_APPLIED` | registry row + behavioral proof (transitive, driving the wrapper — the `parseAndStageFormAction` pattern at `tests/log/adminOutcomeBehavior.test.ts:1157-1171`) |
+| `clearAttentionScenarioFormAction` | `DEV_SCENARIO_CLEARED` | registry row + behavioral proof, same pattern |
 
-Emits are post-commit via `logAdminOutcome` (`app/admin/dev/actions.ts:74`), outside any lock. No secret is logged: the emitted context carries the scenario id, show slug, and row counts only.
+No wrapper exemptions are claimed.
 
-**These codes do NOT take the §12.4 lockstep.** `logAdminOutcome`'s `code` is a free SHOUTY_SNAKE_CASE string (`lib/log/logAdminOutcome.ts:9`), not a `MessageCode`. The existing `DEV_PARSE_STAGED` and `DEV_SCHEMA_RESET` appear only in `app/admin/dev/actions.ts`, `tests/log/_auditableMutations.ts`, and `tests/log/adminOutcomeBehavior.test.ts` — they have **no** master-spec §12.4 row and **no** `lib/messages/catalog.ts` entry. Adding one would put a non-message code into the message catalog and risk the `x1-catalog-parity` gate rather than satisfying it. The registration surface for these two codes is the two test registries and nothing else; no `pnpm gen:spec-codes` run is required by this change.
+**Partial-success emission** (R1 #7): Apply has no transaction, so "post-commit" needs defining. The emitted `result` is `applied` when every intended write succeeded, `partial` when at least one succeeded and at least one failed, and **nothing is emitted** when the first write failed and no state changed. The emit carries the per-step counts, so a `partial` is diagnosable from telemetry alone. It fires after the last write attempt, outside any lock.
+
+**These codes do not take the §12.4 lockstep.** `logAdminOutcome`'s `code` is a free SHOUTY_SNAKE_CASE string (`lib/log/logAdminOutcome.ts:9`), not a `MessageCode`. `DEV_PARSE_STAGED` and `DEV_SCHEMA_RESET` appear only in `app/admin/dev/actions.ts` and the two test registries — no master-spec §12.4 row, no `lib/messages/catalog.ts` entry. Adding one would put a non-message code in the message catalog and risk `x1-catalog-parity` rather than satisfy it.
 
 ### 7.2 Invariant 2 — advisory locks
 
-Materialize writes `admin_alerts`, `sync_holds`, and `shows_internal.parse_warnings`. None is in the invariant-2 guarded set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`). The Clear path's re-sync acquires the per-show lock **inside existing code** behind `POST /api/admin/sync/[slug]`. **Holder topology unchanged; no new holder at any layer.**
+Materialize writes `admin_alerts`, `sync_holds`, and `shows_internal.parse_warnings`. None is in the guarded set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`). The local Clear's re-sync acquires the per-show lock **inside existing code** behind `POST /api/admin/sync/[slug]`. **No new holder at any layer.**
 
-### 7.3 Invariant 5 — no raw error codes in UI
+### 7.3 Invariant 5
 
-The gallery's routing readout prints raw codes deliberately — it is a developer instrument behind `requireDeveloper`, and the codes are the subject under inspection, not an error surfaced to an operator. The rendered **cards** still resolve copy through the real catalog path, so the contract holds where it applies. The materialize card's own errors resolve through `lib/messages/lookup.ts`.
+Scoped exception ratified in §1.1, enumerated there. All rendered card copy still resolves through the catalog. The materialize card's own outcomes are `lib/messages/lookup.ts`-resolved for operator-facing text; the raw result codes of §5.3 appear only in the developer readout.
 
 ### 7.4 Invariant 8 — UI quality gate
 
-The gallery route and the dev-panel card are UI surfaces. `/impeccable critique` and `/impeccable audit` both run on the diff before close-out; P0/P1 fixed or deferred via `DEFERRED.md`.
+Gallery route, `ScenarioBlock`, and the dev-panel card are UI. `/impeccable critique` and `/impeccable audit` both run before close-out; P0/P1 fixed or deferred via `DEFERRED.md`.
 
 ### 7.5 Invariant 9 — Supabase call boundary
 
-Every Supabase call in the materialize action destructures `{ data, error }`, distinguishes returned from thrown errors, and surfaces infra faults as a typed discriminable result. New call sites either add a row to the relevant registry meta-test or carry an inline `// not-subject-to-meta: <reason>`.
+Every materialize call destructures `{ data, error }`, distinguishes returned from thrown errors, and returns a typed discriminated result:
+
+```ts
+type MaterializeResult =
+  | { kind: "ok"; alerts: number; holds: number; warnings: "written" | "untouched"; skipped: Skip[] }
+  | { kind: "partial"; committed: StepCounts; failedStep: Step; message: string }
+  | { kind: "refused"; reason: RefusalCode }
+  | { kind: "infra_error"; message: string };
+```
+
+**Registry treatment is decided here, not left to the implementer** (R1 #19): these call sites get rows in the invariant-9 registry meta-test, not inline exemptions — they are ordinary service-role table calls with no exempting property. §12 names the registry being extended.
 
 ## 8. Dimensional invariants
 
-**N/A — declared explicitly.** The gallery is a vertical flow of blocks with no fixed-height or fixed-width parent containing flex/grid children whose stretch behavior is load-bearing. The `w` param sets a `max-width` on a wrapper, which constrains width only and imposes no parent→child height relationship. The components rendered inside carry their own production styling and their own dimensional coverage where they have it. No real-browser layout task is required by this change.
+`w` sets `max-width` (§4.5), which constrains width only and imposes no parent→child height relationship, so the mandatory fixed-dimension analysis does not apply to the wrapper.
+
+One real-browser assertion **is** required, for a claim §4.2 makes rather than a stretch invariant: that a `MENU_CAP`-item menu actually crosses its scroll threshold, and that simultaneously-open menus stack without overlapping (R1 #6, #28). The plan carries a Playwright task reading `getBoundingClientRect()` on adjacent open menus at the narrowest and widest `w`, asserting no intersection.
 
 ## 9. Transition inventory
 
-**Scope boundary:** this change adds no new animated component. The transitions inside `AttentionMenu`, `AttentionBanner`, and `CompactAlertCard` are pre-existing and already covered (`tests/components/admin/compactAlertCompoundTransitions.test.tsx`, `tests/components/admin/transitionAudit.test.tsx`).
+The gallery adds no animated component; transitions inside `AttentionMenu`, `AttentionBanner`, and `CompactAlertCard` are pre-existing and covered (`tests/components/admin/compactAlertCompoundTransitions.test.tsx`, `transitionAudit.test.tsx`). The gallery's own filter changes are server navigations — instant, no animation.
 
-The gallery's own states are two, and both are server-rendered navigations, not animated state changes:
+The **materialize card** has a state model of its own, omitted from the previous revision (R1 #22):
 
 | From | To | Treatment |
 | --- | --- | --- |
-| full list | filtered (`tier` / `scenario` / `w`) | instant — a server navigation, no animation needed |
-| filtered | full list | instant — same |
+| idle | submitting (Apply or Clear) | instant — controls disable, in-flight text appears |
+| submitting | result (`ok` / `partial` / `refused` / `infra_error`) | instant |
+| result | idle | instant, on any control change |
+| target local | target validation | instant; reveals the confirmation control |
+| validation, unconfirmed | validation, confirmed | instant |
+| any result | submitting again | instant; the prior result clears before the request fires, so a stale result never sits beside a live one |
 
-No `AnimatePresence`, no ternary-rendered animated branch, is introduced.
+Compound: changing scenario, show, or environment **while a request is in flight** is prevented — the controls are disabled for the duration, which is also the double-submit guard of §5.3. Changing them while a *result* is displayed clears the result, per the row above.
 
 ## 10. Flag lifecycle
 
-| Flag / field | Storage | Write path | Read path | Effect on output |
+| Flag / field | Storage | Write path | Read path | Effect |
 | --- | --- | --- | --- | --- |
-| `ADMIN_DEV_PANEL_ENABLED` | env at build invocation | operator / CI env | `scripts/with-admin-dev-flag.mjs` | not `"true"` → route files renamed aside → route absent from artifact |
-| `tier` | URL query | user | gallery page | restricts rendered tiers (§4.5) |
-| `scenario` | URL query | user | gallery page | restricts to one scenario (§4.5) |
-| `w` | URL query | user | gallery page | wrapper `max-width` (§4.5) |
-| `scenario.degraded` | catalog literal | catalog author | gallery page | renders the degraded pill + Overview notice branch |
-| `context.__devScenario` | `admin_alerts.context` jsonb | Apply | Clear | scopes deletion to synthetic rows |
-| target environment | form field | user | materialize action | selects local vs validation client (§5.5) |
+| `ADMIN_DEV_PANEL_ENABLED` | env at build invocation | operator / CI | `scripts/with-admin-dev-flag.mjs` | not `"true"` → route absent from artifact |
+| `tier`, `scenario`, `w` | URL query | user | gallery page | §4.5 |
+| `scenario.degraded` | catalog literal | catalog author | `ScenarioBlock` | degraded pill + Overview notice |
+| `scenario.warnings` presence | catalog literal | catalog author | both consumers | tri-state, §3.4 |
+| `context.__devScenario` | `admin_alerts.context` | Apply | Apply + Clear | scopes deletion |
+| `sync_holds.created_by` | column | Apply | Apply + Clear | scopes deletion |
+| target environment | form field | user | materialize action | local vs validation client (§5.5) |
 
-No column is empty; no zombie flag introduced.
+No empty column; no zombie flag.
 
 ## 11. DB completeness matrix
 
 | Layer | `admin_alerts` | `sync_holds` | `shows_internal.parse_warnings` |
 | --- | --- | --- | --- |
-| Table DDL | N/A — no change | N/A — no change | N/A — no change |
-| Inline CHECK | N/A — no new code values; existing rows only | N/A | N/A |
-| Migration | **None.** No schema change in this design (§1.1). | None | None |
-| RPC read path | unchanged — `fetchPerShowAlerts` | unchanged — `readShowChangeFeed` | unchanged — snapshot RPC |
-| RPC write path | direct insert/delete from the dev action, service-role client | direct insert/delete via `holdPort` | direct update |
-| Propagation trigger | N/A — none on these columns | N/A | N/A |
-| Cleanup | Clear, tag-scoped (§5.2) | Clear, tag-scoped | re-sync regeneration (§5.2) |
-| Frontend | gallery + dev-panel card | gallery hold group + card | `PerShowActionableWarnings` |
+| DDL / CHECK / migration | none — no schema change | none | none |
+| Constraints honored | partial unique index (§5.1a) | `unique (show_id, domain, entity_key)` + domain/kind/kind_shape CHECKs (§3.0a) | none |
+| RPC read path | unchanged (`fetchPerShowAlerts`) | unchanged (`readShowChangeFeed`) | unchanged (snapshot RPC) |
+| Write path | service-role insert/delete | service-role insert/delete | service-role update |
+| Cleanup | tag-scoped | tag-scoped | local re-sync only (§5.2) |
+| Frontend | gallery + card | gallery hold group + card | `PerShowActionableWarnings` |
 | Tests | §12 | §12 | §12 |
 
 ## 12. Meta-test inventory
 
-**Extends:**
-- `tests/log/_auditableMutations.ts` — two `AUDITABLE_MUTATIONS` rows plus their `*FormAction` rows (§7.1).
-- `tests/log/adminOutcomeBehavior.test.ts` — success-branch behavioral proof for both actions.
-- `tests/admin/withAdminDevFlagDevPanelPresent.test.ts` and `tests/admin/build-artifact-gate.test.ts` — the new route path (§6).
+**Extends:** `tests/log/_auditableMutations.ts` (four rows), `tests/log/adminOutcomeBehavior.test.ts` (four behavioral proofs), the invariant-9 call-boundary registry (§7.5), `tests/admin/withAdminDevFlagDevPanelPresent.test.ts` and `tests/admin/build-artifact-gate.test.ts` (§6).
 
 **Creates:** none.
 
-**Explicitly declined:** a catalog-completeness meta-test. The alert axis needs none (totality is structural, §3.1); the warning axis has a stated, enumerated residue (§3.2) whose closure is a backlog item, not a gate.
+**Declined:** a catalog-completeness meta-test (§1.1). The alert axis needs none; the warning axis has an enumerated residue whose closure is a backlog item.
 
-**New behavioral tests (not meta):**
-- `deriveAttentionItems` over every catalog scenario returns items whose `sectionId` matches `ATTENTION_ROUTES` — reusing the catalog as fixture data. Failure mode caught: a scenario whose override params make a code derive to an unexpected section.
-- Apply → Clear round trip leaves **zero** rows tagged `__devScenario` for the show, asserted by counting tagged rows directly against the DB, not by trusting the action's own report. Failure mode caught: a Clear that deletes only the selected scenario's rows and strands the rest.
-- Apply twice with the same (show, scenario) yields the same row count as applying once. Failure mode caught: non-idempotent insert accumulating duplicates.
-- Guard cases from §5.3 (unknown slug, archived show, unknown scenario id) commit no writes — asserted by row counts before and after, not by the returned error alone.
-- **No scenario carries two alert rows of the same code** (§5.1a). Asserted across the whole catalog, not a sampled scenario. Failure mode caught: a catalog addition that renders fine in the gallery and fails the unique index the first time anyone materializes it.
-- **Apply skips a colliding code and names it.** Seed a real unresolved alert of code C on the target show, apply a scenario containing C plus a non-colliding code D. Assert: D inserted, C reported in `skipped`, and the pre-existing C row is **byte-identical afterward** — same `id`, `raised_at`, `occurrence_count`, `resolved_at`. Failure mode caught: an Apply that "handles" the collision by resolving or overwriting the operator's real alert.
-- **Fidelity contract (§3.3).** For a scenario applied to the DB, the derived fields the gallery computes (`identityText`, `messageParams`, `crewName`) equal the fields `fetchPerShowAlerts` returns for the same row, given the same identity. Asserted against the two call paths' outputs, not against a hand-written expectation, so the test fails if the shared derivation is forked. Failure mode caught: the gallery and the real modal rendering different copy for the same scenario — the one failure that makes the whole instrument misleading rather than merely incomplete.
+**Known harness gap:** the shared Supabase mock `chainResult` (`tests/log/adminOutcomeBehavior.test.ts:77-86`) stubs only `eq/is/not/select/update/insert/delete/single/limit`. Any builder method materialize uses beyond that set must be added in the same task, or the behavioral test throws on an undefined method.
+
+**Behavioral tests.** Each states the failure mode it catches; none passes merely by the function being called.
+
+| Test | Catches |
+| --- | --- |
+| No scenario carries duplicate alert codes or duplicate hold `(domain, entity_key)`, asserted across the whole catalog | a catalog addition that renders fine and fails the unique constraint the first time it is materialized |
+| Apply skips a colliding code: seed a real unresolved alert of code C, apply a scenario with C and D; assert D inserted, C in `skipped`, and the pre-existing C row **byte-identical** (same id, `raised_at`, `occurrence_count`, `resolved_at`) | an Apply that "handles" the collision by resolving or overwriting a real alert |
+| Apply A then Apply B leaves exactly B's synthetic rows and none of A's | the union/first-wins/last-wins mixture of R1 #2 |
+| Apply with `warnings` absent leaves `parse_warnings` byte-identical; with `[]` writes `[]` | the destructive-erase of R1 #3 |
+| Apply → Clear leaves **zero** tagged rows, counted directly against the DB, not from the action's own report | a Clear that strands rows while reporting success |
+| Apply twice yields the same row count as once | non-idempotent accumulation |
+| Guards: unknown/empty/whitespace slug, archived show, unknown scenario id, T1/T2 id, unknown environment, unconfirmed validation, wrong project ref, empty scenario — each commits **no writes**, asserted by before/after row counts | a guard that returns an error after having already written |
+| Reserved-key test: no catalog `context` contains `__devScenario`; no production emitter writes it | Clear deleting authentic rows (R1 #12) |
+| Fidelity: derived fields the gallery computes equal those `fetchPerShowAlerts` returns for the same row and identity, compared across the two call paths rather than to a hand-written expectation | the gallery and the real modal rendering different copy — the failure that makes the instrument misleading rather than merely incomplete |
+| Hold shaping: a scenario hold inserted and read back through `readShowChangeFeed` yields the same `FeedEntry` the gallery shaped | drift between the two shaping call sites |
+| `PICKER_EPOCH_RESET` produces no derived item, and is refused by materialize | the cut silently becoming a rendered card |
+| T2: each §4.2 row asserts its stated outcome | a fallback predicate that no longer routes as documented |
+| Build gate at both flag states (§6) | a gate that permanently deletes, or one that leaks |
+| Query-param guards and `scenario`-over-`tier` precedence (§4.5) | the self-contradictory clamp of R1 #24 |
+| Layout: adjacent open menus do not intersect at min and max `w` (§8) | overlapping portals invalidating the sweep |
+
+**Not covered, deliberately:** live `resolveAlertIdentities` behavior against real crew rows (the inherent divergence of §3.3, labelled in the UI), and validation-target writes (exercised by hand, not in CI, since CI has no validation credentials).
 
 ## 13. Out of scope
 
-- Screenshot regression gate, byte-compared baselines, and the Docker/arch pinning they require (§1.1).
-- Rendering T3 composites in the gallery (§1.1, §4.3).
+- Screenshot regression gate and the Docker/arch pinning it requires (§1.1).
+- Rendering T3 composites in the gallery (§4.3).
+- Materializing T1/T2 scenarios (§5.0).
 - Widening the internal-code-enum generator's scan heuristic (§3.2, backlog).
-- Any change to the production show modal, its components, or their behavior. This design **adds** dev surfaces and touches no production render path.
 - Making gallery server actions functional (§4.4).
+- Env-aware re-sync for validation Clear (§5.5).
+
+**Explicitly in scope, contrary to the previous revision** (R1 #23): this design **does** modify production code. §3.3 extracts a pure function out of `fetchPerShowAlerts` and another out of `readShowChangeFeed`, both of which feed the production show modal. The extractions are behavior-preserving and the existing tests for both paths must pass unchanged, but claiming "no production render path is touched" was false and the regression risk is real.
