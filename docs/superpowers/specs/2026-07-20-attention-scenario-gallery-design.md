@@ -393,7 +393,7 @@ Apply makes the target show's synthetic state **equal to** the selected scenario
 
 **Scope of the replacement guarantee** (R3a: the unqualified claim was false when `warnings` is omitted):
 
-- **Alerts and holds — fully replacing.** They are tag-scoped, so step 1 and 2 remove every synthetic row regardless of which scenario wrote it. Applying A then B leaves exactly B's alerts and holds.
+- **Alerts and holds — replacing, up to collisions.** They are tag-scoped, so steps 1 and 2 remove every synthetic row regardless of which scenario wrote it. Applying A then B leaves B's alerts and holds **except** any that were skipped for colliding with an authentic row (§5.1a, §3.0a). A skipped code or `(domain, entity_key)` leaves the **authentic** row in place, whose context and other columns may differ from B's authored row. So the guarantee is "no residue from A, plus B minus its skips" — not literally "exactly B" (R4a). The skips are named in the result, so the difference is always visible rather than silent.
 - **Warnings — declared-only, NOT reconciling.** `parse_warnings` is an untagged jsonb column (§3.4), so Apply cannot tell a synthetic warning from an authentic one and does not try. If B omits `warnings`, **A's warnings remain**. This is stated rather than silently true.
 
 Operator remedy, and the reason this is acceptable: run Clear (local) before applying a scenario that does not declare warnings. The card's copy says so at the point of use. A scenario that *does* declare `warnings` overwrites unconditionally, so the mixed state only arises on the declared→omitted transition.
@@ -424,11 +424,13 @@ Deletion uses the **presence** predicate on both tables, not a current-catalog-i
 | Table | Delete predicate |
 | --- | --- |
 | `admin_alerts` | `context ? '__devScenario'` — the jsonb key exists, whatever its value |
-| `sync_holds` | `created_by LIKE '__devScenario:%'` |
+| `sync_holds` | `created_by LIKE '\_\_devScenario:%' ESCAPE '\'` — **the underscores must be escaped** |
 
-Both are now presence-shaped and neither depends on the catalog's current contents, so a renamed or removed scenario cannot strand rows.
+Both are presence-shaped and neither depends on the catalog's current contents, so a renamed or removed scenario cannot strand rows.
 
-**Reservation, and its honest limit** (R3a): `__devScenario` is a reserved key. A test asserts no catalog scenario's authored `context` contains it and that no source emitter writes it (walk over `lib/` and `app/`). That check cannot cover database-side writers, other source trees, rows already stored before this feature existed, or a value propagated at runtime into a context this instrument never authored. **The immunity of authentic rows is therefore enforced by convention plus a source-level check, not proven.** Accepted because the blast radius is bounded to a developer instrument that (a) cannot target production at all (§5.5), and (b) writes only on a loopback or validation database. A production-reachable version of this feature would need a provably-reserved column instead, and that is why §5.5's gate is the load-bearing control rather than this one.
+**The escape is load-bearing, not cosmetic** (R4a P1). In SQL `LIKE`, `_` is a single-character wildcard, so the unescaped `'__devScenario:%'` also matches `xxdevScenario:anything` — meaning both Apply and Clear could delete **authentic** hold rows whose `created_by` merely happened to fit that shape. The pattern must escape both underscores so they are literal. §12 carries a regression test asserting a row with `created_by = 'xxdevScenario:real'` survives both verbs; without it this defect is invisible in every test that only uses correctly-tagged fixtures.
+
+**Reservation, and its honest limit** (R3a): `__devScenario` is a reserved key. A test asserts no catalog scenario's authored `context` contains it, and that the **only** source emitter is the materialize action itself — walking `lib/` and `app/` with `app/admin/dev/actions.ts` as the single declared exception. (R4a: stated without that exception, the assertion would reject the very code that must write the tag, or silently enforce something weaker than the prose claimed.) That check cannot cover database-side writers, other source trees, rows already stored before this feature existed, or a value propagated at runtime into a context this instrument never authored. **The immunity of authentic rows is therefore enforced by convention plus a source-level check, not proven.** Accepted because the blast radius is bounded to a developer instrument that (a) cannot target production at all (§5.5), and (b) writes only on a loopback or validation database. A production-reachable version of this feature would need a provably-reserved column instead, and that is why §5.5's gate is the load-bearing control rather than this one.
 
 ### 5.2 Clear
 
@@ -455,7 +457,7 @@ Form values arrive as `string | string[] | undefined`. Normalization is uniform:
 | Show archived between precheck and write | Apply | the write stands. Archival does not corrupt synthetic state, and Clear remains available afterward because it does not check archival |
 | Scenario id absent, empty, unknown, or naming a T1/T2 scenario | **Apply only** | refuse (§5.0) |
 | Scenario carries duplicate alert codes or duplicate hold `(domain, entity_key)` | Apply | refuse before any write, naming the duplicate (§3.6 rejects this at catalog level; this is the runtime backstop) |
-| Scenario has no alerts, no holds, and no `warnings` | Apply | refuse — nothing to materialize |
+| Scenario has no alerts and no holds, and either declares no `warnings` **or** the target is validation (where warnings are never written, §5.1 step 4) | Apply | refuse — nothing would be materialized. The guard is **environment-aware** (R4a): a warnings-only scenario is materializable on local but is a no-op on validation, and without this it would pass, delete prior tagged state, write nothing, and report only a skipped warning |
 | Show already has real unresolved alerts | Apply | non-colliding codes inserted; colliding codes skipped and named (§5.1a). Real rows untouched |
 | Target environment absent or not `local` \| `validation` | both | refuse |
 | `local` selected but the client URL host is not loopback | both | refuse (§5.5) |
@@ -476,8 +478,9 @@ The single-operator posture is stated, not defended, and the enumeration is now 
 | --- | --- |
 | Apply vs Apply | delete/insert is not atomic; a concurrent pair can interleave, and the partial unique index can fail one insert outright rather than "last writer wins" |
 | Apply vs Clear | Clear's deletes can land before Apply's inserts, leaving tagged rows after Clear reported success. A second Clear resolves it |
-| Apply vs cron or manual sync | both write `parse_warnings`; either may win. On validation the cron is **expected** to rewrite that column, which is a further reason validation Clear does not attempt regeneration (§5.5) |
-| Clear vs cron or manual sync | benign — both converge on authentic warnings |
+| Clear vs Clear | benign; both issue the same presence-scoped deletes and the second finds nothing. The re-sync step is idempotent |
+| Apply vs cron or manual sync | **local only**: both write `parse_warnings` and either may win. **On validation this pair cannot occur** — Apply never writes warnings there (§5.1 step 4), so only the cron writes the column |
+| Clear vs cron or manual sync | **local**: benign, both converge on authentic warnings. **Validation**: Clear does not touch or regenerate warnings at all, so there is no interaction — the cron is the only writer, which is why validation warning state is the cron's responsibility (§5.5) |
 
 The card disables its submit while a request is in flight, which removes double-submit only. It does **not** serialize separate tabs, two operators, a direct server-action invocation, or background sync, and is not claimed to.
 
@@ -520,7 +523,7 @@ The previous revision cited a `FILES`-membership assertion in `tests/admin/withA
 
 Net: today, **nothing in CI catches a new `app/admin/dev/**` route that was never added to the `FILES` array.** The rename gate protects only files it knows about, and membership is unchecked. This affects the load-bearing production-safety claim in §1.1 and §5.5, so it is stated rather than assumed.
 
-**Structural defense, created by this change** (cheap, CI-runnable, fails by default): a filesystem-walking meta-test asserting that **every route-defining or server-action file** under `app/admin/dev/**` appears in `scripts/with-admin-dev-flag.mjs`'s `FILES` array. The walked set is `page.tsx`, `route.ts`, `actions.ts`, `layout.tsx`, `default.tsx (route-tree files)`, and any `*.ts` containing a `"use server"` directive — not just `page.tsx` and `actions.ts` (R3b: an unregistered `route.ts` API handler would otherwise evade the check and ship in the production artifact, which is exactly the fail-by-default protection this test exists to provide). The deliberately prod-available `telemetry` route is the single declared exception, matching the artifact test's own carve-out. It reads the filesystem and the script, needs no build, and runs in milliseconds. A future dev route added without registration fails immediately instead of silently shipping to production.
+**Structural defense, created by this change** (cheap, CI-runnable, fails by default): a filesystem-walking meta-test asserting that **every route-defining or server-action file** under `app/admin/dev/**` appears in `scripts/with-admin-dev-flag.mjs`'s `FILES` array. The walked set is `page.tsx`, `route.ts`, `actions.ts`, `layout.tsx`, `default.tsx (route-tree files)`, and any `*.ts` **or `*.tsx`** containing a `"use server"` directive (R4b: scanning only `*.ts` would let a `.tsx` server-action module evade registration) — not just `page.tsx` and `actions.ts` (R3b: an unregistered `route.ts` API handler would otherwise evade the check and ship in the production artifact, which is exactly the fail-by-default protection this test exists to provide). The deliberately prod-available `telemetry` route is the single declared exception, matching the artifact test's own carve-out. It reads the filesystem and the script, needs no build, and runs in milliseconds. A future dev route added without registration fails immediately instead of silently shipping to production.
 
 **Artifact-level proof at both flag states** (R1 #20) remains the `RUN_BUILD_ARTIFACT_GATE_TEST=1` path, extended with the enabled-flag case:
 
@@ -588,7 +591,14 @@ That annotation's stated rationale is that every helper in the file throws on bo
 
 The two new actions **break that premise deliberately**: they return `MaterializeResult` above, because the card must render skip lists, partial outcomes, and refusals as ordinary UI. Throwing would surface a recoverable, expected condition — a collision skip, an unconfirmed environment — through the dev error boundary, which is the wrong behavior.
 
-**Structural registration is still required** (R3b: complying with the contract does not waive the requirement to be *registered or annotated* — those are separate obligations). Since no registry's scope covers this tree, the mechanism is the inline form: each new action carries `// not-subject-to-meta: honors the boundary contract inline — returns a typed MaterializeResult; no invariant-9 registry covers app/admin/dev (see spec §7.5)`. The comment records the reason it is outside a registry, not a claim of exemption from the contract.
+**Structural registration is still required** (R3b: complying with the contract does not waive the requirement to be *registered or annotated* — those are separate obligations). Since no registry's scope covers this tree, the mechanism is the inline form — and the invariant is written at **call-site** granularity, not per exported function (R4b). So **every** Supabase call site inside both actions carries its own annotation:
+
+```
+// not-subject-to-meta: honors the boundary contract inline (typed MaterializeResult);
+// no invariant-9 registry covers app/admin/dev. See spec §7.5.
+```
+
+One comment per action would leave its other call sites structurally uncovered. The behavioral tests in §12 verify the error handling; the annotations satisfy the separate registration-or-annotation obligation. Both are required.
 
 With that in place, the new actions are **not exempt; they comply directly** — they destructure `{ data, error }`, distinguish returned from thrown, and map infra faults onto `{ kind: "infra_error" }`. The implementation task **amends the file-level annotation** so it no longer claims file-wide that nothing returns a typed union: the legacy helpers keep their throwing contract and their exemption, the two materialize actions are called out as honoring the invariant directly. Leaving the annotation as-is would make it a false statement about its own file.
 
@@ -610,11 +620,17 @@ The gallery adds no animated component; transitions inside `AttentionMenu`, `Att
 | menu open | menu closed | same transition, reversed; `motion-reduce:transition-none` already honored |
 | navigation readout unset | set (an item was activated) | instant — a text node appears; animating it would obscure what it records |
 | readout set | set to a different item | instant |
-| help popover closed | open, **while the menu is open** | instant for the composition — the popover carries its own treatment; opening it does not alter the menu's state or transition |
-| menu open | **closed while the help popover is open** | the menu's own exit transition runs; the popover unmounts with it because it lives inside a menu row. Explicitly **not** animated separately — a second animation on an unmounting subtree is what produces the orphaned-overlay class of bug |
-| warning card collapsed | expanded, **while the menu is open** | instant; the warning cards are siblings of the menu, not descendants, so neither transition observes the other |
+| help popover closed | open, **while the menu is open** | instant for the composition; the popover carries its own treatment and does not alter the menu's state |
+| help popover open | closed, **while the menu is open** | instant, same reasoning |
+| menu open | **closed while the help popover is open** | the menu's own exit transition runs; the popover is a **descendant** (it lives inside a menu row) so it unmounts with the menu. Explicitly **not** animated separately, since a second animation on an unmounting subtree is what produces the orphaned-overlay class of bug |
+| warning card collapsed | expanded, **menu open** | instant; warning cards are **siblings** of the menu, so neither transition observes the other |
+| warning card expanded | collapsed, **menu open** | instant, same reasoning |
+| warning card collapsed | expanded, **menu closed** | instant |
+| warning card expanded | collapsed, **menu closed** | instant |
 | menu closed | opened **while a warning card is expanded** | the menu's own entry transition, unchanged; the expanded card is unaffected |
-| help popover or warning card toggled | **while the menu is mid-transition** | instant, and deliberately not queued or blocked: the menu's transition is on `opacity`/`transform` only, so a sibling's state change cannot interfere with it |
+| menu open | closed **while a warning card is expanded** | the menu's own exit transition; the card is a sibling and stays expanded |
+| warning card toggled | **while the menu is mid-transition** | instant, deliberately not queued: the card is a sibling, and the menu animates only `opacity`/`transform`, so neither observes the other |
+| help popover toggled | **while the menu is mid-transition** | instant. Note this case is a **descendant** toggling inside an animating ancestor, unlike the sibling row above; it is still safe because the menu animates only `opacity`/`transform`, which do not re-layout the popover (R4b flagged the earlier wording, which called the popover a sibling here and a descendant elsewhere — the descendant reading is correct) |
 
 No new `AnimatePresence` and no new animated branch is introduced: every transition above is either an existing component's own, or deliberately instant.
 
@@ -625,8 +641,10 @@ The **materialize card** has a state model of its own, omitted from the R1 revis
 | idle | submitting (Apply or Clear) | instant — controls disable, in-flight text appears |
 | submitting | result (`ok` / `partial` / `refused` / `infra_error`) | instant |
 | result | idle | instant, on any control change |
-| target local | target validation | instant; reveals the confirmation control |
+| target local | target validation | instant; reveals the confirmation control, which starts unconfirmed |
+| target validation | target local | instant; hides the confirmation control **and resets it to unconfirmed** (§10), so the compound "confirmed → switch to local → switch back" cannot arrive pre-confirmed |
 | validation, unconfirmed | validation, confirmed | instant |
+| validation, confirmed | validation, unconfirmed | instant; reachable by clearing the control directly, and the state the target switch above resets to |
 | any result | submitting again | instant; the prior result clears before the request fires, so a stale result never sits beside a live one |
 
 Compound: changing scenario, show, or environment **while a request is in flight** is prevented — the controls are disabled for the duration, which is also the double-submit guard of §5.3. Changing them while a *result* is displayed clears the result, per the row above.
@@ -688,6 +706,7 @@ Dimensioned by tier as well as table (R3b). **Tier applies only to the write pat
 | Apply → Clear leaves **zero** tagged rows, counted directly against the DB, not from the action's own report | a Clear that strands rows while reporting success |
 | **Clear preserves authentic rows.** Seed untagged `admin_alerts` and `sync_holds` rows alongside synthetic ones, Clear, then assert every authentic row is **byte-identical** — same id, timestamps, and payload — not merely still counted | a Clear whose predicate is too broad and sweeps production rows out with the synthetic ones. Counting tagged rows alone cannot see this (R3b) |
 | **Apply → Clear observes the warning column**, not just tagged rows: on local, `parse_warnings` returns to its authentic content; on validation, Apply never wrote it (§5.1 step 4) so it is unchanged throughout | synthetic warnings surviving a Clear that reports success because alerts and holds went away. `parse_warnings` is untagged, so a tagged-row count is blind to it (R3b) |
+| **`LIKE` wildcard safety.** Seed `sync_holds` rows with `created_by` values of `xxdevScenario:real` and `a_bdevScenario:real`; run Apply and Clear; assert both survive byte-identical | the unescaped `_` wildcard of R4a P1 deleting authentic rows. Every fixture that uses only correctly-tagged rows passes while this bug is present |
 | **Authentic hold collision.** Seed a real `sync_holds` row, apply a scenario whose hold shares `(domain, entity_key)`; assert the scenario's hold is skipped and named, and the real row is byte-identical | overwriting or deleting a real hold. The catalog duplicate check cannot catch this — it only sees within-scenario duplicates (R3b) |
 | Apply twice yields the same row count as once | non-idempotent accumulation |
 | Guards (§5.3, Apply-only and both-verb rows): each commits **no writes**, asserted by a **full before/after content snapshot** of `admin_alerts`, `sync_holds`, and `parse_warnings` for the show — not row counts | a guard that returns an error after having already written. Counts alone pass when a field was updated in place, `parse_warnings` was mutated, or a delete and insert offset each other (R3b) |
