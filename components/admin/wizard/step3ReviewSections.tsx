@@ -2518,16 +2518,28 @@ export function WarningsBreakdown({
           {/* Flow 3 (audit 3.1): correction-loop callout — copy-only. The verb is
               mode-derived, never hard-coded: the wizard already carries
               RescanSheetButton (re-scan), the published surface carries the
-              StatusStrip Re-sync. This is the panel that OWNS this guidance;
-              Overview deliberately does not duplicate it. */}
-          <CorrectionLoopCallout mode={mode} />
-          <p
-            data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
-            className="text-xs text-text-subtle"
-          >
-            These warnings don&rsquo;t block publishing. Some include an optional fix you can apply
-            below.
-          </p>
+              StatusStrip Re-sync.
+
+              warning-surface-trim §3.5: PUBLISHED mode renders NEITHER of these.
+              The loop sentence moves into each warning card's help popover, so
+              it exists per warning instead of per panel, and the non-blocking
+              line's "below" would point at controls that are no longer below
+              while its reassurance half is already carried per card by
+              `helpfulContext`. The wizard keeps both verbatim: RescanSheetButton
+              sits on that surface and its panel is still the sole actionable
+              site there. */}
+          {routedWarningsRenderElsewhere ? null : (
+            <>
+              <CorrectionLoopCallout mode={mode} />
+              <p
+                data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
+                className="text-xs text-text-subtle"
+              >
+                These warnings don&rsquo;t block publishing. Some include an optional fix you can
+                apply below.
+              </p>
+            </>
+          )}
           <ul className="flex flex-col gap-3">
             {rows.map((w, i) => {
               const title = reviewWarningTitle(w);

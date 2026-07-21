@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "implement",
-  "tasksRemaining": 8,
-  "next": "Execute Task 3: build tests/helpers/warningSurfaceFixture.ts + the no-loss precondition (Step 0), the rail-count test (Step 0b), the body-filter test with all three extraction modes (Step 1), the six-fixture empty-state matrix (Step 2), the cross-tree uniqueness assertion (Step 2b), then implement the body filter and the warnings-row railCount value.",
+  "tasksRemaining": 7,
+  "next": "Execute Task 4: retire the published guidance. Write the failing absence test (frozen literals, modal-root textContent, popover elements removed from a clone), gate the CorrectionLoopCallout mount and the non-blocking line on the trim gate being false, and invert tests/components/admin/showpage/sectionWarningControls.test.tsx:424 from presence to absence.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }

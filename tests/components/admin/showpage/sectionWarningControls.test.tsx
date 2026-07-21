@@ -38,6 +38,7 @@ import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { isPublished, type PublishedSectionData } from "@/components/admin/review/sectionData";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
+import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
 import { warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
@@ -169,6 +170,11 @@ function SurfaceHarness({
       scrollerRef={scrollerRef}
       layout="page"
       renderSectionExtras={renderSectionExtras}
+      // warning-surface-trim §3.2: production passes BOTH gate inputs
+      // (components/admin/showpage/PublishedReviewModal.tsx). Passing only the
+      // extras hook would pin a configuration the app never produces, and would
+      // silently keep this suite testing the pre-trim panel.
+      routedWarnings={deriveRoutedWarnings(bySection)}
     />
   );
 }
@@ -415,16 +421,18 @@ describe("correction-loop verb is mode-derived (published → re-sync)", () => {
   // testid subtree, so no sibling panel can satisfy it. The negative assertion
   // is not redundant with the positive one — it is what catches a later edit
   // that renders BOTH verbs (e.g. "re-sync (or re-scan)").
-  it("published data renders the re-sync verb, never the wizard's re-scan", () => {
+  it("published data renders NO panel-level correction-loop callout", () => {
     const d = buildData({ warnings: [roleWarning] });
     // Precondition: this fixture really is the published branch, so a future
     // refactor that silently makes it staged cannot green this test.
     expect(isPublished(d)).toBe(true);
     render(<SurfaceHarness data={d} />);
-    const callout = within(sectionEl("warnings")).getByTestId("correction-loop-callout");
-    expect(callout.textContent).toContain("then re-sync");
-    expect(callout.textContent).not.toContain("re-scan");
-    // Copy invariant: no em dash in user-visible copy.
-    expect(callout.textContent).not.toMatch(/[—]|--/);
+    // warning-surface-trim §3.5: the loop sentence moved into each warning
+    // card's help popover, so the panel-level callout is gone from the published
+    // surface. The wizard keeps it, which
+    // tests/components/admin/wizard/step3ReviewSections.test.tsx still pins, and
+    // the published absence is pinned by rendered TEXT (not testid) in
+    // tests/components/admin/showpage/publishedGuidanceRetired.test.tsx.
+    expect(within(sectionEl("warnings")).queryByTestId("correction-loop-callout")).toBeNull();
   });
 });
