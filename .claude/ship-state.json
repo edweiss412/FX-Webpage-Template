@@ -1,8 +1,8 @@
 {
-  "branch": "feat/warning-surface-trim",
-  "stage": "ci",
-  "tasksRemaining": 0,
-  "next": "MERGED origin/main (PR #532 warning-surface-trim) into the branch. CRITICAL INTERACTION: main now filters DOUG_EXCLUDED_CODES (info-severity UNION health) out of deriveAttentionItems - 27 of 45 routed codes no longer render. That is why CI failed on the two crew axes (ROLE_FLAGS_NOTICE is excluded) while local passed at the old base. RECONCILING: tier1 labels cut codes instead of showing blank blocks; tier2 crewAlert switches to AMBIGUOUS_EMAIL_BINDING (the only surviving crew code) with a galleryIdentity for crewName; pickCode must skip cut codes. THEN: re-run suite, push, CI, merge. Also outstanding: screenshots-drift fail.",
+  "branch": "feat/attention-modal-gallery",
+  "stage": "spec-review",
+  "tasksRemaining": "all",
+  "next": "Awaiting Codex spec review (bg b1nf98gha). On return: consolidated spec repair addressing Codex findings + the tier-2 faithfulness-boundary gap I found (modal derives placement from data, not injected predicates; anchorsForData shapes rooms/event only). Prep notes: scratchpad/plan-prep-notes.md. Then writing-plans.",
   "blockedOn": "",
-  "cronJobId": "5d291551"
+  "cronJobId": "33c5f0fd"
 }
