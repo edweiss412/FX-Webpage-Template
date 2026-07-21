@@ -151,6 +151,15 @@ describe("ScenarioBlock", () => {
     expect(within(rooms).getByRole("heading", { name: "rooms / diagrams" })).toBeInTheDocument();
   });
 
+  test("the menu's reserved space exists only while the menu is open", () => {
+    // Without it the absolutely-positioned menu covers this block's own cards.
+    // Tied to `open` so a closed block does not carry 480px of dead scroll.
+    render(<ScenarioBlock {...baseProps({ items: [alertItem()] })} />);
+    expect(screen.getByTestId("menu-reserve")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /attention/i }));
+    expect(screen.queryByTestId("menu-reserve")).not.toBeInTheDocument();
+  });
+
   test("two groups in the same section and placement get DISTINCT testids", () => {
     // A section top plus the composed notes group both land in one section with
     // placement sectionTop; duplicate testids would make getByTestId throw.

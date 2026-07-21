@@ -64,6 +64,29 @@ for (const [name, width] of [
   });
 }
 
+for (const [name, width] of [
+  ["narrow", "320"],
+  ["wide", "1280"],
+] as const) {
+  test(`an open menu does not cover its OWN block's cards (${name})`, async ({ page }) => {
+    // The impeccable audit's P2. `pb-104` only protected the NEXT block, so the
+    // menu sat on top of the very cards a reviewer opened the gallery to read
+    // - worst at 320px, where the menu is nearly full width.
+    await ready(page, `/admin/dev/attention-gallery?scenario=t2-single&w=${width}`);
+
+    const menu = await page.locator(MENU).first().boundingBox();
+    const group = await page.locator('[data-testid^="group-"]').first().boundingBox();
+    expect(menu, "menu has no box").toBeTruthy();
+    expect(group, "no bucketed group rendered, so this assertion would be vacuous").toBeTruthy();
+    if (menu && group) {
+      expect(
+        menu.y + menu.height,
+        `menu bottom (${menu.y + menu.height}) overlaps its own first card (top ${group.y})`,
+      ).toBeLessThanOrEqual(group.y + 0.5);
+    }
+  });
+}
+
 test("a MENU_CAP-item menu actually crosses its scroll threshold", async ({ page }) => {
   // This is why MENU_CAP is 12 rather than an assumed-sufficient number: the
   // count has to actually reach the overflow state it claims to demonstrate.

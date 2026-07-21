@@ -70,7 +70,9 @@ export default async function AttentionGalleryPage({
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="text-xl font-bold text-text-strong">Attention scenario gallery</h1>
+      {/* text-2xl over the blocks' text-lg h2 is a 1.33x step, clearing
+          DESIGN.md's 1.25x floor; text-xl was 1.11x and read as a flat scale. */}
+      <h1 className="text-2xl font-bold text-text-strong">Attention scenario gallery</h1>
       <p className="mt-2 max-w-prose text-xs/relaxed text-text-subtle">
         Synthetic scenarios rendered through the real derivation, routing, and card components.
         Action controls are display-only here: every submit is intercepted, so nothing writes. To
@@ -92,6 +94,25 @@ export default async function AttentionGalleryPage({
           {ALL_SCENARIOS.map((s) => s.id).join(", ")}
         </p>
       ) : null}
+
+      {shown.length < 2 ? null : (
+        <nav aria-label="Scenarios on this page" className="mt-6">
+          {/* Every block already carries an `id`; without this nothing links to
+              them, so a 40-scenario sweep is one long scroll with no way back. */}
+          <ul className="flex flex-wrap gap-x-4 gap-y-1">
+            {shown.map((s) => (
+              <li key={s.id}>
+                <a
+                  href={`#${s.id}`}
+                  className="inline-flex min-h-tap-min items-center text-xs/relaxed text-text-subtle underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none"
+                >
+                  {s.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
 
       <div className="mt-8">
         {shown.map((s) => (

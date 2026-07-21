@@ -77,12 +77,7 @@ export function ScenarioBlock(props: ScenarioBlockProps) {
     <section
       data-testid="block-root"
       data-scenario-id={props.scenarioId}
-      // pb-104 (26rem) reserves room for the absolutely-positioned menu so an
-      // open menu never overlaps the next scenario. The plan wrote this as the
-      // arbitrary value pb-[26rem]; the canonical-classes lint rewrote it, and
-      // the two are the same length. Task 16 measures whether it is sufficient
-      // at both widths.
-      className="relative mb-16 pb-104"
+      className="relative mb-16"
       style={maxWidth === undefined ? undefined : { maxWidth }}
       onSubmitCapture={(e) => e.preventDefault()}
     >
@@ -117,6 +112,17 @@ export function ScenarioBlock(props: ScenarioBlockProps) {
           pillRef={pillRef}
         />
       </div>
+
+      {/* An IN-FLOW spacer, not bottom padding on the section. The menu is
+          absolutely positioned and open by default (spec §4.0), so trailing
+          padding would reserve room after this block's own cards and leave the
+          menu covering them - at 320px it hides most of the first card, which
+          is exactly what a reviewer opened the gallery to read. Reserving the
+          space HERE pushes this block's content below the menu and clears the
+          next block at the same time. Sized above the menu's own worst case:
+          max-h-96 list (384px) + header + footer + the 8px offset. Task 16
+          measures both invariants in a real browser. */}
+      {open ? <div aria-hidden="true" data-testid="menu-reserve" className="h-120" /> : null}
 
       {navigated === null ? null : (
         <p data-testid="navigated" className="mt-2 font-mono text-xs text-text-subtle">

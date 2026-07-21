@@ -149,6 +149,9 @@ export function MaterializeCard(props: MaterializeCardProps) {
           <input
             className={CONTROL}
             value={slug}
+            // An example rather than bare recall: slugs are kebab-case show
+            // names and nothing else on this card reveals the shape.
+            placeholder="east-coast-2026"
             onChange={(e) => changed(setSlug)(e.target.value)}
           />
         </label>
@@ -185,11 +188,15 @@ export function MaterializeCard(props: MaterializeCardProps) {
         </label>
 
         {target === "validation" ? (
-          <label className="flex items-center gap-2 text-xs/relaxed text-text-strong">
+          <label className="flex min-h-tap-min items-center gap-2 text-xs/relaxed text-text-strong">
+            {/* Sized to the 44px floor: DESIGN.md applies it to all chrome and
+                controls with no dev-tool carve-out, and a native ~16px box is
+                the smallest target on this card by a wide margin. */}
             <input
               type="checkbox"
               checked={confirmed}
               onChange={(e) => changed(setConfirmed)(e.target.checked)}
+              className="size-5 shrink-0 accent-accent"
             />
             Confirm writing to the validation project
           </label>
@@ -213,7 +220,15 @@ export function MaterializeCard(props: MaterializeCardProps) {
       </p>
 
       {result === null ? null : (
-        <div data-testid="result" className="mt-4 rounded-md border border-border p-3">
+        <div
+          data-testid="result"
+          // Matches the convention on every sibling async surface
+          // (RescanSheetButton, FinalizeButton, BlockedRowResolver): without it a
+          // screen-reader user gets no announcement after a real database write.
+          role="status"
+          aria-live="polite"
+          className="mt-4 rounded-md border border-border p-3"
+        >
           <p data-testid="result-headline" className="text-xs/relaxed text-text-strong">
             {headlineFor(result)}
           </p>
@@ -232,10 +247,14 @@ export function MaterializeCard(props: MaterializeCardProps) {
             </p>
           ) : null}
           {result.kind === "refused" ? (
-            <p className="mt-1 font-mono text-xs text-text-subtle">{result.reason}</p>
+            <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
+              {result.reason}
+            </p>
           ) : null}
           {result.kind === "infra_error" ? (
-            <p className="mt-1 font-mono text-xs text-text-subtle">{result.message}</p>
+            <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
+              {result.message}
+            </p>
           ) : null}
         </div>
       )}
