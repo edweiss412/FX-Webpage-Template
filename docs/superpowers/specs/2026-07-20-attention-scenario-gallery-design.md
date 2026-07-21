@@ -464,14 +464,22 @@ Build-time, not runtime. `scripts/with-admin-dev-flag.mjs` renames the files in 
 
 **Added to `FILES`:** `app/admin/dev/attention-gallery/page.tsx (new)`. The materialize card lives inside the already-registered `app/admin/dev/page.tsx` and `actions.ts`.
 
-**Gate proof at both flag states** (R1 #20 — the previous revision proved only the unset state, and "no reference" was ambiguous):
+#### 6a What actually protects production, measured
 
-| Flag | Assertion | Meaning of the claim |
+The previous revision cited a `FILES`-membership assertion in `tests/admin/withAdminDevFlagDevPanelPresent.test.ts`. **No such assertion exists** — that file tests only `writeDevPanelPresent` (33 lines, two cases). And the real artifact test, `tests/admin/build-artifact-gate.test.ts`, is gated on `RUN_BUILD_ARTIFACT_GATE_TEST === "1"` (`tests/admin/build-artifact-gate.test.ts:33`), a variable that appears **nowhere** in `.github/workflows/` or `package.json`. It runs a full `pnpm build`, so it is deliberately opt-in and **does not run in CI**.
+
+Net: today, **nothing in CI catches a new `app/admin/dev/**` route that was never added to the `FILES` array.** The rename gate protects only files it knows about, and membership is unchecked. This affects the load-bearing production-safety claim in §1.1 and §5.5, so it is stated rather than assumed.
+
+**Structural defense, created by this change** (cheap, CI-runnable, fails by default): a filesystem-walking meta-test asserting that **every** `app/admin/dev/**/page.tsx` and `app/admin/dev/**/actions.ts` — excluding the deliberately prod-available `telemetry` route, which the artifact test already treats as an exception — appears in `scripts/with-admin-dev-flag.mjs`'s `FILES` array. It reads the filesystem and the script, needs no build, and runs in milliseconds. A future dev route added without registration fails immediately instead of silently shipping to production.
+
+**Artifact-level proof at both flag states** (R1 #20) remains the `RUN_BUILD_ARTIFACT_GATE_TEST=1` path, extended with the enabled-flag case:
+
+| Flag | Assertion | Why this claim |
 | --- | --- | --- |
-| unset | the built route manifest contains no entry for `/admin/dev/attention-gallery` | **route-manifest absence**, the load-bearing claim — a source-text grep is weaker and a 404 probe tests routing rather than the artifact |
-| `"true"` | the manifest **does** contain it | proves the gate is a gate and not a permanent deletion |
+| unset | the built `app-paths-manifest` and `routes-manifest` files contain no non-telemetry `/admin/dev` entry | **route-manifest absence** — a source grep is weaker, a 404 probe tests routing rather than the artifact. The existing assertion already filters generically on "non-telemetry `/admin/dev`" (`tests/admin/build-artifact-gate.test.ts:135-152`), so the new route is covered **with no edit** |
+| `"true"` | the manifests **do** contain `/admin/dev/attention-gallery` | new; proves the gate is a gate rather than a permanent deletion |
 
-Plus the existing `FILES`-membership assertion in `tests/admin/withAdminDevFlagDevPanelPresent.test.ts`.
+This is a **manual close-out check, not a CI gate** — consistent with §1.1's no-CI-gate decision, and now stated honestly instead of implied to be automatic.
 
 ## 7. Invariant compliance
 
@@ -598,7 +606,7 @@ No empty column; no zombie flag.
 
 **Not extended:** any invariant-9 registry — none has `app/admin/dev` in scope (§7.5). The obligation there is an amended file-level annotation plus the typed-result behavior, both covered by the guard tests below rather than by a registry row.
 
-**Creates:** none.
+**Creates:** one — the `FILES`-membership meta-test of §6a. It is the CI-enforced half of the build gate, and the only new structural defense this design adds.
 
 **Declined:** a catalog-completeness meta-test (§1.1). The alert axis needs none; the warning axis has an enumerated residue whose closure is a backlog item.
 
