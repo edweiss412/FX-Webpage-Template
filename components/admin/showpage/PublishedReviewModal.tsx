@@ -53,7 +53,10 @@ import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAtt
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
-import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
+import {
+  buildSectionWarningExtras,
+  renderCrewUnderRowCards,
+} from "@/components/admin/showpage/sectionWarningExtras";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import {
   CREW_CAP,
@@ -250,7 +253,40 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // §5.3 per-section warning controls: the crypto-free render factory over the
   // server-derived model. Memoized on the record identity (stable per render).
-  const renderSectionExtras = useMemo(() => buildSectionWarningExtras({ bySection }), [bySection]);
+  // Canonical keys of the RENDERED crew rows (CREW_CAP slice) — shared by the extras
+  // factory (crew-scoped group filtering, §5), the under-row card renderer, and the
+  // alert bucketAttention below (single source, no drift).
+  const renderedCrewKeys = useMemo(
+    () => new Set(data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || ""))),
+    [data.crewMembers],
+  );
+  const renderSectionExtras = useMemo(
+    () => buildSectionWarningExtras({ bySection, renderedCrewKeys }),
+    [bySection, renderedCrewKeys],
+  );
+  // §5: crew-scoped warning cards for the rendered rows, threaded to the crew section's
+  // row host (merged with alert banners into one capped stack).
+  const crewUnderRowCards = useMemo(
+    () =>
+      renderCrewUnderRowCards({
+        model: bySection.crew,
+        published: {
+          slug: data.slug,
+          showId: data.showId,
+          driveFileId: data.driveFileId,
+          useRawDecisions: data.useRawDecisions,
+        },
+        renderedKeys: renderedCrewKeys,
+      }),
+    [
+      bySection.crew,
+      data.slug,
+      data.showId,
+      data.driveFileId,
+      data.useRawDecisions,
+      renderedCrewKeys,
+    ],
+  );
   // warning-surface-trim §3.2: the counts travel WITH the extras hook, because
   // the trim's gate requires both. Derived from the same model the extras render,
   // so the panel's body-empty copy can never describe a different set of rows
@@ -414,9 +450,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // list is bucketed, not the doneIds-filtered one: a resolved banner swaps to
   // "✓ Confirmed" in place and stays mounted until router.refresh() reconciles
   // (spec §6.3).
-  const renderedKeys = new Set(
-    data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
-  );
+  const renderedKeys = renderedCrewKeys; // single source (computed above)
   // `sectionAvailable` = "this section has a MOUNTED attention consumer", not
   // merely "this section renders". Consumers: crew (byCrewKey + sectionTop, in
   // CrewBreakdown), overview (sectionTop, the Overview slot), warnings (the notes
@@ -746,6 +780,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         attentionSections={attentionSections}
         attentionJump={jump}
         sectionAttention={sectionAttention}
+        crewUnderRowCards={crewUnderRowCards}
       />
     </ReviewModalShell>
   );

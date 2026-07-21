@@ -148,6 +148,18 @@ export type CrewAttention = {
   sectionTop: ReactNode[];
 };
 
+/** Merge warning-card nodes into the alert byCrewKey map: alert banners FIRST, then
+ *  warning cards (spec 2026-07-21-warning-card-identity-placement §5.3). */
+function mergeByCrewKey(
+  alerts: ReadonlyMap<string, ReactNode[]> | undefined,
+  warnings: ReadonlyMap<string, ReactNode[]>,
+): Map<string, ReactNode[]> {
+  const out = new Map<string, ReactNode[]>();
+  for (const [k, v] of alerts ?? new Map()) out.set(k, [...v]);
+  for (const [k, v] of warnings) out.set(k, [...(out.get(k) ?? []), ...v]);
+  return out;
+}
+
 /** One jump request (spec §6.2): scroll to the item's anchor with the one-shot
  *  flash; a new nonce fires a new jump, an unchanged nonce never re-fires. */
 export type AttentionJump = { itemId: string; sectionId: string; nonce: number };
@@ -167,6 +179,7 @@ export function ShowReviewSurface({
   attentionSections,
   attentionJump,
   sectionAttention,
+  crewUnderRowCards,
 }: {
   data: SectionData;
   isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
@@ -191,15 +204,26 @@ export function ShowReviewSurface({
   attentionSections?: ReadonlySet<string>; // registry section ids holding ≥1 actionable item → amber dot
   attentionJump?: AttentionJump | null; // scroll+flash request (menu row click / deep link)
   sectionAttention?: SectionAttention; // per-section attention buckets; crew banners thread via the crew chrome context
+  // spec 2026-07-21-warning-card-identity-placement §5: crew-scoped warning cards for the
+  // rendered rows, merged into the crew byCrewKey stack (after alert banners). Published
+  // modal only; absent → byte-identical (staged wizard passes none).
+  crewUnderRowCards?: ReadonlyMap<string, ReactNode[]>;
 }): JSX.Element {
   // Crew banners still thread through the crew chrome context unchanged; the
   // generalized transport (attention-alert-routing §3.2) carries them in the
   // shared SectionAttention map under the "crew" key. Deriving the crew bucket
   // here preserves the exact CrewAttention payload the crew section already reads.
   const crewBucket = sectionAttention?.get("crew");
-  const crewAttention: CrewAttention | undefined = crewBucket
-    ? { byCrewKey: crewBucket.byCrewKey ?? new Map(), sectionTop: crewBucket.sectionTop }
-    : undefined;
+  // Merge crew-scoped warning cards (§5) into the alert byCrewKey so the row host renders
+  // one stack per member: alert banners FIRST, then warning cards. Absent map → alerts only.
+  const mergedCrewByKey =
+    crewUnderRowCards && crewUnderRowCards.size > 0
+      ? mergeByCrewKey(crewBucket?.byCrewKey, crewUnderRowCards)
+      : (crewBucket?.byCrewKey ?? new Map());
+  const crewAttention: CrewAttention | undefined =
+    crewBucket || (crewUnderRowCards && crewUnderRowCards.size > 0)
+      ? { byCrewKey: mergedCrewByKey, sectionTop: crewBucket?.sectionTop ?? [] }
+      : undefined;
   // The two parse notices, composed by the warnings section (§3.2). Read once so
   // the prop value is exactly NoteItem[] (not a re-narrowed Map lookup).
   const warningsNotes = sectionAttention?.get("warnings")?.notes;

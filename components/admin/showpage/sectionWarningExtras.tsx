@@ -15,6 +15,67 @@ import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary"
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
+import { CREW_SCOPED_WARNING_CODES } from "@/lib/parser/autocorrectCodes";
+import { canonicalCrewKey } from "@/lib/admin/attentionItems";
+import type { SectionWarningItem } from "@/lib/admin/sectionWarningModel";
+
+/** Render crew-scoped active warnings for the RENDERED crew rows as under-row cards,
+ *  keyed canonicalCrewKey(subject) (spec 2026-07-21-warning-card-identity-placement §5).
+ *  Keys not in `renderedKeys` (over-cap / unmatched) are OMITTED — those items stay in the
+ *  section group as fallback. Cards keep the same Report/Ignore + use-raw + recognize-role
+ *  controls the group cards use, so the ignore lifecycle is identical. */
+export function renderCrewUnderRowCards(args: {
+  model: { warningsByCrewKey: Record<string, SectionWarningItem[]> } | undefined;
+  published: {
+    slug: string;
+    showId: string;
+    driveFileId: string | null;
+    useRawDecisions: PublishedSectionData["useRawDecisions"];
+  };
+  renderedKeys: ReadonlySet<string>;
+}): Map<string, ReactNode[]> {
+  const out = new Map<string, ReactNode[]>();
+  const model = args.model;
+  if (!model) return out;
+  const { slug, showId, driveFileId, useRawDecisions } = args.published;
+  for (const [key, items] of Object.entries(model.warningsByCrewKey)) {
+    if (!args.renderedKeys.has(key) || items.length === 0) continue;
+    // ONE node PER WARNING (not one node wrapping all): the row host caps the merged
+    // stack at 2 VISIBLE CARDS, so each card must be its own node or the cap and the
+    // "N more" count operate at wrapper granularity and undercount (whole-diff HIGH).
+    out.set(
+      key,
+      items.map((it, i) => (
+        <PerShowActionableWarnings
+          key={`crew-warn-${key}-${i}`}
+          items={[it.warning]}
+          driveFileId={driveFileId}
+          renderItemControls={(w) => (
+            <SectionWarningItemControls
+              warning={w}
+              reportSurfaceId={it.reportSurfaceId}
+              mode="active"
+              slug={slug}
+              showId={showId}
+              driveFileId={driveFileId}
+              useRawDecisions={useRawDecisions}
+            />
+          )}
+        />
+      )),
+    );
+  }
+  return out;
+}
+
+/** The set of canonical keys placed under a row for a section — the crew-scoped items to
+ *  EXCLUDE from that section's group (they render under rows, not in the group). */
+function underRowKeys(
+  model: { warningsByCrewKey: Record<string, SectionWarningItem[]> },
+  renderedKeys: ReadonlySet<string>,
+): ReadonlySet<string> {
+  return new Set(Object.keys(model.warningsByCrewKey).filter((k) => renderedKeys.has(k)));
+}
 
 /**
  * The `renderSectionExtras(id, d)` implementation the shared `ShowReviewSurface` invokes under
@@ -75,8 +136,12 @@ function SectionWarningItemControls(props: {
 
 export function buildSectionWarningExtras(args: {
   bySection: SectionWarningRecord;
+  /** Canonical keys placed under a crew row (spec §5): their crew-scoped cards render
+   *  under rows, so they are EXCLUDED from the section group here (conservation — a card
+   *  never renders twice). Absent → no crew filtering (byte-identical to today). */
+  renderedCrewKeys?: ReadonlySet<string>;
 }): (id: SectionId, d: SectionData) => ReactNode {
-  const { bySection } = args;
+  const { bySection, renderedCrewKeys } = args;
   // Lowercase-named (not a component): the surface calls it as a render callback per section.
   function renderSectionExtras(id: SectionId, d: SectionData): ReactNode {
     // §5.3 is published-only (staged warnings render through the modal's §E3 callouts +
@@ -94,32 +159,58 @@ export function buildSectionWarningExtras(args: {
     // all N" chip sits on its own group's eyebrow, bound to the cards it ignores. The report
     // surface ids come from the pre-derived model (ZERO crypto here); each card keeps the
     // self-hiding Report/Ignore + use-raw + recognize-role controls.
-    const activeGroups: ActiveWarningGroup[] = model.activeGroups.map((g) => ({
-      code: g.code,
-      label: g.label,
-      bulk: g.bulk,
-      cards: (
-        <PerShowActionableWarnings
-          items={g.items.map((it) => it.warning)}
-          driveFileId={driveFileId}
-          // warning-surface-trim §4.2: the SAME sentence the panel used to show
-          // once, now per card and on demand. Sourced from the single exported
-          // helper, never re-authored, so the two cannot drift.
-          followUpCopy={correctionLoopCopy("resync")}
-          renderItemControls={(w, i) => (
-            <SectionWarningItemControls
-              warning={w}
-              reportSurfaceId={g.items[i]!.reportSurfaceId}
-              mode="active"
-              slug={slug}
-              showId={showId}
-              driveFileId={driveFileId}
-              useRawDecisions={useRawDecisions}
-            />
-          )}
-        />
-      ),
-    }));
+    // Crew-scoped codes: exclude items placed under a row (§5 conservation). Non-crew
+    // groups are unchanged. Filtering shifts indices, so reportSurfaceId reads groupItems[i].
+    const excludedKeys =
+      renderedCrewKeys && id === "crew" ? underRowKeys(model, renderedCrewKeys) : null;
+    const activeGroups: ActiveWarningGroup[] = model.activeGroups
+      .map((g) => {
+        const groupItems =
+          excludedKeys && CREW_SCOPED_WARNING_CODES.has(g.code)
+            ? g.items.filter(
+                (it) => !excludedKeys.has(canonicalCrewKey(it.warning.autocorrect?.subject ?? "")),
+              )
+            : g.items;
+        // §6.2 emission: a crew-scoped code whose cards all moved under rows and has no
+        // bulk chip (N<2) emits NO group — otherwise an orphan eyebrow. The chip (bulk,
+        // counts ALL active N) stays whenever N>=2, even with an empty fallback cards slot.
+        if (CREW_SCOPED_WARNING_CODES.has(g.code) && groupItems.length === 0 && !g.bulk) {
+          return null;
+        }
+        return {
+          code: g.code,
+          label: g.label,
+          bulk: g.bulk,
+          items: groupItems,
+        };
+      })
+      .filter((g): g is NonNullable<typeof g> => g !== null)
+      .map((g) => ({
+        code: g.code,
+        label: g.label,
+        bulk: g.bulk,
+        cards: (
+          <PerShowActionableWarnings
+            items={g.items.map((it) => it.warning)}
+            driveFileId={driveFileId}
+            // warning-surface-trim §4.2: the SAME sentence the panel used to show
+            // once, now per card and on demand. Sourced from the single exported
+            // helper, never re-authored, so the two cannot drift.
+            followUpCopy={correctionLoopCopy("resync")}
+            renderItemControls={(w, i) => (
+              <SectionWarningItemControls
+                warning={w}
+                reportSurfaceId={g.items[i]!.reportSurfaceId}
+                mode="active"
+                slug={slug}
+                showId={showId}
+                driveFileId={driveFileId}
+                useRawDecisions={useRawDecisions}
+              />
+            )}
+          />
+        ),
+      }));
 
     return (
       <div

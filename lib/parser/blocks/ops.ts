@@ -155,6 +155,10 @@ export function parseOps(
       message: `Read likely-misspelled field label '${cand.rawLabel}' as field '${cand.canonical}'`,
       blockRef: { kind: "financials" },
       rawSnippet: cand.rawLabel,
+      autocorrect: {
+        subject: null,
+        corrections: [{ detected: cand.rawLabel, corrected: cand.canonical }],
+      },
     });
   }
 
