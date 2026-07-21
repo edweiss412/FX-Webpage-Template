@@ -1,7 +1,7 @@
 # Warning card identity and placement — design
 
 **Date:** 2026-07-21
-**Status:** Draft for autonomous ship.
+**Status:** APPROVED for implementation (Codex spec review R5, 2026-07-21). Round history in §12.
 **Base:** `origin/main` @ `2a868b132` — post-#531 (popover `helpfulContext` copy + coverage gate), post-#532 (warning-surface trim).
 **Supersedes:** nothing. Changes what an autocorrect warning card SAYS and WHERE it renders. Adds no route, no table, no `§12.4` row.
 
@@ -360,7 +360,7 @@ Compound transitions (a mutation while the disclosure is OPEN, count stays ≥ 3
 
 - A DISCLOSED card is ignored/resolved: it leaves in place, disclosure STAYS OPEN, hidden cards renumber. §10 test 4b.
 - A VISIBLE (above-fold) card is ignored/resolved: a former hidden card PROMOTES to visible, disclosure stays open, `N more` decrements. §10 test 4d.
-- An item is ADDED on live refresh (a re-sync surfaces a new warning/alert): the stack re-derives per §5.3. A new WARNING appends after existing warnings (usually landing hidden); a new ALERT takes its alert-first position and can push a warning below the fold. Either way `N more` increments and the disclosure stays open. §10 test 4e covers both. (There is no append-hidden-without-reordering rule; the earlier draft's claim to that effect is retired.)
+- An item is ADDED on live refresh (a re-sync surfaces a new warning/alert): the stack re-derives per §5.3. A new WARNING takes its section-model-order position among the warnings (not necessarily last); a new ALERT takes its alert-first position and can push a warning below the fold. Either way `N more` increments and the disclosure stays open. §10 test 4e covers both. (There is no append-hidden-without-reordering rule; the earlier draft's claim to that effect is retired.)
 
 `expanded→absent` (count crosses 3→2 while open) is the one compound case that changes disclosure state: §10 test 4c asserts no orphaned open `<details>` and no dropped card.
 
@@ -386,7 +386,7 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
    4d. **Compound: VISIBLE card ignored while open, count stays ≥3 (component).** A former hidden card promotes to visible, disclosure stays open, `N more` decrements by one, no card dropped or duplicated.
 
-   4e. **Compound: item ADDED on live refresh while open (component).** Add a new WARNING while expanded: it re-derives into its model-order position (after existing warnings), `N more` increments, disclosure stays open. Add a new ALERT while expanded with a warning currently visible: the alert takes its alert-first visible slot, the displaced warning moves below the fold, `N more` increments, disclosure stays open. Both assert the deterministic order of §5.3, not a "lands hidden without reordering" rule.
+   4e. **Compound: item ADDED on live refresh while open (component).** Add a new WARNING while expanded: it re-derives into its section-model-order position among warnings (not necessarily last), `N more` increments, disclosure stays open. Add a new ALERT while expanded with a warning currently visible: the alert takes its alert-first visible slot, the displaced warning moves below the fold, `N more` increments, disclosure stays open. Both assert the deterministic order of §5.3, not a "lands hidden without reordering" rule.
 
    4f. **Compound: BULK-ignore while open (component, R3 MED).** Open the disclosure at `N≥3`, then bulk-ignore the whole code. Assert the `<details>` unmounts cleanly (no orphaned open node), every active card of the code clears from both visible and hidden slots, and all N appear exactly once in the `Ignored (N)` disclosure.
 
