@@ -111,12 +111,15 @@ describe("popover helpfulContext copy (frozen oracle)", () => {
 
 - [ ] **Step 2: Run — verify RED.** `pnpm vitest run tests/messages/popoverContextCopy.test.ts` → 45 failures (`helpfulContext` is null; the count assertion passes).
 
-- [ ] **Step 3: Set catalog `helpfulContext` for the 45 (block-scoped).** For each of the 45 codes, within that code's object in `lib/messages/catalog.ts`, replace the single `helpfulContext: null,` line with `helpfulContext:` then a following line `      "<the FROZEN string for that code>",`. Every string is the exact `FROZEN[code]` value from Step 1. Each code has EXACTLY one in-block `helpfulContext: null,` (verified), so a block-scoped transform is safe and a global sed is not. Reference transform (parses the file into per-code blocks, replaces exactly one in-block occurrence per code, aborts unless all 45 match):
+- [ ] **Step 3: Set catalog `helpfulContext` for the 45 (block-scoped).** For each of the 45 codes, within that code's object in `lib/messages/catalog.ts`, replace the single `helpfulContext: null,` line with two lines: `helpfulContext:` then `      "<value>",` where `<value>` is that code's exact string from the Step 1 `FROZEN` map (all 45 code→string pairs are listed verbatim in Step 1; this step introduces no new copy). Each code has EXACTLY one in-block `helpfulContext: null,` (verified), so a block-scoped transform is safe and a global sed is not. Reference transform — `AUTH` is the Step 1 `FROZEN` object pasted in as a Python dict (no external file); it parses the file into per-code blocks, replaces exactly one in-block occurrence per code, and aborts unless all 45 match:
 
 ```python
-import json, re, sys
+import re, sys
 CAT='lib/messages/catalog.ts'
-AUTH=json.load(open('/path/to/authored45.json'))  # code -> string (== FROZEN)
+AUTH = {  # the Step 1 FROZEN object, verbatim (same 45 code -> string pairs); NOT an external file
+    # "AMBIGUOUS_EMAIL_BINDING": "Usually a recent typo or paste dropped ...",
+    # ... paste all 45 pairs from Step 1's FROZEN here ...
+}
 def esc(s): return s.replace('\\','\\\\').replace('"','\\"')
 src=open(CAT).read()
 parts=re.split(r'(\n  [A-Z][A-Z0-9_]+: \{)', src)
@@ -134,7 +137,7 @@ assert replaced==len(AUTH), replaced
 open(CAT,'w').write(''.join(out))
 ```
 
-- [ ] **Step 4: Add the 45 appendix lines to the master spec.** Insert `CODE: "<the FROZEN string>"` for each of the 45 into the YAML fence at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (before the closing ``` at line 3325), byte-identical to the catalog strings (same `FROZEN` values; the strings carry apostrophes but no double-quotes, so no YAML escaping). Do not reformat anything else in that file.
+- [ ] **Step 4: Add the 45 appendix lines to the master spec.** For each of the 45 codes, insert a line `<CODE>: "<value>"` (where `<value>` is the same Step 1 `FROZEN` string, byte-identical to the catalog value just written) into the YAML fence at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (before the closing ``` at line 3325). The strings carry apostrophes but no double-quotes, so no YAML escaping is needed. Do not reformat anything else in that file.
 
 - [ ] **Step 5: Regenerate spec-codes.** `pnpm gen:spec-codes` → updates `lib/messages/__generated__/spec-codes.ts`.
 
@@ -304,7 +307,7 @@ describe("popover context coverage: synthetic proofs (each rule fails by constru
     expect(v).toEqual([{ rule: 4, code: "EX", detail: expect.any(String) }]);
   });
 
-  it("rule 4: duplicate exemption rows => violation", () => {
+  it("rule 4: duplicate exemption rows => exactly one duplicate violation", () => {
     const v = checkPopoverContextCoverage(
       [{ code: "EX", helpHref: "/help/errors#EX", helpfulContext: null }],
       [
@@ -312,7 +315,9 @@ describe("popover context coverage: synthetic proofs (each rule fails by constru
         { code: "EX", reason: "second" },
       ],
     );
-    expect(v).toContainEqual({ rule: 4, code: "EX", detail: "duplicate exemption row" });
+    // Whole-array equality: the fixture is well-formed except for the duplicate,
+    // so exactly one violation is emitted (the second occurrence).
+    expect(v).toEqual([{ rule: 4, code: "EX", detail: "duplicate exemption row" }]);
   });
 
   it("a fully valid catalog + empty ledger => no violations", () => {
