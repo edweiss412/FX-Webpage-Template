@@ -48,7 +48,9 @@ describe("bucketAttention", () => {
   });
   it("crew item with a key goes to byCrewKey", () =>
     expect(
-      bucketAttention([it_("ROLE_FLAGS_NOTICE", "crew", "doug")], opts).get("crew")!.byCrewKey?.get("doug"),
+      bucketAttention([it_("ROLE_FLAGS_NOTICE", "crew", "doug")], opts)
+        .get("crew")!
+        .byCrewKey?.get("doug"),
     ).toEqual(["CARD:ROLE_FLAGS_NOTICE"]));
   it("section unavailable falls back to overview", () => {
     const m = bucketAttention([it_("EMBEDDED_ASSET_DRIFTED", "rooms")], {

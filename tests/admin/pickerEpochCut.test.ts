@@ -21,9 +21,9 @@ describe("PICKER_EPOCH_RESET cut from attention", () => {
   it("route row REMAINS for registry totality", () =>
     expect(ATTENTION_ROUTES.PICKER_EPOCH_RESET).toBeDefined());
   it("produces no attention item", () =>
-    expect(deriveAttentionItems({ alerts: [row("PICKER_EPOCH_RESET")], feed: null, slug: "s" })).toHaveLength(
-      0,
-    ));
+    expect(
+      deriveAttentionItems({ alerts: [row("PICKER_EPOCH_RESET")], feed: null, slug: "s" }),
+    ).toHaveLength(0));
   it("a non-cut code still produces one (control)", () =>
     expect(
       deriveAttentionItems({ alerts: [row("PARSE_ERROR_LAST_GOOD")], feed: null, slug: "s" }),

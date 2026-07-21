@@ -36,7 +36,10 @@ export function orderNotes(notes: readonly NoteItem[]): NoteItem[] {
 
 /** Total by construction: the exhaustive switch's `never` default makes a third
  *  NoteCode a compile error, so there is no silent-null drop path (R5#1). */
-export function composeParseNote(item: NoteItem, warningCount: number): { lead: string; rest: string } {
+export function composeParseNote(
+  item: NoteItem,
+  warningCount: number,
+): { lead: string; rest: string } {
   const alert = item.alert;
   const hasList = warningCount > 0;
 

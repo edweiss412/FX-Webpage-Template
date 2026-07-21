@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { PRODUCER_SCOPE, perShowReachableCodes, FROZEN_REACHABLE } from "./alertProducerScope.registry";
+import {
+  PRODUCER_SCOPE,
+  perShowReachableCodes,
+  FROZEN_REACHABLE,
+} from "./alertProducerScope.registry";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 const ROOTS = ["lib", "app"];
@@ -19,7 +23,11 @@ function walk(dir: string, exts: string[], out: string[] = []): string[] {
     const p = path.join(dir, e);
     if (statSync(p).isDirectory()) {
       if (!p.includes("node_modules")) walk(p, exts, out);
-    } else if (exts.some((x) => p.endsWith(x)) && !p.endsWith(".test.ts") && !p.endsWith(".test.tsx")) {
+    } else if (
+      exts.some((x) => p.endsWith(x)) &&
+      !p.endsWith(".test.ts") &&
+      !p.endsWith(".test.tsx")
+    ) {
       out.push(p);
     }
   }
@@ -76,7 +84,10 @@ function discoverSql(): string[] {
     readFileSync(file, "utf8")
       .split("\n")
       .forEach((ln, i) => {
-        if (/upsert_admin_alert\s*\(/.test(ln) && !/(drop|create|replace|revoke|grant)\b.*function/i.test(ln))
+        if (
+          /upsert_admin_alert\s*\(/.test(ln) &&
+          !/(drop|create|replace|revoke|grant)\b.*function/i.test(ln)
+        )
           out.push(`${file}:${i + 1}`);
       });
   return out;
@@ -128,8 +139,15 @@ describe("_metaAlertProducerScope", () => {
 
   it("reachability = per-show AND not-health; frozen set matches", () => {
     const reach = [...perShowReachableCodes()].sort();
-    expect(reach, `regenerate FROZEN_REACHABLE to: ${JSON.stringify(reach)}`).toEqual(FROZEN_REACHABLE);
-    for (const g of ["ONBOARDING_SHEET_UNREADABLE", "WATCH_CHANNEL_ORPHANED", "SYNC_STALLED", "LIVE_ROW_CONFLICT"])
+    expect(reach, `regenerate FROZEN_REACHABLE to: ${JSON.stringify(reach)}`).toEqual(
+      FROZEN_REACHABLE,
+    );
+    for (const g of [
+      "ONBOARDING_SHEET_UNREADABLE",
+      "WATCH_CHANNEL_ORPHANED",
+      "SYNC_STALLED",
+      "LIVE_ROW_CONFLICT",
+    ])
       expect(reach).not.toContain(g);
     expect(reach).toContain("DRIVE_FETCH_FAILED");
     for (const h of HEALTH_CODES) expect(reach).not.toContain(h);

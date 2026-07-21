@@ -59,13 +59,17 @@ const EXPECT = {
 
 describe("6-state copy matrix (frozen oracle)", () => {
   it("s1", () =>
-    expect(composeParseNote(mk("PARSE_ERROR_LAST_GOOD", "MI-5b_DUPLICATE_CREW_EMAIL"), 3)).toEqual(EXPECT.s1));
+    expect(composeParseNote(mk("PARSE_ERROR_LAST_GOOD", "MI-5b_DUPLICATE_CREW_EMAIL"), 3)).toEqual(
+      EXPECT.s1,
+    ));
   it("s2", () => expect(composeParseNote(mk("PARSE_ERROR_LAST_GOOD", null), 3)).toEqual(EXPECT.s2));
   it("s3", () =>
     expect(composeParseNote(mk("PARSE_ERROR_LAST_GOOD", "MI-4_NO_CREW"), 0)).toEqual(EXPECT.s3));
   it("s4", () => expect(composeParseNote(mk("PARSE_ERROR_LAST_GOOD", null), 0)).toEqual(EXPECT.s4));
-  it("s5", () => expect(composeParseNote(mk("RESYNC_QUALITY_REGRESSED", null), 3)).toEqual(EXPECT.s5));
-  it("s6", () => expect(composeParseNote(mk("RESYNC_QUALITY_REGRESSED", null), 0)).toEqual(EXPECT.s6));
+  it("s5", () =>
+    expect(composeParseNote(mk("RESYNC_QUALITY_REGRESSED", null), 3)).toEqual(EXPECT.s5));
+  it("s6", () =>
+    expect(composeParseNote(mk("RESYNC_QUALITY_REGRESSED", null), 0)).toEqual(EXPECT.s6));
 });
 
 describe("composed-string hygiene across ALL 8 reason titles", () => {

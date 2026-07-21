@@ -143,7 +143,10 @@ function Harness({
               sectionAttention: new Map([
                 [
                   "crew" as const,
-                  { sectionTop: crewAttention.sectionTop, byCrewKey: new Map(crewAttention.byCrewKey) },
+                  {
+                    sectionTop: crewAttention.sectionTop,
+                    byCrewKey: new Map(crewAttention.byCrewKey),
+                  },
                 ],
               ]),
             }

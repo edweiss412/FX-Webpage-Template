@@ -39,7 +39,6 @@ import {
   useRef,
   useState,
   useTransition,
-  type ReactNode,
 } from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
@@ -48,12 +47,15 @@ import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import {
   ShowReviewSurface,
   type AttentionJump,
-  type CrewAttention,
   type ExtraSection,
 } from "@/components/admin/review/ShowReviewSurface";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
-import { canonicalCrewKey, type AttentionItem, type RoutedSectionId } from "@/lib/admin/attentionItems";
+import {
+  canonicalCrewKey,
+  type AttentionItem,
+  type RoutedSectionId,
+} from "@/lib/admin/attentionItems";
 import { bucketAttention } from "@/lib/admin/sectionAttention";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";

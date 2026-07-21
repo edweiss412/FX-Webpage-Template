@@ -7,7 +7,11 @@
 // so an item is never dropped: an unavailable section falls back to Overview,
 // which always mounts to receive it.
 import type { ReactNode } from "react";
-import { ATTENTION_ROUTES, type AttentionItem, type RoutedSectionId } from "@/lib/admin/attentionItems";
+import {
+  ATTENTION_ROUTES,
+  type AttentionItem,
+  type RoutedSectionId,
+} from "@/lib/admin/attentionItems";
 import { toNoteItem, type NoteItem } from "@/lib/admin/parseAttentionNote";
 
 export type SectionAttentionBucket = {
@@ -43,7 +47,10 @@ function bucket(map: SectionAttention, sectionId: RoutedSectionId): SectionAtten
   return b;
 }
 
-export function bucketAttention(items: readonly AttentionItem[], opts: BucketOpts): SectionAttention {
+export function bucketAttention(
+  items: readonly AttentionItem[],
+  opts: BucketOpts,
+): SectionAttention {
   const map: SectionAttention = new Map();
   const crewKeyRendered = opts.crewKeyRendered ?? (() => true);
 
@@ -60,7 +67,9 @@ export function bucketAttention(items: readonly AttentionItem[], opts: BucketOpt
     }
 
     // Section-first resolution: an unavailable section falls back to Overview.
-    const section: RoutedSectionId = opts.sectionAvailable(item.sectionId) ? item.sectionId : "overview";
+    const section: RoutedSectionId = opts.sectionAvailable(item.sectionId)
+      ? item.sectionId
+      : "overview";
     const anchor = ATTENTION_ROUTES[item.alert.code]?.anchor;
     const card = opts.renderCard(item);
     const b = bucket(map, section);
