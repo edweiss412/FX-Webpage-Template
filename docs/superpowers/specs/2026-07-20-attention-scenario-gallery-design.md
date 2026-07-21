@@ -296,7 +296,7 @@ Two new admin-gated server actions in `app/admin/dev/actions.ts`, mirroring the 
 
 Emits are post-commit via `logAdminOutcome` (`app/admin/dev/actions.ts:74`), outside any lock. No secret is logged: the emitted context carries the scenario id, show slug, and row counts only.
 
-New codes fan out per AGENTS.md §12.4 lockstep: master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts` row, all in the same commit, or `x1-catalog-parity` blocks the merge.
+**These codes do NOT take the §12.4 lockstep.** `logAdminOutcome`'s `code` is a free SHOUTY_SNAKE_CASE string (`lib/log/logAdminOutcome.ts:9`), not a `MessageCode`. The existing `DEV_PARSE_STAGED` and `DEV_SCHEMA_RESET` appear only in `app/admin/dev/actions.ts`, `tests/log/_auditableMutations.ts`, and `tests/log/adminOutcomeBehavior.test.ts` — they have **no** master-spec §12.4 row and **no** `lib/messages/catalog.ts` entry. Adding one would put a non-message code into the message catalog and risk the `x1-catalog-parity` gate rather than satisfying it. The registration surface for these two codes is the two test registries and nothing else; no `pnpm gen:spec-codes` run is required by this change.
 
 ### 7.2 Invariant 2 — advisory locks
 
