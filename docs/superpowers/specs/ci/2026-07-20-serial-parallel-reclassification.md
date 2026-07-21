@@ -21,16 +21,22 @@ the plan, and the whole diff.
   postgres.js pool whose async connect the per-file attribution raced (Codex spec
   R1); those 19 were removed by a static DB-binding sweep (driver import, a
   `*DATABASE_URL` env read, or a `*.db.test.ts`/`*real-db*` filename), taking the
-  set from 552 to **533**. Because the set is a closed allowlist, a **newly
-  added** file defaults to serial — nothing joins the parallel project without an
-  explicit measured addition. An **already-allowlisted file that is later edited
+  set from 552 to **533**. Because the set is a closed allowlist, a **newly added
+  file OUTSIDE the 17 existing `PARALLEL_TEST_GLOBS` directories** defaults to
+  serial — it joins the parallel project only via an explicit measured addition.
+  (A new file added INSIDE one of those 17 already-parallel dirs still auto-joins
+  parallel — pre-existing behavior this change does not alter; Codex spec R4-4.
+  Those dirs were the 2026-06-23 per-directory DB-free audit's output.) An
+  **already-allowlisted file that is later edited
   to add DB access stays parallel** (Codex spec R2b-1): that edit-drift window is
   bounded, not eliminated, by two layers — the static-guard meta-test (§3.2, a
   CI-time tripwire; best-effort, since a source scan cannot see an imported
   helper that connects, a dynamically-built command, or a novel access path) and
   the nightly-enforced re-measurement (§3.4, the authoritative catch — a scheduled
   job that re-runs the instrumented suite and fails on any classification diff,
-  capping the drift window at one day). The committed list `tests/probes/db-free-movable.txt` is
+  giving a ≤24 h DETECTION bound; repair — regenerate + commit — is a manual
+  follow-up, so this bounds time-to-detection, not the full time-to-repair;
+  Codex spec R4-2). The committed list `tests/probes/db-free-movable.txt` is
   the record; do not re-derive membership.
 - **Partition model is an explicit committed FILE LIST, not whole-dir globs.**
   Deliberate: a file-list makes a newly-added test default to SERIAL (safe) until
@@ -79,8 +85,9 @@ the plan, and the whole diff.
   sufficient on its own (Codex spec R2): a file can catch the connection failure,
   set a `dbUp=false` flag, and `skipIf` its DB assertions — going green while its
   DB coverage silently vanishes (exactly the 19 files removed in §1.1). The
-  PRIMARY criterion-4/5 guard is the static DB-binding meta-test in §3.2, which
-  runs in every CI leg without a DB and deterministically rejects the class.
+  PRIMARY criterion-4/5 guard is the static DB-binding meta-test in §3.2, a pure
+  source scan that runs in the always-present serial `unit-suite-db` legs
+  (Codex spec R4-3) and deterministically rejects the class.
 
 ## 3. Design
 
@@ -181,8 +188,8 @@ runs `pnpm ci:regen-db-free
 --check`, and **fails if the freshly-measured lists differ from the committed
 ones** (a moved file that gained DB access, or a serial file that became movable).
 A failing nightly is the trigger to re-run the generator and commit the diff.
-This caps the drift window at one day and gives it an owner and an enforcement
-point, rather than relying on a source scan alone.
+This gives a ≤24 h DETECTION bound with an owner and enforcement point; the repair
+(regenerate + commit) is the manual follow-up a failing run prompts.
 
 ## 4. Verification (hard CI-wall gate)
 
@@ -191,6 +198,13 @@ point, rather than relying on a source scan alone.
 2. Local: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and the two
    affected meta-tests green.
 3. **Real CI baseline (Codex spec R3 + R2b-3 — deterministic, commit-pinned):**
+   - **Run validity (Codex spec R4-1) — a run counts toward `mean2` only if:**
+     every expected matrix shard (all db legs + all nodb legs) AND the
+     `unit-suite` rollup finished with result `success`; no shard was cancelled,
+     timed out, or failed; and it was a single clean attempt (no partial reruns
+     mixed in). A run with any early-finishing (failed/cancelled/timed-out) shard
+     is DISCARDED and re-run — such a shard would shrink the wall and forge a
+     pass. Both baseline and candidate use two VALID runs each.
    - **Fork-point SHA** = `git merge-base origin/main HEAD`, recorded explicitly.
    - **Wall** of a run = `max(completedAt) − min(startedAt)` across both matrix
      jobs (also record start stagger).
