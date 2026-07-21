@@ -268,7 +268,62 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 4: Create the extraction and rewire the caller**
 
-Move the hold-branch body of `readShowChangeFeed` into `shapeHoldEntry`, exporting it, and call it from the original site. The function must remain pure — no client, no I/O.
+Three helpers the hold branch uses are module-local in `readShowChangeFeed.ts`: `HoldRow`, `renderPendingSummary`, and `sortKeyFromRaw`. `sortKeyFromRaw` is **also used by the change-log branch**, so it moves to its own module rather than into the hold extraction.
+
+First create `lib/sync/feed/sortKey.ts (new)` holding `sortKeyFromRaw` verbatim, exported, and import it back into `readShowChangeFeed.ts`.
+
+Then create the extraction, moving `HoldRow` and `renderPendingSummary` with it:
+
+```ts
+// lib/sync/feed/shapeHoldEntry.ts
+import { toIso } from "@/lib/time/toIso";
+import { sortKeyFromRaw } from "./sortKey";
+import type { FeedEntry, FeedGate } from "@/lib/sync/holds/types";
+
+// Moved verbatim from readShowChangeFeed.ts, together with renderPendingSummary.
+export type HoldRow = {
+  id: string;
+  proposed_value: FeedGate["disposition"];
+  base_modified_time: string | null;
+  created_at: string;
+  entity_key: string;
+};
+
+export function shapeHoldEntry(hold: HoldRow): FeedEntry & { sortKey: string } {
+  const gate: FeedGate = {
+    holdId: hold.id,
+    disposition: hold.proposed_value,
+    // P5-F4 / PF40: the OPAQUE optimistic-concurrency token the MI-11 RPCs compare
+    // EXACTLY. It MUST carry the raw timestamptz string at full PostgreSQL
+    // microsecond precision, NOT a Date/toIso()-normalized value, which drops
+    // microseconds and would falsely trip MI11_TARGET_MOVED on a hold that never
+    // retargeted. Display timestamps stay normalized; only this token is byte-exact.
+    baseModifiedTime: hold.base_modified_time,
+  };
+  return {
+    id: hold.id,
+    occurredAt: toIso(hold.created_at) ?? hold.created_at, // display only
+    sortKey: sortKeyFromRaw(hold.created_at), // full precision (P5-F5)
+    status: "pending",
+    summary: renderPendingSummary(hold),
+    action: "approve_reject",
+    entityRef: hold.entity_key,
+    acceptable: false, // hold-derived entries never carry the disposition axis
+    acknowledgedAt: null,
+    gate,
+  };
+}
+```
+
+Move `renderPendingSummary` into this module unchanged. **Do not reword its output** — `summary` is operator-visible copy, and rewording it is an unrelated behavior change that would also break the fidelity contract, since materialize regenerates the summary from the same function.
+
+Then the caller becomes:
+
+```ts
+  const holdEntries: RankedEntry[] = ((holdData ?? []) as HoldRow[]).map(shapeHoldEntry);
+```
+
+Verify the exact import path for `toIso` before writing the file (`rg -n "toIso" lib/sync/feed/readShowChangeFeed.ts`) and use whatever that file already imports.
 
 - [ ] **Step 5: Run the feed suite**
 
@@ -295,7 +350,16 @@ Spec §3.0, §3.6. The validator **is** the guard contract — this is the struc
 **Interfaces:**
 - Produces: `AttentionScenario`, `ScenarioAlertRow`, `ScenarioHoldRow`, `validateScenario(s: AttentionScenario): string[]` (empty array = valid).
 
-- [ ] **Step 1: Write the types**
+- [ ] **Step 1: Write the failing test FIRST**
+
+Write `tests/dev/attentionScenariosValidate.test.ts (new)` exactly as shown in Step 3 below, before creating any source file. It imports both the types and `validateScenario`, so the red state is a module-resolution failure — a legitimate TDD red, and the reason this step precedes the type definitions.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pnpm vitest run tests/dev/attentionScenariosValidate.test.ts`
+Expected: FAIL, cannot resolve `@/lib/dev/attentionScenarios/types` or `.../validate`.
+
+- [ ] **Step 3: Write the types**
 
 ```ts
 // lib/dev/attentionScenarios/types.ts
@@ -337,7 +401,7 @@ export type AttentionScenario = {
 
 `BucketOpts` is currently NOT exported from `lib/admin/sectionAttention.ts:30`. Export it in this step (add `export` to the type declaration) — a one-word production change with no behavior effect.
 
-- [ ] **Step 2: Write the failing validator test**
+- [ ] **Step 4: The test contents referenced by Step 1**
 
 ```ts
 // tests/dev/attentionScenariosValidate.test.ts
@@ -426,21 +490,16 @@ describe("validateScenario", () => {
 
 Each case is a rule from §3.6 that would otherwise ship as prose. The reserved-key and message-contains-code cases are the two with operator-visible consequences.
 
-- [ ] **Step 3: Run to verify it fails**
-
-Run: `pnpm vitest run tests/dev/attentionScenariosValidate.test.ts`
-Expected: FAIL — module not found.
-
-- [ ] **Step 4: Implement `validateScenario`**
+- [ ] **Step 5: Implement `validateScenario`**
 
 Implement every row of the §3.6 table, returning a string per violation. Key rules, in order: `id` matches `^[a-z0-9][a-z0-9-]{2,47}$`; `label` non-blank; `tier` in `{1,2,3}`; `bucket`/`degraded` only on tier 2; per-alert `code` matches `^[A-Z][A-Z0-9_]*$`, `context` is a plain object without `__devScenario`, `raised_at` parses, `occurrence_count` is `Number.isInteger` and `>= 1`; per-code context requirements from §3.1; per-hold CHECK-set membership and full `Disposition` shape; per-warning non-blank `code`, `severity === "warn"`, non-blank `message` not containing `code`.
 
-- [ ] **Step 5: Run to verify it passes**
+- [ ] **Step 6: Run to verify it passes**
 
 Run: `pnpm vitest run tests/dev/attentionScenariosValidate.test.ts`
 Expected: PASS (10 tests).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/dev/attentionScenarios/ lib/admin/sectionAttention.ts tests/dev/attentionScenariosValidate.test.ts
