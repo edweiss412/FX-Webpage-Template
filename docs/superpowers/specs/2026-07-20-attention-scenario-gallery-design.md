@@ -24,7 +24,7 @@ Decided during brainstorming, or ratified in R1 triage. Cite the ratification be
 | Decision | Ratification |
 | --- | --- |
 | Gallery renders **T1 + T2 only**; T3 composites are materialize-only. Mounting the whole surface against a synthetic snapshot fixture was considered and rejected as a drift liability. | §4.3, §5.0 |
-| **No CI gate.** No screenshot byte-comparison, no catalog-completeness meta-test. Totality on the alert axis is achieved structurally instead (§3.1). | §3.1, §12 |
+| **No completeness gate.** Specifically: no screenshot byte-comparison, and no meta-test asserting the catalog *covers* every code. Totality on the alert axis is achieved structurally instead (§3.1). This is **not** a ban on all new tests: §3.6's validator (catalog *validity*) and §6a's `FILES`-membership test (production safety) both run in CI and are in scope. The declined thing is coverage-gating the catalog, not testing the code. | §3.1, §3.6, §6a, §12 |
 | **No migration.** | §5.4 |
 | **No new advisory-lock holder.** | §7.2 |
 | Gallery action controls render but cannot fire: they are neutralized with `inert`, not by carrying synthetic ids. | §4.4 |
@@ -608,7 +608,9 @@ No empty column; no zombie flag.
 
 **Creates:** one — the `FILES`-membership meta-test of §6a. It is the CI-enforced half of the build gate, and the only new structural defense this design adds.
 
-**Declined:** a catalog-completeness meta-test (§1.1). The alert axis needs none; the warning axis has an enumerated residue whose closure is a backlog item.
+**Declined:** a catalog-*completeness* meta-test (§1.1) — one asserting the catalog covers every known code. The alert axis needs none (totality is structural, §3.1); the warning axis has an enumerated residue whose closure is a backlog item.
+
+**Not the same thing:** §3.6's `validateScenario` test asserts every scenario in the catalog is *well-formed*, and §6a's test asserts every dev route is *registered*. Neither gates coverage. Validity and registration are checked; completeness is not.
 
 **Known harness gap:** the shared Supabase mock `chainResult` (`tests/log/adminOutcomeBehavior.test.ts:77-86`) stubs only `eq/is/not/select/update/insert/delete/single/limit`. Any builder method materialize uses beyond that set must be added in the same task, or the behavioral test throws on an undefined method.
 
