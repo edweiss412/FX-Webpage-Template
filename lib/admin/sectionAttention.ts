@@ -106,6 +106,14 @@ export function bucketAttention(
         ...(b.byCrewKey.get(item.crewKey) ?? []),
         card,
       ]);
+    } else if (section === "rooms" || section === "event") {
+      // rooms/event have NO section-top consumer — they host cards ONLY at their
+      // content anchor. Any card that resolved to one of them but did NOT land at
+      // the anchor (e.g. a caller passed inconsistent availability predicates) is
+      // redirected to Overview rather than pushed to a section-top that renders
+      // nothing. Structural no-drop, independent of caller predicate consistency
+      // (Codex PR3 R2). With the modal's single-map wiring this branch is unreached.
+      bucket(map, "overview").sectionTop.push(card);
     } else {
       b.sectionTop.push(card);
     }

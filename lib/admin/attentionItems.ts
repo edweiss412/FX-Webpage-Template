@@ -20,11 +20,15 @@ export type RoutedSectionId = SectionId | "overview" | "changes";
 export type AttentionAnchor = "diagrams" | "opening_reel";
 
 /** Section-scoped route: anchors are declared per section, so an invalid pairing
- *  (e.g. crew + diagrams) is a COMPILE error, not a runtime drop (§3.2). PR2 uses
- *  only the anchorless arms; PR3 sets the rooms/event anchors. */
+ *  (e.g. crew + diagrams) is a COMPILE error, not a runtime drop (§3.2). rooms and
+ *  event host attention cards ONLY through their content anchor (Diagrams sub-block
+ *  / opening_reel field) — they have no section-top consumer — so the anchor is
+ *  REQUIRED there: an anchorless `{ sectionId: "rooms" }` is a compile error, which
+ *  structurally prevents a card from being routed to a consumerless section-top
+ *  (Codex PR3 R2). Every other section is a section-top consumer and takes no anchor. */
 export type AttentionRoute =
-  | { sectionId: "rooms"; anchor?: "diagrams" }
-  | { sectionId: "event"; anchor?: "opening_reel" }
+  | { sectionId: "rooms"; anchor: "diagrams" }
+  | { sectionId: "event"; anchor: "opening_reel" }
   | { sectionId: Exclude<RoutedSectionId, "rooms" | "event">; anchor?: never };
 
 /** Structural input row — lib/adminAlerts/fetchPerShowAlerts' AdminAlertRow satisfies this. */

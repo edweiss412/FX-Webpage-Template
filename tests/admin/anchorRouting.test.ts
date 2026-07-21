@@ -114,6 +114,26 @@ describe("bucketAttention resolves anchors with no-drop fallback", () => {
     expect(m.get("rooms")).toBeUndefined();
     expect(m.get("event")).toBeUndefined();
   });
+
+  it("STRUCTURAL no-drop: a rooms/event card not placed at its anchor is redirected to Overview, never a dead section-top (Codex R2)", () => {
+    // Inconsistent predicates (section available but anchor not) — the exact case
+    // the modal's single-map wiring prevents, tested here to pin bucketAttention's
+    // own guarantee: the card lands in Overview, and rooms/event get NO section-top.
+    const m = bucketAttention(
+      [item("EMBEDDED_ASSET_DRIFTED", "rooms"), item("REEL_DRIFTED", "event")],
+      {
+        renderCard: (i: AttentionItem) => `CARD:${i.alert!.code}`,
+        sectionAvailable: () => true, // rooms/event "available"...
+        anchorAvailable: () => false, // ...but the anchor is not.
+      },
+    );
+    expect(m.get("overview")!.sectionTop.sort()).toEqual([
+      "CARD:EMBEDDED_ASSET_DRIFTED",
+      "CARD:REEL_DRIFTED",
+    ]);
+    expect(m.get("rooms")?.sectionTop ?? []).toEqual([]);
+    expect(m.get("event")?.sectionTop ?? []).toEqual([]);
+  });
 });
 
 // ── resolveEffectiveSection: nav dot + deep-link/menu jump agree with placement ─
