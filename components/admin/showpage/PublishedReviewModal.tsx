@@ -31,16 +31,7 @@
  * the URL up in the background.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -48,12 +39,16 @@ import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import {
   ShowReviewSurface,
   type AttentionJump,
-  type CrewAttention,
   type ExtraSection,
 } from "@/components/admin/review/ShowReviewSurface";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
-import { canonicalCrewKey, type AttentionItem } from "@/lib/admin/attentionItems";
+import {
+  canonicalCrewKey,
+  type AttentionItem,
+  type RoutedSectionId,
+} from "@/lib/admin/attentionItems";
+import { bucketAttention } from "@/lib/admin/sectionAttention";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
@@ -371,37 +366,32 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       onResolved={onResolved}
     />
   );
-  const { crewAttention, overviewBanners } = (() => {
-    const byCrewKey = new Map<string, ReactNode[]>();
-    const sectionTop: ReactNode[] = [];
-    const overview: ReactNode[] = [];
-    // Under-row placement targets only the RENDERED rows (CREW_CAP slice, §4).
-    const renderedKeys = new Set(
-      data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
-    );
-    // Buckets iterate the FULL list, not the doneIds-filtered one: a resolved
-    // banner swaps to "✓ Confirmed" IN PLACE and stays mounted until
-    // router.refresh() reconciles (spec §6.3) — only counts/menu/dots shrink.
-    for (const item of attentionItems) {
-      if (item.kind !== "alert") continue;
-      if (item.sectionId === "crew") {
-        if (item.crewKey && renderedKeys.has(item.crewKey)) {
-          const list = byCrewKey.get(item.crewKey) ?? [];
-          list.push(bannerFor(item));
-          byCrewKey.set(item.crewKey, list);
-        } else {
-          sectionTop.push(bannerFor(item));
-        }
-      } else if (item.sectionId === "overview") {
-        overview.push(bannerFor(item));
-      } else {
-        // Defensive: unknown-routed alerts land in Overview (spec §4 fallback).
-        overview.push(bannerFor(item));
-      }
-    }
-    const crew: CrewAttention = { byCrewKey, sectionTop };
-    return { crewAttention: crew, overviewBanners: overview };
-  })();
+  // Generalized bucketing (attention-alert-routing §2.5/§3.2). Under-row crew
+  // placement targets only the RENDERED rows (CREW_CAP slice, §4). The FULL item
+  // list is bucketed, not the doneIds-filtered one: a resolved banner swaps to
+  // "✓ Confirmed" in place and stays mounted until router.refresh() reconciles
+  // (spec §6.3).
+  const renderedKeys = new Set(
+    data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
+  );
+  // `sectionAvailable` = "this section has a MOUNTED attention consumer", not
+  // merely "this section renders". At PR2 the consumers are: crew (byCrewKey +
+  // sectionTop, in CrewBreakdown), overview (sectionTop, the Overview slot), and
+  // warnings (the notes banner). rooms/event have NO card consumer until PR3
+  // wires byAnchor, so a card routed there must fall back to Overview — which is
+  // exactly what returning false triggers in bucketAttention. No routed code
+  // targets rooms/event at PR2 (the frozen routing fixture keeps the six
+  // asset/reel codes on overview), so this is defence-in-depth, not a live path.
+  const CARD_CONSUMER_SECTIONS = new Set<RoutedSectionId>(["crew", "overview"]);
+  const sectionAttention = bucketAttention(attentionItems, {
+    renderCard: bannerFor,
+    // Warnings hosts the NOTE channel (checked by the note branch); every other
+    // consumed section hosts CARDS. Anything else → Overview fallback.
+    sectionAvailable: (id) => id === "warnings" || CARD_CONSUMER_SECTIONS.has(id),
+    anchorAvailable: () => false, // PR3 wires the diagrams/opening_reel anchors.
+    crewKeyRendered: (key) => renderedKeys.has(key),
+  });
+  const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
 
   const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
   const holdCount = actionable.filter((i) => i.kind === "hold").length;
@@ -710,7 +700,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}
-        crewAttention={crewAttention}
+        sectionAttention={sectionAttention}
       />
     </ReviewModalShell>
   );

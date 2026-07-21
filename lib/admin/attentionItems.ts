@@ -16,7 +16,16 @@ import { GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 export type RoutedSectionId = SectionId | "overview" | "changes";
 
-export type AttentionRoute = { sectionId: Extract<RoutedSectionId, "crew" | "overview"> };
+/** Content anchors within a section (attention-alert-routing §3.2/§3.3). */
+export type AttentionAnchor = "diagrams" | "opening_reel";
+
+/** Section-scoped route: anchors are declared per section, so an invalid pairing
+ *  (e.g. crew + diagrams) is a COMPILE error, not a runtime drop (§3.2). PR2 uses
+ *  only the anchorless arms; PR3 sets the rooms/event anchors. */
+export type AttentionRoute =
+  | { sectionId: "rooms"; anchor?: "diagrams" }
+  | { sectionId: "event"; anchor?: "opening_reel" }
+  | { sectionId: Exclude<RoutedSectionId, "rooms" | "event">; anchor?: never };
 
 /** Structural input row — lib/adminAlerts/fetchPerShowAlerts' AdminAlertRow satisfies this. */
 export type AttentionAlertInput = {
@@ -90,10 +99,10 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: { sectionId: "overview" },
   LIVE_ROW_CONFLICT: { sectionId: "overview" },
   DRIVE_FETCH_FAILED: { sectionId: "overview" },
-  PARSE_ERROR_LAST_GOOD: { sectionId: "overview" },
+  PARSE_ERROR_LAST_GOOD: { sectionId: "warnings" },
   SHEET_UNAVAILABLE: { sectionId: "overview" },
   RESYNC_SHRINK_HELD: { sectionId: "overview" },
-  RESYNC_QUALITY_REGRESSED: { sectionId: "overview" },
+  RESYNC_QUALITY_REGRESSED: { sectionId: "warnings" },
   SYNC_STALLED: { sectionId: "overview" },
   EMAIL_DELIVERY_FAILED: { sectionId: "overview" },
   EMAIL_NOT_CONFIGURED: { sectionId: "overview" },
@@ -287,7 +296,13 @@ export function deriveAttentionItems(args: {
   const holdItems = (args.feed?.entries ?? [])
     .map(toHoldItem)
     .filter((i): i is AttentionItem => i !== null);
-  const alertItems = args.alerts.map((row) => toAlertItem(row, args.slug));
+  // PICKER_EPOCH_RESET is cut from the attention surface (attention-alert-routing
+  // §1.1): PickerResetControl already shows an inline success banner and
+  // logAdminOutcome records the durable audit. Its ATTENTION_ROUTES row remains for
+  // registry totality; the cut lives here so the row can stay.
+  const alertItems = args.alerts
+    .filter((row) => row.code !== "PICKER_EPOCH_RESET")
+    .map((row) => toAlertItem(row, args.slug));
   const actionableAlerts = alertItems.filter((i) => i.actionable);
   const clearing = alertItems.filter((i) => !i.actionable);
   return [...holdItems, ...actionableAlerts, ...clearing];
