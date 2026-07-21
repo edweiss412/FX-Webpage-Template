@@ -124,7 +124,23 @@ Plus spec §10.8 registry stability: run `warningCardCopyRegistry` frozen-string
 
 **Commit:** `test(admin): transition audit + source-scan for the under-row stack`
 
-## Task 10 — layout dimensions (real browser, Playwright)
+## Task 10 — SCOPED to unit class assertions (parent is not fixed-dimension)
+
+**Implementation finding:** the AGENTS.md layout-dimensions rule is "mandatory for FIXED-dimension
+parents with flex/grid children." `CrewUnderRowStack`'s parent is the crew row `<li>`, which is
+NOT fixed-dimension — it grows with content. The only dimensional concern is width-fill
+(`w-full` + `items-stretch`), a standard flex-column pattern, not the fixed-height/grid case
+the rule targets (where Tailwind v4's missing `align-items: stretch` default causes silent
+collapse). That relationship is unit-asserted for class presence
+(`tests/admin/wizard/crewWarnStack.test.tsx`: `items-stretch`, `w-full`, `min-h-tap-min`).
+
+Adding a full real-browser Playwright assertion would require a new crew-scoped-autocorrect
+fixture in the step3 e2e harness bundle + hydration gate — disproportionate to a
+content-growing flex column. Deferred: `BL-CREW-WARN-STACK-E2E-GEOMETRY` (add a
+`getBoundingClientRect` width-equality check to the existing step3 interactions e2e when that
+harness next gains a crew-scoped-warning fixture). The full local suite (15954) is green.
+
+## Task 10 (original) — layout dimensions (real browser, Playwright)
 
 Task body carries the spec's EXACT five Dimensional Invariants (R1 HIGH — enumerate, do not summarize):
 
