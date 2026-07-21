@@ -3,6 +3,7 @@ import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
+import { autocorrectGuidance } from "@/lib/messages/autocorrectGuidance";
 import type { ParseWarning } from "@/lib/parser/types";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
@@ -42,6 +43,25 @@ export function warningCardCopyFields(
   const pick = (v: string | null | undefined) =>
     typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
   return { guidance: pick(entry?.helpfulContext), trigger: pick(entry?.triggerContext) };
+}
+
+// The inline guidance line, discriminated so the render site knows whether it is a
+// composed instance string (plain text, injection-safe) or catalog markup (rendered
+// via renderEmphasis) — spec 2026-07-21-warning-card-identity-placement §4.4. Explicit
+// union so `kind` does not widen under strict TS.
+export type GuidanceResult =
+  | { kind: "instance"; text: string }
+  | { kind: "catalog"; markup: string | null };
+
+/** Resolve the card's inline guidance: the composed autocorrect line when available,
+ *  else the catalog helpfulContext (today's behavior). */
+export function resolveGuidance(
+  entry: { helpfulContext?: string | null; triggerContext?: string | null } | null,
+  warning: ParseWarning,
+): GuidanceResult {
+  const instance = autocorrectGuidance(warning.code, warning.autocorrect);
+  if (instance !== null) return { kind: "instance", text: instance };
+  return { kind: "catalog", markup: warningCardCopyFields(entry).guidance };
 }
 
 export function PerShowActionableWarnings({
@@ -94,7 +114,10 @@ export function PerShowActionableWarnings({
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
         // Inline guidance = condensed helpfulContext; popover = triggerContext
         // (spec 2026-07-20-warning-card-copy-restore §3.3 - reverses #509 G2).
-        const { guidance, trigger: context } = warningCardCopyFields(entry);
+        const { trigger: context } = warningCardCopyFields(entry);
+        // Inline guidance: the composed autocorrect instance line (plain text) when
+        // available, else catalog helpfulContext markup (spec §4.4).
+        const guidanceResult = resolveGuidance(entry, w);
         // §4.3 four-row guard table. Both inputs collapse to "absent" under one
         // rule, so `undefined`, null, "", and any whitespace run behave alike
         // and the table is total over each input's full domain.
@@ -196,12 +219,20 @@ export function PerShowActionableWarnings({
                   <span data-testid="per-show-actionable-title" className="text-text-strong">
                     {renderEmphasis(title)}
                   </span>
-                  {guidance ? (
+                  {guidanceResult.kind === "instance" ? (
                     <span
                       data-testid="per-show-actionable-guidance"
                       className={`text-xs/relaxed font-normal ${tone === "muted" ? "text-text-subtle" : "text-warning-text"}`}
                     >
-                      {renderEmphasis(guidance)}
+                      {/* Plain text — sheet-derived params are never parsed as markup (§4.4). */}
+                      {guidanceResult.text}
+                    </span>
+                  ) : guidanceResult.markup ? (
+                    <span
+                      data-testid="per-show-actionable-guidance"
+                      className={`text-xs/relaxed font-normal ${tone === "muted" ? "text-text-subtle" : "text-warning-text"}`}
+                    >
+                      {renderEmphasis(guidanceResult.markup)}
                     </span>
                   ) : null}
                 </span>
