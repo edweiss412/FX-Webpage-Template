@@ -96,6 +96,11 @@ describe("transition audit: nothing in the four-state path animates", () => {
       { name: "AnimatePresence", pattern: /AnimatePresence/ },
       { name: "inline transition style", pattern: /transition\s*:/ },
       { name: "inline animation style", pattern: /animation\s*:/ },
+      // Round 2: the camelCase style-object forms, which neither the utility
+      // prefixes nor the CSS-property patterns above would match.
+      { name: "transitionProperty style", pattern: /transitionProperty/ },
+      { name: "transitionDuration style", pattern: /transitionDuration/ },
+      { name: "animationName style", pattern: /animation[A-Z]/ },
     ];
     for (const { name, pattern } of ANIMATION_TELLS) {
       expect(region, `the four-state region must carry no ${name}`).not.toMatch(pattern);
@@ -124,16 +129,33 @@ describe("transition audit: nothing in the four-state path animates", () => {
     const start = src.indexOf("const routedWarningsRenderElsewhere = chrome?.");
     const region = src.slice(start, src.indexOf("No parse warnings for this sheet."));
 
-    // Every ternary condition in the region: the text between a line start (or
-    // an opening brace/paren) and its `?`. Comments are stripped first so a
-    // question mark in prose is not read as a branch.
     const code = region.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-    const discovered = (code.match(/[\w.?[\]]+\s*(===?|>|<|>=|<=)\s*[\w."']+/g) ?? [])
-      .map((c) => c.replace(/\s+/g, " ").trim())
-      // `chrome?.x === true` is the gate read, not a state branch.
-      .filter((c) => !c.includes("chrome?."));
 
-    expect(new Set(discovered), "the region's comparison set").toEqual(new Set(EXPECTED));
+    // Every expected condition is still present...
+    for (const expr of EXPECTED) {
+      expect(code, `branch \`${expr}\` must still exist`).toContain(expr);
+    }
+
+    // ...and the region contains NO OTHER branch. Round 2: a presence-only check
+    // cannot see an ADDED conditional, and a regex is not a JS parser — pattern
+    // matching condition text mis-handles optional chaining and nested
+    // ternaries. Counting BRANCH POSITIONS is the honest structural signal: any
+    // added ternary, `if`, or `&&` guard moves the total, whether or not its
+    // condition is a comparison.
+    // `(?<!\?)\?(?![.?])` is a TERNARY `?` specifically: not the second half of
+    // `??`, not the first half of `??`, and not `?.`. Without the discrimination
+    // the two `?? 0` count reads inflated this to 9.
+    const ternaries = (code.match(/(?<!\?)\?(?![.?])/g) ?? []).length;
+    const ifs = (code.match(/\bif\s*\(/g) ?? []).length;
+    const guards = (code.match(/&&/g) ?? []).length;
+
+    // 5 ternaries: the gate read, the parse-notes guard, List-vs-empty, Silent,
+    // Elsewhere. 0 `if`s. 1 `&&`: the parse-notes null check.
+    expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
+      ternaries: 5,
+      ifs: 0,
+      guards: 1,
+    });
 
     // And the two lines those branches select, so a branch that survives while
     // its outcome is deleted also fails.

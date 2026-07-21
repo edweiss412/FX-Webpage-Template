@@ -2554,8 +2554,18 @@ export function WarningsBreakdown({
               so on a sheet whose only warnings are info the loop sentence
               rendered NOWHERE. This branch is inside `rows.length > 0`, so the
               callout appears exactly when the panel still lists rows of its own
-              and never above one of the three empty states. */}
-          <CorrectionLoopCallout mode={mode} />
+              and never above one of the three empty states.
+
+              Round 2 caught the missed half of that repair: the CARD copy was
+              gated on `sourceCell` while this panel copy — the SAME sentence,
+              with the same "Edit the cell" referent — was not, so an info row
+              raised without a cell still got told to edit one. Gated here too.
+              The wizard keeps rendering it unconditionally: its panel lists
+              every warning including the cell-bearing warn rows, and that
+              surface's render is contractually unchanged. */}
+          {routedWarningsRenderElsewhere && !rows.some((w) => w.sourceCell) ? null : (
+            <CorrectionLoopCallout mode={mode} />
+          )}
           {routedWarningsRenderElsewhere ? null : (
             <p
               data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}

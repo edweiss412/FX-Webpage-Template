@@ -298,13 +298,31 @@ describe("the ignored list makes no promise about clearing", () => {
     expect(ignored_list.textContent ?? "").not.toContain(LOOP_SENTENCE);
   });
 
-  it("and the factory mounts the sentence in exactly one place", () => {
-    const src = readFileSync(
-      resolve(process.cwd(), "components/admin/showpage/sectionWarningExtras.tsx"),
-      "utf8",
+  it("and no OTHER list in the factory's output carries the sentence", () => {
+    // Round 2: counting the literal `followUpCopy=` attribute is over-fitted —
+    // a correct refactor passing it through a spread or wrapper would fail while
+    // the rendered output stayed right. Asserted BEHAVIORALLY instead: render
+    // the factory's whole output and confirm the sentence appears in exactly one
+    // subtree, which catches a second mount without pinning the syntax.
+    const active = warningFor("UNKNOWN_FIELD");
+    const ignored = { ...warningFor("UNKNOWN_FIELD"), rawSnippet: "Row | ignored one" };
+    const fp = warningFingerprint(ignored);
+    expect(fp).not.toBeNull();
+
+    const data = buildPublishedSectionData(fixtureSnapshot([active, ignored]) as never, {
+      slug: FIXTURE_SLUG,
+    });
+    const bySection = buildSectionWarningModel({
+      slug: FIXTURE_SLUG,
+      warnings: [active, ignored],
+      ignoredFingerprints: new Set([fp!]),
+      renderedSectionIds: new Set<SectionId>(step3Sections(data).map((s) => s.id)),
+    });
+
+    const { container } = render(<>{buildSectionWarningExtras({ bySection })("warnings", data)}</>);
+    const carriers = Array.from(container.querySelectorAll("*")).filter(
+      (el) => el.children.length === 0 && (el.textContent ?? "").includes(LOOP_SENTENCE),
     );
-    // A secondary structural check on top of the behavioral one above: it
-    // catches a SECOND mount that the single-render assertion would not reach.
-    expect((src.match(/followUpCopy=/g) ?? []).length).toBe(1);
+    expect(carriers.length, "exactly one element renders the sentence").toBe(1);
   });
 });

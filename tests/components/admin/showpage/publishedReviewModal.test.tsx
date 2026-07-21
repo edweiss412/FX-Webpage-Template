@@ -1128,4 +1128,33 @@ describe("the warning-surface trim is live end to end from this modal", () => {
     renderModal({}, []);
     expect(screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-clean`)).toBeTruthy();
   });
+
+  it("distinguishes here from elsewhere, so the counts cannot be a nonzero constant", () => {
+    // Round 2 of the whole-diff review: the Silent and Clean cases above are
+    // both satisfied by a modal that reports `{here: n>0, elsewhere: 0}` for
+    // every nonempty set and zeroes for the empty one. This fixture has warnings
+    // ONLY in a mapped section, so a correct derivation reports `here: 0,
+    // elsewhere: 1` and the panel must say Elsewhere — the one state that
+    // constant cannot produce.
+    const crewWarn = {
+      severity: "warn",
+      code: "TEST_ONLY_MAPPED_ROW",
+      message: "mapped crew row",
+      rawSnippet: "Role | mapped",
+      sourceCell: CELL,
+      blockRef: { kind: "crew", name: "Alex Kim" },
+    } as ParseWarning;
+
+    renderModal({}, [crewWarn]);
+
+    expect(
+      screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-elsewhere`),
+      "Elsewhere: nothing in the fallback bucket, one warning in a mapped section",
+    ).toBeTruthy();
+    expect(screen.queryByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-warnings-clean`)).toBeNull();
+    // And the warning really did route to crew rather than the fallback, or the
+    // state above would be reachable for the wrong reason.
+    expect(screen.queryByTestId("section-warning-controls-crew")).not.toBeNull();
+    expect(screen.queryByTestId("section-warning-controls-warnings")).toBeNull();
+  });
 });

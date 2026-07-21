@@ -201,11 +201,23 @@ describe("the four body-empty states", () => {
    * previous version of this branch fails wherever it appears.
    */
   function expectNoStrayBodyCopy(allowed: string[]) {
-    const paragraphs = Array.from(panelBody().querySelectorAll("p"))
+    // EVERY leaf element, not just `<p>` (round 2): a stray legacy line rendered
+    // in a `<div>` or `<span>` left a paragraph-only inventory unchanged and
+    // passed with incorrect copy visible.
+    const heading = panelBody().querySelector("h3, h4");
+    const headingRow = heading?.parentElement ?? null;
+    const paragraphs = Array.from(panelBody().querySelectorAll("*"))
+      // Leaves only, so a wrapper's concatenated text is not reported as its own
+      // stray line.
+      .filter((el) => el.children.length === 0)
       // PANEL-LEVEL copy only. Each listed row renders its own guidance
       // paragraph inside its `<li>`; those are the row's content, not stray
       // panel copy, and including them would make the List case unassertable.
       .filter((el) => el.closest("li[data-warning-index]") === null)
+      // The heading ROW (icon, title, count, pill, "In sheet" link) is chrome,
+      // not body copy, and has its own tests. Located from the heading element
+      // itself rather than by a testid, because the row carries none.
+      .filter((el) => headingRow === null || !headingRow.contains(el))
       .map((el) => (el.textContent ?? "").trim())
       .filter((t) => t.length > 0);
     for (const text of paragraphs) {

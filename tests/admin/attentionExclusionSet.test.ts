@@ -153,23 +153,28 @@ describe("the seam is test-only", () => {
       }
     };
     for (const root of roots) walk(resolve(process.cwd(), root));
-    // The walk must have found something, or "no file passes it" is vacuous.
-    expect(files.length).toBeGreaterThan(100);
-
-    const callers = files.filter((f) => readFileSync(f, "utf8").includes("deriveAttentionItems"));
-    // And it must have found the real caller, or the walk is looking in the
-    // wrong place.
-    expect(callers.length).toBeGreaterThan(0);
 
     // The DEFINING module names the parameter by construction; every other
     // module naming it is a caller.
     const definition = resolve(process.cwd(), "lib/admin/attentionItems.ts");
     expect(files, "the walk must reach the defining module").toContain(definition);
 
-    for (const file of files) {
-      if (file === definition) continue;
-      const src = readFileSync(file, "utf8");
-      if (!src.includes("deriveAttentionItems")) continue;
+    // A real caller must be among them, or the walk is pointed at the wrong
+    // trees. (Round 2: this is the non-vacuity check — a raw file COUNT is
+    // unrelated to the invariant and fails on an unrelated cleanup.)
+    const callers = files.filter(
+      (f) => f !== definition && readFileSync(f, "utf8").includes("deriveAttentionItems"),
+    );
+    expect(callers.length, "at least one production caller must exist").toBeGreaterThan(0);
+
+    // Stated limit: this sees the seam named in the same FILE as the call, which
+    // is the form a future caller would write. A caller that spreads an options
+    // object built in a third module would evade it; closing that statically
+    // needs type-level analysis this suite does not run.
+    for (const file of callers) {
+      const src = readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "");
       expect(src, `${file} must not pass the test seam`).not.toContain("excludedCodes");
     }
   });

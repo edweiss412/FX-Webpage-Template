@@ -42,8 +42,17 @@ import {
   fixtureSnapshot,
 } from "@/tests/helpers/warningSurfaceFixture";
 
-/** Info rows only: the panel lists them (List state) and nothing becomes a card. */
-const INFO_ONLY: readonly ParseWarning[] = INFO_WARNINGS;
+/** Info rows only, each ANCHORED TO A CELL: the panel lists them (List state),
+ *  nothing becomes a card, and the correction sentence applies because there is
+ *  a cell to edit. */
+const INFO_ONLY: readonly ParseWarning[] = INFO_WARNINGS.map((w) => ({
+  ...w,
+  sourceCell: { title: "INFO", gid: 0, a1: "B7" },
+}));
+
+/** The same rows with NO cell — the shape `lib/sync/enrichWithDrivePins.ts:162`
+ *  produces for asset and Drive codes. */
+const INFO_ONLY_CELLLESS: readonly ParseWarning[] = INFO_WARNINGS;
 
 afterEach(cleanup);
 
@@ -148,10 +157,36 @@ describe("the published panel retires its panel-level guidance", () => {
     expect(text).not.toContain(NON_BLOCKING_SENTENCE);
   });
 
+  it("drops it when no listed row has a cell, because the sentence names one", () => {
+    // Round 2 of the whole-diff review: the CARD copy was gated on `sourceCell`
+    // while this PANEL copy — the same sentence, the same "Edit the cell"
+    // referent — was not, so a cell-less info row was still told to edit a cell.
+    // Same class as the card defect, on the surface the first repair missed.
+    render(<Harness warnings={INFO_ONLY_CELLLESS} />);
+    const { text } = modalTextWithoutPopovers();
+    expect(text).not.toContain(LOOP_SENTENCE);
+    // The rows themselves still render: this gates the guidance, not the list.
+    // Without this the assertion above passes for the wrong reason on any build
+    // that renders an empty panel.
+    expect(screen.queryAllByTestId(/-warning-\d+$/).length).toBe(INFO_ONLY_CELLLESS.length);
+  });
+
+  it("keeps it when only SOME listed rows have a cell", () => {
+    // The boundary: `some`, not `every`. One fixable row makes the advice
+    // applicable, and suppressing it there would lose the guidance the previous
+    // repair restored.
+    render(<Harness warnings={[INFO_ONLY_CELLLESS[0]!, INFO_ONLY[1]!]} />);
+    expect(modalTextWithoutPopovers().text).toContain(LOOP_SENTENCE);
+  });
+
   it("keeps BOTH sentences on the ungated (wizard) surface, verbatim", () => {
     // The frozen literals are load-bearing in this direction too: if either
     // string drifts in the component, this assertion fails and tells us the
     // absence assertions above went stale rather than silently passing.
+    // Cell-less rows deliberately: the wizard renders the callout
+    // unconditionally, because its panel lists every warning including the
+    // cell-bearing warn rows and that surface's render is contractually
+    // unchanged. If the new gate leaked into the ungated path, this fails.
     render(<Harness warnings={ALL_WARNINGS} gate={false} />);
     // The ungated surface mounts no extras, so there are no popovers to remove
     // here; the sentences are asserted PRESENT as panel-level copy.

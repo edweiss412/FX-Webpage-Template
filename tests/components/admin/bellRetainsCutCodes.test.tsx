@@ -130,11 +130,23 @@ describe("the bell's own exclusion mechanism keeps them", () => {
     const calls = src.match(/p_excluded_codes:\s*([^,\n]+)/g) ?? [];
     // Exactly one, or a second call site could filter differently.
     expect(calls.length).toBe(1);
-    expect(calls[0]).toContain("bellExcludedCodes(");
-    // And neither cut code is named anywhere in the module, which is how a
-    // hardcoded addition alongside the helper would look.
-    for (const code of CUT_FROM_MODAL) {
-      expect(src, `bellFeed must not name ${code}`).not.toContain(code);
+
+    // The argument must BE the helper's result, not merely CONTAIN a call to it
+    // (round 2: `[...bellExcludedCodes(v), ...DOUG_EXCLUDED_CODES]` satisfies a
+    // containment check while filtering the cut codes). A bare identifier is
+    // accepted so a `const excluded = bellExcludedCodes(...)` refactor does not
+    // fail for the wrong reason; the whole-module code scan below is what covers
+    // that form.
+    const argument = calls[0]!.replace(/^p_excluded_codes:\s*/, "").trim();
+    expect(argument).toMatch(/^(bellExcludedCodes\([^)]*\)|[A-Za-z_$][\w$]*)$/);
+
+    // And no cut code is NAMED anywhere in the module, in code or in a list —
+    // which is what an added literal would look like regardless of how the
+    // argument is assembled. Comments stripped so prose about the codes is not
+    // read as a filter.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    for (const cut of CUT_FROM_MODAL) {
+      expect(code, `bellFeed must not name ${cut}`).not.toContain(cut);
     }
   });
 
