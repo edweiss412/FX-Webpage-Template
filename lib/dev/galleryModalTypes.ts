@@ -50,10 +50,20 @@ export const GALLERY_SLUG = "gallery";
 // when its argument resolves to `false`. The `[X] extends [never]` tuple wrap
 // stops `never` from distributing (a bare `never extends ...` is vacuously true
 // and would mask leaks — the exact defect a naive union guard has).
-type Assert<T extends true> = T;
-type IsFn<V> = NonNullable<V> extends (...a: never[]) => unknown ? true : false;
+export type Assert<T extends true> = T;
+/**
+ * True iff V (optional-stripped) is a function. The `[X] extends [never]` guard
+ * is load-bearing: `NonNullable<undefined>` / `NonNullable<never>` collapse to
+ * `never`, and `never extends Fn` is VACUOUSLY true — without the explicit
+ * never-check an `undefined`-only prop would be misclassified as callable.
+ */
+export type IsFn<V> = [NonNullable<V>] extends [never]
+  ? false
+  : [NonNullable<V>] extends [(...a: never[]) => unknown]
+    ? true
+    : false;
 /** Keys of T whose (optional-stripped) value is a function. */
-type FnKeys<T> = { [K in keyof T]-?: IsFn<T[K]> extends true ? K : never }[keyof T];
+export type FnKeys<T> = { [K in keyof T]-?: IsFn<T[K]> extends true ? K : never }[keyof T];
 
 // (a) every ActionKeys key EXISTS on the props type.
 type _KeysExist = Assert<ActionKeys extends keyof PublishedReviewModalProps ? true : false>;
