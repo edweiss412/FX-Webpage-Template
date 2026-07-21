@@ -368,3 +368,22 @@ describe("the heading's pill agrees with the rows it shows", () => {
     expect(section.textContent ?? "").toContain("Needs a look");
   });
 });
+
+describe("the warnings rail row describes its OWN content", () => {
+  it("Elsewhere state does not mark the warnings row as needing review", () => {
+    // impeccable audit P1: the dot and its sr-only " — needs review" describe
+    // the warnings row. Counting `elsewhere` made AT announce "needs review"
+    // immediately before the body says "Nothing else to note here"; those
+    // warnings light their own sections' dots instead.
+    render(<Harness warnings={[...MAPPED_WARNINGS]} ignored={[]} />);
+    // Two rails render (the <lg chip rail and the >=lg pane); assert across all
+    // of them, so a fix that only corrects one is still caught.
+    const rows = screen
+      .getAllByRole("button")
+      .filter((b) => (b.textContent ?? "").includes("Parse warnings"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.textContent ?? "").not.toContain("needs review");
+    }
+  });
+});

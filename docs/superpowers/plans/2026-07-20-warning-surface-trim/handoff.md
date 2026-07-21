@@ -108,4 +108,49 @@ Typecheck clean, eslint clean (one pre-existing `Link` warning, confirmed presen
 
 ## 12. Impeccable dual-gate record (invariant 8)
 
-_Pending: critique and audit results are recorded here before this section is committed._
+Run 2026-07-21, impeccable 3.9.1, canonical v3 setup (context load → PRODUCT.md, register
+`reference/product.md`, this being admin tooling where design serves the product). Surfaces:
+`step3ReviewSections.tsx` (WarningsBreakdown region), `ShowReviewSurface.tsx`,
+`PerShowActionableWarnings.tsx`, `sectionWarningExtras.tsx`, `PublishedReviewModal.tsx`,
+`CorrectionLoopCallout.tsx`.
+
+**Method: dual-agent.** Assessment A (design review) and Assessment B (detector + static evidence)
+ran as two isolated sub-agents and did not see each other's output. Browser visualization was
+SKIPPED with cause: the surface is admin-only behind Supabase auth and needs a seeded database, so
+there is no cheap viewable URL. No overlay was produced and none is claimed.
+
+### Critique
+
+Design health 24/40 on the first pass, 26/40 after repairs. Detector: 1 finding
+(`broken-image`, `step3ReviewSections.tsx:3191`), a verified FALSE POSITIVE — a documented
+deliberate revert that is already on `origin/main` and not in this diff.
+
+| Sev | Finding | Disposition |
+| --- | --- | --- |
+| P0 | Silent shipped an empty bordered, shadowed card: chrome persisted around a null body while the real cards render below it | **FIXED** `b47c2b25d` + `79bb287ea`. Surface computes `suppressPanelCard`. The first attempt inspected `children` and silently did nothing, because a body whose expressions all evaluate to null is still a populated children array. |
+| P0 | Suppressing the card ALSO dropped `parseNotes`, the exclusive render site for `PARSE_ERROR_LAST_GOOD` / `RESYNC_QUALITY_REGRESSED` | **FIXED** `79bb287ea`. Introduced by the P0 repair above and caught by the re-critique. A structural no-drop violation; the predicate now covers everything the body renders, with a regression test mounting Silent + a parse notice. |
+| P0 | Rail dot derived from every warn row including ignored ones, so an all-ignored sheet showed amber "needs a look" above "Nothing needs a look on this sheet." | **FIXED** `b47c2b25d`. Derives from the ACTIVE counts. |
+| P1 | The heading rendered its count and its amber pill in one text run: "(0) Needs a look" | **FIXED** `79bb287ea`. Pill derives from the active bucket count; a test asserts the inverse so the fix cannot become "never flag". |
+| P1 | The ignored list promised a clear: "we'll re-read the sheet and clear this" on already-dismissed warnings | **FIXED** `b47c2b25d`. `followUpCopy` rides the active list only. |
+| P1 | The popover's paragraph break never rendered (`"\n\n"` into a plain div) | **FIXED** `b47c2b25d` as a rendering fix; joined with a space. A real break needs `whitespace-pre-line` on the SHARED `HoverHelp` body, deferred. |
+| P2 | `hasWarnRow` gated on `routedWarnings` alone while the trim gates on the conjunction | **FIXED** `79bb287ea`. Same gate. |
+| P1/P3 | Heading count "(0)" in Silent; panel still titled "Parse warnings" | **DEFERRED** — both touch numbers or names ratified in the spec; see `DEFERRED.md`. |
+
+### Audit
+
+16/20. Accessibility 3, Performance 3, Theming 4, Responsive 3, Anti-patterns 3.
+
+| Sev | Finding | Disposition |
+| --- | --- | --- |
+| P1 | `hasWarnRow` counted `elsewhere`, so AT announced "Parse warnings (0) — needs review" immediately before the body says "Nothing else to note here" | **FIXED** `<this commit>`. `here` only; those warnings light their own sections' dots. Regression test asserts across BOTH rails. |
+| P2 | No live region announces the state change | **DEFERRED** — pre-existing on this surface; see `DEFERRED.md`. |
+| P2 | The follow-up sentence enters every card's accessible description (12 cards, 12 repeats) | **DEFERRED** — per-card placement is ratified in spec §4; per-group is a design change. |
+| P2 | "…are in their own sections" names no section | **DEFERRED** — spec §3.4 authored copy. |
+| P3 | Extras `border-t` reads as a heading underline when the card is suppressed; stale `data-warning-index` comment | **DEFERRED**, both cosmetic or latent. |
+
+Verified NOT issues: suppressing the card does not break heading hierarchy (`<h3>` unchanged) or
+orphan a landmark, and cannot drop focus (it fires only when the body has zero focusable nodes).
+New empty-state lines measure 6.8:1 light and 6.4:1 dark on `bg-surface`, clearing AA. The diff adds
+no interactive element, no fixed width, no `transition-*` or `animate-*`, and no one-off class.
+
+**Every P0 and P1 is FIXED. No P0 or P1 is deferred.**

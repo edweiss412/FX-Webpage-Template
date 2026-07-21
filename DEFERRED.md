@@ -108,3 +108,32 @@ are recorded here with dispositions; none is a P0 and none blocks merge.
   so a real break would mean changing the SHARED popover body and every other popover on the
   surface. The composed text is honest prose either way. **Noted, not changed.** Un-defer trigger:
   a deliberate typographic pass on the shared popover.
+
+### warning-surface-trim — impeccable audit (2026-07-21)
+
+- **[P2] No live region announces the panel's state change.** Ignoring or un-ignoring a row
+  re-renders the panel through a server round trip, so the empty-state line mounts or unmounts
+  with nothing announced. Pre-existing on this surface (the panel had no live region before the
+  trim either), and the correct fix is an always-mounted `role="status"` sibling carrying the
+  current state, matching `components/admin/BulkIgnoreControls.tsx:174-177`. **Noted, not
+  changed.** Un-defer trigger: an accessibility pass on the show modal's dynamic regions.
+
+- **[P2] The follow-up sentence enters every card's accessible description.** `HoverHelp` keeps
+  its popover body in the DOM for `aria-describedby`, so a 12-card section repeats the same
+  sentence 12 times in screen-reader output, where the retired panel callout said it once. The
+  per-card placement is ratified in spec §4 (it exists only where a warning exists, which is what
+  killed the status-strip alternative), and moving it to a per-GROUP eyebrow is a design change
+  that spec §4.1 did not consider. **Noted, not changed.** Un-defer trigger: an owner decision on
+  per-card versus per-group placement.
+
+- **[P2] "…are in their own sections" names no section.** Spec §3.4 authored copy. Naming the
+  sections would make the line variable-length and unbounded; a jump affordance is the better fix
+  and is out of scope. **Noted, not changed.**
+
+- **[P3] The extras `border-t` reads as a heading underline when the card is suppressed**
+  (`components/admin/showpage/sectionWarningExtras.tsx:126`). Cosmetic, only in the Silent state.
+  **Noted, not changed.**
+
+- **[P3] `data-warning-index` comment still says "FULL-array index"** though `i` now indexes the
+  trimmed rows (`components/admin/wizard/step3ReviewSections.tsx:2573-2576`). Harmless today: the
+  only consumer is the staged jump path, which is never gated. **Noted, not changed.**

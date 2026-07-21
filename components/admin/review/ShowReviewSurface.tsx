@@ -291,7 +291,13 @@ export function ShowReviewSurface({
     // to the original rule everywhere else (the staged wizard, which has no
     // ignore state on this surface).
     if (routedWarningsRenderElsewhere && routedWarnings !== undefined) {
-      return routedWarnings.here + routedWarnings.elsewhere > 0;
+      // `here` ONLY (impeccable audit P1). This dot and its sr-only
+      // " — needs review" describe the WARNINGS row specifically, and after the
+      // trim that row's live content is just its own bucket. Counting
+      // `elsewhere` made a screen reader announce "Parse warnings (0) — needs
+      // review" immediately before the body says "Nothing else to note here",
+      // and those warnings already light their own sections' dots via `flagged`.
+      return routedWarnings.here > 0;
     }
     return data.warnings.some((w) => w.severity === "warn");
   }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
