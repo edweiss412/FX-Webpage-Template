@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "implement",
-  "tasksRemaining": 4,
-  "next": "Execute Task 7: bell inclusion. Render BellPanel against a mocked feed carrying both cut codes and assert bell-entry-<alertId> resolves for each; drive the REAL feed route handler against seeded rows and assert both appear as entries; add the source-scan guard that BellPanel, the feed route, and its transitive builder import neither deriveAttentionItems nor DOUG_EXCLUDED_CODES.",
+  "tasksRemaining": 3,
+  "next": "Execute Task 8: transition audit + compound transition. Audit the named three-file inventory against the expected block table (discovered set EQUALS the table); exercise all six transition pairs as rerenders asserting SOURCE state then destination; and the compound case: with the Ignored disclosure open and body Silent, IGNORE the last active warn row, asserting Clean line + count incremented + same captured <details> node still in the document.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }
