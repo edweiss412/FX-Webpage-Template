@@ -123,14 +123,16 @@ describe("M6 sync message catalog", () => {
         "<sheet-name> is now live for crew at its share-token URL: <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
       crewFacing: null,
       followUp: null,
-      helpfulContext: null,
+      // helpfulContext now authored per spec 2026-07-20-alert-popover-context
+      // (pinned in popoverContextCopy.test.ts); no longer asserted null here.
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:
         "<sheet-name> has been unpublished; crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
       crewFacing: null,
       followUp: "Doug → republish from the show's page when ready",
-      helpfulContext: null,
+      // helpfulContext now authored per spec 2026-07-20-alert-popover-context
+      // (pinned in popoverContextCopy.test.ts); no longer asserted null here.
     });
   });
 });

@@ -229,18 +229,19 @@ describe("helpfulContext × dougFacing coverage", () => {
   const entries = Object.values(MESSAGE_CATALOG) as readonly MessageCatalogEntry[];
   const ADMIN_CODES = new Set<string>(ADMIN_ALERTS_CODES);
 
-  // Full-sweep copy plan (Task 6) inversion: every admin_alerts code —
-  // the full ADMIN_ALERTS_CODES registry, not a hand-picked subset — now
-  // carries a self-contained inline-context dougFacing template (resolved
-  // at read time by deriveAlertMessageParams) plus title/longExplanation/
-  // helpHref (the predicate-entry contract in catalogDocsValidator.ts), and
-  // intentionally NEVER a helpfulContext caret. Non-admin catalog codes
-  // (crew-facing, report, onboarding-scan, etc.) keep the pre-existing
-  // both-non-null / both-null coupling below.
-  test("every ADMIN_ALERTS_CODES entry has null helpfulContext and non-null title", () => {
+  // Full-sweep copy plan (Task 6) gave every admin_alerts code a self-contained
+  // inline-context dougFacing template plus title/longExplanation/helpHref (the
+  // predicate-entry contract in catalogDocsValidator.ts). Spec
+  // 2026-07-20-alert-popover-context SUPERSEDED the "never a helpfulContext"
+  // part: admin alert codes that reach the compact "?" popover (helpHref != null)
+  // now carry a slim popover helpfulContext, distinct from the fuller
+  // longExplanation on /help/errors. The helpHref => helpfulContext coverage is
+  // enforced by tests/messages/_metaPopoverContextCoverage.test.ts; here we keep
+  // the surviving admin-code invariant (non-null title).
+  test("every ADMIN_ALERTS_CODES entry has a non-null title", () => {
     const violations = entries
       .filter((entry) => ADMIN_CODES.has(entry.code))
-      .filter((entry) => entry.helpfulContext !== null || entry.title === null)
+      .filter((entry) => entry.title === null)
       .map((entry) => entry.code);
     expect(violations).toEqual([]);
   });
