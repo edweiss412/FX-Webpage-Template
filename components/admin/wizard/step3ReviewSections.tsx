@@ -2539,25 +2539,31 @@ export function WarningsBreakdown({
               RescanSheetButton (re-scan), the published surface carries the
               StatusStrip Re-sync.
 
-              warning-surface-trim §3.5: PUBLISHED mode renders NEITHER of these.
-              The loop sentence moves into each warning card's help popover, so
-              it exists per warning instead of per panel, and the non-blocking
-              line's "below" would point at controls that are no longer below
-              while its reassurance half is already carried per card by
-              `helpfulContext`. The wizard keeps both verbatim: RescanSheetButton
-              sits on that surface and its panel is still the sole actionable
-              site there. */}
+              warning-surface-trim §3.5: PUBLISHED mode retires the NON-BLOCKING
+              line outright — its "below" would point at controls that are no
+              longer below, and its reassurance half is already carried per card
+              by `helpfulContext`.
+
+              The correction-loop callout is retired there only for the rows that
+              LEFT. §3.5 assumed every row the panel used to list acquires a card
+              carrying the sentence in its popover, which holds for warn rows and
+              not for info rows: info is never routed, never becomes a card, and
+              still renders right here. Whole-diff review found the consequence —
+              DAY_RESTRICTION_DOUBLE_LOCATION is info-severity and its copy asks
+              the operator to remove a duplicate (lib/messages/catalog.ts:1194),
+              so on a sheet whose only warnings are info the loop sentence
+              rendered NOWHERE. This branch is inside `rows.length > 0`, so the
+              callout appears exactly when the panel still lists rows of its own
+              and never above one of the three empty states. */}
+          <CorrectionLoopCallout mode={mode} />
           {routedWarningsRenderElsewhere ? null : (
-            <>
-              <CorrectionLoopCallout mode={mode} />
-              <p
-                data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
-                className="text-xs text-text-subtle"
-              >
-                These warnings don&rsquo;t block publishing. Some include an optional fix you can
-                apply below.
-              </p>
-            </>
+            <p
+              data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
+              className="text-xs text-text-subtle"
+            >
+              These warnings don&rsquo;t block publishing. Some include an optional fix you can
+              apply below.
+            </p>
           )}
           <ul className="flex flex-col gap-3">
             {rows.map((w, i) => {

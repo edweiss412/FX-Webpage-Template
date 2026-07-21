@@ -261,8 +261,20 @@ export function ShowReviewSurface({
   const { flagged, judgment } = useMemo(() => {
     const flagged = new Set<SectionId>();
     const judgment = new Set<SectionId>();
+    // warning-surface-trim, whole-diff review finding 2: when the trim is on,
+    // a MAPPED section's live content is its ACTIVE rows — the ignored ones are
+    // folded into that section's collapsed "Ignored (N)" disclosure. Deriving
+    // from every warn row left Crew amber and announcing "Needs a look" after
+    // the operator ignored its last active warning, while this panel said
+    // "Nothing needs a look on this sheet." Same correction the warnings row
+    // already got below; this extends it to the ten routing targets.
+    const activeBySection = routedWarningsRenderElsewhere
+      ? routedWarnings?.activeWarningsBySection
+      : undefined;
     for (const [sid, entries] of bySection) {
-      const st = sectionStatus(entries.map((e) => e.warning));
+      const rows = activeBySection ? (activeBySection[sid] ?? []) : entries.map((e) => e.warning);
+      if (rows.length === 0) continue;
+      const st = sectionStatus(rows);
       if (st === "flagged") flagged.add(sid);
       else if (st === "judgment") judgment.add(sid);
     }

@@ -114,6 +114,21 @@ function crewWarn(name: string): ParseWarning {
   } as ParseWarning;
 }
 
+/** A warn routed to `rooms`. The kind is the PLURAL — `KIND_TO_SECTION`
+ *  (lib/admin/step3SectionStatus.ts:22) keys on it, and `room` falls through to
+ *  the fallback bucket. `ROOM_HEADER_SPLIT_AMBIGUOUS` is an ambiguity code
+ *  (lib/parser/ambiguityCodes.ts:22), so this section resolves to `judgment`
+ *  where `crew` resolves to `flagged`. */
+function roomWarn(name: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: `ambiguous room header ${name}`,
+    rawSnippet: `Room | ${name}`,
+    blockRef: { kind: "rooms", name },
+  } as ParseWarning;
+}
+
 /** A warn with no routable blockRef, so `warningsBySection` puts it in the
  *  fallback `warnings` bucket. */
 function unroutedWarn(n: number): ParseWarning {
@@ -126,10 +141,19 @@ function unroutedWarn(n: number): ParseWarning {
 }
 
 describe("deriveRoutedWarnings (the production derivation)", () => {
-  it("counts the fallback bucket as `here` and every other section as `elsewhere`", () => {
-    // 2 unrouted (-> the `warnings` bucket) and 1 crew-routed. The two counts
-    // DIFFER, so an implementation that swaps them fails.
-    const warnings: ParseWarning[] = [unroutedWarn(1), unroutedWarn(2), crewWarn("Alex Kim")];
+  it("counts the fallback bucket as `here` and EVERY other section as `elsewhere`", () => {
+    // TWO distinct non-fallback sections, with DIFFERENT populations (1 crew,
+    // 2 rooms). Whole-diff review B2: a one-section fixture cannot tell a real
+    // sum from an implementation that counts `crew` alone, ignores every other
+    // section, or caps `elsewhere` at one. Here each of those returns 1 or 2
+    // where the correct answer is 3.
+    const warnings: ParseWarning[] = [
+      unroutedWarn(1),
+      unroutedWarn(2),
+      crewWarn("Alex Kim"),
+      roomWarn("Ballroom A"),
+      roomWarn("Ballroom B"),
+    ];
     const rendered = PUBLISHED_SECTION_IDS;
     const bySection = buildSectionWarningModel({
       slug: "gate-fixture-show",
@@ -141,8 +165,45 @@ describe("deriveRoutedWarnings (the production derivation)", () => {
     const routed = deriveRoutedWarnings(bySection);
 
     expect(routed.here).toBe(2);
-    expect(routed.elsewhere).toBe(1);
+    expect(routed.elsewhere).toBe(3);
     expect(routed.here).not.toBe(routed.elsewhere);
+    // And the per-section rows, which the rail's flag/judgment split reads.
+    expect(Object.keys(routed.activeWarningsBySection).sort()).toEqual([
+      "crew",
+      "rooms",
+      "warnings",
+    ]);
+    expect(routed.activeWarningsBySection.rooms?.map((w) => w.code)).toEqual([
+      "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    ]);
+    expect(routed.activeWarningsBySection.crew?.map((w) => w.code)).toEqual(["UNKNOWN_ROLE_TOKEN"]);
+  });
+
+  it("splits ACTIVE from ignored WITHIN one bucket, not just across whole buckets", () => {
+    // Whole-diff review B2: the all-active and all-ignored cases below are both
+    // satisfied by an implementation that treats ignoring as a per-SECTION
+    // switch. A bucket holding one active and one ignored row is the case that
+    // separates them.
+    const stays = crewWarn("Alex Kim");
+    const goes = crewWarn("Bo Chen");
+    const args = {
+      slug: "gate-fixture-show",
+      warnings: [stays, goes],
+      renderedSectionIds: PUBLISHED_SECTION_IDS,
+    };
+    const fp = warningFingerprint(goes);
+    expect(fp).not.toBeNull();
+
+    const routed = deriveRoutedWarnings(
+      buildSectionWarningModel({ ...args, ignoredFingerprints: new Set([fp!]) }),
+    );
+
+    expect(routed.elsewhere).toBe(1);
+    // Identified by CONTENT, so dropping the wrong one of the two fails.
+    expect(routed.activeWarningsBySection.crew?.map((w) => w.message)).toEqual([
+      "unknown role Alex Kim",
+    ]);
   });
 
   it("counts ACTIVE rows only, so an all-ignored sheet reports nothing needing a look", () => {
@@ -173,12 +234,16 @@ describe("deriveRoutedWarnings (the production derivation)", () => {
     const ignored = deriveRoutedWarnings(
       buildSectionWarningModel({ ...args, ignoredFingerprints: fingerprints }),
     );
-    expect(ignored).toEqual({ here: 0, elsewhere: 0 });
+    expect(ignored.here).toBe(0);
+    expect(ignored.elsewhere).toBe(0);
+    // No present-and-empty rows either: an emptied section is ABSENT, which is
+    // what lets the rail treat a lookup miss as "nothing active here".
+    expect(ignored.activeWarningsBySection).toEqual({});
   });
 
   it("an empty model yields zeroes rather than undefined", () => {
     const routed = deriveRoutedWarnings({});
-    expect(routed).toEqual({ here: 0, elsewhere: 0 });
+    expect(routed).toEqual({ here: 0, elsewhere: 0, activeWarningsBySection: {} });
   });
 });
 
@@ -314,10 +379,12 @@ async function mountAndCaptureGates(
   return { railGates, contextGates };
 }
 
+const COUNTS: RoutedWarnings = { here: 1, elsewhere: 2, activeWarningsBySection: {} };
+
 describe("the rail and the context receive the SAME gate value", () => {
   const cases: { name: string; counts: RoutedWarnings | undefined; extras: boolean }[] = [
-    { name: "both present", counts: { here: 1, elsewhere: 2 }, extras: true },
-    { name: "counts only", counts: { here: 1, elsewhere: 2 }, extras: false },
+    { name: "both present", counts: COUNTS, extras: true },
+    { name: "counts only", counts: COUNTS, extras: false },
     { name: "extras only", counts: undefined, extras: true },
     { name: "neither", counts: undefined, extras: false },
   ];

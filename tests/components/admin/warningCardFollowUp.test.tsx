@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -26,7 +26,17 @@ import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableW
 import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { WARNING_CARD_COPY_CODES } from "@/tests/messages/warningCardCopyRegistry";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-import { FIXTURE_DRIVE_FILE_ID } from "@/tests/helpers/warningSurfaceFixture";
+import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
+import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
+import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import {
+  FIXTURE_DRIVE_FILE_ID,
+  FIXTURE_SLUG,
+  fixtureSnapshot,
+} from "@/tests/helpers/warningSurfaceFixture";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ParseWarning } from "@/lib/parser/types";
 
 afterEach(cleanup);
@@ -38,7 +48,26 @@ afterEach(cleanup);
 const LOOP_SENTENCE =
   "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
 
+/**
+ * A warning ANCHORED TO A SHEET CELL. The follow-up sentence says "Edit the
+ * cell", so `PerShowActionableWarnings` appends it only when a cell exists
+ * (whole-diff review finding 3) — a cell-less fixture would make every
+ * composition assertion below silently unreachable.
+ */
 function warningFor(code: string): ParseWarning {
+  return {
+    severity: "warn",
+    code,
+    message: `${code} message`,
+    rawSnippet: `Row | ${code}`,
+    sourceCell: { title: "INFO", gid: 0, a1: "B7" },
+  } as ParseWarning;
+}
+
+/** The same warning with NO source cell: the asset and Drive codes are raised
+ *  this way (lib/sync/enrichWithDrivePins.ts:162 builds `{severity, code,
+ *  message}` and nothing else). */
+function cellLessWarningFor(code: string): ParseWarning {
   return {
     severity: "warn",
     code,
@@ -166,6 +195,60 @@ describe("(f) single-source consistency", () => {
   });
 });
 
+describe("the sentence rides only warnings with a cell to edit", () => {
+  // Whole-diff review finding 3. Ungated, this handed DIAGRAMS_TAB_MISSING and
+  // OPENING_REEL_PERMISSION_DENIED a brand-new popover whose ENTIRE content was
+  // "Edit the cell" — advice that does not apply, on codes fixed in Drive or in
+  // the sheet's tab structure, and which carry no `triggerContext` of their own.
+  it("a cell-less warning with a registered trigger keeps the trigger and drops the follow-up", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[cellLessWarningFor("UNKNOWN_FIELD")]}
+        driveFileId={FIXTURE_DRIVE_FILE_ID}
+        followUpCopy={LOOP_SENTENCE}
+      />,
+    );
+    const entry = MESSAGE_CATALOG.UNKNOWN_FIELD as { triggerContext?: string | null };
+    const trigger = (entry.triggerContext ?? "").trim();
+    expect(trigger.length).toBeGreaterThan(0);
+    expect(popoverText()).toContain(trigger);
+    expect(popoverText()).not.toContain(LOOP_SENTENCE);
+  });
+
+  it.each(["DIAGRAMS_TAB_MISSING", "OPENING_REEL_PERMISSION_DENIED"])(
+    "%s gains NO popover, because it has neither a trigger nor a cell",
+    (code) => {
+      // Both are real codes with no `triggerContext` row, verified here rather
+      // than assumed: if either ever gains one, this precondition fails loudly
+      // instead of the test quietly asserting the wrong thing.
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
+        | { triggerContext?: string | null }
+        | undefined;
+      expect(entry?.triggerContext ?? null).toBeNull();
+
+      render(
+        <PerShowActionableWarnings
+          items={[cellLessWarningFor(code)]}
+          driveFileId={FIXTURE_DRIVE_FILE_ID}
+          followUpCopy={LOOP_SENTENCE}
+        />,
+      );
+      expect(hasTrigger()).toBe(false);
+    },
+  );
+
+  it("and a cell-bearing warning of the SAME code does get it, so the gate is the cell", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[warningFor("UNKNOWN_FIELD")]}
+        driveFileId={FIXTURE_DRIVE_FILE_ID}
+        followUpCopy={LOOP_SENTENCE}
+      />,
+    );
+    expect(popoverText()).toContain(LOOP_SENTENCE);
+  });
+});
+
 describe("the ignored list makes no promise about clearing", () => {
   it("muted cards carry no follow-up sentence", () => {
     // impeccable critique P1a: "we'll re-read the sheet and clear this" is a
@@ -182,16 +265,46 @@ describe("the ignored list makes no promise about clearing", () => {
     expect(popoverText()).not.toContain(LOOP_SENTENCE);
   });
 
-  it("the published extras factory passes it to the ACTIVE list only", () => {
+  it("the published extras factory RENDERS it on active cards and not on ignored ones", () => {
+    // BEHAVIORAL, not a source scan (whole-diff review B6/B7). The scan below
+    // cannot see a value arriving through a spread, an alias, or a wrapper, and
+    // it cannot see production passing the wrong string; this renders the real
+    // factory and reads what an operator would read.
+    const active = warningFor("UNKNOWN_FIELD");
+    const ignored = { ...warningFor("UNKNOWN_FIELD"), rawSnippet: "Row | ignored one" };
+    const fp = warningFingerprint(ignored);
+    expect(fp, "the ignored fixture must be fingerprintable or nothing is ignored").not.toBeNull();
+
+    const data = buildPublishedSectionData(fixtureSnapshot([active, ignored]) as never, {
+      slug: FIXTURE_SLUG,
+    });
+    const bySection = buildSectionWarningModel({
+      slug: FIXTURE_SLUG,
+      warnings: [active, ignored],
+      ignoredFingerprints: new Set([fp!]),
+      renderedSectionIds: new Set<SectionId>(step3Sections(data).map((s) => s.id)),
+    });
+    // Both lists are populated, or "absent from the ignored list" is vacuous.
+    expect(bySection.warnings?.active.length).toBe(1);
+    expect(bySection.warnings?.ignored.length).toBe(1);
+
+    render(<>{buildSectionWarningExtras({ bySection })("warnings", data)}</>);
+
+    const active_list = screen.getByTestId("section-warning-active-warnings");
+    const ignored_list = screen.getByTestId("section-ignored-warnings-warnings");
+    // Scoped per list: a document-wide scan would find the active copy and
+    // report the ignored list clean no matter what it renders.
+    expect(within(active_list).getByText(LOOP_SENTENCE, { exact: false })).toBeTruthy();
+    expect(ignored_list.textContent ?? "").not.toContain(LOOP_SENTENCE);
+  });
+
+  it("and the factory mounts the sentence in exactly one place", () => {
     const src = readFileSync(
       resolve(process.cwd(), "components/admin/showpage/sectionWarningExtras.tsx"),
       "utf8",
     );
-    // Exactly one followUpCopy mount, and the muted one is not it.
+    // A secondary structural check on top of the behavioral one above: it
+    // catches a SECOND mount that the single-render assertion would not reach.
     expect((src.match(/followUpCopy=/g) ?? []).length).toBe(1);
-    const mutedMount = src.slice(src.indexOf('tone="muted"') - 400, src.indexOf('tone="muted"'));
-    // Match the JSX ATTRIBUTE, not the bare word: the muted mount carries a
-    // comment naming followUpCopy to explain why it is absent.
-    expect(mutedMount).not.toContain("followUpCopy=");
   });
 });

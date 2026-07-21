@@ -98,8 +98,20 @@ export function PerShowActionableWarnings({
         // §4.3 four-row guard table. Both inputs collapse to "absent" under one
         // rule, so `undefined`, null, "", and any whitespace run behave alike
         // and the table is total over each input's full domain.
+        //
+        // Gated on `w.sourceCell` (whole-diff review finding 3). The sentence
+        // says "Edit the cell", and a warning WITHOUT a source cell has no cell
+        // to edit: the asset and Drive codes (DIAGRAMS_TAB_MISSING,
+        // OPENING_REEL_PERMISSION_DENIED, AGENDA_*, LINKED_FOLDER_*) are raised
+        // by `lib/sync/enrichWithDrivePins.ts:162`, which builds every warning as
+        // `{severity, code, message}` with no cell, and are fixed in Drive or in
+        // the sheet's TAB STRUCTURE, not in a cell. Two of them carry no
+        // `triggerContext` either, so ungated this handed those cards a brand-new
+        // popover whose entire content was advice that does not apply to them.
+        // The cell is the referent the sentence already names, so this is the
+        // condition the copy was always making — now stated.
         const followUp =
-          typeof followUpCopy === "string" && followUpCopy.trim().length > 0
+          w.sourceCell && typeof followUpCopy === "string" && followUpCopy.trim().length > 0
             ? followUpCopy.trim()
             : null;
         // Joined with a SPACE, not "\n\n" (impeccable critique P1b): `HoverHelp`

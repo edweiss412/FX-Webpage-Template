@@ -38,8 +38,12 @@ import {
   ALL_WARNINGS,
   FIXTURE_SLUG,
   IGNORED_WARNINGS,
+  INFO_WARNINGS,
   fixtureSnapshot,
 } from "@/tests/helpers/warningSurfaceFixture";
+
+/** Info rows only: the panel lists them (List state) and nothing becomes a card. */
+const INFO_ONLY: readonly ParseWarning[] = INFO_WARNINGS;
 
 afterEach(cleanup);
 
@@ -110,18 +114,38 @@ function modalTextWithoutPopovers(): { text: string; removedCount: number } {
 }
 
 describe("the published panel retires its panel-level guidance", () => {
-  it("does not render the correction-loop sentence anywhere outside a popover", () => {
-    render(<Harness warnings={ALL_WARNINGS} />);
-    const { text, removedCount } = modalTextWithoutPopovers();
-    // The exclusion must actually have excluded something, or this assertion
-    // degrades into a plain whole-tree scan that passes for the wrong reason.
-    expect(removedCount).toBeGreaterThan(0);
-    expect(text).not.toContain(LOOP_SENTENCE);
-  });
-
   it("does not render the non-blocking sentence", () => {
     render(<Harness warnings={ALL_WARNINGS} />);
     expect(modalTextWithoutPopovers().text).not.toContain(NON_BLOCKING_SENTENCE);
+  });
+
+  it("drops the correction-loop sentence from every EMPTY state, where it has no rows to be about", () => {
+    // Silent / Elsewhere / Clean all render an empty body. §3.5's retirement
+    // holds unconditionally there: the sentence would sit above either nothing
+    // or a line saying nothing needs a look.
+    render(<Harness warnings={[...IGNORED_WARNINGS]} />);
+    const { text } = modalTextWithoutPopovers();
+    expect(text).not.toContain(LOOP_SENTENCE);
+  });
+
+  it("KEEPS it when the published panel still lists rows of its own", () => {
+    // Whole-diff review C1. §3.5 retired the callout on the premise that every
+    // row the panel used to list acquires a card carrying the sentence in its
+    // popover. Info rows break that premise: they are never routed, never
+    // become cards, and still render here. DAY_RESTRICTION_DOUBLE_LOCATION is
+    // info-severity and its copy asks the operator to remove a duplicate
+    // (lib/messages/catalog.ts:1194), so with the callout gone the loop
+    // rendered NOWHERE for a sheet whose only warnings are info.
+    //
+    // The fixture is info-ONLY, so nothing on this render has a popover and the
+    // sentence cannot be found in one.
+    render(<Harness warnings={INFO_ONLY} />);
+    const { text, removedCount } = modalTextWithoutPopovers();
+    expect(removedCount, "an info-only sheet mounts no warning-card popovers").toBe(0);
+    expect(text).toContain(LOOP_SENTENCE);
+    // Still not the non-blocking line: its "below" points at controls that are
+    // no longer below.
+    expect(text).not.toContain(NON_BLOCKING_SENTENCE);
   });
 
   it("keeps BOTH sentences on the ungated (wizard) surface, verbatim", () => {

@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "gates",
-  "tasksRemaining": 2,
-  "next": "Execute Task 9: impeccable dual gate. Step 0 first (mechanical invariants pre-check: em-dash ban, apostrophe literals, tap targets, canonical type/token classes), then /impeccable critique and /impeccable audit on the diff with the v3 setup gates, fix every P0/P1 as its own commit, RERUN both, then write docs/superpowers/plans/2026-07-20-warning-surface-trim/handoff.md with numbered sections through 12 and record findings in its section 12, and commit it.",
+  "tasksRemaining": 1,
+  "next": "Execute Task 10: full verification (pnpm typecheck, lint, format:check, full pnpm test), then the cross-model whole-diff review dispatched as tight-scope splits PLUS an integrated cross-surface pass, loop to a fixpoint on any repair, then push, real CI green, gh pr merge --merge, fast-forward main to 0 0, CronDelete 5d291551.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }
