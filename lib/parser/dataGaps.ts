@@ -49,6 +49,7 @@ export const GAP_CLASSES = [
   { code: "AGENDA_DAY_AMBIGUOUS", label: "unclear agenda day" },
   { code: "AGENDA_DAY_TRUNCATED", label: "cut-off agenda day" },
   { code: "AGENDA_DAY_EMPTIED", label: "empty agenda day" },
+  { code: "AGENDA_FILE_INACCESSIBLE", label: "unopenable agenda file" },
   { code: "AGENDA_PDF_UNREADABLE", label: "unreadable agenda PDF" },
   { code: "AGENDA_LINK_NOT_CLICKABLE", label: "unreachable agenda link" },
   { code: "PULL_SHEET_PARSE_PARTIAL", label: "partial pull sheet" },

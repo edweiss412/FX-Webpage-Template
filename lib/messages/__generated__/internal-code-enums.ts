@@ -20,6 +20,9 @@ export const INTERNAL_CODE_ENUMS = {
   AGENDA_DAY_TRUNCATED: {
     source: "parse_warnings.code"
   },
+  AGENDA_FILE_INACCESSIBLE: {
+    source: "parse_warnings.code"
+  },
   AGENDA_GRID_MALFORMED: {
     source: "parse_warnings.code"
   },

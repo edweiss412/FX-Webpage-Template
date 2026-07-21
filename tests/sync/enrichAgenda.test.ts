@@ -497,7 +497,7 @@ describe("enrichAgenda — verdict vs rendering orthogonality (Codex whole-diff 
 });
 
 describe("enrichAgenda — metadata gate + cache", () => {
-  test("non-PDF mime → AGENDA_PDF_UNREADABLE, no download", async () => {
+  test("non-PDF mime → AGENDA_FILE_INACCESSIBLE, no download", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1" }]);
     const downloadFileBytes = vi.fn(async () => ({
       kind: "bytes" as const,
@@ -508,7 +508,7 @@ describe("enrichAgenda — metadata gate + cache", () => {
       downloadFileBytes,
     });
     await enrichAgenda(result, client, "sheet-1");
-    expect(codes(result)).toEqual(["AGENDA_PDF_UNREADABLE"]);
+    expect(codes(result)).toEqual(["AGENDA_FILE_INACCESSIBLE"]);
     expect(downloadFileBytes).not.toHaveBeenCalled();
   });
 
@@ -572,11 +572,11 @@ describe("enrichAgenda — data-quality codes", () => {
     expect(codes(result)).toEqual(["AGENDA_PDF_UNREADABLE"]);
   });
 
-  test("downloadFileBytes unavailable → AGENDA_PDF_UNREADABLE", async () => {
+  test("downloadFileBytes unavailable → AGENDA_FILE_INACCESSIBLE", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1" }]);
     const client = makeClient({ downloadFileBytes: async () => ({ kind: "unavailable" }) });
     await enrichAgenda(result, client, "sheet-1");
-    expect(codes(result)).toEqual(["AGENDA_PDF_UNREADABLE"]);
+    expect(codes(result)).toEqual(["AGENDA_FILE_INACCESSIBLE"]);
     expect(extractMock).not.toHaveBeenCalled();
   });
 
@@ -828,5 +828,66 @@ describe("enrichAgenda — per-link freshness verdict", () => {
 
     // downloadFileBytes called once (for ordinal 0 only; ordinal 1 has no fileId)
     expect(downloadFileBytes).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("enrichAgenda — AGENDA_FILE_INACCESSIBLE vs AGENDA_PDF_UNREADABLE split", () => {
+  // A single fileId-bearing agenda link that reaches the getFile/download path.
+  const linkResult = () => makeResult([{ label: "AGENDA", fileId: "F1" }]);
+
+  test("getFile 404 → AGENDA_FILE_INACCESSIBLE, not AGENDA_PDF_UNREADABLE (branch 217)", async () => {
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("gone", 404);
+      },
+    });
+    const result = linkResult();
+    await enrichAgenda(result, client, "s");
+    expect(codes(result)).toContain("AGENDA_FILE_INACCESSIBLE");
+    expect(codes(result)).not.toContain("AGENDA_PDF_UNREADABLE");
+  });
+
+  test("getFile 400 → AGENDA_FILE_INACCESSIBLE (branch 217, other gone status)", async () => {
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("bad", 400);
+      },
+    });
+    const result = linkResult();
+    await enrichAgenda(result, client, "s");
+    expect(codes(result)).toContain("AGENDA_FILE_INACCESSIBLE");
+  });
+
+  test("non-PDF fileMeta → AGENDA_FILE_INACCESSIBLE (branch 254)", async () => {
+    const client = makeClient({ getFile: async (id) => meta(id, { mimeType: "text/plain" }) });
+    const result = linkResult();
+    await enrichAgenda(result, client, "s");
+    expect(codes(result)).toContain("AGENDA_FILE_INACCESSIBLE");
+  });
+
+  test("trashed fileMeta → AGENDA_FILE_INACCESSIBLE (branch 254)", async () => {
+    const client = makeClient({
+      // DriveFileMeta has no `trashed` field; the production code reads it via a
+      // cast, so the test attaches it and casts to match that runtime shape.
+      getFile: async (id) => ({ ...meta(id), trashed: true }) as DriveFileMeta,
+    });
+    const result = linkResult();
+    await enrichAgenda(result, client, "s");
+    expect(codes(result)).toContain("AGENDA_FILE_INACCESSIBLE");
+  });
+
+  test("downloadFileBytes unavailable → AGENDA_FILE_INACCESSIBLE (branch 327)", async () => {
+    const client = makeClient({ downloadFileBytes: async () => ({ kind: "unavailable" }) });
+    const result = linkResult();
+    await enrichAgenda(result, client, "s");
+    expect(codes(result)).toContain("AGENDA_FILE_INACCESSIBLE");
+  });
+
+  test("valid PDF, zero sessions → AGENDA_PDF_UNREADABLE (branch 417, kept)", async () => {
+    extractMock.mockResolvedValue(highExtraction({ days: [] }));
+    const result = linkResult();
+    await enrichAgenda(result, makeClient(), "s");
+    expect(codes(result)).toContain("AGENDA_PDF_UNREADABLE");
+    expect(codes(result)).not.toContain("AGENDA_FILE_INACCESSIBLE");
   });
 });

@@ -6,6 +6,7 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "AGENDA_DAY_AMBIGUOUS",
   "AGENDA_DAY_EMPTIED",
   "AGENDA_DAY_TRUNCATED",
+  "AGENDA_FILE_INACCESSIBLE",
   "AGENDA_GRID_MALFORMED",
   "COLUMN_HEADER_AUTOCORRECTED",
   "CREW_COLUMN_POSITIONAL_FALLBACK",
@@ -86,8 +87,10 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_STAGE_RESTRICTION:
     "Appears when a role cell's phase restriction contains a word outside the standard phases.",
   AGENDA_LINK_NOT_CLICKABLE: "Appears when the agenda cell has no clickable link in it.",
+  AGENDA_FILE_INACCESSIBLE:
+    "Appears when we can't open the linked agenda file: it's missing, not shared with us, not a PDF, or too large.",
   AGENDA_PDF_UNREADABLE:
-    "Appears when the linked agenda PDF can't be opened or its pages can't be read.",
+    "Appears when the agenda PDF opens fine but we couldn't find a schedule in it.",
   AGENDA_SCHEDULE_LOW_CONFIDENCE:
     "Appears when the agenda PDF's times are laid out too unusually to trust.",
   AGENDA_SCHEDULE_TIME_ADJUSTED:
@@ -111,6 +114,8 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
   SECTION_HEADER_NO_FIELDS: "Section with nothing under it",
   UNKNOWN_SECTION_HEADER: "Section we didn't recognize",
   TRAVEL_FLIGHT_UNPARSEABLE: "Flight we couldn't read",
+  AGENDA_FILE_INACCESSIBLE: "Can't open the agenda file",
+  AGENDA_PDF_UNREADABLE: "No agenda schedule found",
 };
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([

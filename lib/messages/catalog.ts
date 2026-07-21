@@ -1560,19 +1560,33 @@ export const MESSAGE_CATALOG = {
       "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in the admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day and it'll appear on the next sync.",
     helpHref: "/help/errors#SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
   },
-  AGENDA_PDF_UNREADABLE: {
-    code: "AGENDA_PDF_UNREADABLE",
+  AGENDA_FILE_INACCESSIBLE: {
+    code: "AGENDA_FILE_INACCESSIBLE",
     dougFacing:
-      "We couldn't read the agenda PDF linked on _<sheet-name>_, so crew see the embedded agenda document but not a structured day-by-day schedule. Check that the agenda link still opens, or let us know if it keeps happening.",
+      "We couldn't open the agenda file linked on _<sheet-name>_, so there's no day-by-day schedule and crew may not be able to see the agenda either. Most often it's private and not shared with us, or it was deleted; it can also be a non-PDF link or a file too large to open. Confirm the agenda is a shared, reasonably sized PDF (for example, set the link to anyone-with-the-link can view), or replace the link.",
     crewFacing: null,
     followUp: "Doug → check agenda link",
     helpfulContext:
-      "We couldn't read the linked agenda PDF, so crew see the agenda document but no day-by-day schedule. Check the link still opens; tell us if this keeps appearing.",
+      "We couldn't open the linked agenda file, so there's no schedule and crew may not be able to see the agenda. It may be private and not shared with us, deleted, a non-PDF link, or too large to open. Confirm it's a shared, reasonably sized PDF, or replace the link.",
     triggerContext:
-      "Appears when the linked agenda PDF can't be opened or its pages can't be read.",
-    title: "Agenda PDF unreadable",
+      "Appears when we can't open the linked agenda file: it's missing, not shared with us, not a PDF, or too large.",
+    title: "Can't open the agenda file",
     longExplanation:
-      "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured schedule. Confirm the agenda link still opens; if it does and this persists, let us know and we'll take a look.",
+      "We couldn't open the agenda file linked on this show, so there's no day-by-day schedule and crew may not be able to see the agenda. This happens when the file was deleted, when it's private and not shared with us (a missing file and a not-shared file look the same to us), when the link isn't a readable PDF, or when the file is too large for us to open. Confirm the agenda is a shared, reasonably sized PDF, then re-check, or replace the link.",
+    helpHref: "/help/errors#AGENDA_FILE_INACCESSIBLE",
+  },
+  AGENDA_PDF_UNREADABLE: {
+    code: "AGENDA_PDF_UNREADABLE",
+    dougFacing:
+      "We opened the agenda PDF linked on _<sheet-name>_ but couldn't find a day-by-day schedule in it, so crew see the agenda document but not a structured schedule. No action is needed unless the agenda is supposed to include a schedule we can read.",
+    crewFacing: null,
+    followUp: "Doug → optional check",
+    helpfulContext:
+      "We opened the agenda PDF but couldn't find a day-by-day schedule in it, so crew see the agenda document only. Nothing is broken; no action is needed unless it should include a readable schedule.",
+    triggerContext: "Appears when the agenda PDF opens fine but we couldn't find a schedule in it.",
+    title: "No agenda schedule found",
+    longExplanation:
+      "The agenda PDF opened and downloaded fine, but we couldn't find a day-by-day schedule in it, so crew see the embedded agenda document without a structured schedule. This is a safe fallback; no action is needed unless the agenda is supposed to contain a schedule we can read, in which case check its layout.",
     helpHref: "/help/errors#AGENDA_PDF_UNREADABLE",
   },
   AGENDA_SCHEDULE_LOW_CONFIDENCE: {

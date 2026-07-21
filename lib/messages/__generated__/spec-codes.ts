@@ -104,6 +104,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "This run-of-show day was too large, so crew see a trimmed list. It's almost always a stray cell; let us know if a real day genuinely needs more.",
   },
+  "AGENDA_FILE_INACCESSIBLE": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't open the agenda file linked on _<sheet-name>_, so there's no day-by-day schedule and crew may not be able to see the agenda either. Most often it's private and not shared with us, or it was deleted; it can also be a non-PDF link or a file too large to open. Confirm the agenda is a shared, reasonably sized PDF (for example, set the link to anyone-with-the-link can view), or replace the link.",
+    "followUp": "Doug → check agenda link",
+    "helpfulContext": "We couldn't open the linked agenda file, so there's no schedule and crew may not be able to see the agenda. It may be private and not shared with us, deleted, a non-PDF link, or too large to open. Confirm it's a shared, reasonably sized PDF, or replace the link.",
+  },
   "AGENDA_GONE_FOR_CREW": {
     "crewFacing": "This agenda isn't available anymore. Text Doug for a fresh link.",
     "dougFacing": null,
@@ -124,9 +130,9 @@ export const SPEC_CODES = {
   },
   "AGENDA_PDF_UNREADABLE": {
     "crewFacing": null,
-    "dougFacing": "We couldn't read the agenda PDF linked on _<sheet-name>_, so crew see the embedded agenda document but not a structured day-by-day schedule. Check that the agenda link still opens, or let us know if it keeps happening.",
-    "followUp": "Doug → check agenda link",
-    "helpfulContext": "We couldn't read the linked agenda PDF, so crew see the agenda document but no day-by-day schedule. Check the link still opens; tell us if this keeps appearing.",
+    "dougFacing": "We opened the agenda PDF linked on _<sheet-name>_ but couldn't find a day-by-day schedule in it, so crew see the agenda document but not a structured schedule. No action is needed unless the agenda is supposed to include a schedule we can read.",
+    "followUp": "Doug → optional check",
+    "helpfulContext": "We opened the agenda PDF but couldn't find a day-by-day schedule in it, so crew see the agenda document only. Nothing is broken; no action is needed unless it should include a readable schedule.",
   },
   "AGENDA_SCHEDULE_LOW_CONFIDENCE": {
     "crewFacing": null,
