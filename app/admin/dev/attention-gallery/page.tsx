@@ -35,7 +35,7 @@
 import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { ALL_SCENARIOS, scenarioById } from "@/lib/dev/attentionScenarios/index";
 import { ScenarioBlock } from "@/components/admin/dev/ScenarioBlock";
-import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
+import { GalleryCard } from "@/components/admin/dev/GalleryCard";
 import { buildBlockProps, GALLERY_NOW, GALLERY_SLUG } from "./buildBlockProps";
 import { parseGalleryParams } from "./params";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
@@ -60,17 +60,12 @@ export default async function AttentionGalleryPage({
     ? [requested]
     : ALL_SCENARIOS.filter((s) => tier === null || s.tier === tier);
 
-  // `onResolved` is a no-op: the submit guard already stops the action, and a
-  // card that visually confirmed without a write would be a lie about state.
+  // Rendered through GalleryCard rather than AttentionBanner directly:
+  // AttentionBanner requires an `onResolved` FUNCTION prop, and a function
+  // cannot cross the RSC boundary from this server component. GalleryCard owns
+  // that callback inside the client boundary.
   const renderCard = (item: AttentionItem) => (
-    <AttentionBanner
-      key={item.id}
-      item={item}
-      slug={GALLERY_SLUG}
-      now={GALLERY_NOW}
-      highlighted={false}
-      onResolved={() => {}}
-    />
+    <GalleryCard key={item.id} item={item} slug={GALLERY_SLUG} now={GALLERY_NOW} />
   );
 
   return (
@@ -78,9 +73,13 @@ export default async function AttentionGalleryPage({
       <h1 className="text-xl font-bold text-text-strong">Attention scenario gallery</h1>
       <p className="mt-2 max-w-prose text-xs/relaxed text-text-subtle">
         Synthetic scenarios rendered through the real derivation, routing, and card components.
-        Nothing here writes: every control is live to look at and inert to click. Filter with{" "}
-        <code>?tier=1|2|3</code> or <code>?scenario=&lt;id&gt;</code>, and set a render width with{" "}
-        <code>?w=390</code> (320 to 1280).
+        Action controls are display-only here: every submit is intercepted, so nothing writes. To
+        put one of these states in front of the real modal, use the materialize card on{" "}
+        <a className="underline" href="/admin/dev">
+          the dev panel
+        </a>
+        . Filter with <code>?tier=1|2|3</code> or <code>?scenario=&lt;id&gt;</code>, and set a
+        render width with <code>?w=390</code> (320 to 1280).
       </p>
       <p className="mt-2 text-xs/relaxed text-text-subtle">
         Showing {shown.length} of {ALL_SCENARIOS.length} scenarios

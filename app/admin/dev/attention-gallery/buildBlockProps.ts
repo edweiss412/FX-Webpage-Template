@@ -12,7 +12,11 @@
  * exports from a page module, and because the render path is worth unit-testing
  * without booting a route.
  */
-import { deriveAttentionItems, type AttentionItem } from "@/lib/admin/attentionItems";
+import {
+  ATTENTION_ROUTES,
+  deriveAttentionItems,
+  type AttentionItem,
+} from "@/lib/admin/attentionItems";
 import {
   bucketAttention,
   resolveEffectiveSection,
@@ -120,12 +124,28 @@ function buildReadout(
   for (const item of items) {
     const effective =
       item.kind === "alert" ? resolveEffectiveSection(item, predicates) : item.sectionId;
+    // The §4.1 item-2 field list, in order. Wrong routing has to be legible as
+    // TEXT, not merely inferable from which group a card landed in.
+    const alert = item.kind === "alert" ? item.alert : null;
+    const anchor = alert ? (ATTENTION_ROUTES[alert.code]?.anchor ?? null) : null;
+    const template = alert?.template ?? null;
     rows.push({
       label: `item ${item.id}`,
-      value:
-        `${item.kind} declared=${item.sectionId} effective=${effective} ` +
-        `tone=${item.tone} actionable=${item.actionable}` +
-        (item.crewKey === null ? "" : ` crewKey=${item.crewKey}`),
+      value: [
+        `code=${alert?.code ?? "(hold)"}`,
+        `kind=${item.kind}`,
+        `tone=${item.tone}`,
+        `declared=${item.sectionId}`,
+        `effective=${effective}`,
+        `anchor=${anchor ?? "none"}`,
+        `crewKey=${item.crewKey ?? "none"}`,
+        `actionable=${item.actionable}`,
+        `autoClearNote=${alert?.autoClearNote ?? "none"}`,
+        // Resolved-vs-fallback is the interesting bit: an empty template means
+        // the card renders ATTENTION_FALLBACK_TITLE instead of catalog copy.
+        `template=${template && template.trim().length > 0 ? "resolved" : "fallback"}`,
+        `occurrences=${alert?.occurrenceCount ?? 1}`,
+      ].join(" "),
     });
   }
   return rows;

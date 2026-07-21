@@ -146,9 +146,40 @@ describe("ScenarioBlock", () => {
     const overview = screen.getByTestId("group-overview-sectionTop");
     expect(within(overview).getByText("card-a")).toBeInTheDocument();
     expect(within(overview).getByRole("heading", { name: "overview" })).toBeInTheDocument();
-    const rooms = screen.getByTestId("group-rooms-anchor");
+    const rooms = screen.getByTestId("group-rooms-anchor-diagrams");
     expect(within(rooms).getByText("card-b")).toBeInTheDocument();
     expect(within(rooms).getByRole("heading", { name: "rooms / diagrams" })).toBeInTheDocument();
+  });
+
+  test("two groups in the same section and placement get DISTINCT testids", () => {
+    // A section top plus the composed notes group both land in one section with
+    // placement sectionTop; duplicate testids would make getByTestId throw.
+    render(
+      <ScenarioBlock
+        {...baseProps({
+          groups: [
+            {
+              sectionId: "warnings",
+              placement: "sectionTop",
+              anchorOrCrewKey: null,
+              nodes: [<p key="a">card-a</p>],
+            },
+            {
+              sectionId: "warnings",
+              placement: "sectionTop",
+              anchorOrCrewKey: "notes",
+              nodes: [<p key="b">note-b</p>],
+            },
+          ],
+        })}
+      />,
+    );
+    expect(
+      within(screen.getByTestId("group-warnings-sectionTop")).getByText("card-a"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("group-warnings-sectionTop-notes")).getByText("note-b"),
+    ).toBeInTheDocument();
   });
 
   test("holds render in their own group and NOT inside a section group", () => {
@@ -244,7 +275,18 @@ describe("ScenarioBlock", () => {
       expect(within(dl).getByText(label)).toBeInTheDocument();
       expect(within(dl).getByText(value)).toBeInTheDocument();
     }
-    expect(within(dl).getAllByRole("term")).toHaveLength(3);
+    // Three supplied rows plus the route row the block appends itself.
+    expect(within(dl).getAllByRole("term")).toHaveLength(4);
+  });
+
+  test("the readout always prints the usePathname value, per the fidelity caveat", () => {
+    // AttentionBanner route-gates its Learn-more link on usePathname, which
+    // differs under the gallery. Printing it makes that divergence visible
+    // instead of leaving a card quietly wrong about one prop.
+    render(<ScenarioBlock {...baseProps()} />);
+    expect(
+      within(screen.getByTestId("readout")).getByText("route (usePathname)"),
+    ).toBeInTheDocument();
   });
 
   test("maxWidthPx applies only for a positive finite number", () => {

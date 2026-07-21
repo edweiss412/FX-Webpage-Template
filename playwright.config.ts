@@ -78,7 +78,11 @@ export default defineConfig({
     },
     {
       name: "dev-build",
-      testMatch: /admin-dev\.spec\.ts/,
+      // Explicit allow-list: a spec absent from this regex runs NOWHERE and
+      // silently proves nothing. attention-gallery-layout needs the built
+      // ADMIN_DEV_PANEL_ENABLED=true artifact and its own port, so it belongs
+      // here rather than on the :3000 project a sibling worktree can occupy.
+      testMatch: /(admin-dev|attention-gallery-layout)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },

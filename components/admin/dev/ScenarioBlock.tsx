@@ -22,6 +22,7 @@
  * exactly the things a reviewer is here to look at.
  */
 import { useRef, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
@@ -54,6 +55,13 @@ export type ScenarioBlockProps = {
 const GALLERY_DRIVE_FILE_ID = "gallery-fixture";
 
 export function ScenarioBlock(props: ScenarioBlockProps) {
+  // Spec §4.4's known fidelity caveat, made explicit rather than silent:
+  // AttentionBanner reads usePathname() for its route-gated Learn-more link
+  // (components/admin/review/AttentionBanner.tsx:101). Under the gallery that
+  // value is the gallery path, so the gate evaluates differently than it does in
+  // production. Printing it means a reviewer sees WHY a link differs here
+  // instead of trusting a card that is quietly wrong about one prop.
+  const route = usePathname() ?? "/";
   const pillRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(true);
   const [navigated, setNavigated] = useState<string | null>(null);
@@ -83,7 +91,7 @@ export function ScenarioBlock(props: ScenarioBlockProps) {
       </h2>
 
       <dl data-testid="readout" className="mb-3 text-xs/relaxed">
-        {props.readout.map((r) => (
+        {[...props.readout, { label: "route (usePathname)", value: route }].map((r) => (
           <div key={`${r.label}:${r.value}`}>
             <dt className="inline font-semibold text-text-strong">{r.label}</dt>
             <dd className="ml-2 inline font-mono text-text-subtle">{r.value}</dd>
@@ -119,7 +127,15 @@ export function ScenarioBlock(props: ScenarioBlockProps) {
       {props.groups.map((g) => (
         <div
           key={`${g.sectionId}-${g.placement}-${g.anchorOrCrewKey ?? ""}`}
-          data-testid={`group-${g.sectionId}-${g.placement}`}
+          // The key is disambiguated by anchor/crew key, so the testid must be
+          // too: two groups in one section and placement (a section top plus the
+          // composed notes group, or two anchors in rooms) would otherwise emit
+          // duplicate testids and make getByTestId throw.
+          data-testid={
+            g.anchorOrCrewKey === null
+              ? `group-${g.sectionId}-${g.placement}`
+              : `group-${g.sectionId}-${g.placement}-${g.anchorOrCrewKey}`
+          }
         >
           <h3 className="mt-4 text-xs font-semibold text-text-subtle">
             {g.sectionId}
