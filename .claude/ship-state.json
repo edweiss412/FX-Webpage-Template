@@ -1,17 +1,8 @@
 {
-  "branch": "feat/attention-alert-routing",
-  "stage": "pr3-review-r4",
-  "tasksRemaining": 1,
-  "next": "PR3 (#529) Codex R3 NEEDS-ATTENTION (2 P2, closed at TYPE level: PlacementPredicates mirror + discriminated AttentionItem). Pushed 7064defd6. R4 closure-confirm + CI watched. On R4 APPROVE + CI green: gh pr merge 529 --merge -> sync main -> rev-list 0 0 -> CronDelete d806af7b. If R4 raises another 'latent not reachable' same-vector edge, treat vector as structurally closed (type forbids the state) per structural-defense calibration and proceed to merge.",
+  "branch": "feat/warning-surface-trim",
+  "stage": "ci",
+  "tasksRemaining": 0,
+  "next": "PR #532 open. Watch CI to green (gh pr checks 532 --watch), confirm mergeStateStatus CLEAN, then gh pr merge 532 --merge, fast-forward local main to 0 0, CronDelete 5d291551.",
   "blockedOn": "",
-  "cronJobId": "d806af7b",
-  "base": "origin/main (rebased)",
-  "specCommit": "9d7dcf897",
-  "planNotes": [
-    "no-drop/nav vector closed at compile time: required-anchor union + discriminated AttentionItem (payload required on alert-kind) + resolveEffectiveSection mirrors bucketAttention via shared PlacementPredicates + bucket redirect + meta/negative tests.",
-    "impeccable: no P0/P1."
-  ],
-  "pr1": "MERGED #524",
-  "pr2": "MERGED #526",
-  "pr3": "#529"
+  "cronJobId": "5d291551"
 }

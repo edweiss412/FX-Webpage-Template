@@ -191,10 +191,15 @@ vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
 
 /** Full AdminAlertRow-shaped fixture — deriveAttentionItems consumes these.
  *  ROLE_FLAGS_NOTICE is resolution:"manual" (catalog) → actionable. */
+/** AMBIGUOUS_EMAIL_BINDING, not ROLE_FLAGS_NOTICE: warning-surface-trim §5
+ *  excludes the latter from the modal's attention surface, so a fixture built on
+ *  it would derive zero items and this suite would assert the pill against an
+ *  empty list. The exclusion has its own coverage in
+ *  tests/admin/attentionExclusionSet.test.ts. */
 function alertRow(id: string): Record<string, unknown> {
   return {
     id,
-    code: "ROLE_FLAGS_NOTICE",
+    code: "AMBIGUOUS_EMAIL_BINDING",
     context: null,
     raised_at: "2026-06-14T12:00:00.000Z",
     occurrence_count: 1,

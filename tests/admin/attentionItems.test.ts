@@ -16,10 +16,22 @@ import type { FeedEntry } from "@/lib/sync/holds/types";
 
 const SLUG = "test-show";
 
+/**
+ * The default fixture code is AMBIGUOUS_EMAIL_BINDING: crew-routed, manual
+ * resolution, and RETAINED by the attention surface.
+ *
+ * It was ROLE_FLAGS_NOTICE until warning-surface-trim §5 wired
+ * DOUG_EXCLUDED_CODES into `deriveAttentionItems`, which correctly drops that
+ * code from the modal. These cases are about mapping, ordering, crewKey, and
+ * payload population, not about the exclusion, so they need a code the
+ * derivation keeps; the exclusion itself is pinned by
+ * tests/admin/attentionExclusionSet.test.ts and the behavioral assertion in
+ * tests/admin/roleFlagsNoticeReclassify.test.ts.
+ */
 function alert(over: Partial<AttentionAlertInput> = {}): AttentionAlertInput {
   return {
     id: "a1",
-    code: "ROLE_FLAGS_NOTICE",
+    code: "AMBIGUOUS_EMAIL_BINDING",
     context: null,
     raised_at: "2026-07-19T10:00:00Z",
     occurrence_count: 1,
@@ -62,7 +74,7 @@ describe("deriveAttentionItems", () => {
     expect(it0.alert?.alertId).toBe("a1");
     expect(it0.alert?.autoClearNote).toBeNull();
     // menuTitle comes from the catalog, never the raw code (invariant 5)
-    expect(it0.menuTitle).not.toContain("ROLE_FLAGS_NOTICE");
+    expect(it0.menuTitle).not.toContain("AMBIGUOUS_EMAIL_BINDING");
     expect(it0.menuTitle.length).toBeGreaterThan(0);
   });
 
@@ -141,7 +153,7 @@ describe("deriveAttentionItems", () => {
     const items = deriveAttentionItems({
       alerts: [
         alert({ id: "auto", code: "SHEET_UNAVAILABLE" }),
-        alert({ id: "act", code: "ROLE_FLAGS_NOTICE" }),
+        alert({ id: "act", code: "AMBIGUOUS_EMAIL_BINDING" }),
       ],
       feed: { entries: [holdEntry()] },
       slug: SLUG,
@@ -197,6 +209,12 @@ describe("deriveAttentionItems", () => {
   });
 
   it("failedKeys / dataGaps populated only for their codes", () => {
+    // SHOW_FIRST_PUBLISHED is the sole carrier of the data-gaps digest, and
+    // warning-surface-trim §5 excludes it from the MODAL (the bell still renders
+    // it, digest and all). The mapping in `toAlertItem` is therefore live code
+    // that this surface no longer reaches, so it is exercised through the
+    // documented test seam rather than deleted or faked: passing an empty
+    // exclusion set turns the filter off without changing what is mapped.
     const items = deriveAttentionItems({
       alerts: [
         alert({
@@ -209,10 +227,11 @@ describe("deriveAttentionItems", () => {
           code: "SHOW_FIRST_PUBLISHED",
           context: { data_gaps: { total: 2, classes: { unknown_section: 2 } } },
         }),
-        alert({ id: "p1", code: "ROLE_FLAGS_NOTICE" }),
+        alert({ id: "p1", code: "AMBIGUOUS_EMAIL_BINDING" }),
       ],
       feed: null,
       slug: SLUG,
+      excludedCodes: [],
     });
     const byId = new Map(items.map((i) => [i.id, i]));
     expect(byId.get("alert:t1")!.alert?.failedKeys).toEqual(["hotel", "rooms"]);

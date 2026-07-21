@@ -103,12 +103,27 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
   try {
     // Actionable attention alert so the menu AUTO-OPENS (§4.4 inv-4 setup is
     // non-tautological: observe the auto-open, close it, assert it STAYS
-    // closed). Context shape verified at published-show-attention.spec.ts:74.
+    // closed).
+    //
+    // NOT `ROLE_FLAGS_NOTICE`, which this fixture used until warning-surface-trim
+    // §5: that code is an info-severity member of `DOUG_EXCLUDED_CODES`
+    // (lib/adminAlerts/audience.ts:34) and no longer reaches the modal's
+    // attention surface at all, so it can no longer open this menu. That is the
+    // ratified intent of `2026-07-04-alert-audience-split` §3, not a regression —
+    // the bell still carries it, pinned by
+    // `tests/components/admin/bellRetainsCutCodes.test.tsx`. Do not swap this
+    // back; pick another RETAINED actionable code if this one ever changes
+    // (today: AMBIGUOUS_EMAIL_BINDING, LIVE_ROW_CONFLICT,
+    // ONBOARDING_SHEET_UNREADABLE).
+    //
+    // Context is the identity-map shape for this code
+    // (lib/adminAlerts/alertIdentityMap.ts:60 — show name, email, crew count).
     const { error: alertErr } = await admin.from("admin_alerts").insert({
       show_id: seeded.showId,
-      code: "ROLE_FLAGS_NOTICE",
+      code: "AMBIGUOUS_EMAIL_BINDING",
       context: {
-        changes: [{ crew_name: bannerHost.name, prior_flags: ["A1"], new_flags: ["A1", "LEAD"] }],
+        email: `${bannerHost.name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+        crew_member_count: 2,
       },
       raised_at: new Date().toISOString(),
     });

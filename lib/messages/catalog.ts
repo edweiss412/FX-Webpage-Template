@@ -78,7 +78,8 @@ export const MESSAGE_CATALOG = {
       "In <show-name>, <email> is shared by <crew-row-count>, so Google login can't safely tell who's who. Fix the duplicate in the sheet, or contact the developer if it keeps happening.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Doug → fix sheet duplicate; if persistent, Eric",
-    helpfulContext: null,
+    helpfulContext:
+      "Usually a recent typo or paste dropped the same address into two email cells. Once you correct it, the next sync clears this on its own; you can also mark it resolved right away.",
     title: "Two crew rows share an email",
     longExplanation:
       "This appears when two crew rows in a show's sheet share the same email address, so the app can't safely tell which row a Google sign-in should map to. The duplicate-email check in the parser should normally catch this during a sync; seeing this alert usually means a recent edit introduced the duplicate, often a typo or a paste mistake in one of the two email cells. Look at the most recent edits to the crew block, correct the duplicate, and the next sync clears it. You can also mark the alert resolved from the show's page once it's fixed.",
@@ -112,7 +113,8 @@ export const MESSAGE_CATALOG = {
       "We couldn't fetch <sheet-name> from Google Drive (likely a transient network issue, or it's been moved or unshared); we'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → check share / Retry",
-    helpfulContext: null,
+    helpfulContext:
+      "Crew keep seeing the last synced version while this retries on its own. If it lasts over an hour, confirm the folder is still shared with FXAV and that the sheet hasn't been moved out of it.",
     title: "Drive fetch failed",
     longExplanation:
       "This appears when Google Drive temporarily blocks or refuses a request to read this sheet, usually from a transient network or permissions hiccup. We keep retrying automatically. If this persists for more than an hour, confirm the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
@@ -146,7 +148,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name> isn't in your folder anymore: you may have moved or unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → re-share sheet",
-    helpfulContext: null,
+    helpfulContext:
+      "Until the sheet is back in the watched folder, crew keep the last good version on file. Move or re-share it into the folder and the next sync brings the show back automatically.",
     title: "Sheet no longer in folder",
     longExplanation:
       "This appears when a sheet we expected to find in the watched folder is no longer there. It may have been moved to a different folder, had its share removed, or been deleted outright. Crew keep seeing the last good version on file until you re-share or move the sheet back into the folder, which we'll pick up on the next sync.",
@@ -162,7 +165,8 @@ export const MESSAGE_CATALOG = {
     crewFacing:
       "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → fix sheet (see parse panel); Crew → mention to Doug",
-    helpfulContext: null,
+    helpfulContext:
+      "The parse panel shows the exact line that failed to read. Fix it in the sheet and the next sync replaces the older version crew currently see; nothing else to do.",
     title: "Latest edit didn't parse",
     longExplanation:
       "This appears when a recent edit to the sheet introduces something the parser can't read. We keep the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong; fixing the sheet lets the next sync replace the stale data.",
@@ -177,7 +181,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name>'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
     crewFacing: null,
     followUp: "Doug → re-sync to accept, or fix sheet",
-    helpfulContext: null,
+    helpfulContext:
+      "The update was held so a bad edit can't silently wipe crew or a section. If the drop was intentional, re-sync to apply it; if not, fix the sheet and a clean sync clears this.",
     title: "Re-sync held: sheet lost data",
     longExplanation:
       "This appears when a sync would remove crew members or an entire section (rooms, hotels, contacts, or transportation) compared to the previous version. Rather than silently lose data, we hold the update and keep the last good version live for crew. If the reduction is intentional, re-sync and confirm to apply it; otherwise fix the sheet and a clean sync clears this automatically.",
@@ -192,7 +197,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name>'s latest edit lost some data quality: one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
     crewFacing: null,
     followUp: "Doug → check parse panel, fix sheet",
-    helpfulContext: null,
+    helpfulContext:
+      "Fewer fields or sections came through than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what dropped; fix the sheet and a clean sync restores it.",
     title: "Latest edit lost data quality",
     longExplanation:
       "This appears when a sync applies successfully but reads fewer fields or sections than the previous version: a data-quality regression, not a hard failure. Crew see the applied data; nothing is held back. Open the per-show parse panel to see which classes degraded, fix the sheet, and a recovered sync clears this automatically.",
@@ -276,7 +282,8 @@ export const MESSAGE_CATALOG = {
       "A leftover wizard action (<attempted-action>) for <file-name> was safely cancelled before it could change the new wizard's state. Continue in the active wizard tab.",
     crewFacing: null,
     followUp: "Doug → continue in the active wizard tab",
-    helpfulContext: null,
+    helpfulContext:
+      "Two wizard tabs for the same sheet overlapped; the newer one won and the older tab's action was cancelled before it could touch state. Its leftovers are inert and auto-cleaned. Informational only.",
     title: "Stale wizard action cancelled",
     longExplanation:
       "This appears when two setup-wizard sessions overlap, for instance, two browser tabs both mid-setup for the same sheet, and the app keeps the newer one. An action from the older tab (retry, defer, ignore, or discard) raced the newer wizard that had just taken over, so it's cancelled before it can change the new wizard's state. Any setup-scan leftovers from the old tab are inert and get cleaned up automatically; this alert exists purely so you know the old tab's attempt was seen. Continue working in the active wizard tab.",
@@ -355,7 +362,8 @@ export const MESSAGE_CATALOG = {
       "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     crewFacing: null,
     followUp: "Auto-retry hourly; admin Retry now; Eric if escalated",
-    helpfulContext: null,
+    helpfulContext:
+      "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
     title: "Live updates need attention",
     longExplanation:
       "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost; at worst, edits take a few minutes longer to appear instead of showing up instantly. The system retries the connection automatically every hour, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
@@ -372,7 +380,8 @@ export const MESSAGE_CATALOG = {
       "A push notification from Google Drive failed verification: possible spoofing or misconfiguration. The developer has been notified.",
     crewFacing: null,
     followUp: "Eric → investigate",
-    helpfulContext: null,
+    helpfulContext:
+      "The bad token usually means a stale Drive subscription is still firing, occasionally a spoof attempt. The developer is notified and rotates it if needed; no admin action.",
     title: "Drive webhook failed verification",
     longExplanation:
       "This appears when a push notification arrives from Google Drive carrying the wrong verification token. It usually means a stale subscription is still firing, or that someone is attempting to spoof the webhook endpoint. The developer is notified automatically and will rotate the token if needed.",
@@ -515,7 +524,8 @@ export const MESSAGE_CATALOG = {
       "The opening-reel video in <sheet-name> has been edited since you reviewed this parse, so crew see the text status only. Your next sheet edit re-stages the new reel.",
     crewFacing: null,
     followUp: "Doug → re-edit sheet",
-    helpfulContext: null,
+    helpfulContext:
+      "The video changed after you last reviewed the show, so crew see the text status without it. Any save to the sheet picks up the current reel on the next sync.",
     title: "Opening reel drifted",
     longExplanation:
       "This appears when the opening-reel video is replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (for example 'YES') without the inline video, until you save the sheet again to re-stage the new reel.",
@@ -529,7 +539,8 @@ export const MESSAGE_CATALOG = {
       "The opening-reel link in <sheet-name> is not a video file, so crew see the text status only. Replace the link with a video file URL to enable inline playback.",
     crewFacing: "Opening reel link is not a video file",
     followUp: "Doug → re-edit sheet",
-    helpfulContext: null,
+    helpfulContext:
+      "A Doc, image, or PDF can't play inline, so crew see the text status only. Point the opening-reel cell at an actual video file to turn playback back on.",
     title: "Opening reel link is not a video",
     longExplanation:
       "This appears when the opening-reel cell contains a Drive URL, but the file behind it isn't a video: a Google Doc, Slides deck, image, PDF, or another file type. Crew see the text status only, without an inline player, because a non-video file won't be embedded in a `<video>` element. Replacing the link with a URL whose file type starts with `video/` enables inline playback.",
@@ -543,7 +554,8 @@ export const MESSAGE_CATALOG = {
       "The opening-reel video for <sheet-name> is no longer shared with FXAV, so crew see the text status only. Re-share the video file, or replace the link, to restore inline playback.",
     crewFacing: "Opening reel access revoked",
     followUp: "Doug → re-share / replace link",
-    helpfulContext: null,
+    helpfulContext:
+      "The video's sharing changed or it moved somewhere FXAV can't read, so crew see the text status only. Re-share it with FXAV, or swap in a video you do share, to restore playback.",
     title: "Opening reel access revoked",
     longExplanation:
       "This appears when Drive returns a permission-denied response while fetching the opening-reel video that was previously accessible. The share may have been revoked, the file made private, or it may have been moved out of a shared drive the service account can read. Crew see the text status only, without inline playback, until you re-share the video file with the service account email or replace the link with a video file you do share.",
@@ -557,7 +569,8 @@ export const MESSAGE_CATALOG = {
       "A diagram in <sheet-name> can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
     crewFacing: null,
     followUp: "Doug → save sheet to advance version",
-    helpfulContext: null,
+    helpfulContext:
+      "Crew see a placeholder because this diagram can't be recovered on its own. Save the sheet (any edit counts) and the next sync restores the image.",
     title: "Diagram needs sheet re-save to recover",
     longExplanation:
       "This appears when a diagram in a sheet can't be re-downloaded automatically because it lacks a content-derived approval token. Saving the sheet (any edit advances the version) lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
@@ -594,7 +607,8 @@ export const MESSAGE_CATALOG = {
       "Diagram recovery for <sheet-name> paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     crewFacing: null,
     followUp: "informational only",
-    helpfulContext: null,
+    helpfulContext:
+      "Recovery verified bytes against an older snapshot but a newer Apply landed first, so it aborted rather than attach stale assets to the current revision. The next run retries against the latest automatically.",
     title: "Diagram recovery raced an apply",
     longExplanation:
       "This appears when asset recovery fetches and verifies diagram bytes against an older snapshot revision, but a newer Apply lands before recovery can write those bytes. The recovery run aborts rather than attach old assets to the new approved revision, and the next run retries automatically against the latest version.",
@@ -611,7 +625,8 @@ export const MESSAGE_CATALOG = {
       "Diagram recovery for <sheet-name> is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     crewFacing: null,
     followUp: "informational only",
-    helpfulContext: null,
+    helpfulContext:
+      "The prior attempt raced an Apply, so recovery backs off for this snapshot to bound retry storms while the show keeps changing. It resumes on its own after the cooldown.",
     title: "Diagram recovery cooling down",
     longExplanation:
       "This appears when the previous asset recovery attempt raced with a newer Apply, so recovery briefly backs off for that snapshot revision. This bounds retry storms while a show is changing frequently, and normal recovery resumes automatically after the cooldown.",
@@ -635,7 +650,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name>'s diagram set is too large to recover automatically (more than 60 images, an image over 50MB, or over 3GB total), so crew see placeholders for the missing diagrams. Trim the gallery, or tell the developer if you need the ceiling raised.",
     crewFacing: null,
     followUp: "Doug → trim gallery / Eric → raise cap",
-    helpfulContext: null,
+    helpfulContext:
+      "The cap keeps one big gallery from blocking other shows' syncs. Crew see placeholders for the missing diagrams; trim the set under the limit, or ask the developer to raise the ceiling if this show genuinely needs it.",
     title: "Diagram set too large to recover",
     longExplanation:
       "This appears when a show's diagram set exceeds the per-run recovery ceiling: more than 60 images, a single image over 50MB, or more than 3GB total. The ceiling keeps the per-show advisory lock short so other syncs aren't blocked behind a large recovery. Crew see placeholders for the missing diagrams; trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
@@ -876,7 +892,8 @@ export const MESSAGE_CATALOG = {
     dougFacingShowScoped: "<role-changes><lead-hint>",
     crewFacing: null,
     followUp: "none (informational)",
-    helpfulContext: null,
+    helpfulContext:
+      "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
     title: "Role change applied",
     longExplanation:
       "This appears when a crew member's role flags change and get applied automatically, either from a sheet edit or an admin role mapping, both deliberate actions that apply without holding for review. It's specifically raised for changes to a CAPABILITY role, LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface); those are worth a quick confirm, and a durable audit record captures every one. Department/scope flags, by contrast, only change which tile the crew member sees on their own page and don't raise this alert. No action is needed unless a capability change turns out to be a mistake. If so, correct it in the sheet or the role mapping.",
@@ -1104,7 +1121,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name> is now live for crew at its share-token URL: <crew-count> crew, <show-date>. Flip Published off on the show's page if this was a mistake; crew can't open it again until you do.",
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
+    helpfulContext:
+      "It auto-published because the sheet came through clean. If it's the wrong sheet or bad timing, flip Published off on the show's page; crew lose access until you turn it back on, and the same link works again when you do.",
     title: "Show published",
     longExplanation:
       "This show auto-published because the parse looked clean and all safety checks passed. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page; crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
@@ -1118,7 +1136,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name> has been unpublished; crew who open its link see a 'not available right now' page. Turn Published back on from the show's page when you're ready.",
     crewFacing: null,
     followUp: "Doug \u2192 republish from the show's page when ready",
-    helpfulContext: null,
+    helpfulContext:
+      "Nothing was deleted and the sheet keeps syncing in the background, so republishing from the show's page brings the same link back exactly as it was.",
     title: "Show unpublished",
     longExplanation:
       "This show has been unpublished, from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed; the same link works again when you republish, and the sheet keeps syncing. Turn Published back on from the show's page when you're ready.",
@@ -2072,7 +2091,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name> is already being processed by the live folder sync, so setup skipped it. Resolve it from the dashboard, then re-run setup if needed.",
     crewFacing: null,
     followUp: "Doug → resolve live row from dashboard, then re-run setup",
-    helpfulContext: null,
+    helpfulContext:
+      "Setup stepped aside so it wouldn't clobber the live version already in flight. Apply or Discard that row from the dashboard, then re-run setup if you still need to.",
     title: "Live sync owns this sheet",
     longExplanation:
       "This appears when setup tries to stage a parse for a sheet that the live folder sync is already processing. To avoid clobbering the live row, the wizard's stage is skipped. Resolve the live row from the dashboard: either Apply or Discard it, then re-run setup if you still need to.",
@@ -2087,7 +2107,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp:
       "Doug → fix or remove the named sheets in Drive (live sync picks them up), or Settings → Re-run setup for the guided path; alert self-clears either way",
-    helpfulContext: null,
+    helpfulContext:
+      "These files never reach any crew page, so nothing is exposed. The usual cause is a missing or renamed section header; fix or remove them in Drive and the next sync clears this, or dismiss it now if they're meant to be skipped.",
     title: "Some sheets couldn't be read",
     longExplanation:
       "This appears when a setup scan of your Drive show folder finds one or more files it can't read as a show sheet, so it skips them; they're never staged and never appear on any crew page. The alert names the first few affected sheets. The usual fix is correcting the sheet's layout in Drive, most often a missing or renamed section header, or removing the file from the folder entirely; the next live sync notices the fix on its own and the alert clears automatically. Re-running setup from Settings also works and walks through a guided list. You can dismiss this alert at any time without fixing anything.",
@@ -2117,7 +2138,8 @@ export const MESSAGE_CATALOG = {
       "A diagram snapshot promotion for <show-name> has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-promote-repair admin tool",
-    helpfulContext: null,
+    helpfulContext:
+      "It's stuck in the non-reclaimable promote-started state, so cleanup can't reclaim the prefix. The snapshot-promote repair tool reconciles the temp and canonical prefixes to finish it.",
     title: "Snapshot promotion stuck",
     longExplanation:
       "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
@@ -2134,7 +2156,8 @@ export const MESSAGE_CATALOG = {
       "A diagram snapshot rollback for <sheet-name> stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     crewFacing: null,
     followUp: "Eric → run snapshot-rollback-repair admin tool",
-    helpfulContext: null,
+    helpfulContext:
+      "Assets are split across the temp and canonical prefixes after a half-finished rollback. The snapshot-rollback repair tool reconciles both and completes it so cleanup can continue.",
     title: "Snapshot rollback stalled",
     longExplanation:
       "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
@@ -2151,7 +2174,8 @@ export const MESSAGE_CATALOG = {
       "Branch protection on <repo> no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     crewFacing: null,
     followUp: "Eric → restore branch protection per X.6 contract",
-    helpfulContext: null,
+    helpfulContext:
+      "Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.",
     title: "Branch protection drift",
     longExplanation:
       "The branch-protection monitor found that the main-branch protection no longer matches the X.6 contract: a required check is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes / deletions are allowed. Restore the settings so pull requests cannot merge without the full audit suite.",
@@ -2168,7 +2192,8 @@ export const MESSAGE_CATALOG = {
       "Branch-protection monitoring for <repo> cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     crewFacing: null,
     followUp: "Eric → rotate GH App / PAT within 24h",
-    helpfulContext: null,
+    helpfulContext:
+      "Without auth the monitor can't prove the merge gate is still enforced, so drift would go unseen. Rotate the GitHub App token or fallback PAT within 24 hours and confirm the job succeeds.",
     title: "Branch-protection monitor can't auth",
     longExplanation:
       "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required checks. Rotate the GitHub App token or fallback PAT and confirm the scheduled job succeeds again.",
@@ -2348,7 +2373,8 @@ export const MESSAGE_CATALOG = {
       "Automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
     crewFacing: null,
     followUp: "Doug → check Drive connection / re-run setup",
-    helpfulContext: null,
+    helpfulContext:
+      "Already-published pages stay up; only new edits are waiting. It usually recovers on its own, but if it sticks the Drive connection may have lapsed, so re-run setup or check the connection.",
     title: "Syncing has stalled",
     longExplanation:
       "This appears when the scheduled job that reads show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until the job resumes. This is usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
@@ -2366,7 +2392,8 @@ export const MESSAGE_CATALOG = {
       "A notification email for <show-name> couldn't be sent. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     crewFacing: null,
     followUp: "Eric → check provider key / verified sending domain",
-    helpfulContext: null,
+    helpfulContext:
+      "Retries continue on their own. A persistent failure usually points at the provider API key or the verified sending domain in settings.",
     title: "Couldn't send a notification email",
     longExplanation:
       "A notification email couldn't be delivered through the email provider. We retry automatically; a persistent failure usually means the provider API key or sending domain needs attention in settings.",
@@ -2385,7 +2412,8 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp:
       "Eric → configure email env (provider key / sending address / site address) on the deployment",
-    helpfulContext: null,
+    helpfulContext:
+      "Email needs three settings before anything sends: provider API key, verified sending address, and the public site URL for links. Dashboard alerts and each show's Publish toggle keep working without it.",
     title: "Email notifications not set up",
     longExplanation:
       "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts in the dashboard, and each show's Published toggle keeps working.",
@@ -2402,7 +2430,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name>: a section failed to load on the server and will keep retrying. Refresh in a minute. Tell the developer if it persists.",
     crewFacing: "This section couldn't load; last good data shown.",
     followUp: "Doug → refresh / Report; Eric → investigate",
-    helpfulContext: null,
+    helpfulContext:
+      "Only that one section crashed; the rest of the page rendered. It keeps retrying, so a refresh usually clears it. If it recurs, use Report so the developer gets the stack.",
     title: "Page section failed to render",
     longExplanation:
       "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying; refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
@@ -2419,7 +2448,8 @@ export const MESSAGE_CATALOG = {
       "<sheet-name>: one or more data sources couldn't load, so the page rendered with what did load. Refresh in a minute. Tell the developer if it persists.",
     crewFacing: null,
     followUp: "Doug → refresh / Report; Eric → investigate",
-    helpfulContext: null,
+    helpfulContext:
+      "The failed data sources are listed in the alert detail; their sections fell back while the rest loaded. A refresh usually clears it; use Report if it keeps happening.",
     title: "Some show data couldn't load",
     longExplanation:
       "The crew page rendered, but one or more of its data sources failed to fetch from the server. The page shows the data that did load; the affected sections fall back. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click Report so the developer can investigate.",
@@ -2459,7 +2489,8 @@ export const MESSAGE_CATALOG = {
       "A duplicate bug-report issue for <show-name> was auto-closed during a retry race. Click through to verify it closed correctly. If this recurs, increase the lease window.",
     crewFacing: null,
     followUp: "Eric → review orphan, tune lease window if recurring",
-    helpfulContext: null,
+    helpfulContext:
+      "Two retries of the same report both created a GitHub issue in a lease race, so the duplicate was auto-closed. Click through to confirm; if it recurs, the lease window needs widening.",
     title: "Duplicate report issue auto-closed",
     longExplanation:
       "Two retries of the same bug-report submission both succeeded in creating GitHub issues (a lease race condition). We auto-closed the duplicate. Click through to confirm; if this keeps appearing, the developer needs to extend the lease window.",
@@ -2476,7 +2507,8 @@ export const MESSAGE_CATALOG = {
       "GitHub bot login is unconfigured, so the report-recovery path is degraded. Set the `GITHUB_BOT_LOGIN` environment variable to the bot's GitHub username and redeploy.",
     crewFacing: null,
     followUp: "Eric → configure env var",
-    helpfulContext: null,
+    helpfulContext:
+      "Recovery needs the bot's GitHub username to find issues from earlier attempts. Set GITHUB_BOT_LOGIN to that username and redeploy to restore full recovery coverage.",
     title: "GitHub bot login not configured",
     longExplanation:
       "This appears when the bug-report recovery path needs the bot account's GitHub username, to find issues created by previous recovery attempts, but the `GITHUB_BOT_LOGIN` environment variable isn't set on the deployment. Configure it and redeploy to restore full recovery-path coverage.",
@@ -2493,7 +2525,8 @@ export const MESSAGE_CATALOG = {
       "Bug-report processing is thrashing on <show-name>; retries are racing against leases. This usually means the lease window needs tuning.",
     crewFacing: null,
     followUp: "Eric → tune lease window",
-    helpfulContext: null,
+    helpfulContext:
+      "Too many retries fire inside the lease window, usually because it's shorter than GitHub's current response time. Widening the lease window settles it.",
     title: "Bug-report leases thrashing",
     longExplanation:
       "Bug-report submissions for this show are racing against their own leases, with too many retries firing inside the lease window. Usually this means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
@@ -2735,7 +2768,8 @@ export const MESSAGE_CATALOG = {
       "An embedded diagram in <sheet-name> changed after staging, so crew see a placeholder for that image. A new sheet edit re-stages it.",
     crewFacing: null,
     followUp: "Doug → re-edit the sheet to re-stage the diagram",
-    helpfulContext: null,
+    helpfulContext:
+      "Crew keep the last good image and see a placeholder only for the one that changed. Save the sheet again to pick up the new version.",
     title: "Embedded diagram changed after staging",
     longExplanation:
       "This appears when Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes, and finds a mismatch. The prior approved content stays live and the image is marked for recovery or re-stage; saving the sheet again re-stages the new image.",
@@ -2848,7 +2882,8 @@ export const MESSAGE_CATALOG = {
       "A diagram snapshot cleanup for <show-name> is stuck; crew pages are still protected, but storage cleanup needs repair.",
     crewFacing: null,
     followUp: "Doug → run snapshot repair; if persistent, Eric",
-    helpfulContext: null,
+    helpfulContext:
+      "A row marked for deletion never had its storage prefix reclaimed. Crew pages are unaffected; this is storage hygiene only. Reconcile and reclaim the prefix to clear it.",
     title: "Snapshot cleanup stuck",
     longExplanation:
       "Old diagram snapshot cleanup is stuck: a pending row is marked for deletion but the storage prefix hasn't been reclaimed. Crew pages are still protected, but storage cleanup needs repair.",
@@ -2913,7 +2948,8 @@ export const MESSAGE_CATALOG = {
       "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",
     crewFacing: null,
     followUp: "Eric → inspect duplicate report issues and close the incorrect one",
-    helpfulContext: null,
+    helpfulContext:
+      "More than one live issue carries the same report marker, so recovery fails closed instead of guessing a winner. Review the duplicates and close all but one to resume it.",
     title: "Multiple live issues for one report",
     longExplanation:
       "The bug-report recovery scan found more than one non-orphan GitHub issue with the same report marker. The system fails closed instead of choosing a winner; Eric needs to review the duplicates.",
@@ -2945,7 +2981,8 @@ export const MESSAGE_CATALOG = {
     crewFacing:
       "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     followUp: "Eric → review GitHub issue lookup and retry state",
-    helpfulContext: null,
+    helpfulContext:
+      "Recovery couldn't reliably list recent issues for this report, so it refused to risk a duplicate. Usually a transient GitHub API blip that clears on the next retry.",
     title: "Report lookup inconclusive",
     longExplanation:
       "The bug-report recovery path couldn't conclusively list recent GitHub issues for this report, so it refused to create a duplicate issue. Try again in a few minutes.",
@@ -2962,7 +2999,8 @@ export const MESSAGE_CATALOG = {
       "An open GitHub issue for <show-name> carries the orphan-cleanup label. Eric needs to re-close it or remove the label.",
     crewFacing: null,
     followUp: "Eric → inspect the labeled issue",
-    helpfulContext: null,
+    helpfulContext:
+      "Orphan cleanup only labels closed 'not planned' issues, so an open one means it was reopened or GitHub returned an odd state. Re-close the issue or remove the label.",
     title: "Open issue carries orphan label",
     longExplanation:
       "Orphan cleanup should close issues with the 'not planned' state. Seeing the orphan label on an open issue means manual intervention happened or GitHub returned an unexpected state. Eric needs to review and either re-close the issue or remove the label.",
@@ -3130,7 +3168,8 @@ export const MESSAGE_CATALOG = {
       "A stale bug-report reservation for <show-name> expired before it could create a GitHub issue. No action needed unless it repeats.",
     crewFacing: null,
     followUp: "Eric → inspect report-reaper logs if this recurs",
-    helpfulContext: null,
+    helpfulContext:
+      "The reservation aged past the 24-hour recovery horizon with an expired lease and was reaped before an issue existed. Repeats would point at a stuck submit path worth a look.",
     title: "Stale bug-report reservation expired",
     longExplanation:
       "A bug-report reservation aged past the 24-hour recovery horizon with its processing lease expired and was deleted by the reaper. No user action is needed unless this repeats.",
@@ -3179,7 +3218,8 @@ export const MESSAGE_CATALOG = {
       "Picker selections for <show-name> were reset. Crew will be asked to pick themselves again on their next visit.",
     crewFacing: null,
     followUp: "Doug → re-share the show link if needed",
-    helpfulContext: null,
+    helpfulContext:
+      "The share link itself didn't change, so crew just pick their name again on the next visit, and any open tabs re-prompt on refresh. Nothing to fix; this is a record of the reset.",
     title: "Picker selections reset",
     longExplanation:
       "This appears after an admin reset bumps a show's picker epoch, which invalidates every saved per-device picker selection without changing the public share link itself. Crew members are asked to pick themselves again the next time they open the link. Any tabs already open re-prompt automatically on refresh or the next realtime update.",
@@ -3196,7 +3236,8 @@ export const MESSAGE_CATALOG = {
       "In <show-name>, a stale picker selection for <crew-name> was cleaned up after the show's access state changed. No action needed: newer selections were left intact.",
     crewFacing: null,
     followUp: "Informational; Eric if frequent",
-    helpfulContext: null,
+    helpfulContext:
+      "A browser cleaned up a picker cookie whose epoch or crew member no longer matches the show, typically after a reset or roster change. Compare-and-delete touched only that stale entry. No action.",
     title: "Stale picker selection cleaned",
     longExplanation:
       "This appears when a browser submits cleanup for a picker cookie entry whose epoch or crew member no longer matches the show's current access state, typically after an admin reset or a roster change. The compare-and-delete cleanup path removes only that one stale entry and leaves any newer, still-valid selections untouched. No action is needed.",
@@ -3376,7 +3417,8 @@ export const MESSAGE_CATALOG = {
       "Google picker bootstrap couldn't claim the signed-in user's crew identity, and they saw a retry page. If it keeps happening, contact the developer.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect claim_oauth_identity",
-    helpfulContext: null,
+    helpfulContext:
+      "The route had a valid Google session but the identity claim errored, so it returned a clean retry page instead of a redirect loop. Repeats on one show may point at a claim-path problem.",
     title: "Picker bootstrap claim failed",
     longExplanation:
       "This appears when the picker-bootstrap route has a valid Google session but the crew-identity claim step returns an error or throws partway through. Rather than redirect the visitor in a loop, the route returns a terminal retry page so they can try again cleanly. If this keeps recurring for the same show, it may point to a deeper claim-path problem worth a developer look.",
@@ -3393,7 +3435,8 @@ export const MESSAGE_CATALOG = {
       "Google picker bootstrap couldn't resolve the show link before session validation, so the visitor saw a retry page.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
     followUp: "Crew → retry; Eric → inspect resolve_show_by_slug_and_token",
-    helpfulContext: null,
+    helpfulContext:
+      "It failed before any signed-in identity existed, so the alert carries no email or share token by design. The visitor saw a retry page and can open the link again.",
     title: "Picker bootstrap show resolve failed",
     longExplanation:
       "This appears when the picker-bootstrap route fails while resolving the tokenized show URL, before it even has a signed-in visitor's email to work with. Because no identity is available yet at this point, the alert intentionally carries no email and excludes the bearer share token from its context. The visitor sees a retry page and can try the link again.",
@@ -3412,7 +3455,8 @@ export const MESSAGE_CATALOG = {
       "<crew-name> was claimed through Google sign-in as <email>. Future picker attempts for that row will route through Google sign-in.",
     crewFacing: null,
     followUp: "Informational",
-    helpfulContext: null,
+    helpfulContext:
+      "From now on that row skips the picker and goes straight through Google sign-in. Routine success record; no action needed.",
     title: "Crew identity claimed",
     longExplanation:
       "This appears when a crew row's identity gets claimed through the OAuth claim path after a Google sign-in. The claim stamps that crew row as claimed by the specific signed-in user, so on future visits picker attempts for that row route straight through Google sign-in instead of showing the picker again. No action is needed; this is a routine record of a successful claim.",
@@ -3428,7 +3472,8 @@ export const MESSAGE_CATALOG = {
       "The OAuth callback's claim step threw before it could finish. The next show visit retries automatically through picker bootstrap.",
     crewFacing: null,
     followUp: "Eric → inspect callback claim logs",
-    helpfulContext: null,
+    helpfulContext:
+      "The callback never mints picker cookies, so nothing is left half-claimed. Picker bootstrap retries the claim automatically on the visitor's next show visit.",
     title: "OAuth claim threw",
     longExplanation:
       "This appears when the OAuth callback hits an unexpected exception while trying to stamp a crew identity claim. The callback itself never mints picker cookies, so nothing is left in a half-claimed state; the bootstrap route simply retries the claim automatically on the visitor's next show visit.",

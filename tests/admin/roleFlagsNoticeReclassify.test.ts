@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { HEALTH_CODES, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { messageFor } from "@/lib/messages/lookup";
+import { deriveAttentionItems } from "@/lib/admin/attentionItems";
 
 /**
  * Capability-narrow / audience-reclassify (spec 2026-07-17-role-flags-notice-lead-only-doug §2.2).
@@ -18,6 +19,32 @@ describe("ROLE_FLAGS_NOTICE reclassify (audience health → doug)", () => {
   test("stays out of Doug's amber banner via the info-severity arm of DOUG_EXCLUDED_CODES", () => {
     expect(messageFor("ROLE_FLAGS_NOTICE").severity).toBe("info");
     expect(DOUG_EXCLUDED_CODES).toContain("ROLE_FLAGS_NOTICE");
+  });
+
+  test("BEHAVIORALLY absent from the show modal's attention items, not merely set-listed", () => {
+    // Set membership was a proxy for behavior, and the proxy went stale: the
+    // amber banner this assertion described (PerShowAlertSection) was replaced
+    // by the attention surface, DOUG_EXCLUDED_CODES lost every production
+    // consumer, and the code kept rendering. warning-surface-trim §5 rewired it,
+    // so this now proves the exclusion instead of proving a set contains a
+    // string.
+    const items = deriveAttentionItems({
+      alerts: [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          code: "ROLE_FLAGS_NOTICE",
+          context: null,
+          raised_at: "2026-07-20T12:00:00.000Z",
+          occurrence_count: 1,
+          identityText: null,
+          messageParams: {},
+          crewName: null,
+        },
+      ],
+      feed: null,
+      slug: "role-flags-fixture-show",
+    });
+    expect(items).toEqual([]);
   });
 
   test("carries the openSheet action (sheet deep-link) when context has a drive_file_id", () => {
