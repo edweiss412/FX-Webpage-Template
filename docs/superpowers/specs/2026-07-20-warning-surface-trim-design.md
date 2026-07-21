@@ -21,7 +21,7 @@ No DB change, no migration, no advisory-lock path, no new route, no catalog edit
 Each decision below is ratified. Verify the citation; do not re-derive.
 
 - **The panel keeps the name "Parse warnings"** (`components/admin/wizard/step3ReviewSections.tsx:3855`). A published-only rename was considered and rejected: it splits the rail label between staged and published for a panel whose identity is unchanged. (User decision, 2026-07-20.)
-- **The gate is DERIVED from the presence of `renderSectionExtras`, not passed as a boolean and not inferred from `mode`.** See §3.2. R1 finding 4 and self-finding S1 both established that a hand-passed prop cannot reach the two readers at all; the derived form is also the safer one.
+- **The gate is the CONJUNCTION of two present preconditions (`routedWarnings` and `renderSectionExtras`), not a hand-passed boolean and not inferred from `mode`.** See §3.2. R1 finding 4 and self-finding S1 established that a prop cannot reach the registry readers at all; R2a finding 1 established that resting the gate on one optional while the copy reads another lets the two desync.
 - **The card origin discriminator ("from the sheet" / "from the app") is CUT from this spec.** It was scoped, then dropped once change 3 established that nearly every alert remaining in the modal traces to the operator's sheet or Drive, which makes an origin label a distinction without a difference. (User decision, 2026-07-20.)
 - **`SHOW_UNPUBLISHED` and `LIVE_ROW_CONFLICT` stay in the modal.** `SHOW_UNPUBLISHED` carries no `severity`, so `DOUG_EXCLUDED_CODES` does not cover it, and pulling it in would mean a catalog severity change with its own cascade through `lib/messages/adminSurface.ts`. `LIVE_ROW_CONFLICT` describes a genuinely broken state. (User decision, 2026-07-20.)
 - **Change 3 removes codes from the modal only.** The `admin_alerts` row, the bell entry, and the audit trail are untouched. The bell reads `dougFacing` through its own `rowCopy` (`components/admin/BellPanel.tsx:125`), never through `deriveAttentionItems`, so a filter in the latter cannot reach it. This mirrors the existing `PICKER_EPOCH_RESET` cut (`lib/admin/attentionItems.ts:316`) exactly.
@@ -84,22 +84,38 @@ Warn-severity warnings do not disappear from the published modal. They render, w
 
 ### 3.2 The gate
 
-The trim is enabled by one derived boolean, `routedWarningsRenderElsewhere`, computed inside `ShowReviewSurface` as `renderSectionExtras !== undefined`.
+The trim is enabled by one value that carries its own preconditions, `routedWarnings`:
 
-It is NOT a prop passed from `PublishedReviewModal`, and it cannot be: `WarningsBreakdown` is mounted by the section registry (`components/admin/wizard/step3ReviewSections.tsx:3865`) through `render: (s) => ...`, whose only argument is `SectionData`, and its sibling `railCount` has the same shape (`components/admin/wizard/step3ReviewSections.tsx:3099`). There is no channel from the modal to the registry render other than `SectionData` itself. It is also NOT derived from `mode` (`components/admin/wizard/step3ReviewSections.tsx:2398`) or from `isPublished(d)` (`components/admin/review/sectionData.ts:172`).
+```
+type RoutedWarnings = { here: number; elsewhere: number };
+```
 
-Deriving it inside the surface makes the gate the precondition itself rather than a caller's assertion about the precondition. `ShowReviewSurface` holds `renderSectionExtras` in scope at both points that need the value: the chrome context provider (`components/admin/review/ShowReviewSurface.tsx:909`) and the rail-count call (`components/admin/review/ShowReviewSurface.tsx:795`).
+`PublishedReviewModal` derives it from the model it already builds (`lib/admin/sectionWarningModel.ts:111-116` gives per-section `active` and `ignored` arrays): `here` counts active items in the `warnings` bucket, `elsewhere` counts active items in every other section. It passes the object to `ShowReviewSurface` alongside `renderSectionExtras`. The wizard passes neither.
 
-**Distribution to the two readers:**
+**The gate is the conjunction of both preconditions:**
 
-1. **Panel body.** The boolean joins `Step3SectionChromeContext`, which `WarningsBreakdown` already consumes for `parseNotes` (`components/admin/wizard/step3ReviewSections.tsx:2425`). No new prop on the component.
-2. **Rail count.** `railCount` widens to `(d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) => number`. Every existing row ignores the second argument; only the `warnings` row reads it.
+```
+const routedWarningsRenderElsewhere =
+  routedWarnings !== undefined && renderSectionExtras !== undefined;
+```
 
-**Single predicate.** Both readers call one exported helper, `visibleWarningRows(warnings, routedWarningsRenderElsewhere)`, which returns the rows to render. Neither reader reimplements the filter. This is what makes the §12 test 3 assertion meaningful rather than an agreement between two copies of the same mistake.
+R2a finding 1 is the reason the two are conjoined rather than the gate resting on `renderSectionExtras` alone. Deriving the gate from one input while the empty-state copy reads a second, independently-optional input lets the two desync: a mount could enable the trim while supplying no counts, so warn rows would vanish and the copy selecting between §3.4's body-empty rows would have nothing to read. Requiring both makes "the trim is on" and "the counts exist" the same fact. `routedWarnings` is therefore never `undefined` at any reader that runs, and §3.4's predicates are total over the non-negative integers.
 
-**Guard conditions.** `renderSectionExtras` absent (the wizard, and any future mount that omits it): the boolean is `false` and `visibleWarningRows` returns the input unchanged, so the render is byte-identical to today. Present: warn-severity rows are filtered out. `warnings` empty: both branches return an empty array, and §3.4 selects the empty state. There is no third value; the boolean is computed from a presence check, so it cannot be `undefined` at either reader.
+Both directions of partial configuration fail safe: extras without counts, or counts without extras, leave the gate `false`, and `false` means today's render.
 
-A future published mount that omits `renderSectionExtras` therefore keeps listing every warning rather than hiding it, which is the safe direction and needs no maintainer to remember anything.
+**Why the value is passed rather than computed in the surface.** The counts require the ignored-fingerprint partition, which is server-derived and lives only in the modal's model; `ShowReviewSurface` cannot compute them. What the surface must NOT do is infer the gate from `mode` (`components/admin/wizard/step3ReviewSections.tsx:2398`) or from `isPublished(d)` (`components/admin/review/sectionData.ts:172`), because neither implies a warning renders anywhere else.
+
+**Why it cannot be a prop on `WarningsBreakdown`.** That component is mounted by the section registry (`components/admin/wizard/step3ReviewSections.tsx:3865`) through `render: (s) => ...`, whose only argument is `SectionData`, and its sibling `railCount` has the same shape (`components/admin/wizard/step3ReviewSections.tsx:3099`). There is no channel from the modal to the registry render other than `SectionData` itself. `ShowReviewSurface` is the one place that holds both the modal's props and the registry's call sites: the chrome context provider (`components/admin/review/ShowReviewSurface.tsx:909`) and the rail-count call (`components/admin/review/ShowReviewSurface.tsx:795`).
+
+**Distribution to the three readers:**
+
+1. **Panel body list.** The gate joins `Step3SectionChromeContext`, which `WarningsBreakdown` already consumes for `parseNotes` (`components/admin/wizard/step3ReviewSections.tsx:2425`). No new prop on the component.
+2. **Panel body empty state.** `routedWarnings` joins the same context, read only when the gate is on.
+3. **Rail count.** `railCount` widens to `(d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) => number`. Every existing row ignores the second argument; only the `warnings` row reads it.
+
+**Single predicate.** Readers 1 and 3 call one exported helper, `visibleWarningRows(warnings, routedWarningsRenderElsewhere)`, which returns the rows to render. Neither reimplements the filter, so §12 test 4's equality assertion cannot be satisfied by two copies of the same mistake.
+
+**Guard conditions.** Gate `false` (the wizard, and any partially configured mount): `visibleWarningRows` returns its input unchanged and the empty-state branch keeps today's binary form, so the render is byte-identical to today. Gate `true`: warn-severity rows are filtered out and §3.4's four-row matrix selects the body. `warnings` empty: both branches return an empty array. `here` and `elsewhere` are non-negative integers by construction (array lengths), never negative and never fractional.
 
 ### 3.3 Rail count
 
@@ -111,19 +127,18 @@ The count deliberately excludes the extras cards rendered beneath the panel. Tho
 
 Today the branch is binary (`components/admin/wizard/step3ReviewSections.tsx:2458`): zero warnings renders `No parse warnings for this sheet.`
 
-After the trim the published panel can be body-empty in three materially different situations, and R1 findings 2 and 3 both landed here: the naive "warnings are in their own sections" line is false when the warnings are in the `warnings` bucket rendering directly below, and "need a look" is false when every warn row is already ignored.
+After the trim the published panel can be body-empty in three materially different situations. R1 findings 2 and 3 both landed here: the naive "warnings are in their own sections" line is false when the warnings are in the `warnings` bucket rendering directly below, and "need a look" is false when every warn row is already ignored.
 
-The predicate therefore keys on **active** (not-ignored) warn rows, and distinguishes **here** from **elsewhere**. Both facts come from the model `PublishedReviewModal` already built: `buildSectionWarningModel` returns per-section `active` and `ignored` arrays (`lib/admin/sectionWarningModel.ts:111-116`). The modal derives two counts and passes them to `ShowReviewSurface`, which forwards them through the same chrome context as the gate:
+The predicate therefore keys on **active** (not-ignored) warn rows, and distinguishes **here** from **elsewhere**, reading `routedWarnings.here` and `routedWarnings.elsewhere` from §3.2. Both are defined whenever the gate is on, which is the same fact, so the matrix is total.
 
-- `activeWarnHere` — active items in the `warnings` bucket, which render as extras beneath this panel;
-- `activeWarnElsewhere` — active items in every other section.
+| Body list | `here` | `elsewhere` | State | Rendered in the body |
+| --- | --- | --- | --- | --- |
+| non-empty | any | any | List | the list, and nothing else (§3.5) |
+| empty | > 0 | any | Silent | nothing. The actionable cards render immediately below; a line above them claiming anything about location would be noise or a lie. |
+| empty | 0 | > 0 | Elsewhere | the Elsewhere line |
+| empty | 0 | 0 | Clean | the Clean line |
 
-| Body list | `activeWarnHere` | `activeWarnElsewhere` | Rendered in the body |
-| --- | --- | --- | --- |
-| non-empty | any | any | the list, nothing else (see §3.5) |
-| empty | > 0 | any | nothing. The actionable cards render immediately below; a line above them claiming anything about location would be noise or a lie. |
-| empty | 0 | > 0 | the Elsewhere line |
-| empty | 0 | 0 | the Clean line |
+Rows are evaluated top to bottom and are mutually exclusive: the first column partitions on list emptiness, and the remaining three rows partition the `(here, elsewhere)` quadrant on `here > 0` then `elsewhere > 0`. No input satisfies two rows.
 
 **Authored copy, final.**
 
@@ -135,15 +150,17 @@ Clean line (published only):
 
 > Nothing needs a look on this sheet.
 
-The Clean line replaces `No parse warnings for this sheet.` on the published surface only, because that older wording is false when the sheet has warnings that are all ignored: they are parse warnings, and they still exist in the `Ignored (N)` disclosures. "Nothing needs a look" is true in both the no-warnings and the all-ignored cases, which is exactly the pair this branch cannot distinguish and does not need to. The wizard keeps `No parse warnings for this sheet.` verbatim, where it fires only on a genuinely empty warning array and is exactly right.
+The Clean line replaces `No parse warnings for this sheet.` on the published surface only, because that older wording is false when the sheet has warnings that are all ignored: they are parse warnings, and they still exist in the `Ignored (N)` disclosures. "Nothing needs a look" is true in both the no-warnings and the all-ignored cases, which is exactly the pair this row cannot distinguish and does not need to. The wizard keeps `No parse warnings for this sheet.` verbatim, where it fires only on a genuinely empty warning array and is exactly right.
 
-Both lines are rendered elements, not conceptual states: a `<p>` in the slot the existing empty-state `<p>` occupies, with its classes (`text-sm text-text-subtle`), each under its own `data-testid` so a test can tell all four rows of the matrix apart. Neither uses the word "below", which is what made the retiring line in §3.5 wrong. No em dash, no apostrophe.
+Both lines are rendered elements, not conceptual states: a `<p>` in the slot the existing empty-state `<p>` occupies, carrying its classes (`text-sm text-text-subtle`), each under its own `data-testid` so a test can tell all four rows apart. Neither uses the word "below", which is what made the retiring line in §3.5 wrong. No em dash, no apostrophe. §12 test 5 asserts the exact sentences, the element type, and the classes, because a testid rendering the wrong copy is a failure this change specifically exists to prevent.
 
 ### 3.5 The non-blocking line retires (published only)
 
 `These warnings don't block publishing. Some include an optional fix you can apply below.` (`components/admin/wizard/step3ReviewSections.tsx:2472`) does not render in published mode after this change. Its second sentence points "below" at controls that are no longer below, and its first is already carried per card by `helpfulContext` (`AGENDA_PDF_UNREADABLE`: "Nothing is broken; no action is needed"; `UNKNOWN_FIELD`: "nothing on the crew page is affected"). The wizard keeps it verbatim.
 
-The published `CorrectionLoopCallout` mount (`components/admin/wizard/step3ReviewSections.tsx:2470`) also does not render, per §4. **The published panel body therefore carries no panel-level guidance at all**: the list, or one empty-state line, and nothing else. That is the intended end state, and §12 tests 7a and 7b assert both absences rather than leaving them to inspection.
+The published `CorrectionLoopCallout` mount (`components/admin/wizard/step3ReviewSections.tsx:2470`) also does not render, per §4.
+
+**The published panel body therefore carries no panel-level guidance in any of its four states.** Its complete content is: the info list (List), or one empty-state line (Elsewhere, Clean), or nothing at all (Silent). R2a finding 4 correctly caught an earlier wording here that described only the first two and silently excluded Silent. §12 tests 7a and 7b assert both retired elements are absent by rendered text, not by testid.
 
 ## 4. Change 2: the loop sentence moves into the card popover
 
@@ -167,18 +184,20 @@ A second literal would violate that contract and let the two drift. Exporting an
 
 ### 4.3 Guard conditions
 
-R1 finding 10 is correct that the trigger-presence rules were underspecified. The popover body is composed from two independent optional strings, and all four combinations are defined:
+R1 finding 10 and R2a finding 2 both landed here. The popover body is composed from two independent optional strings, and the input partition below is over the FULL domain of each: `undefined`, `null`, a blank string, or a non-blank string.
+
+Both inputs are normalized by one rule before composition, the same `nonEmpty` rule `warningCardCopyFields` already applies (`components/admin/PerShowActionableWarnings.tsx:41-43`): trim, then treat an empty result as absent. So `undefined`, `null`, `""`, and `"   "` all collapse to **absent**, and only a string with non-whitespace content is **present**. This is what makes the table below total with two rows per input rather than one row per raw value.
 
 | `triggerContext` | `followUpCopy` | Popover |
 | --- | --- | --- |
-| present | present | trigger context, then the follow-up. The published case for all 40 registered codes. |
+| present | present | trigger context, then the follow-up, in that order. The published case for all 40 registered codes. |
 | present | absent | trigger context alone. Today's behavior, and the staged case. |
-| blank or null | present | the follow-up alone. A trigger renders. This is a deliberate widening: an uncataloged code on the published surface now gets a `?` where it previously got none, because there is real content to show. |
-| blank or null | absent | no trigger, exactly as today. |
+| absent | present | the follow-up alone. A trigger renders. This is a deliberate widening: an uncataloged code on the published surface now gets a `?` where it previously got none, because there is real content to show. |
+| absent | absent | no trigger, exactly as today. |
 
-Blank means empty after trim, normalized by the same `nonEmpty` rule `warningCardCopyFields` already applies (`components/admin/PerShowActionableWarnings.tsx:41-43`), extended to the new input so a whitespace-only caller value cannot manufacture an empty popover.
+The third row is the only behavior change for an uncataloged code. §12 test 6c exercises it with a synthetic warning carrying a code absent from the catalog, which is the seam R1 finding 10 asked to be named; no synthetic catalog entry is created. §12 test 6e exercises whitespace-only `followUpCopy` specifically, because a normalization that missed it would manufacture an empty trigger on every uncataloged card.
 
-The third row is the only behavior change for an uncataloged code, and §12 test 6c exercises it with a synthetic warning carrying a code absent from the catalog, which is the seam R1 finding 10 asked to be named. No synthetic catalog entry is created.
+Order is part of the contract, not an accident of composition: the trigger context explains when the card appears, and the follow-up explains what to do after acting on it, so the sequence is chronological. §12 test 6a asserts exact ordered text, so a reversed composition fails.
 
 ## 5. Change 3: info-severity alerts leave the attention surface
 
@@ -213,32 +232,36 @@ The one dimensional risk worth naming is negative: nothing may introduce a fixed
 
 ## 7. Transition Inventory
 
-The published panel body has four states after this change, one per row of the §3.4 matrix: **List**, **Silent** (body-empty with active warnings in the `warnings` bucket below), **Elsewhere**, **Clean**. That is 4 states and 6 unordered pairs.
+The published panel body has four states, one per row of the §3.4 matrix: **List**, **Silent** (body-empty with active warn rows in the `warnings` bucket rendering below), **Elsewhere**, **Clean**. That is 4 states and 6 unordered pairs.
 
-| Pair | Treatment |
-| --- | --- |
-| List to Silent | instant, no animation needed |
-| List to Elsewhere | instant, no animation needed |
-| List to Clean | instant, no animation needed |
-| Silent to Elsewhere | instant, no animation needed |
-| Silent to Clean | instant, no animation needed |
-| Elsewhere to Clean | instant, no animation needed |
+| Pair | Reached by | Treatment |
+| --- | --- | --- |
+| List to Silent | ignoring or fixing the last info row while active warn rows remain here | instant, no animation needed |
+| List to Elsewhere | ignoring or fixing the last info row while active warn rows remain elsewhere only | instant, no animation needed |
+| List to Clean | ignoring or fixing the last info row with no active warn rows anywhere | instant, no animation needed |
+| Silent to Elsewhere | ignoring the last active warn row in the `warnings` bucket while others remain elsewhere | instant, no animation needed |
+| Silent to Clean | **ignoring** the last active warn row anywhere | instant, no animation needed |
+| Elsewhere to Clean | ignoring the last active warn row in another section | instant, no animation needed |
+
+R2a finding 3 correctly caught the inverse of the fifth row in an earlier draft. Un-ignoring cannot produce Clean: un-ignoring ADDS an active row, so it moves Clean to Silent or Clean to Elsewhere. Ignoring is the direction that empties the active set. The reverse of every pair above is reachable by un-ignoring and carries the same instant treatment.
 
 Every pair is instant for one shared reason: each is reachable only through a server round trip (re-sync, ignore, bulk ignore, un-ignore), which re-renders the panel wholesale from new props. No client-side state transitions between these states, so there is no moment at which two of them are simultaneously present to animate between.
 
-**Compound transitions.** The panel's only animated descendant is the `Ignored (N)` disclosure in the extras beneath it, a native `<details>` whose chevron is the sole animated property (`components/admin/showpage/sectionWarningExtras.tsx:140-142`, `transition-transform group-open:rotate-90`, body instant). The body and the extras are siblings with independent render paths, so a body state change while the disclosure is open or mid-rotation cannot interrupt it: the disclosure is not remounted by a body text change, and no shared key or `AnimatePresence` spans the two. The interesting compound case is real and testable, because un-ignoring the last active warning moves the body from Silent to Clean while the disclosure directly below is open; §12 test 10 exercises it. No `AnimatePresence` is added or removed by this change.
+**Compound transitions.** The panel's only animated descendant is the `Ignored (N)` disclosure in the extras beneath it, a native `<details>` whose chevron is the sole animated property (`components/admin/showpage/sectionWarningExtras.tsx:140-142`, `transition-transform group-open:rotate-90`, body instant).
 
-The `?` popover in change 2 is an existing component with existing transition coverage (`tests/components/admin/compactAlertCompoundTransitions.test.tsx`); its body content changes, not its mount behavior or its animation.
+R2a finding 3's second half is also correct and is not waved away: ignoring the last active warn row does NOT merely change sibling body text, it moves that warning from the extras' active list into its ignored list, so the disclosure's own contents change in the same render. Sibling render paths therefore do not by themselves guarantee the `<details>` instance survives with its open state. What must hold is that the disclosure is not re-keyed or remounted by the membership change, and that is a real risk worth an executable assertion rather than a prose claim. §12 test 10 performs the ignore with the disclosure open and asserts it remains open and mounted with its count incremented. If the assertion fails, the fix belongs to this change, not to a follow-up.
+
+No `AnimatePresence` is added or removed by this change. The `?` popover in change 2 is an existing component with existing transition coverage (`tests/components/admin/compactAlertCompoundTransitions.test.tsx`); its body content changes, not its mount behavior or its animation.
 
 ## 8. Flag lifecycle
 
 | Field | Storage | Write paths | Read paths | Effect on output |
 | --- | --- | --- | --- | --- |
-| `routedWarningsRenderElsewhere` | none. Derived in `ShowReviewSurface` as `renderSectionExtras !== undefined` | `PublishedReviewModal` passing `renderSectionExtras` (`components/admin/showpage/PublishedReviewModal.tsx:737`); the wizard passing none | `Step3SectionChromeContext` consumer in `WarningsBreakdown`; the `warnings` row's `railCount` closure. Both via `visibleWarningRows` | when `true`, panel body and rail count both drop warn-severity rows; when `false`, both render exactly as today |
-| `activeWarnHere` / `activeWarnElsewhere` | none. Derived in `PublishedReviewModal` from the `bySection` model (`lib/admin/sectionWarningModel.ts:111-116`) | the same modal, alongside `renderSectionExtras` | the §3.4 empty-state branch in `WarningsBreakdown`, via the same context | selects which of the three body-empty rows renders |
+| `routedWarnings` (`{ here, elsewhere }`) | none. Derived in `PublishedReviewModal` from the `bySection` model (`lib/admin/sectionWarningModel.ts:111-116`) | that modal only, passed to `ShowReviewSurface` alongside `renderSectionExtras` (`components/admin/showpage/PublishedReviewModal.tsx:737`); the wizard passes nothing | `ShowReviewSurface` (to compute the gate); `Step3SectionChromeContext` consumer in `WarningsBreakdown` (to select the §3.4 body-empty row) | its presence is half the gate; its two counts select among Silent, Elsewhere, and Clean |
+| `routedWarningsRenderElsewhere` | none. Derived in `ShowReviewSurface` as `routedWarnings !== undefined && renderSectionExtras !== undefined` | not written; computed from the two props above | `Step3SectionChromeContext` consumer in `WarningsBreakdown`; the `warnings` row's `railCount` closure. Both via `visibleWarningRows` | when `true`, panel body and rail count both drop warn-severity rows; when `false`, both render exactly as today |
 | `followUpCopy` | none. A React prop | the published extras factory only (`components/admin/showpage/sectionWarningExtras.tsx`), value `correctionLoopCopy("resync")` | `PerShowActionableWarnings` popover composition | appends the loop sentence to the popover body; absent for `StagedReviewCard`, which is unchanged |
 
-No column is empty, so none of the three is a zombie flag.
+No column is empty, so none of the three is a zombie flag. The first two are deliberately coupled: the gate cannot be true without the counts, which is the defect R2a finding 1 identified in the previous draft, where they were independent optionals.
 
 ## 9. Tier and domain completeness matrix
 
@@ -271,9 +294,11 @@ The 40-code `helpfulContext` corpus in §2.2 was likewise read in full, not samp
 
 ## 11. Meta-test inventory
 
-**Creates one:** a fails-by-default assertion that no `DOUG_EXCLUDED_CODES` member survives `deriveAttentionItems`. It iterates the live set rather than a hand-listed pair, so a future info-severity code that gains an `ATTENTION_ROUTES` row fails CI instead of silently reappearing in the modal. This is the structural defense the audience-split intent lacked, and per the structural-defense calibration rule it ships in the first commit that touches the class, not after a recurrence.
+**Creates three.**
 
-**Creates a second:** a no-loss assertion for the published warning surface. For a fixture spanning mapped, unmapped, active, and ignored warn rows, the union of warning identities rendered by the panel body and by the extras equals the input set exactly, with no identity appearing twice. This pins the §2.1 chain structurally rather than per-instance, and it is the defense against the class R1 finding 1 named: it fails if a future change drops a bucket, suppresses a partition, or stops rendering a section.
+1. **Set-driven attention exclusion.** No `DOUG_EXCLUDED_CODES` member survives `deriveAttentionItems`, iterating the live set rather than a hand-listed pair, plus a source-scan guard that the derivation references the set and contains no string literal for either cut code. R2b finding 11 is correct that the behavioral half alone cannot distinguish a set-driven filter from a two-code hand-list today, because the two named codes are the only set members that currently carry an `ATTENTION_ROUTES` row; the source-scan half is what pins the structure, and the behavioral half is what catches the next member to gain a route. Both are required; neither is sufficient.
+2. **No warning is lost on the published surface.** For a fixture spanning two mapped sections, the fallback bucket, and ignored members of each, the union of identities rendered by the panel body and by the extras equals the input set exactly, no identity appears twice, **and each identity appears under the section id `warningsBySection` routes it to, in the partition (`active` or `ignored`) it belongs to.** R2b finding 1 correctly noted that a union-and-uniqueness assertion alone is satisfied by an implementation that dumps every warning into one fallback container; asserting placement and partition closes that.
+3. **Bell independence from the cut.** A source-scan guard that neither `components/admin/BellPanel.tsx` nor the bell feed route (`app/api/admin/alerts/bell/feed/route.ts`) nor its transitive builder imports `deriveAttentionItems` or `DOUG_EXCLUDED_CODES`, so no shared path can carry the cut into the bell.
 
 **Extends one:** `tests/admin/roleFlagsNoticeReclassify.test.ts:18-21` currently asserts set membership as a proxy for behavior. It gains a behavioral assertion that the code is absent from derived items, so the test proves the exclusion instead of proving the set contains a string.
 
@@ -281,21 +306,25 @@ The 40-code `helpfulContext` corpus in §2.2 was likewise read in full, not samp
 
 ## 12. Test plan
 
-Each entry names the failure mode it catches. Expected values derive from fixture composition, never from a hardcoded literal a wrong implementation could also satisfy. Fixtures use asymmetric severity counts (for example 3 info, 5 warn) so a filter that keeps the wrong arm cannot coincidentally produce the right cardinality.
+Each entry names the concrete wrong implementation it excludes, per the anti-tautology rule, because R2b's whole finding set was "the test permits the behavior it claims to exclude."
 
-1. **No warning is lost (the gate on the whole change).** Fixture spanning all four quadrants: warn mapped to a section, warn unmapped (the `warnings` bucket), plus an ignored member of each. Render the full published mount. Assert by warning identity, not count, that the union of the panel body and the extras subtree equals the input set, that no identity appears twice, and that every active warn identity in the extras carries its Report/Ignore control. Catches: a dropped model entry, a suppressed fallback bucket, an unrendered section, or controls lost in the move. This is the structural no-loss meta-test from §11.
-2. **Published panel body lists no warn-severity row.** Same fixture. Assert the body's rendered identities equal exactly the fixture's info-severity identities. Catches: a filter that drops the wrong arm, or that only drops mapped warnings and leaves the `warnings` bucket duplicating inside one panel.
-3. **Wizard is unchanged.** Same fixture through the staged mount. Assert the body's rendered identities equal the full input set, and that the `CorrectionLoopCallout` and the non-blocking line are both present. Asserting identities, not presence, is the point: presence alone would pass if the wizard silently dropped a row. Catches: the gate leaking into staged mode, which would hide warnings on the surface that has no other render site.
-4. **Rail count is independently correct in both modes.** Derive the expected value from the fixture's severity composition, separately per mode, and assert `railCount` equals it. Then, as a second assertion, assert it equals the rendered row count. The first assertion is what prevents the tautology R1 finding 9 names: two readers sharing one wrong filter would agree with each other but not with the fixture.
-5. **All four empty-state rows are distinguishable.** One fixture per §3.4 row. Assert the expected testid renders and the other three do not, including the Silent row rendering none of them while the extras below are non-empty. Catches: the panel claiming the sheet is clean while sections are flagged, and the two lies R1 findings 2 and 3 identified.
-6. **Popover composition, all four guard rows.** (a) trigger plus follow-up on a registered code; (b) trigger alone on the staged mount; (c) follow-up alone on a synthetic warning whose code is absent from the catalog, asserting a trigger now renders; (d) neither, asserting no trigger. Assert the composed body text, not merely that a trigger exists. Catches: a composition that drops one side, and each guard boundary in §4.3.
-7. **The two published removals are asserted absent.** (a) no `correction-loop-callout` testid anywhere in the published mount; (b) no non-blocking-line testid in the published mount. Catches: an implementation that adds the popover sentence without removing either duplicate, which R1 finding 7 correctly noted every other test would tolerate.
-8. **Staged cards are byte-identical.** Render `StagedReviewCard` before and after conceptually by asserting its popover bodies contain no follow-up sentence and that it passes no `followUpCopy`. Catches: the leaf hardcoding the sentence, which is the failure mode §4.1 exists to prevent.
-9. **Extraction is scoped.** The assertions in 2 and 5 query within the panel body container and exclude the extras subtree, which independently renders warning titles. Without this scoping a test could pass by reading the very cards the trim relies on. Test 1 deliberately queries both and is the only test that may.
-10. **Compound transition.** With the `Ignored (N)` disclosure open, un-ignore the last active warn row and assert the body moves Silent to Clean while the disclosure remains open and mounted. Catches: a body state change remounting the extras subtree and collapsing an open disclosure mid-interaction.
-11. **No `DOUG_EXCLUDED_CODES` member survives derivation.** Feed one synthetic alert row per set member through `deriveAttentionItems`; assert an empty result. Catches: the §2.3 regression class recurring for any future code. This is the §11 meta-test.
-12. **The two named codes are absent, the two retained codes are present.** Explicit rows for `ROLE_FLAGS_NOTICE`, `SHOW_FIRST_PUBLISHED`, `SHOW_UNPUBLISHED`, `LIVE_ROW_CONFLICT`. Catches: an over-broad filter removing the retained pair.
-13. **The bell path is structurally independent of the cut.** Assert that `components/admin/BellPanel.tsx` does not import `deriveAttentionItems`, and that the bell's own entry-construction path yields entries for both cut codes given rows carrying them. R1 finding 6 correctly rejected the earlier `rowCopy`-resolves-a-title assertion: it proves nothing about inclusion. Catches: a cut implemented in a shared path that reaches the bell.
+**Shared fixture requirements.** The published fixture (tests 1, 2, 4, 5a, 7, 9) carries, with asymmetric counts so no coincidence produces a right answer: 3 info-severity rows; 2 active warn rows mapped to two DIFFERENT sections; 2 active warn rows that route to the fallback `warnings` bucket; 1 ignored warn row mapped to a section; 1 ignored warn row in the bucket. Identity is the warning's stable key from `stableWarningKeys`, extracted from each rendered row root, never from a container that also holds other rows. Expected values are computed from this fixture in the test body; no cardinality is written as a literal.
+
+Composed published mount for tests 1, 2, 4, 5, 7, 9, 10: `ShowReviewSurface` + `step3Sections` + `buildSectionWarningModel` + `buildSectionWarningExtras`, the composition `tests/components/admin/showpage/sectionWarningControls.test.tsx` already establishes.
+
+1. **No warning is lost, and each lands in the right place.** Assert the body-plus-extras identity union equals the input set, no duplicates, each identity under the section id `warningsBySection` routes it to, each in its correct active/ignored partition, and each active warn row carrying its Report/Ignore control. Excludes: a fallback container that swallows every warning (which the union alone would tolerate), a dropped model entry, a suppressed bucket, an unrendered section, and controls lost in the move. This is meta-test 2 of §11.
+2. **The published body lists exactly the info rows.** Assert the body's rendered identities equal the fixture's 3 info identities, by identity and by count. Excludes: dropping the wrong severity arm; dropping everything (the 3 info rows make a vacuous pass impossible, which R2b finding 2 correctly flagged in the previous draft); and filtering only mapped warnings while the bucket rows keep duplicating inside one panel.
+3. **The wizard is unchanged in list, controls, and copy.** Same fixture, staged mount. Assert (a) rendered identities equal the FULL input set, (b) every in-scope row still renders its use-raw or recognize-role control, (c) the non-blocking line's text equals its current string verbatim, (d) the `CorrectionLoopCallout` text equals `correctionLoopCopy("rescan")`. Excludes: the gate leaking into staged mode; and the three silent regressions R2b finding 3 named, where identities survive but controls, copy, or card content do not.
+4. **Rail count, independently derived per mode.** Published: assert `railCount` equals the fixture's info-row count, computed in the test from the fixture definition and NOT by calling `visibleWarningRows`. Staged: assert it equals the fixture's total row count, derived the same way. Only then, as a separate assertion, assert each equals its mode's rendered row count. Excludes: the production predicate becoming its own oracle (R2b finding 4); and the two readers agreeing on a shared wrong filter.
+5. **All four §3.4 states, by copy and not merely by testid.** One fixture per state: (a) List, (b) Silent, (c) Elsewhere, (d) Clean with zero warnings, (e) Clean with warnings that are ALL ignored. Note (d) and (e) are two fixtures for one row, because R2b finding 5 correctly observed that the all-ignored meaning is the one a wrong active/ignored predicate gets wrong. For each: assert the expected state's testid renders and the other three do not; assert the rendered text equals the §3.4 authored sentence exactly; assert the element is a `<p>` carrying `text-sm text-text-subtle`. For (b) additionally assert no empty-state line renders at all while the extras below are non-empty. For (a) the fixture has warn rows elsewhere, proving List takes precedence over every body-empty row. Excludes: an ignored row counted as active; the right testid with wrong copy, wrong element, or wrong classes; and a precedence inversion.
+6. **Popover composition, over the full input domain.** (a) trigger plus follow-up on a registered code, asserting exact ordered `textContent` so a reversed composition fails; (b) trigger alone on the staged mount; (c) follow-up alone on a synthetic warning whose code is absent from the catalog, asserting a trigger now renders; (d) neither, asserting no trigger; (e) whitespace-only `followUpCopy` with a blank trigger context, asserting NO trigger renders. Plus (f), a source-scan guard that the loop sentence appears as a literal in exactly one module, `components/admin/CorrectionLoopCallout.tsx`, so the single-source contract in §4.2 is enforced rather than asserted. Excludes: a dropped side, a reversed order, a normalization that treats `"   "` as content, and a duplicated literal that drifts (R2b finding 6).
+7. **The two published removals are absent by rendered text.** Assert the published mount's rendered text contains neither `correctionLoopCopy("resync")` nor the non-blocking sentence, anywhere in the modal. Excludes: an element that survives with its testid removed or renamed, which is exactly what a testid-absence assertion would have missed (R2b finding 7). The loop sentence assertion is scoped to exclude popover bodies, where §4 deliberately puts it.
+8. **Staged cards gain nothing.** Assert (a) `StagedReviewCard`'s rendered output contains no occurrence of the loop sentence, (b) each of its cards' popover body text equals that code's `triggerContext` exactly, and (c) a source-scan guard that its `PerShowActionableWarnings` mount (`components/admin/StagedReviewCard.tsx:521`) passes no `followUpCopy`. R2b finding 8 is correct that this does not prove byte-identity and that no test can without a baseline; the spec claim is narrowed to match what is proven, which is that no new content reaches the staged card. Excludes: the leaf hardcoding the sentence, which is the failure mode §4.1 exists to prevent.
+9. **A warn row leaking into the body is caught even unscoped.** The identity extraction in tests 2 and 5 reads row roots inside the body container only. This test adds the inverse assertion: for each active warn identity, assert it is absent from the body container while present in the extras subtree. Excludes: a leak that carries no identity marker and would therefore be invisible to a scoped query (R2b finding 9), since absence is asserted per known identity rather than by counting what the query happens to find.
+10. **Compound transition: ignore with the disclosure open.** With the section's `Ignored (N)` disclosure open and the body in Silent, ignore the last active warn row so the body moves Silent to Clean and the ignored list grows. Assert the body renders the Clean line, and the disclosure is still mounted, still open, and its count incremented. R2b finding 10 and R2a finding 3 both caught the previous draft specifying un-ignore, which moves Clean to Silent and cannot produce this transition. Excludes: a membership change remounting or re-keying the extras subtree and collapsing an open disclosure mid-interaction.
+11. **Set-driven exclusion, structurally and behaviorally.** (a) Feed one synthetic alert row per `DOUG_EXCLUDED_CODES` member through `deriveAttentionItems`; assert an empty result. (b) Source-scan `lib/admin/attentionItems.ts` for a reference to `DOUG_EXCLUDED_CODES` and for the absence of any string literal equal to either cut code. Excludes: the two-code hand-list implementation, which (a) alone cannot distinguish today and (b) rejects outright. This is meta-test 1 of §11.
+12. **Named codes, regression-narrow.** Explicit rows for `ROLE_FLAGS_NOTICE`, `SHOW_FIRST_PUBLISHED`, `SHOW_UNPUBLISHED`, `LIVE_ROW_CONFLICT`; assert the first two absent and the last two present. Excludes: an over-broad filter removing the retained pair. It deliberately does not attempt the structural claim, which test 11 carries.
+13. **Bell inclusion, end to end.** (a) The §11 meta-test 3 source scan over `BellPanel`, the bell feed route, and its transitive builder. (b) A behavioral assertion driving the bell feed route's builder with rows carrying both cut codes and asserting both appear in its output. Together these exclude the case R2b finding 13 named, where the panel imports an intermediate helper that filters before the tested constructor runs: the source scan covers the intermediate, and the behavioral test covers the constructor.
 
 ## 13. Out of scope
 
