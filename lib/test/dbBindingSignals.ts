@@ -11,9 +11,13 @@
 // scan closes that class deterministically.
 
 // Comments are stripped before matching so a DB reference inside a `//` or `/* */`
-// comment does not false-positive (Codex plan R3).
+// comment does not false-positive (Codex plan R3). The line-comment strip is
+// guarded with `(?<!:)` so a URL scheme's `//` is NOT mistaken for a comment —
+// otherwise `"postgresql://…@127.0.0.1:54322"` or `"http://127.0.0.1:54321"`
+// would lose everything after `//`, erasing the exact local-pg-url / postgres://
+// signals this scans for (Codex mech-1).
 const stripComments = (s: string): string =>
-  s.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  s.replace(/(?<!:)\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
 type Signal = { name: string; test: (relPath: string, src: string) => boolean };
 

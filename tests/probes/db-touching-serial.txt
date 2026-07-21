@@ -1,6 +1,7 @@
 tests/admin/extractAgenda.test.ts
 tests/admin/layoutIdentityFault.test.tsx
 tests/admin/parseAndStage-auth.test.ts
+tests/admin/validationDeployment.test.ts
 tests/agenda/extractAgendaLease.test.ts
 tests/api/admin/onboarding/resolveBlocker.test.ts
 tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts
@@ -81,6 +82,8 @@ tests/notify/monitorDigest.autofix.db.test.ts
 tests/notify/monitorDigest.drift.db.test.ts
 tests/notify/monitorNewShowGaps.db.test.ts
 tests/notify/recovery-resolution.test.ts
+tests/observe/dispatch.test.ts
+tests/observe/env.test.ts
 tests/observe/queryCore.db.test.ts
 tests/onboarding/cleanupProvenance.db.test.ts
 tests/onboarding/cleanupReapCrossSession.db.test.ts
@@ -128,6 +131,7 @@ tests/onboarding/sourceAnchorsPersistedAtScan.db.test.ts
 tests/onboarding/wizardApplyApprovalRollbackDb.test.ts
 tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts
 tests/onboarding/wizardSessionCasRaceDb.test.ts
+tests/probes/dbTouchReport.test.ts
 tests/reports/concurrentRetry.test.ts
 tests/reports/firstSubmitRace.test.ts
 tests/reports/happyPath.test.ts
@@ -141,7 +145,7 @@ tests/reports/showContext.test.ts
 tests/reports/submitTelemetry.test.ts
 tests/reports/unknownOutcome.test.ts
 tests/scripts/validation-report-fixtures-rendering.test.tsx
-tests/scripts/validation-report-fixtures.test.ts
+tests/scripts/validation-target.test.ts
 tests/show/unpublishConfirmGetNoMutation.test.ts
 tests/sync/applyParseResult.holdAware.identityPin.test.ts
 tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts

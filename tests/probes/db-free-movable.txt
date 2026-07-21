@@ -75,7 +75,6 @@ tests/admin/telemetry-requires-developer.test.ts
 tests/admin/telemetryFilterHref.test.ts
 tests/admin/telemetryRouteAudit.test.ts
 tests/admin/upsertAdminAlert.test.ts
-tests/admin/validationDeployment.test.ts
 tests/admin/validationReset-developer-posture.test.ts
 tests/admin/validationResetAction.test.ts
 tests/admin/warningFixAffordance.test.tsx
@@ -316,8 +315,6 @@ tests/observe/clientLog.test.ts
 tests/observe/codes.test.ts
 tests/observe/collect.test.ts
 tests/observe/crewError.test.tsx
-tests/observe/dispatch.test.ts
-tests/observe/env.test.ts
 tests/observe/errorBoundaryLayout.test.tsx
 tests/observe/format.test.ts
 tests/observe/getCronHealth.test.ts
@@ -387,9 +384,9 @@ tests/scripts/extract-spec-codes-cli.test.ts
 tests/scripts/validation-check-seed-freshness-skew.test.ts
 tests/scripts/validation-env.test.ts
 tests/scripts/validation-fixtures.test.ts
+tests/scripts/validation-report-fixtures.test.ts
 tests/scripts/validation-reseed.test.ts
 tests/scripts/validation-smoke-base-url.test.ts
-tests/scripts/validation-target.test.ts
 tests/show/confirmUnpublishFormBusy.test.tsx
 tests/show/crewLinkNotFound.test.tsx
 tests/show/crewShellUnmatchedViewer.test.tsx

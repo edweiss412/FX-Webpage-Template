@@ -44,12 +44,20 @@ function computeFresh() {
     return { movable: fx.movable, dbTouching: fx.dbTouching };
   }
   // Real path (nightly): re-run the instrumented suite on a fresh DB, then the
-  // movable-serial classifier, then subtract any file that trips the static
-  // DB-binding signal (the class the runtime probe under-counts).
+  // movable-serial classifier. Both lists are then measured FRESH — dbTouching is
+  // NOT seeded from the committed file (Codex mech-2), so a stale committed entry
+  // is dropped and a newly runtime-detected DB file is added. VITEST_EXCLUDE_ENV_BOUND
+  // matches the unit-suite jobs so an env-bound test cannot fail the nightly on
+  // unrelated grounds (Codex mech-3).
   execFileSync("pnpm", ["exec", "vitest", "run"], {
     cwd: ROOT,
     stdio: "inherit",
-    env: { ...process.env, DB_TOUCH_PROBE: "1", DB_TOUCH_PROBE_DIR: ".db-touch-probe" },
+    env: {
+      ...process.env,
+      DB_TOUCH_PROBE: "1",
+      DB_TOUCH_PROBE_DIR: ".db-touch-probe",
+      VITEST_EXCLUDE_ENV_BOUND: "1",
+    },
   });
   execFileSync("pnpm", ["exec", "tsx", "scripts/analyze-db-touch.mjs"], {
     cwd: ROOT,
@@ -59,10 +67,18 @@ function computeFresh() {
     cwd: ROOT,
     stdio: "inherit",
   });
+  const classification = JSON.parse(
+    readFileSync(join(ROOT, ".db-touch-probe/classification.json"), "utf8"),
+  );
   const runtimeMovable = JSON.parse(
     readFileSync(join(ROOT, ".db-touch-probe/movable-serial.json"), "utf8"),
   );
-  const dbTouching = new Set(readList(DBTOUCH));
+  // Fresh dbTouching base = every runtime-detected DB-touching serial file, then
+  // add the static-caught DB files the runtime probe under-counts (both classes,
+  // no committed seed).
+  const dbTouching = new Set(
+    (classification.dbTouching ?? []).map((r) => (typeof r === "string" ? r : r.file)),
+  );
   const movable = [];
   for (const f of runtimeMovable) {
     const p = join(ROOT, f);

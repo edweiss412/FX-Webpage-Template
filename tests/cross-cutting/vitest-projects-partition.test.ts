@@ -511,8 +511,11 @@ describe("db-free-movable list is well-formed and safe", () => {
     expect(DB_FREE_MOVABLE).not.toContain("tests/cross-cutting/no-global-cursor.test.ts");
   });
   it("A6 disjoint from ENV_BOUND_EXCLUDES (spec R5 — env-bound must not survive in parallel)", () => {
-    const env = new Set(ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, "")));
-    expect(DB_FREE_MOVABLE.filter((f) => env.has(f))).toEqual([]);
+    // Match by glob, not string equality (Codex guards-5): an ENV_BOUND glob with
+    // a wildcard beyond the `**/` prefix could overlap a movable file without a
+    // string-membership check noticing.
+    const envRes = ENV_BOUND_EXCLUDES.map((g) => globRe(g));
+    expect(DB_FREE_MOVABLE.filter((f) => envRes.some((r) => r.test(f)))).toEqual([]);
   });
   it("A7 disjoint from TEST_FAST_DEFERRED (no test:fast project-selection clash)", () => {
     const tf = new Set(TEST_FAST_DEFERRED);

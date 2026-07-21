@@ -38,16 +38,38 @@ describe("ci:regen-db-free --check", () => {
 });
 
 // Structural wiring: the nightly drift workflow must actually run the check on a
-// booted DB (Codex plan R1 — a workflow with no test can silently no-op).
+// booted DB (Codex plan R1 — a workflow with no test can silently no-op). Hand-
+// parse the YAML (the repo has no `yaml` dep; mirrors unit-suite-shard-topology.
+// test.ts) and assert the bootstrap runs strictly BEFORE the --check IN ONE JOB,
+// with real run-step lines (comments stripped), rather than raw substrings a
+// comment or separate job could satisfy (Codex guards-4).
 describe("db-free-drift.yml wiring", () => {
-  const yml = readFileSync(join(ROOT, ".github/workflows/db-free-drift.yml"), "utf8");
-  it("runs on a nightly schedule and manual dispatch", () => {
-    expect(yml).toMatch(/schedule:/);
-    expect(yml).toMatch(/cron:\s*["']0 7 \* \* \*["']/);
-    expect(yml).toMatch(/workflow_dispatch:/);
+  const YAML = readFileSync(join(ROOT, ".github/workflows/db-free-drift.yml"), "utf8");
+  // Directive lines only (drop whole-line `#` comments), so a token in prose
+  // cannot satisfy an assertion.
+  const directives = YAML.split("\n").filter((l) => !/^\s*#/.test(l));
+  // The jobs: block, then the single 2-space-indented job key under it.
+  const jobsIdx = directives.findIndex((l) => /^jobs:\s*$/.test(l));
+  // Job keys are the 2-space-indented keys AFTER `jobs:` (not the 2-space keys
+  // under `on:`, e.g. `schedule:`).
+  const jobKeys = directives.slice(jobsIdx + 1).filter((l) => /^ {2}[A-Za-z0-9_-]+:\s*$/.test(l));
+
+  it("declares exactly one job (so 'same job' is unambiguous)", () => {
+    expect(jobsIdx).toBeGreaterThanOrEqual(0);
+    expect(jobKeys.length).toBe(1);
   });
-  it("boots Supabase and runs the --check", () => {
-    expect(yml).toMatch(/supabase-local-bootstrap\.sh/);
-    expect(yml).toMatch(/ci:regen-db-free --check|regen-db-free\.mjs --check/);
+
+  it("runs on a nightly cron and manual dispatch", () => {
+    expect(directives.some((l) => /cron:\s*["']0 7 \* \* \*["']/.test(l))).toBe(true);
+    expect(directives.some((l) => /^\s*workflow_dispatch:/.test(l))).toBe(true);
+  });
+
+  it("boots Supabase strictly BEFORE the --check, in that one job", () => {
+    const body = directives.slice(jobsIdx);
+    const bootIdx = body.findIndex((l) => /supabase-local-bootstrap\.sh/.test(l));
+    const checkIdx = body.findIndex((l) => /regen-db-free(\.mjs)? --check/.test(l));
+    expect(bootIdx, "bootstrap step present").toBeGreaterThanOrEqual(0);
+    expect(checkIdx, "--check step present").toBeGreaterThanOrEqual(0);
+    expect(bootIdx, "bootstrap must precede --check").toBeLessThan(checkIdx);
   });
 });

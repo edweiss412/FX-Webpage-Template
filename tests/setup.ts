@@ -104,6 +104,17 @@ if (process.env.DB_TOUCH_PROBE === "1") {
   installSubprocessDbProbe();
   resetRecordedTouches();
 
+  // BEST-EFFORT ATTRIBUTION, by design (Codex guards-1). Attribution is set in
+  // beforeAll, so a socket/subprocess opened during MODULE EVALUATION (before
+  // beforeAll) or during late async teardown can be attributed to the previous
+  // file or dropped by the exact-file filter. That under-counting is expected and
+  // is precisely why this probe is OFFLINE list-GENERATION tooling, not a runtime
+  // guard: the committed allowlist it helps produce is independently protected at
+  // CI time by the STATIC DB-binding guard (db-free-movable-static-guard.test.ts),
+  // and any residual gap is caught by the clean-DB full-suite verification and the
+  // nightly drift job. Do not treat a green probe row as proof a file is DB-free —
+  // the static guard is the authority.
+  //
   // Attribute in beforeAll rather than at module scope: setup files are
   // evaluated before vitest has populated testPath for the file being set up.
   beforeAll(() => {

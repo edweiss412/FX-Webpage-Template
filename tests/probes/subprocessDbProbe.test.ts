@@ -87,4 +87,29 @@ describe("installSubprocessDbProbe", () => {
 
     expect(recordedTouches()).toEqual([]);
   });
+
+  // KNOWN LIMITATION, pinned deliberately (Codex guards-2). The probe patches the
+  // `child_process` module object, so it only intercepts NAMESPACE-style access
+  // (`child_process.execFileSync(...)`). A DESTRUCTURED `import { execFileSync }`
+  // binds the reference before the probe can patch, so its calls are NOT recorded
+  // — empirically confirmed (`NAMED_IMPORT_TOUCHES: []`). This is WHY the probe is
+  // offline list-GENERATION tooling, not a runtime guard, and why the committed
+  // allowlist is additionally protected by the STATIC DB-binding guard
+  // (db-free-movable-static-guard.test.ts), which catches subprocess DB access by
+  // source scan regardless of import style. This test fails loudly if someone
+  // "fixes" the probe to catch named imports without revisiting that contract.
+  it("does NOT intercept a reference bound BEFORE patch (named-import gap; static guard compensates)", () => {
+    // A destructured `import { execFileSync }` binds at module-load, BEFORE
+    // setup.ts installs the probe. Reproduce that by capturing the reference
+    // before install, then installing, then calling the captured reference.
+    uninstallSubprocessDbProbe();
+    const preBound = child_process.execFileSync;
+    installSubprocessDbProbe();
+    try {
+      preBound("psql", ["postgres://x@127.0.0.1:1/y"], { timeout: 500 });
+    } catch {
+      /* expected: no server */
+    }
+    expect(recordedTouches().some((t) => t.host === "subprocess:psql")).toBe(false);
+  });
 });

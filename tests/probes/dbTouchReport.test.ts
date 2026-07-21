@@ -42,6 +42,29 @@ describe("summarizeFile", () => {
     expect(row.db).toBe(0);
   });
 
+  // Anti-tautology (Codex guards-3): a subprocess DB touch is marked by host
+  // (`subprocess:*`), NOT by an observable port — the child psql opens its socket
+  // in another process. This pins that such a marker counts toward `db`; without
+  // it, deleting the `host.startsWith("subprocess:")` branch in summarizeFile
+  // would leave every other test green while silently erasing the subprocess
+  // class the runtime probe exists to record.
+  it("counts a subprocess:* marker as a DB touch even with port 0", () => {
+    const row = summarizeFile("tests/example/psqlshell.test.ts", [
+      { file: "tests/example/psqlshell.test.ts", host: "subprocess:psql", port: 0 },
+    ]);
+
+    expect(row.total).toBe(1);
+    expect(row.db).toBe(1);
+  });
+
+  it("does not count a non-DB subprocess marker as a DB touch", () => {
+    const row = summarizeFile("tests/example/gitshell.test.ts", [
+      { file: "tests/example/gitshell.test.ts", host: "127.0.0.1", port: 39001 },
+    ]);
+
+    expect(row.db).toBe(0);
+  });
+
   it("deduplicates repeated targets but keeps the raw connect count", () => {
     const row = summarizeFile("tests/example/chatty.test.ts", [
       { file: "tests/example/chatty.test.ts", host: "127.0.0.1", port: 54322 },

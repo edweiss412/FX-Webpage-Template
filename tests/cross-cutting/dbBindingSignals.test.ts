@@ -15,6 +15,12 @@ const POSITIVE: [string, string, string][] = [
   ["DATABASE_URL bracket", "a.test.ts", `const u = process.env["VALIDATION_DATABASE_URL"];`],
   ["postgres() call", "a.test.ts", `const sql = postgres(url);`],
   ["local pg url literal", "a.test.ts", `const u = "127.0.0.1:54322";`],
+  ["http local pg url (Codex mech-1)", "a.test.ts", `const u = "http://127.0.0.1:54321";`],
+  [
+    "postgresql:// connection string (Codex mech-1)",
+    "a.test.ts",
+    `const u = "postgresql://postgres@127.0.0.1:54322/postgres";`,
+  ],
   [
     "child_process node: + token",
     "a.test.ts",
