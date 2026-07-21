@@ -701,15 +701,15 @@ git commit -m "feat(dev): tier-1 warning scenarios with the enumerated generator
 
 ### Task 6: Tier-2 structural matrix
 
-Spec §4.2. Few codes, every structural axis. Each scenario's `bucket` predicates are the mechanism; the test asserts the routing outcome by running the real `bucketAttention`, never by trusting a label.
+Spec §4.2. Few codes, every structural axis. Codes are classified **at runtime** by the real predicates, never hardcoded: `INBOX_ROUTED_CODES` and `AUTO_RESOLVING_CODES` are themselves derived from the message catalog, so a hardcoded pick would drift the moment the catalog changes.
 
 **Files:**
 - Create: `lib/dev/attentionScenarios/tier2.ts (new)`
 - Test: `tests/dev/attentionScenariosTier2.test.ts (new)`
 
 **Interfaces:**
-- Consumes: `AttentionScenario` and `validateScenario` (Task 3); `scenarioIdForCode` (Task 4).
-- Produces: `MENU_CAP: 12`, `tier2Scenarios(): AttentionScenario[]`, and the exported id constants each test references: `T2_SECTION_ABSENT`, `T2_OVERVIEW_ABSENT`, `T2_ANCHOR_ABSENT`, `T2_CREW_ROW_ABSENT`, `T2_HOLD_ONLY`, `T2_INBOX_ROUTED`, `T2_AUTO_RESOLVING`, `T2_ACTIONABLE`, `T2_OCCURRENCE_MANY`, `T2_IDENTITY_ABSENT`, `T2_UNCATALOGED`, `T2_UNRESOLVED_PLACEHOLDER`, `T2_EMPTY`, `T2_SINGLE`, `T2_MANY`, `T2_DEGRADED`.
+- Consumes: `AttentionScenario`, `ScenarioAlertRow`, `validateScenario` (Task 3).
+- Produces: `MENU_CAP: 12`, `tier2Scenarios(): AttentionScenario[]`, `T2_REQUIRED_IDS: readonly string[]`, and the sixteen id constants below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -718,18 +718,31 @@ Spec §4.2. Few codes, every structural axis. Each scenario's `bucket` predicate
 import { describe, expect, test } from "vitest";
 import { bucketAttention } from "@/lib/admin/sectionAttention";
 import { deriveAttentionItems } from "@/lib/admin/attentionItems";
+import { isInboxRouted } from "@/lib/messages/adminSurface";
+import { isAutoResolving } from "@/lib/adminAlerts/audience";
 import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
 import {
   MENU_CAP,
   tier2Scenarios,
+  T2_REQUIRED_IDS,
   T2_SECTION_ABSENT,
   T2_OVERVIEW_ABSENT,
   T2_ANCHOR_ABSENT,
   T2_CREW_ROW_ABSENT,
-  T2_MANY,
+  T2_HOLD_ONLY,
+  T2_INBOX_ROUTED,
+  T2_AUTO_RESOLVING,
+  T2_ACTIONABLE,
+  T2_OCCURRENCE_MANY,
+  T2_IDENTITY_ABSENT,
   T2_UNCATALOGED,
+  T2_UNRESOLVED_PLACEHOLDER,
+  T2_EMPTY,
+  T2_SINGLE,
+  T2_MANY,
   T2_DEGRADED,
 } from "@/lib/dev/attentionScenarios/tier2";
+import { tier1AlertScenarios } from "@/lib/dev/attentionScenarios/tier1";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
 function byId(id: string): AttentionScenario {
@@ -738,29 +751,9 @@ function byId(id: string): AttentionScenario {
   return s;
 }
 
-/** Run the REAL derive + bucket for a scenario, returning which sections got cards. */
-function placements(s: AttentionScenario): Map<string, number> {
-  const items = deriveAttentionItems({ alerts: s.alerts.map(toInput), feed: null, slug: "demo" });
-  const map = bucketAttention(items, {
-    renderCard: () => "card",
-    sectionAvailable: s.bucket?.sectionAvailable ?? (() => true),
-    anchorAvailable: s.bucket?.anchorAvailable ?? (() => true),
-    ...(s.bucket?.crewKeyRendered ? { crewKeyRendered: s.bucket.crewKeyRendered } : {}),
-  });
-  const out = new Map<string, number>();
-  for (const [sectionId, bucket] of map) {
-    const n =
-      bucket.sectionTop.length +
-      [...(bucket.byAnchor?.values() ?? [])].reduce((a, v) => a + v.length, 0) +
-      [...(bucket.byCrewKey?.values() ?? [])].reduce((a, v) => a + v.length, 0);
-    out.set(sectionId, n);
-  }
-  return out;
-}
-
-function toInput(r: AttentionScenario["alerts"][number]) {
+function toInput(r: AttentionScenario["alerts"][number], i: number) {
   return {
-    id: `t-${r.code}`,
+    id: `t2-${i}-${r.code}`,
     code: r.code,
     context: r.context,
     raised_at: r.raised_at,
@@ -771,69 +764,186 @@ function toInput(r: AttentionScenario["alerts"][number]) {
   };
 }
 
+function itemsFor(s: AttentionScenario) {
+  return deriveAttentionItems({
+    alerts: s.alerts.map(toInput),
+    feed: s.holds.length === 0 ? null : { entries: holdEntriesFor(s) },
+    slug: "demo",
+  });
+}
+
+/** Minimal FeedEntry shapes so the hold axis actually flows through derive. */
+function holdEntriesFor(s: AttentionScenario) {
+  return s.holds.map((h, i) => ({
+    id: `hold-${i}`,
+    occurredAt: h.base_modified_time,
+    status: "pending" as const,
+    summary: `Hold on ${h.entity_key}`,
+    action: "approve_reject" as const,
+    entityRef: h.entity_key,
+    acceptable: false,
+    acknowledgedAt: null,
+    gate: { holdId: `hold-${i}`, disposition: h.proposed_value, baseModifiedTime: h.base_modified_time },
+  }));
+}
+
+/**
+ * Per-PLACEMENT-KIND counts. Deliberately NOT summed: collapsing sectionTop with
+ * byAnchor/byCrewKey would let a card that stayed in the anchor or crew bucket
+ * pass a "falls back to section top" assertion.
+ */
+function placements(s: AttentionScenario) {
+  const map = bucketAttention(itemsFor(s), {
+    renderCard: () => "card",
+    sectionAvailable: s.bucket?.sectionAvailable ?? (() => true),
+    anchorAvailable: s.bucket?.anchorAvailable ?? (() => true),
+    ...(s.bucket?.crewKeyRendered ? { crewKeyRendered: s.bucket.crewKeyRendered } : {}),
+  });
+  const out = new Map<string, { sectionTop: number; anchor: number; crewRow: number }>();
+  for (const [sectionId, b] of map) {
+    out.set(sectionId, {
+      sectionTop: b.sectionTop.length,
+      anchor: [...(b.byAnchor?.values() ?? [])].reduce((a, v) => a + v.length, 0),
+      crewRow: [...(b.byCrewKey?.values() ?? [])].reduce((a, v) => a + v.length, 0),
+    });
+  }
+  return out;
+}
+
+function totalPlaced(s: AttentionScenario): number {
+  let n = 0;
+  for (const v of placements(s).values()) n += v.sectionTop + v.anchor + v.crewRow;
+  return n;
+}
+
 describe("tier 2 structural matrix", () => {
-  test("every scenario is valid and tier 2", () => {
+  test("every required axis exists exactly once, and every scenario is valid tier 2", () => {
     const all = tier2Scenarios();
-    expect(all.length).toBeGreaterThanOrEqual(16);
+    const ids = all.map((s) => s.id);
+    // Set-equality against the declared list: a missing OR duplicated axis fails.
+    expect([...ids].sort()).toEqual([...T2_REQUIRED_IDS].sort());
     for (const s of all) {
       expect(validateScenario(s), s.id).toEqual([]);
       expect(s.tier, s.id).toBe(2);
     }
   });
 
-  test("a routed section that is unavailable falls back to Overview", () => {
+  test("a routed section that is unavailable falls back to Overview's section top", () => {
     const p = placements(byId(T2_SECTION_ABSENT));
-    expect(p.get("overview") ?? 0).toBeGreaterThan(0);
-    expect(p.get("crew") ?? 0).toBe(0);
+    expect(p.get("overview")?.sectionTop ?? 0).toBeGreaterThan(0);
+    expect(p.get("crew")?.sectionTop ?? 0).toBe(0);
   });
 
-  test("when Overview is also unavailable the card is DROPPED, not silently placed", () => {
-    const p = placements(byId(T2_OVERVIEW_ABSENT));
-    const total = [...p.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(0);
+  test("when no section is available the card is DROPPED", () => {
+    expect(totalPlaced(byId(T2_OVERVIEW_ABSENT))).toBe(0);
   });
 
-  test("an unavailable anchor falls back to its section top, not to Overview", () => {
-    const s = byId(T2_ANCHOR_ABSENT);
-    const p = placements(s);
-    expect(p.get("rooms") ?? 0).toBeGreaterThan(0);
+  test("an unavailable anchor falls to its SECTION TOP, not the anchor bucket", () => {
+    const rooms = placements(byId(T2_ANCHOR_ABSENT)).get("rooms");
+    expect(rooms?.sectionTop ?? 0).toBeGreaterThan(0);
+    expect(rooms?.anchor ?? 0).toBe(0); // the bug this test exists to catch
   });
 
-  test("an unrendered crew key falls back to the crew section top", () => {
-    const p = placements(byId(T2_CREW_ROW_ABSENT));
-    expect(p.get("crew") ?? 0).toBeGreaterThan(0);
+  test("an unrendered crew key falls to the CREW SECTION TOP, not the crew-row bucket", () => {
+    const crew = placements(byId(T2_CREW_ROW_ABSENT)).get("crew");
+    expect(crew?.sectionTop ?? 0).toBeGreaterThan(0);
+    expect(crew?.crewRow ?? 0).toBe(0); // the bug this test exists to catch
   });
 
-  test("the many-items scenario carries exactly MENU_CAP alerts", () => {
+  test("the hold-only axis produces a hold item and NO bucketed card", () => {
+    const s = byId(T2_HOLD_ONLY);
+    expect(s.alerts).toHaveLength(0);
+    const items = itemsFor(s);
+    expect(items.filter((i) => i.kind === "hold").length).toBeGreaterThan(0);
+    expect(totalPlaced(s)).toBe(0); // bucketAttention excludes holds by design
+  });
+
+  test("the three actionability axes are classified by the REAL predicates", () => {
+    const inbox = byId(T2_INBOX_ROUTED).alerts[0]!.code;
+    expect(isInboxRouted(inbox)).toBe(true);
+
+    const auto = byId(T2_AUTO_RESOLVING).alerts[0]!.code;
+    expect(isAutoResolving(auto)).toBe(true);
+    expect(isInboxRouted(auto)).toBe(false);
+
+    const actionable = byId(T2_ACTIONABLE).alerts[0]!.code;
+    expect(isInboxRouted(actionable)).toBe(false);
+    expect(isAutoResolving(actionable)).toBe(false);
+  });
+
+  test("actionability reaches the derived item, not just the fixture", () => {
+    const inboxItem = itemsFor(byId(T2_INBOX_ROUTED))[0]!;
+    expect(inboxItem.kind).toBe("alert");
+    expect(inboxItem.actionable).toBe(false);
+    if (inboxItem.kind === "alert") expect(inboxItem.alert.autoClearNote).not.toBeNull();
+
+    const actionableItem = itemsFor(byId(T2_ACTIONABLE))[0]!;
+    expect(actionableItem.actionable).toBe(true);
+    if (actionableItem.kind === "alert") expect(actionableItem.alert.autoClearNote).toBeNull();
+  });
+
+  test("the occurrence axis carries a count above one and it survives derivation", () => {
+    const item = itemsFor(byId(T2_OCCURRENCE_MANY))[0]!;
+    expect(byId(T2_OCCURRENCE_MANY).alerts[0]!.occurrence_count).toBe(7);
+    if (item.kind === "alert") expect(item.alert.occurrenceCount).toBe(7);
+  });
+
+  test("the identity-absent axis declares no galleryIdentity", () => {
+    expect(byId(T2_IDENTITY_ABSENT).alerts[0]!.galleryIdentity ?? null).toBeNull();
+  });
+
+  test("the uncataloged code falls back in title AND routes to Overview", () => {
+    const s = byId(T2_UNCATALOGED);
+    const item = itemsFor(s)[0]!;
+    expect(item.menuTitle).toBe("Something needs your attention on this show.");
+    expect(placements(s).get("overview")?.sectionTop ?? 0).toBeGreaterThan(0);
+  });
+
+  test("the unresolved-placeholder axis yields a null template, not a leaked token", () => {
+    const item = itemsFor(byId(T2_UNRESOLVED_PLACEHOLDER))[0]!;
+    if (item.kind === "alert") {
+      expect(item.alert.template).toBeNull();
+    }
+  });
+
+  test("the count axes are empty, one, and exactly MENU_CAP", () => {
+    expect(byId(T2_EMPTY).alerts).toHaveLength(0);
+    expect(byId(T2_EMPTY).holds).toHaveLength(0);
+    expect(byId(T2_SINGLE).alerts).toHaveLength(1);
     expect(byId(T2_MANY).alerts).toHaveLength(MENU_CAP);
   });
 
-  test("the uncataloged-code scenario routes to Overview via the derive fallback", () => {
-    const p = placements(byId(T2_UNCATALOGED));
-    expect(p.get("overview") ?? 0).toBeGreaterThan(0);
+  test("degraded is set on exactly one tier-2 scenario and on no tier-1 scenario", () => {
+    const flagged = tier2Scenarios().filter((s) => s.degraded === true).map((s) => s.id);
+    expect(flagged).toEqual([T2_DEGRADED]);
+    for (const s of tier1AlertScenarios()) expect(s.degraded ?? false, s.id).toBe(false);
   });
 
-  test("only the degraded scenario sets degraded, and only tier 2 sets bucket", () => {
-    expect(byId(T2_DEGRADED).degraded).toBe(true);
-    for (const s of tier2Scenarios()) {
-      if (s.id !== T2_DEGRADED) expect(s.degraded ?? false, s.id).toBe(false);
-    }
+  test("bucket appears only on the four fallback axes and on no tier-1 scenario", () => {
+    const withBucket = tier2Scenarios().filter((s) => s.bucket !== undefined).map((s) => s.id).sort();
+    expect(withBucket).toEqual(
+      [T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_ANCHOR_ABSENT, T2_CREW_ROW_ABSENT].sort(),
+    );
+    for (const s of tier1AlertScenarios()) expect(s.bucket, s.id).toBeUndefined();
   });
 });
 ```
 
-Failure mode caught: a fallback predicate that stops routing as documented — asserted against the real `bucketAttention` output, not against the scenario's own label. The Overview-absent case asserts a **drop** specifically, which is the one outcome an observation-only test could not distinguish from a bug.
+Failure modes caught, named per test: a missing or duplicated axis (set-equality, not a count); a card that stays in the anchor or crew-row bucket while a coarse assertion would call it "fallen back"; a hold that never reaches derivation; an actionability fixture whose code is misclassified; a leaked `<placeholder>` token; and `bucket`/`degraded` leaking onto tiers that cannot reproduce them.
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `pnpm vitest run tests/dev/attentionScenariosTier2.test.ts`
 Expected: FAIL, cannot resolve `@/lib/dev/attentionScenarios/tier2`.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement, with runtime classification and no omitted axes**
 
 ```ts
 // lib/dev/attentionScenarios/tier2.ts
-import type { AttentionScenario, ScenarioAlertRow } from "./types";
+import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { isInboxRouted } from "@/lib/messages/adminSurface";
+import { isAutoResolving } from "@/lib/adminAlerts/audience";
+import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
 export const MENU_CAP = 12;
 const AT = "2026-07-01T12:00:00.000Z";
@@ -855,8 +965,47 @@ export const T2_SINGLE = "t2-single";
 export const T2_MANY = "t2-many";
 export const T2_DEGRADED = "t2-degraded";
 
+export const T2_REQUIRED_IDS = [
+  T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_ANCHOR_ABSENT, T2_CREW_ROW_ABSENT,
+  T2_HOLD_ONLY, T2_INBOX_ROUTED, T2_AUTO_RESOLVING, T2_ACTIONABLE,
+  T2_OCCURRENCE_MANY, T2_IDENTITY_ABSENT, T2_UNCATALOGED, T2_UNRESOLVED_PLACEHOLDER,
+  T2_EMPTY, T2_SINGLE, T2_MANY, T2_DEGRADED,
+] as const;
+
+/**
+ * Classify at RUNTIME against the real predicates. INBOX_ROUTED_CODES and
+ * AUTO_RESOLVING_CODES are themselves derived from the message catalog, so a
+ * hardcoded code would silently stop representing its axis when the catalog moves.
+ * Throwing here is deliberate: an empty class is a catalog change this matrix must
+ * be updated for, not a scenario to skip.
+ */
+function pickCode(kind: "inbox" | "auto" | "actionable"): string {
+  const codes = Object.keys(ATTENTION_ROUTES).filter((c) => c !== "PICKER_EPOCH_RESET").sort();
+  const found = codes.find((c) => {
+    const inbox = isInboxRouted(c);
+    const auto = isAutoResolving(c);
+    if (kind === "inbox") return inbox;
+    if (kind === "auto") return auto && !inbox;
+    return !inbox && !auto;
+  });
+  if (found === undefined) throw new Error(`tier2: no ATTENTION_ROUTES code is ${kind}`);
+  return found;
+}
+
 function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
   return { code, context: {}, raised_at: AT, occurrence_count: 1, ...over };
+}
+
+function hold(entityKey: string): ScenarioHoldRow {
+  return {
+    drive_file_id: "gallery-fixture-file",
+    domain: "crew_email",
+    entity_key: entityKey,
+    held_value: { email: "old@example.test" },
+    proposed_value: { disposition: "email_change", name: "Dana Reed", email: "new@example.test" },
+    base_modified_time: AT,
+    kind: "mi11_pending",
+  };
 }
 
 function scenario(
@@ -867,20 +1016,29 @@ function scenario(
   return { id, tier: 2, label, ...rest };
 }
 
+// A crew-routed code and an anchored code, read from the routing table so the
+// fixtures cannot disagree with it.
+const CREW_CODE = Object.keys(ATTENTION_ROUTES).find(
+  (c) => ATTENTION_ROUTES[c]?.sectionId === "crew",
+)!;
+const ANCHORED_CODE = Object.keys(ATTENTION_ROUTES).find(
+  (c) => ATTENTION_ROUTES[c]?.sectionId === "rooms",
+)!;
+
 export function tier2Scenarios(): AttentionScenario[] {
   return [
     scenario(T2_SECTION_ABSENT, "Routed section unavailable, falls back to Overview", {
-      alerts: [alert("AMBIGUOUS_EMAIL_BINDING")],
+      alerts: [alert(CREW_CODE)],
       holds: [],
       bucket: { sectionAvailable: (s) => s === "overview" },
     }),
-    scenario(T2_OVERVIEW_ABSENT, "No available section, card is dropped", {
-      alerts: [alert("AMBIGUOUS_EMAIL_BINDING")],
+    scenario(T2_OVERVIEW_ABSENT, "No section available, card is dropped", {
+      alerts: [alert(CREW_CODE)],
       holds: [],
       bucket: { sectionAvailable: () => false },
     }),
     scenario(T2_ANCHOR_ABSENT, "Anchor slot absent, falls back to section top", {
-      alerts: [alert("EMBEDDED_ASSET_DRIFTED")],
+      alerts: [alert(ANCHORED_CODE)],
       holds: [],
       bucket: { anchorAvailable: () => false },
     }),
@@ -893,16 +1051,42 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
       bucket: { crewKeyRendered: () => false },
     }),
-    scenario(T2_UNCATALOGED, "Uncataloged code, fallback title and Overview route", {
-      alerts: [alert("NOT_A_REAL_CODE_FOR_GALLERY")],
+    scenario(T2_HOLD_ONLY, "A pending hold and no alerts", {
+      alerts: [],
+      holds: [hold("dana-reed")],
+    }),
+    scenario(T2_INBOX_ROUTED, "Inbox-routed code, auto-clears with the inbox note", {
+      alerts: [alert(pickCode("inbox"))],
+      holds: [],
+    }),
+    scenario(T2_AUTO_RESOLVING, "Self-resolving code, auto-clears with its own note", {
+      alerts: [alert(pickCode("auto"))],
+      holds: [],
+    }),
+    scenario(T2_ACTIONABLE, "Actionable code, manual resolve control renders", {
+      alerts: [alert(pickCode("actionable"))],
       holds: [],
     }),
     scenario(T2_OCCURRENCE_MANY, "Repeat count above one", {
-      alerts: [alert("SYNC_STALLED", { occurrence_count: 7 })],
+      alerts: [alert(pickCode("actionable"), { occurrence_count: 7 })],
+      holds: [],
+    }),
+    scenario(T2_IDENTITY_ABSENT, "No declared identity, so no menu subtitle", {
+      alerts: [alert(pickCode("actionable"), { galleryIdentity: null })],
+      holds: [],
+    }),
+    scenario(T2_UNCATALOGED, "Uncataloged code, fallback title and Overview route", {
+      alerts: [alert("GALLERY_UNCATALOGED_CODE")],
+      holds: [],
+    }),
+    scenario(T2_UNRESOLVED_PLACEHOLDER, "Params leave a token uninterpolated, template drops", {
+      // A cataloged code whose dougFacing template carries a <placeholder>, given
+      // an empty context so interpolation cannot complete.
+      alerts: [alert(pickCode("actionable"), { context: {} })],
       holds: [],
     }),
     scenario(T2_EMPTY, "No attention at all", { alerts: [], holds: [] }),
-    scenario(T2_SINGLE, "Exactly one item", { alerts: [alert("SYNC_STALLED")], holds: [] }),
+    scenario(T2_SINGLE, "Exactly one item", { alerts: [alert(pickCode("actionable"))], holds: [] }),
     scenario(T2_MANY, `${MENU_CAP} items, menu crosses its scroll threshold`, {
       alerts: Array.from({ length: MENU_CAP }, (_, i) =>
         alert(`GALLERY_FILLER_${String(i).padStart(2, "0")}`),
@@ -910,23 +1094,16 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
-    // Remaining axes follow the same shape; each is one scenario with one axis varied:
-    // T2_HOLD_ONLY (holds only, no alerts), T2_INBOX_ROUTED, T2_AUTO_RESOLVING,
-    // T2_ACTIONABLE (one code from each of the three actionability classes),
-    // T2_IDENTITY_ABSENT (galleryIdentity null), T2_UNRESOLVED_PLACEHOLDER
-    // (params that leave a <token> uninterpolated).
   ];
 }
 ```
 
-Fill the five commented axes using the same `scenario(...)` helper — the test asserts at least 16 scenarios exist and that every one validates, so an omitted axis fails.
-
-Pick the `T2_INBOX_ROUTED` / `T2_AUTO_RESOLVING` / `T2_ACTIONABLE` codes by checking the real predicates first: `rg -n "isInboxRouted|isAutoResolving" lib/messages/adminSurface.ts lib/adminAlerts/audience.ts`. Do not guess which codes fall in which class.
+Two notes the implementer needs. `T2_UNRESOLVED_PLACEHOLDER` must use a code whose catalog `dougFacing` actually contains a `<token>`; confirm with `rg -n "dougFacing" -A2 lib/messages/catalog.ts | rg "<[a-z_]+>"` and pin that code explicitly if `pickCode("actionable")` does not happen to return one — the test asserts `template === null`, so a code without a placeholder fails loudly rather than silently weakening the axis. `GALLERY_UNCATALOGED_CODE` and the `GALLERY_FILLER_*` codes are deliberately absent from both `MESSAGE_CATALOG` and `ATTENTION_ROUTES`, which is what makes them exercise the fallbacks.
 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/dev/attentionScenariosTier2.test.ts`
-Expected: PASS.
+Expected: PASS (14 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1128,6 +1305,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ScenarioBlock } from "@/components/admin/dev/ScenarioBlock";
 import type { ScenarioBlockProps } from "@/components/admin/dev/ScenarioBlock";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 function baseProps(over: Partial<ScenarioBlockProps> = {}): ScenarioBlockProps {
   return {
@@ -1167,6 +1345,42 @@ describe("ScenarioBlock", () => {
     expect(action).not.toHaveBeenCalled();
   });
 
+  test("the menu renders the supplied items, and the pill toggles it", async () => {
+    const item: AttentionItem = {
+      id: "alert:1", kind: "alert", tone: "notice", sectionId: "overview", crewKey: null,
+      actionable: true, menuTitle: "Sync stalled", menuSubtitle: "dana@example.test",
+      alert: {
+        alertId: "1", code: "SYNC_STALLED", template: null, params: {}, action: null,
+        helpHref: null, raisedAt: "2026-07-01T12:00:00.000Z", occurrenceCount: 1,
+        autoClearNote: null, failedKeys: null, dataGaps: null, errorCode: null,
+      },
+    };
+    render(<ScenarioBlock {...baseProps({ items: [item] })} />);
+    // open by default (spec 4.0), so the item is visible without a click
+    expect(screen.getByText("Sync stalled")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /attention/i }));
+    expect(screen.queryByText("Sync stalled")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /attention/i }));
+    expect(screen.getByText("Sync stalled")).toBeInTheDocument();
+  });
+
+  test("activating an item records it in the navigation readout", async () => {
+    const item: AttentionItem = {
+      id: "alert:42", kind: "hold", tone: "critical", sectionId: "changes", crewKey: null,
+      actionable: true, menuTitle: "Pick what happens", menuSubtitle: null,
+    };
+    render(<ScenarioBlock {...baseProps({ items: [item] })} />);
+    await userEvent.click(screen.getByText("Pick what happens"));
+    expect(screen.getByTestId("navigated").textContent ?? "").toContain("alert:42");
+  });
+
+  test("the pill shows the item count, and the degraded label when degraded", () => {
+    const { rerender } = render(<ScenarioBlock {...baseProps({ items: [], degraded: false })} />);
+    expect(screen.getByRole("button", { name: /attention \(0\)/i })).toBeInTheDocument();
+    rerender(<ScenarioBlock {...baseProps({ degraded: true })} />);
+    expect(screen.getByRole("button", { name: /degraded/i })).toBeInTheDocument();
+  });
+
   test("renders one labelled group per section with its nodes", () => {
     render(
       <ScenarioBlock
@@ -1180,15 +1394,28 @@ describe("ScenarioBlock", () => {
     );
     const overview = screen.getByTestId("group-overview-sectionTop");
     expect(within(overview).getByText("card-a")).toBeInTheDocument();
+    expect(within(overview).getByRole("heading", { name: "overview" })).toBeInTheDocument();
     const rooms = screen.getByTestId("group-rooms-anchor");
     expect(within(rooms).getByText("card-b")).toBeInTheDocument();
-    expect(within(rooms).getByText(/diagrams/)).toBeInTheDocument();
+    expect(within(rooms).getByRole("heading", { name: "rooms / diagrams" })).toBeInTheDocument();
   });
 
-  test("holds render in their own group, never inside a section group", () => {
-    render(<ScenarioBlock {...baseProps({ holdItems: [{ id: "hold:1", kind: "hold", tone: "critical", sectionId: "changes", crewKey: null, actionable: true, menuTitle: "Pick what happens", menuSubtitle: null }] })} />);
+  test("holds render in their own group and NOT inside a section group", () => {
+    render(
+      <ScenarioBlock
+        {...baseProps({
+          groups: [{ sectionId: "overview", placement: "sectionTop", anchorOrCrewKey: null, nodes: [<p key="a">card-a</p>] }],
+          holdItems: [{ id: "hold:1", kind: "hold", tone: "critical", sectionId: "changes", crewKey: null, actionable: true, menuTitle: "Pick what happens", menuSubtitle: null }],
+        })}
+      />,
+    );
     const holds = screen.getByTestId("hold-group");
     expect(within(holds).getByText("Pick what happens")).toBeInTheDocument();
+    // isolation: the section group exists and must NOT contain the hold
+    const overview = screen.getByTestId("group-overview-sectionTop");
+    expect(within(overview).queryByText("Pick what happens")).not.toBeInTheDocument();
+    // and the hold appears exactly once in the whole tree
+    expect(screen.getAllByText("Pick what happens")).toHaveLength(1);
   });
 
   test("warnings null renders no warning cards at all", () => {
@@ -1197,24 +1424,48 @@ describe("ScenarioBlock", () => {
     expect(screen.queryByTestId("warnings-muted")).not.toBeInTheDocument();
   });
 
-  test("warnings present renders BOTH the active and muted skins", () => {
+  test("warnings present renders BOTH skins, each carrying the warning content", () => {
     render(<ScenarioBlock {...baseProps({ warnings: [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "Synthetic warning for gallery review." }] })} />);
-    expect(screen.getByTestId("warnings-warning")).toBeInTheDocument();
-    expect(screen.getByTestId("warnings-muted")).toBeInTheDocument();
+    const active = screen.getByTestId("warnings-warning");
+    const muted = screen.getByTestId("warnings-muted");
+    // Not just that the wrappers exist: each must actually render the warning.
+    expect(within(active).getByText(/Synthetic warning for gallery review/)).toBeInTheDocument();
+    expect(within(muted).getByText(/Synthetic warning for gallery review/)).toBeInTheDocument();
+    // The two skins must differ; identical markup means one tone was not applied.
+    expect(active.innerHTML).not.toEqual(muted.innerHTML);
   });
 
-  test("the readout renders every row as label and value", () => {
-    render(<ScenarioBlock {...baseProps({ readout: [{ label: "sectionId", value: "rooms" }] })} />);
+  test("the readout renders EVERY row, not just the first", () => {
+    render(
+      <ScenarioBlock
+        {...baseProps({
+          readout: [
+            { label: "sectionId", value: "rooms" },
+            { label: "anchor", value: "diagrams" },
+            { label: "actionable", value: "true" },
+          ],
+        })}
+      />,
+    );
     const dl = screen.getByTestId("readout");
-    expect(within(dl).getByText("sectionId")).toBeInTheDocument();
-    expect(within(dl).getByText("rooms")).toBeInTheDocument();
+    for (const [label, value] of [["sectionId", "rooms"], ["anchor", "diagrams"], ["actionable", "true"]]) {
+      expect(within(dl).getByText(label!)).toBeInTheDocument();
+      expect(within(dl).getByText(value!)).toBeInTheDocument();
+    }
+    expect(within(dl).getAllByRole("term")).toHaveLength(3);
   });
 
-  test("maxWidthPx null applies no width constraint; a number applies it", () => {
+  test("maxWidthPx applies only for a positive finite number", () => {
     const { rerender } = render(<ScenarioBlock {...baseProps({ maxWidthPx: null })} />);
     expect(screen.getByTestId("block-root").style.maxWidth).toBe("");
     rerender(<ScenarioBlock {...baseProps({ maxWidthPx: 390 })} />);
     expect(screen.getByTestId("block-root").style.maxWidth).toBe("390px");
+    // The page normalizes this value, but the component must not emit "NaNpx" or
+    // "-1px" if it ever receives one; absence is the documented fallback.
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      rerender(<ScenarioBlock {...baseProps({ maxWidthPx: bad })} />);
+      expect(screen.getByTestId("block-root").style.maxWidth, String(bad)).toBe("");
+    }
   });
 });
 ```
@@ -1265,7 +1516,13 @@ export function ScenarioBlock(props: ScenarioBlockProps) {
     <section
       data-testid="block-root"
       className="relative mb-16 pb-[26rem]"
-      style={props.maxWidthPx === null ? undefined : { maxWidth: `${props.maxWidthPx}px` }}
+      // Positive finite only: never emit "NaNpx" or "-1px". The page normalizes
+      // this value (Task 9), so this guard is belt-and-braces, not a second parser.
+      style={
+        props.maxWidthPx !== null && Number.isFinite(props.maxWidthPx) && props.maxWidthPx > 0
+          ? { maxWidth: `${props.maxWidthPx}px` }
+          : undefined
+      }
       // Spec §4.4: every server action in this subtree posts through a form submit,
       // so one capture-phase preventDefault neutralizes all of them, including any
       // added later, without touching a production component.
