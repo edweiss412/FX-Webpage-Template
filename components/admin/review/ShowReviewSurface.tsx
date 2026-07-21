@@ -49,6 +49,7 @@ import {
   Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
+import type { SectionAttention } from "@/lib/admin/sectionAttention";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
 // WARNING_HIGHLIGHT_MS stays DEFINED in Step3ReviewModal.tsx (the §11
 // source-marker audit pins `export const WARNING_HIGHLIGHT_MS = 1600;` to that
@@ -162,7 +163,7 @@ export function ShowReviewSurface({
   isPublishRunActive = false,
   attentionSections,
   attentionJump,
-  crewAttention,
+  sectionAttention,
 }: {
   data: SectionData;
   isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
@@ -181,8 +182,19 @@ export function ShowReviewSurface({
   // optional; ABSENT → byte-identical rendering (the staged wizard passes none).
   attentionSections?: ReadonlySet<string>; // registry section ids holding ≥1 actionable item → amber dot
   attentionJump?: AttentionJump | null; // scroll+flash request (menu row click / deep link)
-  crewAttention?: CrewAttention; // pre-rendered crew banners, threaded via the crew chrome context
+  sectionAttention?: SectionAttention; // per-section attention buckets; crew banners thread via the crew chrome context
 }): JSX.Element {
+  // Crew banners still thread through the crew chrome context unchanged; the
+  // generalized transport (attention-alert-routing §3.2) carries them in the
+  // shared SectionAttention map under the "crew" key. Deriving the crew bucket
+  // here preserves the exact CrewAttention payload the crew section already reads.
+  const crewBucket = sectionAttention?.get("crew");
+  const crewAttention: CrewAttention | undefined = crewBucket
+    ? { byCrewKey: crewBucket.byCrewKey ?? new Map(), sectionTop: crewBucket.sectionTop }
+    : undefined;
+  // The two parse notices, composed by the warnings section (§3.2). Read once so
+  // the prop value is exactly NoteItem[] (not a re-narrowed Map lookup).
+  const warningsNotes = sectionAttention?.get("warnings")?.notes;
   // Staged-only identifiers (spec §3.2): `dfid` fills the section/rail testids;
   // in staged mode it is the drive file id (byte-identical to the modal), in
   // published mode it falls back to the mode-agnostic `driveFileId`.
@@ -917,6 +929,12 @@ export function ShowReviewSurface({
                   // through the crew section's chrome value only (ABSENT
                   // elsewhere and in staged mode — exactOptional discipline).
                   ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
+                  // attention-alert-routing §3.2: the two parse notices render as
+                  // banner LINES atop the Parse-warnings panel; they travel as
+                  // domain items so WarningsBreakdown composes them with warnings.length.
+                  ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
+                    ? { parseNotes: warningsNotes }
+                    : {}),
                   ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
                     ? {
                         // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with

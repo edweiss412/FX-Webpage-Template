@@ -83,6 +83,7 @@ import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
+import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
 import {
   GROUP_THRESHOLD,
@@ -220,7 +221,10 @@ function IdentityChip({ entry }: { entry: BellEntry }) {
 const LINK_CTA =
   "inline-flex min-h-tap-min items-center gap-1 rounded-sm text-[13px] font-semibold text-accent-on-bg transition-colors duration-fast hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 // Trailing ghost Dismiss (DESIGN.md §16): quiet by default, lifts on hover.
-const GHOST_DISMISS =
+// Ghost styling for the row's resolve control. Named for the ROLE, not a verb:
+// the label itself is intent-driven (lib/adminAlerts/resolveActionLabel.ts) and
+// reads "Confirm" or "Mark resolved" depending on the code.
+const GHOST_RESOLVE =
   "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
 // Show-page nav chevron (spec §4.1): reuses LINK_CTA's accent color + focus-ring
 // vocabulary, but sized as an icon-only affordance (`size-tap-min`, the same
@@ -331,9 +335,11 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           onClick={() => void onResolve()}
           disabled={resolving}
           aria-busy={resolving}
-          className={GHOST_DISMISS}
+          className={GHOST_RESOLVE}
         >
-          {resolving ? "Dismissing…" : "Dismiss"}
+          {resolving
+            ? resolveActionLabels(entry.code).pending
+            : resolveActionLabels(entry.code).idle}
         </button>
       )}
     </div>

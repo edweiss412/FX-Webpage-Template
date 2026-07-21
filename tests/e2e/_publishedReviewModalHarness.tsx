@@ -69,6 +69,7 @@ export function harnessAttentionItems(count: number): AttentionItem[] {
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
     },
   }));
 }

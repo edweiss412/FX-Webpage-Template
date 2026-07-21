@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
-import { extractAdminLogOnlyCodes } from "@/scripts/extract-admin-log-only-codes";
+import {
+  extractAdminLogOnlyCodes,
+  CARD_SURFACED_LOG_ONLY,
+} from "@/scripts/extract-admin-log-only-codes";
 
 describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
   const masterSpec = readFileSync(
@@ -28,10 +31,20 @@ describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
         `${code}.dougFacing should be null per master-spec admin-log-only`,
       ).toBeNull();
       expect(entry.crewFacing, `${code}.crewFacing should be null`).toBeNull();
-      expect(entry.helpfulContext, `${code}.helpfulContext should be null`).toBeNull();
-      expect(entry.title, `${code}.title should be null`).toBeNull();
       expect(entry.longExplanation, `${code}.longExplanation should be null`).toBeNull();
       expect(entry.helpHref, `${code}.helpHref should be null`).toBeNull();
+      if (CARD_SURFACED_LOG_ONLY.has(code)) {
+        // Card-surfaced carve-out (spec 2026-07-20-warning-card-copy-restore §3.1):
+        // these render on the operator warning cards, so card copy is REQUIRED.
+        expect(entry.title, `${code}.title required (card-surfaced)`).not.toBeNull();
+        expect(
+          entry.helpfulContext,
+          `${code}.helpfulContext required (card-surfaced)`,
+        ).not.toBeNull();
+      } else {
+        expect(entry.helpfulContext, `${code}.helpfulContext should be null`).toBeNull();
+        expect(entry.title, `${code}.title should be null`).toBeNull();
+      }
     });
   }
 });

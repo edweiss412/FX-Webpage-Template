@@ -198,6 +198,9 @@ export function RotateShareTokenButton({
     };
   }, [isResolving, onBusyChange]);
 
+  /** Confirm-branch header ONLY. The idle row renders its own label/description
+   *  inside the button (see `rowButton`); these must stay SEPARATE so restyling
+   *  the idle row cannot shift the ratified confirm render. */
   const labelHeader =
     compact && rowLabel ? (
       <div className="min-w-0">
@@ -216,20 +219,46 @@ export function RotateShareTokenButton({
       ref={triggerRef}
       onClick={onRotateClick}
       data-testid="admin-rotate-share-token-button"
-      aria-label={compact ? "Rotate share link" : undefined}
-      aria-describedby={compact && rowDescription ? descId : undefined}
-      className={
-        compact
-          ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-      }
+      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
     >
-      {compact ? (
-        <RotateCcw aria-hidden="true" size={14} />
-      ) : (
-        <AlertTriangle aria-hidden="true" size={16} />
-      )}
-      {compact ? "Rotate" : "Rotate share-token"}
+      <AlertTriangle aria-hidden="true" size={16} />
+      Rotate share-token
+    </button>
+  );
+
+  /**
+   * Compact IDLE render: one borderless full-width menu row (icon, then a
+   * stacked label/description column), matching the popover's mailto rows and
+   * the design mock. Spec 2026-07-20-share-hub-fidelity-fixes §4.1.
+   *
+   * `aria-label` is BOUND to `rowLabel` rather than hardcoded: a caller passing
+   * a different label would otherwise diverge from the visible text and violate
+   * WCAG 2.5.3. Both attributes are omitted for a blank value, since an empty
+   * accessible name is worse than none.
+   *
+   * The wrapper below is a plain, non-interactive `div` written with a LITERAL
+   * class string — a source-form contract that `_metaRowWrapperInert.test.ts`
+   * parses to prove no handler is attached to it.
+   */
+  const rowButton = (
+    <button
+      type="button"
+      ref={triggerRef}
+      onClick={onRotateClick}
+      data-testid="admin-rotate-share-token-button"
+      aria-label={rowLabel?.trim() ? rowLabel : undefined}
+      aria-describedby={rowDescription?.trim() ? descId : undefined}
+      className="flex min-h-tap-min w-full items-center gap-2 rounded-sm p-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+    >
+      <RotateCcw aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+      <span className="flex min-w-0 flex-col">
+        <span className="text-sm font-medium text-text-strong">{rowLabel}</span>
+        {rowDescription?.trim() ? (
+          <span id={descId} className="text-xs text-text-subtle">
+            {rowDescription}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
 
@@ -277,11 +306,8 @@ export function RotateShareTokenButton({
 
   if (ui === "idle") {
     return compact && rowLabel ? (
-      <div className="flex flex-col gap-2 py-3">
-        <div className="flex items-start justify-between gap-3">
-          {labelHeader}
-          {idleButton}
-        </div>
+      <div className="flex w-full flex-col gap-2">
+        {rowButton}
         {banners}
       </div>
     ) : (

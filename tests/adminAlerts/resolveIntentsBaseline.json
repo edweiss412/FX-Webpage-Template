@@ -1,0 +1,24 @@
+{
+  "_comment": "Every code->intent pair RESOLVE_INTENTS has ever held. APPEND-ONLY: never remove a row, never change an intent. admin_alerts rows persist, so deleting a retired producer's row would silently flip already-stored rows from Confirm back to Mark resolved. Retiring a producer means retired:true in RESOLVE_INTENTS, which keeps the pair. Enforced against origin/main by _metaResolveIntentLifecycle.test.ts, because no single-tree assertion can enforce append-only.",
+  "intents": {
+    "ROLE_FLAGS_NOTICE": "confirm",
+    "AMBIGUOUS_EMAIL_BINDING": "resolve",
+    "OAUTH_IDENTITY_CLAIMED": "resolve",
+    "PICKER_BOOTSTRAP_RPC_FAILED": "resolve",
+    "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED": "resolve",
+    "CALLBACK_CLAIM_THREW": "resolve",
+    "PICKER_SELECTION_RACE": "resolve",
+    "PICKER_EPOCH_RESET": "resolve",
+    "LIVE_ROW_CONFLICT": "resolve",
+    "SHOW_FIRST_PUBLISHED": "resolve",
+    "REPORT_ORPHANED_LOST_LEASE": "resolve",
+    "REPORT_LOOKUP_INCONCLUSIVE": "resolve",
+    "REPORT_DUPLICATE_LIVE_MATCHES": "resolve",
+    "REPORT_OPEN_ORPHAN_LABEL": "resolve",
+    "REPORT_LEASE_THRASHING": "resolve",
+    "STALE_ORPHAN_REPORT": "resolve",
+    "TILE_SERVER_RENDER_FAILED": "resolve",
+    "WIZARD_SESSION_SUPERSEDED_RACE": "resolve",
+    "ONBOARDING_SHEET_UNREADABLE": "resolve"
+  }
+}

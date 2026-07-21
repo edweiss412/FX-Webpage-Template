@@ -51,6 +51,7 @@ function item(over: {
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
       ...over.alert,
     },
   };

@@ -814,3 +814,38 @@ describe("BellPanel — triage severity grouping (BELL-2)", () => {
     });
   });
 });
+
+describe("resolve-label intent (show-scoped-alert-copy §5)", () => {
+  // The bell's remaining 4 cells of the 3-surface x 2-intent x 2-state matrix.
+  // The button reads its verb from resolveActionLabels(entry.code), so one
+  // alert now reads the same here as in the show modal and telemetry, where it
+  // used to say "Dismiss" while they said "Mark resolved".
+  it.each([
+    ["ROLE_FLAGS_NOTICE", /^Confirm$/],
+    ["AMBIGUOUS_EMAIL_BINDING", /^Mark resolved$/],
+  ])("idle row for %s reads the intent label", async (code, expected) => {
+    const entries = [makeEntry({ alertId: "lbl", state: "active", code })];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+    await waitFor(() => expect(getByTestId("bell-resolve-lbl")).toBeTruthy());
+    // Anchored: "Confirm" as a substring also matches "Confirming…".
+    expect(getByTestId("bell-resolve-lbl").textContent).toMatch(expected);
+  });
+
+  it.each([
+    ["ROLE_FLAGS_NOTICE", /^Confirming…$/],
+    ["AMBIGUOUS_EMAIL_BINDING", /^Resolving…$/],
+  ])("pending row for %s reads the intent label", async (code, expected) => {
+    // `resolving` is internal state driven by the row's own POST, so hang the
+    // resolve call (but not the feed fetch) and click.
+    const entries = [makeEntry({ alertId: "lblp", state: "active", code })];
+    const body = feedBody({ entries });
+    fetchMock.mockImplementation((url: string) =>
+      url.includes("/bell/feed") ? Promise.resolve(jsonOk(body)) : new Promise(() => {}),
+    );
+    const { getByTestId } = renderPanel();
+    await waitFor(() => expect(getByTestId("bell-resolve-lblp")).toBeTruthy());
+    fireEvent.click(getByTestId("bell-resolve-lblp"));
+    await waitFor(() => expect(getByTestId("bell-resolve-lblp").textContent).toMatch(expected));
+  });
+});

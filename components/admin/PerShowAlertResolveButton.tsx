@@ -18,10 +18,17 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 
 type Props = {
   alertId: string;
   slug: string;
+  /**
+   * The alert's catalog code. Drives the button's verb: an approval reads
+   * "Confirm", a fault reads "Mark resolved" (lib/adminAlerts/resolveActionLabel.ts).
+   * Required, so a caller cannot silently render the wrong one.
+   */
+  code: string;
   /**
    * Success-path hook (published-show-alerts §6.3): fired AFTER the route
    * confirms the resolve, BEFORE router.refresh(). Drives the attention
@@ -43,9 +50,10 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 }
 
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
-const GENERIC_ERROR = "We could not mark this alert resolved. Refresh and try again.";
+const GENERIC_ERROR = "We could not resolve this alert. Refresh and try again.";
 
-export function PerShowAlertResolveButton({ alertId, slug, onResolved }: Props) {
+export function PerShowAlertResolveButton({ alertId, slug, code, onResolved }: Props) {
+  const labels = resolveActionLabels(code);
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -85,7 +93,7 @@ export function PerShowAlertResolveButton({ alertId, slug, onResolved }: Props) 
         disabled={state.kind === "running"}
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
-        {state.kind === "running" ? "Resolving…" : "Mark resolved"}
+        {state.kind === "running" ? labels.pending : labels.idle}
       </button>
       {state.kind === "error" ? (
         <div

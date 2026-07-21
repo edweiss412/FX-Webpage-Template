@@ -16,12 +16,14 @@ import type { ReactNode } from "react";
  * the human .message) — NEVER the bare code (invariant 5).
  *
  * Laid out as `CompactAlertCard` (spec 2026-07-20-show-alert-compact §4.2):
- * the offending row label collapses into the detail band, the sheet deep link
- * sits in the footer bar, and the catalog's helpful context moved into the `?`
- * popover. Item controls render in the CONTROLS BAND below the footer, never in
- * the footer's right cluster — `renderItemControls` returns a full cluster
- * (Report/Ignore, the use-raw radio interface, the role editor), which a
- * single-row footer cannot host (spec §3.3, amendment A1).
+ * the offending row label collapses into the detail band, and the catalog's
+ * helpful context moved into the `?` popover. The "Open in Sheet" deep link and
+ * the item controls share ONE controls band — link inline at the left, the
+ * controls cluster pushed to the right (ml-auto) — so the link never occupies
+ * its own footer row. `renderItemControls` returns a full cluster (Report/Ignore,
+ * the use-raw radio interface, the role editor), which is why this lives in the
+ * expansive controls band rather than the footer's right cluster (spec §3.3,
+ * amendment A1).
  *
  * These cards carry no stripe: the live surface never had one, so the shell's
  * `review` default is overridden explicitly on the warning path as well as the
@@ -33,6 +35,15 @@ import type { ReactNode } from "react";
  * R1). Renders nothing when `items` is empty. Shared by the per-show panel and
  * StagedReviewCard.
  */
+/** Guard: spec 2026-07-20-warning-card-copy-restore §5 - empty/whitespace/absent copy fields render nothing. */
+export function warningCardCopyFields(
+  entry: { helpfulContext?: string | null; triggerContext?: string | null } | null,
+): { guidance: string | null; trigger: string | null } {
+  const pick = (v: string | null | undefined) =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+  return { guidance: pick(entry?.helpfulContext), trigger: pick(entry?.triggerContext) };
+}
+
 export function PerShowActionableWarnings({
   items,
   driveFileId,
@@ -69,7 +80,9 @@ export function PerShowActionableWarnings({
         // code (defense beyond the four known human-message codes).
         const humanMessage = w.message && w.message !== w.code ? w.message : null;
         const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
-        const context = entry?.helpfulContext ?? null;
+        // Inline guidance = condensed helpfulContext; popover = triggerContext
+        // (spec 2026-07-20-warning-card-copy-restore §3.3 - reverses #509 G2).
+        const { guidance, trigger: context } = warningCardCopyFields(entry);
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
@@ -105,7 +118,7 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
-        const footerLeft: ReactNode = href ? (
+        const sheetLink: ReactNode = href ? (
           <a
             href={href}
             target="_blank"
@@ -118,17 +131,45 @@ export function PerShowActionableWarnings({
 
         const controls = renderItemControls ? renderItemControls(w, i) : null;
 
+        // Single controls band: the "Open in Sheet" link sits inline at the left,
+        // the item controls pushed to the right (ml-auto) — never its own footer row.
+        const controlsBand: ReactNode =
+          sheetLink || controls ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {sheetLink}
+              {controls ? (
+                <div className={`flex flex-wrap items-center gap-2 ${sheetLink ? "ml-auto" : ""}`}>
+                  {controls}
+                </div>
+              ) : null}
+            </div>
+          ) : null;
+
         return (
           <li key={keys[i]} data-testid="per-show-actionable-item">
             <CompactAlertCard
               tone={tone}
               stripe="none"
-              message={<span className="text-text-strong">{renderEmphasis(title)}</span>}
+              message={
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span data-testid="per-show-actionable-title" className="text-text-strong">
+                    {renderEmphasis(title)}
+                  </span>
+                  {guidance ? (
+                    <span
+                      data-testid="per-show-actionable-guidance"
+                      className={`text-xs/relaxed font-normal ${tone === "muted" ? "text-text-subtle" : "text-warning-text"}`}
+                    >
+                      {renderEmphasis(guidance)}
+                    </span>
+                  ) : null}
+                </span>
+              }
               helpTrigger={
                 context ? (
                   <CompactAlertHelp
                     subject={typeof title === "string" ? title : null}
-                    helpfulContext={context}
+                    popoverCopy={context}
                     // No helpHref on this surface, so the Learn-more route gate
                     // is never consulted; the constant keeps this a server component.
                     helpHref={null}
@@ -138,8 +179,7 @@ export function PerShowActionableWarnings({
                 ) : null
               }
               detailBand={detailBand}
-              footerLeft={footerLeft}
-              controlsBand={controls}
+              controlsBand={controlsBand}
             />
           </li>
         );

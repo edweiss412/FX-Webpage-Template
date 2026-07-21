@@ -15,9 +15,11 @@
  */
 import { useFormStatus } from "react-dom";
 import { resolveHealthAlertFormAction } from "@/app/admin/actions";
+import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 
-function SubmitButton({ alertId }: { alertId: string }) {
+function SubmitButton({ alertId, code }: { alertId: string; code: string }) {
   const { pending } = useFormStatus();
+  const labels = resolveActionLabels(code);
   return (
     <button
       type="submit"
@@ -25,19 +27,26 @@ function SubmitButton({ alertId }: { alertId: string }) {
       disabled={pending}
       className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
-      {pending ? "Resolving…" : "Mark resolved"}
+      {pending ? labels.pending : labels.idle}
     </button>
   );
 }
 
-export function HealthAlertResolveButton({ alertId }: { alertId: string }) {
+export function HealthAlertResolveButton({
+  alertId,
+  code,
+}: {
+  alertId: string;
+  /** The alert's catalog code; picks the button's verb. */
+  code: string;
+}) {
   return (
     <form
       action={resolveHealthAlertFormAction}
       data-testid={`health-alert-resolve-form-${alertId}`}
     >
       <input type="hidden" name="id" value={alertId} />
-      <SubmitButton alertId={alertId} />
+      <SubmitButton alertId={alertId} code={code} />
     </form>
   );
 }

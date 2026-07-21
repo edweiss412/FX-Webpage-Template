@@ -294,6 +294,7 @@ export async function loadBellFeed(
         e.code,
         contextByAlertId.get(e.alertId) ?? null,
         identity,
+        "global",
       ),
     };
   });

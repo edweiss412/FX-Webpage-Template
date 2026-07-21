@@ -102,6 +102,13 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // §8.4). Same elevated-seed class as claimStamp/seedShowWithCrew above.
     ["_realtimeDrivabilityProbe.ts", 1],
     ["published-review-modal.realtime.spec.ts", 1],
+    // closeFreshness (2026-07-20): renames the seeded show via a SERVICE-ROLE
+    // admin-client shows.title UPDATE while the modal is open, to prove the
+    // dashboard reconciles after a prefetched close. Same elevated-seed class
+    // as realtime above (the lockdown REVOKEs from authenticated, not
+    // service_role); a lifecycle action would call revalidatePath("/admin")
+    // and mask the very reconcile the test asserts.
+    ["published-review-modal.closeFreshness.spec.ts", 1],
     // crew-layout-dimensions.spec.ts: the unified show-day timeline (Today Mode A)
     // needs a high-confidence agenda for the seeded show day so the MERGED timeline
     // mounts. Its beforeAll seeds shows.agenda_links and afterAll restores it — 2

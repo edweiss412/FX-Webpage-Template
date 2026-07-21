@@ -167,7 +167,7 @@ export async function fetchPerShowAlerts(
   return rows.map((r) => {
     const identity = identities.get(r.id);
     const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
-    const messageParams = deriveAlertMessageParams(r.code, r.context, identity ?? null);
+    const messageParams = deriveAlertMessageParams(r.code, r.context, identity ?? null, "show");
     const crewName = crewNameFor(r.code, projectedById.get(r.id)!, identity);
     return { ...r, identityText, messageParams, crewName };
   });

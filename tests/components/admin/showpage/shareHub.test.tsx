@@ -21,6 +21,14 @@ vi.mock("@/lib/auth/picker/rotateShareToken", () => ({ rotateShareToken: rotateM
 vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({ resetPickerEpoch: epochMock }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
+import {
+  expectClasses,
+  expectRowBoundary,
+  expectRowText,
+  NO_BORDER,
+  NO_REST_BACKGROUND,
+  WRAPPER_CLASSES,
+} from "./_rowAssertions";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
@@ -232,6 +240,102 @@ describe("ShareHub — open/close semantics", () => {
   });
 });
 
+describe("ShareHub — z-order (spec §3)", () => {
+  it("elevates its root ONLY while open, so a closed hub cannot paint over the attention menu", () => {
+    renderHub();
+    const root = primary().parentElement as HTMLElement;
+    expect(root.className).toContain("relative");
+    expect(root.className).not.toContain("z-30");
+
+    fireEvent.click(primary());
+    expect(root.className).toContain("z-30");
+
+    fireEvent.click(primary());
+    expect(root.className).not.toContain("z-30");
+  });
+
+  it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
+    renderHub();
+    // The AUTHORITATIVE guard for this defect is T-HUB-ZORDER in the real
+    // browser (elementFromPoint over the overlap); jsdom computes no paint
+    // order. This is a cheap belt-and-suspenders check on the ONE thing a class
+    // scan can decide: a trigger overpaints the menu only if it carries a
+    // z-index at or above the menu's level (20). Per CSS 2.1 Appendix E a
+    // positioned element at z-auto/z-0 paints BELOW a positive-z context, and
+    // z-10 < z-20, so none of `relative`, `z-0`, `z-10`, or `isolate` (a
+    // level-0 context) reintroduces it — only z >= 20 does. Parse the level and
+    // assert it, so a correct refactor adding a low z stays green.
+    // The MAX positive z across ALL tokens. Not a single .exec (`z-10 z-30` must
+    // read as 30), and NOT by stripping the variant prefix (its grammar is
+    // open-ended — `sm:`, `dark:`, `data-[state=open]:`, `[&:hover]:`,
+    // `supports-[display:grid]:` …). Instead the z-utility is matched as a
+    // SUFFIX: every Tailwind z token ends in `z-<n>` / `z-[<n>]` at token start
+    // or immediately after a colon, whatever precedes it. That closes the whole
+    // prefix class rather than enumerating spellings. Negatives never raise the
+    // max, so a trigger with only `-z-10` reads 0 and passes.
+    const maxZLevel = (cls: string): number => {
+      let max = 0;
+      for (const tok of cls.split(/\s+/).filter(Boolean)) {
+        // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
+        // plausible way to force an elevation, so allow it before the anchor.
+        const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
+        if (!m) continue;
+        const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
+        if (n > max) max = n;
+      }
+      return max;
+    };
+    for (const el of [primary(), kebab()]) {
+      expect(
+        maxZLevel(el.className),
+        `${el.className} must stay below the menu's z-20`,
+      ).toBeLessThan(20);
+    }
+  });
+});
+
+describe("ShareHub — caret (spec §5)", () => {
+  it("renders a decorative caret OUTSIDE the popover, AFTER it, and inert", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const caret = screen.getByTestId("share-hub-caret");
+    expect(caret.getAttribute("aria-hidden")).toBe("true");
+
+    // Sibling, NOT a child: a child would be clipped by the panel's
+    // overflow-y-auto and silently invisible.
+    expect(popover().contains(caret)).toBe(false);
+
+    // Two z-40 siblings: TREE ORDER decides paint order, not z-index. The caret
+    // must FOLLOW the popover or the panel's top border cuts the notch.
+    expect(
+      popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Same positioned parent, or the caret is anchored to the wrong ancestor.
+    expect(caret.parentElement).toBe(popover().parentElement);
+    expectClasses(caret.parentElement!, { has: ["relative"] });
+
+    // aria-hidden does not disable hit-testing: without pointer-events-none the
+    // caret would intercept clicks in its overlap with the panel and any
+    // panelRef.contains(target) check would read them as outside the dialog.
+    expectClasses(caret, { has: ["pointer-events-none"] });
+
+    // The two are equal-z SIBLINGS, so tree order (asserted above) only decides
+    // paint order while both stay at z-40. Pin the level on both, or lowering the
+    // caret's z would drop it behind the panel while order + geometry still pass.
+    expectClasses(caret, { has: ["z-40"] });
+    expectClasses(popover(), { has: ["z-40"] });
+
+    // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
+    // have moved it off the focused element.
+    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,32rem)]"] });
+
+    fireEvent.click(primary());
+    expect(screen.queryByTestId("share-hub-caret")).toBeNull();
+  });
+});
+
 describe("ShareHub — published arm content", () => {
   it("renders the crew URL derived from origin+slug+token, plus Copy", () => {
     renderHub();
@@ -313,7 +417,60 @@ describe("ShareHub — unpublished arm", () => {
   });
 });
 
+/** The prescribed row class list (spec §4.1), shared by both Careful rows. */
+const ROW_TOKENS = [
+  "flex",
+  "w-full",
+  "items-center",
+  "gap-2",
+  "rounded-sm",
+  "min-h-tap-min",
+  "p-2",
+  "text-left",
+  "hover:bg-surface-sunken",
+  "transition-colors",
+  "duration-fast",
+  "focus-visible:outline-none",
+  "focus-visible:ring-2",
+  "focus-visible:ring-focus-ring",
+] as const;
+
 describe("ShareHub — Careful section wiring", () => {
+  it("rotate idle state is ONE borderless full-width menu row", () => {
+    renderHub({ published: true });
+    fireEvent.click(primary());
+
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(rotate.tagName).toBe("BUTTON");
+    // `exactly`, not `has`: the class list is fully prescribed, so an overriding
+    // extra (sm:w-auto, items-start, px-0) must FAIL rather than ride along.
+    expectClasses(rotate, { exactly: ROW_TOKENS, forbids: [NO_BORDER, NO_REST_BACKGROUND] });
+
+    // One call covers containment, exact text, uniqueness, typography, stacking
+    // order, and row topology for BOTH strings (spec §7.0).
+    expectRowText(rotate, popover(), {
+      label: "Rotate share link",
+      description: "Old link stops working immediately",
+    });
+
+    const icon = rotate.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    // `has`, deliberately: lucide adds its own base `lucide` class, so the list
+    // is not complete and `exactly` would be wrong.
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-rotate-ccw"] });
+
+    // The OLD shape must be GONE, not merely joined by the new one.
+    expect(within(popover()).queryByRole("button", { name: "Rotate" })).toBeNull();
+
+    // §4.6 width chain link 1: the wrapper, not just the button.
+    expectClasses(rotate.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(rotate, {
+      scope: popover(),
+      descriptionId: rotate.getAttribute("aria-describedby"),
+    });
+  });
+
   it("rotate row carries its label + description and follows published for isCrewLinkActive", () => {
     renderHub({ published: true });
     fireEvent.click(primary());
@@ -323,6 +480,54 @@ describe("ShareHub — Careful section wiring", () => {
     expect(document.getElementById(descId!)?.textContent).toBe(
       "Old link stops working immediately",
     );
+  });
+
+  it("reset idle state is ONE menu row, contributes no heading, keeps its ring offset", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const reset = screen.getByTestId("picker-reset-all-button");
+    expect(reset.tagName).toBe("BUTTON");
+    expectClasses(reset, {
+      exactly: [
+        ...ROW_TOKENS,
+        // reset-ONLY: the guard against silently homogenizing the two rows'
+        // focus treatment, and against a disabled row lighting up on hover
+        // (a disabled button still matches :hover).
+        "focus-visible:ring-offset-2",
+        "focus-visible:ring-offset-surface",
+        "disabled:cursor-not-allowed",
+        "disabled:opacity-60",
+        "disabled:hover:bg-transparent",
+      ],
+      forbids: [NO_BORDER, NO_REST_BACKGROUND],
+    });
+
+    expectRowText(reset, popover(), {
+      label: "Reset everyone's pick",
+      description: "Make everyone pick their name again on their next visit.",
+    });
+
+    const icon = reset.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    // Identity, not just dimensions: a wrong glyph passes a size-only check.
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-refresh-cw"] });
+
+    // §4.3: the PCR-1 (b) heading is deliberately gone at EVERY level
+    // (expectRowText rejects any heading inside the row); the `Careful` <h3>
+    // still stands.
+    expect(within(popover()).queryByRole("heading", { level: 4 })).toBeNull();
+    expect(within(popover()).getByRole("heading", { level: 3, name: "Careful" })).toBeTruthy();
+
+    expectClasses(reset.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(reset, {
+      scope: popover(),
+      descriptionId: reset.getAttribute("aria-describedby"),
+      // ONLY reset renders a persistent sr-only live region (PCR-1 (a)); the
+      // flag defaults to false so rotate cannot quietly grow one.
+      allowLiveRegion: true,
+    });
   });
 
   it("GUARD empty pickerCrew: reset row renders its empty-roster copy and is disabled", () => {
@@ -449,6 +654,51 @@ describe("ShareHub — Unarchive failure surface", () => {
     expect(alert.textContent).toMatch(/didn’t go through/i);
     expect(alert.textContent).not.toMatch(/[A-Z_]{6,}/);
   });
+});
+
+describe("ShareHub — the row wrappers are inert (spec §7.0)", () => {
+  // The SOURCE guard (_metaRowWrapperInert.test.ts) is the proof that no handler
+  // is attached: finite event sampling cannot show absence across ~60 React DOM
+  // event props. These are its behavioral complement, and the second half of
+  // each - clicking the ROW - is what stops them passing against a dead control.
+  const cases = [
+    { name: "reset", row: "picker-reset-all-button", confirm: "picker-reset-confirm-row" },
+    {
+      name: "rotate",
+      row: "admin-rotate-share-token-button",
+      confirm: "admin-rotate-share-token-confirm-row",
+    },
+  ] as const;
+
+  for (const { name, row, confirm } of cases) {
+    it(`${name}: clicking the WRAPPER does nothing; clicking the ROW still arms`, () => {
+      renderHub();
+      fireEvent.click(primary());
+
+      const button = screen.getByTestId(row);
+      const wrapper = button.parentElement as HTMLElement;
+
+      expect(screen.queryByTestId(confirm)).toBeNull();
+      // Enter/over first: fireEvent.click synthesizes no pointer sequence, so a
+      // wrapper wired with onPointerEnter/onPointerOver would survive a
+      // click-only probe while a real pointer merely entering it arms the row.
+      fireEvent.pointerOver(wrapper);
+      fireEvent.pointerEnter(wrapper);
+      fireEvent.mouseOver(wrapper);
+      fireEvent.mouseEnter(wrapper);
+      fireEvent.pointerDown(wrapper);
+      fireEvent.mouseDown(wrapper);
+      fireEvent.pointerUp(wrapper);
+      fireEvent.mouseUp(wrapper);
+      fireEvent.click(wrapper);
+      fireEvent.doubleClick(wrapper);
+      fireEvent.contextMenu(wrapper);
+      expect(screen.queryByTestId(confirm)).toBeNull();
+
+      fireEvent.click(button);
+      expect(screen.getByTestId(confirm)).toBeTruthy();
+    });
+  }
 });
 
 describe("ShareHub — §9 composition rules", () => {

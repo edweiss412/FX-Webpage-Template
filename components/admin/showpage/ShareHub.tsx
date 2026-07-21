@@ -37,6 +37,20 @@
  * the strip's hub group, so `right-0` aligns the panel to that same edge.
  * `max-w-[calc(100vw-2rem)]` keeps it inside the modal at 390px.
  *
+ * Elevation (spec 2026-07-20-share-hub-fidelity-fixes §3): the root is `relative`
+ * always but `z-30` ONLY while open. `z-index: auto` establishes no stacking
+ * context, so the header attention menu's `z-20` panel
+ * (AttentionMenu.tsx:99) participates directly in the shared ancestor context;
+ * an unconditional `z-30` here therefore painted this hub's two NON-POSITIONED
+ * trigger buttons above that menu and stole its clicks. Gating the class on
+ * `open` is the whole fix — PublishedReviewModal's attention wrapper is
+ * deliberately left as a bare `relative`. A trigger overpaints the menu only
+ * if it carries a z-index >= the menu's level (20): `relative`, `z-0`, `z-10`,
+ * and `isolate` all paint below the menu's z-20 (CSS 2.1 Appendix E), so none
+ * of those reintroduces the defect — only a trigger z-index >= 20 does. The
+ * real guard is the T-HUB-ZORDER real-browser test; shareHub.test.tsx adds a
+ * cheap class-level z >= 20 check.
+ *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
  * button that closes without focus restore, and Escape that closes WITH focus
  * restore and calls stopPropagation — ReviewModalShell.tsx:238-245 listens for
@@ -272,7 +286,7 @@ export function ShareHub({
   };
 
   return (
-    <div className="relative z-30 flex items-center gap-2">
+    <div className={`relative flex items-center gap-2 ${open ? "z-30" : ""}`}>
       {open && (
         <button
           type="button"
@@ -507,6 +521,27 @@ export function ShareHub({
             </>
           ) : null}
         </div>
+      )}
+
+      {/* Caret notch, pointing at the kebab (spec 2026-07-20-share-hub-fidelity-fixes §5).
+          A SIBLING of the panel, not a child: the panel is `overflow-y-auto`, so a child
+          would be clipped away and silently invisible. Rendered AFTER the panel because
+          both are `z-40` and equal z-index is resolved by TREE ORDER, not by the class —
+          reorder these two and the panel's top border cuts through the notch.
+          `pointer-events-none` because `aria-hidden` hides it from assistive tech but does
+          NOT disable hit-testing: painted above the panel and overlapping it, the caret
+          would otherwise swallow clicks there, and `panelRef.current.contains(target)`
+          would classify them as OUTSIDE the dialog.
+          Geometry: the kebab is `size-tap-min` (44px) and rightmost in the group, and the
+          panel is `right-0` against that same group, so the kebab's centre sits 22px from
+          the right edge; a 10px square centred there needs 22 − 5 = 17px. `mt-1` (4px) vs
+          the panel's `mt-1.5` (6px) makes the rotated diamond straddle the panel edge. */}
+      {open && (
+        <span
+          aria-hidden="true"
+          data-testid="share-hub-caret"
+          className="pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-t border-l border-border bg-surface"
+        />
       )}
     </div>
   );

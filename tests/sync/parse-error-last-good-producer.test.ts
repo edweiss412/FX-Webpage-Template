@@ -86,6 +86,7 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
       context: {
         drive_file_id: "drive-file-1",
         sheet_name: "FXAV Spring Tour",
+        error_code: "MI-4_NO_CREW",
       },
     });
   });

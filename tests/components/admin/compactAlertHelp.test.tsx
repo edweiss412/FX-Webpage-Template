@@ -133,7 +133,7 @@ describe("buildHelpPopoverBody — presence matrix (§3.2)", () => {
 
 describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
   const props = {
-    helpfulContext: "Check the sheet's time column.",
+    popoverCopy: "Check the sheet's time column.",
     helpHref: "/help/errors#X",
     route: ADMIN_ROUTE,
     testId: "demo-help",
@@ -141,17 +141,19 @@ describe("CompactAlertHelp — trigger shape and popover state (§3.2)", () => {
 
   test("renders nothing when there is no popover content", () => {
     const { container } = render(
-      <CompactAlertHelp helpfulContext={null} helpHref={null} route={ADMIN_ROUTE} testId="x" />,
+      <CompactAlertHelp popoverCopy={null} helpHref={null} route={ADMIN_ROUTE} testId="x" />,
     );
     expect(container.innerHTML).toBe("");
   });
 
-  test("trigger is a button with the tap-target floor and the standard focus ring", () => {
+  test("trigger is a button with the compact box + overlay tap floor and the standard focus ring", () => {
+    // warning-card-copy-restore §3.4: the 44px floor is carried by the
+    // before:inset-[-11px] overlay around the 22px box, not a min-h box.
     render(<CompactAlertHelp {...props} />);
     const trigger = screen.getByTestId("demo-help-trigger");
     expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger.className).toContain("min-h-tap-min");
-    expect(trigger.className).toContain("min-w-tap-min");
+    expect(trigger.className).toContain("size-[22px]");
+    expect(trigger.className).toContain("before:inset-[-11px]");
     expect(trigger.className).toContain("focus-visible:ring-2");
   });
 

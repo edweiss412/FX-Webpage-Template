@@ -381,6 +381,7 @@ describe("runManualSyncForShow", () => {
       context: {
         drive_file_id: "drive-file-1",
         sheet_name: "Manual Sync Fixture",
+        error_code: "MI-4_NO_CREW",
       },
     });
   });

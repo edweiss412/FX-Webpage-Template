@@ -49,6 +49,7 @@ function alertItem(): AttentionItem {
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
     },
   };
 }

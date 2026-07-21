@@ -8,6 +8,18 @@ Last reconciled: 2026-07-19 (MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-moda
 
 ---
 
+### WARNCARD-GUIDANCE-LENGTH-1 — [P2] two guidance rows read as paragraphs, not at-a-glance lines
+
+From the impeccable critique of `warning-card-copy-restore` (2026-07-20). Spec §4.2 rows 7 (CREW_COLUMN_POSITIONAL_FALLBACK, 241 ch) and 33 (PULL_SHEET_OVERRIDE_CONTENT_CHANGED, 245 ch) render ~5-6 lines at 320px; the median row (~175 ch) reads as intended. Cap is 300 so the meta-test passes; copy tightening, not a defect. Deferred because the copy table is the ratified §4.2 canonical (frozen fixture + §12.4 lockstep) and the impeccable tier is P2 (dual-gate mandates P0/P1 only).
+
+**Un-defer trigger:** any future §4.2 copy edit touching these codes — tighten both rows toward ~180 ch in that same lockstep commit.
+
+### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes
+
+Impeccable critique note (2026-07-20): the `?` popover (align="right", opens below the trigger) can cover the inline guidance while open. Acceptable tooltip behavior — spec `2026-07-20-show-alert-compact` ratified the overlap posture explicitly. Same critique, cosmetic P3s folded here: row 24's double-semicolon chain; "as-is" hyphen wrap at 400px.
+
+**Un-defer trigger:** user reports the popover hiding the guidance they were reading.
+
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
 From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.
@@ -24,6 +36,10 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 
 **Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
 
+### ~~SHAREHUB-ROW-ANATOMY-1~~ — RESOLVED by share-hub-fidelity-fixes (this PR)
+
+The un-defer trigger below ("a `compact` variant matching the rotate row, applied in the hub only") is exactly what this PR shipped: both `RotateShareTokenButton` (compact) and `PickerResetControl` now render as the same borderless full-width menu row (icon + label + description), matching the mock. `step3ReviewSections.tsx` was confirmed NOT to consume `PickerResetControl` (it carries its own parallel implementation), so no opt-out was needed. Kept below for history.
+
 ### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub have different shapes
 
 From the impeccable critique of `share-hub` (Assessment A, heuristic 4 "Consistency and standards", scored 2/4). Inside one 308px popover, the two irreversible controls render with different anatomies: `RotateShareTokenButton` in `compact` mode is label-left / button-right (`RotateShareTokenButton.tsx:281-284`), while `PickerResetControl` is a heading over a full-width button (`PickerResetControl.tsx:212-270`). The user-approved mock drew both as the same icon + title + subtitle row (`ActionBarMenu-1d.dc.html:111,123).
@@ -33,3 +49,40 @@ From the impeccable critique of `share-hub` (Assessment A, heuristic 4 "Consiste
 Both rows individually satisfy the §15 tier-2 guard ladder (two-tap, 4s auto-revert, safe-control focus, busy-gated dismissal), so this is a visual-consistency defect, not a safety one.
 
 **Un-defer trigger:** the next change that touches `PickerResetControl`'s presentation for any reason, or user feedback that the hub's Careful section reads as two unrelated controls. The fix is a `compact` variant matching the rotate row, applied in the hub only, with `step3ReviewSections` explicitly opting out.
+
+---
+
+### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE — [P1/P2/P3] impeccable critique of the fidelity-fix diff
+
+From the invariant-8 dual-gate on the share-hub-fidelity-fixes diff (Assessment A, 31/40).
+`SHAREHUB-ROW-ANATOMY-1` (the run's primary P1) is RESOLVED above. The remaining findings
+are recorded here with dispositions; none is a P0 and none blocks merge.
+
+- **[P1] "Careful rows carry no visual weight" — REFUTED against the ratified mock, not deferred.**
+  Assessment A wanted a warning tone on the two idle rows. The user-approved mock
+  (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray
+  (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber
+  `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict
+  the mock AND the reserved-accent contract (the band's orange means "this matters now"; a
+  standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s
+  auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm
+  state carries all the warning weight. Recorded so a future reviewer does not re-derive it.
+
+- **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** Spec §5
+  ratifies `right-[17px]` at the kebab (the group's rightmost element, against a `right-0`
+  panel). Opening via the primary "Share link" button points the caret at the adjacent kebab
+  ~8px away. Real nit, but binding the offset to `openerRef` means measuring per-trigger
+  positions and recomputing on every open — non-trivial for an 8px difference between two
+  tightly-grouped triggers. **Deferred.** Un-defer trigger: user feedback that the caret
+  looks misaimed when the hub is opened from the primary button.
+
+- **[P2] Focus-ring inconsistency within the popover** (reset carries `ring-offset-2`, rotate
+  and the mailto rows do not). Spec §4.1 RATIFIES retaining reset's offset pair verbatim,
+  precisely so a destructive control's focus treatment is not silently changed by this diff.
+  The tension (three focus renders in one group) is real but the spec chose retention; the
+  spec wins over the critique (impeccable is not authoritative vs a ratified spec). **Noted,
+  not changed.** Un-defer trigger: a deliberate focus-treatment pass across the whole popover.
+
+- **[P3] Caret lacks `shadow-popover`.** A drop shadow on a rotated 10px diamond casts an odd
+  smudge rather than continuing the panel's elevation; the caret reads as continuous with the
+  panel via matching `bg-surface` + border + same `z-40`. **Noted, not changed.**

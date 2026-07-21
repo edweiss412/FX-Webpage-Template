@@ -31,8 +31,9 @@ const routerPush = vi.fn();
 // Stable spy (NOT a fresh vi.fn() per useRouter() call): the revalidate-on-open
 // contract asserts a CALL COUNT across renders — a per-call fn made that vacuous.
 const routerRefresh = vi.fn();
+const routerPrefetch = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: routerRefresh, push: routerPush }),
+  useRouter: () => ({ refresh: routerRefresh, push: routerPush, prefetch: routerPrefetch }),
   usePathname: () => "/admin",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -181,6 +182,7 @@ function alertItem(
       autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
+      errorCode: null,
       ...payload,
     },
   };
@@ -1015,5 +1017,20 @@ describe("revalidate-on-open (spec 2026-07-19-show-modal-prefetch §3.2)", () =>
       </StrictMode>,
     );
     expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefetches the bare /admin close destination once per mount (warms the close paint)", () => {
+    routerPrefetch.mockClear();
+    render(
+      <StrictMode>
+        <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
+          <PublishedReviewModal {...baseProps()} />
+        </ShareTokenProvider>
+      </StrictMode>,
+    );
+    // Same ref-guarded effect as the refresh, so StrictMode's double-effect is
+    // deduped to one call for exactly the close target.
+    expect(routerPrefetch).toHaveBeenCalledTimes(1);
+    expect(routerPrefetch).toHaveBeenCalledWith("/admin");
   });
 });

@@ -136,6 +136,14 @@ jobs:
         shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
+      # tests/adminAlerts/_metaResolveIntentLifecycle.test.ts compares the
+      # resolve-intent baseline against origin/main, and FAILS (never skips) in
+      # CI when the ref is unresolvable. actions/checkout defaults to
+      # fetch-depth: 1, which does not provide it. Depth-1 on this ONE ref, not
+      # fetch-depth: 0 — full history would regress the unit-suite wall-clock
+      # work that took this gate from 9.1 to ~4.2 minutes.
+      - name: Fetch origin/main for the resolve-intent lifecycle gate
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
       - uses: ./.github/actions/setup
       # No supabase/setup-cli, no psql, no bootstrap — deliberately. The parallel
       # project touches no database (CI probe run 29758568301 ran all 693 of its

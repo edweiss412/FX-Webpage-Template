@@ -282,10 +282,19 @@ function leadHintParam(changes: RoleChange[]): string {
   return leadDelta ? LEAD_HINT : "";
 }
 
+/**
+ * Which surface the copy is being derived for. REQUIRED at every call site, so
+ * a new caller cannot silently inherit the wrong one: an omitted argument is a
+ * type error rather than a wrong-copy bug.
+ * Spec docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md §3.5.
+ */
+export type AlertCopyScope = "global" | "show";
+
 export function deriveAlertMessageParams(
   code: string,
   context: Record<string, unknown> | null,
   identity: AlertIdentity | null,
+  scope: AlertCopyScope,
 ): MessageParams {
   const params: Record<string, string | number | boolean | null | undefined> = {};
   for (const [key, value] of Object.entries(context ?? {})) {
@@ -355,7 +364,9 @@ export function deriveAlertMessageParams(
   if (code === "ROLE_FLAGS_NOTICE") {
     const changes = parseChanges(context);
     params["role-changes"] = roleChangesParam(changes);
-    params["lead-hint"] = leadHintParam(changes);
+    // Show scope suppresses the hint: it points at the page the reader is
+    // already looking at, and the confirm button sits in the same card.
+    params["lead-hint"] = scope === "show" ? "" : leadHintParam(changes);
   }
   return params as MessageParams;
 }

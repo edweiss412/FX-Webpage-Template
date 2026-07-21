@@ -15,9 +15,14 @@
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 afterEach(cleanup);
 
@@ -131,5 +136,67 @@ describe("transition audit (§10)", () => {
     const s = src("app/admin/show/[slug]/ShareLinkCopyButton.tsx");
     expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\/react/);
     expect(s).toMatch(/Copied|Copy/);
+  });
+});
+
+/**
+ * Resolve-label intent swap (spec 2026-07-20-show-scoped-alert-copy-design §10).
+ *
+ * | idle → pending   | instant text swap inside an already-disabled button |
+ * | pending → idle   | instant; existing failure behavior                  |
+ * | pending → removed| inherits the card's existing exit; unchanged here    |
+ * | idle → removed   | same exit; reachable when another surface resolves   |
+ * | removed → *      | unreachable: a returning row is a fresh mount        |
+ *
+ * Compound case: resolveActionIntent is a pure function of `code`, so a card's
+ * verb is fixed for its whole lifetime and cannot be re-read mid-transition.
+ */
+describe("resolve-label transitions", () => {
+  it("concurrent pending cards keep their own verbs", async () => {
+    const { PerShowAlertResolveButton } =
+      await import("@/components/admin/PerShowAlertResolveButton");
+    const { fireEvent, waitFor } = await import("@testing-library/react");
+    const { vi } = await import("vitest");
+
+    // BOTH resolves hang, so both cards sit pending simultaneously and neither
+    // label can vanish before it is observed. An already-resolved second
+    // promise would clear "Resolving…" before waitFor saw it — flaky, not
+    // deterministic.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+
+    const { getByTestId, queryByTestId, unmount } = render(
+      <>
+        <PerShowAlertResolveButton alertId="ta" slug="s" code="ROLE_FLAGS_NOTICE" />
+        <PerShowAlertResolveButton alertId="tb" slug="s" code="AMBIGUOUS_EMAIL_BINDING" />
+      </>,
+    );
+
+    expect(getByTestId("per-show-alert-resolve-ta")).toHaveTextContent(/^Confirm$/);
+    expect(getByTestId("per-show-alert-resolve-tb")).toHaveTextContent(/^Mark resolved$/);
+
+    fireEvent.click(getByTestId("per-show-alert-resolve-ta"));
+    await waitFor(() =>
+      expect(getByTestId("per-show-alert-resolve-ta")).toHaveTextContent(/^Confirming…$/),
+    );
+
+    // B transitions while A is mid-flight: the compound case from §10.
+    fireEvent.click(getByTestId("per-show-alert-resolve-tb"));
+    await waitFor(() =>
+      expect(getByTestId("per-show-alert-resolve-tb")).toHaveTextContent(/^Resolving…$/),
+    );
+
+    // Read the LIVE nodes: neither adopted the other's verb while both were
+    // pending together.
+    expect(getByTestId("per-show-alert-resolve-ta")).toHaveTextContent(/^Confirming…$/);
+    expect(getByTestId("per-show-alert-resolve-tb")).toHaveTextContent(/^Resolving…$/);
+
+    // Teardown smoke check. RTL's unmount necessarily removes both nodes, so
+    // this is not evidence about label lifetime; the interleaving above is.
+    unmount();
+    expect(queryByTestId("per-show-alert-resolve-ta")).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

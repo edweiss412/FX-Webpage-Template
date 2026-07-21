@@ -31,7 +31,7 @@
  * the URL up in the background.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -39,12 +39,16 @@ import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import {
   ShowReviewSurface,
   type AttentionJump,
-  type CrewAttention,
   type ExtraSection,
 } from "@/components/admin/review/ShowReviewSurface";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
-import { canonicalCrewKey, type AttentionItem } from "@/lib/admin/attentionItems";
+import {
+  canonicalCrewKey,
+  type AttentionItem,
+  type RoutedSectionId,
+} from "@/lib/admin/attentionItems";
+import { bucketAttention } from "@/lib/admin/sectionAttention";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
@@ -59,7 +63,7 @@ import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -160,20 +164,69 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     if (refreshFiredRef.current) return;
     refreshFiredRef.current = true;
     router.refresh();
+    // Warm the close destination while the modal is open. The open-time
+    // refresh above reconciles `/admin?show=<slug>` (the CURRENT URL), NOT the
+    // bare `/admin` the close navigates to — that entry is whatever the router
+    // cache held when the dashboard first rendered, so an un-warmed close pays
+    // a full RSC round-trip before the shell can unmount. Prefetching it means
+    // the dashboard paints from cache immediately on close (measured ~700ms →
+    // ~126ms local prod). Freshness is handled separately by the post-close
+    // refresh in `handleClose` — prefetch is a paint optimization, not a
+    // source of truth.
+    // Optional-chained: `prefetch` is always present on the real Next router,
+    // but several unit-test navigation mocks stub only { refresh, push }, and a
+    // hard call would crash every test that mounts this modal through one of
+    // them. The warm is a pure optimization, so skipping it under a partial
+    // mock is harmless.
+    router.prefetch?.("/admin");
   }, [router]);
   // Instant close: the close nav is a full RSC round-trip of the dashboard
   // (the modal is server-rendered off `?show`), so the shell would otherwise
   // stay mounted until the new payload lands. Hide client-side FIRST (the
   // shell's unmount cleanups restore focus/inert/scroll immediately), then let
-  // `close()` catch the URL up in the background. No reset path needed: a
-  // reopen streams through the Suspense fallback (ShowReviewModalSkeleton — a
-  // different element type), which unmounts this instance, so a fresh open
-  // never inherits `closing`.
+  // `close()` catch the URL up in the background. A COMMITTED close unmounts
+  // this instance (a reopen streams through the Suspense fallback — a different
+  // element type), so a fresh open never inherits `closing`.
+  //
+  // ABORTED close (the reopen race): the close is `router.push("/admin")`, and
+  // any navigation started while it is in flight supersedes it. Clicking the
+  // SAME row again during that window targets `/admin?show=<slug>` — the URL
+  // the browser is still on — so the aborted close commits nothing, the URL
+  // never changes, and this instance is never remounted. Without a reset path
+  // it would stay hidden forever and the show could not be reopened until some
+  // other URL was navigated to. Running the close inside a transition gives us
+  // the settle signal: once it is no longer pending and our own `?show` is
+  // STILL committed, the close did not land — un-hide.
   const [closing, setClosing] = useState(false);
+  const [closePending, startCloseTransition] = useTransition();
+  const searchParams = useSearchParams();
+  // The standalone layout harnesses (skeletonBandParity, statusStripToggleLayout)
+  // render this tree with NO router context, where the hook really does hand back
+  // null despite its non-nullable type — guard rather than crash them. Those
+  // harnesses never navigate, so a null read simply means "no close to heal".
+  const committedShow = (searchParams as URLSearchParams | null)?.get("show") ?? null;
   const handleClose = useCallback(() => {
     setClosing(true);
-    close();
-  }, [close]);
+    startCloseTransition(() => {
+      close();
+      // Reconcile the dashboard after the close commits. The prefetched entry
+      // (and any pre-existing router-cache entry for `/admin`) was captured
+      // before or during this modal's lifetime, so it can be stale — e.g. a
+      // lifecycle toggle here that only `revalidatePath("/admin/show/<slug>")`,
+      // or an out-of-band change. `router.refresh()` re-fetches the committed
+      // route; the instant paint comes from the cache, the correct data lands
+      // right behind it (the #497 §3.2 prefetch-then-refresh pattern).
+      router.refresh();
+    });
+  }, [close, router]);
+  // Guarded setState-in-render (the ShowsTable idiom — react-hooks/set-state-in-effect
+  // forbids the effect form). Self-heals only once: the guard is false on the
+  // very next render. `committedShow !== slug` means the close DID commit and
+  // this instance's unmount is imminent — resetting there would flash the modal
+  // back on its way out.
+  if (closing && !closePending && committedShow === slug) {
+    setClosing(false);
+  }
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The consumer owns the scroll container the surface hands its scroll-spy
   // (shell contract: no body wrapper — the surface root IS the body element).
@@ -313,37 +366,32 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       onResolved={onResolved}
     />
   );
-  const { crewAttention, overviewBanners } = (() => {
-    const byCrewKey = new Map<string, ReactNode[]>();
-    const sectionTop: ReactNode[] = [];
-    const overview: ReactNode[] = [];
-    // Under-row placement targets only the RENDERED rows (CREW_CAP slice, §4).
-    const renderedKeys = new Set(
-      data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
-    );
-    // Buckets iterate the FULL list, not the doneIds-filtered one: a resolved
-    // banner swaps to "✓ Confirmed" IN PLACE and stays mounted until
-    // router.refresh() reconciles (spec §6.3) — only counts/menu/dots shrink.
-    for (const item of attentionItems) {
-      if (item.kind !== "alert") continue;
-      if (item.sectionId === "crew") {
-        if (item.crewKey && renderedKeys.has(item.crewKey)) {
-          const list = byCrewKey.get(item.crewKey) ?? [];
-          list.push(bannerFor(item));
-          byCrewKey.set(item.crewKey, list);
-        } else {
-          sectionTop.push(bannerFor(item));
-        }
-      } else if (item.sectionId === "overview") {
-        overview.push(bannerFor(item));
-      } else {
-        // Defensive: unknown-routed alerts land in Overview (spec §4 fallback).
-        overview.push(bannerFor(item));
-      }
-    }
-    const crew: CrewAttention = { byCrewKey, sectionTop };
-    return { crewAttention: crew, overviewBanners: overview };
-  })();
+  // Generalized bucketing (attention-alert-routing §2.5/§3.2). Under-row crew
+  // placement targets only the RENDERED rows (CREW_CAP slice, §4). The FULL item
+  // list is bucketed, not the doneIds-filtered one: a resolved banner swaps to
+  // "✓ Confirmed" in place and stays mounted until router.refresh() reconciles
+  // (spec §6.3).
+  const renderedKeys = new Set(
+    data.crewMembers.slice(0, CREW_CAP).map((m) => canonicalCrewKey(m.name || "")),
+  );
+  // `sectionAvailable` = "this section has a MOUNTED attention consumer", not
+  // merely "this section renders". At PR2 the consumers are: crew (byCrewKey +
+  // sectionTop, in CrewBreakdown), overview (sectionTop, the Overview slot), and
+  // warnings (the notes banner). rooms/event have NO card consumer until PR3
+  // wires byAnchor, so a card routed there must fall back to Overview — which is
+  // exactly what returning false triggers in bucketAttention. No routed code
+  // targets rooms/event at PR2 (the frozen routing fixture keeps the six
+  // asset/reel codes on overview), so this is defence-in-depth, not a live path.
+  const CARD_CONSUMER_SECTIONS = new Set<RoutedSectionId>(["crew", "overview"]);
+  const sectionAttention = bucketAttention(attentionItems, {
+    renderCard: bannerFor,
+    // Warnings hosts the NOTE channel (checked by the note branch); every other
+    // consumed section hosts CARDS. Anything else → Overview fallback.
+    sectionAvailable: (id) => id === "warnings" || CARD_CONSUMER_SECTIONS.has(id),
+    anchorAvailable: () => false, // PR3 wires the diagrams/opening_reel anchors.
+    crewKeyRendered: (key) => renderedKeys.has(key),
+  });
+  const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
 
   const overviewActionableCount = actionable.filter((i) => i.sectionId === "overview").length;
   const holdCount = actionable.filter((i) => i.kind === "hold").length;
@@ -652,7 +700,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}
-        crewAttention={crewAttention}
+        sectionAttention={sectionAttention}
       />
     </ReviewModalShell>
   );

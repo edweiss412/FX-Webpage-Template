@@ -223,9 +223,13 @@ describe("deriveAttentionItems", () => {
 });
 
 describe("ATTENTION_ROUTES shape", () => {
-  it("routes only to crew or overview", () => {
+  it("routes only to the sections the surface can host", () => {
+    // attention-alert-routing §3.2 widened the union past crew|overview: the two
+    // parse codes route to warnings, and PR3 adds rooms/event anchors. The full
+    // per-code disposition is pinned by attentionRoutingFrozen.test.ts.
+    const HOSTS = ["crew", "overview", "warnings", "rooms", "event"];
     for (const [code, route] of Object.entries(ATTENTION_ROUTES)) {
-      expect(["crew", "overview"], `route for ${code}`).toContain(route.sectionId);
+      expect(HOSTS, `route for ${code}`).toContain(route.sectionId);
     }
   });
 });

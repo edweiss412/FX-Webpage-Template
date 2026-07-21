@@ -193,6 +193,7 @@ export function AttentionBanner({
     <PerShowAlertResolveButton
       alertId={a.alertId}
       slug={slug}
+      code={a.code}
       onResolved={() => {
         setConfirmed(true);
         onResolved(item.id);
@@ -211,7 +212,7 @@ export function AttentionBanner({
   }) ? (
     <CompactAlertHelp
       subject={helpSubject}
-      helpfulContext={helpfulContext}
+      popoverCopy={helpfulContext}
       helpHref={a.helpHref}
       route={route}
       testId={`attention-banner-help-${a.alertId}`}
