@@ -1,0 +1,33 @@
+# Nightly DB-free classification drift guard (reclassification spec §3.4).
+#
+# The committed allowlist tests/probes/db-free-movable.txt moves ~532 files into
+# the concurrent (no-DB) vitest project. The static DB-binding meta-test catches
+# a source-level DB edit at PR time, but it cannot see a file that gains DB access
+# through an imported helper, a dynamic command, or a runtime path a source scan
+# misses. This job re-measures the classification on a real fresh DB and FAILS if
+# the freshly-measured lists differ from the committed ones — a <=24h DETECTION
+# bound on drift (repair = re-run `pnpm ci:regen-db-free` and commit).
+name: db-free-drift
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  db-free-drift:
+    name: db-free-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.107.0
+      - name: Install psql (bootstrap + probe shell out to psql)
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Re-measure the DB-free classification and fail on drift
+        run: pnpm ci:regen-db-free --check

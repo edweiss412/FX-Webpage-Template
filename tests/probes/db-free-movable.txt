@@ -373,7 +373,6 @@ tests/onboarding/sessionLifecycle.test.ts
 tests/onboarding/shadowPayload.test.ts
 tests/onboarding/wizardScopedReapply.test.ts
 tests/probes/dbTouchProbe.test.ts
-tests/probes/dbTouchReport.test.ts
 tests/reports/_amendmentContractMetaTest.test.ts
 tests/reports/_metaInfraContract.test.ts
 tests/reports/auth.test.ts

@@ -23,6 +23,7 @@
     "gen:traceability": "tsx scripts/generate-traceability.ts",
     "gen:spec-codes": "tsx scripts/extract-spec-codes.ts",
     "gen:schema-manifest": "tsx scripts/generate-schema-manifest.ts",
+    "ci:regen-db-free": "tsx scripts/regen-db-free.mjs",
     "observe": "tsx scripts/observe.ts",
     "spec:lint": "tsx scripts/spec-lint.ts",
     "pretypecheck": "node scripts/pretest-gen.mjs",
