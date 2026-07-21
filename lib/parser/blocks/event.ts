@@ -247,6 +247,7 @@ export function parseEventDetails(
       message: `Read likely-misspelled EVENT DETAILS label '${cand.rawLabel}' as field '${canon}'`,
       blockRef: { kind: "details" },
       rawSnippet: cand.rawLabel,
+      autocorrect: { subject: null, corrections: [{ detected: cand.rawLabel, corrected: canon }] },
     });
   }
 
@@ -353,6 +354,7 @@ function harvestFormLayout(
             message: `Read likely-misspelled EVENT DETAILS label '${r.rawLabel}' as field '${r.canon}'`,
             blockRef: { kind: "details" },
             rawSnippet: r.rawLabel,
+            autocorrect: { subject: null, corrections: [{ detected: r.rawLabel, corrected: r.canon }] },
           });
         }
       }

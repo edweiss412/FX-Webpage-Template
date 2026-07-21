@@ -340,6 +340,9 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
           code: "ROLE_TOKEN_AUTOCORRECTED",
           message: `Read likely-misspelled role '${tok}' as '${fix.match}' in role cell: '${roleCell}'`,
           rawSnippet: roleCell,
+          // subject is null here (extractRoleFlags is pure, no crew name in scope);
+          // stamped with displayName at crew.ts (spec §3.2 site 2).
+          autocorrect: { subject: null, corrections: [{ detected: tok, corrected: fix.match }] },
         });
       } else {
         unknownTokens.push(tok);

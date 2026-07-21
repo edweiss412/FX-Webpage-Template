@@ -130,6 +130,7 @@ export function normalizeSectionHeaders(markdown: string): {
       rawSnippet: col0,
       // canonical is always a LONG_SECTION_VOCAB member → always present in CANON_TO_REGION.
       blockRef: { kind: CANON_TO_REGION[canonical]!, index: 0 },
+      autocorrect: { subject: null, corrections: [{ detected: col0, corrected: canonical }] },
     });
     return parts.join("|");
   });

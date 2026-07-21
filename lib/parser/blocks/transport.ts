@@ -431,6 +431,7 @@ function parseV2Transport(
           message: `Read likely-misspelled transport schedule label '${col0}' as '${fix.match}'`,
           blockRef: { kind: "transportation" },
           rawSnippet: col0,
+          autocorrect: { subject: null, corrections: [{ detected: col0, corrected: fix.match }] },
         });
       }
     }
@@ -597,6 +598,7 @@ function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): nu
           message: `Read likely-misspelled transport passenger column header '${raw}' as '${fix.match}'`,
           blockRef: { kind: "transportation" },
           rawSnippet: raw,
+          autocorrect: { subject: null, corrections: [{ detected: raw, corrected: fix.match }] },
         });
         return i;
       }

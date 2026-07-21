@@ -160,6 +160,10 @@ export function parseVenue(
         message: `Read likely-misspelled field label '${col0.trim()}' as field '${fieldLabelCorrectedTo}'`,
         blockRef: { kind: "venue" },
         rawSnippet: col0.trim(),
+        autocorrect: {
+          subject: null,
+          corrections: [{ detected: col0.trim(), corrected: fieldLabelCorrectedTo }],
+        },
       });
     }
 

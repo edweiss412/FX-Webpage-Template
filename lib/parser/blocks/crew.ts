@@ -149,6 +149,7 @@ function parseCrewBlock(
       message: `Read likely-misspelled column header '${c.raw}' as '${c.corrected}'`,
       rawSnippet: headerLine,
       blockRef: { kind: "crew", index: 0 },
+      autocorrect: { subject: null, corrections: [{ detected: c.raw, corrected: c.corrected }] },
     });
   }
   // Header row missing/unrecognized → name and/or role read by positional default.
@@ -373,11 +374,21 @@ function buildCrewMember(params: {
   const roleFlagResult = extractRoleFlags(roleCellForParse);
   // Stamp UNKNOWN_ROLE_TOKEN / ROLE_TOKEN_AUTOCORRECTED warnings with the crew-row
   // blockRef so they can deep-link to the offending role cell. extractRoleFlags stays pure.
-  const stampedRoleWarnings = roleFlagResult.warnings.map((w) =>
-    w.code === "UNKNOWN_ROLE_TOKEN" || w.code === "ROLE_TOKEN_AUTOCORRECTED"
-      ? { ...w, blockRef: crewBlockRef }
-      : w,
-  );
+  // ROLE_TOKEN_AUTOCORRECTED ALSO gets its autocorrect.subject filled here: the emitter
+  // (personalization.ts, pure) has no crew name in scope, so displayName is stamped at
+  // this single boundary (spec §3.2 no-escape — one call site, one consumer).
+  const stampedRoleWarnings = roleFlagResult.warnings.map((w) => {
+    if (w.code === "ROLE_TOKEN_AUTOCORRECTED") {
+      return {
+        ...w,
+        blockRef: crewBlockRef,
+        ...(w.autocorrect
+          ? { autocorrect: { subject: displayName, corrections: w.autocorrect.corrections } }
+          : {}),
+      };
+    }
+    return w.code === "UNKNOWN_ROLE_TOKEN" ? { ...w, blockRef: crewBlockRef } : w;
+  });
   warnings.push(...stampedRoleWarnings);
   if (agg) agg.warnings.push(...stampedRoleWarnings);
   const roleFlags = [...roleFlagResult.flags];
