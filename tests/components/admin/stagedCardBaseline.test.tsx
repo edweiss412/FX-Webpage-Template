@@ -69,7 +69,7 @@ describe("the staged mount passes no follow-up copy", () => {
       resolve(process.cwd(), "components/admin/StagedReviewCard.tsx"),
       "utf8",
     );
-    const mount = src.match(/<PerShowActionableWarnings[^>]*\/>/s);
+    const mount = src.match(/<PerShowActionableWarnings[\s\S]*?\/>/);
     expect(mount, "the staged mount is still a single self-closing element").not.toBeNull();
     expect(mount![0]).not.toContain("followUpCopy");
   });

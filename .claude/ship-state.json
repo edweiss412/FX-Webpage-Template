@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
   "stage": "implement",
-  "tasksRemaining": 6,
-  "next": "Execute Task 5: move the loop sentence into the card popover. Step 0 records the staged-card baseline snapshot (every per-show-actionable-item outerHTML) against unmodified code; then export correctionLoopCopy, add optional followUpCopy to PerShowActionableWarnings with one normalization rule, pass it ONLY from the published extras factory, and cover all four guard rows plus the whitespace table and the all-40-codes composition.",
+  "tasksRemaining": 5,
+  "next": "Execute Task 6: deriveAttentionItems filters DOUG_EXCLUDED_CODES with an optional injected exclusion set as the test seam. Tests: two DISJOINT synthetic sets, the complement (every non-excluded ATTENTION_ROUTES code survives) built from one canonical row factory, the live-set loop, the four named codes, plus an AST source-scan that no non-test file passes excludedCodes. Extend tests/admin/roleFlagsNoticeReclassify.test.ts with the behavioral assertion.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }
