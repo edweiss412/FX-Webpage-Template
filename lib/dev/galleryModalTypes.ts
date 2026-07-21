@@ -38,8 +38,13 @@ export type GallerySwitcherScenario = {
   data: GalleryModalData;
 };
 
-/** A scenario excluded from the modal (card-only structural probe). */
-export type ExcludedScenario = { id: string; label: string };
+/**
+ * A scenario excluded from the modal. `reason` distinguishes the two axes:
+ *  - "structural": a tier-2 predicate override the modal cannot reproduce.
+ *  - "cut": a code cut from the published attention surface (DOUG_EXCLUDED_CODES)
+ *    that the real modal also never renders (empty modal → not a real state).
+ */
+export type ExcludedScenario = { id: string; label: string; reason: "structural" | "cut" };
 
 /** Fixed so relative-time copy is stable across reloads (matches buildBlockProps). */
 export const GALLERY_NOW = new Date("2026-07-01T18:00:00.000Z");

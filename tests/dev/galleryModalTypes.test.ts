@@ -45,7 +45,7 @@ describe("galleryModalTypes constants", () => {
 
   test("the type exports resolve (compile + import)", () => {
     // A value typed as each export proves the type is exported and usable.
-    const excluded: ExcludedScenario = { id: "x", label: "X" };
+    const excluded: ExcludedScenario = { id: "x", label: "X", reason: "cut" };
     expect(excluded.id).toBe("x");
     // GalleryModalData / GallerySwitcherScenario are type-only; referencing them
     // in a type position is the resolution proof (fails to compile if missing).
