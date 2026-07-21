@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
-  "stage": "implement",
-  "tasksRemaining": 3,
-  "next": "Execute Task 8: transition audit + compound transition. Audit the named three-file inventory against the expected block table (discovered set EQUALS the table); exercise all six transition pairs as rerenders asserting SOURCE state then destination; and the compound case: with the Ignored disclosure open and body Silent, IGNORE the last active warn row, asserting Clean line + count incremented + same captured <details> node still in the document.",
+  "stage": "gates",
+  "tasksRemaining": 2,
+  "next": "Execute Task 9: impeccable dual gate. Step 0 first (mechanical invariants pre-check: em-dash ban, apostrophe literals, tap targets, canonical type/token classes), then /impeccable critique and /impeccable audit on the diff with the v3 setup gates, fix every P0/P1 as its own commit, RERUN both, then write docs/superpowers/plans/2026-07-20-warning-surface-trim/handoff.md with numbered sections through 12 and record findings in its section 12, and commit it.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }

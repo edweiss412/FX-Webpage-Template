@@ -11,6 +11,8 @@
  * `followUpCopy`, and only the PUBLISHED extras factory passes it, which is what
  * keeps `StagedReviewCard` untouched (spec §4.1).
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
@@ -161,5 +163,35 @@ describe("(f) single-source consistency", () => {
     renderCard("UNKNOWN_FIELD", correctionLoopCopy("resync"));
     expect(popoverText()).toContain(LOOP_SENTENCE);
     expect(correctionLoopCopy("resync")).toBe(LOOP_SENTENCE);
+  });
+});
+
+describe("the ignored list makes no promise about clearing", () => {
+  it("muted cards carry no follow-up sentence", () => {
+    // impeccable critique P1a: "we'll re-read the sheet and clear this" is a
+    // promise about work still to do. These are warnings the operator already
+    // dismissed, so the sentence is wrong there even though it is right two
+    // inches above in the active list.
+    render(
+      <PerShowActionableWarnings
+        items={[warningFor("UNKNOWN_FIELD")]}
+        driveFileId={FIXTURE_DRIVE_FILE_ID}
+        tone="muted"
+      />,
+    );
+    expect(popoverText()).not.toContain(LOOP_SENTENCE);
+  });
+
+  it("the published extras factory passes it to the ACTIVE list only", () => {
+    const src = readFileSync(
+      resolve(process.cwd(), "components/admin/showpage/sectionWarningExtras.tsx"),
+      "utf8",
+    );
+    // Exactly one followUpCopy mount, and the muted one is not it.
+    expect((src.match(/followUpCopy=/g) ?? []).length).toBe(1);
+    const mutedMount = src.slice(src.indexOf('tone="muted"') - 400, src.indexOf('tone="muted"'));
+    // Match the JSX ATTRIBUTE, not the bare word: the muted mount carries a
+    // comment naming followUpCopy to explain why it is absent.
+    expect(mutedMount).not.toContain("followUpCopy=");
   });
 });

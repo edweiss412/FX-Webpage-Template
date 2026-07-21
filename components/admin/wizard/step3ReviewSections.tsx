@@ -518,6 +518,15 @@ export type Step3SectionChrome = {
    *  sections (`elsewhere`). Present exactly when the gate above is true, which
    *  is what makes the four-row body-empty matrix total. */
   routedWarnings?: RoutedWarnings;
+  /** warning-surface-trim, impeccable critique P0a: the Silent state renders a
+   *  null body while its actionable cards render BELOW this section, outside the
+   *  panel card. Keeping the card chrome around zero children ships an empty
+   *  bordered, shadowed tile that reads as a failed fetch, so the surface tells
+   *  the chrome to drop the wrapper. Computed where the data lives (the surface
+   *  holds both the gate and the counts); `children` cannot be inspected for it,
+   *  because a body whose expressions all evaluate to null is still a populated
+   *  React children array. */
+  suppressPanelCard?: boolean;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -679,6 +688,14 @@ function ModalSectionChrome({
   children: React.ReactNode;
 }) {
   const { Icon, label, flagged, headingLevel = 3 } = chrome;
+  // warning-surface-trim, impeccable critique P0a: the Silent state renders a
+  // NULL body while its actionable cards render just below, OUTSIDE this
+  // wrapper. Keeping the card chrome around zero children ships an empty
+  // bordered, shadowed tile between an amber heading and the real cards, which
+  // reads as a failed fetch rather than as deliberate quiet. When there is no
+  // body, the heading sits directly on the cards; the extras block already
+  // supplies its own `border-t` seam.
+  const hasBody = chrome.suppressPanelCard !== true;
   // §7.1 judgment status (spec 2026-07-07): mutually exclusive with flagged. Drives
   // a calm info-tone icon chip + pill + callout variant, never the amber flag tone.
   const judgment = chrome.judgment === true && !flagged;
@@ -755,28 +772,30 @@ function ModalSectionChrome({
           </a>
         ) : null}
       </div>
-      <div
-        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
-          flagged ? "border-border-strong" : "border-border"
-        }`}
-      >
-        {/* §H N2: instant — deliberate (callout presence is static with the
+      {hasBody ? (
+        <div
+          className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+            flagged ? "border-border-strong" : "border-border"
+          }`}
+        >
+          {/* §H N2: instant — deliberate (callout presence is static with the
             section render — no mount animation; spec §E3 first child) */}
-        {chrome.calloutEntries &&
-        chrome.calloutEntries.length > 0 &&
-        chrome.onJumpToWarning &&
-        chrome.dfid !== undefined &&
-        chrome.sectionId !== undefined ? (
-          <SectionFlagCallout
-            dfid={chrome.dfid}
-            sectionId={chrome.sectionId}
-            entries={chrome.calloutEntries}
-            onJump={chrome.onJumpToWarning}
-            variant={judgment ? "judgment" : "flagged"}
-          />
-        ) : null}
-        {children}
-      </div>
+          {chrome.calloutEntries &&
+          chrome.calloutEntries.length > 0 &&
+          chrome.onJumpToWarning &&
+          chrome.dfid !== undefined &&
+          chrome.sectionId !== undefined ? (
+            <SectionFlagCallout
+              dfid={chrome.dfid}
+              sectionId={chrome.sectionId}
+              entries={chrome.calloutEntries}
+              onJump={chrome.onJumpToWarning}
+              variant={judgment ? "judgment" : "flagged"}
+            />
+          ) : null}
+          {children}
+        </div>
+      ) : null}
     </>
   );
 }

@@ -151,7 +151,9 @@ export function buildSectionWarningExtras(args: {
               <PerShowActionableWarnings
                 items={ignoredWarnings}
                 driveFileId={driveFileId}
-                followUpCopy={correctionLoopCopy("resync")}
+                // NO followUpCopy here (impeccable critique P1a): "we'll re-read
+                // the sheet and clear this" is a promise about work still to do,
+                // and these are warnings the operator has already dismissed.
                 tone="muted"
                 renderItemControls={(w, i) => (
                   <SectionWarningItemControls

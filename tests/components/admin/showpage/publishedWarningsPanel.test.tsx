@@ -259,6 +259,26 @@ describe("the four body-empty states", () => {
     expectOnly("silent");
   });
 
+  it("(b) Silent renders NO panel card at all, not an empty bordered tile", () => {
+    // impeccable critique P0a: the body is null while the actionable cards
+    // render just below, OUTSIDE this wrapper. Keeping the card chrome around
+    // zero children shipped an empty bordered, shadowed tile between an amber
+    // heading and the real cards, which reads as a failed fetch.
+    render(<Harness warnings={SILENT} ignored={[]} />);
+    // The <section> survives (it carries the heading); the CARD wrapper inside it
+    // must not, or an empty bordered tile renders above the real cards.
+    const section = screen.getByTestId(PANEL_TESTID);
+    expect(section.querySelectorAll("div.rounded-md.border.bg-surface").length).toBe(0);
+    // ...while the cards it was sitting above are present.
+    expect(screen.queryByTestId("section-warning-controls-warnings")).not.toBeNull();
+  });
+
+  it("List still renders its panel card, so the guard is not simply always-off", () => {
+    render(<Harness warnings={LIST} ignored={[]} />);
+    const section = screen.getByTestId(PANEL_TESTID);
+    expect(section.querySelectorAll("div.rounded-md.border.bg-surface").length).toBe(1);
+  });
+
   it("the legacy binary empty line never renders on the gated surface", () => {
     render(<Harness warnings={[]} ignored={[]} />);
     expect(within(panelBody()).queryByTestId(EMPTY_TESTID)).toBeNull();

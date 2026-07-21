@@ -41,6 +41,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
+import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -228,6 +229,14 @@ export function ShowReviewSurface({
   const routedWarningsRenderElsewhere =
     routedWarnings !== undefined && renderSectionExtras !== undefined;
 
+  // impeccable critique P0a: Silent (body empty, actionable cards rendering
+  // below this section) must not leave an empty bordered card behind. Same
+  // predicate the panel body uses, so the two cannot disagree about emptiness.
+  const suppressWarningsPanelCard =
+    routedWarningsRenderElsewhere &&
+    visibleWarningRows(data.warnings, true).length === 0 &&
+    (routedWarnings?.here ?? 0) > 0;
+
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
   // split reads from THIS map so flags and callouts can never disagree.
@@ -253,10 +262,17 @@ export function ShowReviewSurface({
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
   // UNMAPPED warns so the header count never double-counts).
-  const hasWarnRow = useMemo(
-    () => data.warnings.some((w) => w.severity === "warn"),
-    [data.warnings],
-  );
+  const hasWarnRow = useMemo(() => {
+    // warning-surface-trim, impeccable critique P0b: when the trim is on, the
+    // panel can read "Nothing needs a look on this sheet." while every warn row
+    // is already ignored. Deriving the dot from EVERY warn row put an amber
+    // "needs a look" signal directly above that sentence. `routedWarnings`
+    // already counts ACTIVE rows only, so use it where it exists and fall back
+    // to the original rule everywhere else (the staged wizard, which has no
+    // ignore state on this surface).
+    if (routedWarnings !== undefined) return routedWarnings.here + routedWarnings.elsewhere > 0;
+    return data.warnings.some((w) => w.severity === "warn");
+  }, [data.warnings, routedWarnings]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
   // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in
@@ -931,6 +947,9 @@ export function ShowReviewSurface({
                   // `undefined` value.
                   routedWarningsRenderElsewhere,
                   ...(routedWarnings !== undefined ? { routedWarnings } : {}),
+                  ...(s.id === "warnings" && suppressWarningsPanelCard
+                    ? { suppressPanelCard: true }
+                    : {}),
                   flagged: flagged.has(s.id),
                   judgment: judgment.has(s.id),
                   getActiveSection,

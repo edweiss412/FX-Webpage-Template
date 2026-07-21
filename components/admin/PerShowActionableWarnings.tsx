@@ -102,7 +102,16 @@ export function PerShowActionableWarnings({
           typeof followUpCopy === "string" && followUpCopy.trim().length > 0
             ? followUpCopy.trim()
             : null;
-        const popoverBody = [context, followUp].filter((v): v is string => v !== null).join("\n\n");
+        // Joined with a SPACE, not "\n\n" (impeccable critique P1b): `HoverHelp`
+        // renders its body in a plain `<div>` (components/admin/HoverHelp.tsx:254)
+        // with no `whitespace-pre-line`, so a newline pair collapses and the
+        // intended paragraph break never appears. Two complete sentences with one
+        // space is honest prose; producing a real visual break would mean adding
+        // `whitespace-pre-line` to the SHARED popover body, which changes every
+        // other popover on the surface and is out of scope here.
+        const popoverBody =
+          [context, followUp].filter((v): v is string => v !== null).join(" ") || null;
+
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
@@ -186,7 +195,7 @@ export function PerShowActionableWarnings({
                 </span>
               }
               helpTrigger={
-                popoverBody.length > 0 ? (
+                popoverBody !== null ? (
                   <CompactAlertHelp
                     subject={typeof title === "string" ? title : null}
                     popoverCopy={popoverBody}
