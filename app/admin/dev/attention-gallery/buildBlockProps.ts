@@ -12,57 +12,25 @@
  * exports from a page module, and because the render path is worth unit-testing
  * without booting a route.
  */
-import {
-  ATTENTION_ROUTES,
-  deriveAttentionItems,
-  type AttentionItem,
-} from "@/lib/admin/attentionItems";
+import { ATTENTION_ROUTES, type AttentionItem } from "@/lib/admin/attentionItems";
 import {
   bucketAttention,
   resolveEffectiveSection,
   type PlacementPredicates,
   type SectionAttention,
 } from "@/lib/admin/sectionAttention";
-import { deriveAlertRowFields } from "@/lib/adminAlerts/deriveAlertRowFields";
-import { shapeHoldEntry, type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
 import type { ReactNode } from "react";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import type {
   ReadoutRow,
   ScenarioBlockProps,
   ScenarioGroup,
 } from "@/components/admin/dev/ScenarioBlock";
 
-/** Fixed so a card's relative-time copy is stable across reloads and screenshots. */
-export const GALLERY_NOW = new Date("2026-07-01T18:00:00.000Z");
-export const GALLERY_SLUG = "gallery";
-
-/** Synthetic rows have no database id; derivation only needs one that is stable. */
-function alertId(scenarioId: string, index: number): string {
-  return `${scenarioId}-alert-${index}`;
-}
-
-function toAlertInputs(s: AttentionScenario) {
-  return s.alerts.map((row, i) => ({
-    id: alertId(s.id, i),
-    code: row.code,
-    context: row.context,
-    raised_at: row.raised_at,
-    occurrence_count: row.occurrence_count,
-    ...deriveAlertRowFields(row, row.galleryIdentity ?? undefined),
-  }));
-}
-
-function toHoldRows(s: AttentionScenario): HoldRow[] {
-  return s.holds.map((h, i) => ({
-    id: `${s.id}-hold-${i}`,
-    entity_key: h.entity_key,
-    held_value: h.held_value,
-    proposed_value: h.proposed_value,
-    base_modified_time: h.base_modified_time,
-    created_at: h.base_modified_time,
-  }));
-}
+// Relocated to the client-safe shared module; re-exported for the (soon removed)
+// card page that still imports them from here.
+export { GALLERY_NOW, GALLERY_SLUG } from "@/lib/dev/galleryModalTypes";
 
 /**
  * Flattens the bucket map into a stable, renderable list. Placement KIND is kept
@@ -160,11 +128,7 @@ export function buildBlockProps(
   renderNote: (sectionId: string, count: number) => ReactNode = (id, n) =>
     `${n} parse note(s) composed by ${id}`,
 ): ScenarioBlockProps {
-  const items = deriveAttentionItems({
-    alerts: toAlertInputs(s),
-    feed: s.holds.length === 0 ? null : { entries: toHoldRows(s).map(shapeHoldEntry) },
-    slug: GALLERY_SLUG,
-  });
+  const items = deriveScenarioAttention(s);
 
   // Always-true defaults with the scenario's tier-2 overrides on top: the
   // predicates are the ONLY thing a structural axis varies, so they must reach
