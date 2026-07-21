@@ -3,6 +3,10 @@
 // Kept in its own module so vitest.config.ts has a default export only (avoids
 // rollup's MIXED_EXPORTS warning when the config is bundled).
 //
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+//
 // The PARALLEL project: directories whose test files were empirically verified
 // to be DB-free and fixture-corpus-safe (each passed with every Supabase/DB
 // endpoint pointed at a closed port, run with fileParallelism:true). These run
@@ -32,6 +36,22 @@
 // project (the nightly mutation-harness files land in none by design).
 
 export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+// The committed DB-free allowlist (spec 2026-07-20-serial-parallel-reclassification
+// §3.1). Each line is a repo-relative test path verified DB-free by the DB-touch
+// instrumentation (§1.1): it neither needs nor writes to a database and reaches
+// none via a subprocess. These move from the serial project to the parallel one.
+// A NEWLY-added file defaults SERIAL (it is not on this list); a file joins the
+// list only via `pnpm ci:regen-db-free`. Guarded by the static DB-binding
+// meta-test + the nightly drift job (spec §3.2/§3.4).
+export const DB_FREE_MOVABLE: readonly string[] = readFileSync(
+  join(HERE, "tests/probes/db-free-movable.txt"),
+  "utf8",
+)
+  .split("\n")
+  .map((l) => l.trim())
+  .filter(Boolean);
 
 // Files the unit-suite CI job must NOT run (each needs an environment the
 // local-bootstrap runner can't provide, or starves under full-suite concurrency

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import vitestConfig from "@/vitest.config";
 import {
+  DB_FREE_MOVABLE,
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
@@ -127,14 +128,17 @@ describe("vitest projects split — partition is complete and correctly wired", 
     ).toBe(true);
   });
 
-  it("parallel.include IS PARALLEL_TEST_GLOBS and serial.exclude CONTAINS every parallel glob (single source of truth)", () => {
+  it("parallel.include IS PARALLEL_TEST_GLOBS + DB_FREE_MOVABLE and serial.exclude CONTAINS both (single source of truth)", () => {
     const serial = projects.find((p) => p.test.name === "serial")!.test;
     const parallel = projects.find((p) => p.test.name === "parallel")!.test;
-    expect(parallel.include).toEqual(PARALLEL_TEST_GLOBS);
-    // serial must exclude every parallel glob (alongside defaults + nightly)
-    // so the partition can't double-run
+    expect(parallel.include).toEqual([...PARALLEL_TEST_GLOBS, ...DB_FREE_MOVABLE]);
+    // serial must exclude every parallel glob AND every moved file (alongside
+    // defaults + nightly) so the partition can't double-run.
     for (const g of PARALLEL_TEST_GLOBS) {
       expect(serial.exclude ?? [], `serial.exclude must contain ${g}`).toContain(g);
+    }
+    for (const f of DB_FREE_MOVABLE) {
+      expect(serial.exclude ?? [], `serial.exclude must contain moved file ${f}`).toContain(f);
     }
   });
 
