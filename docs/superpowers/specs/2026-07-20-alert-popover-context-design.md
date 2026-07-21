@@ -38,7 +38,7 @@ const body = context ? renderEmphasis(context) : HELP_ONLY_LEARN_MORE_LEAD_IN;
 
 where `context = nonEmpty(input.helpfulContext)`. So an entry with `helpfulContext: null` and a gate-passing `helpHref` renders the lead-in. The lead-in is a legitimate state for an entry that intentionally has only a Learn-more link, but for these 45 it is an authoring gap, not a design intent.
 
-`helpHref != null` is the exact, statically decidable reachability signal: `catalogDocsValidator.ts:22` makes `helpHref != null` imply a predicate entry (`title` + `longExplanation` also non-null), and the popover trigger renders whenever `buildHelpPopoverBody` returns non-null, which for a null-context entry requires a gate-passing `helpHref`. No audience or route reasoning is needed at the catalog layer.
+`helpHref != null` is the gate's static **contract** signal, not a claim of exact runtime reachability. It over-approximates: `buildHelpPopoverBody` renders the trigger only when it returns non-null, which for a null-context entry additionally requires the per-route Learn-more gate to pass (`shouldEmitLearnMore`, `components/admin/compactAlertHelp.tsx:71-72`), and that gate is a per-render property with no catalog-layer equivalent. The over-approximation is **intentional**: a code that carries a `/help/errors` link but no glanceable popover copy is a defect regardless of which routes currently render it, so the contract is "carry a help link ⟹ carry popover copy (or a declared exemption)." `catalogDocsValidator.ts:22` guarantees a `helpHref != null` entry is a predicate entry (`title` + `longExplanation` also non-null), so the universe is well-formed. No audience or route reasoning is needed at the catalog layer.
 
 `helpfulContext` is already classified `"rendered-prose"` in the copy-hygiene meta-test (`tests/messages/_metaCatalogCopyHygiene.test.ts:202`), so the em-dash ban, curly-quote ban, and markdown-asterisk-leak checks already apply to the new strings. No new field classification.
 
@@ -50,7 +50,8 @@ Visual companion (before/after, in the real compact-card + popover chrome): `doc
 
 **Doug's 20** (`audience: "doug"`):
 - 1–2 sentences, ≤240 characters (rendered length; all ship ≤226).
-- Frames what Doug sees + the resolution lever: fix at source (sheet / Drive / role mapping), judge-intentional, or escalate to the developer. Never names parser/app internals.
+- Frames what Doug sees + the resolution lever: fix at source (sheet / Drive / role mapping), judge-intentional, or escalate to the developer.
+- Does not name parser/app internals (no "re-stage", "advances the version", "reviewed parse", "previously approved bytes", "re-fetch"). It MAY name a UI surface Doug already sees and that the companion `dougFacing` body already references — specifically the per-show **parse panel** (`components/admin/ParsePanel.tsx`; `PARSE_ERROR_LAST_GOOD`/`RESYNC_QUALITY_REGRESSED` bodies already point Doug there) — because that is an actionable place to go, not exposed machinery.
 - Does not restate the visible `dougFacing` body.
 
 **Developer's 25** (`audience: "health"`):
@@ -68,20 +69,20 @@ Visual companion (before/after, in the real compact-card + popover chrome): `doc
 | 3 | `SHEET_UNAVAILABLE` | Until the sheet is back in the watched folder, crew keep the last good version on file. Move or re-share it into the folder and the next sync brings the show back automatically. |
 | 4 | `PARSE_ERROR_LAST_GOOD` | The parse panel shows the exact line that failed to read. Fix it in the sheet and the next sync replaces the older version crew currently see; nothing else to do. |
 | 5 | `RESYNC_SHRINK_HELD` | The update was held so a bad edit can't silently wipe crew or a section. If the drop was intentional, re-sync to apply it; if not, fix the sheet and a clean sync clears this. |
-| 6 | `RESYNC_QUALITY_REGRESSED` | Fewer fields or sections read than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what degraded; fix the sheet and a clean sync restores it. |
+| 6 | `RESYNC_QUALITY_REGRESSED` | Fewer fields or sections came through than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what dropped; fix the sheet and a clean sync restores it. |
 | 7 | `WATCH_CHANNEL_ORPHANED` | At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing. |
-| 8 | `REEL_DRIFTED` | The reviewed parse still points at the old reel, so crew see the text status without the video. Any save to the sheet re-stages the current reel on the next sync. |
+| 8 | `REEL_DRIFTED` | The video changed after you last reviewed the show, so crew see the text status without it. Any save to the sheet picks up the current reel on the next sync. |
 | 9 | `OPENING_REEL_NOT_VIDEO` | A Doc, image, or PDF can't play inline, so crew see the text status only. Point the opening-reel cell at an actual video file to turn playback back on. |
 | 10 | `OPENING_REEL_PERMISSION_DENIED` | The video's sharing changed or it moved somewhere FXAV can't read, so crew see the text status only. Re-share it with FXAV, or swap in a video you do share, to restore playback. |
-| 11 | `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` | Crew see a placeholder because this diagram can't be re-fetched on its own. Any edit to the sheet advances the version, which re-stages the image on the next sync. |
+| 11 | `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` | Crew see a placeholder because this diagram can't be recovered on its own. Save the sheet (any edit counts) and the next sync restores the image. |
 | 12 | `ASSET_RECOVERY_BYTES_EXCEEDED` | The cap keeps one big gallery from blocking other shows' syncs. Crew see placeholders for the missing diagrams; trim the set under the limit, or ask the developer to raise the ceiling if this show genuinely needs it. |
 | 13 | `ROLE_FLAGS_NOTICE` | This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping. |
-| 14 | `SHOW_FIRST_PUBLISHED` | It auto-published because the parse came through clean. If it's the wrong sheet or bad timing, flip Published off on the show's page; crew lose access until you turn it back on, and the same link works again when you do. |
+| 14 | `SHOW_FIRST_PUBLISHED` | It auto-published because the sheet came through clean. If it's the wrong sheet or bad timing, flip Published off on the show's page; crew lose access until you turn it back on, and the same link works again when you do. |
 | 15 | `SHOW_UNPUBLISHED` | Nothing was deleted and the sheet keeps syncing in the background, so republishing from the show's page brings the same link back exactly as it was. |
 | 16 | `LIVE_ROW_CONFLICT` | Setup stepped aside so it wouldn't clobber the live version already in flight. Apply or Discard that row from the dashboard, then re-run setup if you still need to. |
 | 17 | `ONBOARDING_SHEET_UNREADABLE` | These files never reach any crew page, so nothing is exposed. The usual cause is a missing or renamed section header; fix or remove them in Drive and the next sync clears this, or dismiss it now if they're meant to be skipped. |
 | 18 | `SYNC_STALLED` | Already-published pages stay up; only new edits are waiting. It usually recovers on its own, but if it sticks the Drive connection may have lapsed, so re-run setup or check the connection. |
-| 19 | `EMBEDDED_ASSET_DRIFTED` | The previously approved image stays live, and crew see a placeholder only for the one that changed. Save the sheet again to re-stage the new version. |
+| 19 | `EMBEDDED_ASSET_DRIFTED` | Crew keep the last good image and see a placeholder only for the one that changed. Save the sheet again to pick up the new version. |
 | 20 | `PICKER_EPOCH_RESET` | The share link itself didn't change, so crew just pick their name again on the next visit, and any open tabs re-prompt on refresh. Nothing to fix; this is a record of the reset. |
 
 ### 3.3 Developer's 25
@@ -119,17 +120,18 @@ Visual companion (before/after, in the real compact-card + popover chrome): `doc
 <!-- spec-lint: ignore — new files created by this spec; not yet tracked -->
 New meta-test: `tests/messages/_metaPopoverContextCoverage.test.ts`. New ledger: `tests/messages/popoverContextExemptions.ts` exporting `POPOVER_CONTEXT_EXEMPT: ReadonlyArray<{ code: string; reason: string }>` (ships `[]`).
 
-Three assertions, all walking the LIVE catalog so a new code fails by default:
+Four assertions, all walking the LIVE catalog so a new code fails by default:
 
 1. **Completeness.** For every `MessageCatalogEntry` with `helpHref != null`: `helpfulContext != null`, OR its `code` appears in `POPOVER_CONTEXT_EXEMPT`. A new help-linked code with neither fails here.
-2. **Per-string validity.** For every entry that satisfies rule 1 via `helpfulContext` (not via exemption): the string, rendered through `renderEmphasis` under a worst-case empty-parameter fixture, produces non-empty text AND is not equal to `HELP_ONLY_LEARN_MORE_LEAD_IN`. Catches an author pasting the lead-in to pass rule 1.
-3. **Ledger is closed and non-vacuous.** Every `code` in `POPOVER_CONTEXT_EXEMPT` exists in the catalog, has `helpHref != null` (else the row is vacuous — the code never reaches a popover), and carries a non-empty `reason`. No duplicate rows.
+2. **Per-string validity.** For every entry that satisfies rule 1 via `helpfulContext` (not via exemption): the string is **normalized the same way production does** — trimmed (mirroring `nonEmpty`, `components/admin/compactAlertHelp.tsx:54-58`) and rendered through `renderEmphasis` under a worst-case empty-parameter fixture — and the resulting text is non-empty AND is not equal to `HELP_ONLY_LEARN_MORE_LEAD_IN`. Normalizing before comparison is load-bearing: a whitespace-only string, or the lead-in padded with whitespace, would pass a naive raw-string check yet trims in production to an absent context or the exact fallback. Catches an author pasting (or padding) the lead-in to pass rule 1.
+3. **Exemption and authored copy are mutually exclusive.** An exempt `code` MUST have `helpfulContext == null`. A code cannot be both exempt and authored. Without this, a stale exemption outlives authored copy, and an exempt entry carrying whitespace or the lead-in could bypass rule 2 (rule 2 skips exempt codes). Enforcing exclusivity keeps "exempt" meaning exactly "intentionally context-free."
+4. **Ledger is closed and non-vacuous.** Every `code` in `POPOVER_CONTEXT_EXEMPT` exists in the catalog, has `helpHref != null` (else the row is vacuous — the code never carries a help link, so it needs no exemption), and carries a non-empty `reason`. No duplicate rows.
 
 The gate imports `HELP_ONLY_LEARN_MORE_LEAD_IN` and `renderEmphasis` from their shipped modules (no copy of the constant). It is structurally a sibling of `_metaShowScopedTemplates.test.ts` (`tests/messages/_metaShowScopedTemplates.test.ts:45-118`), whose defense-2 "valid as RENDERED output" and defense-3 "key set EQUALS declaring set" patterns this mirrors.
 
 ## 5. Guard conditions and edge cases
 
-- **Empty-string `helpfulContext`.** `nonEmpty` (`compactAlertHelp.tsx:54`) trims and treats `""`/whitespace as absent, so an all-whitespace string renders the lead-in. Rule 2 renders through `renderEmphasis` and asserts non-empty text, so a whitespace-only string fails the gate. Authored strings are all substantive.
+- **Empty-string or padded-lead-in `helpfulContext`.** `nonEmpty` (`components/admin/compactAlertHelp.tsx:54-58`) trims and treats `""`/whitespace as absent, so in production an all-whitespace string renders the lead-in, and `"  <lead-in>  "` renders the exact fallback. Rule 2 mirrors that normalization (trim before render/compare), so a whitespace-only string fails the non-empty check and a whitespace-padded lead-in fails the not-equal check. Authored strings are all substantive.
 - **Worst-case empty params.** Popover strings contain NO `<placeholder>` tokens (unlike `dougFacing`), so `renderEmphasis` output does not depend on interpolation params; the empty-param fixture is the true worst case.
 - **A code loses its `helpHref` later.** It drops out of the gate universe automatically (universe is computed from the live catalog), and its `helpfulContext`, if any, becomes inert but harmless. No stale-gate failure.
 - **A new code adds `helpHref` + `helpfulContext` together.** Passes rules 1 and 2 with no ledger touch. This is the intended happy path.
