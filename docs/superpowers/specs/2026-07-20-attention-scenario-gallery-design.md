@@ -428,7 +428,15 @@ type MaterializeResult =
   | { kind: "infra_error"; message: string };
 ```
 
-**Registry treatment is decided here, not left to the implementer** (R1 #19): these call sites get rows in the invariant-9 registry meta-test, not inline exemptions — they are ordinary service-role table calls with no exempting property. §12 names the registry being extended.
+**Registry treatment, decided here** (R1 #19 asked for a decision; the first answer was wrong and is corrected):
+
+There is **no invariant-9 registry whose scope covers this file.** The only such registry walks `AUTH_DOMAIN_ROOTS = ["lib/auth", "app/auth", "app/api/auth", "app/api/show"]` (`tests/auth/_metaInfraContract.test.ts:336`); `tests/reports/_metaInfraContract.test.ts` is scoped to the M8 report surfaces. `app/admin/dev/actions.ts` is covered instead by a **file-level annotation** at `app/admin/dev/actions.ts:3-11`.
+
+That annotation's stated rationale is that every helper in the file throws on both the returned-`.error` and thrown-await paths, and that **"None of these helpers return a typed `{ kind: 'infra_error' }` union, so no §1.9 caller contract exists to silently violate."**
+
+The two new actions **break that premise deliberately**: they return `MaterializeResult` above, because the card must render skip lists, partial outcomes, and refusals as ordinary UI. Throwing would surface a recoverable, expected condition — a collision skip, an unconfirmed environment — through the dev error boundary, which is the wrong behavior.
+
+Therefore the new actions are **not exempt; they comply directly** — they destructure `{ data, error }`, distinguish returned from thrown, and map infra faults onto `{ kind: "infra_error" }`. The implementation task **amends the file-level annotation** so it no longer claims file-wide that nothing returns a typed union: the legacy helpers keep their throwing contract and their exemption, the two materialize actions are called out as honoring the invariant directly. Leaving the annotation as-is would make it a false statement about its own file.
 
 ## 8. Dimensional invariants
 
@@ -481,7 +489,9 @@ No empty column; no zombie flag.
 
 ## 12. Meta-test inventory
 
-**Extends:** `tests/log/_auditableMutations.ts` (four rows), `tests/log/adminOutcomeBehavior.test.ts` (four behavioral proofs), the invariant-9 call-boundary registry (§7.5), `tests/admin/withAdminDevFlagDevPanelPresent.test.ts` and `tests/admin/build-artifact-gate.test.ts` (§6).
+**Extends:** `tests/log/_auditableMutations.ts` (four rows), `tests/log/adminOutcomeBehavior.test.ts` (four behavioral proofs), `tests/admin/withAdminDevFlagDevPanelPresent.test.ts` and `tests/admin/build-artifact-gate.test.ts` (§6).
+
+**Not extended:** any invariant-9 registry — none has `app/admin/dev` in scope (§7.5). The obligation there is an amended file-level annotation plus the typed-result behavior, both covered by the guard tests below rather than by a registry row.
 
 **Creates:** none.
 
