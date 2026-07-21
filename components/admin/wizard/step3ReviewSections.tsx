@@ -2411,7 +2411,11 @@ export function WarningsBreakdown({
               <p
                 key={note.id}
                 data-testid={`parse-attention-note-${note.alert.code}`}
-                className="text-xs/relaxed text-text-subtle"
+                // Body prose is load-bearing (what crew see + what to do), so it uses
+                // `text-text` (AAA in both modes) matching the attention-banner body
+                // precedent (DESIGN.md §1.2), not the AA `text-subtle` caption token —
+                // PRODUCT.md requires AAA body for the sunlit venue-floor phone context.
+                className="text-xs/relaxed text-text"
               >
                 <strong className="font-medium text-text-strong">{composed.lead}</strong>{" "}
                 {composed.rest}
