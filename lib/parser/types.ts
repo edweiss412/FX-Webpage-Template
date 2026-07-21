@@ -81,6 +81,19 @@ export type ParseWarning = {
   // shows_internal.parse_warnings — backward-compatible, no migration. The UI
   // renders an "Open in Sheet" link via buildSheetDeepLink when present.
   sourceCell?: SourceAnchor | null;
+  // The correction an autocorrect code performed, structured so a surface can
+  // state it without parsing `message` (spec 2026-07-21-warning-card-identity-placement
+  // §3.1). ALWAYS set by every producer of the five *_AUTOCORRECTED codes when a
+  // correction occurred; ABSENT on every other code (absence discriminates).
+  // `subject` names the entity the correction happened TO: the crew member for
+  // crew-scoped codes (STAGE_WORD/ROLE_TOKEN), null where not person-scoped
+  // (section/column/field). jsonb-persisted on shows_internal.parse_warnings and
+  // pending_syncs.parse_result. Additive, backward-compatible, no migration
+  // (mirrors `roleToken`, `resolution`).
+  autocorrect?: {
+    subject: string | null;
+    corrections: { detected: string; corrected: string }[];
+  };
 };
 export type ParseError = { code: string; message: string; blockRef?: { kind: string } };
 

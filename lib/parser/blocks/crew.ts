@@ -348,6 +348,15 @@ function buildCrewMember(params: {
         .join(", ")} in role cell: '${cleanedRole}'`,
       rawSnippet: cleanedRole,
       blockRef: crewBlockRef,
+      // Structured identity for the card layer (spec §3.2 site 1): displayName and
+      // the corrections are both in scope here. `message` above is unchanged.
+      autocorrect: {
+        subject: displayName,
+        corrections: stageNorm.corrections.map((c) => ({
+          detected: c.detected,
+          corrected: c.corrected,
+        })),
+      },
     };
     warnings.push(stageNote);
     if (agg) agg.warnings.push(stageNote);
