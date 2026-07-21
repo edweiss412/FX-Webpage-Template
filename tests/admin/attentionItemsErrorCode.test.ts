@@ -18,7 +18,9 @@ const alertOf = (r: AttentionAlertInput[]) =>
 
 describe("AttentionAlertPayload.errorCode", () => {
   it("carries an allowlisted context.error_code", () =>
-    expect(alertOf([base({ context: { error_code: "MI-4_NO_CREW" } })])?.errorCode).toBe("MI-4_NO_CREW"));
+    expect(alertOf([base({ context: { error_code: "MI-4_NO_CREW" } })])?.errorCode).toBe(
+      "MI-4_NO_CREW",
+    ));
   it("is null for a non-allowlisted context value (read-layer defense)", () =>
     expect(alertOf([base({ context: { error_code: "PARSE_HARD_FAIL" } })])?.errorCode).toBeNull());
   it("is null when absent", () =>

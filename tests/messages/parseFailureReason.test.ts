@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { PARSE_FAILURE_ALLOWLIST, parseFailureReasonTitle } from "@/lib/messages/parseFailureReason";
+import {
+  PARSE_FAILURE_ALLOWLIST,
+  parseFailureReasonTitle,
+} from "@/lib/messages/parseFailureReason";
 
 const CASES: Array<[string, string]> = [
   ["MI-1_VERSION_DETECTION_FAILED", "Unrecognized show template"],
@@ -18,8 +21,7 @@ describe("parseFailureReasonTitle", () => {
     expect(parseFailureReasonTitle(code)).toBe(title),
   );
   it("the allowlist is exactly these 8 codes", () =>
-    expect([...PARSE_FAILURE_ALLOWLIST].sort()).toEqual(CASES.map((c) => c[0]).sort()),
-  );
+    expect([...PARSE_FAILURE_ALLOWLIST].sort()).toEqual(CASES.map((c) => c[0]).sort()));
   it("returns null for PARSE_HARD_FAIL, non-allowlisted, unknown, null, undefined", () => {
     for (const c of ["PARSE_HARD_FAIL", "SHEET_UNAVAILABLE", "NOT_A_CODE"] as const)
       expect(parseFailureReasonTitle(c)).toBeNull();
@@ -27,7 +29,8 @@ describe("parseFailureReasonTitle", () => {
     expect(parseFailureReasonTitle(undefined)).toBeNull();
   });
   it("no resolved title contains an em dash", () => {
-    for (const code of PARSE_FAILURE_ALLOWLIST) expect(parseFailureReasonTitle(code)).not.toMatch(/—/);
+    for (const code of PARSE_FAILURE_ALLOWLIST)
+      expect(parseFailureReasonTitle(code)).not.toMatch(/—/);
   });
   it("resolves via lookup, not MESSAGE_CATALOG directly (invariant 5)", () => {
     const src = readFileSync("lib/messages/parseFailureReason.ts", "utf8");

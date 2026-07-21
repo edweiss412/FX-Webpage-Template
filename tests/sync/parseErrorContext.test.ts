@@ -29,7 +29,7 @@ describe("buildParseErrorContext", () => {
     expect("message" in ctx).toBe(false);
   });
   it("adds exactly one key beyond the two existing (error_code)", () =>
-    expect(Object.keys(buildParseErrorContext({ ...base, failureCode: "MI-5_NO_ROOMS" })).sort()).toEqual(
-      ["drive_file_id", "error_code", "sheet_name"],
-    ));
+    expect(
+      Object.keys(buildParseErrorContext({ ...base, failureCode: "MI-5_NO_ROOMS" })).sort(),
+    ).toEqual(["drive_file_id", "error_code", "sheet_name"]));
 });

@@ -14,7 +14,9 @@ export function buildParseErrorContext(args: {
   message?: string | null;
 }): Record<string, unknown> {
   const errorCode =
-    args.failureCode && PARSE_FAILURE_ALLOWLIST.has(args.failureCode) ? args.failureCode : undefined;
+    args.failureCode && PARSE_FAILURE_ALLOWLIST.has(args.failureCode)
+      ? args.failureCode
+      : undefined;
   return {
     drive_file_id: args.driveFileId,
     sheet_name: args.sheetName,
