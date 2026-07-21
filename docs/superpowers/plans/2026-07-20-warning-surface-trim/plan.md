@@ -12,14 +12,14 @@
 
 - Spec is canonical: `docs/superpowers/specs/2026-07-20-warning-surface-trim-design.md`. Mechanism sections APPROVE'd at review R5a; the test-plan vector is closed by the AGENTS.md three-round cap with its limits stated in spec §12.1. Do NOT reopen those limits during implementation.
 - Commit per task, `--no-verify`, conventional commits. Scopes: `admin` for component and lib changes, `test(admin)` for test-only tasks.
-- UI diff (files under `components/`), so invariant 8's impeccable dual gate applies. Task 12.
+- UI diff (files under `components/`), so invariant 8's impeccable dual gate applies. Task 10.
 - No DB, no migrations, no `pg_advisory*`, no Supabase client call sites, no new `§12.4` code, no new mutation surface. Invariants 2, 9, 10 are N/A and this is declared rather than assumed.
 - Strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. Every snippet below was typechecked against it before this plan was dispatched; note the object-spread idiom for optional props rather than `key: undefined`.
 - **Meta-test inventory** (spec §11): CREATES the set-driven exclusion guard, the published no-loss guard, and the bell inclusion guard. EXTENDS `tests/admin/roleFlagsNoticeReclassify.test.ts`. Touches no other registry.
 - **Test wiring:** none needed. `BASE_INCLUDE` in `vitest.projects.ts:34` is `tests/**/*.test.ts(x)`, so every new file is collected automatically. `tests/admin/` and `tests/components/` are SERIAL dirs, which is correct for these (jsdom, no DB). No `testMatch` entry, no workflow path filter, no CI change.
 - **Layout-dimensions task:** N/A, declared. Spec §6 establishes there is no fixed-dimension parent and no new parent-child dimension relationship; every touched element is a block-flow child of a content-height panel. No `getBoundingClientRect` assertion is warranted.
-- **Transition-audit task:** REQUIRED (spec §7 carries a Transition Inventory). Task 10.
-- **Tasks 1 and 2 add NO implementation, so invariant 1 is satisfied vacuously rather than waived.** Invariant 1 forbids writing implementation before the test that exercises it. These two tasks write only tests, against code that already exists, so there is no implementation for a red phase to precede. Plan review R2a finding 1 correctly rejected an earlier draft that claimed an "exemption" from a non-negotiable invariant; nothing here overrides invariant 1, and every task that adds implementation follows red-green-commit.
+- **Transition-audit task:** REQUIRED (spec §7 carries a Transition Inventory). Task 8.
+- **Every task follows invariant 1's red-green-commit cycle. There are no standalone characterization tasks.** Two baselines are still needed (the no-loss precondition and the staged-card markup), but each is now Step 0 of the task whose red phase depends on it, not a task of its own: the no-loss precondition opens Task 5, and the staged snapshot opens Task 7. Both are still recorded against code unmodified BY THAT TASK, which is what makes them before-baselines. Plan review rounds 2 and 3 both flagged the standalone framing; rather than argue the invariant's scope for a third round, the structure removes the question.
 - **Fix-round regression budget:** when a review round patches a surface for a class, the next round's preparation re-greps that class across the surface, confirms the relevant meta-test still passes, and notes both in the round closure.
 
 ## Baseline verification (RUN, not described)
@@ -48,58 +48,7 @@ Existing assertions that this change intentionally invalidates, each with its di
 
 ---
 
-### Task 1: No-loss guard, written against unmodified code
-
-The published surface's claim that every warn-severity warning already renders as an actionable card is the precondition for the entire trim. This task proves it BEFORE anything is trimmed, so a later failure means the trim broke it rather than that it was never true.
-
-**Files:**
-<!-- spec-lint: ignore — file created by this plan -->
-- Create: `tests/helpers/warningSurfaceFixture.ts` (the shared fixture; a plain module, NOT a test file, so importing it from several test files cannot re-register tests. Plan review R1a finding 4.)
-<!-- spec-lint: ignore — file created by this plan -->
-- Create: `tests/components/admin/showpage/publishedWarningNoLoss.test.tsx`
-
-**Interfaces:**
-- Consumes: `ShowReviewSurface`, `step3Sections`, `buildSectionWarningModel`, `buildSectionWarningExtras`, `buildPublishedSectionData` (the composition established by `tests/components/admin/showpage/sectionWarningControls.test.tsx:35-41`).
-<!-- spec-lint: ignore — file created by this plan -->
-- Produces: `PUBLISHED_WARNING_FIXTURE` from `tests/helpers/warningSurfaceFixture.ts`, consumed by Tasks 2, 5, 6, 7, 10.
-
-<!-- spec-lint: ignore — file created by this plan -->
-- [ ] **Step 1: Build the shared fixture module** at `tests/helpers/warningSurfaceFixture.ts`.
-Per spec §12, the fixture carries 3 info rows with distinct titles; 2 active warn rows mapped to two DIFFERENT sections, one `UNKNOWN_ROLE_TOKEN` (recognize-role in scope) and one use-raw-eligible structural code; 2 active warn rows routing to the fallback `warnings` bucket; 1 ignored warn row mapped to a section; 1 ignored warn row in the bucket. Asymmetric counts by construction.
-
-- [ ] **Step 2: Write the characterization assertions**
-Assert against the composed published mount, scoped to the EXTRAS subtree only:
-  - every warn-severity identity in the fixture appears in the extras, using `stableWarningKeys` read from each rendered row root;
-  - each appears under the section id `warningsBySection` routes it to;
-  - each appears in its correct `active` / `ignored` partition;
-  - each active warn row carries a Report/Ignore control that is enabled and has an accessible name.
-
-  **No cross-tree uniqueness assertion here.** Today the panel body ALSO renders every warn row: that duplication is the defect this change removes, so a body-plus-extras no-duplicates assertion is guaranteed to fail on unmodified code. Plan review R1a finding 1 caught exactly that contradiction. The uniqueness half moves to Task 5, where it is true.
-
-  This task must PASS on unmodified code. If it fails, stop: the spec's central premise is wrong and the whole change needs re-scoping. Record the failure and escalate.
-
-- [ ] **Step 3: Commit** `test(admin): pin published warning no-loss before the trim`
-
-**Anti-tautology:** the failure mode this catches is a fallback container that renders every warning in one place, which a union-and-uniqueness assertion alone tolerates. Placement and partition are what exclude it (spec §12 test 1, closing R3b finding 1).
-
----
-
-### Task 2: Staged card baseline snapshot
-
-Recorded against unmodified code so it is a genuine before-baseline, per spec §12 test 8a. A snapshot recorded after the implementation would bless whatever the implementation did.
-
-**Files:**
-<!-- spec-lint: ignore — file created by this plan -->
-- Create: `tests/components/admin/stagedCardBaseline.test.tsx`
-
-- [ ] **Step 1: Render `StagedReviewCard` with the shared fixture, enumerate every element carrying `data-testid="per-show-actionable-item"` in document order, and record one inline snapshot of each element's `outerHTML`.** The selector, the ordering, and the serialized boundary are all named because plan review R1a finding 8 correctly noted that "every card" leaves enumeration, ordering, and wrapper handling open to two divergent readings. Not one card: a single snapshot lets another card change freely.
-- [ ] **Step 2: Confirm it passes on unmodified code and commit** `test(admin): baseline staged warning-card markup before the trim`
-
-**Anti-tautology:** this is the only assertion in the plan that can detect an unintended change to staged markup, which every other staged assertion is too narrow to see.
-
----
-
-### Task 3: The `visibleWarningRows` predicate
+### Task 1: The `visibleWarningRows` predicate
 
 **Files:**
 <!-- spec-lint: ignore — file created by this plan -->
@@ -132,7 +81,7 @@ export function visibleWarningRows(
 
 ---
 
-### Task 4: Gate derivation and context threading (no behavior change)
+### Task 2: Gate derivation and context threading (no behavior change)
 
 **Files:**
 - Modify: `components/admin/review/ShowReviewSurface.tsx` (derive the gate; thread it and `routedWarnings` into the chrome context at `components/admin/review/ShowReviewSurface.tsx:909`; pass opts at the rail-count call at `components/admin/review/ShowReviewSurface.tsx:795`)
@@ -163,7 +112,10 @@ railCount: ((d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) =
   Observe BOTH channels. Mount the surface with a probe consumer of `Step3SectionChromeContext` rendered inside the provider, which serializes `routedWarningsRenderElsewhere` and `routedWarnings` into a testid, and assert:
   - the gate is `true` given both `routedWarnings` and `renderSectionExtras`, and `false` for each of the three partial configurations (neither, only extras, only counts);
   - the probe's `routedWarnings` equals the `{ here, elsewhere }` the mount was given, for a fixture where `here` and `elsewhere` DIFFER, so a swapped pair fails;
-  - `railCount` for every section is UNCHANGED from its current value under all four configurations, which is what pins "no behavior change" for this task.
+  - `railCount` for every section is UNCHANGED from its current value under all four configurations, which is what pins "no behavior change" for this task;
+  - **the rail channel receives the SAME gate value the context does.** Plan review R3a finding 3 correctly caught that unchanged counts are identical under every gate value, so the rail channel was unobserved: an implementation passing counts-present to the rail and the conjunction to the context passes an unchanged-counts assertion. Wrap the `warnings` row's `railCount` in a spy that captures `opts.routedWarningsRenderElsewhere`, and assert the captured value equals the probe's context value in ALL FOUR configurations, including the two partial ones where the two predicates differ.
+
+- [ ] **Step 1b: Verify the PRODUCTION call site, not only the composed mount.** Plan review R3a finding 2 correctly caught that injecting `routedWarnings` directly into `ShowReviewSurface` proves prop-to-context plumbing while proving nothing about `PublishedReviewModal` deriving the counts. Omitting or miscomputing that derivation leaves the live gate false while every other task passes through direct mounts, silently disabling all three published trims. Assert against the real modal: for a model with a known active distribution, the `routedWarnings` it passes has `here` equal to the `warnings` bucket's active length and `elsewhere` equal to the summed active length of every other section, with a fixture where the two differ.
 - [ ] **Step 2: Widen the `railCount` type and update all 17 rows** to accept and ignore the second parameter. The `warnings` row keeps `s.warnings.length` in THIS task.
 - [ ] **Step 3: Add the two context fields and derive the gate in the surface.** Under `exactOptionalPropertyTypes`, insert the optional field by spread, never as an explicit `undefined` value (plan review R1a finding 6):
 
@@ -183,14 +135,22 @@ railCount: ((d: SectionData, opts: { routedWarningsRenderElsewhere: boolean }) =
 
 ---
 
-### Task 5: The panel body filter, the rail-count value, and the four empty states
+### Task 3: The panel body filter, the rail-count value, and the four empty states
 
 **Files:**
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` at `components/admin/wizard/step3ReviewSections.tsx:2395`; the empty branch at `components/admin/wizard/step3ReviewSections.tsx:2458`)
 <!-- spec-lint: ignore — file created by this plan -->
 - Create: `tests/components/admin/showpage/publishedWarningsPanel.test.tsx`
 
-- [ ] **Step 0: Write the failing rail-count test** (spec §12 test 4). Published expected value is the fixture's info-row count; staged expected is the fixture's total. BOTH computed from the fixture definition in the test body, NOT by calling `visibleWarningRows`, or the production predicate becomes its own oracle. Then, separately, assert each equals its mode's rendered row count. This lands here rather than in Task 4 because the equality half cannot hold until the body is filtered in the same commit.
+- [ ] **Step 0 (precondition baseline, recorded before this task changes anything): build the shared fixture and pin the no-loss precondition.**
+<!-- spec-lint: ignore — file created by this plan -->
+  Create `tests/helpers/warningSurfaceFixture.ts` (a plain module, NOT a test file, so importing it from several test files cannot re-register tests) exporting `PUBLISHED_WARNING_FIXTURE` per the table below.
+<!-- spec-lint: ignore — file created by this plan -->
+  Create `tests/components/admin/showpage/publishedWarningNoLoss.test.tsx` asserting, scoped to the EXTRAS subtree only: every warn-severity identity appears there; each under the section id `warningsBySection` routes it to; each in its correct `active` / `ignored` partition; each active warn row carrying an enabled, accessibly named Report/Ignore control.
+
+  **No cross-tree uniqueness assertion at Step 0.** Before Step 3 the panel body ALSO renders every warn row, so a body-plus-extras no-duplicates assertion is guaranteed to fail; that half is Step 2b, where it flips false to true. This step must PASS against code unmodified by this task. If it fails, stop: the spec's central premise is wrong and the change needs re-scoping.
+
+- [ ] **Step 0b: Write the failing rail-count test** (spec §12 test 4). Published expected value is the fixture's info-row count; staged expected is the fixture's total. BOTH computed from the fixture definition in the test body, NOT by calling `visibleWarningRows`, or the production predicate becomes its own oracle. Then, separately, assert each equals its mode's rendered row count. This lands here rather than in Task 4 because the equality half cannot hold until the body is filtered in the same commit.
 - [ ] **Step 1: Write the failing body test** (spec §12 tests 2 and 9), carrying all three extraction modes: identity equality against the fixture's 3 info identities; the body's row-ELEMENT count equals 3; and a `textContent` scan of the body container finding none of the warn rows' catalog titles, raw codes, or messages.
 - [ ] **Step 2: Write the failing empty-state tests** (spec §12 test 5). Plan review R2a finding 3 correctly caught that an earlier draft left `here`, `elsewhere`, and the visible-row count implicit, so several different state machines satisfied every assertion. Exact values per fixture:
 
@@ -211,17 +171,17 @@ Five states, six fixtures:
   - (c) Elsewhere: the line's `textContent` equals `Nothing else to note here. The warnings that need a look are in their own sections.` exactly;
   - (d) Clean with zero warnings and (e) Clean with warnings that are ALL ignored: the line equals `Nothing needs a look on this sheet.` exactly.
   For (c), (d), (e): the element is a `<p>` carrying `text-sm text-text-subtle`, with no `hidden` attribute, no inline `display:none`, no hiding class, and no ancestor inside the panel carrying any of those.
-- [ ] **Step 2b: Write the failing cross-tree uniqueness assertion** deferred from Task 1: with the trim applied, the body-plus-extras identity union equals the input set AND no identity appears twice. This is the assertion that is FALSE before this task and TRUE after, which is exactly why it belongs here.
+- [ ] **Step 2b: Write the failing cross-tree uniqueness assertion** deferred from this task's Step 0: with the trim applied, the body-plus-extras identity union equals the input set AND no identity appears twice. This is the assertion that is FALSE before this task and TRUE after, which is exactly why it belongs here.
 - [ ] **Step 3: Implement** the `visibleWarningRows` call in the body, the `warnings` row's `railCount` returning `visibleWarningRows(d.warnings, opts.routedWarningsRenderElsewhere).length`, and the four-row branch reading `routedWarnings` from context. The staged path keeps its existing binary branch and its `No parse warnings for this sheet.` copy verbatim.
-- [ ] **Step 4: Run, confirm Task 1 and Task 2 still pass, commit** `feat(admin): published warnings panel lists info rows only`
+- [ ] **Step 4: Run, confirm Step 0's precondition still passes, commit** `feat(admin): published warnings panel lists info rows only`
 
-**Regression note:** Task 1 must still pass unchanged after this task. It asserts extras coverage, which the trim does not touch; if it fails here, the trim removed a warning from the extras rather than from the body.
+**Regression note:** Step 0's precondition must still pass unchanged after Step 3. It asserts extras coverage, which the trim does not touch; if it fails here, the trim removed a warning from the extras rather than from the body.
 
 **Anti-tautology:** an ignored row counted as active is the specific defect fixture (e) exists to catch; a correct testid rendering wrong copy is what the exact-text assertion catches; a visually hidden line is what the attribute and style assertions catch.
 
 ---
 
-### Task 6: Retire the published guidance
+### Task 4: Retire the published guidance
 
 **Files:**
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (`CorrectionLoopCallout` mount at `components/admin/wizard/step3ReviewSections.tsx:2470`; non-blocking line at `components/admin/wizard/step3ReviewSections.tsx:2472`)
@@ -236,7 +196,7 @@ Each frozen literal gets its OWN test case, so one stale literal cannot be maske
 
 ---
 
-### Task 7: The loop sentence moves into the card popover
+### Task 5: The loop sentence moves into the card popover
 
 **Files:**
 - Modify: `components/admin/CorrectionLoopCallout.tsx` (export `correctionLoopCopy`, currently module-private at `components/admin/CorrectionLoopCallout.tsx:26`)
@@ -252,6 +212,10 @@ const pick = (v: string | null | undefined): string | null =>
 const popoverBody = [pick(context), pick(followUpCopy)].filter((s): s is string => s !== null);
 ```
 
+- [ ] **Step 0 (baseline, recorded before this task changes anything): pin the staged card markup.**
+<!-- spec-lint: ignore — file created by this plan -->
+  Create `tests/components/admin/stagedCardBaseline.test.tsx`. Render `StagedReviewCard` with the shared fixture, enumerate every element carrying `data-testid="per-show-actionable-item"` in document order, and record one inline snapshot of each element's `outerHTML`. The selector, ordering, and serialized boundary are named so two implementers cannot snapshot materially different markup. This is the only assertion that can detect an unintended change to staged cards, and recording it at the start of the task that could cause one is what makes it a before-baseline rather than a blessing of whatever this task did.
+
 - [ ] **Step 1: Write the failing composition tests** (spec §12 test 6):
   - (a) for EVERY member of `WARNING_CARD_COPY_CODES`, a published card's popover text equals that code's `triggerContext` followed by the loop sentence, in that order, exactly. The loop sentence is a FROZEN LITERAL written in the test, not `correctionLoopCopy("resync")`. Plan review R2a finding 4 correctly caught that comparing published output to staged output, when both derive from the same helper, gives the suite no independent oracle: a wrong edit to the shared copy changes both identically and passes. The frozen literal is that oracle. Iterating all 40 is what excludes an implementation that appends the follow-up only where sampled;
   - (b) staged mount: popover equals `triggerContext` alone;
@@ -261,13 +225,13 @@ const popoverBody = [pick(context), pick(followUpCopy)].filter((s): s is string 
   - (f) the published popover's follow-up substring equals the staged callout's rendered text. This is a CONSISTENCY assertion, not a correctness one: (a)'s frozen literal is what pins the value, and (f) is what catches a duplicate assembled from concatenated fragments in a way a source scan for a literal cannot.
 - [ ] **Step 2: Export `correctionLoopCopy`, add the prop, compose, and wire the extras factory** with `correctionLoopCopy("resync")`. `StagedReviewCard.tsx:521` passes nothing and is not edited.
 - [ ] **Step 3: Add the source-scan guard** that `StagedReviewCard`'s mount passes no `followUpCopy` (spec §12 test 8c).
-- [ ] **Step 4: Run, confirm Task 2's baseline snapshot still passes unchanged, commit** `feat(admin): move the correction-loop sentence into the warning card popover`
+- [ ] **Step 4: Run, confirm Step 0's baseline snapshot still passes unchanged, commit** `feat(admin): move the correction-loop sentence into the warning card popover`
 
-**Anti-tautology:** Task 2's snapshot passing unchanged is the assertion that proves staged cards gained nothing; the absence of one exact sentence would not.
+**Anti-tautology:** Step 0's snapshot passing unchanged is the assertion that proves staged cards gained nothing; the absence of one exact sentence would not.
 
 ---
 
-### Task 8: Info-severity alerts leave the attention surface
+### Task 6: Info-severity alerts leave the attention surface
 
 **Files:**
 - Modify: `lib/admin/attentionItems.ts` (`deriveAttentionItems` at `lib/admin/attentionItems.ts:303`, beside the `PICKER_EPOCH_RESET` clause at `lib/admin/attentionItems.ts:316`)
@@ -308,7 +272,7 @@ export function deriveAttentionItems(args: {
 
 ---
 
-### Task 9: Bell inclusion through the rendered panel
+### Task 7: Bell inclusion through the rendered panel
 
 **Files:**
 <!-- spec-lint: ignore — file created by this plan -->
@@ -320,13 +284,24 @@ export function deriveAttentionItems(args: {
 
 ---
 
-### Task 10: Compound transition and transition audit
+### Task 8: Compound transition and transition audit
 
 **Files:**
 <!-- spec-lint: ignore — file created by this plan -->
 - Create: `tests/components/admin/showpage/warningsPanelTransitions.test.tsx`
 
-- [ ] **Step 1: Audit a NAMED file inventory**, not "the touched surfaces" (plan review R1b): `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` body and its empty branches), `components/admin/showpage/sectionWarningExtras.tsx` (the `<details>` disclosure), and `components/admin/PerShowActionableWarnings.tsx` (the popover trigger). For each, assert every `AnimatePresence`, ternary render, and conditional block either carries `exit` / `initial` / `animate` props or is on the deliberately-instant list below. The mechanical criterion for "deliberately instant" is: no `AnimatePresence` ancestor within the file and no `transition-*` utility class on the element itself. **Each discovered conditional block is additionally mapped to the inventory pair or pairs whose rendering it controls, and the audit asserts the mapping is total in both directions**: every block maps to at least one pair, and every pair has at least one block. Plan review R2b finding 4 correctly caught that an absence-of-animation criterion alone cannot detect a MISSING state branch, which a totality assertion can. Spec §7's inventory, verbatim:
+- [ ] **Step 1: Audit a NAMED file inventory**, not "the touched surfaces" (plan review R1b): `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` body and its empty branches), `components/admin/showpage/sectionWarningExtras.tsx` (the `<details>` disclosure), and `components/admin/PerShowActionableWarnings.tsx` (the popover trigger). For each, assert every `AnimatePresence`, ternary render, and conditional block either carries `exit` / `initial` / `animate` props or is on the deliberately-instant list below. The mechanical criterion for "deliberately instant" is: no `AnimatePresence` ancestor within the file and no `transition-*` utility class on the element itself. **The expected block inventory is enumerated HERE, in the plan, as a literal list, and the audit asserts the discovered set equals it.** Plan review R3b finding 4 correctly caught that "total in both directions" over a DISCOVERED domain cannot detect a missing branch, because a deleted branch simply leaves the domain. Comparing discovery against a written expectation can:
+
+| Expected block | Controls |
+| --- | --- |
+| `visibleWarningRows` length is zero | List versus the three body-empty states |
+| `routedWarnings.here > 0` | Silent |
+| `routedWarnings.elsewhere > 0` | Elsewhere |
+| the final else | Clean |
+| the `parseNotes` guard | none (pre-existing, unrelated to the inventory) |
+| the `<details>` disclosure in the extras | none (sibling subtree) |
+
+Two assertions: the discovered set equals this list exactly, so a deleted branch fails; and every inventory pair is controlled by at least one listed block, so an unreachable state fails. Spec §7's inventory, verbatim:
 
 | Pair | Treatment |
 | --- | --- |
@@ -341,7 +316,7 @@ export function deriveAttentionItems(args: {
 
   **Every one of the six pairs is EXERCISED**, not four of them argued away. Plan review R2b finding 3 correctly rejected an earlier draft that exercised one pair fully, gestured at a second, and left four to a source audit: "wholesale re-render from new props" is a claim about React reconciliation, which a static audit cannot establish, and distinct conditional branches are not equivalent merely because they share a trigger.
 
-  Each pair is a rerender from fixture A's props to fixture B's props using the §12 test-5 fixture table, asserting the destination state's body content exactly as that table specifies. The six are cheap because they share one harness and differ only in the two fixtures passed:
+  Each pair is a rerender from fixture A's props to fixture B's props using the §12 test-5 fixture table. **Assert the SOURCE state first, then rerender, then assert the destination state**, both exactly as that table specifies. Plan review R3b finding 3 correctly caught that destination-only assertions let an invalid or behaviorally equivalent source fixture pass, collapsing six transitions into six repeats of the same destination render. The six are cheap because they share one harness and differ only in the two fixtures passed:
 
   | Pair | From fixture | To fixture |
   | --- | --- | --- |
@@ -361,24 +336,25 @@ export function deriveAttentionItems(args: {
 
 ---
 
-### Task 11: Impeccable dual gate
+### Task 9: Impeccable dual gate
 
 - [ ] **Step 1: Run `/impeccable critique` on the diff**, with the canonical v3 setup gates: the skill's context load (PRODUCT.md + DESIGN.md), then the register reference read.
 - [ ] **Step 2: Run `/impeccable audit` on the same diff.**
 - [ ] **Step 3: Fix every P0 and P1, or defer explicitly via a `DEFERRED.md` entry**, each fix as its own commit. **Then RERUN both commands**, because a gate whose repairs are never re-gated has not passed (plan review R1b).
 <!-- spec-lint: ignore — file created by this plan -->
-- [ ] **Step 4: Record findings and dispositions in `docs/superpowers/plans/2026-07-20-warning-surface-trim/impeccable.md`**, following the format of `docs/superpowers/plans/2026-07-19-published-show-alerts/impeccable.md`: run header naming the impeccable version and the setup gates, critique and audit sections, and a severity/finding/disposition table where every P0 and P1 reads FIXED with its commit sha or carries an explicit deferral. Plan review R2b finding 1 correctly rejected an earlier draft that called a plan close-out section an "equivalent" of the invariant-8 handoff §12: no ratified exception authorizes that substitution, and the published-show-alerts PR establishes the real convention for a standalone change, which is a sibling `impeccable.md` in the plan directory. This plan now lives in that directory for the same reason.
+<!-- spec-lint: ignore — file created by this plan -->
+- [ ] **Step 4: Write `docs/superpowers/plans/2026-07-20-warning-surface-trim/handoff.md` with numbered sections through §12, and record the findings and dispositions in its §12**, exactly as invariant 8 words the requirement. Plan review R2b finding 1 and R3b both rejected substituting a differently-named document on the grounds that an existing convention is not a ratified exception, which is correct; writing the handoff document with the section the invariant names costs one file and removes the question. Follow the finding-table format of `docs/superpowers/plans/2026-07-19-published-show-alerts/impeccable.md`, following the format of `docs/superpowers/plans/2026-07-19-published-show-alerts/impeccable.md`: run header naming the impeccable version and the setup gates, critique and audit sections, and a severity/finding/disposition table where every P0 and P1 reads FIXED with its commit sha or carries an explicit deferral. Plan review R2b finding 1 correctly rejected an earlier draft that called a plan close-out section an "equivalent" of the invariant-8 handoff §12: no ratified exception authorizes that substitution, and the published-show-alerts PR establishes the real convention for a standalone change, which is a sibling `impeccable.md` in the plan directory. This plan now lives in that directory for the same reason.
 - [ ] **Step 0 (run this FIRST, before Step 1): pre-empt the mechanical invariants rather than discovering them in the gate:** em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type and token classes (`text-xs/relaxed`, `text-subtle`). The two authored sentences in spec §3.4 already comply by construction.
 
 ---
 
-### Task 12: Full verification
+### Task 10: Full verification
 
 - [ ] **Step 1: `pnpm typecheck`** (vitest strips types; a green suite is not a green build).
 - [ ] **Step 2: `pnpm lint`** (canonical Tailwind class ordering).
 - [ ] **Step 3: `pnpm format:check`** (`--no-verify` bypassed prettier on every commit).
 - [ ] **Step 4: `pnpm test`** in full, not scoped. A components-only run skips `tests/styles` and `tests/help`, which carry the token-disposition and UI-label crosswalk registries.
-- [ ] **Step 5: Confirm the four baseline files from the plan preamble still pass**, and that Task 1's no-loss guard and Task 2's snapshot are both green.
+- [ ] **Step 5: Confirm the eight baseline files from the plan preamble still pass**, and that Task 3 Step 0's no-loss guard and Task 5 Step 0's staged snapshot are both green and unmodified since they were recorded.
 - [ ] **Step 6: Cross-model review to APPROVE.** Dispatch tight-scope splits per surface, AND a final integrated pass whose explicit scope is cross-surface behavior: the deliberate divergence between the modal derivation and the independently constructed bell entries, and the interaction between the trim and the extras. Plan review R1b correctly noted that per-surface coverage summed is not the same as an integrated review, and the bell divergence is exactly the property no single-surface reviewer would see.
-- [ ] **Step 6b: If Step 6 produces ANY repair, rerun Steps 1 through 5 of this task; if the repair touched a UI surface, ALSO rerun Task 11's dual gate.** Plan review R2b finding 2 correctly caught an earlier draft that reran only for UI repairs, which let a test, fixture, or config repair reach push and CI with no local verification. Verification that precedes its own repairs has not verified them.
+- [ ] **Step 6b: Repeat to a fixpoint.** If Step 6 produces ANY repair, rerun Steps 1 through 5; if the repair touched a UI surface, ALSO rerun Task 9's dual gate. **Then rerun Step 6 itself, and keep looping until a full pass produces no repairs.** Plan review R3b finding 2 correctly caught that a single rerun still lets the repairs made DURING that rerun reach push unverified; only a fixpoint closes it. Plan review R2b finding 2 correctly caught an earlier draft that reran only for UI repairs, which let a test, fixture, or config repair reach push and CI with no local verification. Verification that precedes its own repairs has not verified them.
 - [ ] **Step 7: Push, real CI green, `gh pr merge --merge`, fast-forward local main and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.**
