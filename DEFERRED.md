@@ -176,3 +176,26 @@ are recorded here with dispositions; none is a P0 and none blocks merge.
   whose sole warning is `TYPO_NORMALIZED`). Its copy is conditional ("Fixed it in the sheet?"), so
   it asserts nothing false; scoping it to actionable info codes would mean a per-code registry for
   one sentence. **Noted, not changed.**
+
+### warning-surface-trim — the in-row crew banner has no live producer (2026-07-21)
+
+- **[MEDIUM] `published-show-alerts` §5.4's in-row crew banner is now unreachable in production.**
+  A crew banner requires a `crewKey`, which requires a `crewName`
+  (`lib/admin/attentionItems.ts:257`). `crewNameFor`
+  (`lib/adminAlerts/fetchPerShowAlerts.ts:63`) produces one from exactly two sources: a
+  special case for `ROLE_FLAGS_NOTICE`, and a "Crew"-labeled identity segment. This change cuts
+  `ROLE_FLAGS_NOTICE` from the modal, and every other crew-routed code carrying a Crew segment
+  (`OAUTH_IDENTITY_CLAIMED`) is a health code already filtered upstream at
+  `fetchPerShowAlerts.ts:103`. So the feature is intact but has zero producers — the same zombie
+  shape that motivated change 3 in the first place, arrived at from the other direction.
+
+  Found at the final gate by a failing e2e, not by the spec: spec §5's impact table enumerated the
+  two dropped codes and their routes but did not ask what else consumed them.
+
+  **Noted, not changed.** The placement test at
+  `tests/e2e/published-show-attention.spec.ts:126` is SKIPPED rather than deleted, because its
+  assertions remain the correct contract and it should un-skip the moment a crew-routed,
+  non-health, actionable code carrying a `crewName` exists. Un-defer trigger: an owner decision on
+  whether any crew-routed notice should reach the show modal — the options are re-including
+  `ROLE_FLAGS_NOTICE` (contradicting the audience split), reclassifying a health code, or
+  accepting that crew-routed alerts live only in the bell.

@@ -1,8 +1,8 @@
 {
   "branch": "feat/warning-surface-trim",
-  "stage": "gates",
-  "tasksRemaining": 1,
-  "next": "Execute Task 10: full verification (pnpm typecheck, lint, format:check, full pnpm test), then the cross-model whole-diff review dispatched as tight-scope splits PLUS an integrated cross-surface pass, loop to a fixpoint on any repair, then push, real CI green, gh pr merge --merge, fast-forward main to 0 0, CronDelete 5d291551.",
+  "stage": "ci",
+  "tasksRemaining": 0,
+  "next": "PR #532 open. Watch CI to green (gh pr checks 532 --watch), confirm mergeStateStatus CLEAN, then gh pr merge 532 --merge, fast-forward local main to 0 0, CronDelete 5d291551.",
   "blockedOn": "",
   "cronJobId": "5d291551"
 }
