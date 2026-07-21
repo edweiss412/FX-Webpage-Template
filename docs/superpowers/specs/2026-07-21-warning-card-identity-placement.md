@@ -207,11 +207,12 @@ Em-dash ban applies (AGENTS.md mechanical UI gate).
 | `autocorrect` absent (legacy persisted warning, or non-autocorrect code) | `null` → `helpfulContext` |
 | `code` not one of the five | `null` → `helpfulContext` (defensive; unreachable by construction) |
 | a pair whose `detected` OR `corrected` is empty/whitespace | that pair is DROPPED before composition |
+| a pair whose TRIMMED `detected` equals its trimmed `corrected` | that pair is DROPPED — a `'Strike' as 'Strike'` self-correction is never shown (guards against a whitespace-only or no-op correction reaching the card) |
 | zero pairs survive dropping | `null` → `helpfulContext` |
 | crew-scoped code (`STAGE_WORD`, `ROLE_TOKEN`) with `subject` null/empty/whitespace | `null` → `helpfulContext` — a crew-scoped line with no name is exactly the generic card we are replacing, so generic is the honest fallback |
 | non-crew code with any `subject` value | `subject` IGNORED; those templates take no name |
 
-**Whitespace of surviving values:** `detected`/`corrected`/`subject` are used TRIMMED in the composed line (leading/trailing whitespace removed), so a padded sheet cell cannot render a visibly malformed quote or name. Interior whitespace is preserved (`Content Creation` stays two words).
+**Whitespace of surviving values:** `detected`/`corrected`/`subject` are used TRIMMED (leading/trailing removed) AND with interior whitespace runs collapsed to a single space, so a padded cell, a tab, or an embedded newline cannot break the sentence or the card layout. A single interior space is preserved (`Content Creation` stays two words); a tab, newline, or run of spaces becomes one space. This is `value.trim().replace(/\s+/g, " ")`, applied to `subject` and to both members of every surviving pair.
 
 Values are plain text and are NEVER parsed as markup — see §4.4.
 
@@ -226,7 +227,7 @@ The render site at `components/admin/PerShowActionableWarnings.tsx:199-205` bran
 
 `trigger` (the `?` popover, `triggerContext`) is untouched, and #532's `followUpCopy`, which composes into the POPOVER body rather than the inline guidance line (`components/admin/PerShowActionableWarnings.tsx:114`), is unaffected.
 
-This removes the design's earlier "interpolation order" section: with a plain-text composed line there is no interpolation into a marked template at render time, so the ordering hazard does not arise. §10 test 10 still asserts the injection-safety property directly (a marker-bearing `subject` renders literally), because it is the invariant that matters regardless of mechanism.
+This removes the design's earlier "interpolation order" section: with a plain-text composed line there is no interpolation into a marked template at render time, so the ordering hazard does not arise. §10 test 9 still asserts the injection-safety property directly (a marker-bearing `subject` renders literally), because it is the invariant that matters regardless of mechanism.
 
 ## 5. Change 3: under-row placement
 
@@ -264,7 +265,9 @@ Fallback mirrors `crewKeyRendered` for alerts (`lib/admin/sectionAttention.ts:12
 
 **Conservation invariant (active):** every ACTIVE crew-scoped warning renders EXACTLY ONCE — under its row, or as a fallback card in the section group — never both, never neither. Ignored crew-scoped warnings render exactly once in the section's `Ignored (N)` disclosure. The two partitions are disjoint and each is conserved. §10 test 3 proves the active invariant by identity over a fixture where members exceed `CREW_CAP` (forcing fallback) AND a matched member coexists (forcing under-row), asserting against the MODEL's active list, not DOM node counts. §10 test 5b proves an ignored under-row card lands in the disclosure and nowhere else.
 
-Duplicate-name handling matches the alert path's `consumedAttentionKeys` rule (`components/admin/wizard/step3ReviewSections.tsx:1379`): the FIRST row with a given canonical key consumes that key's cards; a second row with the same canonical name renders none, and those cards fall back to the group rather than vanishing (a divergence from the alert path, which simply drops them — noted as intentional so the reviewer does not flag it as inconsistency). §10 test 11b covers duplicate non-blank names.
+**Duplicate names: all cards under the first row, by construction.** `warningsByCrewKey` is keyed by `canonicalCrewKey(subject)`, so two members sharing a canonical name share ONE map entry — the model cannot associate one warning with the first row and another with the second, because both warnings carry the same `subject`. The earlier draft's "first hosts one, second falls back" split was therefore unrepresentable (R2 BLOCKING). The honest and representable rule: the FIRST rendered row with a given canonical key consumes ALL cards under that key; every later row with the same canonical name renders none. This matches the alert path's `consumedAttentionKeys` rule (`components/admin/wizard/step3ReviewSections.tsx:1379`) exactly, with no divergence.
+
+Conservation still holds — each warning renders exactly once (all under the first matching row) — and the attribution is not misleading: the cards read "in `<name>`'s role", and when two members share a name that phrase is inherently ambiguous regardless of which row hosts the card. Nothing is dropped and nothing is duplicated. §10 test 11b asserts both same-name cards render under the first row, the second row is empty, and neither is dropped.
 
 **Blank-name guard.** `canonicalCrewKey` is `name.trim().toLowerCase()` (`lib/admin/attentionItems.ts:223-225`), so an empty/whitespace name canonicalizes to the EMPTY STRING and every unnamed member collides on that one key. A crew-scoped warning whose `subject` is null/empty/whitespace is therefore NOT eligible for under-row placement: it falls back to the section group. Independent reasons: the empty key cannot identify a row, and §4.3 already returns the generic `helpfulContext` for a blank subject, so an under-row card there would be an unattributed generic card under an arbitrary row — worse than the group it came from. The empty string is never used as a `warningsByCrewKey` key. §10 test 11 pins it with a two-unnamed-member fixture.
 
@@ -314,10 +317,13 @@ Named test ids (added by this change): the stack container is `crew-warn-stack-<
 
 | Parent (testid) | Child (testid) | Asserted equality | Guaranteed by |
 |---|---|---|---|
-| `crew-warn-stack-<key>` | each `per-show-actionable-item` | `child.width === parent.width` (content-box, both) | container `flex flex-col items-stretch` |
+| `crew-warn-stack-<key>` | each `per-show-actionable-item` (warning card) | `child.width === parent.width` (content-box, both) | container `flex flex-col items-stretch` |
+| `crew-warn-stack-<key>` | each `attention-banner-<alertId>` (alert child) | `child.width === parent.width` | `items-stretch` |
 | `crew-warn-stack-<key>` | `crew-warn-more-<key>` | `child.width === parent.width` | `items-stretch` |
-| `crew-warn-more-<key>` (open) | each disclosed `per-show-actionable-item` | `child.width === parent.width` | body `flex flex-col items-stretch` |
+| `crew-warn-more-<key>` (open) | each disclosed child, warning OR alert | `child.width === parent.width` | body `flex flex-col items-stretch` |
 | the crew row `<li>` inner content wrapper | `crew-warn-stack-<key>` | `stack.width === wrapper.contentWidth` (wrapper `clientWidth` minus its horizontal padding) | stack `w-full`, wrapper already `min-w-0 flex-1` (`step3ReviewSections.tsx:1350`) |
+
+The stack is a MERGED alert+warning stack (§5.3), so both child kinds must fill it. Alerts already render through `attention-banner-<alertId>` in the existing under-row alert path; the invariant applies to them in the new shared container exactly as to warning cards, both above the fold and inside the open disclosure.
 
 The fourth row measures the stack against the wrapper's CONTENT width (its `clientWidth` less left+right padding read from computed style), not the border-box, because `w-full` equals the content box of a padded parent. That distinction was underspecified before and is the one the reviewer flagged.
 
@@ -327,20 +333,29 @@ The fourth row measures the stack against the wrapper's CONTENT width (its `clie
 
 The stack disclosure has THREE states, not two: **absent** (merged active count ≤ 2, no `<details>` rendered), **collapsed** (count ≥ 3, `<details>` closed), **expanded** (`<details>` open). Enumerating all three and the count-crossing transitions between them:
 
+All three-state pairs are enumerated (3 states → 3 ordered pairs each direction, plus self-transitions):
+
 | From | To | Trigger | Treatment |
 |---|---|---|---|
-| absent | collapsed | count crosses 2→3 (a warning/alert added on live refresh) | disclosure mounts closed; chevron at 0°; instant (no `AnimatePresence`) |
-| collapsed | absent | count crosses 3→2 (a card ignored/resolved) | disclosure unmounts; the freed item joins the ≤2 visible; instant |
-| collapsed | expanded | operator clicks the disclosure | chevron `rotate-90` transform; body appears instantly (native `<details>`) |
+| absent | collapsed | count crosses 2→3 (item added on live refresh) | disclosure mounts closed; chevron at 0°; instant (no `AnimatePresence`) |
+| collapsed | absent | count crosses 3→2 (item ignored/resolved) | disclosure unmounts; the freed item joins the ≤2 visible; instant |
+| collapsed | expanded | operator clicks the disclosure | chevron `rotate-90`; body appears instantly (native `<details>`) |
 | expanded | collapsed | operator clicks again | chevron rotates back; body instant |
+| absent | expanded | — | **IMPOSSIBLE**: expansion requires a rendered `<details>`, which exists only at count ≥ 3, i.e. never in the absent state. No treatment. |
+| expanded | absent | count crosses 3→2 while open | disclosure unmounts; the two survivors promote to visible; no orphaned open node; instant |
 | absent | absent | count changes within 0..2 | visible slots re-render in place; instant |
+| collapsed | collapsed | count changes but stays ≥ 3, disclosure closed | closed body re-renders; chevron unchanged; instant |
+| expanded | expanded | count changes but stays ≥ 3, disclosure open | see compound cases below |
 
-Compound transitions (a mutation while the disclosure is OPEN):
+Compound transitions (a mutation while the disclosure is OPEN, count stays ≥ 3 → `expanded→expanded`):
 
-- A card is ignored/resolved while expanded and the count stays ≥ 3: the card leaves in place, the disclosure STAYS OPEN, remaining hidden cards renumber. §10 test 4b asserts the open state and chevron survive the mutation.
-- A card is ignored/resolved while expanded and the count crosses 3→2: the disclosure transitions expanded→absent (its two survivors promote to visible). §10 test 4c asserts no orphaned open `<details>` and no dropped card.
+- A DISCLOSED card is ignored/resolved: it leaves in place, disclosure STAYS OPEN, hidden cards renumber. §10 test 4b.
+- A VISIBLE (above-fold) card is ignored/resolved: a former hidden card PROMOTES to visible, disclosure stays open, `N more` decrements. §10 test 4d.
+- An item is ADDED on live refresh (a re-sync surfaces a new warning/alert): it lands in the hidden set, `N more` increments, disclosure stays open, existing cards do not reorder above the fold. §10 test 4e.
 
-No `AnimatePresence` is introduced. Every transition above is either a native `<details>` toggle or an instant mount/unmount, so the inventory is complete and animation-free by construction.
+`expanded→absent` (count crosses 3→2 while open) is the one compound case that changes disclosure state: §10 test 4c asserts no orphaned open `<details>` and no dropped card.
+
+No `AnimatePresence` is introduced. Every transition is a native `<details>` toggle or an instant mount/unmount, so the inventory is complete and animation-free by construction.
 
 ## 10. Test plan
 
@@ -352,7 +367,7 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
 3. **Active placement conservation (component).** Fixture with members exceeding `CREW_CAP` AND a matched member, so both fallback and under-row placement occur at once. Assert every ACTIVE crew-scoped warning appears exactly once by identity against the section MODEL's active list, not by counting DOM nodes in a container that renders both graphic and card. Failure mode caught: a warning that renders in both places, or in neither.
 
-   3b. **All-section group no-drop (component).** Finding-9 gate. A fixture giving EVERY section that `renderSectionExtras` covers at least one active warning group; after the sibling mount is deleted and groups thread through context, assert each section id still renders its group exactly once. A section renderer that omits the context field fails. NOT crew-specific.
+   3b. **All-section group no-drop (component).** Finding-9 gate. The expected section-id set is stated INDEPENDENTLY here so the test cannot derive it from the same routing it guards: `venue, event, crew, contacts, schedule, agenda, hotels, transport, rooms, diagrams, packlist, billing, report` (the `SectionId` union minus `warnings`, `lib/admin/step3SectionStatus.ts:6-20`; `warnings` is excluded because it is the panel itself, not an extras host). The fixture gives EACH of those sections one active warning group; after the sibling mount is deleted and groups thread through context, assert each of the named ids still renders its group exactly once. A hardcoded literal id list (not a value read from the model under change) is required, so a section dropped from BOTH production and model still fails the test.
 
 4. **Cap behavior (component).** Merged counts of 1, 2, 3, 5; alerts occupy visible slots first; `N more` equals the hidden remainder; expanding reveals exactly the remainder and nothing duplicated.
 
@@ -360,17 +375,23 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
    4c. **Compound: mutation while open crossing 3→2 (component).** Assert the disclosure unmounts, both survivors are visible, no orphaned open `<details>`, no card dropped.
 
-5. **Bulk-ignore scattered case (component).** Crew-scoped code with `N≥2` all under rows: the section group renders eyebrow + `Ignore all N` chip with an EMPTY cards slot; clicking the chip ignores all N by fingerprint, clearing every under-row card in one pass.
+   4d. **Compound: VISIBLE card ignored while open, count stays ≥3 (component).** A former hidden card promotes to visible, disclosure stays open, `N more` decrements by one, no card dropped or duplicated.
+
+   4e. **Compound: item ADDED on live refresh while open (component).** A new warning/alert lands in the hidden set, `N more` increments, disclosure stays open, above-fold cards do not reorder.
+
+5. **Bulk-ignore scattered case (component).** Crew-scoped code with `N≥2` all under rows: the section group renders eyebrow + `Ignore all N` chip with an EMPTY cards slot; clicking the chip ignores all N by fingerprint, clearing every under-row card in one pass AND asserting all N identities then appear EXACTLY ONCE in the section's `Ignored (N)` disclosure (post-bulk conservation, not just disappearance).
 
    5b. **Ignored under-row card lands once (component).** Ignore an under-row card; assert it appears in the section's `Ignored (N)` disclosure and NOT under the row, and is not double-counted.
 
-   5c. **Bulk-ignore mixed case (component).** `N≥2` with one fallback card and the rest under rows: one chip reads `Ignore all N`, the fallback card shows in the group slot, and the chip clears both placements.
+   5c. **Bulk-ignore mixed case (component).** `N≥2` with one fallback card and the rest under rows: one chip reads `Ignore all N`, the fallback card shows in the group slot, and the chip clears both placements AND all N appear exactly once in the `Ignored (N)` disclosure afterward.
+
+   5e. **Individual ignore crossing N=2→1 (component).** Two active instances of a crew-scoped code, both under rows; ignore one via its own card control. Assert the group header + `Ignore all N` chip DISAPPEAR (N now 1, below the emit threshold), the surviving card stays under its row, and the ignored one appears once in the `Ignored (N)` disclosure.
 
    5d. **N=1 under-row emits no group (component).** A single active crew-scoped warning matched to a row renders no section group header and no `Ignore all 1` chip; the card's own Ignore is the only control.
 
 6. **Layout dimensions (real browser, Playwright).** The four §8 rows via `getBoundingClientRect()`/computed style at ≤0.5px, at 375px and 1280px. Hydrated harness — the disclosure is click-dependent, so a static layout harness cannot reach the expanded state.
 
-7. **Staged parity (component).** `StagedReviewCard` and every staged surface byte-identical; the new behavior is published-only, gated by caller.
+7. **Staged parity (component).** Oracle = an `outerHTML` snapshot of each staged surface captured on the MERGE-BASE commit (`2a868b132`), not a hand-authored expectation. Surfaces: `StagedReviewCard`'s `per-show-actionable-item` list and its `section-warning-controls-<id>` blocks. Assert byte-identity of each against its merge-base snapshot. Additionally pin the EMPTY-WRAPPER contract: the new `crew-warn-stack-<key>` container is NOT rendered for a row with zero alerts and zero warnings (no empty wrapper, no stray test id), on BOTH staged and published surfaces — an empty wrapper would break staged byte-identity and add dead nodes to published rows.
 
 8. **Registry/meta stability.** `tests/messages/warningCardCopyRegistry.ts` frozen strings still match the catalog (this spec edits no catalog row); #531's `_metaPopoverContextCoverage` still green; `bucketAttention` conservation still green.
 
@@ -404,7 +425,8 @@ Anti-tautology applies throughout: expected values derive from FIXTURE data (cor
 
 - **Citation pass (2026-07-21, pre-draft):** corrected the ROLE emit-vs-stamp asymmetry (§3.2) and found the `dougFacing` crew-name slot.
 - **Self-review (pre-R1):** found the 13-vs-5 producer miscount and the interpolation-order hazard.
-- **Spec review R1 (Codex, inlined):** 15 findings, verdict BLOCKING. Resolved in this revision: producer-inventory coherence (§3.2, single count + line map); ROLE stamp no-escape proof (§3.2, single call site + boundary test); catalog line-ownership map (§2.2); the `dougFacing`-reuse fragility, resolved by pivoting to a pure composer (§4, `autocorrectGuidance`), which also eliminated the `_<sheet-name>_` gap, the cross-surface coupling, and the markup-injection hazard; truncation/`N` on surviving pairs (§4.2-4.3); the headless-vs-fallback placement contradiction (§6.2, `cards`=fallback subset, chip counts all N); conservation scoped to active/ignored (§5.3-5.4); all-section no-drop (§6.1, test 3b); transition absent-state + compound cases (§9); dimensional testids + viewport (§8); anti-tautology gaps and test renumber (§10).
+- **Spec review R1 (Codex, inlined):** 15 findings, verdict BLOCKING. Resolved: producer-inventory coherence (§3.2, single count + line map); ROLE stamp no-escape proof (§3.2, single call site + boundary test); catalog line-ownership map (§2.2); the `dougFacing`-reuse fragility, resolved by pivoting to a pure composer (§4, `autocorrectGuidance`), which also eliminated the `_<sheet-name>_` gap, the cross-surface coupling, and the markup-injection hazard; truncation/`N` on surviving pairs (§4.2-4.3); the headless-vs-fallback placement contradiction (§6.2); conservation scoped to active/ignored (§5.3-5.4); all-section no-drop (§6.1); transition absent-state (§9); dimensional testids + viewport (§8); anti-tautology gaps and test renumber (§10).
+- **Spec review R2 (Codex, inlined):** 9 findings, verdict BLOCKING (R1 15→R2 9, convergent). Resolved: the duplicate-name key-model impossibility (§5.4 — `warningsByCrewKey` keys by name, so same-name warnings share an entry; the split was unrepresentable, now all cards render under the FIRST matching row, conservation intact); post-bulk-ignore conservation into the `Ignored (N)` disclosure (§10.5/5c); the N=2→1 group-emission transition (§10.5e); composer guards for equal-value pairs and interior tab/newline whitespace (§4.3); the absent↔expanded transition pair and visible-card/add compound cases (§9, §10.4d/4e); alert children in the dimensional invariants (§8); an INDEPENDENT hardcoded section-id oracle for all-section no-drop (§10.3b); a merge-base snapshot oracle + empty-wrapper contract for staged parity (§10.7); a stale `§10 test 10`→`9` reference (§4.4).
 
 **Meta-test inventory (writing-plans):** this milestone CREATES one structural meta-test — `tests/parser/_metaAutocorrectProducers.test.ts (new)` (§10.10, producer completeness). It EXTENDS none. The `bucketAttention` conservation test and `_metaPopoverContextCoverage` are asserted UNAFFECTED (§10.8), not extended.
 
