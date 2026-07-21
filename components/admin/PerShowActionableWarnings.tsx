@@ -16,12 +16,14 @@ import type { ReactNode } from "react";
  * the human .message) — NEVER the bare code (invariant 5).
  *
  * Laid out as `CompactAlertCard` (spec 2026-07-20-show-alert-compact §4.2):
- * the offending row label collapses into the detail band, the sheet deep link
- * sits in the footer bar, and the catalog's helpful context moved into the `?`
- * popover. Item controls render in the CONTROLS BAND below the footer, never in
- * the footer's right cluster — `renderItemControls` returns a full cluster
- * (Report/Ignore, the use-raw radio interface, the role editor), which a
- * single-row footer cannot host (spec §3.3, amendment A1).
+ * the offending row label collapses into the detail band, and the catalog's
+ * helpful context moved into the `?` popover. The "Open in Sheet" deep link and
+ * the item controls share ONE controls band — link inline at the left, the
+ * controls cluster pushed to the right (ml-auto) — so the link never occupies
+ * its own footer row. `renderItemControls` returns a full cluster (Report/Ignore,
+ * the use-raw radio interface, the role editor), which is why this lives in the
+ * expansive controls band rather than the footer's right cluster (spec §3.3,
+ * amendment A1).
  *
  * These cards carry no stripe: the live surface never had one, so the shell's
  * `review` default is overridden explicitly on the warning path as well as the
@@ -116,7 +118,7 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
-        const footerLeft: ReactNode = href ? (
+        const sheetLink: ReactNode = href ? (
           <a
             href={href}
             target="_blank"
@@ -128,6 +130,20 @@ export function PerShowActionableWarnings({
         ) : null;
 
         const controls = renderItemControls ? renderItemControls(w, i) : null;
+
+        // Single controls band: the "Open in Sheet" link sits inline at the left,
+        // the item controls pushed to the right (ml-auto) — never its own footer row.
+        const controlsBand: ReactNode =
+          sheetLink || controls ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {sheetLink}
+              {controls ? (
+                <div className={`flex flex-wrap items-center gap-2 ${sheetLink ? "ml-auto" : ""}`}>
+                  {controls}
+                </div>
+              ) : null}
+            </div>
+          ) : null;
 
         return (
           <li key={keys[i]} data-testid="per-show-actionable-item">
@@ -163,8 +179,7 @@ export function PerShowActionableWarnings({
                 ) : null
               }
               detailBand={detailBand}
-              footerLeft={footerLeft}
-              controlsBand={controls}
+              controlsBand={controlsBand}
             />
           </li>
         );
