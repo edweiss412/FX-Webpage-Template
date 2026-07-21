@@ -3,7 +3,7 @@
 > **For agentic workers:** implement task-by-task, TDD per task, commit per task.
 > Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Move the 529 committed DB-free files from the serial vitest project to
+**Goal:** Move the 527 committed DB-free files from the serial vitest project to
 the parallel project via a committed allowlist, add the standing guards, rebalance
 the CI shard topology, and gate merge on a measured CI-wall win.
 
@@ -16,8 +16,8 @@ not TDD; a gate that runs the full local suite and commits only cleanup, if any)
 ## Global Constraints
 
 - No UI touched, so no impeccable gate.
-- The two committed lists (`tests/probes/db-free-movable.txt` 529,
-  `tests/probes/db-touching-serial.txt` 190) are the source of truth; already
+- The two committed lists (`tests/probes/db-free-movable.txt` 527,
+  `tests/probes/db-touching-serial.txt` 191) are the source of truth; already
   committed. Tasks consume them.
 - `DB_BINDING_SIGNALS` is ONE exported constant (an array of named regex signals)
   in `lib/test/dbBindingSignals.ts`, consumed by BOTH the static-guard meta-test
@@ -162,7 +162,7 @@ describe("db-free-movable list is well-formed and safe", () => {
 and `export function hasDbBindingSignal(relPath: string, src: string): boolean`.
 
 - [ ] **Step 1: Failing behavioral test** (Codex plan R3, anti-tautology; the
-  matcher must catch positives, not just pass the 529):
+  matcher must catch positives, not just pass the 527):
 
 ```ts
 // @vitest-environment node

@@ -57,6 +57,18 @@ export const DB_BINDING_SIGNALS: readonly Signal[] = [
         s,
       ) && /\bpsql\b|databaseUrl|postgres:\/\/|_validation-cleanup-helpers|supabase\s+db/.test(s),
   },
+  // A DB access that reaches psql through an IMPORTED helper rather than a direct
+  // child_process import — the transitive gap the CI no-DB leg caught on
+  // validation-report-fixtures (it calls `runPsql(...)` and imports
+  // `_validation-cleanup-helpers`, which themselves shell out). Narrow on purpose:
+  // it flags an actual `runPsql(` CALL or an import of the psql-shelling cleanup
+  // helper, NOT a test that merely imports (and mocks) a DB-touching lib module.
+  {
+    name: "db-helper-call",
+    test: (_p, s) =>
+      /\brunPsql\s*\(/.test(s) ||
+      /(?:from|import)\s*\(?\s*["'][^"']*_validation-cleanup-helpers["']/.test(s),
+  },
 ];
 
 /** True when a test file's source shows any DB-binding signal. */

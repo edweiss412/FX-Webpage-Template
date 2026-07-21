@@ -168,7 +168,6 @@ tests/codexGuard/signals.test.ts
 tests/codexGuard/timeouts.test.ts
 tests/codexGuard/usage.test.ts
 tests/cross-cutting/_canonicalEmailCheckContract.test.ts
-tests/cross-cutting/auth-chain-audit.test.ts
 tests/cross-cutting/ci-workflow-speedup.test.ts
 tests/cross-cutting/codes.test.ts
 tests/cross-cutting/corpus-temp-prefix.test.ts
@@ -384,7 +383,6 @@ tests/scripts/extract-spec-codes-cli.test.ts
 tests/scripts/validation-check-seed-freshness-skew.test.ts
 tests/scripts/validation-env.test.ts
 tests/scripts/validation-fixtures.test.ts
-tests/scripts/validation-report-fixtures.test.ts
 tests/scripts/validation-reseed.test.ts
 tests/scripts/validation-smoke-base-url.test.ts
 tests/show/confirmUnpublishFormBusy.test.tsx

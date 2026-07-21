@@ -145,6 +145,7 @@ tests/reports/showContext.test.ts
 tests/reports/submitTelemetry.test.ts
 tests/reports/unknownOutcome.test.ts
 tests/scripts/validation-report-fixtures-rendering.test.tsx
+tests/scripts/validation-report-fixtures.test.ts
 tests/scripts/validation-target.test.ts
 tests/show/unpublishConfirmGetNoMutation.test.ts
 tests/sync/applyParseResult.holdAware.identityPin.test.ts

@@ -1,6 +1,6 @@
 # CI unit-suite serial→parallel reclassification
 
-**Goal:** Move the 529 measured-DB-free files out of the boot-heavy serial vitest
+**Goal:** Move the 527 measured-DB-free files out of the boot-heavy serial vitest
 project into the boot-free parallel project, rebalance the CI shard topology to
 match the new work distribution, and confirm a real CI wall-clock improvement —
 merging only if CI actually improves.
@@ -11,7 +11,7 @@ the plan, and the whole diff.
 
 ## 1.1 Resolved scope — do not relitigate
 
-- **The 529-file movable set is a committed ALLOWLIST, and that is the primary
+- **The 527-file movable set is a committed ALLOWLIST, and that is the primary
   safety mechanism.** It began as the DB-touch instrumentation spike output
   (`spike/db-touch-instrumentation`, findings at
   `docs/superpowers/specs/ci/2026-07-20-db-touch-instrumentation-spike.md`) — a
@@ -22,10 +22,11 @@ the plan, and the whole diff.
   loopback DB URL (Codex spec R1). A static DB-binding sweep — the shared
   `DB_BINDING_SIGNALS` (driver import, any `*DATABASE_URL` env, `postgres(` call,
   a loopback pg URL literal, `child_process`+DB-token, or a `*.db.test.ts`/
-  `*real-db*` filename) — moved **23** such files out of the runtime-movable set
-  into the must-stay-serial record, landing at **529 movable / 190 must-stay-serial**
-  (167 runtime-DB-detected + 23 static-caught). Because the set is a closed
-  allowlist, a **newly added
+  `*real-db*` filename, `runPsql(` call, or import of the psql-shelling
+  `_validation-cleanup-helpers`) — moved **24** such files out of the
+  runtime-movable set into the must-stay-serial record, landing at **527 movable /
+  191 must-stay-serial** (167 runtime-DB-detected + 24 static-caught). Because the
+  set is a closed allowlist, a **newly added
   file OUTSIDE the 17 existing `PARALLEL_TEST_GLOBS` directories** defaults to
   serial — it joins the parallel project only via an explicit measured addition.
   (A new file added INSIDE one of those 17 already-parallel dirs still auto-joins
@@ -49,12 +50,14 @@ the plan, and the whole diff.
   rejected because a new file dropped into a "clean" dir would auto-join the
   parallel project unverified — the exact drift that caused the two-file
   corruption #517 fixed.
-- **One file is held serial for a non-DB reason** (in neither committed list):
-  `tests/cross-cutting/no-global-cursor.test.ts` (criterion 3 — CPU-bound, starves
-  under `fileParallelism`; mirrors `MEASURED_MOVABLE_BUT_HELD_SERIAL`). Separately,
+- **Two files are held serial for a non-DB reason** (in neither committed list):
+  `tests/cross-cutting/no-global-cursor.test.ts` and
+  `tests/cross-cutting/auth-chain-audit.test.ts` (criterion 3 — CPU-bound, they
+  time out under `fileParallelism`; the latter surfaced as a 5 s timeout in the CI
+  no-DB leg; both mirror `MEASURED_MOVABLE_BUT_HELD_SERIAL`). Separately,
   a handful of DB-free files that reference a loopback DB URL only as test data or
   assertions (e.g. `tests/probes/dbTouchReport.test.ts`) trip the conservative
-  `local-pg-url` static signal; they are folded into the 190 must-stay-serial
+  `local-pg-url` static signal; they are folded into the 191 must-stay-serial
   record rather than weakening the guard that protects real DB files.
 - **The five DB-free criteria are settled** (spike findings §"criteria, now five"):
   not vacuous, not degraded, not starving, does-not-write-when-DB-present
@@ -102,7 +105,7 @@ the plan, and the whole diff.
 
 Replace the spike's ad-hoc `VITEST_MOVABLE_LIST` env lever with a committed
 default: `vitest.projects.ts` reads `tests/probes/db-free-movable.txt` at config
-load and exports `DB_FREE_MOVABLE` (a `readonly string[]` of 529 repo-relative
+load and exports `DB_FREE_MOVABLE` (a `readonly string[]` of 527 repo-relative
 paths). `vitest.config.ts` adds `DB_FREE_MOVABLE` to the parallel project's
 `include` and to the serial project's `exclude` (replacing the env-gated
 `movableList`). No env var required; the move is the committed default.
@@ -116,8 +119,8 @@ paths). `vitest.config.ts` adds `DB_FREE_MOVABLE` to the parallel project's
 2. **No listed file is in a `PARALLEL_TEST_GLOBS` directory** — it must be a
    currently-serial file (else the move is a no-op or a double-include).
 3. **No duplicates**, list is sorted (stable diffs).
-4. **Disjoint from the DB-touching record** — none of the 529 appears in the
-   committed `tests/probes/db-touching-serial.txt` (the 190 must-stay-serial
+4. **Disjoint from the DB-touching record** — none of the 527 appears in the
+   committed `tests/probes/db-touching-serial.txt` (the 191 must-stay-serial
    files, the negative record).
 5. **The held starver is NOT in the list.**
 6. **Disjoint from `ENV_BOUND_EXCLUDES`** (Codex spec R5) — an env-bound file
@@ -164,7 +167,7 @@ diffs the classification, catching any drift the static scan missed.
 
 ### 3.3 CI topology rebalance
 
-Moving 529 files shifts work from the 8 boot-heavy db legs to the 3 boot-free
+Moving 527 files shifts work from the 8 boot-heavy db legs to the 3 boot-free
 nodb legs:
 
 - Serial project: ~772 → ~220 files. 8 Supabase-booting shards for 220 files is
@@ -232,11 +235,13 @@ This gives a ≤24 h DETECTION bound with an owner and enforcement point; the re
 
 ## 11. Numeric authority
 
-- Movable files: **529** (`tests/probes/db-free-movable.txt`, line count).
-- Must-stay-serial: **190** (`tests/probes/db-touching-serial.txt`) = 167
-  runtime-DB-detected + 23 static-DB-binding-caught (Codex spec R1 + mech-1).
-- Held serial for a non-DB reason: **1** — `no-global-cursor.test.ts` (criterion 3,
-  CPU starver), in neither committed list.
+- Movable files: **527** (`tests/probes/db-free-movable.txt`, line count).
+- Must-stay-serial: **191** (`tests/probes/db-touching-serial.txt`) = 167
+  runtime-DB-detected + 24 static-DB-binding-caught (Codex spec R1 + mech-1 +
+  whole-diff CI: the imported-helper `runPsql` class).
+- Held serial for a non-DB reason: **2** — `no-global-cursor.test.ts` +
+  `auth-chain-audit.test.ts` (criterion 3, CPU starvers that time out under
+  `fileParallelism`), in neither committed list.
 - DB-free criteria: **5**.
 - Current CI legs: **11** (8 db + 3 nodb). Target: **≤ 8** (admission ceiling).
 - Candidate rebalance: **3 db + 5 nodb**, finalized by §4 measurement.

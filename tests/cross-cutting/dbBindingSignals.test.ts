@@ -38,6 +38,12 @@ const POSITIVE: [string, string, string][] = [
   ],
   ["db filename", "x.db.test.ts", `export {};`],
   ["real-db filename", "foo.real-db.test.ts", `export {};`],
+  ["runPsql() call (imported-helper class)", "a.test.ts", `const r = runPsql(\`select 1\`);`],
+  [
+    "imports the psql-shelling cleanup helper",
+    "a.test.ts",
+    `import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";`,
+  ],
 ];
 
 const NEGATIVE: [string, string, string][] = [
@@ -53,6 +59,13 @@ const NEGATIVE: [string, string, string][] = [
     "DATABASE_URL only inside a comment",
     "a.test.ts",
     `// process.env.TEST_DATABASE_URL read elsewhere\nexport {};`,
+  ],
+  // Importing (and mocking) a DB-touching lib module must NOT flag — the runtime
+  // probe correctly classifies these DB-free; only an actual helper CALL does.
+  [
+    "imports+mocks a DB-lib module (no real call)",
+    "a.test.ts",
+    `import { promote } from "@/lib/sync/lockedShowTx"; vi.mock("@/lib/sync/lockedShowTx");`,
   ],
 ];
 

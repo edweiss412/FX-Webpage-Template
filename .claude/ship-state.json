@@ -2,7 +2,7 @@
   "branch": "feat/attention-alert-routing",
   "stage": "pr2-review+impeccable",
   "tasksRemaining": 3,
-  "next": "Read codex-pr2/result.json. Run impeccable critique+audit on warnings-panel notes. Both pass -> push, real CI, merge. Local test:fast 8 fails are DB-contention + validation-seed-pollution, NOT regressions (verified: skip on clean origin/main, PR2 touches none).",
+  "next": "CI green + measure unit-suite wall (candidate vs main baseline); merge iff candidate <= baseline-30s",
   "blockedOn": "",
   "cronJobId": "d806af7b",
   "base": "feat/show-scoped-alert-copy @ 3aba6f8f5",
