@@ -22,6 +22,40 @@
 - **Every Supabase call** destructures `{ data, error }`, distinguishes returned from thrown, and maps infra faults to a typed result.
 - **Before every push:** `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test`. A scoped run is not sufficient.
 
+## Execution note: where verification moves to the compiler
+
+Five plan-review rounds produced findings of one recurring class: steps that
+summarize instead of showing code, and tests too weak to catch what they name.
+Every task written with real code and real tests (1 through 3) drew no
+executability findings; every task that summarized drew many.
+
+Per the same-vector rule in AGENTS.md, prose patching stops here. Tasks 1 through
+3 are fully specified and reviewed. For tasks 4 onward, this document is
+authoritative for **ordering, interfaces, declared invariants, and the failure
+mode each test must catch** — and the implementer writes the code against a real
+compiler and a real test runner, which verify in seconds what prose review can
+only approximate.
+
+The outstanding review findings are therefore carried as **implementation
+requirements**, not plan edits. They are real and must be satisfied in code:
+
+- **Task 14 (card):** `lastResult` must be passed at the mount site or it will not
+  typecheck. `resultDismissed` must reset when a new `lastResult` arrives, or a
+  fresh result stays permanently hidden. Both forms need the shared field values,
+  which do not belong to a form by DOM nesting alone: use hidden inputs or
+  `form=` attributes, and assert the submitted `FormData` rather than the
+  rendered controls. An unconfirmed validation submit must be blocked, and that
+  must be proven by submitting, not by inspecting a checkbox. Tap-target
+  assertions must cover selects, inputs, and checkboxes, not only `role=button`.
+- **Task 15 (real DB):** the suite needs an explicit isolation contract — a
+  dedicated show, unique fixture keys, and cleanup before AND after — or exact-row
+  assertions race any other run. The collision cases assert a **skip**, which is
+  action-result behavior with no database representation: assert the returned
+  `skipped` entry AND the untouched authentic row, since neither alone proves it.
+- **Task 6:** the `T2_UNRESOLVED_PLACEHOLDER` fixture must use a code whose
+  catalog template actually contains a `<token>`; the test asserts
+  `template === null` and will fail loudly otherwise.
+
 ## Meta-test inventory (declared per AGENTS.md)
 
 - **Creates:** one — the `FILES`-membership walk (Task 10). It is the only CI-enforced protection against an unregistered dev route.
