@@ -418,7 +418,7 @@ Reservation (R1 #12): `__devScenario` is a **reserved key**. A test asserts no c
 
 1. Delete every tagged `admin_alerts` row for the show (any scenario).
 2. Delete every tagged `sync_holds` row for the show.
-3. **Local target only:** trigger the re-sync (§5.5) to regenerate authentic `parse_warnings`. **Validation target: skipped**, reported as `warnings_not_regenerated`.
+3. **Local target only:** call `runManualSyncForShow(driveFileId, "manual")` (`lib/sync/runManualSyncForShow.ts:297`) to re-parse from source and regenerate authentic `parse_warnings`. **Validation target: skipped**, reported as `warnings_not_regenerated` (§5.5).
 
 Clear reports per-step outcomes. Its destructive scope is **all synthetic rows for the show**, not only the selected scenario; the card's confirmation copy says exactly that, since the selector sits beside it (R1 #27).
 
@@ -452,7 +452,11 @@ Default **local**. Validation requires an explicit confirmation **and** a comple
 
 **Production cannot be reached** (R1 #4 — build-artifact absence is not a database-target guarantee, which was the previous revision's error). The concrete gate: the resolved project ref must equal `VALIDATION_PROJECT_REF` (`lib/admin/validationDeployment.ts:1` — `"vzakgrxqwcalbmagufjh"`). Any other ref, including a syntactically valid one, is refused. This is an equality check against a known constant, not a shape check.
 
-**Clear does not re-sync on validation** (R1 #5). The re-sync is `POST /api/admin/sync/[slug]`, an application route bound to the ambient database and the caller's session; it has no target-environment parameter, and giving it one would mean a cross-environment HTTP call with its own auth and cookie-propagation design. Rather than build that, validation Clear performs steps 1–2 and reports `warnings_not_regenerated`. Regenerating validation warnings is the validation cron's job or a reseed.
+**The re-sync is a direct function call, not an HTTP request.** `POST /api/admin/sync/[slug]` is a thin wrapper: it authenticates, resolves the slug to a `drive_file_id`, and calls `runManualSyncForShow(resolved.driveFileId, "manual", ...)` (`app/api/admin/sync/[slug]/route.ts:94`). Clear calls that same function directly. A server action fetching its own route would need an absolute origin and forwarded session cookies — the auth-and-cookie-propagation design R1 #5 correctly flagged as unspecified — and all of it is avoidable, since the callable unit is already exported.
+
+This preserves §7.2: `runManualSyncForShow` acquires the per-show advisory lock itself, and its `_unlocked` variant asserts the lock is held (`lib/sync/runManualSyncForShow.ts:286`), so the holder remains exactly one layer deep and a nested acquisition would fail loudly rather than deadlock.
+
+**Clear still does not re-sync on validation** (R1 #5). The reason is no longer the HTTP boundary but the pipeline's inputs: `runManualSyncForShow` reads Drive through ambient credentials and writes through the ambient client, so pointing it at a validation database would mean threading an environment through the whole sync pipeline. Validation Clear performs steps 1–2 and reports `warnings_not_regenerated`. Regenerating validation warnings is the validation cron's job or a reseed.
 
 ## 6. Build-vs-runtime gate
 
@@ -490,7 +494,11 @@ No wrapper exemptions are claimed.
 
 ### 7.2 Invariant 2 — advisory locks
 
-Materialize writes `admin_alerts`, `sync_holds`, and `shows_internal.parse_warnings`. None is in the guarded set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`). The local Clear's re-sync acquires the per-show lock **inside existing code** behind `POST /api/admin/sync/[slug]`. **No new holder at any layer.**
+Materialize writes `admin_alerts`, `sync_holds`, and `shows_internal.parse_warnings`. None is in the guarded set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`).
+
+The local Clear's re-sync acquires the per-show lock **inside existing code**: `runManualSyncForShow` (`lib/sync/runManualSyncForShow.ts:297`) is the sole acquirer, and `runManualSyncForShow_unlocked` calls `assertShowLockHeld` (`lib/sync/runManualSyncForShow.ts:286`) so a second acquisition surfaces as an assertion failure rather than a deadlock. Materialize adds **no acquisition of its own at any layer** — it calls the locked entry point and lets it own the lock, which is the single-holder rule.
+
+Enumerated holders for the `show:<drive_file_id>` hashkey touched by this design: (1) `runManualSyncForShow`, JS-side, pre-existing, unchanged. That is the complete list.
 
 ### 7.3 Invariant 5
 
