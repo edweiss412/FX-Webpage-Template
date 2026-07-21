@@ -1,8 +1,8 @@
 {
   "branch": "feat/attention-modal-gallery",
   "stage": "implementing",
-  "tasksRemaining": "Task 1 DONE (5d4dcb603). Awaiting plan R3 verdict then Tasks 2-11.",
-  "next": "On plan R3 APPROVE: Task 2 (extract deriveScenarioAttention + repath topology gate :77), then Tasks 3-11 TDD. Plan converged 35->20->R3 pending. prep notes: scratchpad/plan-prep-notes.md",
+  "tasksRemaining": "Tasks 1,2,3 DONE. Next: Task 4 (partitionScenarios+isModalExpressible+isModalVisible+resolveInitialScenario), 5,5b,6,7,8,9,10,11.",
+  "next": "Task 4 partition (two-axis exclusion, EXPECTED_CUT_IDS=28). Then controls, e2e-spec, switcher, route, removal, e2e-green, impeccable, merge.",
   "blockedOn": "",
   "cronJobId": "33c5f0fd"
 }

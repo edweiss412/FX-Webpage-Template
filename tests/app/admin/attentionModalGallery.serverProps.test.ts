@@ -127,7 +127,7 @@ describe("partitionScenarios", () => {
   });
 
   test("no tier-3 id renders; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
-    expect(rendered.every((s) => s.tier !== 3)).toBe(true);
+    expect(rendered.every((s) => s.tier === 1 || s.tier === 2)).toBe(true);
     expect(rendered.some((s) => s.id === T2_ANCHOR_ABSENT)).toBe(true);
     expect(rendered.some((s) => s.id === T2_EMPTY)).toBe(true);
   });
