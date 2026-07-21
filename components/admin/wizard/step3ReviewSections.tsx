@@ -1953,9 +1953,16 @@ function EventDetailGroupBody({
               // The anchored asset cards mount immediately BELOW the reel value,
               // inside a testid'd wrapper that co-locates both — a DOM-ancestry
               // check binds the card to the reel field it belongs to (§3.3).
-              <div key={f.key} data-testid="event-opening-reel" className="flex flex-col gap-2.5">
+              // gap-2 (tighter than the gap-2.5 between sibling rows) plus min-w-0
+              // binds the cards to their reel field and keeps a wide/unbreakable
+              // banner child from forcing horizontal overflow at 320px (impeccable P3).
+              <div
+                key={f.key}
+                data-testid="event-opening-reel"
+                className="flex min-w-0 flex-col gap-2"
+              >
                 <EventDetailRow label={f.label} value={f.value} />
-                <div className="flex flex-col gap-2">{reelCards}</div>
+                <div className="flex min-w-0 flex-col gap-2">{reelCards}</div>
               </div>
             ) : f.key === "dress_code" ? (
               <div
@@ -3303,9 +3310,13 @@ export function RoomsDiagramsSubBlock({ data }: { data: SectionData }): React.Re
     />
   );
   if (anchorCards.length === 0) return body;
+  // gap-3 (not the section's gap-4) binds the card cluster + diagrams body together
+  // more tightly than the gap-4 separating this sub-block from the rooms above it,
+  // so the cards read as belonging to the Diagrams sub-block (proximity), not
+  // floating between rooms and diagrams (impeccable P3).
   return (
-    <div data-testid="published-diagrams-subblock" className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-col gap-2">{anchorCards}</div>
+    <div data-testid="published-diagrams-subblock" className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-2">{anchorCards}</div>
       {body}
     </div>
   );
