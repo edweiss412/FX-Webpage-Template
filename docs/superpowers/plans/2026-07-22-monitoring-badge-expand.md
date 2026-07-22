@@ -23,7 +23,7 @@
 
 ---
 
-### Task 1: AttentionMenu — enumerate monitoring rows
+### Task 1: AttentionMenu — enumerate monitoring rows (single commit WITH Tasks 1b/1c below — every suite pinning the menu surface flips in this same commit, so no task boundary leaves a sibling suite red)
 
 **Files:**
 - Modify: `components/admin/showpage/AttentionMenu.tsx` (replace `components/admin/showpage/AttentionMenu.tsx:218-238` summary block; accName `components/admin/showpage/AttentionMenu.tsx:110`; group separator/rounding)
@@ -146,7 +146,8 @@ it("leading Monitoring group: no border-t, rounded-t-md header; with preceding g
 
 Also flip: the scroll-boundary test (`tests/components/admin/showpage/attentionMenuGroups.test.tsx:185-204`) re-anchors on `attention-monitoring-row-*`; `attentionMenu.test.tsx:116-130` second half flips from summary text to a monitoring-row assertion that pins BOTH the row's `menuTitle` text AND its `autoResolveNote(code)` note text (not mere row presence). Helper `selfHealItem(id)` wraps `mk` with `code: "WATCH_CHANNEL_ORPHANED"`; `mkHold` builds a `kind: "hold"` item (mirror the file's existing hold fixture).
 
-- [ ] **Step 2: Run to verify failures**: `pnpm vitest run tests/components/admin/showpage/attentionMenuGroups.test.tsx tests/components/admin/showpage/attentionMenu.test.tsx` — new tests FAIL (no `attention-monitoring-group` testid), flipped tests FAIL (summary still rendered).
+- [ ] **Step 1.5: Write the Task 1b + 1c test edits NOW** (their sections below carry the detail; they are part of THIS task's red set).
+- [ ] **Step 2: Run to verify failures**: `pnpm vitest run tests/components/admin/showpage/attentionMenuGroups.test.tsx tests/components/admin/showpage/attentionMenu.test.tsx tests/components/admin/showpage/pageTransitions.test.tsx tests/dev/fullSplitCompositeRender.test.tsx tests/dev/fullSplitComposite.test.ts` — new tests FAIL (no `attention-monitoring-group` testid), flipped tests FAIL (summary still rendered).
 
 - [ ] **Step 3: Implement.** In `AttentionMenu.tsx`: import `autoResolveNote`; replace the summary block (`components/admin/showpage/AttentionMenu.tsx:218-238`) with:
 
@@ -192,10 +193,10 @@ Also flip: the scroll-boundary test (`tests/components/admin/showpage/attentionM
 
 with `const selfHeal = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");` replacing the `selfHealCount` count-only derivation (keep `selfHealCount = selfHeal.length` if referenced), and accName: `aria-label={hasActionable ? "Needs your confirmation" : needsLook.length > 0 ? "Needs a look" : "Monitoring"}`.
 
-- [ ] **Step 4: Green**: same vitest command — PASS. Check `$?` not just the Tests line (uncaught-error exit-1 trap).
-- [ ] **Step 5: Commit** `feat(admin): enumerate monitoring items as read-only rows in attention menu`
+- [ ] **Step 4: Green**: the Step 2 five-suite command — PASS. Check `$?` not just the Tests line (uncaught-error exit-1 trap).
+- [ ] **Step 5: Commit** (Tasks 1+1b+1c together) `feat(admin): enumerate monitoring items as read-only rows in attention menu`
 
-### Task 2: Pill — widen gate, quiet palette, separator
+### Task 2: Pill — widen gate, quiet palette, separator (single commit WITH Task 2b — widening the gate changes the close matrix, so pillFocusReconcile flips in this same commit)
 
 **Files:**
 - Modify: `components/admin/showpage/PublishedReviewModal.tsx` (`components/admin/showpage/PublishedReviewModal.tsx:319` gate; `components/admin/showpage/PublishedReviewModal.tsx:726-821` button; delete `components/admin/showpage/PublishedReviewModal.tsx:831-856` span; middot `components/admin/showpage/PublishedReviewModal.tsx:776-801`)
@@ -236,7 +237,8 @@ it("(0,0,2) monitoring-only pill is a quiet button: opens menu, no warning class
   - Doctrine pins (spec §5 item 9): (a) in `publishedReviewModal.test.tsx` — `(1,0,1)` open menu, click the resolve control on the last actionable item, menu closes despite monitoring remaining; (b) `alertId` = the monitoring item's own id with `(0,0,1)` → menu does NOT auto-open; (c) quiet pill class list contains `before:-inset-y-3`.
   - Amber positive pins on composite rows stay green (`tests/components/admin/showpage/publishedPill.test.tsx:69-74` are the positive middot pins).
 
-- [ ] **Step 2: Verify failures**: `pnpm vitest run tests/components/admin/showpage/publishedPill.test.tsx tests/components/admin/showpage/clearingPillLabel.test.tsx tests/components/admin/showpage/publishedReviewModal.test.tsx` — `(0,0,1)` row and new tests FAIL (span today).
+- [ ] **Step 1.5: Write the Task 2b test edits NOW** (part of this task's red set).
+- [ ] **Step 2: Verify failures**: `pnpm vitest run tests/components/admin/showpage/publishedPill.test.tsx tests/components/admin/showpage/clearingPillLabel.test.tsx tests/components/admin/showpage/publishedReviewModal.test.tsx tests/components/admin/showpage/pillFocusReconcile.test.tsx` — `(0,0,1)` row, new tests, stays-open cells, and the 8-count pin all FAIL (span today; menu force-closes; 9 cells today).
 
 - [ ] **Step 3: Implement.** In `PublishedReviewModal.tsx`:
 
@@ -257,10 +259,11 @@ className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2
 
 Leading dot: `monitoringOnly` renders the hollow positive dot in place of the solid review dot. Monitoring segment: middot renders only when `actionable.length > 0 || needsLook.length > 0`; segment span + chevron tone classes become `monitoringOnly ? "text-text-subtle" : ...existing warning classes`; give the monitoring segment span `data-testid="attention-pill-monitoring-segment"` (consumed by tests + e2e). Add `title` attribute + trailing sr-only exact-count/`title` parity when `monitoringOnly` (copy the span branch's contract verbatim), then DELETE the `components/admin/showpage/PublishedReviewModal.tsx:831-856` span branch (degraded branch `components/admin/showpage/PublishedReviewModal.tsx:822-830` untouched).
 
-- [ ] **Step 4: Green** (same command, `$?`).
-- [ ] **Step 5: Commit** `feat(admin): monitoring-only attention pill becomes interactive quiet button`
+- [ ] **Step 3.5: Implement Task 2b's rescue-effect extension** (its section below) in the same edit pass.
+- [ ] **Step 4: Green** (the Step 2 four-suite command, `$?`).
+- [ ] **Step 5: Commit** (Tasks 2+2b together) `feat(admin): monitoring pill interactive; stays-open reconciliation + focus rescue`
 
-### Task 3: Reconciliation — stays-open matrices, rescue effect
+### Task 2b: Reconciliation — stays-open matrices, rescue effect (SAME COMMIT as Task 2)
 
 **Files:**
 - Modify: `components/admin/showpage/PublishedReviewModal.tsx` (`components/admin/showpage/PublishedReviewModal.tsx:353-366` rescue effect)
@@ -268,7 +271,7 @@ Leading dot: `monitoringOnly` renders the hollow positive dot in place of the so
 
 **Interfaces:** Consumes `monitoringOnly` from Task 2; the harness `publishedModalElement`/`rerender` LIVE-transition idiom already in the file.
 
-- [ ] **Step 1: Failing tests** (spec §3.3, §5 item 5): (a) close matrix → 4 ENTRY (`[1,0]`,`[0,1]`,`[1,1]` selfHeal=1 boot + `[0,0]` selfHeal=1) × 2 EXIT (C degraded, D in-sync) = 8 cells, count pin `expect(cells.length).toBe(8)`; (b) SIX-origin stays-open forward matrix (`[1,0]`,`[0,1]`,`[1,1]` × selfHeal∈{0,1} → `(0,0,1)`) asserting menu open, monitoring rows visible (INSERTION for selfHeal=0), `aria-expanded="true"`, settled focus ≠ body, quiet root palette + zero warning classes (scan via `getAttribute("class")`, root-inclusive); the `[0,1]` origins pre-focus the needs-look `<a>`, `[1,1]` origins the actionable row; (c) REVERSE matrix (`(0,0,1)` open → `[1,0]`,`[0,1]`,`[1,1]` × selfHeal∈{0,1}, 6 cells) asserting stays-open, group insert/remove, amber positive pins (`bg-warning-bg` + `text-warning-text` + `hover:bg-warning-bg/80`, sunken absent); (d) rescue trio (b2): `(1,1,0)`→`(0,1,0)` focused actionable row; `(1,1,0)`→`(1,0,0)` focused needs-look link; `(2,0,0)`→`(1,0,0)` focus row `a1` (the REMOVED one; assert `a1` row gone, `a0` remains) — each asserts menu open AND settled focus IS the pill (`await waitFor(() => expect(document.activeElement).toBe(pill))`), not merely ≠ body; (e) monitoring-only entry click-opens; (f) jsdom node-identity: capture `getByTestId` pill reference before `rerender`, `expect(after).toBe(before)` across forward + reverse flips. Use the file's existing `items(a,n,s)` + `renderPublishedModal`/`publishedModalElement` rerender pattern (`tests/components/admin/showpage/pillFocusReconcile.test.tsx:70-105`).
+- [ ] **Step 1: Failing tests** (spec §3.3, §5 item 5): (a) close matrix → 4 ENTRY (`[1,0]`,`[0,1]`,`[1,1]` selfHeal=1 boot + `[0,0]` selfHeal=1) × 2 EXIT (C degraded, D in-sync) = 8 cells, count pin `expect(cells.length).toBe(8)`; (b) SIX-origin stays-open forward matrix (`[1,0]`,`[0,1]`,`[1,1]` × selfHeal∈{0,1} → `(0,0,1)`) asserting menu open, monitoring rows visible (INSERTION for selfHeal=0), `aria-expanded="true"`, settled focus ≠ body, quiet root palette + zero warning classes (scan via `getAttribute("class")`, root-inclusive); EVERY origin pre-focuses a to-be-removed element (removal is what makes the rescue assertion non-vacuous — R1 P1): `[1,0]` and `[1,1]` origins focus the actionable row button, `[0,1]` origins the needs-look `<a>`; (c) REVERSE matrix (`(0,0,1)` open → `[1,0]`,`[0,1]`,`[1,1]` × selfHeal∈{0,1}, 6 cells) asserting stays-open, group insert/remove, amber positive pins (`bg-warning-bg` + `text-warning-text` + `hover:bg-warning-bg/80`, sunken absent); (d) rescue trio (b2): `(1,1,0)`→`(0,1,0)` focused actionable row; `(1,1,0)`→`(1,0,0)` focused needs-look link; `(2,0,0)`→`(1,0,0)` focus row `a1` (the REMOVED one; assert `a1` row gone, `a0` remains) — each asserts menu open AND settled focus IS the pill (`await waitFor(() => expect(document.activeElement).toBe(pill))`), not merely ≠ body; (e) monitoring-only entry click-opens; (e2) FOCUS-STEAL CONSTRAINT (R1 P1): with the menu open and focus resting on a menu row (INSIDE the dialog), a rerender that keeps the row mounted must NOT move focus — `document.activeElement` stays the row (the rescue fires only when focus escaped the dialog, never as a blanket steal); (f) jsdom node-identity: capture `getByTestId` pill reference before `rerender`, `expect(after).toBe(before)` across forward + reverse flips. Use the file's existing `items(a,n,s)` + `renderPublishedModal`/`publishedModalElement` rerender pattern (`tests/components/admin/showpage/pillFocusReconcile.test.tsx:70-105`).
 
 - [ ] **Step 2: Verify failures** — stays-open cells FAIL today (menu force-closes; `(0,0,*)` non-interactive), 8-count pin FAILS (9 today).
 
@@ -289,10 +292,9 @@ if (menuEffectivelyOpen) {
 
 (The gate widening from Task 2 already yields stays-open; this closes the focus hole. The close-path rescue and rebound guard are untouched.)
 
-- [ ] **Step 4: Green**: `pnpm vitest run tests/components/admin/showpage/pillFocusReconcile.test.tsx`.
-- [ ] **Step 5: Commit** `feat(admin): menu stays open across monitoring transitions; removed-row focus rescue`
+- [ ] **Step 4: Green** — covered by Task 2 Step 4. No separate commit — folds into Task 2's.
 
-### Task 4: pageTransitions — sites, tripwires, source scan
+### Task 1b: pageTransitions — sites, tripwires, source scan (SAME COMMIT as Task 1 — the site enumeration and the summary-row site go stale the moment Task 1's component edit lands)
 
 **Files:**
 - Test/Modify: `tests/components/admin/showpage/pageTransitions.test.tsx` (`tests/components/admin/showpage/pageTransitions.test.tsx:129-141` enumeration)
@@ -300,10 +302,9 @@ if (menuEffectivelyOpen) {
 - [ ] **Step 1: Failing tests** (spec §5 item 7): update the site enumeration (summary row → monitoring rows/group); add jsdom tripwires in both palettes: root class list contains `transition-colors` + `duration-fast`; segment span/dots/middots/rows/group — no class containing `transition` or `animate`, empty inline `style.transition`/`transitionProperty`/`transitionDuration`/`animation`; chevron classes containing `transition` are exactly `["transition-transform"]`; no `opacity-0`/`scale-` entrance classes on group/rows at first render. Source-scan companion (file's existing pattern): the monitoring block of `AttentionMenu.tsx` (slice between the `attention-monitoring-group` testid literal and the component end) contains none of `AnimatePresence`, `motion.`, `requestAnimationFrame`, `setTimeout`, `setInterval`, `useState`, `useEffect` (the block is pure JSX; ANY hook/timer in it is a mount-frame-flip smell). Runtime backstop for mechanisms neither layer sees: the e2e `getAnimations()` pin (Task 7).
 - [ ] **Step 2: Run**: the enumeration update FAILS before its edit (stale site list — genuine red); the new tripwires are REGRESSION PINS for behavior already landed in Tasks 1-2 and are expected green on first run (declared, not claimed as TDD red).
 - [ ] **Step 3: Implement** — usually test-only; if a tripwire catches a leaked class from Tasks 1-2, fix the component.
-- [ ] **Step 4: Green**: `pnpm vitest run tests/components/admin/showpage/pageTransitions.test.tsx`.
-- [ ] **Step 5: Commit** `test(admin): transition-treatment tripwires + monitoring-row animation sites`
+- [ ] **Step 4: Green**: covered by Task 1 Step 4. No separate commit — folds into Task 1's.
 
-### Task 5: fullSplitComposite flips
+### Task 1c: fullSplitComposite flips + class sweep (SAME COMMIT as Task 1 — the RENDERED summary pin is red the moment the menu stops rendering the summary)
 
 **Files:**
 - Test: `tests/dev/fullSplitCompositeRender.test.tsx` (`tests/dev/fullSplitCompositeRender.test.tsx:58-121`), `tests/dev/fullSplitComposite.test.ts`
@@ -311,10 +312,9 @@ if (menuEffectivelyOpen) {
 - [ ] **Step 0: Class sweep (spec-mandated)**: run `rg -n "clearing on their own" tests/ components/ lib/` and disposition EVERY hit — expected surviving hits after this plan: the pill sr-only tail + `title` (`PublishedReviewModal.tsx`, kept by spec §3.1) and their pins in `publishedPill.test.tsx`/`clearingPillLabel.test.tsx`; every menu-side hit must be flipped by Tasks 1/5. Record the command output + dispositions in the Task 5 commit message body.
 - [ ] **Step 1: Failing tests**: RENDERED pin flips from "Monitoring summary `2 clearing on their own…`" to: exactly 2 `attention-monitoring-row-*` rows inside `attention-monitoring-group`, titles = the scenario's SELF-code catalog titles (derive via the scenario object, not literals), notes via `autoResolveNote(code)`. Reconcile any summary-copy pin in the derive-layer test (counts-only pins stay).
 - [ ] **Step 2: Run** — `pnpm vitest run tests/dev/fullSplitCompositeRender.test.tsx tests/dev/fullSplitComposite.test.ts`. The REPLACED summary assertions fail against the new DOM until flipped (red comes from the flip being required); the replacement row pins are regression pins over Task-1 behavior — expected green once written (declared).
-- [ ] **Step 3: Green.**
-- [ ] **Step 5: Commit** `test(dev): composite gallery pins enumerate monitoring rows`
+- [ ] **Step 3: Green** — covered by Task 1 Step 4. No separate commit; the class-sweep dispositions go in the Task 1 commit body.
 
-### Task 6: tier2 gallery scenario + registry
+### Task 3: tier2 gallery scenario + registry
 
 **Files:**
 - Modify: `lib/dev/attentionScenarios/tier2.ts` (`T2_MONITORING_ONLY` const + `T2_REQUIRED_IDS:38-58` + scenario entry, class-mix template `lib/dev/attentionScenarios/tier2.ts:321-330`)
@@ -341,16 +341,16 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 - [ ] **Step 4: Green**: `pnpm vitest run tests/dev/attentionScenariosTier2.test.ts`.
 - [ ] **Step 5: Commit** `feat(admin): tier-2 monitoring-only gallery scenario`
 
-### Task 7: e2e — matrices, probes, computed-style treatments
+### Task 4: e2e — matrices, probes, computed-style treatments (VERIFICATION layer per the sequencing rule above)
 
 **Files:**
 - Modify: `tests/e2e/attention-pill-focus.spec.ts` (`tests/e2e/attention-pill-focus.spec.ts:131-141` matrix + new cells)
 
-- [ ] **Step 1: Write cells** (spec §5 item 6; boot/`__setItems` shapes verified): 8-cell close matrix (ENTRY + `[0,0]` w/ selfHeal boot; count pin 8); probes (a) `(1,0,1)` focus row button → `__setItems(0,0,1,false)`: menu mounted, `aria-expanded="true"`, settled `document.activeElement` = pill; (b) `(0,1,1)` focus needs-look link → same asserts; (c) insertion `(1,0,0)`→`(0,0,1)`: stays open, monitoring rows appear, `aria-expanded="true"`, settled `document.activeElement` = pill, quiet root (computed `background-color` equals the sunken token's resolved rgb — compare against a probe element styled `bg-surface-sunken`); (d) reverse `(0,0,1)`→`(1,0,0)`: stays open, group swap, `aria-expanded="true"`, settled focus = pill, amber root (same computed-probe technique vs `bg-warning-bg`); node-identity in (c)+(d): `page.evaluate` stamps `el.__pin = true` pre-flip, asserts post-flip testid element still has it + `isConnected`. Computed-style treatment probe, run at BOTH palette states (`(1,0,1)` composite and `(0,0,1)` quiet) for every applicable target: segment span (`attention-pill-monitoring-segment`)/dots/middots/group/rows — `transition-property === "none" || transition-duration === "0s"`, `animation-name === "none"`, AND `el.getAnimations().length === 0` on group/rows right after a flip (catches JS-driven animations invisible to declared style); chevron `transition-property` list CONTAINS `transform` AND contains no color-related property with duration > 0 (empty list fails); root property list covers `background-color`+`color` with duration > 0s in both palettes.
+- [ ] **Step 1: Write cells** (spec §5 item 6; boot/`__setItems` shapes verified): 8-cell close matrix (ENTRY + `[0,0]` w/ selfHeal boot; count pin 8); probes (a) `(1,0,1)` focus row button → `__setItems(0,0,1,false)`: menu mounted, `aria-expanded="true"`, settled `document.activeElement` = pill; (b) `(0,1,1)` focus needs-look link → same asserts; (c) insertion `(1,0,0)`→`(0,0,1)`: stays open, monitoring rows appear, `aria-expanded="true"`, settled `document.activeElement` = pill, quiet root (computed `background-color` equals the sunken token's resolved rgb — compare against a probe element styled `bg-surface-sunken`); (d) reverse `(0,0,1)`→`(1,0,0)`: stays open, group swap, `aria-expanded="true"`, settled focus = pill, amber root (same computed-probe technique vs `bg-warning-bg`); node-identity in (c)+(d): `page.evaluate` stamps `el.dataset.pin = "1"` pre-flip (DOM-typed — no TS augmentation needed), asserts post-flip the testid-resolved element has `dataset.pin === "1"` + `isConnected`. Computed-style treatment probe, run at BOTH palette states (`(1,0,1)` composite and `(0,0,1)` quiet) for every applicable target: segment span (`attention-pill-monitoring-segment`)/dots/middots/group/rows — `transition-property === "none" || transition-duration === "0s"`, `animation-name === "none"`, AND `el.getAnimations().length === 0` on group/rows right after a flip (catches JS-driven animations invisible to declared style); chevron `transition-property` list CONTAINS `transform` AND contains no color-related property with duration > 0 (empty list fails); root property list covers `background-color`+`color` with duration > 0s in both palettes.
 - [ ] **Step 2: Run**: `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts` (env sourced; no sibling servers on the port; kill only ps-verified PIDs). Expected: PASS — these are the spec's AUTHORITATIVE regression probes over behavior implemented in Tasks 1-3 (declared pins, not TDD red; the spec's empirical probe already established the red baseline pre-implementation). If any cell fails, fix the component, not the assert.
 - [ ] **Step 3: Commit** `test(e2e): monitoring stays-open probes, computed-style treatment pins, node identity`
 
-### Task 8: Registry sweep + impeccable + docs + final gates
+### Task 5: Registry sweep + impeccable + docs + final gates
 
 - [ ] **Step 1 — Registry/meta sweep (spec §5 item 10, named suites)**: `pnpm vitest run tests/dev/_metaAttentionItemsTopology.test.ts tests/styles tests/help` — record each suite's result + any reconciliation as its own `fix(admin)` commit. (Topology test expected untouched — derivation layer unchanged; styles registries may react to new class usages; help crosswalk to copy changes.)
 - [ ] **Step 2 — Impeccable dual-gate (invariant 8, canonical v3 setup)**: run `/impeccable critique` AND `/impeccable audit` on the affected diff, each with the canonical gates — the impeccable context script load (PRODUCT.md + DESIGN.md) then register reference read — before evaluation. P0/P1 findings: fix or defer via `DEFERRED.md`. EACH fix lands as its own `fix(admin)` commit (behavioral fixes get a targeted failing pin first; pure class/copy corrections may land test-free, stated in the commit body). After ANY P0/P1 fix, RE-RUN the critique+audit pair against the final diff until clean/deferred. Findings + dispositions recorded in the "Close-out notes" section appended to THIS plan doc (this feature's §12-equivalent).
@@ -358,16 +358,17 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 - [ ] **Step 4 — FINAL gates on the FINAL tree** (nothing edits the tree after this): `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`. Check `$?` per command. If any gate edits/flags files, fix, commit, and re-run the full gate set.
 - [ ] **Step 5**: Commit any close-out notes: `docs(plan): close-out notes + gate dispositions`
 
-### Task 9: Adversarial review (cross-model)
+### Task 6: Adversarial review (cross-model)
 
 - [ ] Whole-diff Codex review (fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large), iterate to APPROVE per the ship-feature pipeline. Findings triaged land-now / DEFERRED.md / BACKLOG.md.
 
-### Task 10: Execution handoff
+### Task 7: Execution handoff
 
 - [ ] Ship-feature close-out: push, PR, real CI green, `gh pr merge --merge`, fast-forward local main to `0  0`.
 
 ## Self-Review
 
-- Spec coverage: §3.1→T2, §3.2→T1, §3.3→T3+T7, §3.4→T4+T7, §3.5→T1, §5 items 1-2→T2, 3-4→T1, 5→T3, 6→T7, 7→T4, 8→T6, 9→T2, 10→T8. Amends ledger→T8. ✓
+- Spec coverage: §3.1→T2, §3.2→T1, §3.3→T2b+T4, §3.4→T1b+T4, §3.5→T1, §5 items 1-2→T2, 3-4→T1, 5→T2b, 6→T4, 7→T1b, 8→T3, 9→T2, 10→T5. Amends ledger→T5. ✓
+- Sequencing audit (R1 P0 repair): commit boundaries = {T1+1b+1c}, {T2+2b}, {T3}, {T4}, {T5 sub-commits}. Each boundary's full suite set enumerated in its Step 2/4; no sibling suite left red at any commit. ✓
 - No placeholders; types/names cross-checked (`monitoringOnly`, testids consistent across T1/T4/T5/T7). ✓
 - Transition-audit + anti-tautology + layout-dimensions: no fixed-dimension parent introduced (spec §7: none); transition treatment carried by T4+T7. ✓
