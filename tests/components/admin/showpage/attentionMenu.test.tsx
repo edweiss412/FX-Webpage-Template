@@ -24,8 +24,24 @@ function mk(over: Partial<AttentionItem>): AttentionItem {
     actionable: true,
     menuTitle: "Role flags changed",
     menuSubtitle: "Crew · John Redcorn",
+    // Attention split: kind:"alert" items carry a real payload (the needs-look
+    // group reads alert.code/action; the old partial fixture crashed it).
+    alert: {
+      alertId: "a1",
+      code: "ROLE_FLAGS_NOTICE",
+      template: null,
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-07-21T09:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+      errorCode: null,
+    },
     ...over,
-  };
+  } as AttentionItem;
 }
 
 const HOLD = mk({
@@ -71,7 +87,10 @@ describe("AttentionMenu", () => {
     ]);
     expect(rows[0]!.textContent).toContain("Priya Shah's row changed");
     expect(rows[0]!.textContent).toContain("Pick what happens in Changes");
-    expect(screen.queryByText("Sheet unavailable")).toBeNull();
+    // Attention split §3.4: the clearing item now renders as a READ-ONLY
+    // needs-look row (fail-visible), not as an actionable menu-row button.
+    expect(screen.getByText("Sheet unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("attention-menu-row-alert:c1")).toBeNull();
   });
 
   test("tone dot classes + sr-only tier text (WCAG 1.4.1 second channel)", () => {
@@ -94,12 +113,20 @@ describe("AttentionMenu", () => {
     expect(props.onNavigate).toHaveBeenCalledWith(ALERT);
   });
 
-  test("footer shows clearing count copy; absent when none clearing", () => {
+  test("clearing item without clearingKind renders as a needs-look row (fail-visible); footer copy retired", () => {
+    // SUPERSEDED (attention split §3.4): the old aggregate footer is replaced by
+    // the needs-a-look group (per-item rows) + a monitoring summary. A clearing
+    // item with NO clearingKind defaults into needs-look, never silently dark.
     renderMenu();
-    expect(screen.getByText("1 more clearing on their own — no action needed")).toBeInTheDocument();
+    expect(screen.getByTestId("attention-needslook-row-alert:c1")).toBeInTheDocument();
+    expect(screen.queryByText(/more clearing on their own/)).toBeNull();
     cleanup();
-    renderMenu({ items: [HOLD, ALERT] });
-    expect(screen.queryByText(/clearing on their own/)).toBeNull();
+    // Monitoring summary appears only for explicit self_heal items.
+    renderMenu({
+      items: [HOLD, ALERT, mk({ id: "alert:s1", actionable: false, clearingKind: "self_heal" })],
+    });
+    expect(screen.getByText("1 clearing on their own, no action needed")).toBeInTheDocument();
+    expect(screen.queryByTestId(/attention-needslook-row/)).toBeNull();
   });
 
   test("Escape: closes, focuses pill, and a document BUBBLE listener never fires (capture + stopPropagation)", () => {

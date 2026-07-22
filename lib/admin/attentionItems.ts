@@ -9,7 +9,12 @@ import type { FeedEntry } from "@/lib/sync/holds/types";
 import { resolveAlertAction, type AlertActionLink } from "@/lib/adminAlerts/alertActions";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { PARSE_FAILURE_ALLOWLIST } from "@/lib/messages/parseFailureReason";
-import { isAutoResolving, autoResolveNote, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
+import {
+  isAutoResolving,
+  autoResolveNote,
+  DOUG_EXCLUDED_CODES,
+  isSelfHealing,
+} from "@/lib/adminAlerts/audience";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { messageFor, interpolate, type MessageParams } from "@/lib/messages/lookup";
 import { GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
@@ -68,6 +73,9 @@ type AttentionItemBase = {
   actionable: boolean;
   menuTitle: string;
   menuSubtitle: string | null;
+  /** For non-actionable (clearing) alert items only: which clearing group.
+   *  Absent on actionable items and holds. Spec 2026-07-21 §3.1. */
+  clearingKind?: "self_heal" | "needs_look";
 };
 
 /**
@@ -245,8 +253,17 @@ function readErrorCode(code: string, context: Record<string, unknown> | null): s
   return typeof v === "string" && PARSE_FAILURE_ALLOWLIST.has(v) ? v : null;
 }
 
-function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
+function toAlertItem(
+  row: AttentionAlertInput,
+  slug: string,
+  driveFileId: string | null,
+): AttentionItem {
   const actionable = !isInboxRouted(row.code) && !isAutoResolving(row.code);
+  // clearingKind is set only on non-actionable (clearing) items; conditional spread
+  // avoids assigning `undefined` (exactOptionalPropertyTypes). Spec §3.1.
+  const clearingKindPatch: { clearingKind?: "self_heal" | "needs_look" } = actionable
+    ? {}
+    : { clearingKind: isSelfHealing(row.code) ? "self_heal" : "needs_look" };
   const autoClearNote = actionable
     ? null
     : isInboxRouted(row.code)
@@ -262,6 +279,7 @@ function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
     sectionId: route.sectionId,
     crewKey,
     actionable,
+    ...clearingKindPatch,
     menuTitle: alertTitle(row.code),
     menuSubtitle: row.identityText,
     alert: {
@@ -269,7 +287,7 @@ function toAlertItem(row: AttentionAlertInput, slug: string): AttentionItem {
       code: row.code,
       template: safeDougFacingTemplate(row.code, row.messageParams),
       params: row.messageParams,
-      action: resolveAlertAction(row.code, row.context, { slug }),
+      action: resolveAlertAction(row.code, row.context, { slug, driveFileId }),
       helpHref: catalogHelpHref(row.code),
       raisedAt: row.raised_at,
       occurrenceCount: row.occurrence_count,
@@ -304,6 +322,9 @@ export function deriveAttentionItems(args: {
   alerts: AttentionAlertInput[];
   feed: { entries: FeedEntry[] } | null;
   slug: string;
+  /** Show-level Google Drive file id, threaded to sheet-link action builders
+   *  (spec 2026-07-21 §3.1/§4). Optional; production modal passes it, tests may omit. */
+  driveFileId?: string | null;
   /** TEST SEAM (warning-surface-trim §5). Production callers pass nothing and
    *  get `DOUG_EXCLUDED_CODES`. It exists because only two set members carry an
    *  `ATTENTION_ROUTES` row today, so behavior over the live set cannot
@@ -335,8 +356,11 @@ export function deriveAttentionItems(args: {
   const excluded = new Set(args.excludedCodes ?? DOUG_EXCLUDED_CODES);
   const alertItems = args.alerts
     .filter((row) => row.code !== "PICKER_EPOCH_RESET" && !excluded.has(row.code))
-    .map((row) => toAlertItem(row, args.slug));
+    .map((row) => toAlertItem(row, args.slug, args.driveFileId ?? null));
   const actionableAlerts = alertItems.filter((i) => i.actionable);
   const clearing = alertItems.filter((i) => !i.actionable);
-  return [...holdItems, ...actionableAlerts, ...clearing];
+  // needs-a-look sorts before monitoring within the clearing tail (spec §3.1).
+  const needsLook = clearing.filter((i) => i.clearingKind === "needs_look");
+  const selfHeal = clearing.filter((i) => i.clearingKind === "self_heal");
+  return [...holdItems, ...actionableAlerts, ...needsLook, ...selfHeal];
 }

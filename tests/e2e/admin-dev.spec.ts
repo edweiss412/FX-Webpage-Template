@@ -58,6 +58,7 @@ test.describe("dev-build — dev panel enabled at build time", () => {
     await page.goto("/admin/settings");
     await expect(page.locator("[data-testid=admin-dev-tools-row]")).toBeVisible();
     await expect(page.locator("[data-testid=admin-dev-tools-open]")).toBeVisible();
+    await expect(page.locator("[data-testid=admin-dev-tools-gallery]")).toBeVisible();
   });
 });
 
@@ -82,6 +83,7 @@ test.describe("prod-build — dev panel absent at build time", () => {
     await page.goto("/admin/settings");
     await expect(page.locator("[data-testid=admin-dev-tools-row]")).not.toBeVisible();
     await expect(page.locator("[data-testid=admin-dev-tools-open]")).not.toBeVisible();
+    await expect(page.locator("[data-testid=admin-dev-tools-gallery]")).not.toBeVisible();
   });
 });
 
@@ -117,5 +119,6 @@ test.describe("prod-runtime-flip — build-UNSET artifact wins over runtime env=
     // this is the M3 build-vs-runtime class the spec protects against.
     await expect(page.locator("[data-testid=admin-dev-tools-row]")).not.toBeVisible();
     await expect(page.locator("[data-testid=admin-dev-tools-open]")).not.toBeVisible();
+    await expect(page.locator("[data-testid=admin-dev-tools-gallery]")).not.toBeVisible();
   });
 });

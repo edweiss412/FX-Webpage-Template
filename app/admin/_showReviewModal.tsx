@@ -307,6 +307,7 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
     alerts: alertsDegraded ? [] : alertsForCount,
     feed: feed ? { entries: feed.entries } : null,
     slug,
+    driveFileId,
   });
 
   // Ignored-warning fingerprints (side table, survives the parse_warnings

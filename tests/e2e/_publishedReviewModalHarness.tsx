@@ -237,6 +237,9 @@ export type HarnessStateOverrides = {
   archived?: boolean;
   isLive?: boolean;
   published?: boolean;
+  /** attention split §6a probe: drive the pill/menu with explicit items. */
+  attentionItems?: AttentionItem[];
+  alertsDegraded?: boolean;
 };
 
 export function modalElement(
@@ -264,8 +267,8 @@ export function modalElement(
     lastCheckedAt: "2026-05-02T12:00:00.000Z",
     lastSyncStatus: "ok",
     now: new Date("2026-05-02T13:00:00.000Z"),
-    attentionItems: harnessAttentionItems(alertCount),
-    alertsDegraded: false,
+    attentionItems: state.attentionItems ?? harnessAttentionItems(alertCount),
+    alertsDegraded: state.alertsDegraded ?? false,
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},
