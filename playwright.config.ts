@@ -82,7 +82,7 @@ export default defineConfig({
       // silently proves nothing. attention-gallery-layout needs the built
       // ADMIN_DEV_PANEL_ENABLED=true artifact and its own port, so it belongs
       // here rather than on the :3000 project a sibling worktree can occupy.
-      testMatch: /(admin-dev|attention-gallery-layout)\.spec\.ts/,
+      testMatch: /(admin-dev|attention-gallery-layout|attention-modal-gallery)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
@@ -264,7 +264,10 @@ export default defineConfig({
         "NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next start --port 3001",
       url: "http://localhost:3001",
-      reuseExistingServer: !process.env.CI,
+      // false (not !CI): the gallery e2e MUST run against a freshly BUILT
+      // artifact (ADMIN_DEV_PANEL_ENABLED=true). Reusing a stale port-3001
+      // server would test yesterday's bundle and silently pass (plan Task 5b).
+      reuseExistingServer: false,
       timeout: 300_000,
     },
     {
