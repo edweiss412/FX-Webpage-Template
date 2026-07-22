@@ -301,7 +301,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     [attentionItems, doneIds],
   );
   const actionable = useMemo(() => live.filter((i) => i.actionable), [live]);
-  const clearingCount = live.length - actionable.length;
+  // Attention split (spec 2026-07-21 §3.2/§3.3): the old single clearingCount is
+  // split. needs-look defaults FAIL-VISIBLE — a non-actionable item without a
+  // clearingKind counts as needs_look (visible), never dropped (spec §2).
+  const needsLook = useMemo(
+    () => live.filter((i) => !i.actionable && i.clearingKind !== "self_heal"),
+    [live],
+  );
+  const selfHeal = useMemo(() => live.filter((i) => i.clearingKind === "self_heal"), [live]);
+  // Interactive whenever a human might act — composite predicate, NEVER
+  // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
+  const interactive = actionable.length > 0 || needsLook.length > 0;
 
   // §3.3 anchor availability drives BOTH the bucketing (below) and the section an
   // item's banner ACTUALLY renders in. An asset/reel item whose anchor content
@@ -648,7 +658,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 COPIED from the prior pill: text-xs (~16px line box) + py-1
                 (8px) ≈ a 24px visible pill; -inset-y-3 (12px per side) ≈ 48px
                 ≥ the 44px tap floor. T-TAP probes the resolved band (§10). */}
-            {actionable.length > 0 ? (
+            {interactive ? (
+              /* Composite pill (attention split §3.2): segments render only when
+                 their count > 0; the middot separator renders only BETWEEN two
+                 present segments, never as the first glyph. The old else-branch
+                 that hid the clearing count whenever action items existed is gone. */
               <div className="relative">
                 <button
                   ref={pillRef}
@@ -665,16 +679,42 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                     aria-hidden="true"
                     className="size-2 shrink-0 rounded-pill bg-status-review"
                   />
-                  {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
-                      beside Close squeezes the title at 375px. The UNIT stays
-                      VISIBLE; the exact count is preserved for assistive tech
-                      past the cap only. */}
-                  {actionable.length > 99 ? "99+" : actionable.length} to confirm
-                  {actionable.length > 99 ? (
+                  {actionable.length > 0 ? (
                     <>
-                      {/* Separator is its OWN visible text node (accName trim
-                          class, memory #470). */}{" "}
-                      <span className="sr-only">({actionable.length} to confirm)</span>
+                      {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
+                          beside Close squeezes the title at 375px. Exact count is
+                          preserved for assistive tech past the cap only. */}
+                      {actionable.length > 99 ? "99+" : actionable.length} to confirm
+                      {actionable.length > 99 ? (
+                        <>
+                          {/* Separator is its OWN visible text node (accName trim
+                              class, memory #470). */}{" "}
+                          <span className="sr-only">({actionable.length} to confirm)</span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {actionable.length > 0 && needsLook.length > 0 ? (
+                    <span aria-hidden="true" className="opacity-50">
+                      ·
+                    </span>
+                  ) : null}
+                  {needsLook.length > 0 ? (
+                    <span className="text-warning-text/90">
+                      {needsLook.length > 99 ? "99+" : needsLook.length} to review
+                    </span>
+                  ) : null}
+                  {selfHeal.length > 0 ? (
+                    <>
+                      <span aria-hidden="true" className="opacity-50">
+                        ·
+                      </span>
+                      <span className="font-medium text-warning-text/70">
+                        {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                      </span>
+                      {/* Inherited sr-only expansion (#537 mechanism): visible terse,
+                          full sentence for AT; space is a real text node. */}{" "}
+                      <span className="sr-only">clearing on their own, no action needed</span>
                     </>
                   ) : null}
                   {/* Lucide chevron (codebase icon idiom), not the ⌃/⌄ text
@@ -697,7 +737,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   />
                 </div>
               </div>
-            ) : alertsDegraded && clearingCount === 0 ? (
+            ) : alertsDegraded && selfHeal.length === 0 ? (
               /* §5.1 degraded row: only when no hold carried the pill into the
                  To-confirm state; the Overview notice card is the detail. */
               <span
@@ -706,28 +746,23 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               >
                 Alerts unavailable
               </span>
-            ) : clearingCount > 0 ? (
-              /* §5.1 clearing state: auto-recovering items visible, never dark.
-                 The visible "N clearing" is terse; an sr-only tail spells out what
-                 "clearing" means so the accessible name is a full sentence, not a
-                 bare count. The name comes from TEXT CONTENT (not aria-label — a
-                 bare <span> has the generic role, which does not support naming),
-                 so every AT honors it. `title` adds the same phrasing as a
-                 desktop hover tooltip. The `{" "}` is a real space text node
-                 between the visible text and the sr-only tail; without it the
-                 accessible-name algorithm trims the sr-only's leading space and
-                 renders "clearingon their own". */
+            ) : selfHeal.length > 0 ? (
+              /* Monitoring-only state (attention split §3.2): genuinely self-healing
+                 items, non-interactive. Visible "N monitoring" is terse; the sr-only
+                 tail spells out the meaning so the announced text is a full sentence
+                 (mechanism inherited from #537 — name comes from TEXT CONTENT, the
+                 `{" "}` is a real space node so the accName space survives). */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                title={`${clearingCount} clearing on their own, no action needed`}
+                title={`${selfHeal.length} monitoring, clearing on their own, no action needed`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
               >
                 <span
                   aria-hidden="true"
                   className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                 />
-                {clearingCount} clearing{" "}
-                <span className="sr-only">on their own, no action needed</span>
+                {selfHeal.length} monitoring{" "}
+                <span className="sr-only">clearing on their own, no action needed</span>
               </span>
             ) : (
               /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */

@@ -124,8 +124,13 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // entry) → 4 (Task 5, the §6.6 alert pill AND its capped sr-only suffix —
   // `{alertCount > 99 ? (` is its own mounted conditional, which is why the
   // target is 4 and not 3). All four are instant omit/mounts that follow data.
+  // attention split 2026-07-21 §8: 4 → 8. The composite pill's segments are
+  // each their own conditional mount: the confirm segment, the confirm·review
+  // middot, the review segment, and the monitoring fragment. All four new
+  // sites are instant text/segment swaps that follow the derived counts — no
+  // AnimatePresence, no enter/exit (spec §8 declares every pill pair instant).
   // Verified by RUNNING the scanner over the source, not by reasoning.
-  "components/admin/showpage/PublishedReviewModal.tsx": 4,
+  "components/admin/showpage/PublishedReviewModal.tsx": 8,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

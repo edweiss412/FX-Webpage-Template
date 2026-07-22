@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import {
-  clearingAlertItem,
+  selfHealAlertItem,
   installModalDomStubs,
   renderPublishedModal,
 } from "./__fixtures__/publishedModalHarness";
@@ -30,11 +30,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("PublishedReviewModal - clearing pill accessible label (section 3 Fix C)", () => {
-  it("the 'N clearing' pill carries a fuller meaning in an inline sr-only tail; visible text stays terse", () => {
-    // Two non-actionable attention items → clearingCount === 2 (live − actionable).
+describe("PublishedReviewModal - monitoring pill accessible label (Fix C mechanism, attention split copy)", () => {
+  // SUPERSEDED COPY (attention split 2026-07-21 §3.2): the old single "N clearing"
+  // state split into "to review" (interactive) and "monitoring" (non-interactive).
+  // This test carries Fix C's sr-only mechanism forward onto the monitoring-only
+  // state — the direct heir of the old clearing pill.
+  it("the 'N monitoring' pill carries a fuller meaning in an inline sr-only tail; visible text stays terse", () => {
+    // Two genuinely self-healing items → monitoring-only, non-interactive.
     renderPublishedModal([], {
-      attentionItems: [clearingAlertItem("c1"), clearingAlertItem("c2")],
+      attentionItems: [selfHealAlertItem("c1"), selfHealAlertItem("c2")],
     });
     const pill = screen.getByTestId("published-show-review-alert-pill");
 
@@ -45,22 +49,24 @@ describe("PublishedReviewModal - clearing pill accessible label (section 3 Fix C
     // the `title` tooltip and pass tautologically).
     const srOnly = pill.querySelector<HTMLElement>(".sr-only");
     expect(srOnly).not.toBeNull();
-    // sr-only = present in the a11y tree but visually hidden (jsdom loads no CSS,
-    // so assert the class contract that the design system's `.sr-only` enforces).
     expect(srOnly!.className).toContain("sr-only");
-    expect(srOnly!.textContent).toBe("on their own, no action needed");
+    expect(srOnly!.textContent).toBe("clearing on their own, no action needed");
 
     // What the SR reads (full text, in order) vs what a sighted user sees (terse).
-    expect(pill.textContent).toBe("2 clearing on their own, no action needed");
+    expect(pill.textContent).toBe("2 monitoring clearing on their own, no action needed");
     const srText = srOnly!.textContent ?? "";
     const visible = (pill.textContent ?? "")
       .slice(0, (pill.textContent ?? "").length - srText.length)
       .trim();
-    expect(visible).toBe("2 clearing");
+    expect(visible).toBe("2 monitoring");
 
-    // No aria-label (ignored on a generic role — the whole point of the sr-only
-    // approach); title mirrors the phrasing as a desktop hover affordance.
+    // Non-interactive: a span, not a button (matrix §11.5 pins the same).
+    expect(pill.tagName).not.toBe("BUTTON");
+    // No aria-label (ignored on a generic role); title mirrors the phrasing.
     expect(pill.getAttribute("aria-label")).toBeNull();
-    expect(pill).toHaveAttribute("title", "2 clearing on their own, no action needed");
+    expect(pill).toHaveAttribute(
+      "title",
+      "2 monitoring, clearing on their own, no action needed",
+    );
   });
 });
