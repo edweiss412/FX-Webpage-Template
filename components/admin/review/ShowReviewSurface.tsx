@@ -190,7 +190,11 @@ export function ShowReviewSurface({
   // byte-identical); the published review modal passes `syncHash` explicitly.
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
-  renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
+  renderSectionExtras?: (
+    id: SectionId,
+    d: SectionData,
+    opts?: { seamless?: boolean },
+  ) => ReactNode; // Phase 2 hook: per-section warning controls
   // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
   // bucket rendering below the Parse warnings panel (`here`) and every other
   // section (`elsewhere`). Passed by the published modal alongside
@@ -1073,8 +1077,13 @@ export function ShowReviewSurface({
                 {s.render(data)}
               </Step3SectionChromeContext.Provider>
               {/* Phase 2 hook: per-section warning controls under the panel.
-                Phase 1 passes no `renderSectionExtras` → renders nothing. */}
-              {renderSectionExtras?.(s.id, data)}
+                Phase 1 passes no `renderSectionExtras` → renders nothing.
+                seamless (spec 2026-07-22 §3.3): exactly when this section's
+                body card is suppressed, so the extras' border-t cannot read
+                as a heading underline. */}
+              {renderSectionExtras?.(s.id, data, {
+                seamless: s.id === "warnings" && suppressWarningsPanelCard,
+              })}
               {/* Spec 2026-07-22-warning-panel-polish §3.2: always-mounted
                   published live region. OUTSIDE the chrome-suppressible card
                   subtree (Silent unmounts panel children,

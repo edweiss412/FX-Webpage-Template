@@ -2640,8 +2640,11 @@ export function WarningsBreakdown({
                 <li
                   key={keys[i]}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
-                  // §E4 jump-target key: same FULL-array index as the testid —
-                  // the modal's container-scoped query hook (no `id`s, §9.4).
+                  // §E4 jump-target key: index into the RENDERED (trimmed) rows
+                  // — same index as the testid. Only consumer is the staged
+                  // jump path, which is never gated, so staged index == full
+                  // index there (published anchors jump by section, not row).
+                  // Container-scoped query hook (no `id`s, §9.4).
                   data-warning-index={i}
                   className="flex gap-3"
                 >
