@@ -52,6 +52,7 @@ import {
   useRef,
   useState,
   type Context,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -155,6 +156,7 @@ export function HoverHelp({
   const descId = useId();
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const caretRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -439,6 +441,27 @@ export function HoverHelp({
   /** Focus arriving in the body by ANY route keeps the popover open (§4.5). */
   const onBodyFocus = () => clearCloseTimer();
 
+  /**
+   * Pair-scoped blur-close (spec 2026-07-22-hoverhelp-caret-blur-close §4).
+   * ONE handler on the root wrapper: portal blurs bubble to it through the
+   * React tree (§4.0 probe P2), so a body-side duplicate would double-fire.
+   * DISABLED for modal-hosted learnMore popovers - their link is reached
+   * through the host panel's Tab order (parent spec §4.5), and closing en
+   * route would set it tabIndex=-1 (unreachable). relatedTarget null is
+   * ignored: a click on the popover's own non-focusable text reports null
+   * (probe P3) and must not dismiss. Never moves focus - the user left.
+   */
+  const blurCloseActive = () => !(hostRef !== null && learnMore !== undefined);
+  const onPairBlur = (e: ReactFocusEvent<HTMLDivElement>) => {
+    if (!open || !blurCloseActive()) return;
+    const rt = e.relatedTarget;
+    if (!(rt instanceof Node)) return;
+    if (rootRef.current?.contains(rt)) return; // trigger side
+    if (bodyRef.current?.contains(rt)) return; // body side (portaled - not a DOM descendant)
+    clearCloseTimer();
+    setOpen(false);
+  };
+
   // Hover is MOUSE-ONLY: a synthetic-mouse tap on a touch device fires pointer
   // events with pointerType="touch"/"pen" — ignore those so the click toggle is
   // the sole touch interaction (no open-then-toggle net-closed race).
@@ -479,12 +502,14 @@ export function HoverHelp({
     // would itself be invalid HTML (spec §4.1 R6). Layout-identical: display
     // comes from the inline-flex class.
     <div
+      ref={rootRef}
       className="relative inline-flex"
       data-testid={rootTestId}
       aria-owns={bodyId}
       onPointerEnter={onMouseEnter}
       onPointerLeave={onMouseLeave}
       onKeyDown={onRootKeyDown}
+      onBlur={onPairBlur}
     >
       {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min,
           or with compactTrigger a 22px box + before:inset-[-11px] overlay (44px

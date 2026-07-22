@@ -674,4 +674,36 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
       }
     }
   });
+
+  test("T-E4: real Tab-away closes a plain popover; focus lands on the destination", async ({
+    page,
+  }) => {
+    await page.goto(`${baseUrl}/live.html?case=caret`);
+    await page.getByTestId("harness-ready").waitFor({ state: "attached" });
+    const trigger = page.getByTestId("caret-blur-trigger");
+    await trigger.focus();
+    await page.keyboard.press("Enter"); // native button: Enter fires click -> toggles open
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Tab");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    const active = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    expect(active).toBe("after-btn"); // blur-close never moves focus
+  });
+
+  test("T-E4b: real blur from the PORTALED link to an outside control closes", async ({
+    page,
+  }) => {
+    await open(page, "caret", "caret-lm"); // body-host learnMore: blur-close ACTIVE
+    const trigger = page.getByTestId("caret-lm-trigger");
+    await trigger.focus();
+    await page.keyboard.press("Tab"); // body-host bridge sends focus into the link
+    const onLink = await page.evaluate(
+      () => document.activeElement?.getAttribute("href") === "/help/admin",
+    );
+    expect(onLink).toBe(true);
+    await page.getByTestId("after-btn").click(); // focuses the button -> link focusout
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
 });
