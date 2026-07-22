@@ -88,7 +88,7 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
 ### 2.1.1 Safe-area handling
 
 The bar container's `py-2` is split into `pb-2` plus
-`pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` — a single top-padding
+`pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]` — a single top-padding
 declaration that is ADDITIVE (8px + inset), never two competing `padding-top`
 assignments (Tailwind emits one `padding-top`, so `py-2 pt-[...]` cascade-ordering
 is avoided by construction). The ≤64px collapsed cap in §2.4/§2.5 is defined
@@ -231,7 +231,7 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     `shrink-0` (Prev, Next, chip, toggle); the toggle also pins `min-h-tap-min`
     AND `min-w-tap-min`; the live-region wrapper pins `min-w-0` and `flex-1`; the
     bar container carries `pb-2` and the
-    `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` literal (and NOT `py-2`);
+    `pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]` literal (and NOT `py-2`);
     the open panel carries `max-h-[40vh]` and `overflow-y-auto`.
   - Existing tests (invariant 5 data-codes, aria-live label, em-dash) updated to
     expand the panel first where they assert footnote copy.

@@ -11,7 +11,7 @@ Branch: `fix/gallery-switcher-bar-slim`. All tasks TDD (invariant 1); one commit
 - `playwright.config.ts:84-92` dev-build project: Desktop Chrome 1280×800, baseURL `http://localhost:3001`, testMatch includes `attention-modal-gallery` — verified. Spec's 390×844 case runs via `page.setViewportSize` inside the test (project stays desktop-chromium-based; no new project).
 - `ReviewModalShell.tsx:578` `${testIdBase}-modal`, `ReviewModalShell.tsx:582` overlay, `ReviewModalShell.tsx:618` panel `max-h-[85vh] sm:max-h-[80vh] overflow-clip`, `ReviewModalShell.tsx:647` header, `ReviewModalShell.tsx:696` footer; `PublishedReviewModal.tsx:72` `TESTID_BASE = "published-show-review"` — verified.
 - `app/globals.css:162` `--spacing-tap-min: 44px` — verified.
-- Tailwind literal `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]`: repo precedent for `--spacing()` inside arbitrary values exists (`pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))]`, `ReviewModalShell.tsx:697`) — verified.
+- Tailwind literal `pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]`: repo precedent for `--spacing()` inside arbitrary values exists (`pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))]`, `ReviewModalShell.tsx:697`) — verified.
 
 ## Meta-test inventory
 
@@ -62,7 +62,7 @@ Unit (`tests/components/admin/dev/switcherControls.test.tsx`):
 - Static class pins (spec §5): row `flex-nowrap`; Prev, Next, chip, toggle each
   `shrink-0`; toggle `min-h-tap-min` + `min-w-tap-min`; wrapper `min-w-0` + `flex-1`;
   bar container className contains `pb-2` and
-  `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` and NOT `py-2`; open panel
+  `pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]` and NOT `py-2`; open panel
   `max-h-[40vh]` + `overflow-y-auto`.
   Failure mode caught: silent class drop invisible to a zero-inset browser and the
   short current catalog.
@@ -122,7 +122,7 @@ because copy is visible without a toggle). Record both failing summaries.
 Step 1c — GREEN: implement `components/admin/dev/SwitcherControls.tsx` per spec §2
 (single component; `useState`; row `flex flex-nowrap items-center gap-x-2`; toggle
 + conditional panel; container
-`pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` replacing `py-2`;
+`pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]` replacing `py-2`;
 footnote `<p>` copy moved verbatim into the panel). Re-run both layers to green.
 
 Commit (one): `fix(admin): slim single-row switcher bar with excluded-scenarios disclosure`

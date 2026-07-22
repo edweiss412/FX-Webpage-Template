@@ -162,7 +162,7 @@ describe("SwitcherControls", () => {
     render(<SwitcherControls {...base} />);
     const bar = screen.getByTestId("attention-switcher-controls");
     expect(bar.className).toContain("pb-2");
-    expect(bar.className).toContain("pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]");
+    expect(bar.className).toContain("pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]");
     expect(bar.className.split(/\s+/)).not.toContain("py-2");
   });
 
