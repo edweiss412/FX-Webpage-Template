@@ -49,7 +49,8 @@ target viewports. The modal and shell are untouched.
 ## 2. Design — `SwitcherControls` only
 
 Single production-component change: `components/admin/dev/SwitcherControls.tsx` (tests,
-DEFERRED.md, and this spec also change; no other production file). New component-local
+DEFERRED.md, DEFERRED-archive.md, and this spec also change; no other production
+file). New component-local
 state `const [showExcluded, setShowExcluded] = useState(false)`.
 
 ### 2.1 Control row (always rendered)
@@ -152,12 +153,11 @@ all DESCENDANTS of the panel (they render inside the modal's DOM subtree, so the
 boxes are clipped to the panel by its `overflow-clip`, `ReviewModalShell.tsx:618`);
 clearing the panel box therefore clears every one of them — a containment argument,
 not a vertical-ordering guess. The ratified
-expanded-state exception (§1.1) permits modal overlap within the panel's 40vh cap;
-the panel is top-centered, so it cannot reach the nav rail (left) or the footer:
-the expanded maximum extent is 64px + `env(safe-area-inset-top)` + 4px (`gap-1`
-between row and panel) + 40vh — at the e2e viewports (inset 0) that is 388px of
-800 (desktop) and 405.6px of 844 (mobile), and the bottom-anchored footer sits in
-the bottom ~56px of the viewport in both cases, far below. Geometry headroom: the panel is `max-h-[85vh]` mobile /
+expanded-state exception (§1.1) permits modal overlap within the panel's maximum
+extent — 64px + `env(safe-area-inset-top)` + 4px (`gap-1` between row and panel)
++ 40vh; at the e2e viewports (inset 0) that is 388px of 800 (desktop) and 405.6px
+of 844 (mobile). No narrower expanded-state geometry is claimed: whatever falls
+inside that extent is covered by the §1.1 ratification. Geometry headroom: the panel is `max-h-[85vh]` mobile /
 `sm:max-h-[80vh]` desktop (`ReviewModalShell.tsx:618`), so the scrim band above the
 panel is ≥120px at 390×844 (bottom sheet) and ≥80px at 1280×800 (centered), vs the
 ≤64px collapsed bar.
@@ -172,7 +172,7 @@ not stretch-based, and each is guaranteed by an explicit class:
 | Relationship | Guarantee |
 | --- | --- |
 | Collapsed bar height ≤64px | Single row (`flex-nowrap` — no second line possible); row content is single-line text in 44px-MINIMUM (`min-h-tap-min`) content-sized buttons that render at 44px (one text line ≈17px + padding never exceeds the minimum), + 8px `pb-2` + 8px base of the split top padding (§2.1.1) + 1px bottom border (`border border-t-0`) = 61px computed (observed within 1px). The ≤64px UPPER bound is enforced by the e2e assertion (§5), not by any max-height class. |
-| Row children never push the bar wider than the viewport | Every non-label child `shrink-0`; label `min-w-0 truncate` absorbs all deficit. |
+| Row content never overflows the bar at supported viewports (≥390px) with catalog-derived inputs (§2.1 budget bounds) | Fixed children `shrink-0`; wrapper `min-w-0 flex-1`; label `min-w-0 truncate` absorbs all deficit. Sub-390 clipping and degenerate numeric props (§3) are outside this invariant by design. |
 | Bar never intersects modal header/close/footer (collapsed) | `fixed top-0` bar ≤64px vs scrim band ≥80px above the panel (§2.4 math); pinned by the real-browser `getBoundingClientRect`/`boundingBox` e2e (§5), not jsdom. |
 
 ## 3. Guard conditions
@@ -221,8 +221,10 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     stepping — pinned by the e2e persistence step (§5 e2e), not jsdom.
   - Static class pins (jsdom `className` assertions — these contracts are invisible
     to a zero-inset e2e and to the short current catalog, so the classes ARE the
-    testable surface): row carries `flex-nowrap`; toggle carries `min-h-tap-min`
-    and `shrink-0`; the bar container carries `pb-2` and the
+    testable surface): row carries `flex-nowrap`; ALL four fixed row children pin
+    `shrink-0` (Prev, Next, chip, toggle); the toggle also pins `min-h-tap-min`
+    AND `min-w-tap-min`; the live-region wrapper pins `min-w-0` and `flex-1`; the
+    bar container carries `pb-2` and the
     `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` literal (and NOT `py-2`);
     the open panel carries `max-h-[40vh]` and `overflow-y-auto`.
   - Existing tests (invariant 5 data-codes, aria-live label, em-dash) updated to
