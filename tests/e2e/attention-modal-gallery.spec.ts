@@ -344,12 +344,87 @@ test.describe("attention modal switcher gallery", () => {
       await expectMarker(page, RENDERED_IDS[0]!);
     }
 
-    // Footnotes (outside the inert root, in the control bar).
+    // Footnotes live behind the collapsed-by-default disclosure (slim-bar spec
+    // §2.2/§2.3): absent until the excluded toggle opens the panel.
     const controls = page.locator(CONTROLS);
+    await expect(controls.getByText(/published attention surface/i)).toHaveCount(0);
+    await controls.getByTestId("attention-switcher-excluded-toggle").click();
     for (const e of STRUCTURAL) {
       await expect(controls.getByText(e.label, { exact: false })).toBeVisible();
     }
     await expect(controls.getByText(String(CUT.length), { exact: false })).toBeVisible();
     await expect(controls.getByText(/published attention surface/i)).toBeVisible();
+  });
+
+  test("collapsed bar clears the modal at both viewports; panel state survives remount", async ({
+    page,
+  }) => {
+    // Strict rect overlap: any shared area counts as intersection.
+    const intersects = (
+      a: { x: number; y: number; width: number; height: number },
+      b: { x: number; y: number; width: number; height: number },
+    ) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+    const MODAL_BOXES = [
+      // The PANEL box, not DIALOG: `published-show-review-modal` is the
+      // full-viewport overlay wrapper (fixed inset-0, ReviewModalShell.tsx:582)
+      // and intersects everything by construction. The panel node carries
+      // data-review-modal-panel (dataAttrPrefix="review-modal").
+      "[data-review-modal-panel]",
+      '[data-testid="published-show-review-header"]',
+      '[data-testid="published-show-review-close"]',
+      // No footer box: PublishedReviewModal passes no footer prop, so the shell
+      // never renders `-footer` (ReviewModalShell.tsx renders it only when
+      // `footer != null`). Panel containment covers the gap regardless.
+    ];
+
+    // Collapsed-state geometry, asserted per viewport. Mobile FIRST so the
+    // disclosure has never been touched; desktop re-navigates fresh (slim-bar
+    // spec §5 ordering — no expanded-state leakage into collapsed assertions).
+    const assertCollapsedGeometry = async () => {
+      const bar = page.locator(CONTROLS);
+      const barBox = await bar.boundingBox();
+      expect(barBox).not.toBeNull();
+      // The amended [R1-12] cap: single row, <=64px (0px safe-area inset here).
+      expect(barBox!.height).toBeLessThanOrEqual(64);
+      // No horizontal content overflow: the inset-x-0 bar box is always inside
+      // the viewport, so scrollWidth vs clientWidth is the real assertion.
+      const { scrollWidth, clientWidth } = await bar.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      }));
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+      // The bar must not intersect the modal panel or its header/close boxes.
+      // Every other protected surface is a descendant clipped by the panel's
+      // overflow-clip, so clearing the panel box clears them (containment).
+      for (const sel of MODAL_BOXES) {
+        const box = await page.locator(sel).boundingBox();
+        expect(box, `${sel} should render a box`).not.toBeNull();
+        expect(intersects(barBox!, box!), `collapsed bar must not intersect ${sel}`).toBe(false);
+      }
+    };
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoScenario(page, RENDERED_IDS[0]!);
+    await assertCollapsedGeometry();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await gotoScenario(page, RENDERED_IDS[0]!);
+    await assertCollapsedGeometry();
+
+    // Persistence (desktop only, spec §5): the bar is outside the keyed modal
+    // subtree, so the open panel survives a scenario remount. Await the remount
+    // proof (aria-live count advance) BEFORE asserting persistence.
+    const toggle = page.getByTestId("attention-switcher-excluded-toggle");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await page.locator(DIALOG).click();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator(`${CONTROLS} [aria-live="polite"]`)).toHaveText(/^\s*2\s*\//);
+    await expect(page.getByTestId("attention-switcher-excluded-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(page.getByTestId("attention-switcher-excluded-panel")).toBeVisible();
   });
 });
