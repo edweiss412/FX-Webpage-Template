@@ -831,7 +831,7 @@ describe("extras seam (spec §3.3)", () => {
 });
 ```
 
-NOTE for implementer: reuse the Task-4 local helper (see its NOTE — routedWarningsGate.test.tsx scaffold); `withParseNotes` = supply the `warningsNotes` input that produces `parseNotes` (see `ShowReviewSurface.tsx:1041-1043`); keep exact-className assertions (spec §8.4 requires byte-identity in non-Silent states — copy the CURRENT class string from `sectionWarningExtras.tsx:218` verbatim into `SEAM_CLASSES` at write time).
+NOTE for implementer: reuse the SHARED helper `tests/helpers/publishedSurfaceProps.tsx` (created in Task 4 from the routedWarningsGate.test.tsx scaffold); `withParseNotes` = supply the `warningsNotes` input that produces `parseNotes` (see `ShowReviewSurface.tsx:1041-1043`); keep exact-className assertions (spec §8.4 requires byte-identity in non-Silent states — copy the CURRENT class string from `sectionWarningExtras.tsx:218` verbatim into `SEAM_CLASSES` at write time).
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -968,7 +968,7 @@ describe("published callout actionability gate (spec §3.4)", () => {
 });
 ```
 
-(Reuse the Task-4 local helper; `infoRows` = the info-severity entries of `data.warnings`.)
+(Reuse the shared helper `tests/helpers/publishedSurfaceProps.tsx`; `infoRows` = the info-severity entries of `data.warnings`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1020,6 +1020,7 @@ git commit --no-verify -m "feat(admin): callout gates on info-code actionability
 **Files:**
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (`Step3SectionChrome` type `:436`, elsewhere branch `:2564-2570`)
 - Modify: `components/admin/review/ShowReviewSurface.tsx` (chrome provider `:1002-1070`)
+- Modify: `tests/helpers/publishedSurfaceProps.tsx` (extend with elsewhere-section options)
 - Test: `tests/components/admin/wizard/pointerSentence.test.tsx`
 
 **Interfaces:**
@@ -1058,14 +1059,13 @@ describe("pointerSentenceParts (pure, spec §3.5)", () => {
 });
 
 describe("pointer sentence render (spec §8.6)", () => {
-  function renderElsewhere(labels: string[], opts: { totalSections?: number; withCallback?: boolean } = {}) {
+  function renderElsewhere(labels: string[], opts: { totalSections?: number } = {}) {
     const onJump = vi.fn();
     const props = buildPublishedSurfaceProps({
       listed: 0,
       here: 0,
       elsewhereSections: labels,
       ...(opts.totalSections !== undefined ? { elsewhereTotalSections: opts.totalSections } : {}),
-      ...(opts.withCallback === false ? { withoutJumpCallback: true } : {}),
     });
     render(<ShowReviewSurface {...props} />);
     return { onJump };
@@ -1123,15 +1123,22 @@ describe("pointer sentence render (spec §8.6)", () => {
     expect(onJump).toHaveBeenCalledWith("crew");
   });
 
-  it("no callback: bold text, no buttons", () => {
-    renderElsewhere(["Crew"], { withCallback: false });
+  it("no callback: bold text, no buttons (direct chrome harness — the surface always wires the callback, so the absent-callback contract is chrome-level)", () => {
+    renderWarningsBreakdownWithChrome({
+      pointerTargets: { targets: [{ id: "crew", label: "Crew" }], totalSections: 1 },
+      // onJumpToSection deliberately OMITTED
+    });
     expect(screen.queryByRole("button", { name: "Crew" })).toBeNull();
-    expect(sentence()).toContain("Crew");
+    const el = screen.getByTestId(/warnings-elsewhere/);
+    expect(el.textContent).toBe(
+      "Nothing else to note here. The warnings that need a look are in Crew.",
+    );
+    expect(el.querySelector("strong")?.textContent).toBe("Crew");
   });
 });
 ```
 
-NOTE for implementer: the pure `pointerSentenceParts` tests are exact as written. For the render tests, extend the Task-4 local helper (elsewhere rows land in named sections); author `renderWarningsBreakdownWithChrome(chromeExtras)` in this suite following the direct-Provider pattern of `tests/components/admin/review/routedWarningsGate.test.tsx` (Provider value + the warnings section subtree in the elsewhere state). Full-string assertions must not be weakened to `toContain`.
+NOTE for implementer: the pure `pointerSentenceParts` tests are exact as written. For the render tests, extend the shared helper `tests/helpers/publishedSurfaceProps.tsx` (add `elsewhereSections`/`elsewhereTotalSections` options; the file is therefore in this task's staging list) (elsewhere rows land in named sections); author `renderWarningsBreakdownWithChrome(chromeExtras)` in this suite following the direct-Provider pattern of `tests/components/admin/review/routedWarningsGate.test.tsx` (Provider value + the warnings section subtree in the elsewhere state). Full-string assertions must not be weakened to `toContain`.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1265,7 +1272,8 @@ Expected: new suite PASS; existing suite green except tests pinning the old stat
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/admin/wizard/step3ReviewSections.tsx components/admin/review/ShowReviewSurface.tsx tests/components/admin/wizard/pointerSentence.test.tsx
+git add components/admin/wizard/step3ReviewSections.tsx components/admin/review/ShowReviewSurface.tsx tests/components/admin/wizard/pointerSentence.test.tsx tests/helpers/publishedSurfaceProps.tsx
+# PLUS each neighbor test edited in Step 4 (old-static-sentence pins) — list explicitly
 git commit --no-verify -m "feat(admin): pointer sentence names elsewhere sections with tappable scroll buttons"
 ```
 
@@ -1398,6 +1406,6 @@ git commit --no-verify -m "docs(handoff): graduate seven resolved DEFERRED items
 - [ ] Full local gates: `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` (fix everything; vitest exit code 1 with all tests passing means an uncaught error — check the "Errors" summary line).
 - [ ] Impeccable dual-gate on the diff (invariant 8): `/impeccable critique` + `/impeccable audit` with canonical v3 setup (context.mjs load → register read). Each fix the gate forces is its own commit (test-first where behavioral); P0/P1 fixed or DEFERRED.md-entried. Then write findings + dispositions into handoff §12 and COMMIT the handoff + any DEFERRED.md edits (`docs(handoff): impeccable dispositions`). Re-run the affected vitest suites after any fix commit.
 - [ ] Whole-diff cross-model review to APPROVE — split tight-scope briefs (per-surface file lists), REVIEWER ONLY inlined, verdict marker; inlined-artifact fallback on tool death. Repairs are commits with re-run gates; re-dispatch review after repairs until APPROVE.
-- [ ] Re-fetch origin/main; if behind, rebase and RE-RUN the full local gates on the rebased tree (the pushed diff must be the gated diff). Push, PR, real CI green.
+- [ ] After ALL repair commits (impeccable fixes, §12/DEFERRED edits, cross-model repairs): re-run the FULL local gates (`pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`) unconditionally — the pushed tree must be the gated tree, whether or not a rebase happened. Then re-fetch origin/main; if behind, rebase and re-run the full gates again on the rebased tree. Push, PR, real CI green.
 - [ ] Confirm both: `gh pr checks <PR#>` all green AND `gh pr view <PR#> --json mergeStateStatus` reports `CLEAN` (checks alone do not establish merge state).
 - [ ] `gh pr merge --merge` in the same turn as CI-green; fast-forward local main; verify `git rev-list --left-right --count main...origin/main` == `0 0`; CronDelete the nudge; ship-state → done.
