@@ -1618,7 +1618,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
         await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
         const trigger = card.locator("button[aria-expanded]").first();
-        await clickOpenTrigger(page, trigger);
+        // Programmatic DOM click, not a pointer click: at 300px on CI's
+        // classic-scrollbar Linux the trigger's box can sit outside
+        // Playwright's actionability viewport (mac overlay scrollbars hide
+        // this locally) and locator.click retries forever. element.click()
+        // fires the same React onClick with NO pointerenter, so there is
+        // also no hover-open/toggle parity race - one click opens.
+        await trigger.evaluate((el) => (el as HTMLElement).click());
+        await expect(trigger).toHaveAttribute("aria-expanded", "true");
         const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
         if (!ownsId) throw new Error("affordance root missing aria-owns");
         const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
