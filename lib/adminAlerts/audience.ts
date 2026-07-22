@@ -64,6 +64,45 @@ export function isAutoResolving(code: string): boolean {
   return AUTO_RESOLVING_SET.has(code);
 }
 
+// --- Attention-menu clearing classification (spec 2026-07-21-attention-needs-attention-split §2) ---
+// Of the doug-audience auto-resolving codes that reach the show-modal attention menu,
+// which genuinely self-heal ("monitoring") vs which need a human elsewhere ("needs a look").
+// TWO positive sets on purpose: the exhaustiveness meta-test asserts every such code is in
+// exactly one, so a NEW auto-resolving doug code lands in neither and fails CI until classified
+// (a single set + complement would be tautological). The `_LIST` tuples carry the literal union
+// for the typed-total fix-hint map; the `ReadonlySet<string>` sets carry runtime membership so
+// `.has(anyString)` typechecks.
+export const SELF_HEALING_CODE_LIST = [
+  "DRIVE_FETCH_FAILED",
+  "SYNC_STALLED",
+  "WATCH_CHANNEL_ORPHANED",
+] as const;
+
+export const NEEDS_LOOK_CODE_LIST = [
+  "SHEET_UNAVAILABLE",
+  "OPENING_REEL_NOT_VIDEO",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "REEL_DRIFTED",
+  "EMBEDDED_ASSET_DRIFTED",
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+  "PARSE_ERROR_LAST_GOOD",
+  "RESYNC_QUALITY_REGRESSED",
+  "RESYNC_SHRINK_HELD",
+  "SHOW_UNPUBLISHED",
+  "USE_RAW_DECISION_STALE",
+  "ASSET_RECOVERY_BYTES_EXCEEDED",
+] as const;
+
+export type NeedsLookCode = (typeof NEEDS_LOOK_CODE_LIST)[number];
+
+export const SELF_HEALING_CODES: ReadonlySet<string> = new Set(SELF_HEALING_CODE_LIST);
+export const NEEDS_LOOK_CODES: ReadonlySet<string> = new Set(NEEDS_LOOK_CODE_LIST);
+
+/** True iff an auto-resolving code genuinely self-heals (monitoring); unknown → false. */
+export function isSelfHealing(code: string): boolean {
+  return SELF_HEALING_CODES.has(code);
+}
+
 // Per-code auto-clear note; codes absent here fall back to the generic line. Human
 // copy only (invariant 5) — never a raw code, never interpolates untrusted context.
 /** Exported for the copy meta-test that sweeps EVERY note for banned characters
