@@ -10,7 +10,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
 import type { GallerySwitcherScenario, GalleryModalData } from "@/lib/dev/galleryModalTypes";
 
 // Capture the props the real modal would have received.
@@ -165,5 +165,13 @@ describe("AttentionModalSwitcher", () => {
     expect(pressKey("Escape")).toBe(true);
     // The modal stays mounted on the current scenario.
     expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
+  });
+
+  test("jumping via the group select re-renders the target scenario", () => {
+    render(<AttentionModalSwitcher scenarios={THREE} excluded={[]} initialId={null} />);
+    const select = screen.getByTestId("attention-switcher-group-select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "crew" } });
+    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("C");
+    expect(select.value).toBe("crew");
   });
 });

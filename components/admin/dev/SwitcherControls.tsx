@@ -21,12 +21,20 @@
  * attribute for devtools/e2e inspection.
  */
 import { useState } from "react";
-import type { ExcludedScenario } from "@/lib/dev/galleryModalTypes";
+import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
+import type { ExcludedScenario, ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 
 const STEP_BTN =
   "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent";
 
 const EXCLUDED_PANEL_ID = "switcher-excluded-panel";
+
+export type SwitcherGroupEntry = {
+  id: ScenarioGroupId;
+  label: string;
+  count: number;
+  firstIndex: number;
+};
 
 type Props = {
   index: number;
@@ -35,6 +43,9 @@ type Props = {
   tier: 1 | 2 | 3;
   codes: string[];
   excluded: ExcludedScenario[];
+  group: ScenarioGroupId;
+  groups: ReadonlyArray<SwitcherGroupEntry>;
+  onJumpTo: (index: number) => void;
   onPrev: () => void;
   onNext: () => void;
 };
@@ -46,6 +57,9 @@ export function SwitcherControls({
   tier,
   codes,
   excluded,
+  group,
+  groups,
+  onJumpTo,
   onPrev,
   onNext,
 }: Props) {
@@ -77,6 +91,24 @@ export function SwitcherControls({
           </span>
           <span className="min-w-0 truncate text-sm font-medium text-text-strong">{label}</span>
         </div>
+        {/* Section jump (spec 2026-07-22 gap-fill §3.5): the select doubles as the
+            current-group chip — its value tracks the active scenario's group. */}
+        <select
+          data-testid="attention-switcher-group-select"
+          aria-label="Jump to section"
+          className="min-h-tap-min max-w-36 shrink-0 rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
+          value={group}
+          onChange={(e) => {
+            const g = groups.find((x) => x.id === e.target.value);
+            if (g) onJumpTo(g.firstIndex);
+          }}
+        >
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {GROUP_LABELS[g.id]} ({g.count})
+            </option>
+          ))}
+        </select>
         <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle">
           tier {tier}
         </span>
