@@ -152,7 +152,7 @@ describe("shapeChangeFeed", () => {
 export type AppliedFixture = {
   snapshot: ShowReviewSnapshot;
   // archived/published/finalizeOwned/isLive/lastSyncedAt/lastCheckedAt/lastSyncStatus/
-  // title/crewEmails/pickerCrew/alertId — AND, when the roster exceeds 500, a `data`
+  // title/crewEmails/pickerCrew/alertId - AND, when the roster exceeds 500, a `data`
   // transform blanking `previewRoster` (the over-cap rule lives HERE, in the single
   // mapping, never applied separately by the caller).
   dataOverrides: Partial<GalleryModalData>;
