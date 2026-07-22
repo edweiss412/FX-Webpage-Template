@@ -439,7 +439,7 @@ The root wrapper div keeps `rootTestId`, handlers, and gains `aria-owns={bodyId}
 
 with `import { PopoverHostContext } from "@/components/admin/HoverHelp";` (client-to-client import; ReviewModalShell is `"use client"`).
 
-- [ ] **Step 5: Run** — `pnpm vitest run tests/components/admin/hoverHelpEscapeContainment.test.tsx` → ALL pass (old two + new three). Then `pnpm vitest run tests/components/admin/HoverHelp.test.tsx` — fix the `within(root)` body assertions (:140-142) to:
+- [ ] **Step 5: Run** — `pnpm vitest run tests/components/admin/hoverHelpEscapeContainment.test.tsx` → ALL pass (old two + new four). Then `pnpm vitest run tests/components/admin/HoverHelp.test.tsx` — fix the `within(root)` body assertions (:140-142) to:
 
 ```tsx
 const root = screen.getByTestId("help-affordance--x--tooltip");
@@ -669,7 +669,7 @@ describe("measure-and-apply with stubbed rects", () => {
     const trigger = screen.getByTestId("ph-trigger");
     const pane = screen.getByTestId("pane-host");
     Object.defineProperty(pane, "scrollTop", { configurable: true, value: 120 });
-    Object.defineProperty(pane, "scrollLeft", { configurable: true, value: 0 });
+    Object.defineProperty(pane, "scrollLeft", { configurable: true, value: 40 });
     Object.defineProperty(pane, "clientTop", { configurable: true, value: 0 });
     Object.defineProperty(pane, "clientLeft", { configurable: true, value: 0 });
     stubRect(pane, { left: 100, top: 100, width: 400, height: 300 });
@@ -679,6 +679,9 @@ describe("measure-and-apply with stubbed rects", () => {
     fireEvent.click(trigger);
     // vy = trigger.bottom + GAP = 176; top = 176 - 100(host top) - 0(border) + 120(scrollTop) = 196
     expect(body.style.top).toBe("196px");
+    // align right: vx = trigger.right - width = 170 - 288 = -118 -> clamped to bounds.left = 108
+    // left = 108 - 100(host left) - 0(border) + 40(scrollLeft) = 48
+    expect(body.style.left).toBe("48px");
   });
 
   test("close clears BOTH placement attributes", () => {
@@ -976,7 +979,7 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
 - `edges`: `align="right"` trigger at x≈10 and `align="left"` trigger at right edge
 - `scrolly`: page 3000px tall, trigger at y≈1500 (body-host coordinate probe under scroll)
 - `pane`: a 300px `overflow-y-auto` container hosting a card list, and the entry WRAPS this case in `<PopoverHostContext.Provider value={paneRef}>` so the pane IS the positioning host — bounds = pane∩viewport, so a trigger scrolled out of the pane leaves bounds and MUST hide (with a body host it could still overlap the viewport and legitimately stay placed). This also exercises the non-body host path inside the standalone harness (panel-arm bonus for T3g)
-- `grow`: trigger mid-page; popover content starts at 150px tall (below every cap); the page renders a `data-testid="grow-content"` button OUTSIDE the popover whose click appends a fixed 400px-tall div into the popover body content (state-driven in the entry, deterministic)
+- `grow`: trigger mid-page; popover content starts at 150px tall (below every cap); the entry exposes `window.__growPopoverContent()` which appends a fixed 400px-tall div into the popover body content via state (NO pointer interaction — a physical click outside would start the 120ms hover-close timer and race the assertion); the spec invokes it with `page.evaluate(() => window.__growPopoverContent())` and, after asserting the reposition, ALSO waits 300ms and asserts the popover is still open
 - `learnmore`: body-host learnMore instance (T8 body-host keyboard)
 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
@@ -997,7 +1000,7 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - [ ] **Step 3: Workflow** — `.github/workflows/hoverhelp-geometry-e2e.yml`, patterned on `attention-anchor-e2e.yml` (same pinned Playwright container + pnpm steps + `workflow_dispatch:`), `paths:` exactly: the spec, the entry, `components/admin/HoverHelp.tsx`, `lib/popover/position.ts`, `components/admin/review/ReviewModalShell.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, `components/admin/compactAlertHelp.tsx`, `components/admin/CompactAlertCard.tsx`, `tests/e2e/standalone.config.ts`, `app/globals.css`, and the workflow file itself. Invocation line: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts`.
 - [ ] **Step 4: `published-modal-e2e.yml` paths** += `components/admin/HoverHelp.tsx`, `lib/popover/position.ts` (spec §6 CI wiring).
-- [ ] **Step 5: Commit** — `git add tests/e2e/_hoverHelpGeometryLiveEntry.tsx tests/e2e/hoverhelp-geometry.spec.ts tests/e2e/standalone.config.ts .github/workflows/hoverhelp-geometry-e2e.yml .github/workflows/published-modal-e2e.yml && git commit --no-verify -m "test(admin): hoverhelp geometry standalone e2e suite + dedicated workflow"` (all four NEW files staged explicitly). Final ship-gate check in Task 9 runs `git status --porcelain` and REQUIRES empty output — no orphaned untracked artifacts.
+- [ ] **Step 5: Commit** — `git add tests/e2e/_hoverHelpGeometryLiveEntry.tsx tests/e2e/hoverhelp-geometry.spec.ts tests/e2e/standalone.config.ts .github/workflows/hoverhelp-geometry-e2e.yml .github/workflows/published-modal-e2e.yml && git commit --no-verify -m "test(admin): hoverhelp geometry standalone e2e suite + dedicated workflow"` (the three NEW files plus the two modified configs staged explicitly). Final ship-gate check in Task 9 runs `git status --porcelain` and REQUIRES empty output — no orphaned untracked artifacts.
 
 ---
 
