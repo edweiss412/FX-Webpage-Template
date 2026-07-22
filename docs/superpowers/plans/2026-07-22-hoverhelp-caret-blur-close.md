@@ -248,6 +248,14 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
 - [ ] **Step 1: Write the failing jsdom tests** — append to the `measure-and-apply with stubbed rects` describe in `tests/components/admin/hoverHelpLifecycle.test.tsx` (helpers `stubRect`, `stubViewport`, `mount`, `PaneHarness`, `runPendingFrames` in scope). Import additions: `import { CARET_EDGE_INSET, CARET_INNER_OFFSET, CARET_WIDTH, GAP } from "@/lib/popover/position";` (`GAP` is NOT currently imported by this file - the T-A2 expectation needs it). Shared token list, defined once above the tests:
 
 ```ts
+  /** Every stubbed-rect test that reads positions resets window scroll
+      offsets first (T-J6c sets scrollY=250; without a reset, later tests in
+      the same describe inherit it and body-host conversion shifts by 250). */
+  const resetScroll = () => {
+    Object.defineProperty(window, "scrollX", { configurable: true, value: 0 });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+  };
+
   /** Fade/stacking tokens the body and caret must SHARE (T-J6d parity). */
   const SHARED_FADE_TOKENS = [
     "transition-[opacity,display]",
@@ -406,23 +414,27 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
     expect(caret.style.top).toBe(`${caretViewportY - PANE.top + SCROLL.top}px`);
   });
 
-  test("T-J5: close resets caret attribute lifecycle", () => {
+  test("T-J5: closing FROM the suppressed state resets the caret's visibility + side attr", () => {
     stubViewport(1000, 800);
     const trigger = mount();
-    stubRect(trigger, { left: 500, top: 300, width: 20, height: 20 });
+    stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
     stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
     const body = screen.getByTestId("lc-body");
-    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    // narrow body -> caret suppressed on open (visibility explicitly "hidden")
+    stubRect(body, { left: 0, top: 0, width: 2 * CARET_EDGE_INSET - 6, height: 200 });
     fireEvent.click(trigger);
     const caret = screen.getByTestId("lc-caret");
-    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
-    fireEvent.click(trigger); // close
-    expect(caret.hasAttribute("data-popover-side")).toBe(false);
+    expect(caret.style.visibility).toBe("hidden"); // precondition: suppressed
+    fireEvent.click(trigger); // close from suppressed
+    // cleanup must RESET the inline visibility (a lingering "hidden" would
+    // survive into the next open) and strip the side attribute
     expect(caret.style.visibility).toBe("");
+    expect(caret.hasAttribute("data-popover-side")).toBe(false);
   });
 
   test("T-A2/T-A6: live side flip updates BOTH nodes atomically in one frame, open classes intact", () => {
     stubViewport(1000, 800);
+    resetScroll(); // T-J6c sets scrollY=250; this test asserts positions
     const TR = { left: 500, top: 300, width: 20, height: 20 };
     const trigger = mount();
     stubRect(trigger, TR);
@@ -1088,8 +1100,8 @@ No new tests expected: the executable coverage was authored RED in Tasks 2-3. Th
 | placed-visible → closed | T-A1 close half |
 | placed@bottom ↔ placed@top | T-A2 (live flip, one frame, both nodes) |
 | placed-visible ↔ suppressed | T-J2 (hide) + T-A3 (recovery) + T-J3 (caret-only) |
-| closed ↔ suppressed | T-J5 (cleanup resets visibility + side attr on close) |
-| position updates same side | T-E5 (real scroll reflow) + existing u5 coalescing |
+| closed ↔ suppressed | T-J3 (enter suppressed) + T-J5 (close FROM suppressed resets visibility + side attr) |
+| position updates same side | T-E5 (real scroll reflow on the scrolly fixture, style-stability + live-rect asserts) + existing u5 coalescing |
 | side flip mid-fade | T-A2 asserts open classes intact through the flip |
 | suppression mid-fade | T-J2 (visibility wins while open classes present) |
 | pending-frame atomicity | T-A2/T-A6 (single `runPendingFrames()` updates both nodes consistently) |
