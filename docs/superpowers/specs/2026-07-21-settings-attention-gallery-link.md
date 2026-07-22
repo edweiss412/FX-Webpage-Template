@@ -107,6 +107,25 @@ with the row's existing wrap behavior.
    structurally covers the new link (empty DOM ⇒ no gallery link) — plus one
    explicit `queryByTestId("admin-dev-tools-gallery") === null` assertion in
    the `isDeveloper={false}` case so the gate claim is pinned by name.
+
+   Additionally (R1 findings), the true-case test pins the styling and order
+   contracts:
+
+   - **Styling parity (R1 F1):** assert
+     `gallery.getAttribute("class") === open.getAttribute("class")` — parity,
+     not a hardcoded string, so a future shared restyle stays green while a
+     one-link drift fails. Separately assert the shared class string contains
+     `min-h-tap-min` (tap-target claim) and `focus-visible:ring-2`
+     (focus-ring claim), so parity cannot be satisfied by both links losing
+     the classes together. Assert the links' common parent element has
+     `flex-wrap` in its class list (narrow-viewport wrap claim). jsdom is
+     sufficient: these are class-attribute assertions, not computed-layout
+     assertions, and §3 declares no dimensional invariants.
+   - **DOM order (R1 F2):** assert
+     `open.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING`
+     is truthy — "Open" precedes "Attention gallery" in document order.
+     Failure mode caught: reversed order violating the primary/auxiliary
+     ordering in §3.
 2. **`DevToolsRow.absent.test.tsx` unchanged** — `toBeEmptyDOMElement()`
    already proves the new link cannot render in a normal build.
 3. **Extend `tests/e2e/admin-dev.spec.ts`**: in the dev-build settings test,
