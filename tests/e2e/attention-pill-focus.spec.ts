@@ -126,22 +126,23 @@ async function boot(page: Page, a: number, n: number, s: number) {
   else await page.locator(PILL).focus();
 }
 
-// ENTRY: every interactive [actionable, needsLook] shape.
-// EXIT: every non-interactive target — B monitoring-only, C degraded, D in-sync.
+// ENTRY: every interactive shape incl. monitoring-only [0,0] (selfHeal boot).
+// EXIT: every non-interactive target — C degraded, D in-sync (B left the exit
+// set: monitoring-only is interactive now — monitoring-badge-expand §3.3).
 const ENTRY: Array<[number, number]> = [
   [1, 0],
   [0, 1],
   [1, 1],
+  [0, 0],
 ];
 const EXIT = [
-  { label: "B", selfHeal: 1, degraded: false },
   { label: "C", selfHeal: 0, degraded: true },
   { label: "D", selfHeal: 0, degraded: false },
 ] as const;
 const cells = ENTRY.flatMap(([a, n]) => EXIT.map((x) => ({ a, n, x })));
 
-test("exactly 9 transition cells (a shrunk product fails)", () => {
-  expect(cells.length).toBe(9);
+test("exactly 8 transition cells (a shrunk product fails)", () => {
+  expect(cells.length).toBe(8);
 });
 
 for (const { a, n, x } of cells) {
@@ -191,3 +192,200 @@ test("§11.9 nav: sheet link exact href + target, click closes the menu", async 
     await (popup as { close: () => Promise<void> }).close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// monitoring-badge-expand §3.3/§3.4/§5 items 6-7: stays-open probes (the
+// AUTHORITATIVE ratification — jsdom removal-focus semantics differ), node
+// identity across palette flips, and computed-style treatment ground truth.
+// ---------------------------------------------------------------------------
+
+const SEGMENT = '[data-testid="attention-pill-monitoring-segment"]';
+const MON_GROUP = '[data-testid="attention-monitoring-group"]';
+
+async function setItems(page: Page, a: number, n: number, s: number, d = false) {
+  await page.evaluate(
+    ([aa, nn, ss, dd]) =>
+      (
+        window as unknown as {
+          __setItems: (a: number, n: number, s: number, d: boolean) => void;
+        }
+      ).__setItems(aa as number, nn as number, ss as number, dd as boolean),
+    [a, n, s, d],
+  );
+}
+
+async function settledFocusIsPill(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.activeElement?.getAttribute?.("data-testid") ===
+          "published-show-review-alert-pill",
+      ),
+    )
+    .toBe(true);
+  const onBody = await page.evaluate(() => document.activeElement === document.body);
+  expect(onBody, "settled focus must not be <body>").toBe(false);
+}
+
+test("rescue probe (a): focused actionable row removed → menu open, aria-expanded, settled focus = pill", async ({
+  page,
+}) => {
+  await boot(page, 1, 0, 1);
+  await page.locator(`${MENU} [data-testid^="attention-menu-row-"]`).first().focus();
+  await setItems(page, 0, 0, 1);
+  await expect(page.locator(MENU)).toBeVisible();
+  await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
+  await settledFocusIsPill(page);
+});
+
+test("rescue probe (b): focused needs-look LINK removed → menu open, aria-expanded, settled focus = pill", async ({
+  page,
+}) => {
+  await boot(page, 0, 1, 1);
+  await page.locator(`${MENU} a`).first().focus();
+  await setItems(page, 0, 0, 1);
+  await expect(page.locator(MENU)).toBeVisible();
+  await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
+  await settledFocusIsPill(page);
+});
+
+test("insertion cell (c): (1,0,0)→(0,0,1) stays open, monitoring rows inserted, quiet root, same node", async ({
+  page,
+}) => {
+  await boot(page, 1, 0, 0);
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+    if (el instanceof HTMLElement) el.dataset.pin = "1";
+  });
+  await setItems(page, 0, 0, 1);
+  await expect(page.locator(MENU)).toBeVisible();
+  await expect(page.locator(`${MENU} [data-testid^="attention-monitoring-row-"]`)).toHaveCount(1);
+  await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
+  await settledFocusIsPill(page);
+  // the root cross-fade (transition-colors duration-fast) needs a beat to
+  // settle — poll the computed color to its target token (§3.4 contract:
+  // animated, not instant, so an immediate sample sees the interpolation)
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+        const probe = document.createElement("span");
+        probe.className = "bg-surface-sunken";
+        document.body.appendChild(probe);
+        const want = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return el ? getComputedStyle(el).backgroundColor === want : false;
+      }),
+    )
+    .toBe(true);
+  const pinSurvived = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+    return el instanceof HTMLElement && el.dataset.pin === "1" && el.isConnected;
+  });
+  expect(pinSurvived, "same pill node must survive the flip").toBe(true);
+});
+
+test("reverse cell (d): (0,0,1)→(1,0,0) stays open, group swap, amber root, same node", async ({
+  page,
+}) => {
+  await boot(page, 0, 0, 1);
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+    if (el instanceof HTMLElement) el.dataset.pin = "1";
+  });
+  await setItems(page, 1, 0, 0);
+  await expect(page.locator(MENU)).toBeVisible();
+  await expect(page.locator(`${MENU} [data-testid^="attention-monitoring-row-"]`)).toHaveCount(0);
+  await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(1);
+  await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
+  await settledFocusIsPill(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+        const probe = document.createElement("span");
+        probe.className = "bg-warning-bg";
+        document.body.appendChild(probe);
+        const want = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return el ? getComputedStyle(el).backgroundColor === want : false;
+      }),
+    )
+    .toBe(true);
+  const pinSurvived = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="published-show-review-alert-pill"]');
+    return el instanceof HTMLElement && el.dataset.pin === "1" && el.isConnected;
+  });
+  expect(pinSurvived, "same pill node must survive the flip").toBe(true);
+});
+
+// Computed-style treatment probe (§3.4 ground truth), both palette states.
+for (const [a, n, s0, label] of [
+  [1, 0, 1, "composite/amber"],
+  [0, 0, 1, "monitoring-only/quiet"],
+] as const) {
+  test(`treatment probe (${label}): root cross-fades; segment/dots/middots/group/rows instant; chevron transform-only`, async ({
+    page,
+  }) => {
+    await boot(page, a, n, s0);
+    const report = await page.evaluate(() => {
+      const pill = document.querySelector('[data-testid="published-show-review-alert-pill"]')!;
+      const instant = (el: Element) => {
+        const cs = getComputedStyle(el);
+        const noTransition =
+          cs.transitionProperty === "none" ||
+          cs.transitionDuration.split(",").every((d) => parseFloat(d) === 0);
+        return { noTransition, animationName: cs.animationName };
+      };
+      const rootCs = getComputedStyle(pill);
+      const rootProps = rootCs.transitionProperty;
+      const rootDur = parseFloat(rootCs.transitionDuration.split(",")[0] ?? "0");
+      const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
+      const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter(
+        (el) => el !== pill,
+      );
+      const middots = [...pill.querySelectorAll("span")].filter(
+        (el) => (el.textContent ?? "").trim() === "\u00b7",
+      );
+      const group = document.querySelector('[data-testid="attention-monitoring-group"]');
+      const rows = [...document.querySelectorAll('[data-testid^="attention-monitoring-row-"]')];
+      const chev = pill.querySelector("svg");
+      const chevCs = chev ? getComputedStyle(chev) : null;
+      const groupAnimations = [group, ...rows]
+        .filter((el): el is Element => !!el)
+        .flatMap((el) => (el as HTMLElement).getAnimations?.() ?? []).length;
+      return {
+        rootProps,
+        rootDur,
+        instantTargets: [seg, ...dots, ...middots, group, ...rows]
+          .filter((el): el is Element => !!el)
+          .map((el) => instant(el)),
+        chevProps: chevCs?.transitionProperty ?? "",
+        chevDur: parseFloat(chevCs?.transitionDuration.split(",")[0] ?? "0"),
+        groupAnimations,
+        segPresent: !!seg,
+        groupPresent: !!group,
+        rowCount: rows.length,
+      };
+    });
+    expect(report.segPresent).toBe(true);
+    expect(report.groupPresent).toBe(true);
+    expect(report.rowCount).toBeGreaterThan(0);
+    // root: color cross-fade with real duration
+    expect(report.rootProps === "all" || /background-color/.test(report.rootProps)).toBe(true);
+    expect(/color/.test(report.rootProps) || report.rootProps === "all").toBe(true);
+    expect(report.rootDur).toBeGreaterThan(0);
+    // instant targets: no transition, no animation
+    for (const t of report.instantTargets) {
+      expect(t.noTransition, JSON.stringify(t)).toBe(true);
+      expect(t.animationName).toBe("none");
+    }
+    // chevron: transform present, no color-related property with duration > 0
+    expect(/transform/.test(report.chevProps), report.chevProps).toBe(true);
+    if (report.chevDur > 0) {
+      expect(/color/.test(report.chevProps)).toBe(false);
+    }
+    expect(report.groupAnimations).toBe(0);
+  });
+}
