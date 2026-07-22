@@ -170,15 +170,18 @@ describe("INFO_CODE_ACTIONABILITY registry (spec §3.4)", () => {
     // shorthand -> unanalyzable
     r = probe(`const severity = "info" as const; const w = { severity, code: "Z" };`);
     expect(r.violations).toHaveLength(1);
-    // string-literal key -> analyzed like identifier key
+    // string-literal key -> analyzed like identifier key, no violation
     r = probe(`const w = { "severity": "info", code: "Q" };`);
     expect([...r.infoCodes]).toEqual(["Q"]);
-    // computed string key -> analyzed like identifier key
+    expect(r.violations).toEqual([]);
+    // computed string key -> analyzed like identifier key, no violation
     r = probe(`const w = { ["severity"]: "info", ["code"]: "R" };`);
     expect([...r.infoCodes]).toEqual(["R"]);
-    // string-literal code key -> attributable
+    expect(r.violations).toEqual([]);
+    // string-literal code key -> attributable, no violation
     r = probe(`const w = { severity: "info", "code": "S" };`);
     expect([...r.infoCodes]).toEqual(["S"]);
+    expect(r.violations).toEqual([]);
     // method / getter / setter named severity -> unanalyzable
     r = probe(`const w = { severity() { return "info"; }, code: "Z" };`);
     expect(r.violations).toHaveLength(1);
@@ -1140,10 +1143,12 @@ describe("pointer sentence render (spec §8.6)", () => {
 
 NOTE for implementer: the pure `pointerSentenceParts` tests are exact as written. For the render tests, extend the shared helper `tests/helpers/publishedSurfaceProps.tsx` (add `elsewhereSections`/`elsewhereTotalSections` options; the file is therefore in this task's staging list) (elsewhere rows land in named sections); author `renderWarningsBreakdownWithChrome(chromeExtras)` in this suite following the direct-Provider pattern of `tests/components/admin/review/routedWarningsGate.test.tsx` (Provider value + the warnings section subtree in the elsewhere state). Full-string assertions must not be weakened to `toContain`.
 
-- [ ] **Step 2: Run to verify failure**
+- [ ] **Step 2: Run to verify failure (jsdom AND browser red phase)**
 
 Run: `pnpm vitest run tests/components/admin/wizard/pointerSentence.test.tsx`
 Expected red phase: module-load failure first (`pointerSentenceParts` / `POINTER_NAME_CAP` not yet exported) — that IS the failing state for the pure tests; after Step 3(b) exports land mid-implementation, the render cases fail on the static sentence until (c)/(d) complete.
+
+Also author `tests/e2e/warning-panel-polish.spec.ts` NOW (full content in Task 8 — Task 8 only re-runs and repairs) and run it: `pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts`. Expected red phase: both tests FAIL — no pointer buttons exist yet. This is the browser-layout failing test that Task 8 turns green, so the 44x44/scroll behavior is test-first across the task pair.
 
 - [ ] **Step 3: Implement**
 
@@ -1288,11 +1293,11 @@ git commit --no-verify -m "feat(admin): pointer sentence names elsewhere section
 **Interfaces:**
 - Consumes: `data-testid` contracts from Tasks 4-7; harness constants from `tests/e2e/published-show-attention.spec.ts` (`BASE`, modal selectors `:26-28`, scroller `[data-testid="wizard-step3-card-${dfid}-review-content"]` at `:170-172`, its boot/seed/hydration helpers).
 
-This task is deliberately a VERIFICATION task, not TDD: Tasks 4-7 already committed the implementation with jsdom-level TDD; this spec proves the real-layout claims jsdom cannot (spec §8.6 scroll, §8.8 geometry). Its failure mode is explicit: any red assertion here means a source repair in this task.
+TDD pairing: the spec FILE was authored and run RED in Task 7 Step 2 (before the implementation existed); this task runs it expecting GREEN and owns the repair loop if it is not. The failing-test -> implementation -> passing-test sequence for the browser-layout behavior therefore spans Task 7 Step 2 (red) -> Task 7 Step 3 (implement) -> here (green).
 
-- [ ] **Step 1: Write the spec**
+- [ ] **Step 1: Confirm the spec authored in Task 7 Step 2 matches the content below** (author here only if Task 7 skipped it)
 
-Copy the boot/seed/fixture prologue of `tests/e2e/published-show-attention.spec.ts` verbatim (same server boot, same seeded published show, same hydration gate — never `networkidle` alone), seeding warn rows routed to at least TWO sections (Crew + Rooms) with the panel in the elsewhere state (no listed info rows, no here-bucket rows). Then:
+Copy the boot/seed/fixture prologue of `tests/e2e/published-show-attention.spec.ts` verbatim (same server boot, same seeded published show, same hydration gate — never `networkidle` alone), seeding warn rows routed to THREE sections (Crew + Rooms + Contacts — the pointer cap, the worst wrapping case) with the panel in the elsewhere state (no listed info rows, no here-bucket rows). The geometry test runs at an explicit mobile viewport (`await page.setViewportSize({ width: 390, height: 844 })`) so the three inline buttons wrap — wrapping is what makes 2D overlay intersection possible. Then:
 
 ```ts
 const SCROLLER = `[data-testid="wizard-step3-card-${dfid}-review-content"]`;
@@ -1321,7 +1326,7 @@ test("pointer buttons: 44x44 effective hit area, adjacent overlays disjoint", as
   // ...boot into the 2-section elsewhere state...
   const buttons = page.locator(`${SENTENCE} button`);
   const n = await buttons.count();
-  expect(n).toBeGreaterThanOrEqual(2); // disjointness must not pass vacuously
+  expect(n).toBe(3); // the seeded cap-count; disjointness must not pass vacuously
   type R = { left: number; right: number; top: number; bottom: number; cx: number; cy: number };
   const rects: R[] = [];
   for (let i = 0; i < n; i++) {
@@ -1406,6 +1411,6 @@ git commit --no-verify -m "docs(handoff): graduate seven resolved DEFERRED items
 - [ ] Full local gates: `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` (fix everything; vitest exit code 1 with all tests passing means an uncaught error — check the "Errors" summary line).
 - [ ] Impeccable dual-gate on the diff (invariant 8): `/impeccable critique` + `/impeccable audit` with canonical v3 setup (context.mjs load → register read). Each fix the gate forces is its own commit (test-first where behavioral); P0/P1 fixed or DEFERRED.md-entried. Then write findings + dispositions into handoff §12 and COMMIT the handoff + any DEFERRED.md edits (`docs(handoff): impeccable dispositions`). Re-run the affected vitest suites after any fix commit.
 - [ ] Whole-diff cross-model review to APPROVE — split tight-scope briefs (per-surface file lists), REVIEWER ONLY inlined, verdict marker; inlined-artifact fallback on tool death. Repairs are commits with re-run gates; re-dispatch review after repairs until APPROVE.
-- [ ] After ALL repair commits (impeccable fixes, §12/DEFERRED edits, cross-model repairs): re-run the FULL local gates (`pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`) unconditionally — the pushed tree must be the gated tree, whether or not a rebase happened. Then re-fetch origin/main; if behind, rebase and re-run the full gates again on the rebased tree. Push, PR, real CI green.
+- [ ] After ALL repair commits (impeccable fixes, §12/DEFERRED edits, cross-model repairs): re-run the FULL local gates (`pnpm test && pnpm typecheck && pnpm lint && pnpm format:check`) PLUS `pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts` (e2e is excluded from `pnpm test`, and it is the only proof of scroll/geometry on the final tree) — unconditionally, whether or not a rebase happened. Then re-fetch origin/main; if behind, rebase and re-run the full gates AND the e2e spec again on the rebased tree. Push, PR, real CI green.
 - [ ] Confirm both: `gh pr checks <PR#>` all green AND `gh pr view <PR#> --json mergeStateStatus` reports `CLEAN` (checks alone do not establish merge state).
 - [ ] `gh pr merge --merge` in the same turn as CI-green; fast-forward local main; verify `git rev-list --left-right --count main...origin/main` == `0 0`; CronDelete the nudge; ship-state → done.
