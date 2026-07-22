@@ -11,7 +11,7 @@ The dev attention-gallery switcher (`/admin/dev/attention-gallery`) must demonst
 In scope:
 
 1. **Change-log feed states** — Applied / Rejected / Undone / Superseded badges, Undo button, Accept + "Accept all (N)", "Accepted" tag, rename/removal hold dispositions, `feed === null` infra-error notice.
-2. **Lifecycle variants** — archived, unpublished, finalize-owned, live-now, non-`ok` sync buckets, never-synced, title→slug fallback, missing sheet link, "Dates not detected", missing client label.
+2. **Lifecycle variants** — archived, unpublished, finalize-owned, live-now, non-`ok` sync buckets, never-synced, title→slug fallback, "Dates not detected", missing client label. (The missing-sheet-link header state was cut in R7 as production-unreachable: `shows.drive_file_id` is NOT NULL + nonblank-constrained, so `buildSheetDeepLink` always yields a URL.)
 3. **Empty-section states** — "No crew parsed." / "No venue details parsed." / "No hotels parsed." / "No transportation parsed." / "No rooms parsed." / "No billing details parsed." / "No run-of-show parsed." / agenda section absent / contacts empty.
 4. **Caps and overflow** — "+N more people/rooms/hotels", "+N more" failed keys, schedule "Show all M times" + "…and N more days" + strike/loadout rows, >2 crew under-row stack disclosure, diagram thumbnail grid + "+N more" images, pack-list case/item overflow, agenda schedule-block overflow notes, warning-pointer overflow. (The 99+ pill cap was found production-unreachable during review R2 and is out of scope — §1.1.)
 5. **Ignored warnings** — "Ignored (N)" disclosure, Un-ignore control, muted cards.
@@ -85,9 +85,12 @@ export type ScenarioFixture = {
   isLive?: boolean; // default false. Requires published not false, archived not true, and datesAbsent not true; the applied output ALSO reshapes snapshot dates to span GALLERY_NOW (2026-07-01: travelIn 2026-06-30, showDays ["2026-07-01"], travelOut 2026-07-02) so the badge is date-consistent with production's published && isShowLiveOnDate derivation (app/admin/_showReviewModal.tsx:384); contradictions are validation errors
   lastSyncStatus?: string | null; // default "ok"; e.g. "drive_error", "shrink_held"
   neverSynced?: boolean;       // true → lastSyncedAt/lastCheckedAt null
-  checkedAbsent?: boolean;     // true → lastCheckedAt null while lastSyncedAt is kept - the sync-age badge falls back to lastSyncedAt (components/admin/showpage/StatusStrip.tsx:124-135); contradicts neverSynced (validation error)
+  checkedAbsent?: boolean; // true → lastCheckedAt null while lastSyncedAt is kept - the sync-age badge falls back to lastSyncedAt (components/admin/showpage/StatusStrip.tsx:124-135). Shadow guards (§4): contradicts neverSynced, and contradicts any explicit lastSyncStatus other than "ok" (lastCheckedAt is consulted only on the ok bucket)
   titleAbsent?: boolean; // true → modal-level title override is NULL (production converts empty adapter title to null, app/admin/_showReviewModal.tsx:288), so header (title || slug) AND StatusStrip/ShareHub (title ?? slug) both fall back to slug; snapshot show.title is "" (the adapter's storable empty), which is exactly what production's loader nullifies
-  sheetLinkAbsent?: boolean;   // true → openSheetHref null; snapshot drive_file_id KEPT (per-section "In sheet" links are a separate surface, not this knob's target)
+  // (sheetLinkAbsent was cut in review R7: shows.drive_file_id is NOT NULL and
+  // constrained nonblank, and buildSheetDeepLink returns a URL for every nonblank
+  // id - so a null openSheetHref is production-unreachable defensive headroom,
+  // same class as the 99+ pill.)
   datesAbsent?: boolean;       // true → snapshot dates all null → "Dates not detected" + empty run-of-show
   clientAbsent?: boolean;      // true → client_label null
   // Share-link surface: activates the crew link + email actions inside ShareHub.
@@ -160,7 +163,7 @@ Consistency is owned by ONE mapping function (`applyFixture`, unit-tested) so th
 | `isLive` | `published && isShowLiveOnDate(dates, todayIso)` (`app/admin/_showReviewModal.tsx:381-384`) | knob reshapes dates around GALLERY_NOW; validation forbids contradictions (§4) |
 | `title` | `publishedData.title \|\| null` (`app/admin/_showReviewModal.tsx:288`) | `titleAbsent` → null (§3.2) |
 | `finalizeOwned` | `!archived && finalizeOwnedRead` (`app/admin/_showReviewModal.tsx:299-300`) | archived forces false (§4 guard) |
-| `openSheetHref` | `buildSheetDeepLink(driveFileId)` | `sheetLinkAbsent` → null; drive_file_id kept |
+| `openSheetHref` | `buildSheetDeepLink(driveFileId)` | always derived from the fixture drive_file_id — the null branch is production-unreachable (NOT NULL + nonblank constraint) and is NOT modeled |
 | `archived` / `published` | snapshot `show.archived` / `show.published` | mirrored into both halves by `applyFixture` |
 | `lastSyncedAt` / `lastCheckedAt` / `lastSyncStatus` | `shows` columns | knobs (`neverSynced`, `checkedAbsent`, `lastSyncStatus`) set the trio consistently |
 | `feed` | `readShowChangeFeed` result or null on infra fault | §3.1 (real shaper; `feedNull` → null override) |
@@ -194,7 +197,7 @@ The 99+ pill cap is DESCOPED: `validateScenario` rejects duplicate alert codes b
 
 | id | Demonstrates | Key fields |
 | --- | --- | --- |
-| `t2-changelog-history` | all 5 badges, Undo, Accept, "Accept all (3)", "Accepted" tag, the acceptable+undoable co-render, and the undone+"Accepted" composition, + 1 pending hold gate | `changeLog`, exactly 9 rows: (1) applied crew_renamed undoable, source mi11_approve, not acceptable → Undo only; (2)+(3) applied field_changed auto_apply ack-null → 2 Accept buttons; (4) applied crew_added auto_apply ack-null undoable → Accept AND Undo co-rendered (production permits acceptable∧undoable, `components/admin/ChangeFeedEntry.tsx:129-141`) — with (2)+(3) this makes "Accept all (3)"; (5) applied field_changed auto_apply acknowledged → "Accepted" tag; (6) rejected; (7) undone (never acknowledged); (8) undone crew_renamed WITH `acknowledged_at` set → "Undone" badge + "Accepted" tag together (`components/admin/ChangeFeedEntry.tsx:113-125`); (9) superseded. Plus `holds`: 1 email_change → pending gate row. Feed total: 10 entries. `landing: "changes"` |
+| `t2-changelog-history` | all 5 badges, Undo, Accept, "Accept all (3)", "Accepted" tag, the acceptable+undoable co-render, and the undone+"Accepted" composition, + 1 pending hold gate | `changeLog`, exactly 9 rows: (1) applied crew_renamed undoable, source mi11_approve, not acceptable → Undo only; (2)+(3) applied field_changed auto_apply ack-null → 2 Accept buttons; (4) applied crew_added auto_apply ack-null undoable → Accept AND Undo co-rendered (production permits acceptable∧undoable, `components/admin/ChangeFeedEntry.tsx:129-141`) — with (2)+(3) this makes "Accept all (3)"; (5) applied field_changed auto_apply acknowledged → "Accepted" tag; (6) rejected; (7) undone (never acknowledged); (8) undone crew_renamed WITH `acknowledged_at` set → "Undone" badge + "Accepted" tag together (`components/admin/ChangeFeedEntry.tsx:113-125`); (9) superseded (never acknowledged); (10) applied crew_email_changed, source mi11_approve — the PLAIN Applied rendering: not acceptable (source ≠ auto_apply), not undoable (not a crew-domain kind) → badge only, no action, no tag; (11) superseded WITH `acknowledged_at` set → "Superseded" badge + "Accepted" tag together (acknowledgement survives supersession; the renderer shows Accepted for any non-null acknowledgement regardless of status, `components/admin/ChangeFeedEntry.tsx:113-125`). Plus `holds`: 1 email_change → pending gate row. Feed total: 12 entries. `landing: "changes"` |
 | `t2-hold-dispositions` | all statically distinct hold renderings: email_change, plain rename (proposed email equals held), folded rename (proposed email differs — the distinct folded summary, `lib/sync/feed/shapeHoldEntry.ts:53-77`), removal | `holds`: 4 (email_change, rename-plain, rename-folded, removal) |
 | `t2-feed-infra-error` | `change-feed-infra-error` notice | `feedNull: true`; `landing: "changes"` |
 | `t2-archived` | archived badge, read-only strip (publish toggle AND Re-sync both absent — `components/admin/showpage/StatusStrip.tsx:186` renders the badge INSTEAD of the toggle, and the Re-sync trigger is `!archived`-gated near `StatusStrip.tsx:297`), "Show actions" + Unarchive in the hub | `fixture: { archived: true, published: false }`; `landing: "overview"` |
@@ -215,7 +218,7 @@ The 99+ pill cap is DESCOPED: `validateScenario` rejects duplicate alert codes b
 | `t2-sync-unknown` | defensive warn bucket "Unknown sync state" (`lib/admin/syncStatus.ts:42-44`) | `fixture: { lastSyncStatus: "mystery_future_status" }`; `landing: "overview"` |
 | `t2-never-synced` | sync element entirely ABSENT (`lastSyncedAt` null suppresses it before any bucket runs) | `fixture: { neverSynced: true }`; `landing: "overview"` |
 | `t2-sync-no-check` | "Synced {rel}" time falling back to `lastSyncedAt` when `lastCheckedAt` is null | `fixture: { checkedAbsent: true }`; `landing: "overview"` |
-| `t2-minimal-header` | slug-fallback title, no sheet link, "Dates not detected", no client | `fixture: { titleAbsent, sheetLinkAbsent, datesAbsent, clientAbsent }`; `landing: "overview"` |
+| `t2-minimal-header` | slug-fallback title, "Dates not detected", no client subline | `fixture: { titleAbsent, datesAbsent, clientAbsent }`; `landing: "overview"` |
 | `t2-nothing-parsed` | every "No X parsed." empty state at once | `fixture: { empty: [all 8], datesAbsent: true }`; `landing: "mixed"` |
 | `t2-overflow-volumes` | "+N more" people/rooms/hotels + schedule overflow | `fixture: { volumes: { crew: 31, rooms: 21, hotels: 13, schedule: "overflow" } }`; `landing: "mixed"` |
 | `t2-solo-hotel` | flat-solo hotel card | `fixture: { volumes: { hotels: 1 } }`; `landing: "mixed"` |
@@ -256,7 +259,8 @@ Materialize (`lib/dev/materialize/`) is untouched. All new fields are tier-2-onl
 | `archived: true` + `finalizeOwned: true` | Validation error (loader forces finalize ownership false when archived, app/admin/_showReviewModal.tsx:300) |
 | `isLive: true` + (`published: false` or `archived: true` or `datesAbsent: true`) | Validation error (live derives from published && date-window; absent dates cannot be live) |
 | `datesAbsent: true` + `volumes.schedule` | Validation error (ros-only days render regardless of dates, contradicting the empty-run-of-show intent) |
-| `neverSynced: true` + non-null explicit `lastSyncStatus` | Validation error (a null timestamp suppresses the sync element before the status is read — the combination demonstrates nothing) |
+| `neverSynced: true` + ANY explicit `lastSyncStatus` (null included) or `checkedAbsent: true` | Validation error (a null `lastSyncedAt` suppresses the sync element before status or check-stamp is read — every such combination is a shadowed no-op) |
+| `checkedAbsent: true` + explicit `lastSyncStatus` other than `"ok"` (null, non-ok buckets, unknown strings) | Validation error (`lastCheckedAt` is consulted only for the ok bucket, `components/admin/showpage/StatusStrip.tsx:124-135`) |
 | `empty` contains `"agenda"` + `volumes.agenda` | Validation error (contradictory) |
 | `share.linkActive` + (`published: false` or `archived: true`) | Validation error (`linkActive` requires published && !archived, `components/admin/showpage/ShareHub.tsx:215`) |
 | `share.crewEmails` negative, non-integer, or > 500 | Validation error (production suppresses crew emails past the 500-row roster cap, `app/admin/show/[slug]/crewLinkMailto.ts:16`; 0 is legal — the zero-email active-link state) |
@@ -280,12 +284,12 @@ Unit (Vitest):
 - `applyFixture` mapping: lifecycle knob consistency (snapshot vs modal-data halves agree), empty/volume shaping, deterministic generated rows.
 - `buildScenarioFeed`: unchanged by `feedNull` (the guard forbids entries beside it, so it returns the absent-`null`); the `feed: null` INFRA override happens in `buildScenarioModalData` (§3.1) and is tested there — `feedNull` scenario data yields modal `feed === null` while a no-feed scenario yields the base empty feed. changeLog+holds merged newest-first; absent-all → null (existing behavior pinned).
 - `scenarioGroup` landing fallback: fixture-only scenario + landing → landing; landing + real sections → real group.
-- Roster pins: each new scenario id present, validates clean, and drives its target branch (e.g. `t2-changelog-history` derives exactly 1 attention item — the hold — while its feed carries 10 entries).
+- Roster pins: each new scenario id present, validates clean, and drives its target branch (e.g. `t2-changelog-history` derives exactly 1 attention item — the hold — while its feed carries 12 entries).
 - Fixture enrichment: adapter output flips each enriched branch (dress code renders, transport route legs render, room floor pill renders).
 
 e2e (Playwright, existing `tests/e2e/attention-modal-gallery.spec.ts` dev-build project):
 
-- `t2-changelog-history` deep link: 10 feed entries; all four non-pending badges visible; "Accept all (3)" + three per-row Accept buttons; two Undo buttons (rows 1 and 4 of the §3.6 matrix, the second co-rendered with Accept); two "Accepted" tags (acknowledged row + undone-acknowledged row); one pending gate row.
+- `t2-changelog-history` deep link: 12 feed entries; all four non-pending badges visible; "Accept all (3)" + three per-row Accept buttons; two Undo buttons (rows 1 and 4 of the §3.6 matrix, the second co-rendered with Accept); three "Accepted" tags (acknowledged, undone-acknowledged, superseded-acknowledged rows); one action-less plain Applied row; one pending gate row.
 - `t2-archived`: archived badge visible, publish toggle absent.
 - `t2-nothing-parsed`: "No crew parsed." and "No rooms parsed." visible.
 - `t2-overflow-volumes`: "+1 more people" note visible.
@@ -296,7 +300,7 @@ This feature touches `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts`
 
 ## 6. Numeric sweep anchors
 
-Caps cited once in §2 (`CREW_CAP` 30 / `ROOMS_CAP` 20 / `HOTELS_CAP` 12 / `SCHEDULE_DAYS_CAP` 14 / `SCHEDULE_ENTRIES_CAP` 6) plus `PACK_LIST_CASES_CAP` 12 / `PACK_LIST_ITEMS_CAP` 8 / `POINTER_NAME_CAP` 3 (`components/admin/wizard/step3ReviewSections.tsx:152-163` and `components/admin/wizard/step3ReviewSections.tsx:708`). Roster volumes (crew 31 / rooms 21 / hotels 13 / schedule 15×8 agenda + 1 synthetic day / 13 diagram images / 13×9 pack list) each exceed their cap by construction. 31 new scenarios in §3.6 (3 changes-class, 8 lifecycle, 10 sync-posture, 1 minimal-header, 1 nothing-parsed, 5 volume/overflow, 1 diagram, 1 attention-extras, 1 ignored-warnings). 8 `empty` keys. 5 change-log statuses; `change_kind` open-ended (no finite cardinality — DB and reader both type it as string); 4 sources; 9 `t2-changelog-history` log rows + 1 hold = 10 feed entries.
+Caps cited once in §2 (`CREW_CAP` 30 / `ROOMS_CAP` 20 / `HOTELS_CAP` 12 / `SCHEDULE_DAYS_CAP` 14 / `SCHEDULE_ENTRIES_CAP` 6) plus `PACK_LIST_CASES_CAP` 12 / `PACK_LIST_ITEMS_CAP` 8 / `POINTER_NAME_CAP` 3 (`components/admin/wizard/step3ReviewSections.tsx:152-163` and `components/admin/wizard/step3ReviewSections.tsx:708`). Roster volumes (crew 31 / rooms 21 / hotels 13 / schedule 15×8 agenda + 1 synthetic day / 13 diagram images / 13×9 pack list) each exceed their cap by construction. 31 new scenarios in §3.6 (3 changes-class, 8 lifecycle, 10 sync-posture, 1 minimal-header, 1 nothing-parsed, 5 volume/overflow, 1 diagram, 1 attention-extras, 1 ignored-warnings). 8 `empty` keys. 5 change-log statuses; `change_kind` open-ended (no finite cardinality — DB and reader both type it as string); 4 sources; 11 `t2-changelog-history` log rows + 1 hold = 12 feed entries.
 
 ## 6.1 Dimensional Invariants
 
@@ -313,6 +317,8 @@ None. No new visual states or animations are introduced; every state this featur
 - Not applicable: Supabase call-boundary registry (no new Supabase calls — `shapeChangeFeed` is pure; `readShowChangeFeed`'s calls are unchanged and already registered), advisory locks (no mutation paths), mutation-surface observability (no new mutation surfaces), §12.4 catalog (no new codes).
 
 ## 8. Review record
+
+**R7 (Codex via codex-guard, 2026-07-22): BLOCKING, 3 findings — all repaired.** F1: `sheetLinkAbsent` CUT — `shows.drive_file_id` is NOT NULL + nonblank-constrained and `buildSheetDeepLink` always yields a URL, so the null-`openSheetHref` branch is production-unreachable headroom (99+-pill class); parity table updated. F2: changelog matrix grew to 11 rows / 12 entries, adding the plain-Applied rendering (mi11_approve crew_email_changed: badge only) and Superseded+"Accepted" (acknowledgement survives supersession). F3: sync-knob shadow guards closed — neverSynced rejects any explicit lastSyncStatus (incl. null) and checkedAbsent; checkedAbsent rejects any explicit non-"ok" status.
 
 **R6 (Codex via codex-guard, 2026-07-22): BLOCKING, 7 findings — all repaired; reviewer confirmed the `shapeChangeFeed` extraction preserves production semantics.** Recurring vector (fixture↔production derivation parity, R3-R6) closed structurally: §3.2 gained a full derivation-parity table + a table-walking unit test. F1: `t2-share-link` is now a genuine zero-crew published show (`empty:["crew"]` + `crewEmails: 0` legal; only `crewEmails >= 1` beside empty crew errors). F2: `pickerCrew` derives from the snapshot roster (base fixture's hardcoded `[]` was a parity bug — enabled-idle reset state now renders for crew-bearing scenarios). F3: `share.crewEmails >= 1` + roster > 500 rejected (production blanks emails on TOTAL row count). F4: `buildScenarioFeed` contract unified — `feedNull` handled only in `buildScenarioModalData`. F5: `scenarioGroup` gains the rendered-section fallback (agenda-routed warning + `empty:["agenda"]` groups under `warnings`). F6: volumes equal to base counts rejected as no-ops. F7: `checkedAbsent` knob + `t2-sync-no-check` cover the `lastCheckedAt`-null fallback.
 
