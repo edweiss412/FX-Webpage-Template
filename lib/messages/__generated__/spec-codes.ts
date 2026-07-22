@@ -258,7 +258,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields. Check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
     "followUp": "Doug → verify crew columns",
-    "helpfulContext": "This crew table's headers were missing or unrecognized, so we read the columns by their position, and names and roles may have landed in the wrong fields. Check the crew section, and add a standard header row (Name / Role / Phone / Email).",
+    "helpfulContext": "We didn't recognize this crew table's headers, so we read columns by position; some names or roles may be misplaced. Add a header row (Name / Role / Phone / Email) and recheck the crew.",
   },
   "CREW_LINK_UNAVAILABLE": {
     "crewFacing": "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
@@ -918,7 +918,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm.",
     "followUp": "Doug → re-confirm",
-    "helpfulContext": "A pull sheet you'd chosen to include has changed since you last looked at it, so we set it back to left-out rather than publish gear you haven't seen. Check the tab, then include it again from the Gear section on this page if it's still right.",
+    "helpfulContext": "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
   },
   "PULL_SHEET_PARSE_PARTIAL": {
     "crewFacing": null,

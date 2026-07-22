@@ -1316,7 +1316,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → verify crew columns",
     helpfulContext:
-      "This crew table's headers were missing or unrecognized, so we read the columns by their position, and names and roles may have landed in the wrong fields. Check the crew section, and add a standard header row (Name / Role / Phone / Email).",
+      "We didn't recognize this crew table's headers, so we read columns by position; some names or roles may be misplaced. Add a header row (Name / Role / Phone / Email) and recheck the crew.",
     triggerContext: "Appears when a crew table has no header row we recognize.",
     title: "Guessed crew table columns by position",
     longExplanation:
@@ -1471,7 +1471,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → re-confirm",
     helpfulContext:
-      "A pull sheet you'd chosen to include has changed since you last looked at it, so we set it back to left-out rather than publish gear you haven't seen. Check the tab, then include it again from the Gear section on this page if it's still right.",
+      "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
     triggerContext: "Appears when the contents of an included archived-tab pull sheet change.",
     title: "Included archived-tab pull sheet changed",
     longExplanation:
