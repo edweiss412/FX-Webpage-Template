@@ -30,6 +30,10 @@ const MIXED: ExcludedScenario[] = [
 ];
 
 const TOGGLE_TESTID = "attention-switcher-excluded-toggle";
+
+/** Exact class-token check: substring matching would let `sm:flex-nowrap`
+ *  falsely satisfy a base `flex-nowrap` contract. */
+const hasClass = (el: Element, cls: string) => el.className.split(/\s+/).includes(cls);
 const PANEL_TESTID = "attention-switcher-excluded-panel";
 
 describe("SwitcherControls", () => {
@@ -62,8 +66,8 @@ describe("SwitcherControls", () => {
     fireEvent.click(next);
     expect(base.onPrev).toHaveBeenCalled();
     expect(base.onNext).toHaveBeenCalled();
-    expect(prev.className).toContain("min-h-tap-min");
-    expect(next.className).toContain("min-h-tap-min");
+    expect(hasClass(prev, "min-h-tap-min")).toBe(true);
+    expect(hasClass(next, "min-h-tap-min")).toBe(true);
   });
 
   test("group role + polite live count", () => {
@@ -139,30 +143,30 @@ describe("SwitcherControls", () => {
     const next = within(bar).getByRole("button", { name: /next/i });
     const toggle = within(bar).getByTestId(TOGGLE_TESTID);
     const row = prev.parentElement!;
-    expect(row.className).toContain("flex-nowrap");
+    expect(hasClass(row, "flex-nowrap")).toBe(true);
     expect(row.className.split(/\s+/)).not.toContain("flex-wrap");
     for (const el of [prev, next, toggle]) {
-      expect(el.className).toContain("shrink-0");
+      expect(hasClass(el, "shrink-0")).toBe(true);
     }
     const chip = within(bar)
       .getByText(/tier 1/)
       .closest("span")!;
-    expect(chip.className).toContain("shrink-0");
+    expect(hasClass(chip, "shrink-0")).toBe(true);
     const wrapper = within(bar)
       .getByText(/3 \/ 10/)
       .closest("[aria-live='polite']")! as HTMLElement;
-    expect(wrapper.className).toContain("min-w-0");
-    expect(wrapper.className).toContain("flex-1");
+    expect(hasClass(wrapper, "min-w-0")).toBe(true);
+    expect(hasClass(wrapper, "flex-1")).toBe(true);
     // Toggle is a real tap target in both dimensions.
-    expect(toggle.className).toContain("min-h-tap-min");
-    expect(toggle.className).toContain("min-w-tap-min");
+    expect(hasClass(toggle, "min-h-tap-min")).toBe(true);
+    expect(hasClass(toggle, "min-w-tap-min")).toBe(true);
   });
 
   test("bar container uses additive safe-area top padding, not py-2", () => {
     render(<SwitcherControls {...base} />);
     const bar = screen.getByTestId("attention-switcher-controls");
-    expect(bar.className).toContain("pb-2");
-    expect(bar.className).toContain("pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]");
+    expect(hasClass(bar, "pb-2")).toBe(true);
+    expect(hasClass(bar, "pt-[calc(--spacing(2)+env(safe-area-inset-top,0))]")).toBe(true);
     expect(bar.className.split(/\s+/)).not.toContain("py-2");
   });
 
@@ -170,8 +174,8 @@ describe("SwitcherControls", () => {
     render(<SwitcherControls {...base} excluded={MIXED} />);
     fireEvent.click(screen.getByTestId(TOGGLE_TESTID));
     const panel = screen.getByTestId(PANEL_TESTID);
-    expect(panel.className).toContain("max-h-[40vh]");
-    expect(panel.className).toContain("overflow-y-auto");
+    expect(hasClass(panel, "max-h-[40vh]")).toBe(true);
+    expect(hasClass(panel, "overflow-y-auto")).toBe(true);
   });
 
   // --- Guard rows (spec §3, runtime set) ---
@@ -199,14 +203,14 @@ describe("SwitcherControls", () => {
     // Row intact: the truncating span is still rendered, just empty.
     const emptySpan = wrapper.querySelector("span.truncate");
     expect(emptySpan).not.toBeNull();
-    expect(emptySpan!.className).toContain("min-w-0");
+    expect(hasClass(emptySpan!, "min-w-0")).toBe(true);
     expect(emptySpan!.textContent).toBe("");
 
     const long = "x".repeat(200);
     rerender(<SwitcherControls {...base} label={long} />);
     const longSpan = within(bar).getByText(long);
     // jsdom cannot measure clipping; the class IS the contract.
-    expect(longSpan.className).toContain("truncate");
+    expect(hasClass(longSpan, "truncate")).toBe(true);
   });
 
   test("empty codes yields an empty data-codes attribute", () => {

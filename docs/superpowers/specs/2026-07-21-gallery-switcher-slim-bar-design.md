@@ -6,6 +6,10 @@ parent gallery spec's §3.4 layout invariant
 
 ## 1. Problem
 
+(All `SwitcherControls.tsx` line citations in §§1-3 reference the PRE-CHANGE
+component this spec set out to amend, at merge-base `dbab89607`; DEFERRED.md:11
+is the queue entry this change graduated to the archive.)
+
 The switcher control bar (`components/admin/dev/SwitcherControls.tsx:55`,
 `fixed inset-x-0 top-0 z-60`) stacks a control row plus up to two footnote lines
 (`SwitcherControls.tsx:76-86`), reaching ~90px tall on desktop and taller when the

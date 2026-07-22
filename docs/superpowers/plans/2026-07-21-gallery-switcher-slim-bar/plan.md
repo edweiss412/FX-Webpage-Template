@@ -140,7 +140,7 @@ Commit (one): `fix(admin): slim single-row switcher bar with excluded-scenarios 
 - Validation (stated because docs tasks have no red/green): `rg -c
   "ATTN-GALLERY-CONTROLBAR-OVERLAP-1" DEFERRED.md` returns 0 matches (exit 1);
   the archive gains exactly one entry; `pnpm spec:lint` on the touched parent spec
-  stays at its pre-change hard-finding count (0).
+  stays at its pre-change hard-finding count (measured baseline: 8, pre-existing).
 
 Commit: `docs(handoff): close ATTN-GALLERY-CONTROLBAR-OVERLAP-1 via slim switcher bar`.
 
