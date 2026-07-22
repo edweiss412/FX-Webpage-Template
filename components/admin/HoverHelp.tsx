@@ -156,6 +156,7 @@ export function HoverHelp({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const caretRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | null>(null);
 
   const clearCloseTimer = () => {
@@ -263,24 +264,48 @@ export function HoverHelp({
       body.dataset["popoverHidden"] = "true";
       delete body.dataset["popoverSide"]; // no stale side while hidden
       linkRef.current?.setAttribute("tabindex", "-1"); // invisible ≠ tabbable
+      const hiddenCaret = caretRef.current;
+      if (hiddenCaret) {
+        hiddenCaret.style.visibility = "hidden";
+        delete hiddenCaret.dataset["popoverSide"];
+      }
       return;
     }
     body.style.visibility = "";
     delete body.dataset["popoverHidden"];
     if (open) linkRef.current?.setAttribute("tabindex", "0"); // visible again
     body.dataset["popoverSide"] = placement.side;
-    // (d) convert viewport point to host offsets (spec §4.2 host formulas)
+    // (d) convert viewport point to host offsets (spec §4.2 host formulas);
+    // shared by body and caret so the two paths cannot drift.
     const isBodyHostEl = host === document.body;
-    const left = isBodyHostEl
-      ? placement.viewport.x + window.scrollX
-      : placement.viewport.x - hostRect.left - host.clientLeft + host.scrollLeft;
-    const top = isBodyHostEl
-      ? placement.viewport.y + window.scrollY
-      : placement.viewport.y - hostRect.top - host.clientTop + host.scrollTop;
-    body.style.left = `${left}px`;
-    body.style.top = `${top}px`;
+    const toHostOffsets = (pt: { x: number; y: number }) => ({
+      left: isBodyHostEl
+        ? pt.x + window.scrollX
+        : pt.x - hostRect.left - host.clientLeft + host.scrollLeft,
+      top: isBodyHostEl
+        ? pt.y + window.scrollY
+        : pt.y - hostRect.top - host.clientTop + host.scrollTop,
+    });
+    const bodyOffsets = toHostOffsets(placement.viewport);
+    body.style.left = `${bodyOffsets.left}px`;
+    body.style.top = `${bodyOffsets.top}px`;
     if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
     if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+    // Caret (spec 2026-07-22-hoverhelp-caret-blur-close §3.4): sibling node,
+    // same coordinate space; suppressed alone when the core returns null.
+    const caret = caretRef.current;
+    if (caret) {
+      if (placement.caret === null) {
+        caret.style.visibility = "hidden";
+        delete caret.dataset["popoverSide"];
+      } else {
+        caret.style.visibility = "";
+        caret.dataset["popoverSide"] = placement.side;
+        const caretOffsets = toHostOffsets(placement.caret);
+        caret.style.left = `${caretOffsets.left}px`;
+        caret.style.top = `${caretOffsets.top}px`;
+      }
+    }
   };
 
   /** Coalescer: no-op while closed or when a frame is already pending (§4.3). */
@@ -323,6 +348,11 @@ export function HoverHelp({
         delete body.dataset["popoverSide"];
         delete body.dataset["popoverHidden"];
         body.style.visibility = "";
+      }
+      const caretEl = caretRef.current;
+      if (caretEl) {
+        delete caretEl.dataset["popoverSide"];
+        caretEl.style.visibility = "";
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -502,6 +532,7 @@ export function HoverHelp({
           instantly, which is the correct degradation for a help tooltip. */}
       {mounted
         ? createPortal(
+            <>
             <div
               id={bodyId}
               ref={bodyRef}
@@ -545,7 +576,26 @@ export function HoverHelp({
                   Learn more →
                 </a>
               ) : null}
-            </div>,
+            </div>
+            <div
+              ref={caretRef}
+              aria-hidden="true"
+              data-testid={`${testId}-caret`}
+              /* top-[1.5px]/bottom-[1.5px] literals = CARET_INNER_OFFSET
+                 (lib/popover/position.ts); locked by the lifecycle suite -
+                 Tailwind cannot extract dynamic class strings. Orientation
+                 flips on the imperative data-popover-side write via
+                 data-attribute variants; `group` lets the inner follow. */
+              className={`group pointer-events-none absolute z-50 h-0 w-0 border-x-[6px] border-x-transparent transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 data-[popover-side=bottom]:border-t-0 data-[popover-side=bottom]:border-b-[6px] data-[popover-side=bottom]:border-b-border-strong data-[popover-side=top]:border-t-[6px] data-[popover-side=top]:border-b-0 data-[popover-side=top]:border-t-border-strong ${
+                open ? "block opacity-100" : "hidden opacity-0"
+              }`}
+            >
+              <div
+                aria-hidden="true"
+                className="absolute left-[-6px] h-0 w-0 border-x-[6px] border-x-transparent group-data-[popover-side=bottom]:top-[1.5px] group-data-[popover-side=bottom]:border-t-0 group-data-[popover-side=bottom]:border-b-[6px] group-data-[popover-side=bottom]:border-b-surface-raised group-data-[popover-side=top]:bottom-[1.5px] group-data-[popover-side=top]:border-t-[6px] group-data-[popover-side=top]:border-b-0 group-data-[popover-side=top]:border-t-surface-raised"
+              />
+            </div>
+            </>,
             // Portal CONTAINER choice, not render data: only read once `mounted`
             // is true (post-first-commit, provider's panelRef is populated); same
             // escape PageTransition.tsx:62 uses.

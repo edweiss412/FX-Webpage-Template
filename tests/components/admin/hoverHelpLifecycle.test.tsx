@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { HoverHelp, PopoverHostContext } from "@/components/admin/HoverHelp";
+import { CARET_EDGE_INSET, CARET_INNER_OFFSET, CARET_WIDTH, GAP } from "@/lib/popover/position";
 
 type FrameCb = (t: number) => void;
 let frames: Map<number, FrameCb>;
@@ -268,6 +269,216 @@ describe("measure-and-apply with stubbed rects", () => {
     fireEvent.click(trigger);
     expect(body.hasAttribute("data-popover-side")).toBe(false);
     expect(body.hasAttribute("data-popover-hidden")).toBe(false);
+  });
+
+  /** Every stubbed-rect test that reads positions resets window scroll
+      offsets first (T-J6c sets scrollY=250; without a reset, later tests in
+      the same describe inherit it and body-host conversion shifts by 250). */
+  const resetScroll = () => {
+    Object.defineProperty(window, "scrollX", { configurable: true, value: 0 });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+  };
+
+  /** Fade/stacking tokens the body and caret must SHARE (T-J6d parity). */
+  const SHARED_FADE_TOKENS = [
+    "transition-[opacity,display]",
+    "duration-fast",
+    "transition-discrete",
+    "starting:opacity-0",
+  ];
+
+  test("T-J1/T-J6: caret node - structure, aria, class parity, inner-offset lock, closed state", () => {
+    mount();
+    const body = screen.getByTestId("lc-body");
+    const caret = screen.getByTestId("lc-caret");
+    // T-J6a portal order: body THEN caret (caret paints over the seam)
+    expect(body.nextElementSibling).toBe(caret);
+    // T-J6b exactly one inner (fill) triangle element
+    expect(caret.children).toHaveLength(1);
+    expect(caret.getAttribute("aria-hidden")).toBe("true");
+    // T-J6d PARITY: every shared fade token present on BOTH nodes
+    for (const token of SHARED_FADE_TOKENS) {
+      expect(body.className).toContain(token);
+      expect(caret.className).toContain(token);
+    }
+    expect(caret.className).toContain("z-50");
+    expect(caret.className).toContain("pointer-events-none");
+    // closed state mirrors the body's toggle
+    expect(caret.className).toContain("hidden");
+    expect(caret.className).not.toContain("block");
+    // T-J1 inner-offset lock: class literals tied to the exported constant
+    const inner = caret.firstElementChild;
+    if (!(inner instanceof HTMLElement)) throw new Error("inner triangle missing");
+    expect(inner.className).toContain(`top-[${CARET_INNER_OFFSET}px]`);
+    expect(inner.className).toContain(`bottom-[${CARET_INNER_OFFSET}px]`);
+  });
+
+  test("T-A1: open/close class transition - both nodes flip together", () => {
+    stubViewport(1000, 800);
+    const trigger = mount();
+    stubRect(trigger, { left: 500, top: 300, width: 20, height: 20 });
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("lc-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    for (const el of [body, caret]) {
+      expect(el.className).toContain("block");
+      expect(el.className).toContain("opacity-100");
+      expect(el.className).not.toContain("hidden");
+    }
+    fireEvent.click(trigger); // close
+    for (const el of [body, caret]) {
+      expect(el.className).toContain("hidden");
+      expect(el.className).not.toContain("block");
+    }
+  });
+
+  test("T-J6c: placed caret mirrors data-popover-side and positions from core output", () => {
+    stubViewport(1000, 800);
+    const SCROLL_Y = 250;
+    Object.defineProperty(window, "scrollX", { configurable: true, value: 0 });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: SCROLL_Y });
+    const TR = { left: 500, top: 300, width: 20, height: 20 };
+    const trigger = mount();
+    stubRect(trigger, TR);
+    stubRect(document.body, { left: 0, top: -SCROLL_Y, width: 1000, height: 3000 });
+    const body = screen.getByTestId("lc-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
+    expect(body.getAttribute("data-popover-side")).toBe("bottom");
+    // precondition: 20px trigger center is inside CARET_EDGE_INSET of the
+    // flush-aligned body edge -> pinned branch (spec §3.3)
+    expect(TR.width / 2).toBeLessThan(CARET_EDGE_INSET);
+    // core: x = TR.left (align left default, unclamped); pinned caret center
+    // = x + CARET_EDGE_INSET; body-host conversion adds scrollY to y only.
+    expect(caret.style.left).toBe(`${TR.left + CARET_EDGE_INSET - CARET_WIDTH / 2}px`);
+    expect(caret.style.top).toBe(`${TR.top + TR.height + SCROLL_Y}px`);
+  });
+
+  test("T-J2/T-A3: collision-hidden hides caret with body; recovery restores both", () => {
+    stubViewport(1000, 800);
+    const TR = { left: 500, top: 300, width: 20, height: 20 };
+    const trigger = mount();
+    stubRect(trigger, TR);
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("lc-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    expect(caret.style.visibility).toBe("");
+    stubRect(trigger, { ...TR, top: -900 }); // out of bounds
+    fireEvent.scroll(window);
+    runPendingFrames();
+    expect(body.style.visibility).toBe("hidden");
+    expect(caret.style.visibility).toBe("hidden");
+    expect(caret.hasAttribute("data-popover-side")).toBe(false);
+    // suppression mid-fade: visibility wins while the OPEN classes stay intact
+    for (const el of [body, caret]) {
+      expect(el.className).toContain("block");
+      expect(el.className).toContain("opacity-100");
+    }
+    // T-A3 recovery: anchor returns -> both visible again, side restored
+    stubRect(trigger, TR);
+    fireEvent.scroll(window);
+    runPendingFrames();
+    expect(body.style.visibility).toBe("");
+    expect(caret.style.visibility).toBe("");
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
+  });
+
+  test("T-J3: placed result with caret:null hides the caret alone", () => {
+    stubViewport(1000, 800);
+    const trigger = mount();
+    stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("lc-body");
+    // natural body narrower than 2*CARET_EDGE_INSET -> core returns caret:null
+    stubRect(body, { left: 0, top: 0, width: 2 * CARET_EDGE_INSET - 6, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    expect(body.style.visibility).toBe("");
+    expect(caret.style.visibility).toBe("hidden");
+    // closed <-> suppressed: closing FROM the suppressed state resets the
+    // inline visibility (cleanup), and reopening with a seatable body recovers.
+    fireEvent.click(trigger); // close while suppressed
+    expect(caret.style.visibility).toBe("");
+    expect(caret.className).toContain("hidden");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 }); // now wide enough
+    fireEvent.click(trigger); // reopen
+    expect(caret.style.visibility).toBe("");
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
+  });
+
+  test("T-J4: pane-host caret conversion applies host offsets like the body", () => {
+    stubViewport(1000, 800);
+    render(<PaneHarness />);
+    const trigger = screen.getByTestId("ph-trigger");
+    const pane = screen.getByTestId("pane-host");
+    const PANE = { left: 100, top: 100, width: 400, height: 300 };
+    const TR = { left: 150, top: 150, width: 20, height: 20 };
+    const SCROLL = { top: 120, left: 40 };
+    Object.defineProperty(pane, "scrollTop", { configurable: true, value: SCROLL.top });
+    Object.defineProperty(pane, "scrollLeft", { configurable: true, value: SCROLL.left });
+    Object.defineProperty(pane, "clientTop", { configurable: true, value: 0 });
+    Object.defineProperty(pane, "clientLeft", { configurable: true, value: 0 });
+    stubRect(pane, PANE);
+    stubRect(trigger, TR);
+    const body = screen.getByTestId("ph-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 100 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("ph-caret");
+    // pinned branch again (20px trigger); derive from named rects:
+    const caretViewportX = TR.left + CARET_EDGE_INSET - CARET_WIDTH / 2;
+    const caretViewportY = TR.top + TR.height; // trigger.bottom, side bottom
+    expect(caret.style.left).toBe(`${caretViewportX - PANE.left + SCROLL.left}px`);
+    expect(caret.style.top).toBe(`${caretViewportY - PANE.top + SCROLL.top}px`);
+  });
+
+  test("T-J5: closing FROM the suppressed state resets the caret's visibility + side attr", () => {
+    stubViewport(1000, 800);
+    const trigger = mount();
+    stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("lc-body");
+    // narrow body -> caret suppressed on open (visibility explicitly "hidden")
+    stubRect(body, { left: 0, top: 0, width: 2 * CARET_EDGE_INSET - 6, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    expect(caret.style.visibility).toBe("hidden"); // precondition: suppressed
+    fireEvent.click(trigger); // close from suppressed
+    // cleanup must RESET the inline visibility (a lingering "hidden" would
+    // survive into the next open) and strip the side attribute
+    expect(caret.style.visibility).toBe("");
+    expect(caret.hasAttribute("data-popover-side")).toBe(false);
+  });
+
+  test("T-A2/T-A6: live side flip updates BOTH nodes atomically in one frame, open classes intact", () => {
+    stubViewport(1000, 800);
+    resetScroll(); // T-J6c sets scrollY=250; this test asserts positions
+    const TR = { left: 500, top: 300, width: 20, height: 20 };
+    const trigger = mount();
+    stubRect(trigger, TR);
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("lc-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    fireEvent.click(trigger);
+    const caret = screen.getByTestId("lc-caret");
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
+    // move trigger near the bottom edge -> only space above fits
+    const LOW = { ...TR, top: 700 };
+    stubRect(trigger, LOW);
+    fireEvent.scroll(window);
+    runPendingFrames(); // ONE coalesced frame
+    expect(body.getAttribute("data-popover-side")).toBe("top");
+    expect(caret.getAttribute("data-popover-side")).toBe("top");
+    // atomic: caret.y follows the SAME measurement (trigger.top - GAP)
+    expect(caret.style.top).toBe(`${LOW.top - GAP}px`);
+    // mid-"fade" semantics: open classes untouched by the flip
+    expect(caret.className).toContain("block");
+    expect(caret.className).toContain("opacity-100");
   });
 });
 

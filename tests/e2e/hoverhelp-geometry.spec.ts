@@ -27,7 +27,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
-import { GAP, VIEWPORT_INSET } from "../../lib/popover/position";
+import {
+  CARET_EDGE_INSET,
+  CARET_HEIGHT,
+  CARET_INNER_OFFSET,
+  CARET_WIDTH,
+  GAP,
+  VIEWPORT_INSET,
+} from "../../lib/popover/position";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
@@ -489,5 +496,182 @@ test.describe("T8 keyboard (body host)", () => {
     await page.keyboard.press("Tab"); // forward from link: closes + returns
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(trigger).toBeFocused();
+  });
+});
+
+/** §3.3 clamp formula re-applied to LIVE rects - shared by all caret cases. */
+function caretExpectedLeft(t: Box, b: Box): number {
+  const center0 = (t.left + t.right) / 2;
+  const center = Math.min(
+    Math.max(center0, b.left + CARET_EDGE_INSET),
+    b.right - CARET_EDGE_INSET,
+  );
+  return center - CARET_WIDTH / 2;
+}
+
+async function styleOf(
+  page: Page,
+  testId: string,
+  inner: boolean,
+  props: string[],
+): Promise<Record<string, string>> {
+  return page.evaluate(
+    ({ testId, inner, props }) => {
+      let el = document.querySelector(`[data-testid="${testId}"]`);
+      if (inner) el = el?.firstElementChild ?? null;
+      if (!el) throw new Error(`missing ${testId}${inner ? " inner" : ""}`);
+      const cs = getComputedStyle(el);
+      return Object.fromEntries(props.map((p) => [p, cs.getPropertyValue(p)]));
+    },
+    { testId, inner, props },
+  );
+}
+
+test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)", () => {
+  test("T-E1: tracking caret centers on a wide trigger and fills the gap", async ({ page }) => {
+    await open(page, "caret", "caret-track");
+    const t = await box(page, "caret-track-trigger");
+    const b = await box(page, "caret-track-body");
+    const c = await box(page, "caret-track-caret");
+    const center0 = (t.left + t.right) / 2;
+    // fixture precondition: tracking branch
+    expect(center0).toBeGreaterThanOrEqual(b.left + CARET_EDGE_INSET);
+    expect(center0).toBeLessThanOrEqual(b.right - CARET_EDGE_INSET);
+    expect(Math.abs(c.left - caretExpectedLeft(t, b))).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(c.bottom - b.top)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(c.top - t.bottom)).toBeLessThanOrEqual(TOL);
+  });
+
+  test("T-E2: deep clamp pins the caret inside the body span", async ({ page }) => {
+    await open(page, "caret", "caret-clamp");
+    const t = await box(page, "caret-clamp-trigger");
+    const b = await box(page, "caret-clamp-body");
+    const c = await box(page, "caret-clamp-caret");
+    const center0 = (t.left + t.right) / 2;
+    // fixture precondition: deep-pin branch
+    expect(center0).toBeGreaterThan(b.right - CARET_EDGE_INSET);
+    expect(Math.abs(c.left - caretExpectedLeft(t, b))).toBeLessThanOrEqual(TOL);
+    const caretCenter = (c.left + c.right) / 2;
+    expect(caretCenter).toBeGreaterThanOrEqual(b.left + CARET_EDGE_INSET - TOL);
+    expect(caretCenter).toBeLessThanOrEqual(b.right - CARET_EDGE_INSET + TOL);
+  });
+
+  test("T-E3: side-top caret sits under the body, apex down", async ({ page }) => {
+    await open(page, "caret", "caret-top");
+    const b = await box(page, "caret-top-body");
+    const c = await box(page, "caret-top-caret");
+    expect(Math.abs(c.top - b.bottom)).toBeLessThanOrEqual(TOL);
+    await expect(page.getByTestId("caret-top-caret")).toHaveAttribute("data-popover-side", "top");
+    const s = await styleOf(page, "caret-top-caret", false, [
+      "border-top-width",
+      "border-bottom-width",
+    ]);
+    expect(s["border-top-width"]).toBe(`${CARET_HEIGHT}px`);
+    expect(s["border-bottom-width"]).toBe("0px");
+  });
+
+  test("T-E5: scroll reflow - caret reposition keeps document coords stable and abuts the trigger", async ({
+    page,
+  }) => {
+    // Reuses the tall `scrolly` fixture (3000px page, trigger at y=1500).
+    // Live-rect relations alone cannot catch a scroll-term bug applied
+    // consistently to body AND caret (document siblings shift together), so
+    // this asserts DOCUMENT-COORD STABILITY of the rewritten style.top:
+    // reposition writes viewportY + scrollY; the terms cancel across a
+    // scroll, so a missing or doubled scrollY term shifts the value by the
+    // scroll delta and fails.
+    await page.goto(`${baseUrl}/live.html?case=scrolly`);
+    await page.getByTestId("harness-ready").waitFor({ state: "attached" });
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await clickOpen(page, "scrolly-help");
+    const styleTop = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="scrolly-help-caret"]');
+        if (!(el instanceof HTMLElement)) throw new Error("caret missing");
+        return parseFloat(el.style.top);
+      });
+    const before = await styleTop();
+    await page.evaluate(() => window.scrollBy(0, 60));
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await page.evaluate(() => new Promise(requestAnimationFrame)); // after the coalesced reposition frame
+    // precondition: the scroll actually happened
+    expect(await page.evaluate(() => window.scrollY)).toBe(1260);
+    const after = await styleTop();
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(TOL);
+    // and the caret still abuts the LIVE trigger + formula after the reflow
+    const t = await box(page, "scrolly-help-trigger");
+    const b = await box(page, "scrolly-help-body");
+    const c = await box(page, "scrolly-help-caret");
+    expect(Math.abs(c.top - t.bottom)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(c.left - caretExpectedLeft(t, b))).toBeLessThanOrEqual(TOL);
+  });
+
+  test("T-E6: visual contract - triangles, tokens, seam, stacking (both orientations)", async ({
+    page,
+  }) => {
+    for (const [kase, id, apexUp] of [
+      ["caret", "caret-track", true],
+      ["caret", "caret-top", false],
+    ] as const) {
+      await open(page, kase, id);
+      const bodyS = await styleOf(page, `${id}-body`, false, [
+        "border-top-color",
+        "background-color",
+        "z-index",
+      ]);
+      const outerS = await styleOf(page, `${id}-caret`, false, [
+        "border-left-width",
+        "border-right-width",
+        "border-left-color",
+        "border-right-color",
+        "border-top-width",
+        "border-bottom-width",
+        "border-top-color",
+        "border-bottom-color",
+        "z-index",
+      ]);
+      const innerS = await styleOf(page, `${id}-caret`, true, [
+        "border-left-width",
+        "border-right-width",
+        "border-left-color",
+        "border-right-color",
+        "border-top-width",
+        "border-bottom-width",
+        "border-top-color",
+        "border-bottom-color",
+      ]);
+      const TRANSPARENT = "rgba(0, 0, 0, 0)";
+      for (const s of [outerS, innerS]) {
+        expect(s["border-left-width"]).toBe(`${CARET_WIDTH / 2}px`);
+        expect(s["border-right-width"]).toBe(`${CARET_WIDTH / 2}px`);
+        expect(s["border-left-color"]).toBe(TRANSPARENT);
+        expect(s["border-right-color"]).toBe(TRANSPARENT);
+      }
+      const apex = apexUp ? "bottom" : "top";
+      const off = apexUp ? "top" : "bottom";
+      expect(outerS[`border-${apex}-width`]).toBe(`${CARET_HEIGHT}px`);
+      expect(outerS[`border-${off}-width`]).toBe("0px");
+      // outer apex color = the body's border color; inner apex = body fill
+      expect(outerS[`border-${apex}-color`]).toBe(bodyS["border-top-color"]);
+      expect(innerS[`border-${apex}-color`]).toBe(bodyS["background-color"]);
+      expect(outerS["z-index"]).toBe(bodyS["z-index"]);
+      // rect deltas: inner alignment + seam overhang (position math, not clipping proof)
+      const b = await box(page, `${id}-body`);
+      const outer = await box(page, `${id}-caret`);
+      const inner = await page.evaluate((tid) => {
+        const el = document.querySelector(`[data-testid="${tid}"]`)?.firstElementChild;
+        if (!el) throw new Error("inner missing");
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      }, `${id}-caret`);
+      expect(Math.abs(inner.left - outer.left)).toBeLessThanOrEqual(TOL);
+      if (apexUp) {
+        expect(Math.abs(inner.top - outer.top - CARET_INNER_OFFSET)).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(inner.bottom - b.top - CARET_INNER_OFFSET)).toBeLessThanOrEqual(TOL);
+      } else {
+        expect(Math.abs(outer.top - inner.top - CARET_INNER_OFFSET)).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(b.bottom - inner.top - CARET_INNER_OFFSET)).toBeLessThanOrEqual(TOL);
+      }
+    }
   });
 });
