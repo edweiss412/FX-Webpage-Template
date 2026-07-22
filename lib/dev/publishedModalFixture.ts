@@ -11,7 +11,12 @@
  */
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
-import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+// SERVER-SAFE section inclusion — NOT the `"use client"` `step3Sections`. This
+// fixture builder runs inside the server route, and calling a client function
+// server-side throws ("Attempted to call step3Sections() from the server").
+// `renderedSectionIds` from sectionInclusion is the crypto/client-free walker
+// production uses at app/admin/_showReviewModal.tsx:326.
+import { renderedSectionIds as includedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
@@ -95,9 +100,9 @@ export function buildGallerySnapshot(
   };
 }
 
-/** `renderedSectionIds` for the warning model — the real section walker. */
+/** Rendered section ids for the warning model — the server-safe section walker. */
 function renderedSectionIds(data: PublishedSectionData) {
-  return new Set(step3Sections(data).map((s) => s.id));
+  return new Set(includedSectionIds(data));
 }
 
 /**

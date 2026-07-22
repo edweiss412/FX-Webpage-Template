@@ -9,11 +9,33 @@
  * `T2_ANCHOR_ABSENT` stays anchorless.
  */
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import { tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
 import { T2_ANCHOR_ABSENT } from "@/lib/dev/attentionScenarios/tier2";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
+
+// Server-boundary guard: buildScenarioModalData runs inside the server route
+// (partitionScenarios). Importing a `"use client"` module and calling its
+// functions server-side throws at render ("Attempted to call step3Sections()
+// from the server"). This class is invisible to jsdom unit tests, so pin it at
+// the source: the server data builder must use the server-safe
+// `renderedSectionIds`, never the client `step3ReviewSections`.
+describe("server/client boundary", () => {
+  const serverFiles = [
+    "lib/dev/buildScenarioModalData.ts",
+    "lib/dev/publishedModalFixture.ts",
+    "app/admin/dev/attention-gallery/buildSwitcherScenarios.ts",
+  ];
+  for (const rel of serverFiles) {
+    test(`${rel} does not import the "use client" step3ReviewSections registry`, () => {
+      const src = readFileSync(join(process.cwd(), rel), "utf8");
+      expect(src).not.toMatch(/from\s+["'][^"']*wizard\/step3ReviewSections["']/);
+    });
+  }
+});
 
 function alertScenario(id: string, code: string): AttentionScenario {
   return {

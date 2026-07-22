@@ -24,10 +24,11 @@ import {
 // does NOT error — so these permanently prove the guard rejects the bad shape.
 
 // A leaked function key must flip [FnKeys] extends [never] to false → Assert<false> errors.
+// (aliased so the Assert<...> stays on ONE line — the @ts-expect-error below must
+// sit directly above the single line that errors, or prettier reflow detaches it.)
+type _LeakedFnKeys = FnKeys<{ a: string; cb: () => void }>;
 // @ts-expect-error a leaked function key must be rejected by the no-fn guard
-type _RejectsLeakedFn = Assert<
-  [FnKeys<{ a: string; cb: () => void }>] extends [never] ? true : false
->;
+type _RejectsLeakedFn = Assert<[_LeakedFnKeys] extends [never] ? true : false>;
 
 // An `undefined`-only prop must NOT be classified as a function (the never-vacuity fix).
 type _UndefinedIsNotFn = Assert<IsFn<undefined> extends false ? true : false>;
