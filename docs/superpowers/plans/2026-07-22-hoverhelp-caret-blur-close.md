@@ -465,9 +465,6 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
     case "caret":
       return (
         <>
-          {/* Document-height spacer so window scrolling is REAL in T-E5
-              (absolute children alone create no scrollable height). */}
-          <div style={{ height: window.innerHeight + 800 }} />
           {/* Wide custom trigger: half-width > CARET_EDGE_INSET so the caret
               TRACKS the raw center (unpinned branch). */}
           <At x={safeX(300)} y={200}>
@@ -593,20 +590,40 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     expect(s["border-bottom-width"]).toBe("0px");
   });
 
-  test("T-E5: caret tracks the trigger across a REAL scroll reflow", async ({ page }) => {
-    await open(page, "caret", "caret-track");
-    const before = await box(page, "caret-track-trigger");
-    await page.evaluate(() => window.scrollBy(0, 40));
+  test("T-E5: scroll reflow - caret reposition keeps document coords stable and abuts the trigger", async ({
+    page,
+  }) => {
+    // Reuses the tall `scrolly` fixture (3000px page, trigger at y=1500).
+    // Live-rect relations alone cannot catch a scroll-term bug applied
+    // consistently to body AND caret (document siblings shift together), so
+    // this asserts DOCUMENT-COORD STABILITY of the rewritten style.top:
+    // reposition writes viewportY + scrollY; the terms cancel across a
+    // scroll, so a missing or doubled scrollY term shifts the value by the
+    // scroll delta and fails.
+    await page.goto(`${baseUrl}/live.html?case=scrolly`);
+    await page.getByTestId("harness-ready").waitFor({ state: "attached" });
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await clickOpen(page, "scrolly-help");
+    const styleTop = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="scrolly-help-caret"]');
+        if (!(el instanceof HTMLElement)) throw new Error("caret missing");
+        return parseFloat(el.style.top);
+      });
+    const before = await styleTop();
+    await page.evaluate(() => window.scrollBy(0, 60));
     await page.evaluate(() => new Promise(requestAnimationFrame));
-    // prove the scroll actually happened and moved the trigger in viewport space
-    const scrolled = await page.evaluate(() => window.scrollY);
-    expect(scrolled).toBeGreaterThanOrEqual(40 - TOL);
-    const t = await box(page, "caret-track-trigger");
-    expect(Math.abs(before.top - t.top - 40)).toBeLessThanOrEqual(TOL);
-    const b = await box(page, "caret-track-body");
-    const c = await box(page, "caret-track-caret");
+    await page.evaluate(() => new Promise(requestAnimationFrame)); // after the coalesced reposition frame
+    // precondition: the scroll actually happened
+    expect(await page.evaluate(() => window.scrollY)).toBe(1260);
+    const after = await styleTop();
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(TOL);
+    // and the caret still abuts the LIVE trigger + formula after the reflow
+    const t = await box(page, "scrolly-help-trigger");
+    const b = await box(page, "scrolly-help-body");
+    const c = await box(page, "scrolly-help-caret");
+    expect(Math.abs(c.top - t.bottom)).toBeLessThanOrEqual(TOL);
     expect(Math.abs(c.left - caretExpectedLeft(t, b))).toBeLessThanOrEqual(TOL);
-    expect(Math.abs(c.bottom - b.top)).toBeLessThanOrEqual(TOL);
   });
 
   test("T-E6: visual contract - triangles, tokens, seam, stacking (both orientations)", async ({
