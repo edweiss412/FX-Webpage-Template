@@ -42,6 +42,7 @@ import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
+import { warningsPanelStatusSentence } from "@/lib/admin/warningsPanelStatus";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -1074,6 +1075,20 @@ export function ShowReviewSurface({
               {/* Phase 2 hook: per-section warning controls under the panel.
                 Phase 1 passes no `renderSectionExtras` → renders nothing. */}
               {renderSectionExtras?.(s.id, data)}
+              {/* Spec 2026-07-22-warning-panel-polish §3.2: always-mounted
+                  published live region. OUTSIDE the chrome-suppressible card
+                  subtree (Silent unmounts panel children,
+                  step3ReviewSections.tsx:792-815) so the node survives every
+                  state and role="status" announces each text change. */}
+              {s.id === "warnings" && routedWarningsRenderElsewhere ? (
+                <span role="status" className="sr-only" data-testid="warnings-panel-status">
+                  {warningsPanelStatusSentence(
+                    visibleWarningRows(data.warnings, true).length,
+                    routedWarnings?.here ?? 0,
+                    routedWarnings?.elsewhere ?? 0,
+                  )}
+                </span>
+              ) : null}
             </section>
           ))}
           {/* Extra rail sections mounted after the registry (Phase 2: Changes).
