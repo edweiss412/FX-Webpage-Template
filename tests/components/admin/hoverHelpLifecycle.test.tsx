@@ -358,7 +358,7 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.style.top).toBe(`${TR.top + TR.height + SCROLL_Y}px`);
   });
 
-  test("T-J2/T-A3: collision-hidden hides caret with body; recovery restores both", () => {
+  test("T-J2/T-A3/T-A5: collision-hidden hides caret with body while open classes present (suppression mid-fade); recovery restores both", () => {
     stubViewport(1000, 800);
     const TR = { left: 500, top: 300, width: 20, height: 20 };
     const trigger = mount();
@@ -389,7 +389,7 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.getAttribute("data-popover-side")).toBe("bottom");
   });
 
-  test("T-J3: placed result with caret:null hides the caret alone", () => {
+  test("T-J3/T-A4: placed result with caret:null hides the caret alone (enter suppressed)", () => {
     stubViewport(1000, 800);
     const trigger = mount();
     stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
@@ -437,7 +437,7 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.style.top).toBe(`${caretViewportY - PANE.top + SCROLL.top}px`);
   });
 
-  test("T-J5: closing FROM the suppressed state resets the caret's visibility + side attr", () => {
+  test("T-J5/T-A4: closing FROM the suppressed state resets the caret's visibility + side attr", () => {
     stubViewport(1000, 800);
     const trigger = mount();
     stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
@@ -455,7 +455,7 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.hasAttribute("data-popover-side")).toBe(false);
   });
 
-  test("T-A2/T-A6: live side flip updates BOTH nodes atomically in one frame, open classes intact", () => {
+  test("T-A2/T-A5/T-A6: live side flip updates BOTH nodes atomically in one frame, open classes intact (flip mid-fade)", () => {
     stubViewport(1000, 800);
     resetScroll(); // T-J6c sets scrollY=250; this test asserts positions
     const TR = { left: 500, top: 300, width: 20, height: 20 };

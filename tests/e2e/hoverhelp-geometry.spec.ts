@@ -356,9 +356,11 @@ test.describe("T6 document integrity + coordinates", () => {
   test("body-host coordinates hold under nonzero window scroll (T3a equation end-to-end)", async ({
     page,
   }) => {
+    const INITIAL_SCROLL_Y = 1200; // matches the existing scrolly-case scroll depth
+    const SCROLL_DELTA = 60;
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
-    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.evaluate((y) => window.scrollTo(0, y), INITIAL_SCROLL_Y);
     await clickOpen(page, "scrolly-help");
     const t = await box(page, "scrolly-help-trigger");
     const b = await box(page, "scrolly-help-body");
@@ -577,9 +579,11 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     // reposition writes viewportY + scrollY; the terms cancel across a
     // scroll, so a missing or doubled scrollY term shifts the value by the
     // scroll delta and fails.
+    const INITIAL_SCROLL_Y = 1200; // matches the existing scrolly-case scroll depth
+    const SCROLL_DELTA = 60;
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
-    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.evaluate((y) => window.scrollTo(0, y), INITIAL_SCROLL_Y);
     await clickOpen(page, "scrolly-help");
     const styleTop = () =>
       page.evaluate(() => {
@@ -588,13 +592,15 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
         return parseFloat(el.style.top);
       });
     const before = await styleTop();
-    await page.evaluate(() => window.scrollBy(0, 60));
-    await page.evaluate(() => new Promise(requestAnimationFrame));
-    await page.evaluate(() => new Promise(requestAnimationFrame)); // after the coalesced reposition frame
-    // precondition: the scroll actually happened
-    expect(await page.evaluate(() => window.scrollY)).toBe(1260);
-    const after = await styleTop();
-    expect(Math.abs(after - before)).toBeLessThanOrEqual(TOL);
+    await page.evaluate((dy) => window.scrollBy(0, dy), SCROLL_DELTA);
+    // precondition: the scroll actually happened (converge - scroll delivery is async)
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBe(INITIAL_SCROLL_Y + SCROLL_DELTA);
+    // converge on the coalesced reposition instead of counting frames
+    await expect
+      .poll(async () => Math.abs((await styleTop()) - before), { timeout: 5_000 })
+      .toBeLessThanOrEqual(TOL);
     // and the caret still abuts the LIVE trigger + formula after the reflow
     const t = await box(page, "scrolly-help-trigger");
     const b = await box(page, "scrolly-help-body");
@@ -648,6 +654,8 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
       const off = apexUp ? "top" : "bottom";
       expect(outerS[`border-${apex}-width`]).toBe(`${CARET_HEIGHT}px`);
       expect(outerS[`border-${off}-width`]).toBe("0px");
+      expect(innerS[`border-${apex}-width`]).toBe(`${CARET_HEIGHT}px`);
+      expect(innerS[`border-${off}-width`]).toBe("0px");
       // outer apex color = the body's border color; inner apex = body fill
       expect(outerS[`border-${apex}-color`]).toBe(bodyS["border-top-color"]);
       expect(innerS[`border-${apex}-color`]).toBe(bodyS["background-color"]);

@@ -11,11 +11,11 @@ Verified 2026-07-22 against the shipped tests. `AnimatePresence` count in `compo
 | closed → placed-visible (fade) | T-A1 (class flip both nodes); CSS fade declarative, parity locked by T-J1/T-J6d |
 | placed-visible → closed | T-A1 close half |
 | placed@bottom ↔ placed@top | T-A2 (live flip, one coalesced frame, both nodes) |
-| placed-visible ↔ suppressed | T-J2 (hide) + T-A3 (recovery) + T-J3 (caret-only) |
-| closed ↔ suppressed | T-J3 (enter suppressed) + T-J5 (close FROM suppressed resets visibility + side attr) |
+| placed-visible ↔ suppressed | T-J2/T-A3 (hide + recovery) + T-J3/T-A4 (caret-only) |
+| closed ↔ suppressed | T-J3/T-A4 (enter suppressed) + T-J5/T-A4 (close FROM suppressed resets visibility + side attr) |
 | position updates same side | T-E5 (scrolly fixture, style-stability + live-rect asserts) + existing u5 coalescing |
-| side flip mid-fade | T-A2 asserts open classes intact through the flip |
-| suppression mid-fade | T-J2 (visibility wins while open classes present) |
+| side flip mid-fade | T-A2/T-A5 asserts open classes intact through the flip |
+| suppression mid-fade | T-J2/T-A5 (visibility wins while open classes present) |
 | pending-frame atomicity | T-A2/T-A6 (single `runPendingFrames()` updates both nodes consistently) |
 | blur-close mid-open-fade | T-B1 (single commit closes; body class asserted) |
 | blur-close with pending 120ms timer | T-B10 (act-wrapped timer advance) |
