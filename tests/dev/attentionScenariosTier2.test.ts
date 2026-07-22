@@ -205,8 +205,25 @@ describe("tier 2 structural matrix", () => {
     expect(byId(T2_EMPTY).alerts).toHaveLength(0);
     expect(byId(T2_EMPTY).holds).toHaveLength(0);
     expect(byId(T2_SINGLE).alerts).toHaveLength(1);
-    expect(byId(T2_MANY).alerts).toHaveLength(MENU_CAP);
+    expect(byId(T2_MANY).alerts).toHaveLength(MENU_CAP - 1);
+    expect(byId(T2_MANY).holds).toHaveLength(1);
     expect(itemsFor(byId(T2_MANY))).toHaveLength(MENU_CAP);
+  });
+
+  test("t2-many is 12 real items: 11 distinct alerts + 1 hold, sections and classes mixed", () => {
+    const s = byId(T2_MANY);
+    expect(new Set(s.alerts.map((a) => a.code)).size).toBe(MENU_CAP - 1);
+    expect(s.alerts.some((a) => a.code.startsWith("GALLERY_FILLER_"))).toBe(false);
+    const items = deriveScenarioAttention(s);
+    expect(items).toHaveLength(MENU_CAP);
+    const sections = new Set(items.map((i) => i.sectionId));
+    for (const sec of ["rooms", "event", "crew", "changes"] as const) {
+      expect(sections.has(sec), sec).toBe(true);
+    }
+    expect(items.some((i) => i.actionable)).toBe(true);
+    expect(items.some((i) => i.clearingKind === "needs_look")).toBe(true);
+    expect(items.some((i) => i.clearingKind === "self_heal")).toBe(true);
+    expect(s.alerts.filter((a) => a.occurrence_count === 7)).toHaveLength(1);
   });
 
   test("degraded is set on exactly two tier-2 scenarios and on no tier-1 scenario", () => {

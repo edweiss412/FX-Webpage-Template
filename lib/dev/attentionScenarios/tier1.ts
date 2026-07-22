@@ -34,7 +34,7 @@ export function scenarioIdForCode(namespace: "alert" | "warn", code: string): st
  * `validateScenario` rejects it - that coupling is deliberate, and it is what
  * stops a context-dependent code from silently shipping its degenerate form.
  */
-const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAlertRow, "code">>>> = {
+export const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAlertRow, "code">>>> = {
   // readFailedKeys returns null for any other code or a non-array.
   TILE_PROJECTION_FETCH_FAILED: {
     context: { failedKeys: ["tile:agenda", "tile:rooms"] },

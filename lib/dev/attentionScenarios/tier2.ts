@@ -8,6 +8,7 @@ import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { ALERT_ROW_OVERRIDES } from "@/lib/dev/attentionScenarios/tier1";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
@@ -143,6 +144,18 @@ function anchoredCode(): string {
   return found;
 }
 
+/** An event-anchored code, read from the routing table so it cannot disagree. */
+function eventCode(): string {
+  const found = Object.keys(ATTENTION_ROUTES).find(
+    (c) =>
+      ATTENTION_ROUTES[c]?.sectionId === "event" &&
+      !CONTEXT_REQUIRED.has(c) &&
+      !isCutFromSurface(c),
+  );
+  if (found === undefined) throw new Error("tier2: no context-free event-anchored code");
+  return found;
+}
+
 function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
   return {
     code,
@@ -192,6 +205,45 @@ function hold(entityKey: string): ScenarioHoldRow {
     base_modified_time: AT,
     kind: "mi11_pending",
   };
+}
+
+/**
+ * The realistic many-state (spec §3.3): MENU_CAP-1 DISTINCT real alerts spanning
+ * rooms/event/crew plus all three pill classes, one repeat-count carrier, filled
+ * from surviving context-free codes then context-required codes WITH their
+ * tier-1 context fixtures. Throws if the catalog cannot field enough codes -
+ * the matrix must be updated, never silently thinned.
+ */
+function manyAlerts(): ScenarioAlertRow[] {
+  const used = new Set<string>();
+  const pick = (code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow => {
+    used.add(code);
+    return alert(code, over);
+  };
+  const crew = crewAlert();
+  used.add(crew.code);
+  const rows: ScenarioAlertRow[] = [pick(anchoredCode()), pick(eventCode()), crew];
+  rows.push(pick(pickByDerivedClass("actionable", used), { occurrence_count: 7 }));
+  rows.push(pick(pickByDerivedClass("needs_look", used)));
+  rows.push(pick(pickByDerivedClass("self_heal", used)));
+  const contextFree = Object.keys(ATTENTION_ROUTES)
+    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c) && !used.has(c))
+    .sort();
+  for (const c of contextFree) {
+    if (rows.length >= MENU_CAP - 1) break;
+    rows.push(pick(c));
+  }
+  const backfill = Object.keys(ALERT_ROW_OVERRIDES)
+    .filter((c) => !isCutFromSurface(c) && !used.has(c))
+    .sort();
+  for (const c of backfill) {
+    if (rows.length >= MENU_CAP - 1) break;
+    rows.push(pick(c, ALERT_ROW_OVERRIDES[c] ?? {}));
+  }
+  if (rows.length !== MENU_CAP - 1) {
+    throw new Error(`tier2: only ${rows.length} surviving codes for t2-many`);
+  }
+  return rows;
 }
 
 function scenario(
@@ -258,11 +310,9 @@ export function tier2Scenarios(): AttentionScenario[] {
     }),
     scenario(T2_EMPTY, "No attention at all", { alerts: [], holds: [] }),
     scenario(T2_SINGLE, "Exactly one item", { alerts: [alert(pickCode("actionable"))], holds: [] }),
-    scenario(T2_MANY, `${MENU_CAP} items, the menu crosses its scroll threshold`, {
-      alerts: Array.from({ length: MENU_CAP }, (_, i) =>
-        alert(`GALLERY_FILLER_${String(i).padStart(2, "0")}`),
-      ),
-      holds: [],
+    scenario(T2_MANY, "12 real items across sections and classes", {
+      alerts: manyAlerts(),
+      holds: [hold("dana-reed")],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
     scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
