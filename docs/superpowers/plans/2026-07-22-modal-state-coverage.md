@@ -269,6 +269,8 @@ gh run watch "$run_id" --exit-status
 
 ## Review record
 
+**Plan R6 (Codex INLINED, 2026-07-22): APPROVE** ("No blocking defects... internally consistent, TDD-ordered, and executable as specified" — verdict transcript in session).
+
 **Plan R5 (Codex INLINED — tool-using dispatch died 6×, ladder rung 2; 2026-07-22): BLOCKING, 6 findings — all repaired.** F1: changeLog-only zero-items pin includes an undoable row (log rows never satisfy toHoldItem's approve_reject gate). F2: feed-parity expected rows are hand-built literals, never the production builders on both sides. F3: applyFixture alertId asserted in Task 3; guard 17 gains the non-empty-but-all-cut case. F4: Task 1 gains non-applied acceptable, non-applied undo, and non-crew-domain undo negatives. F5: epoch-advance remount test uses a concrete `useShareToken` probe harness invoking `applyRotated`. F6: gates re-run after any fix until both pass.
 
 **Plan R4 (Codex via codex-guard, 2026-07-22): BLOCKING, 4 findings — all repaired; live-API arity vector closed with a comprehensive snippet audit** (every API call in plan snippets checked against live signatures: `buildCrewLinkMailtos` object arg ✓, `isShowLiveOnDate(dates, todayIso)` ✓, `shapeChangeFeed` ✓, `validateScenario` ✓, `buildSheetDeepLink` ✓ — the line-171 `buildPublishedSectionData` missing-opts call was the sole remaining instance, fixed). F2: attention-extras pin split into unit-layer assertions (bySection.crew 2 warnings + 1 derived crew item) with the 3-card DOM proof in e2e. F3: container-boundary shape negatives added. F4: new e2e titles prefixed `modal-state:` for a literal grep.
