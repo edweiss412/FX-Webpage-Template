@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { emitUnknownField, newAggregator } from "@/lib/parser/warnings";
 import {
   installModalDomStubs,
   renderPublishedModal,
@@ -95,6 +96,22 @@ describe("PublishedReviewModal - unread-callout dedup (section 3 Fix A)", () => 
     expect(ignoredList.contains(elsFor(RAW_ROWS[0]!.key)[0]!)).toBe(true);
   });
 
+  it("test 3b: an UNMAPPED blockRef.kind still surfaces once, via the 'warnings' fallback bucket", () => {
+    // The no-drop proof's total-routing claim rests on warningsBySection folding
+    // an unmapped kind into the "warnings" fallback bucket (step3SectionStatus.ts).
+    // A kind with no KIND_TO_SECTION entry ("mystery") must therefore render its
+    // card under section-warning-active-warnings, NOT vanish. This exercises the
+    // exact route the mapped crew/rooms cases (test 2) never touch.
+    const unmapped: readonly RawRow[] = [{ block: "mystery", key: "Fog Machine", value: "2x" }];
+    renderPublishedModal(unmapped);
+    expect(screen.queryByText(/Content we couldn't read/i)).toBeNull();
+    const warningsActive = screen.getByTestId("section-warning-active-warnings");
+    const labels = within(warningsActive)
+      .getAllByTestId("per-show-actionable-row-label-value")
+      .map((el) => el.textContent?.trim());
+    expect(labels).toEqual([unmapped[0]!.key]);
+  });
+
   it("test 4: more than the 50-row callout cap all surface as cards (warnings is a superset)", () => {
     // The retired callout capped its list at RAW_UNRECOGNIZED_CAP (50). The
     // warnings surface is uncapped, so 51 distinct rows render 51 routed cards —
@@ -113,5 +130,33 @@ describe("PublishedReviewModal - unread-callout dedup (section 3 Fix A)", () => 
       .map((el) => el.textContent?.trim())
       .sort();
     expect(labels).toEqual(many.map((r) => r.key).sort());
+  });
+});
+
+describe("no-drop producer invariant: emitUnknownField co-emits 1:1", () => {
+  it("pushes BOTH a UNKNOWN_FIELD warn AND a matching raw_unrecognized entry in one call", () => {
+    // The no-drop guarantee rests on this 1:1 co-emission (the SOLE producer of
+    // raw_unrecognized). Exercise the REAL producer so a future edit that emits
+    // one without the other fails here, not silently. lib/parser/warnings.ts.
+    const agg = newAggregator();
+    emitUnknownField(agg, { block: "crew", kind: "crew", key: "  Gaffer  ", value: "Jane Doe" });
+    expect(agg.warnings).toHaveLength(1);
+    expect(agg.rawUnrecognized).toHaveLength(1);
+    const warn = agg.warnings[0]!;
+    expect(warn.code).toBe("UNKNOWN_FIELD");
+    expect(warn.severity).toBe("warn");
+    // Producer trims the key; both sinks carry the trimmed value in lockstep.
+    expect(agg.rawUnrecognized[0]).toEqual({ block: "crew", key: "Gaffer", value: "Jane Doe" });
+    expect(warn.rawSnippet).toBe("Gaffer | Jane Doe");
+    expect(warn.blockRef).toEqual({ kind: "crew", name: "Gaffer" });
+  });
+
+  it("the harness `unknownFieldWarn` replica matches the real producer's warn (block === kind)", () => {
+    // The render harness fabricates warns with a hand-written replica; pin it to
+    // the producer so replica drift can never make the modal tests pass vacuously.
+    const row: RawRow = { block: "rooms", key: "Suite 5", value: "King bed" };
+    const agg = newAggregator();
+    emitUnknownField(agg, { block: row.block, kind: row.block, key: row.key, value: row.value });
+    expect(unknownFieldWarn(row)).toEqual(agg.warnings[0]);
   });
 });

@@ -708,11 +708,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               </span>
             ) : clearingCount > 0 ? (
               /* §5.1 clearing state: auto-recovering items visible, never dark.
-                 The visible "N clearing" is terse; an aria-label/title spells out
-                 what "clearing" means so the count is not a bare, opaque number. */
+                 The visible "N clearing" is terse; an sr-only tail spells out what
+                 "clearing" means so the accessible name is a full sentence, not a
+                 bare count. The name comes from TEXT CONTENT (not aria-label — a
+                 bare <span> has the generic role, which does not support naming),
+                 so every AT honors it. `title` adds the same phrasing as a
+                 desktop hover tooltip. The `{" "}` is a real space text node
+                 between the visible text and the sr-only tail; without it the
+                 accessible-name algorithm trims the sr-only's leading space and
+                 renders "clearingon their own". */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                aria-label={`${clearingCount} clearing on their own, no action needed`}
                 title={`${clearingCount} clearing on their own, no action needed`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
               >
@@ -720,7 +726,8 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   aria-hidden="true"
                   className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                 />
-                {clearingCount} clearing
+                {clearingCount} clearing{" "}
+                <span className="sr-only">on their own, no action needed</span>
               </span>
             ) : (
               /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */

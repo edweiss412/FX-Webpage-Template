@@ -31,14 +31,23 @@ afterEach(() => {
 });
 
 describe("PublishedReviewModal - clearing pill accessible label (section 3 Fix C)", () => {
-  it("the 'N clearing' pill carries an aria-label/title, visible text stays terse", () => {
+  it("the 'N clearing' pill has a full accessible name via an sr-only tail; visible text stays terse; title mirrors it", () => {
     // Two non-actionable attention items → clearingCount === 2 (live − actionable).
     renderPublishedModal([], {
       attentionItems: [clearingAlertItem("c1"), clearingAlertItem("c2")],
     });
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(pill).toHaveTextContent("2 clearing");
-    expect(pill).toHaveAttribute("aria-label", "2 clearing on their own, no action needed");
+    // Accessible NAME (computed from text content incl. the sr-only tail), NOT a
+    // mere attribute — a bare <span> has the generic role and would ignore
+    // aria-label, so we prove the real accessible name the AT will announce.
+    expect(pill).toHaveAccessibleName("2 clearing on their own, no action needed");
+    // The fuller phrasing lives ONLY in the sr-only tail (hidden from sighted
+    // users); the visible portion stays the terse "2 clearing".
+    const srOnly = pill.querySelector(".sr-only");
+    expect(srOnly?.textContent).toBe("on their own, no action needed");
+    expect(pill.textContent?.replace(srOnly?.textContent ?? "", "").trim()).toBe("2 clearing");
+    // No aria-label (would be ignored on the generic role); title mirrors the name.
+    expect(pill.getAttribute("aria-label")).toBeNull();
     expect(pill).toHaveAttribute("title", "2 clearing on their own, no action needed");
   });
 });
