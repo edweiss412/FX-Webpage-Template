@@ -592,15 +592,35 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
         return parseFloat(el.style.top);
       });
     const before = await styleTop();
+    // Positive reposition evidence: blank the caret's inline top, then scroll.
+    // Only the coalesced measure-and-apply pass can repopulate it, so the poll
+    // below cannot pass on the stale pre-scroll value (codex wd-B R2 F1).
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="scrolly-help-caret"]');
+      if (!(el instanceof HTMLElement)) throw new Error("caret missing");
+      el.style.top = "";
+    });
     await page.evaluate((dy) => window.scrollBy(0, dy), SCROLL_DELTA);
     // precondition: the scroll actually happened (converge - scroll delivery is async)
     await expect
       .poll(() => page.evaluate(() => window.scrollY))
       .toBe(INITIAL_SCROLL_Y + SCROLL_DELTA);
-    // converge on the coalesced reposition instead of counting frames
+    // converge until reposition REWRITES the blanked style; then document-coord
+    // stability (viewportY + scrollY terms cancel; a missing/doubled scroll
+    // term shifts the value by SCROLL_DELTA and fails)
     await expect
-      .poll(async () => Math.abs((await styleTop()) - before), { timeout: 5_000 })
-      .toBeLessThanOrEqual(TOL);
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const el = document.querySelector('[data-testid="scrolly-help-caret"]');
+            if (!(el instanceof HTMLElement)) throw new Error("caret missing");
+            return el.style.top === "" ? null : parseFloat(el.style.top);
+          }),
+        { timeout: 5_000 },
+      )
+      .not.toBeNull();
+    const after = await styleTop();
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(TOL);
     // and the caret still abuts the LIVE trigger + formula after the reflow
     const t = await box(page, "scrolly-help-trigger");
     const b = await box(page, "scrolly-help-body");
