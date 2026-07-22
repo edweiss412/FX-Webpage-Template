@@ -117,24 +117,35 @@ to R1 finding 1 — there is no ordering to get wrong.
   `PublishedReviewModal.tsx:258` and `PublishedReviewModal.tsx:908`). Provided
   only on the published surface (same `routedWarningsRenderElsewhere` gate as
   the region itself); on the wizard the default no-op context is in effect.
-- **Append-only message log region** (the react-aria LiveAnnouncer shape). The
-  current single span becomes an sr-only container span with `role="status"`
-  (keeping `data-testid="warnings-panel-status"`), always mounted. State is an
+- **Append-only message log region.** The current single span becomes an
+  sr-only container span with `role="log"` (keeping
+  `data-testid="warnings-panel-status"`), always mounted. State is an
   append-only list of `{ id, text }` entries; `announce(message)` appends one
-  entry and trims the list to the most recent 3. Each entry renders as a child
-  span (keyed by id) inside the region.
-  - Why appends: `role="status"` has default `aria-relevant="additions text"`,
-    so INSERTING a message node is always announced — including when its text
-    is identical to a previous announcement (R1 finding 2: identical TEXT
-    CHANGES may not re-announce; identical ADDITIONS do). Two mutations that
-    land in one React commit (two fetch successes batched — R2 finding 1)
+  entry. Each entry renders as a child span (keyed by id) inside the region.
+  Entry ids come from a per-mount monotonic `useRef` counter incremented on
+  every `announce` call (unique even for calls batched into one commit; never
+  timestamp-derived — R3 finding 5).
+  - Why `role="log"`, not `role="status"`: `status` carries implicit
+    `aria-atomic="true"`, so any child addition could re-present the ENTIRE
+    container — replaying old messages (R3 finding 1). `log` is the ARIA role
+    designed for append-only message streams: implicit `aria-live="polite"`,
+    implicit `aria-atomic="false"` (only the changed node is presented), and
+    default `aria-relevant="additions text"`.
+  - Why appends: INSERTING a message node is always announced — including when
+    its text is identical to a previous announcement (R1 finding 2: identical
+    TEXT CHANGES may not re-announce; identical ADDITIONS do). Two mutations
+    that land in one React commit (two fetch successes batched — R2 finding 1)
     append two nodes in that commit and both are announced; nothing is
-    overwritten, so no announcement can be lost to batching.
-  - Why no clearing: spoken text is never mutated or emptied near its own
-    announcement, so there is no window where clearing could cancel a queued
-    utterance (R2 finding 3). The only removals are trim-driven — a node
-    leaves the DOM only when it is 3 announcements old — and removals are not
-    in `role="status"`'s default relevant set, so they announce nothing.
+    overwritten, so no announcement can be lost to batching. The container
+    itself is static from mount (a dynamically INSERTED live region is the
+    classic not-announced pitfall; inserting children into a pre-existing
+    region is the supported path).
+  - Why nothing is ever removed while mounted: a trimmed node could still be
+    queued, unspoken, in the assistive technology's delivery pipeline —
+    removal can strand it (R3 finding 2). The log grows only by one entry per
+    manual admin action and is discarded wholesale on modal unmount, so
+    per-mount growth is bounded by Doug's own tap count; the sr-only spans
+    have no visual cost.
   - No timers, no `requestAnimationFrame` — one state write per announcement,
     jsdom-safe.
 - **Background refresh:** props change, counts change, but the message log is
@@ -178,18 +189,18 @@ all visible panel copy are untouched — only the sr-only sentence retires.
 - The always-mounted contract carries over to the container: same testid,
   node survives Silent-state chrome suppression
   (`ShowReviewSurface.tsx:1109-1114` comment block still holds — a live region
-  must exist before its content changes for `role="status"` to speak).
+  must exist before its content changes for its additions to speak).
 
 ### 2.6 Transition inventory (message log)
 
 | Transition | Treatment |
 | --- | --- |
-| append message node (any text, including identical to a prior node) | instant sr-only addition — announced (default `aria-relevant` includes additions); no visual (polish spec §11 precedent) |
-| trim-removal of a 3-announcements-old node | instant; announces nothing (removals outside default `aria-relevant`) |
-| append + trim in the same commit | both apply in one commit; only the addition is announced |
+| append message node (any text, including identical to a prior node) | instant sr-only addition — announced (default `aria-relevant` includes additions; `role="log"` atomic=false presents only the new node); no visual (polish spec §11 precedent) |
 | two appends in one commit (batched successes) | both nodes added; both announced (R2 F1) |
+| unmount of the whole region (modal close) | log discarded with the component; nothing announced |
 
-Existing node text NEVER mutates — there is no text-change transition at all.
+Existing node text NEVER mutates and no node is ever removed while mounted —
+there is no text-change and no removal transition at all (R3 F2).
 Compound: append during a background refresh commit — independent state, both
 apply cleanly in one commit; the addition is the only live-region mutation. No
 animation anywhere — sr-only.
@@ -272,9 +283,14 @@ Tapping the reveal button replaces it in place:
   `The warnings that need a look are in Hotels, Rooms & scope, Crew, Contacts,
   and Schedule. Nothing else to note here.` — every name tappable. No residual
   "more" clause can occur (the button exists only when `missCount === 0`).
-- Focus moves to the first revealed name button — ON THE ACTIVATION TRANSITION
-  ONLY (inside the tap handler's state update). Data-driven re-renders of an
-  already-expanded list NEVER move focus (R2 finding 2d).
+- Focus moves to the first revealed name button via a ONE-SHOT pending-focus
+  flag: the tap handler sets a ref flag alongside the `expanded` state update;
+  a layout effect after the expanded render focuses the first revealed button
+  IFF the flag is set, then clears it (the button does not exist until that
+  render, so the handler cannot focus it directly — R3 finding 3). Data-driven
+  re-renders of an already-expanded list — including a refresh that replaces
+  or reorders extra sections while staying over-cap — NEVER move focus: the
+  flag is set only in the tap handler (R2 finding 2d, R3 finding 3).
 - One-way per mount: no collapse control. Local `useState`; resets on remount.
 
 **Expanded-state semantics under data changes (R2 finding 2).** `expanded` is a
@@ -338,8 +354,13 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
      before the commit, simulating React batching of two fetch successes) →
      BOTH messages present as children. *Catches: last-write-wins message loss
      (R2 F1).*
-   - Four announces → oldest node trimmed: exactly 3 children remain, observer
-     shows the removal happened in the same commit as the newest addition.
+   - Four announces → four children, in order; the observer recorded four
+     additions and ZERO removals (R3 F2: nothing is trimmed while mounted).
+   - Region role is `log` (atomic-false append semantics — R3 F1), asserted
+     directly on the container.
+   - Ids: the four children have distinct React-rendered DOM identities (assert
+     via captured element references remaining the same nodes across appends —
+     no remount of earlier entries; R3 F5).
    - Empty-string announce → no mutations recorded.
    - Wizard-mode mount (no `routedWarnings`/`renderSectionExtras`) → container
      absent (contract carried over from the current
@@ -353,18 +374,20 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
      from the fixture group's item count (not hardcoded), exactly once;
      non-ok response and thrown-fetch paths announce nothing (R2 F7 — same
      negative pair as the single-row control, not only the success case).
-   - Chip-region contract, stated precisely (R2 F5): while ARMED (between the
-     first and second taps) the chip's own status region contains exactly
-     "Tap again to confirm." — the ratified §1.1 item 2 behavior, asserted
-     positively. From the moment the confirming tap's success branch runs,
-     through the refresh rerender, a `MutationObserver` on that region records
-     no mutation that sets non-empty text (the armed→empty clearing is the
-     only permitted mutation). *Catches: the original double-announcement,
-     including a transient completion message cleared before the final
-     assertion (R2 F6b).*
+   - Chip-region contract, stated precisely (R2 F5, R3 F4): a
+     `MutationObserver` attaches to the chip's own status region at INITIAL
+     render, before any tap. Across the whole flow — arm, confirm, success,
+     refresh rerender — the region's text takes values from the set
+     { "", "Tap again to confirm." } ONLY, every observed mutation included;
+     while ARMED it is exactly "Tap again to confirm." (the ratified §1.1
+     item 2 behavior, asserted positively). *Catches: the original
+     double-announcement, a transient completion message cleared before the
+     final assertion (R2 F6b), and a transient message substituted between
+     the confirming tap and the success branch (R3 F4).*
    - No-provider mount (R2 F8): render `DataQualityWarningControls` with NO
      provider, drive the full success flow → no throw, and no
-     `role="status"` node anywhere in the document ever contains the clause
+     live-region node (`role="log"` or `role="status"`) anywhere in the
+     document ever contains the clause
      (assert via observer on `document.body`). *Catches: a throwing context
      default; announcements leaking through module state.*
 3. **Copy reorder** (`tests/components/admin/wizard/pointerSentence.test.tsx`):
@@ -387,8 +410,10 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
    - Expanded then data change (R2 F2): with `expanded` set, rerender the same
      mount with (a) overflow removed → plain ≤cap sentence; (b) overflow
      restored → full list WITHOUT another tap; (c) a label miss introduced →
-     plain folded clause; in (b)/(c) document.activeElement is unchanged
-     (focus moves on activation only).
+     plain folded clause; (d) one extra section replaced by another while
+     staying over-cap (R3 F3) → full list re-renders with the new name; in
+     (b)/(c)/(d) document.activeElement is unchanged (focus moves only via the
+     one-shot activation flag).
 5. **e2e** (existing published-modal harness,
    `tests/e2e/warning-panel-polish.spec.ts` — the file already reads the
    region at line 112):
@@ -514,3 +539,32 @@ NEEDS-ATTENTION, 8 findings.
 - **F8 (P3, no-provider guard unexercised) — FIXED.** §5.2 adds the
   provider-less success-flow test asserting no throw and no leaked
   announcement.
+
+## 8.2 Adversarial round 3 triage log
+
+Inlined no-tools Codex review of the R2-revised spec, 2026-07-22, VERDICT:
+NEEDS-ATTENTION, 5 findings. Round 3 on the announcer vector triggered the
+comprehensive re-analysis rule: the full ARIA live-region contract was audited
+(region pre-existence, implicit atomicity per role, relevant-set defaults,
+dynamic-region insertion pitfall, identical-addition semantics, delivery
+asynchrony) and §2.2 now records the result of each row rather than patching
+single instances.
+
+- **F1 (P1, `role="status"` implicit `aria-atomic="true"` replays the whole
+  container) — FIXED.** Verified against the ARIA role definitions: correct.
+  The region role is now `log` (implicit polite, atomic=false, additions
+  announced individually) — the role designed for append-only streams. §2.2,
+  §2.6, §5.1 updated; the role itself is asserted in §5.1.
+- **F2 (P1, trim can strand an unspoken queued announcement) — FIXED.** No
+  removal while mounted; the log is bounded by the admin's own per-mount tap
+  count and discarded on unmount. §2.2, §2.6, §5.1 updated.
+- **F3 (P2, focus contract impossible as literally written; refresh
+  focus-steal untested) — FIXED.** One-shot pending-focus ref flag set in the
+  tap handler, consumed by a layout effect; §5.4 adds the same-count
+  extra-replacement rerender row asserting no focus movement.
+- **F4 (P2, chip observation window starts too late) — FIXED.** Observer
+  attaches at initial render; permitted-text-set contract over the entire
+  flow (§5.2).
+- **F5 (P2, entry-id uniqueness unspecified) — FIXED.** Per-mount monotonic
+  `useRef` counter, never timestamps; §5.1 asserts node identity stability
+  across appends.
