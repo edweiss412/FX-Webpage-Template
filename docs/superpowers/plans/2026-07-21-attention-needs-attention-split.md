@@ -462,7 +462,7 @@ function pill(nA: number, nNeed: number, nSelf: number, degraded = false) {
   render(<PublishedReviewModal {...baseProps({ attentionItems: makeItems(nA, nNeed, nSelf), alertsDegraded: degraded })} />);
   return screen.getByTestId("published-alert-pill");
 }
-// full spec §11.5 matrix — all 9 rows:
+// full spec §11.5 matrix, all 9 rows:
 it("(3,4,2)", () => { const p = pill(3,4,2); expect(p.textContent).toMatch(/3 to confirm.*4 to review.*2 monitoring/s); });
 it("(3,0,0)", () => { expect(pill(3,0,0).textContent).toMatch(/3 to confirm/); });
 it("(3,4,0)", () => { expect(pill(3,4,0).textContent).toMatch(/3 to confirm.*4 to review/s); });
@@ -536,7 +536,7 @@ it("null-action needs-look row shows hint, no link", () => {
   expect(screen.getByText(/Trim the gallery/)).toBeInTheDocument();
   expect(screen.queryByRole("link")).toBeNull();
 });
-it("monitoring group is one summary row — individual titles NOT rendered", () => {
+it("monitoring group is one summary row; individual titles NOT rendered", () => {
   render(<AttentionMenu {...menuProps([selfHealItem("SYNC_STALLED", "Syncing stalled"), selfHealItem("DRIVE_FETCH_FAILED", "Drive fetch failed")])} />);
   expect(screen.getByText(/2 clearing on their own, no action needed/)).toBeInTheDocument();
   expect(screen.queryByText("Syncing stalled")).toBeNull();  // not enumerated
@@ -556,7 +556,7 @@ it("internal anchor carries neither target nor rel", () => {
   expect(a).not.toHaveAttribute("rel");
 });
 it("boundary: a needs-look item whose action FAILED to resolve renders hint, no link (through the menu)", () => {
-  // SHEET_UNAVAILABLE with a null action (both ids absent) — not the intentionally-actionless asset code
+  // SHEET_UNAVAILABLE with a null action (both ids absent), not the intentionally-actionless asset code
   render(<AttentionMenu {...menuProps([needsLookItem("SHEET_UNAVAILABLE", null)])} />);
   expect(screen.getByText(/Re-share the sheet/)).toBeInTheDocument();
   expect(screen.queryByRole("link")).toBeNull();
