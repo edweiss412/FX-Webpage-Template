@@ -96,9 +96,12 @@ E2E (`tests/e2e/attention-modal-gallery.spec.ts`):
   via one-shot `locator.evaluate`. THEN resize to 1280×800, fresh `gotoScenario`
   (re-navigation resets any state), repeat the same collapsed assertions; ONLY
   AFTER desktop collapsed geometry passes, run the persistence steps (desktop
-  only, spec §5): expand panel, ArrowRight, re-query, panel still open
-  (`aria-expanded="true"`); close X, Reopen, panel state survived. Nothing runs
-  after persistence, so expanded state leaks nowhere.
+  only, spec §5): expand panel; ArrowRight; FIRST await the remount proof — the
+  aria-live count text changes (e.g. `1 /` becomes `2 /`, via
+  `expect(live).toHaveText(/^\s*2\s*\//)`, the same signal the existing stepping
+  test uses) — THEN assert the panel is still open (`aria-expanded="true"`);
+  close X, Reopen (await the dialog gate again), assert panel state survived.
+  Nothing runs after persistence, so expanded state leaks nowhere.
   Anti-tautology: expected boxes come from the real shell testids; failure mode
   caught = bar wrapping (height > 64) or covering the panel while operability
   tests still pass.
@@ -126,7 +129,10 @@ Commit (one): `fix(admin): slim single-row switcher bar with excluded-scenarios 
 ### Task 2 — docs close-out (docs task; validation = mechanical checks, not TDD)
 
 - DEFERRED.md: remove the `ATTN-GALLERY-CONTROLBAR-OVERLAP-1` entry (lines 11-15).
-- DEFERRED-archive.md: add resolved entry citing this spec + PR.
+- DEFERRED-archive.md: add resolved entry citing this spec and the branch (the PR
+  number does not exist yet; Task 3 step 5 appends it to the entry in a one-line
+  `docs(handoff)` follow-up commit immediately after `gh pr create`, before CI
+  watch).
 - Parent spec §3.4 layout-invariant line 118: append one sentence pointing to this
   spec as the ratified amendment (do NOT rewrite the parent bullet).
 - Validation (stated because docs tasks have no red/green): `rg -c
@@ -144,12 +150,14 @@ Commit: `docs(handoff): close ATTN-GALLERY-CONTROLBAR-OVERLAP-1 via slim switche
 3. Impeccable dual-gate (invariant 8): `/impeccable critique` + `/impeccable audit`
    on the diff; P0/P1 fixed or DEFERRED.md.
 4. Whole-diff Codex review (fresh eyes, inline-all brief), iterate to APPROVE.
-5. Push, PR, real CI green, `gh pr merge --merge`, sync main `0  0`.
+5. Push, `gh pr create` (then the one-line archive PR-number follow-up commit and
+   push, per Task 2), real CI green, `gh pr merge --merge`, sync main `0  0`.
 
 ## Fix-round regression budget
 
-Any review-round patch to the component re-runs Task 1's full test file plus the
-Task 2 e2e before the next round dispatch; note both in the round closure.
+Any review-round patch to the component re-runs Task 1's full unit test file plus
+Task 1's e2e command before the next round dispatch; note both in the round
+closure.
 
 ## Anti-tautology statements
 
