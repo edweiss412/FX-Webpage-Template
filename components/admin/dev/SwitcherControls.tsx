@@ -27,7 +27,7 @@ type Props = {
 };
 
 const STEP_BTN =
-  "min-h-tap-min min-w-tap-min inline-flex items-center justify-center rounded-md border border-border bg-surface px-3 text-ink hover:border-accent focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-tap-min min-w-tap-min inline-flex items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-accent";
 
 export function SwitcherControls({
   index,
@@ -66,26 +66,26 @@ export function SwitcherControls({
             </button>
           </>
         )}
-        <span aria-live="polite" className="text-xs tabular-nums text-subtle">
+        <span aria-live="polite" className="text-xs tabular-nums text-text-subtle">
           {index + 1} / {total}
         </span>
-        <span className="text-sm font-medium text-ink">{label}</span>
-        <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-subtle">
+        <span className="text-sm font-medium text-text-strong">{label}</span>
+        <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle">
           tier {tier}
         </span>
         {codes.length > 0 && (
-          <span className="truncate font-mono text-xs text-subtle" title={codes.join(", ")}>
+          <span className="truncate font-mono text-xs text-text-subtle" title={codes.join(", ")}>
             {codes.join(", ")}
           </span>
         )}
       </div>
       {structural.length > 0 && (
-        <p className="text-xs text-subtle">
+        <p className="text-xs text-text-subtle">
           Not shown (card-only structural probes): {structural.map((e) => e.label).join(", ")}
         </p>
       )}
       {cut.length > 0 && (
-        <p className="text-xs text-subtle">
+        <p className="text-xs text-text-subtle">
           {cut.length} cut from the published attention surface (telemetry codes, not shown in this
           modal).
         </p>
