@@ -191,7 +191,7 @@ not stretch-based, and each is guaranteed by an explicit class:
 | `excluded` only cut | `structural.length === 0` | Toggle shows total; panel shows only the cut line. |
 | `label` long / viewport 390px | | Label truncates (`min-w-0 truncate`); row never wraps (`flex-nowrap`); all siblings `shrink-0`. |
 | `showExcluded` true while stepping scenarios | | Panel stays open (state local, `excluded` constant per mount). |
-| Modal closed → Reopen | | Bar (and panel state) persist; unaffected — only the modal unmounts (parent spec §3.3). |
+| Modal closed via X | | Navigates to `/admin`; the whole gallery (bar included) unmounts — no persistence surface exists (`tests/e2e/attention-modal-gallery.spec.ts:324-329`). |
 | Panel open | | Bar may overlap the modal header — ratified transient (§1.1). |
 
 ## 4. Transition inventory
@@ -247,15 +247,16 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     from the real modal testids, not from any gallery-authored wrapper; the bar box
     from `attention-switcher-controls` (`tests/e2e/attention-modal-gallery.spec.ts:66`).
   - Persistence rides the same test, at 1280×800 ONLY: open the panel, press
-    ArrowRight (scenario remount), assert the panel is still open
-    (`aria-expanded="true"`); then close the modal via its X, click "Reopen", and
-    assert the panel state survived — the bar is outside the keyed modal subtree
-    (parent spec §3.3), and this pins it. Desktop-only because at 1280 the expanded
-    panel (max-w-3xl, right edge ≈1024px) cannot cover the modal's close X (modal
-    max-w-5xl, X near ≈1100px, `ReviewModalShell.tsx:618`), so the X stays
-    clickable while expanded; at 390px the ratified overlap (§1.1) can cover the X,
-    which is why the mobile viewport runs only the collapsed-state geometry
-    assertions.
+    ArrowRight (scenario remount), await the remount proof (the aria-live count
+    advances), then assert the panel is still open (`aria-expanded="true"`) — the
+    bar is outside the keyed modal subtree, and this pins it. There is NO
+    close/reopen persistence case: the shipped modal X navigates to `/admin` and
+    unmounts the entire gallery including the bar (documented in
+    `tests/e2e/attention-modal-gallery.spec.ts:324-329`; the parent spec §3.3
+    "Reopen" design was not what shipped), so panel state across close is
+    structurally N/A. Desktop-only because at 390px the ratified overlap (§1.1)
+    can cover modal content while expanded; the mobile viewport runs only the
+    collapsed-state geometry assertions.
   - Footnote test (`tests/e2e/attention-modal-gallery.spec.ts:332`) updated: assert
     footnote copy hidden by default, click the toggle, then keep the existing
     structural-label + cut-count assertions (they derive from catalog exports

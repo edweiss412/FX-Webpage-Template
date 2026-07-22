@@ -95,13 +95,14 @@ E2E (`tests/e2e/attention-modal-gallery.spec.ts`):
   helper, no tolerance); `bar.height <= 64`; `bar.scrollWidth <= bar.clientWidth`
   via one-shot `locator.evaluate`. THEN resize to 1280×800, fresh `gotoScenario`
   (re-navigation resets any state), repeat the same collapsed assertions; ONLY
-  AFTER desktop collapsed geometry passes, run the persistence steps (desktop
+  AFTER desktop collapsed geometry passes, run the persistence step (desktop
   only, spec §5): expand panel; ArrowRight; FIRST await the remount proof — the
-  aria-live count text changes (e.g. `1 /` becomes `2 /`, via
-  `expect(live).toHaveText(/^\s*2\s*\//)`, the same signal the existing stepping
-  test uses) — THEN assert the panel is still open (`aria-expanded="true"`);
-  close X, Reopen (await the dialog gate again), assert panel state survived.
-  Nothing runs after persistence, so expanded state leaks nowhere.
+  aria-live count text changes (`expect(live).toHaveText(/^\s*2\s*\//)`, the same
+  signal the existing stepping test uses) — THEN assert the panel is still open
+  (`aria-expanded="true"`). No close/reopen case exists: the shipped X navigates
+  to `/admin` and unmounts the gallery (attention-modal-gallery.spec.ts:324-329);
+  spec §5 records this as structurally N/A. Nothing runs after persistence, so
+  expanded state leaks nowhere.
   Anti-tautology: expected boxes come from the real shell testids; failure mode
   caught = bar wrapping (height > 64) or covering the panel while operability
   tests still pass.
