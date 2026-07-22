@@ -63,6 +63,17 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
 // caught: click produces no pending UI and the screen sits inert for the
 // whole server round-trip.
 
+
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("ShowsTable optimistic open skeleton", () => {
   // jsdom implements no navigation: kill the anchor default so clicking the
   // row exercises ONLY the React onClick (no "not implemented" stderr noise).
@@ -901,7 +912,7 @@ describe("ShowsTable", () => {
     const root = screen.getByTestId("help-affordance--dashboard-active-shows--tooltip");
     // The popover body is closed by default → the Learn-more link is hidden.
     // Scoped to the HoverHelp root so the row <Link> can never satisfy this.
-    const link = within(root).getByRole("link", { hidden: true });
+    const link = within(ownedBody(root)).getByRole("link", { hidden: true });
     expect(link).toHaveAttribute("href", "/help/admin/dashboard#active-shows");
   });
 

@@ -118,6 +118,17 @@ afterEach(() => {
   vi.resetModules();
 });
 
+
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("/admin/needs-attention page (spec §4.3)", () => {
   it("success: wrapper + header + the real inbox rendering the loader's data", async () => {
     await renderPage();
@@ -163,7 +174,7 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     await renderPage();
 
     const root = screen.getByTestId("help-affordance--needs-attention-page--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/review-queues#first-seen",
     );

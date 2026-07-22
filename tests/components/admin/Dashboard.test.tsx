@@ -131,6 +131,17 @@ async function renderDashboard(
   render(await Dashboard(options));
 }
 
+
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("Dashboard composition", () => {
   it("renders StatStrip + ShowsTable + NeedsAttentionInbox + DashboardFooter", async () => {
     await renderDashboard();
@@ -225,7 +236,7 @@ describe("Dashboard composition", () => {
   it("desktop needs-attention header help carries matrix root testid + first-seen link", async () => {
     await renderDashboard();
     const root = screen.getByTestId("help-affordance--dashboard-needs-attention--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/review-queues#first-seen",
     );
@@ -234,7 +245,7 @@ describe("Dashboard composition", () => {
   it("archived header help carries matrix root testid + archived link (archived bucket only)", async () => {
     await renderDashboard({ bucket: "archived" });
     const root = screen.getByTestId("help-affordance--dashboard-archived-shows--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/dashboard#archived",
     );

@@ -169,8 +169,15 @@ describe("HoverHelp Escape containment inside ReviewModalShell (§3.2)", () => {
     render(<HarnessWithLearnMore onClose={onClose} />);
     const trigger = screen.getByTestId("harness-help-trigger");
     fireEvent.click(trigger);
-    const link = await screen.findByRole("link", { name: /learn more/i });
-    link.focus();
+    // jsdom's zero rects put the popover in the anchor-gone hidden state
+    // (visibility:hidden), which empties computed accessible names — a
+    // byRole+name query cannot match here (geometry is real-browser scope).
+    // The test's subject is Escape ORIGIN containment, so a body-scoped
+    // element query is the right tool.
+    const body = await screen.findByTestId("harness-help-body");
+    const link = body.querySelector("a");
+    if (!link) throw new Error("learn-more link missing from popover body");
+    (link as HTMLElement).focus();
     fireEvent.keyDown(link, { key: "Escape" });
     await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));

@@ -1019,7 +1019,10 @@ it("HEADERPARITY: dashboard header shows a count chip = renderedCount + overflow
 it("HEADERPARITY: dashboard header renders the ? help affordance linking review-queues#re-stage", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const root = screen.getByTestId("help-affordance--dashboard-recently-auto-applied--tooltip");
-  const learnMore = within(root).getByRole("link", { name: /learn more/i });
+  // Portaled + jsdom-hidden (zero rects -> anchor-gone): computed accname is
+  // empty, so match by role within the owned body and assert the label attr.
+  const learnMore = within(ownedBody(root)).getByRole("link", { hidden: true });
+  expect(learnMore.getAttribute("aria-label") ?? "").toMatch(/learn more/i);
   expect(learnMore).toHaveAttribute("href", "/help/admin/review-queues#re-stage");
 });
 
@@ -1047,6 +1050,17 @@ it("HEADERPARITY: needs-attention page (headingLevel 2) renders neither chip nor
 
 // ── REDESIGN-3: structured field_changed diff (kind:"fields") ────────────────
 import type { FieldChangeEntry } from "@/lib/sync/changeLog/fieldChanges";
+
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 
 // admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
 // read the current search params (param-preserving modal hrefs) — stub the

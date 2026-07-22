@@ -212,8 +212,11 @@ describe("Step2Verify", () => {
     const summary = getByTestId("wizard-step2-success").textContent ?? "";
     expect(summary).toContain("Shows 2026");
     expect(summary).toMatch(new RegExp(`\\b${expectedTotal}\\b`));
-    // Per-bucket counts come from the fixture too.
-    expect(summary).toContain("Sheets ready for review:");
+    // Per-bucket counts render inside the HoverHelp popover BODY, which is
+    // portaled out of the success subtree (hoverhelp-smart-position §4.1) —
+    // read it at document scope via its own testid.
+    const popover = document.querySelector('[data-testid="wizard-step2-found-body"]');
+    expect(popover?.textContent ?? "").toContain("Sheets ready for review:");
     expect(getByTestId("wizard-step2-advance").getAttribute("href")).toBe("/admin?step=3");
   });
 
