@@ -25,6 +25,8 @@
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
+import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -88,7 +90,11 @@ function AttentionMenuPanel({
   }, [onClose, pillRef]);
 
   const actionable = items.filter((i) => i.actionable);
-  const clearingCount = items.length - actionable.length;
+  // Attention split (spec 2026-07-21 §3.4): needs-look defaults FAIL-VISIBLE —
+  // a non-actionable item without clearingKind renders as needs-a-look, never
+  // silently dark. Only explicit self_heal items collapse to the summary row.
+  const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
+  const selfHealCount = items.filter((i) => i.clearingKind === "self_heal").length;
 
   return (
     <div
@@ -138,14 +144,70 @@ function AttentionMenuPanel({
           );
         })}
       </div>
-      {clearingCount > 0 ? (
+      {needsLook.length > 0 ? (
+        /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
+           descendant is the action <a> (when the action resolved). No row-level
+           onNavigate, no nested popover (the menu is itself a floating layer). */
+        <div className="border-t border-border">
+          <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Needs a look
+            </span>
+          </div>
+          {needsLook.map((item) => {
+            const code = item.kind === "alert" ? item.alert.code : null;
+            const hint =
+              code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+            const action = item.kind === "alert" ? item.alert.action : null;
+            return (
+              <div
+                key={item.id}
+                data-testid={`attention-needslook-row-${item.id}`}
+                className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+              >
+                <span
+                  aria-hidden="true"
+                  className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-text-strong">
+                    {item.menuTitle}
+                  </span>
+                  {hint ? (
+                    <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
+                  ) : null}
+                  {action ? (
+                    /* Menu-close on activation (spec §3.4): a same-route hash link
+                       activated inside the open dropdown would scroll its target
+                       behind the menu; external links close too, for consistency. */
+                    <a
+                      href={action.href}
+                      onClick={() => onClose()}
+                      {...(action.external
+                        ? { target: "_blank", rel: "noopener noreferrer" }
+                        : {})}
+                      className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
+                    >
+                      {action.label}
+                      {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                    </a>
+                  ) : null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {selfHealCount > 0 ? (
+        /* Monitoring group (spec §3.4.3): one summary row, items not enumerated —
+           genuinely self-healing, nothing to act on. Copy is TRUE for this subset. */
         <div className="flex items-center gap-2 border-t border-border bg-surface-sunken px-4 py-2.5">
           <span
             aria-hidden="true"
             className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
           />
           <span className="text-xs text-text-subtle">
-            {clearingCount} more clearing on their own — no action needed
+            {selfHealCount} clearing on their own, no action needed
           </span>
         </div>
       ) : null}

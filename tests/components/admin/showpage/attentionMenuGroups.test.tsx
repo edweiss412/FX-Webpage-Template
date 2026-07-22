@@ -1,0 +1,139 @@
+// @vitest-environment jsdom
+/**
+ * Attention-menu clearing groups
+ * (spec 2026-07-21-attention-needs-attention-split §3.4, §11.6-§11.8).
+ *
+ * Failure modes caught: a needs-look row acquiring extra interactive
+ * descendants; external links missing the full rel contract; internal links
+ * leaking target/rel; monitoring items enumerated instead of summarized; a
+ * dead link on a failed action resolution; a link click leaving the menu open.
+ */
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { createRef } from "react";
+import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+
+afterEach(cleanup);
+
+type AlertItem = Extract<AttentionItem, { kind: "alert" }>;
+
+function item(
+  id: string,
+  code: string,
+  over: Partial<AlertItem> & { action?: AlertItem["alert"]["action"] } = {},
+): AttentionItem {
+  const { action = null, ...rest } = over;
+  return {
+    id: `alert:${id}`,
+    kind: "alert",
+    tone: "notice",
+    sectionId: "overview",
+    crewKey: null,
+    actionable: false,
+    menuTitle: `Title ${id}`,
+    menuSubtitle: null,
+    alert: {
+      alertId: id,
+      code,
+      template: null,
+      params: {},
+      action,
+      helpHref: null,
+      raisedAt: "2026-07-21T09:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: "note",
+      failedKeys: null,
+      dataGaps: null,
+      errorCode: null,
+    },
+    ...rest,
+  };
+}
+
+const needsLook = (
+  id: string,
+  code = "SHEET_UNAVAILABLE",
+  action: AlertItem["alert"]["action"] = null,
+) => item(id, code, { clearingKind: "needs_look", action });
+const selfHeal = (id: string, menuTitle: string) =>
+  item(id, "SYNC_STALLED", { clearingKind: "self_heal", menuTitle });
+
+const SHEET = "https://docs.google.com/spreadsheets/d/FILE/edit#gid=0";
+
+function renderMenu(items: AttentionItem[], onClose = vi.fn()) {
+  const pillRef = createRef<HTMLButtonElement>();
+  render(
+    <AttentionMenu items={items} open onClose={onClose} onNavigate={vi.fn()} pillRef={pillRef} />,
+  );
+  return onClose;
+}
+
+describe("needs-a-look group", () => {
+  it("external sheet link carries exact target + full rel, and label", () => {
+    renderMenu([needsLook("n1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true })]);
+    const a = screen.getByRole("link", { name: /Open in Sheet/ });
+    expect(a).toHaveAttribute("href", SHEET);
+    expect(a).toHaveAttribute("target", "_blank");
+    expect(a).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("internal anchor carries neither target nor rel", () => {
+    renderMenu([
+      needsLook("n2", "SHOW_UNPUBLISHED", {
+        label: "Go to Overview",
+        href: "/admin?show=x#overview",
+        external: false,
+      }),
+    ]);
+    const a = screen.getByRole("link", { name: /Go to Overview/ });
+    expect(a).not.toHaveAttribute("target");
+    expect(a).not.toHaveAttribute("rel");
+  });
+
+  it("clicking an action link closes the menu (internal AND external)", () => {
+    const onClose = renderMenu([
+      needsLook("n3", "SHOW_UNPUBLISHED", {
+        label: "Go to Overview",
+        href: "/admin?show=x#overview",
+        external: false,
+      }),
+      needsLook("n4", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+    ]);
+    fireEvent.click(screen.getByRole("link", { name: /Go to Overview/ }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("link", { name: /Open in Sheet/ }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("row shows the code's fix hint and is read-only apart from its single anchor", () => {
+    renderMenu([needsLook("n5", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true })]);
+    const row = screen.getByTestId("attention-needslook-row-alert:n5");
+    expect(within(row).getByText(/Re-share the sheet with the service account\./)).toBeInTheDocument();
+    expect(within(row).getAllByRole("link")).toHaveLength(1);
+    expect(within(row).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("boundary: a needs-look item whose action failed to resolve renders hint, NO link", () => {
+    renderMenu([needsLook("n6", "SHEET_UNAVAILABLE", null)]);
+    const row = screen.getByTestId("attention-needslook-row-alert:n6");
+    expect(within(row).getByText(/Re-share the sheet/)).toBeInTheDocument();
+    expect(within(row).queryAllByRole("link")).toHaveLength(0);
+    expect(within(row).queryAllByRole("button")).toHaveLength(0);
+  });
+});
+
+describe("monitoring group", () => {
+  it("is one summary row; individual titles NOT rendered", () => {
+    renderMenu([selfHeal("s1", "Syncing stalled"), selfHeal("s2", "Drive fetch failed")]);
+    expect(screen.getByText(/2 clearing on their own, no action needed/)).toBeInTheDocument();
+    expect(screen.queryByText("Syncing stalled")).toBeNull();
+    expect(screen.queryByText("Drive fetch failed")).toBeNull();
+  });
+
+  it("the retired em-dash footer is gone", () => {
+    renderMenu([selfHeal("s3", "Syncing stalled")]);
+    expect(screen.queryByText(/more clearing on their own/)).toBeNull();
+  });
+});
