@@ -47,17 +47,9 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 From the invariant-8 dual-gate on the share-hub-fidelity-fixes diff (Assessment A, 31/40).
 `SHAREHUB-ROW-ANATOMY-1` (the run's primary P1) is RESOLVED (archived in
 [DEFERRED-archive.md](./DEFERRED-archive.md)). The remaining findings
-are recorded here with dispositions; none is a P0 and none blocks merge.
-
-- **[P1] "Careful rows carry no visual weight" — REFUTED against the ratified mock, not deferred.**
-  Assessment A wanted a warning tone on the two idle rows. The user-approved mock
-  (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray
-  (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber
-  `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict
-  the mock AND the reserved-accent contract (the band's orange means "this matters now"; a
-  standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s
-  auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm
-  state carries all the warning weight. Recorded so a future reviewer does not re-derive it.
+are recorded here with dispositions; none is a P0 and none blocks merge. (One refuted
+finding — "Careful rows carry no visual weight" — is not a deferral and lives in
+[DEFERRED-archive.md](./DEFERRED-archive.md) under Share hub.)
 
 - **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** Spec §5
   ratifies `right-[17px]` at the kebab (the group's rightmost element, against a `right-0`

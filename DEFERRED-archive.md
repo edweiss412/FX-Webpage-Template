@@ -12,6 +12,10 @@ Deferred, not accepted as correct: the fix was a new compact row variant on `Pic
 
 **Resolution:** shipped by `share-hub-fidelity-fixes`. Both `RotateShareTokenButton` (compact) and `PickerResetControl` now render as the same borderless full-width menu row (icon + label + description), matching the mock. `step3ReviewSections.tsx` was confirmed NOT to consume `PickerResetControl` (it carries its own parallel implementation), so no opt-out was needed.
 
+### SHAREHUB-FIDELITY "Careful rows carry no visual weight" — [P1] REFUTED (N/A, never deferred)
+
+From the invariant-8 dual-gate on the `share-hub-fidelity-fixes` diff (Assessment A). The critique wanted a warning tone on the two idle rows. Refuted against the ratified mock: the user-approved mock (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict the mock AND the reserved-accent contract (the band's orange means "this matters now"; a standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm state carries all the warning weight. Recorded so a future reviewer does not re-derive it. No un-defer trigger — this was never a deferral.
+
 ## Review-modal close (2026-07-19)
 
 Source: MODAL-SKELETON-CLOSE-1 ship (`fix/modal-skeleton-close`, spec `docs/superpowers/specs/2026-07-19-modal-skeleton-close.md`, plan `docs/superpowers/plans/2026-07-19-modal-skeleton-close.md`). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved here from the working queue in the same pass (queue policy: resolved entries live in the archive).
