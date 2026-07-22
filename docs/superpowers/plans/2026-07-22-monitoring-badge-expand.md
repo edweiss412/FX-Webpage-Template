@@ -117,6 +117,13 @@ it("fallbacks: no-note code renders generic line; uncataloged code renders fallb
   expect(within(r2).getByText(autoResolveNote("TOTALLY_UNKNOWN_CODE"))).toBeInTheDocument(); // generic line
   expect(r2.textContent).not.toContain("TOTALLY_UNKNOWN_CODE");
 });
+// NOTE (anti-tautology disposition, plan R2 F4): this pins the MENU's rendering
+// only - the fixture supplies the already-sanitized menuTitle, so it cannot prove
+// derivation. The derivation-level proof that an uncataloged code yields
+// ATTENTION_FALLBACK_TITLE (never the raw code) is the EXISTING T2_UNCATALOGED
+// behavioral pin (lib/dev/attentionScenarios/tier2.ts:310-313 scenario +
+// tests/dev/attentionScenariosTier2.test.ts) and alertTitle's fallback path
+// (lib/admin/attentionItems.ts:235-239); Task 3 re-runs that suite.
 
 it("defensive non-alert self-heal item renders menuTitle + generic note (spec §5.3 (c))", () => {
   // Synthetic - the derivation layer cannot produce this (attentionItems.ts:262-266)
@@ -353,22 +360,22 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 ### Task 5: Registry sweep + impeccable + docs + final gates
 
 - [ ] **Step 1 — Registry/meta sweep (spec §5 item 10, named suites)**: `pnpm vitest run tests/dev/_metaAttentionItemsTopology.test.ts tests/styles tests/help` — record each suite's result + any reconciliation as its own `fix(admin)` commit. (Topology test expected untouched — derivation layer unchanged; styles registries may react to new class usages; help crosswalk to copy changes.)
-- [ ] **Step 2 — Impeccable dual-gate (invariant 8, canonical v3 setup)**: run `/impeccable critique` AND `/impeccable audit` on the affected diff, each with the canonical gates — the impeccable context script load (PRODUCT.md + DESIGN.md) then register reference read — before evaluation. P0/P1 findings: fix or defer via `DEFERRED.md`. EACH fix lands as its own `fix(admin)` commit (behavioral fixes get a targeted failing pin first; pure class/copy corrections may land test-free, stated in the commit body). After ANY P0/P1 fix, RE-RUN the critique+audit pair against the final diff until clean/deferred. Findings + dispositions recorded in the "Close-out notes" section appended to THIS plan doc (this feature's §12-equivalent).
-- [ ] **Step 3 — Amendment markers**: add a one-line "superseded by 2026-07-22-monitoring-badge-expand §…" marker to the two amended specs' affected sections (split spec §3.2/§3.4; curated-composite monitoring rows). NEVER prettier the master spec. Commit `docs(plan): amendment markers`.
-- [ ] **Step 4 — FINAL gates on the FINAL tree** (nothing edits the tree after this): `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`. Check `$?` per command. If any gate edits/flags files, fix, commit, and re-run the full gate set.
-- [ ] **Step 5**: Commit any close-out notes: `docs(plan): close-out notes + gate dispositions`
+- [ ] **Step 2 — Impeccable dual-gate (invariant 8, canonical v3 setup)**: run `/impeccable critique` AND `/impeccable audit` on the affected diff, each with the canonical gates — the impeccable context script load (PRODUCT.md + DESIGN.md) then register reference read — before evaluation. P0/P1 findings: fix or defer via `DEFERRED.md`. EACH fix lands as its own `fix(admin)` commit with a targeted failing pin first — behavioral fixes pin behavior; class/token corrections update the existing palette/class pins; copy corrections update the copy pins. No test-free fix commits (invariant 1 has no impeccable exemption). After ANY P0/P1 fix, RE-RUN the critique+audit pair against the final diff until clean/deferred. Findings + dispositions recorded in the "Close-out notes" section appended to THIS plan doc (this feature's §12-equivalent).
+- [ ] **Step 3 — Amendment markers (full Amends-ledger fan-out)**: add a one-line "superseded by 2026-07-22-monitoring-badge-expand" marker at EACH amended location: split spec §3.2 (state B interactivity + state count), §3.4 (Monitoring group enumeration/summary), §5 (summary-row copy surface), §6/§6a (reconciliation targets), §8 (transition inventory: B merges into A), §11 items 4 and 6, §11.5/§11.5a (exit matrix/entry shapes), §11.6-§11.8 (menu group assertions); curated-composite spec: the "no tier-2 changes" overview claim, the "Monitoring-only pill (non-interactive span)" coverage row, and each "Monitoring summary" expectation (derived-state pin + RENDERED pin). One marker per location, no other edits, NEVER prettier the master spec. Commit `docs(plan): amendment markers`.
+- [ ] **Step 4**: Commit close-out notes: `docs(plan): close-out notes + gate dispositions`
+- [ ] **Step 5 — Full gates**: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`. Check `$?` per command.
 
 ### Task 6: Adversarial review (cross-model)
 
-- [ ] Whole-diff Codex review (fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large), iterate to APPROVE per the ship-feature pipeline. Findings triaged land-now / DEFERRED.md / BACKLOG.md.
+- [ ] Whole-diff Codex review (fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large), iterate to APPROVE per the ship-feature pipeline. Findings triaged land-now / DEFERRED.md / BACKLOG.md. Every land-now repair commit follows TDD (pin first). If any repair touches a UI file, RE-RUN the impeccable critique+audit pair on the updated diff (invariant 8 binds the SHIPPED diff, not a snapshot).
 
 ### Task 7: Execution handoff
 
-- [ ] Ship-feature close-out: push, PR, real CI green, `gh pr merge --merge`, fast-forward local main to `0  0`.
+- [ ] **Final-tree contract:** after the LAST commit of any kind (Task 6 repairs, close-out notes, anything), re-run the full gate set (`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`) — a green full-gate run is the terminal local action, `git status` clean, before push. Then: push, PR, real CI green, `gh pr merge --merge`, fast-forward local main to `0  0`.
 
 ## Self-Review
 
 - Spec coverage: §3.1→T2, §3.2→T1, §3.3→T2b+T4, §3.4→T1b+T4, §3.5→T1, §5 items 1-2→T2, 3-4→T1, 5→T2b, 6→T4, 7→T1b, 8→T3, 9→T2, 10→T5. Amends ledger→T5. ✓
 - Sequencing audit (R1 P0 repair): commit boundaries = {T1+1b+1c}, {T2+2b}, {T3}, {T4}, {T5 sub-commits}. Each boundary's full suite set enumerated in its Step 2/4; no sibling suite left red at any commit. ✓
 - No placeholders; types/names cross-checked (`monitoringOnly`, testids consistent across T1/T4/T5/T7). ✓
-- Transition-audit + anti-tautology + layout-dimensions: no fixed-dimension parent introduced (spec §7: none); transition treatment carried by T4+T7. ✓
+- Transition-audit + anti-tautology + layout-dimensions: no fixed-dimension parent introduced (spec §7: none); transition treatment carried by T1b (tripwires) + T4 (computed-style). ✓
