@@ -48,6 +48,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type Context,
@@ -56,6 +57,13 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  VIEWPORT_INSET,
+  computePopoverPlacement,
+  insetRect,
+  intersectRects,
+  type Rect,
+} from "@/lib/popover/position";
 import type { ReactNode } from "react";
 
 /**
@@ -77,7 +85,7 @@ export function HoverHelp({
   children,
   trigger,
   align = "left",
-  placement = "bottom",
+  placement: placementProp = "bottom",
   testId = "hover-help",
   rootTestId,
   learnMore,
@@ -130,6 +138,9 @@ export function HoverHelp({
   const bodyId = useId();
   const descId = useId();
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<number | null>(null);
 
   const clearCloseTimer = () => {
     if (closeTimer.current !== null) {
@@ -146,6 +157,120 @@ export function HoverHelp({
     closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   };
   useEffect(() => clearCloseTimer, []);
+
+  /**
+   * Measure + apply (spec 2026-07-22-hoverhelp-smart-position §4.2 shell
+   * steps a-d). Runs only while open. All algebra lives in the pure core
+   * (lib/popover/position.ts); this shell only gathers rects and applies
+   * the result as inline styles in the HOST's coordinate space.
+   */
+  const toRect = (r: DOMRect): Rect => ({
+    left: r.left,
+    top: r.top,
+    width: r.width,
+    height: r.height,
+    right: r.right,
+    bottom: r.bottom,
+  });
+  const measureAndApply = () => {
+    const trigger = triggerRef.current;
+    const body = bodyRef.current;
+    if (!trigger || !body) return;
+    const host = hostRef?.current ?? document.body;
+    // (a) clear previous inline constraints so measurement is natural
+    body.style.maxHeight = "";
+    body.style.maxWidth = "";
+    const hostRect = toRect(host.getBoundingClientRect());
+    const viewportRect: Rect = {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+    const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
+    const naturalRect = body.getBoundingClientRect();
+    const placement = computePopoverPlacement({
+      trigger: toRect(trigger.getBoundingClientRect()),
+      naturalSize: { width: naturalRect.width, height: naturalRect.height },
+      wrappedHeightAt: (w) => {
+        body.style.maxWidth = `${w}px`;
+        const h = body.getBoundingClientRect().height; // border-box, caps active
+        body.style.maxWidth = "";
+        return h;
+      },
+      bounds,
+      preferredSide: placementProp,
+      align,
+    });
+    if (placement.kind === "hidden") {
+      body.style.visibility = "hidden";
+      body.dataset["popoverHidden"] = "true";
+      delete body.dataset["popoverSide"]; // no stale side while hidden
+      return;
+    }
+    body.style.visibility = "";
+    delete body.dataset["popoverHidden"];
+    body.dataset["popoverSide"] = placement.side;
+    // (d) convert viewport point to host offsets (spec §4.2 host formulas)
+    const isBodyHostEl = host === document.body;
+    const left = isBodyHostEl
+      ? placement.viewport.x + window.scrollX
+      : placement.viewport.x - hostRect.left - host.clientLeft + host.scrollLeft;
+    const top = isBodyHostEl
+      ? placement.viewport.y + window.scrollY
+      : placement.viewport.y - hostRect.top - host.clientTop + host.scrollTop;
+    body.style.left = `${left}px`;
+    body.style.top = `${top}px`;
+    if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+  };
+
+  /** Coalescer: no-op while closed or when a frame is already pending (§4.3). */
+  const schedule = () => {
+    if (!open || frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null; // cleared BEFORE running so later events can schedule anew
+      measureAndApply();
+    });
+  };
+
+  // (a) open -> synchronous pre-paint measurement (NOT via schedule()); the
+  // deps re-run the effect when the placement props or portal availability
+  // change while open, so no stale capture survives (plan R2 F3).
+  useLayoutEffect(() => {
+    if (!open || !mounted) return;
+    measureAndApply();
+    const host = hostRef?.current ?? document.body;
+    const trigger = triggerRef.current;
+    const body = bodyRef.current;
+    window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
+    window.addEventListener("resize", schedule); // (c)
+    const ro = new ResizeObserver(schedule); // (d): trigger + body + host
+    if (trigger) ro.observe(trigger);
+    if (body) ro.observe(body);
+    ro.observe(host);
+    return () => {
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      if (trigger) ro.unobserve(trigger);
+      if (body) ro.unobserve(body);
+      ro.unobserve(host);
+      ro.disconnect();
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      // attribute lifecycle (§4.6): a closed body never claims a side
+      if (body) {
+        delete body.dataset["popoverSide"];
+        delete body.dataset["popoverHidden"];
+        body.style.visibility = "";
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mounted, placementProp, align]);
 
   // Escape dismisses whenever open (hover OR click) — 1.4.13 Dismissible.
   useEffect(() => {
@@ -231,6 +356,7 @@ export function HoverHelp({
       {trigger ? (
         <button
           {...triggerProps}
+          ref={triggerRef}
           className={
             compactTrigger
               ? "group relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-0"
@@ -242,6 +368,7 @@ export function HoverHelp({
       ) : (
         <button
           {...triggerProps}
+          ref={triggerRef}
           className="relative grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-border bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:border-border-strong hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
         >
           <span aria-hidden="true">?</span>
@@ -268,6 +395,7 @@ export function HoverHelp({
         ? createPortal(
             <div
               id={bodyId}
+              ref={bodyRef}
               role={learnMore ? undefined : "tooltip"}
               data-testid={`${testId}-body`}
               onPointerEnter={openNow}
