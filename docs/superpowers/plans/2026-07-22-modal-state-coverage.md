@@ -151,7 +151,11 @@ describe("shapeChangeFeed", () => {
 ```ts
 export type AppliedFixture = {
   snapshot: ShowReviewSnapshot;
-  dataOverrides: Partial<GalleryModalData>; // archived/published/finalizeOwned/isLive/lastSync*/title/crewEmails/pickerCrew/alertId
+  // archived/published/finalizeOwned/isLive/lastSyncedAt/lastCheckedAt/lastSyncStatus/
+  // title/crewEmails/pickerCrew/alertId — AND, when the roster exceeds 500, a `data`
+  // transform blanking `previewRoster` (the over-cap rule lives HERE, in the single
+  // mapping, never applied separately by the caller).
+  dataOverrides: Partial<GalleryModalData>;
 };
 export function applyFixture(
   base: ShowReviewSnapshot,
@@ -161,9 +165,20 @@ export function applyFixture(
 ```
 
 - [ ] **Step 1: failing tests** — tests/dev/publishedModalFixtureKnobs.test.ts (new file):
-  - **Parity walker (spec §3.2 table, one assertion per row):** for each parity row build a knob scenario, run `applyFixture`, and assert the gallery value equals the production derivation applied to the same snapshot: `crewEmails` = email-bearing rows when roster ≤ 500 else `[]`; `previewRoster` blanked iff roster > 500; `pickerCrew` = `archived ? [] : rows.map({id,name,role})`; `isLive` knob ⇒ dates spanning `GALLERY_NOW` and `isShowLiveOnDate(dates, "2026-07-01") === true`; `titleAbsent` ⇒ `title === null` AND snapshot `show.title === ""`; `finalizeOwned` forced false under archived (guard-tested in Task 2; here assert applied output for `archived: true` has `published: false, finalizeOwned: false`); `clientAbsent` ⇒ snapshot `client_label === ""`; `neverSynced` ⇒ both timestamps null; `checkedAbsent` ⇒ `lastCheckedAt === null`, `lastSyncedAt` kept.
+  - **Parity walker (spec §3.2 table, one assertion per row):** for each parity row build a knob scenario, run `applyFixture`, and assert the gallery value equals the production derivation applied to the same snapshot: `crewEmails` = email-bearing rows when roster ≤ 500 else `[]`; `previewRoster` blanked iff roster > 500; `pickerCrew` = `archived ? [] : rows.map({id,name,role})`; `isLive` knob ⇒ dates spanning `GALLERY_NOW` and `isShowLiveOnDate(dates, "2026-07-01") === true`; `titleAbsent` ⇒ `title === null` AND snapshot `show.title === ""`; `finalizeOwned` forced false under archived (guard-tested in Task 2; here assert applied output for `archived: true` has `published: false, finalizeOwned: false`); `clientAbsent` ⇒ snapshot `client_label === ""`; `neverSynced` ⇒ both timestamps null; `checkedAbsent` ⇒ `lastCheckedAt === null`, `lastSyncedAt` kept; `lastSyncStatus` knob ⇒ override carries exactly the knob value; `openSheetHref` ⇒ ALWAYS equals `buildSheetDeepLink(snapshot.show.drive_file_id)` (no knob can null it); `archived`/`published` ⇒ snapshot `show.archived`/`show.published` and the modal overrides agree (both halves from one mapping); `feed` ⇒ covered by the Task 4 behavioral tests, and the walker asserts the parity-table row by checking `feedNull` yields `feed: null` while a changeLog scenario's entries equal `shapeChangeFeed` output.
   - **Empty keys:** each of the 8 keys empties its collection (`venue` → null; `billing` → `coi_status: null`; `agenda` → `agenda_links: []`); adapter output confirms the branch (e.g. `buildPublishedSectionData(snapshot).crewMembers.length === 0`).
-  - **Volumes:** `crew: 31` ⇒ 31 rows (6 base + 25 generated, deterministic names); `rooms: 21`; `hotels: 13`; `hotels: 1` ⇒ 1; `hotelGuests: 7` ⇒ hotel 1 names length 7; `schedule: "overflow"` ⇒ `run_of_show` has 16 ros-only ISO days, days 1-15 with 8 agenda-kind entries, day 16 only strike+loadout; `diagramImages: 13` ⇒ 13 `PersistedEmbeddedImage`-shaped entries (string `objectId`/`mimeType`/`sheetTab` + `sheetsRevisionId`/`embeddedFingerprint`/`recovery_disposition` + snapshot path) surviving `stagedDiagramGuards`; `packlist: {cases: 13, itemsPerCase: 9}` ⇒ `pull_sheet` shape matches the adapter's `PullSheetCase`; `agendaLinks: 7` ⇒ 7 links with grammar-conforming labels (`AGENDA 1 - Breakout`, …); `agenda: "overflow"` ⇒ base link `extracted` yields `block.droppedSessions/Days/Tracks > 0` through `buildPublishedSectionData(...).agendaBaseline[0].block`.
+  - **Volumes:** `crew: 31` ⇒ 31 rows (6 base + 25 generated, deterministic names); `rooms: 21`; `hotels: 13`; `hotels: 1` ⇒ 1; `hotelGuests: 7` ⇒ hotel 1 names length 7; `schedule: "overflow"` ⇒ `run_of_show` has 16 ros-only ISO days, days 1-15 with 8 agenda-kind entries, day 16 only strike+loadout; `diagramImages: 13` ⇒ 13 `PersistedEmbeddedImage`-shaped entries (string `objectId`/`mimeType`/`sheetTab` + `sheetsRevisionId`/`embeddedFingerprint`/`recovery_disposition` + snapshot path) surviving `stagedDiagramGuards`; `packlist: {cases: 13, itemsPerCase: 9}` ⇒ `pull_sheet` shape matches the adapter's `PullSheetCase`; `agendaLinks: 7` ⇒ 7 links with grammar-conforming labels (`AGENDA 1 - Breakout`, …); `agenda: "overflow"` ⇒ base link `extracted` yields dropped counters, asserted strict-safely:
+
+```ts
+const baseline = buildPublishedSectionData(snapshot, { slug: "gallery" }).agendaBaseline;
+const first = baseline[0];
+if (!first || first.block === null) throw new Error("agenda overflow fixture produced no block");
+expect(first.block.droppedSessions).toBeGreaterThan(0);
+expect(first.block.droppedDays).toBeGreaterThan(0);
+expect(first.block.droppedTracks).toBeGreaterThan(0);
+```
+
+  - **Diagram grid cap:** RTL-render the published diagrams sub-block with the `diagramImages: 13` snapshot and assert EXACTLY 12 tiles render before the note plus the "+1 more" text (spec §3.4).
   - **Share:** `share: {linkActive: true, crewEmails: 60}` ⇒ exactly 60 email-bearing snapshot rows and derived `crewEmails.length === 60`; `buildCrewLinkMailtos({emails, url: "https://x/show/gallery/tok", showTitle: "T"}).length > 1`; `crewEmails: 3` ⇒ 1 batch; `crewEmails: 0` + `empty:["crew"]` ⇒ `crewEmails: []`.
   - **Base enrichment (spec §3.6 tail):** default snapshot now renders dress code + one boolean chip (event anchor active), venue loading dock, transport loadout/notes/route legs, room 1 `floor` — assert via adapter output branches.
 - [ ] **Step 2: run — FAIL.**
@@ -193,7 +208,7 @@ Contracts (spec §3.1, R11-final): `buildScenarioFeed` returns `null` exactly wh
   - `isModalVisible`: cut-only alert + effective fixture / non-empty changeLog / feedNull ⇒ visible; cut-only alert alone ⇒ still excluded "cut".
   - `scenarioGroup`: fixture-only + `landing` ⇒ landing; landing + real sections ⇒ real group; **distinguisher:** agenda-routed warning + `empty:["agenda"]` ⇒ `warnings` (raw `sectionForWarning` would say `agenda`); **anchor-absent:** `T2_ANCHOR_ABSENT` ⇒ `overview` (mirrors the modal's unavailable-anchor redirect).
   - `GallerySwitcherScenario.shareToken`: set for `share.linkActive` scenarios, null otherwise; type stays function-free (compile guards in `galleryModalTypes.ts`).
-  - Switcher: `ShareTokenProvider` receives `key={current.id}` and `initialToken={current.shareToken ?? null}` (render test: switch scenario, assert remount via token state reset — assert the crew-link URL contains the new scenario's token).
+  - Switcher: `ShareTokenProvider` receives `key={current.id}` and `initialToken={current.shareToken ?? null}`. The test must exercise the two transitions that PASS only with the key (the provider reconciles same-epoch seed changes, `app/admin/show/[slug]/ShareTokenContext.tsx:44-69`): (a) active-token scenario → null-token scenario asserts the share URL affordance is GONE (an un-keyed provider would preserve the old token); (b) within scenario A advance the held token to a higher epoch (via the context's rotate path or by seeding a higher `initialEpoch`), switch to scenario B, and assert B renders B's token — only a true remount resets the epoch-held value.
 - [ ] **Step 2: run — FAIL.** **Step 3: implement** — visibility arm; `scenarioGroup` rendered-section fallback (compute rendered ids from the scenario's built data via `renderedSectionIds`) + effective-anchor remap for alert items (reuse `anchorsWantedFor`/`ATTENTION_ROUTES[code]?.anchor`: anchored item whose flag is absent groups `overview`); `shareToken` field + partition stamping (fixed token literal, e.g. `"gallery-share-token"`); switcher provider keying.
 - [ ] **Step 4: run — PASS.** **Step 5: commit** — `feat(admin): switcher grouping fallbacks, visibility carriers, per-scenario share token`
 
@@ -205,19 +220,16 @@ Contracts (spec §3.1, R11-final): `buildScenarioFeed` returns `null` exactly wh
 
 Add the spec §3.6 roster verbatim: 3 changes-class (`t2-changelog-history` 11-row matrix + 1 hold; `t2-hold-dispositions` 4 holds incl. rename-plain/rename-folded; `t2-feed-infra-error`), 8 lifecycle (`t2-archived`, `t2-unpublished`, `t2-finalizing`, `t2-publishing`, `t2-live-now`, `t2-share-link`, `t2-share-single`, `t2-share-batches`), 10 sync postures, `t2-minimal-header`, `t2-nothing-parsed`, 9 volume/overflow (`t2-overflow-volumes`, `t2-roster-over-cap`, `t2-solo-hotel`, `t2-hotel-guest-stack`, `t2-packlist-overflow`, `t2-agenda-overflow`, `t2-multi-agenda`, `t2-warning-spread`, `t2-alert-deep-link`), `t2-diagram-images`, `t2-attention-extras`, `t2-ignored-warnings`, `t2-all-ignored`. Every literal (row shapes, hold dispositions, warning payloads incl. `blockRef.kind: "crew"` + `autocorrect.subject`) comes from the spec sections cited per scenario; export ids as consts and extend `T2_REQUIRED_IDS`.
 
-- [ ] **Step 1: failing pins** — per scenario: id present in `tier2Scenarios()`, `validateScenario` clean, and a target-branch assertion (each spec §3.6 "Demonstrates" cell has one pin), e.g.: changelog-history feed length 12 with statuses `{applied×5, rejected, undone×2, superseded×2, pending(hold)}` and exactly 3 acceptable + 2 undo actions + 3 acknowledged; hold-dispositions summaries differ between rename-plain and rename-folded; roster-over-cap ⇒ `previewRoster` `[]` + 501 crew rows; attention-extras ⇒ 3 cards under one member via `bySection.crew`; all-ignored ⇒ zero active + 2 ignored; multi-agenda ⇒ 6 visible items with non-null badges; alert-deep-link ⇒ `alertId` matches a surviving item.
+- [ ] **Step 1: failing tests (unit pins AND the new e2e specs together)** — the e2e specs from spec §5 are WRITTEN IN THIS STEP, before the roster exists, and their first run FAILS (deep-linking `?scenario=t2-changelog-history` etc. resolves no scenario, so every assertion fails red). Unit pins — per scenario: id present in `tier2Scenarios()`, `validateScenario` clean, and a target-branch assertion (each spec §3.6 "Demonstrates" cell has one pin), e.g.: changelog-history feed length 12 with statuses `{applied×6 (matrix rows 1-5 and 10), rejected×1, undone×2, superseded×2, pending×1 (hold)}` and exactly 3 acceptable + 2 undo actions + 3 acknowledged; hold-dispositions summaries differ between rename-plain and rename-folded; roster-over-cap ⇒ `previewRoster` `[]` + 501 crew rows; attention-extras ⇒ 3 cards under one member via `bySection.crew`; all-ignored ⇒ zero active + 2 ignored; multi-agenda ⇒ 6 visible items with non-null badges; alert-deep-link ⇒ `alertId` matches a surviving item.
 - [ ] **Step 2: run — FAIL.** **Step 3: implement scenarios.** **Step 4: run — PASS** + serverProps grouping snapshot updated (group walk stays `GROUP_ORDER`-sorted). **Step 5: commit** — `feat(admin): 36 modal-state scenarios (changes feed, lifecycle, sync, empty, caps, ignored)`
 
-### Task 7: e2e additions
+### Task 7: e2e green run (specs authored in Task 6 Step 1)
 
 **Files:**
-- Test: `tests/e2e/attention-modal-gallery.spec.ts` (extend)
+- Test: `tests/e2e/attention-modal-gallery.spec.ts` (already extended in Task 6 — spec §5 list: `t2-changelog-history` 12 entries / 4 badges / "Accept all (3)" / 2 Undo / 3 "Accepted" / 1 gate; `t2-archived` badge + no toggle; `t2-nothing-parsed` "No crew parsed." + "No rooms parsed."; `t2-overflow-volumes` "+1 more people"; `t2-ignored-warnings` disclosure → muted cards; `t2-share-batches` popover multi-batch note; `t2-diagram-images` "Preview unavailable" + "+1 more"; group-select jump with enlarged roster. Deep-link via `?scenario=`; existing hydration helpers, never `networkidle` alone; `locator.evaluate` samplers detach-safe.)
 
-Spec §5 list: `t2-changelog-history` (12 entries, 4 badges, "Accept all (3)", 2 Undo, 3 "Accepted", 1 gate); `t2-archived` (badge, no toggle); `t2-nothing-parsed` ("No crew parsed.", "No rooms parsed."); `t2-overflow-volumes` ("+1 more people"); `t2-ignored-warnings` (open "Ignored (2)" → muted cards); `t2-share-batches` (open share popover → multi-batch note); `t2-diagram-images` ("Preview unavailable" tile + "+1 more"); group-select jump re-run with enlarged roster. Deep-link each scenario via `?scenario=`; follow the existing spec file's `settle`/hydration helpers (never `networkidle` alone); any `locator.evaluate` sampler stays detach-safe.
-
-- [ ] **Step 1: write specs; run against dev-build project — expect initial FAIL only if wiring missed (states already implemented).** `pnpm playwright test tests/e2e/attention-modal-gallery.spec.ts --project=dev-build`
-- [ ] **Step 2: green on a quiet box** (kill any orphaned :3001 first — known gotcha).
-- [ ] **Step 3: commit** — `test(admin): e2e coverage for modal-state scenarios`
+- [ ] **Step 1: full e2e run on a quiet box** (kill any orphaned :3001 first — known gotcha): `pnpm playwright test tests/e2e/attention-modal-gallery.spec.ts --project=dev-build` — all green including the specs that were red at Task 6 Step 1.
+- [ ] **Step 2: commit** any e2e-only stabilization as `test(admin): …` (no product-code changes in this task).
 
 ### Task 8: Gates
 
@@ -225,7 +237,11 @@ Spec §5 list: `t2-changelog-history` (12 entries, 4 badges, "Accept all (3)", 2
 - [ ] Full local: `pnpm test`, `pnpm tsc --noEmit`, `pnpm lint`, `pnpm format:check`, full e2e (quiet box).
 - [ ] Commit any gate fixes per type (`fix(admin): …`).
 
-Close-out (pipeline, not plan tasks): whole-diff Codex review → APPROVE; push; PR; real CI green; `gh pr merge --merge`; ff local main; marker done + CronDelete.
+Close-out (pipeline, not plan tasks): whole-diff Codex review → APPROVE; push; PR; real CI green — INCLUDING explicitly dispatching the workflow_dispatch-only e2e gate on the branch and waiting for success: `gh workflow run dev-gate-e2e.yml --ref feat/modal-state-coverage` then `gh run watch` (the PR's automatic checks do NOT run it); `gh pr merge --merge`; ff local main; marker done + CronDelete.
+
+## Review record
+
+**Plan R1 (Codex via codex-guard, 2026-07-22): BLOCKING, 7 findings — all repaired.** F1: e2e specs now authored red in Task 6 Step 1 (TDD); Task 7 is the green run. F2: parity walker completed (openSheetHref, archived/published mirroring, sync trio, feed row) and `AppliedFixture` owns the previewRoster blanking. F3: provider-remount test exercises the two key-only transitions (active→null; epoch-advanced switch). F4: changelog pin corrected to applied×6 / 12 entries. F5: explicit 12-tile + "+1 more" grid assertion added. F6: close-out explicitly dispatches `dev-gate-e2e.yml` via workflow_dispatch and waits. F7: agenda assertion rewritten strict-safe.
 
 ## Self-review record
 
