@@ -1046,6 +1046,27 @@ export function ShowReviewSurface({
                   ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
                     ? { parseNotes: warningsNotes }
                     : {}),
+                  // Spec 2026-07-22-warning-panel-polish §3.5: the pointer
+                  // sentence's ordered, label-resolved jump targets + the
+                  // total elsewhere-section count (unresolved ids fold into
+                  // "and N more"). `sections` is registry-ordered, so the
+                  // targets inherit visual order. Warnings section only,
+                  // spread-inserted (exactOptional discipline).
+                  ...(s.id === "warnings" && routedWarningsRenderElsewhere && routedWarnings
+                    ? (() => {
+                        const elsewhereIds = Object.keys(
+                          routedWarnings.activeWarningsBySection,
+                        ).filter((id) => id !== "warnings");
+                        if (elsewhereIds.length === 0) return {};
+                        const targets = sections
+                          .filter((sec) => elsewhereIds.includes(sec.id))
+                          .map((sec) => ({ id: sec.id, label: sec.label }));
+                        return {
+                          pointerTargets: { targets, totalSections: elsewhereIds.length },
+                          onJumpToSection: (id: SectionId) => handleNavClick(id),
+                        };
+                      })()
+                    : {}),
                   // attention-alert-routing §3.3: anchored cards thread into the
                   // section that OWNS the anchor — rooms hosts diagrams, event hosts
                   // opening_reel. ABSENT on every other section (exactOptional).

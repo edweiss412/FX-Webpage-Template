@@ -56,9 +56,12 @@ const ELSEWHERE_TESTID = `wizard-step3-card-${FIXTURE_DRIVE_FILE_ID}-warnings-el
 const CLEAN_TESTID = `wizard-step3-card-${FIXTURE_DRIVE_FILE_ID}-warnings-clean`;
 
 /** Spec §3.4 authored copy, FROZEN here so a wrong edit to the component fails
- *  rather than being mirrored by an assertion that reads the component. */
+ *  rather than being mirrored by an assertion that reads the component.
+ *  2026-07-22-warning-panel-polish §3.5: the elsewhere line now NAMES the
+ *  sections holding the routed cards (this fixture routes to crew + rooms);
+ *  full-string punctuation is pinned in pointerSentence.test.tsx. */
 const ELSEWHERE_COPY =
-  "Nothing else to note here. The warnings that need a look are in their own sections.";
+  "Nothing else to note here. The warnings that need a look are in Crew and Rooms & scope.";
 const CLEAN_COPY = "Nothing needs a look on this sheet.";
 
 /** Silent-producing warnings, hoisted for the no-drop case below. */

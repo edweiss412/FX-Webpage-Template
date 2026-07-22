@@ -54,6 +54,17 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         blockRef: { kind: "rooms", name: `room-${n}` },
       }) as ParseWarning,
   },
+  Hotels: {
+    id: "hotels",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown hotel field ${n}`,
+        rawSnippet: `Hotel | h-${n}`,
+        blockRef: { kind: "hotels", name: `hotel-${n}` },
+      }) as ParseWarning,
+  },
   Contacts: {
     id: "contacts",
     make: (n) =>
