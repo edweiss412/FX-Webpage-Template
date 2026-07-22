@@ -3,7 +3,7 @@
 /** Spec §3.5/§8.6: FULL sentence textContent equality pins punctuation.
  *  Catches: missing terminal period, wrong 2-name/3-name separators, cap and
  *  unified-overflow regressions, wrong callback ids, missing-callback fallback. */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -172,5 +172,201 @@ describe("pointer sentence render (spec §8.6)", () => {
     expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
       "The warnings that need a look are in their own sections. Nothing else to note here.",
     );
+  });
+});
+
+describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
+  const T5 = [
+    T("crew", "Crew"),
+    T("contacts", "Contacts"),
+    T("hotels", "Hotels"),
+    T("transport", "Transport"),
+    T("rooms", "Rooms & scope"),
+  ];
+  // Derived, never hardcoded (plan-review R1 F7).
+  const EXTRA_N = T5.length - POINTER_NAME_CAP;
+  const revealLabel = (n: number) =>
+    n === 1 ? "Show 1 more section" : `Show ${n} more sections`;
+  const FULL_SENTENCE =
+    "The warnings that need a look are in Crew, Contacts, Hotels, Transport, and Rooms & scope. Nothing else to note here.";
+
+  function chromeFor(extras: Partial<Step3SectionChrome>): Step3SectionChrome {
+    const data = buildPublishedSurfaceProps({ gateOff: true }).data;
+    const warningsDef = step3Sections(data).find((s) => s.id === "warnings")!;
+    return {
+      Icon: warningsDef.Icon,
+      label: warningsDef.label,
+      flagged: true,
+      judgment: false,
+      getActiveSection: () => null,
+      dfid: "DRIVE_POLISH",
+      sectionId: "warnings",
+      sourceAnchors: {},
+      routedWarningsRenderElsewhere: true,
+      routedWarnings: { here: 0, elsewhere: 1, activeWarningsBySection: {} },
+      ...extras,
+    } as Step3SectionChrome;
+  }
+
+  /** Rerender-capable chrome harness: same mounted tree position, so the
+   *  reveal component's local state survives data swaps (spec §4.3 matrix). */
+  function renderChrome(extras: Partial<Step3SectionChrome>) {
+    const data = buildPublishedSurfaceProps({ gateOff: true }).data;
+    const warningsDef = step3Sections(data).find((s) => s.id === "warnings")!;
+    const view = render(
+      <Step3SectionChromeContext.Provider value={chromeFor(extras)}>
+        {warningsDef.render(data)}
+      </Step3SectionChromeContext.Provider>,
+    );
+    const rerenderWith = (nextExtras: Partial<Step3SectionChrome>) =>
+      view.rerender(
+        <Step3SectionChromeContext.Provider value={chromeFor(nextExtras)}>
+          {warningsDef.render(data)}
+        </Step3SectionChromeContext.Provider>,
+      );
+    return { rerenderWith };
+  }
+
+  const sentence = () => screen.getByTestId(/warnings-elsewhere/).textContent ?? "";
+
+  it("boundary matrix: reveal button only in the pure over-cap + callback case", () => {
+    // extra>0, miss=0, callback: button with derived plural accessible name.
+    renderChrome({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: vi.fn(),
+    });
+    const btn = screen.getByRole("button", { name: revealLabel(EXTRA_N) });
+    expect(btn.textContent).toBe(`${EXTRA_N} more`);
+    cleanup();
+    // extra=1, miss=0, callback: SINGULAR accessible name (R2 F4 boundary).
+    renderChrome({
+      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP + 1), totalSections: POINTER_NAME_CAP + 1 },
+      onJumpToSection: vi.fn(),
+    });
+    expect(screen.getByRole("button", { name: "Show 1 more section" }).textContent).toBe("1 more");
+    cleanup();
+    // extra>0, miss=0, NO callback: plain clause, zero buttons.
+    renderChrome({ pointerTargets: { targets: T5, totalSections: T5.length } });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(sentence()).toBe(
+      `The warnings that need a look are in Crew, Contacts, Hotels, and ${EXTRA_N} more. Nothing else to note here.`,
+    );
+    cleanup();
+    // extra=0, miss>0, callback: plain clause (R1 F9 dead-button boundary).
+    renderChrome({
+      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP), totalSections: POINTER_NAME_CAP + 1 },
+      onJumpToSection: vi.fn(),
+    });
+    expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
+    expect(sentence()).toContain("and 1 more.");
+    cleanup();
+    // extra>0 AND miss>0, callback: plain unified clause, no reveal button.
+    renderChrome({
+      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP + 1), totalSections: POINTER_NAME_CAP + 2 },
+      onJumpToSection: vi.fn(),
+    });
+    expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
+    expect(sentence()).toContain("and 2 more.");
+  });
+
+  it("tap reveals the full list, every revealed name fires the jump, focus moves once", async () => {
+    const onJump = vi.fn();
+    renderChrome({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    fireEvent.click(screen.getByRole("button", { name: revealLabel(EXTRA_N) }));
+    expect(sentence()).toBe(FULL_SENTENCE);
+    const firstRevealed = screen.getByRole("button", { name: T5[POINTER_NAME_CAP]!.label });
+    await waitFor(() => expect(document.activeElement).toBe(firstRevealed));
+    // Every revealed name has a LIVE handler (plan-review R1 F6).
+    for (const t of T5.slice(POINTER_NAME_CAP)) {
+      fireEvent.click(screen.getByRole("button", { name: t.label }));
+    }
+    expect(onJump.mock.calls.map((c) => c[0])).toEqual(
+      T5.slice(POINTER_NAME_CAP).map((t) => t.id),
+    );
+  });
+
+  it("expanded is a sticky preference derived against CURRENT data (R2 F2, R3 F3, R4 F3)", async () => {
+    const onJump = vi.fn();
+    const { rerenderWith } = renderChrome({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    fireEvent.click(screen.getByRole("button", { name: revealLabel(EXTRA_N) }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: T5[POINTER_NAME_CAP]!.label }),
+      ),
+    );
+    // (a) overflow removed: plain <=cap sentence even though expanded is set.
+    rerenderWith({
+      pointerTargets: { targets: T5.slice(0, 2), totalSections: 2 },
+      onJumpToSection: onJump,
+    });
+    expect(sentence()).toBe(
+      "The warnings that need a look are in Crew and Contacts. Nothing else to note here.",
+    );
+    const afterCollapse = document.activeElement; // focused node unmounted -> body (accepted parity)
+    // (b) overflow restored: full list WITHOUT another tap; no focus steal.
+    rerenderWith({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    expect(sentence()).toBe(FULL_SENTENCE);
+    expect(document.activeElement).toBe(afterCollapse);
+    // (c) a label miss introduced: plain folded clause wins over the preference.
+    rerenderWith({
+      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP + 1), totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    expect(sentence()).toBe(
+      `The warnings that need a look are in Crew, Contacts, Hotels, and ${T5.length - (POINTER_NAME_CAP + 1) + 1} more. Nothing else to note here.`,
+    );
+    expect(document.activeElement).toBe(afterCollapse);
+    // (d) one extra section replaced while staying over-cap: list re-renders
+    // with the new name, focus untouched (R3 F3).
+    const T5swap = [...T5.slice(0, 3), T("schedule", "Schedule"), T5[4]!];
+    rerenderWith({
+      pointerTargets: { targets: T5swap, totalSections: T5swap.length },
+      onJumpToSection: onJump,
+    });
+    expect(sentence()).toBe(
+      "The warnings that need a look are in Crew, Contacts, Hotels, Schedule, and Rooms & scope. Nothing else to note here.",
+    );
+    expect(document.activeElement).toBe(afterCollapse);
+    // (e) callback removed: plain collapsed clause even though expanded (R4 F3).
+    rerenderWith({ pointerTargets: { targets: T5, totalSections: T5.length } });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(sentence()).toBe(
+      `The warnings that need a look are in Crew, Contacts, Hotels, and ${EXTRA_N} more. Nothing else to note here.`,
+    );
+  });
+
+  it("one-shot focus flag cannot be inherited by a later data-driven render (R4 F2)", async () => {
+    const onJump = vi.fn();
+    const { rerenderWith } = renderChrome({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    // Activation immediately followed by an overflow-dropping data change: the
+    // flag is consumed by the first post-tap commit (whether or not a revealed
+    // button rendered in it), so the LATER restore below must not steal focus.
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: revealLabel(EXTRA_N) }));
+      rerenderWith({
+        pointerTargets: { targets: T5.slice(0, 2), totalSections: 2 },
+        onJumpToSection: onJump,
+      });
+    });
+    await waitFor(() => expect(sentence()).toContain("Crew and Contacts"));
+    const active = document.activeElement;
+    rerenderWith({
+      pointerTargets: { targets: T5, totalSections: T5.length },
+      onJumpToSection: onJump,
+    });
+    expect(sentence()).toBe(FULL_SENTENCE);
+    expect(document.activeElement).toBe(active);
   });
 });

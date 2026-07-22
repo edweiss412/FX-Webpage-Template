@@ -726,6 +726,112 @@ export function pointerSentenceParts(
   };
 }
 
+/** §3.5 inline name button / bold-name recipe, shared by section names and the
+ *  reveal control: text-sized inline button; 44x44 floor via a CENTERED
+ *  before-overlay (translate + min-w/h-tap-min, width = max(text, 44px)) —
+ *  zero line-box inflation. Same intent as HoverHelp's compactTrigger tap
+ *  floor, different geometry (that one is a fixed inset box). z-10: the
+ *  overlay must WIN hit-testing against the card's own padding box
+ *  (elementFromPoint returns the topmost paint; without it the ±21px zone
+ *  belongs to the card div). In the elsewhere state the sentence is the
+ *  panel's only body content, so nothing interactive sits inside the raised
+ *  zone (e2e disjointness proof). */
+const POINTER_INLINE_BUTTON_CLASS =
+  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none";
+
+/**
+ * The published panel's "warnings are elsewhere" sentence (announcer spec
+ * 2026-07-22 §3-§4): pointer clause first, reassurance trailing; the over-cap
+ * clause becomes a tap-to-reveal button ONLY in the pure over-cap case
+ * (callback present, extra > 0, missCount === 0). `expanded` is a sticky
+ * per-mount PREFERENCE — rendering always derives from preference + CURRENT
+ * data (§4.3 matrix), so refreshes that add a miss or drop the callback fall
+ * back to the plain clause without touching the preference.
+ */
+function ElsewherePointerSentence({
+  targets,
+  totalSections,
+  onJump,
+}: {
+  targets: ReadonlyArray<{ id: SectionId; label: string }>;
+  totalSections: number;
+  onJump: ((id: SectionId) => void) | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  // One-shot pending-focus flag (§4.3): set ONLY in the reveal tap handler,
+  // consumed UNCONDITIONALLY by the next commit's layout effect — an
+  // activation commit that renders no revealed button (overflow vanished in
+  // the same refresh) still clears it, so no later data-driven render can
+  // inherit the focus move.
+  const pendingFocusRef = useRef(false);
+  const firstRevealedRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    if (!pendingFocusRef.current) return;
+    pendingFocusRef.current = false;
+    firstRevealedRef.current?.focus();
+  });
+  const { named, extra, missCount } = pointerSentenceParts(targets, totalSections);
+  if (named.length === 0) {
+    // All labels missed or no chrome data: exact fallback sentence.
+    return <>The warnings that need a look are in their own sections. Nothing else to note here.</>;
+  }
+  const revealEligible = onJump !== undefined && extra.length > 0 && missCount === 0;
+  const showFull = revealEligible && expanded;
+  const names = showFull ? [...named, ...extra] : named;
+  const overflowN = showFull ? 0 : extra.length + missCount;
+  const nameNode = (t: { id: SectionId; label: string }, i: number) =>
+    onJump ? (
+      <button
+        key={t.id}
+        type="button"
+        onClick={() => onJump(t.id)}
+        ref={showFull && i === POINTER_NAME_CAP ? firstRevealedRef : undefined}
+        className={POINTER_INLINE_BUTTON_CLASS}
+      >
+        {t.label}
+      </button>
+    ) : (
+      <strong key={t.id} className="font-semibold text-text-strong">
+        {t.label}
+      </strong>
+    );
+  const withMore = overflowN > 0;
+  const parts: React.ReactNode[] = ["The warnings that need a look are in "];
+  names.forEach((t, i) => {
+    if (i > 0) {
+      const last = i === names.length - 1;
+      parts.push(withMore ? ", " : names.length === 2 ? " and " : last ? ", and " : ", ");
+    }
+    parts.push(nameNode(t, i));
+  });
+  if (withMore) {
+    if (revealEligible && !expanded) {
+      parts.push(", and ");
+      parts.push(
+        <button
+          key="pointer-reveal"
+          type="button"
+          aria-label={
+            extra.length === 1 ? "Show 1 more section" : `Show ${extra.length} more sections`
+          }
+          onClick={() => {
+            pendingFocusRef.current = true;
+            setExpanded(true);
+          }}
+          className={POINTER_INLINE_BUTTON_CLASS}
+        >
+          {`${overflowN} more`}
+        </button>,
+      );
+    } else {
+      parts.push(`, and ${overflowN} more`);
+    }
+  }
+  parts.push(".");
+  parts.push(" Nothing else to note here.");
+  return <>{parts}</>;
+}
+
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
   chrome,
@@ -2599,65 +2705,14 @@ export function WarningsBreakdown({
               data-testid={`wizard-step3-card-${dfid}-warnings-elsewhere`}
               className="text-sm text-text-subtle"
             >
-              {(() => {
-                // Spec 2026-07-22-warning-panel-polish §3.5: name the sections,
-                // bolded and (with a jump callback) tappable. Pinned strings
-                // (§8.6): "…in A." / "…in A and B." / "…in A, B, and C." /
-                // "…in A[, B[, C]], and N more."
-                const pt = chrome?.pointerTargets;
-                const { named, extra, missCount } = pt
-                  ? pointerSentenceParts(pt.targets, pt.totalSections)
-                  : { named: [], extra: [], missCount: 0 };
-                const moreCount = extra.length + missCount;
-                if (named.length === 0) {
-                  // All labels missed or no chrome data: today's exact fallback.
-                  return "The warnings that need a look are in their own sections. Nothing else to note here.";
-                }
-                const jump = chrome?.onJumpToSection;
-                const nameNode = (t: { id: SectionId; label: string }) =>
-                  jump ? (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => jump(t.id)}
-                      // §3.5: text-sized inline button; 44x44 floor via a
-                      // CENTERED before-overlay (translate + min-w/h-tap-min,
-                      // width = max(text, 44px)) — zero line-box inflation.
-                      // Same intent as HoverHelp's compactTrigger tap floor,
-                      // different geometry (that one is a fixed inset box).
-                      // z-10: the overlay must WIN hit-testing against the
-                      // card's own padding box (elementFromPoint returns the
-                      // topmost paint; without it the ±21px zone belongs to
-                      // the card div). In the elsewhere state the sentence is
-                      // the panel's only body content, so nothing interactive
-                      // sits inside the raised zone (e2e disjointness proof).
-                      className="relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none"
-                    >
-                      {t.label}
-                    </button>
-                  ) : (
-                    <strong key={t.id} className="font-semibold text-text-strong">
-                      {t.label}
-                    </strong>
-                  );
-                const withMore = moreCount > 0;
-                const parts: React.ReactNode[] = [
-                  "The warnings that need a look are in ",
-                ];
-                named.forEach((t, i) => {
-                  if (i > 0) {
-                    const last = i === named.length - 1;
-                    parts.push(
-                      withMore ? ", " : named.length === 2 ? " and " : last ? ", and " : ", ",
-                    );
-                  }
-                  parts.push(nameNode(t));
-                });
-                if (withMore) parts.push(`, and ${moreCount} more`);
-                parts.push(".");
-                parts.push(" Nothing else to note here.");
-                return parts;
-              })()}
+              {/* Announcer spec 2026-07-22 §3-§4: pointer-first sentence with
+                  tap-to-reveal over-cap clause; hooks live in the extracted
+                  component (this render position is inside a ternary). */}
+              <ElsewherePointerSentence
+                targets={chrome?.pointerTargets?.targets ?? []}
+                totalSections={chrome?.pointerTargets?.totalSections ?? 0}
+                onJump={chrome?.onJumpToSection}
+              />
             </p>
           ) : (
             // True in BOTH the no-warnings and the all-ignored cases, which is
