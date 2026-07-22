@@ -7,7 +7,7 @@ Historical ledger of resolved / stale / N/A / accepted deferrals — full proven
 ### ATTN-GALLERY-CONTROLBAR-OVERLAP-1 — [P2] switcher control bar overlapped the modal's constant header — ✅ RESOLVED
 
 Shipped via spec `docs/superpowers/specs/2026-07-21-gallery-switcher-slim-bar-design.md`
-(branch `fix/gallery-switcher-bar-slim`): the bar is a single non-wrapping row
+(branch `fix/gallery-switcher-bar-slim`, PR #545): the bar is a single non-wrapping row
 (collapsed height ≤64px, e2e-pinned) and the structural/cut footnotes live behind a
 collapsed-by-default "N excluded" disclosure (aria-expanded/aria-controls, 40vh
 capped panel). The collapsed bar clears the modal panel, header, and close boxes at
