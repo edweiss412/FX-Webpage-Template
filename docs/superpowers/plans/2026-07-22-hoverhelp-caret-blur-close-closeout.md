@@ -24,4 +24,12 @@ All rows resolved; no gaps found, no fixes required.
 
 ## Impeccable dual-gate (invariant 8)
 
-_Populated by plan Task 5._
+Both gates ran 2026-07-22 with the canonical v3 setup (context.mjs PRODUCT.md+DESIGN.md load, product register reference).
+
+**Critique** (dual-agent A/B; snapshot `.impeccable/critique/2026-07-22T23-38-02Z__components-admin-hoverhelp-tsx.md`): 37/40, 0 P0, 0 P1. Detector: 0 findings. Real-Chromium evidence: T-E1/T-E3/T-E6 pass (tokens, seam, both orientations). Findings + dispositions:
+
+- P2 caret lacks shadow-tile (side=top caret hangs below the body's shadowed edge; dark-theme pasted-on risk). ACCEPTED-NOT-FIXED: a drop-shadow filter on the triangle risks double-darkening at the deliberate seam overlap; cosmetic and speculative (dark mode only). Un-defer trigger: visual QA report that the top-side caret reads detached.
+- P3 null-relatedTarget click leaves popover open. Ratified spec 2026-07-22-hoverhelp-caret-blur-close §1.1 (probe P3: closing on null would dismiss on in-body clicks). No action.
+- P3 modal+learnMore quadrant keeps no-blur-close. Ratified §1.1 reachability carve-out. No action.
+
+**Audit**: 0 P0, 0 P1, no new findings beyond the critique set. A11y: caret inert (aria-hidden + pointer-events-none), no new focusables, blur-close never moves focus. Performance: caret is write-only inside the existing coalesced rAF measure pass (no added layout reads/observers/filters). Theming: runtime tokens only (border-strong / surface-raised), both themes inherit. Responsive: closed caret is display:none (no scrollWidth contribution - the BELL-HELP-POPOVER-OVERFLOW-1 class is avoided). Reduced motion: duration tokens collapse to 0ms globally (app/globals.css:409); the discrete fade degrades to instant.
