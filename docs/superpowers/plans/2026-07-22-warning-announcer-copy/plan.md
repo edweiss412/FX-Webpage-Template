@@ -21,6 +21,36 @@
 
 ---
 
+### Task 0: Author the failing e2e pins (feature-level red)
+
+**Files:**
+- Modify: `tests/e2e/warning-panel-polish.spec.ts`
+
+TDD at the feature level (plan-review R1 F1): both e2e tests are authored and
+run RED before any implementation task, then re-run GREEN in Task 6.
+
+- [ ] **Step 1: Author two tests.**
+  - Announcer: appended as the FINAL test of the existing serial describe
+    (plan-review R1 F9: it performs a real Ignore round trip that mutates the
+    seeded warning population; running last means no later test observes the
+    mutation, and the describe's existing `afterAll` seed deletion is the
+    restoration). After the modal-visible gate: `await expect(region).toHaveText("")`;
+    click a routed card's Ignore control; `await expect(region).toHaveText("Warning ignored.")`.
+  - Reveal: its own `test.describe` with its OWN seeded show routing FOUR
+    sections (copy `ROUTED_WARNINGS`, add a `transport` blockRef row —
+    `KIND_TO_SECTION` maps `transport`, `lib/admin/step3SectionStatus.ts:22`;
+    the existing 3-section seed is untouched). Overflow count derived in-test:
+    `const extra = SEEDED_SECTION_COUNT - POINTER_NAME_CAP;` and the button
+    name built from it (plan-review R1 F7). Pre-click guard: 4th section
+    container NOT at aligned scroll position; tap the reveal button; re-query
+    (detach-safety); tap the revealed name; assert aligned position within the
+    shipped §8.6 test's tolerance.
+- [ ] **Step 2: Run RED.** Dev server up, then
+  `pnpm playwright test tests/e2e/warning-panel-polish.spec.ts --project=desktop-chromium`.
+  Expected: the two new tests FAIL (region never gains text — announcer absent;
+  reveal button not found), every pre-existing test still green.
+- [ ] **Step 3: Commit.** `git add tests/e2e/warning-panel-polish.spec.ts && git commit -m "test(admin): failing e2e pins for announcer clause + reveal scroll"`
+
 ### Task 1: Pointer-first copy reorder
 
 **Files:**
@@ -171,10 +201,22 @@ it("tap reveals full list, fires jumps, moves focus once (spec §4.3)", async ()
   );
   const transport = screen.getByRole("button", { name: "Transport" });
   await waitFor(() => expect(document.activeElement).toBe(transport));
-  fireEvent.click(screen.getByRole("button", { name: "Rooms & scope" }));
-  expect(onJump).toHaveBeenCalledWith("rooms");
+  // Every revealed name has a LIVE handler (plan-review R1 F6): click each
+  // revealed button; ids arrive in registry order.
+  for (const t of T5.slice(POINTER_NAME_CAP)) {
+    fireEvent.click(screen.getByRole("button", { name: t.label }));
+  }
+  expect(onJump.mock.calls.map((c) => c[0])).toEqual(
+    T5.slice(POINTER_NAME_CAP).map((t) => t.id),
+  );
 });
 ```
+
+  Derived counts (plan-review R1 F7): compute overflow labels from the fixture
+  (`const n = T5.length - POINTER_NAME_CAP;`) and build the expected button
+  name/text (`n === 1 ? "Show 1 more section" : \`Show ${n} more sections\``,
+  `\`${n} more\``) instead of hardcoding "2"; same derivation in the
+  boundary-matrix rows and the Task 0/6 e2e.
 
   Plus the expanded-then-data-change quartet (R2 F2 / R3 F3 / R4 F3): the chrome harness does not support rerender, so build these on a local `rerender`-capable variant (same provider JSX via `const view = render(...); view.rerender(...)`) driving `pointerTargets` prop changes after tapping reveal: (a) overflow removed → plain ≤cap sentence; (b) restored → full list, `document.activeElement` unchanged; (c) miss introduced → plain folded clause; (d) one extra replaced while staying over-cap → full list with the new name, focus unchanged; (e) callback removed → plain collapsed clause. Consumed-flag boundary (R4 F2): tap reveal and, in the SAME `act`, rerender with overflow dropped → no focus move; restore overflow → still no focus move.
 - [ ] **Step 2: Run to verify failure.**
@@ -232,7 +274,7 @@ function ElsewherePointerSentence({
 **Interfaces:**
 - Produces: `WarningAnnounceContext: React.Context<{ announce(message: string): void }>` (default no-op); region container `data-testid="warnings-panel-status"` with `role="log"`, children `<span data-announce-id={id}>{text}</span>`. Task 5 consumes `announce`.
 
-- [ ] **Step 1: Rewrite the mount test** to the spec §5.1 contract (replacing all four current tests — they pin the retired derived sentence). Test scaffold: a probe component inside the provider exposes `announce` via `useContext`; drive it with `act`. Cover, each as its own `it`: zero children on mount; changed-props rerender with observer recording zero mutations; single announce → one child, exact text, one childList addition, unchanged across a rerender; identical string twice in separate acts → two children, two additions, zero removals; two announces inside one act → both children present; four announces → order + four DISTINCT `data-announce-id` values + earlier element references identical; 51-announce loop → 50 children, first id absent, single removal in final commit; whitespace-only + empty-string announces → zero mutations; unmount/remount → zero children; wizard-mode (gateOff) → container absent. MutationObserver pattern:
+- [ ] **Step 1: Rewrite the mount test** to the spec §5.1 contract (replacing all four current tests — they pin the retired derived sentence). Test scaffold: a probe component inside the provider exposes `announce` via `useContext`; drive it with `act`. Cover, each as its own `it`: zero children on mount; changed-props rerender with observer recording zero mutations; single announce → one child, exact text, one childList addition, unchanged across a rerender; identical string twice in separate acts → two children, two additions, zero removals; two announces inside one act → both children present; four announces → order + four DISTINCT `data-announce-id` values + earlier element references identical; 51-announce loop — each announce in its OWN `act` so all 50 predecessors are committed DOM nodes before the 51st (plan-review R1 F3; one big `act` would render only the final 50 and no removal record could exist) → 50 children, first id absent, single removal in the final commit; identical-string test additionally asserts ZERO `characterData` records (plan-review R1 F5a — an implementation may not mutate entry 1 and append entry 2); compound append-during-refresh (plan-review R1 F8): ONE `act` that both calls `announce` and rerenders with changed count props → exactly one childList addition, zero other mutations; whitespace-only + empty-string announces → zero mutations; unmount/remount → zero children; wizard-mode (gateOff) → container absent. MutationObserver pattern:
 
 ```ts
 const region = screen.getByTestId("warnings-panel-status");
@@ -294,7 +336,7 @@ const announceCtx = useMemo(() => ({ announce }), [announce]);
 
   Delete `lib/admin/warningsPanelStatus.ts` + `tests/admin/warningsPanelStatus.test.ts` (`git rm`).
 - [ ] **Step 4: Run mount suite + `pnpm typecheck` + grep sweep** `rg warningsPanelStatusSentence` → zero hits. Green.
-- [ ] **Step 5: Commit.** `git commit -am "feat(admin): actions-only announce log region; retire count-tuple sentence (spec section 2)"`
+- [ ] **Step 5: Commit.** `git add components/admin/review/warningAnnounceContext.ts && git commit -am "feat(admin): actions-only announce log region; retire count-tuple sentence (spec section 2)"` (explicit `add` — `-am` alone never stages a NEW file; plan-review R1 F2).
 
 ### Task 5: Producers + integration
 
@@ -306,23 +348,19 @@ const announceCtx = useMemo(() => ({ announce }), [announce]);
 - Consumes: Task 4 context. Pinned clauses: `"Warning ignored."`, `"Warning restored."`, `"1 ignored."` / `"${n} ignored."`.
 
 - [ ] **Step 1: Write failing tests.**
-  - In each controls file: wrap render in `<WarningAnnounceContext.Provider value={{ announce: spy }}>`; mock `fetch` (ok + `{status:"ignored"|"unignored"}` → spy called exactly once with the pinned clause; `res.ok=false`, thrown fetch → spy never called). Bulk: n derived from fixture `group.items.length`. Chip-region contract (bulk file): observer attached to the chip's sibling status region at initial render; across arm → confirm → success → refresh, observed text values ⊆ {"", "Tap again to confirm."}, and exactly "Tap again to confirm." while armed. No-provider probe (dataQuality file): full success flow with NO provider → no throw, and body-wide observer shows no live-region node ever contains "Warning ignored.".
+  - In each controls file: wrap render in `<WarningAnnounceContext.Provider value={{ announce: spy }}>`; mock `fetch` (ok + `{status:"ignored"|"unignored"}` → spy called exactly once with the pinned clause; `res.ok=false`, thrown fetch → spy never called). Announce-before-refresh ordering (plan-review R1 F4), both producers: the `useRouter` mock's `refresh` is a spy in the same test; assert `announceSpy.mock.invocationCallOrder[0]! < refreshSpy.mock.invocationCallOrder[0]!` — a refresh-first implementation can lose the announcement to a surface replacement. Bulk: n derived from fixture `group.items.length`. Chip-region contract (bulk file): observer attached to the chip's sibling status region at initial render with `{ childList: true, subtree: true, characterData: true, characterDataOldValue: true }`; the callback SNAPSHOTS text at mutation time (record `addedNodes` textContent + `oldValue` into an array — post-hoc DOM inspection misses transient text, plan-review R1 F5b); across arm → confirm → success → refresh, every snapshotted value ⊆ {"", "Tap again to confirm."}, and exactly "Tap again to confirm." while armed. No-provider probe (dataQuality file): full success flow with NO provider → no throw; body-wide observer with the same snapshot-in-callback pattern shows no recorded mutation ever carries "Warning ignored." (plan-review R1 F5c).
   - Composed-tree wiring (mount test file, R4 F5): render `<ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 1 })} />` (helper wires the REAL `buildSectionWarningExtras`), mock fetch ok, click the real row Ignore control, `await waitFor` → region gains a `"Warning ignored."` child; separately drive the bulk chip two-tap confirm → region gains `"${n} ignored."`.
 - [ ] **Step 2: Run to verify failures.**
 - [ ] **Step 3: Implement.** `DataQualityWarningControls`: `const { announce } = useContext(WarningAnnounceContext);` then in the success branch before `router.refresh()`: `announce(json.status === "ignored" ? "Warning ignored." : "Warning restored.");`. `BulkIgnoreControls`: in its success branch before `router.refresh()`: `const n = bulk.items.length; announce(n === 1 ? "1 ignored." : `${n} ignored.`);` (use the exact count variable already sent in the request body at `:89-99`).
 - [ ] **Step 4: Run all three suites + typecheck — green.**
 - [ ] **Step 5: Commit.** `git commit -am "feat(admin): ignore controls announce completion clauses (spec section 2.3)"`
 
-### Task 6: e2e — announcer + reveal
+### Task 6: e2e green re-run
 
-**Files:**
-- Modify: `tests/e2e/warning-panel-polish.spec.ts`
+**Files:** none (tests authored RED in Task 0)
 
-- [ ] **Step 1: Add two tests** to the existing serial describe (harness per Global Constraints):
-  - Announcer: after modal-visible gate, `expect(region).toHaveText("")`; click a routed card's Ignore control (real round trip), `await expect(region).toHaveText("Warning ignored.")` (container textContent = single child).
-  - Reveal: new `test.describe` with its OWN seeded show routing FOUR sections (add a `transport` blockRef row to a copied `ROUTED_WARNINGS` array — `KIND_TO_SECTION` maps `transport` per `lib/admin/step3SectionStatus.ts:22`; the existing 3-section seed stays untouched so current pointer-string tests keep passing). Pre-click guard: 4th section container NOT at aligned position; tap "Show 1 more section", re-query, tap the revealed name; assert aligned position within tolerance (same shape as the shipped §8.6 scroll test in this file).
-- [ ] **Step 2: Run locally** with dev server up: `pnpm playwright test tests/e2e/warning-panel-polish.spec.ts --project=desktop-chromium` — new tests fail before implementation? (Implementation landed in Tasks 3-5, so these pass on first run; they are regression pins, and the pre-click guard proves non-vacuity.) Green required.
-- [ ] **Step 3: Commit.** `git commit -am "test(admin): e2e announcer clause + reveal scroll (spec section 5.5)"`
+- [ ] **Step 1: Run** `pnpm playwright test tests/e2e/warning-panel-polish.spec.ts --project=desktop-chromium` with dev server up. Expected: the Task 0 pins now PASS (red in Task 0 → green here = the feature-level TDD cycle), all pre-existing tests still green.
+- [ ] **Step 2: No commit** (no file change); record the run in handoff.md notes.
 
 ### Task 7: Transition audit + DEFERRED graduation
 
@@ -331,14 +369,16 @@ const announceCtx = useMemo(() => ({ announce }), [announce]);
 
 - [ ] **Step 1: Transition audit (spec §2.6 + §4.3 tables).** Enumerate every conditional render this diff added: log children (append/trim), reveal button ↔ full list, expanded matrix rows. Verify: zero `AnimatePresence`/`motion` imports added (`rg "framer|motion|AnimatePresence" components/admin/review/warningAnnounceContext.ts components/admin/wizard/step3ReviewSections.tsx components/admin/review/ShowReviewSurface.tsx` limited to the diff hunks) — every transition is deliberately instant per the spec tables; compound rows (append-during-refresh, tap-while-data-drop) are covered by Task 4/3 tests. Record the sweep output in the handoff notes.
 - [ ] **Step 2: Graduate the four DEFERRED entries** (DEFERRED.md:69-91) to `DEFERRED-archive.md` under a "Warning announcer + elsewhere copy (2026-07-22)" heading, each annotated with its resolution (§1.1 items 1-4, including the item-8 tuple-retirement amendment); update the reconciliation line at DEFERRED.md:7.
-- [ ] **Step 3: Commit.** `git commit -am "docs: graduate four warning-panel-polish deferrals; transition-audit sweep"`
+- [ ] **Step 3: Add the VoiceOver owner action to DEFERRED.md** (plan-review R1 F11): an autonomous pipeline cannot truthfully perform a manual VoiceOver pass, so the spec §8 F10 mitigation's manual half becomes a tracked owner action — new entry "VOICEOVER-ANNOUNCER-SPOTCHECK: owner runs VoiceOver over ignore / bulk-ignore / reveal on the published panel; un-defer trigger: owner performs and records the pass." Update the spec §8 F10 line's mitigation wording from "part of the implementation plan's verification step" to "tracked as a DEFERRED.md owner action" in the same commit (post-APPROVE amendment, recorded here and in handoff.md §12; the automated halves — impeccable audit a11y dimension + the structural role/mutation tests — remain pre-merge gates).
+- [ ] **Step 4: Create `docs/superpowers/plans/2026-07-22-warning-announcer-copy/handoff.md`** (plan-review R1 F10) with: task→commit table, transition-audit sweep output (Step 1), Task 6 e2e run record, and an EMPTY §12 "Impeccable findings + dispositions" section that Task 8 fills — the invariant-8 evidence destination.
+- [ ] **Step 5: Commit.** `git commit -am "docs: graduate four warning-panel-polish deferrals; transition-audit sweep; handoff scaffold"`
 
 ### Task 8: Verification gates (pre-push)
 
 - [ ] `pnpm test` (full suite — scoped runs miss registry suites), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`
-- [ ] Local e2e: `pnpm playwright test tests/e2e/warning-panel-polish.spec.ts`
-- [ ] Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff — UI surface touched (invariant 8); P0/P1 fixed or DEFERRED.md-logged
-- [ ] Manual VoiceOver spot-check of ignore / bulk-ignore / reveal (spec §8 F10 mitigation)
+- [ ] Local e2e already green (Task 6); re-run if any later commit touched components
+- [ ] Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff — UI surface touched (invariant 8); P0/P1 fixed or DEFERRED.md-logged; findings + dispositions recorded in handoff.md §12 (Task 7 Step 4 scaffold)
+- [ ] VoiceOver spot-check: tracked as DEFERRED.md owner action (Task 7 Step 3) — NOT performed by the agent, NOT merge-blocking
 - [ ] Whole-diff Codex review (split tight-scope briefs if needed) → APPROVE
 - [ ] Push, PR, real CI green, `gh pr merge --merge`, ff-sync main
 
