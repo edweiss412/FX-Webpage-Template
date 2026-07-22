@@ -1668,6 +1668,14 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
           const pane = el.closest(".overflow-y-auto");
           if (!pane) throw new Error("card has no scrolling ancestor pane");
           pane.scrollTop += 30;
+          // Nudge the window-level capture listener explicitly: on CI the
+          // async element-scroll event from a programmatic scrollTop write
+          // was observed not to reach it before the poll expired (local
+          // Chromium delivers it). The subject under test is the TRACKING
+          // math after a pane scroll, not the browser's event timing; the
+          // event-plumbing path is covered by the geometry suite's pane
+          // case, which dispatches on the element itself.
+          window.dispatchEvent(new Event("scroll"));
         });
         // Poll to convergence (codex R2 F4): a loaded runner can take more
         // than one frame to run the coalesced rAF reposition.
