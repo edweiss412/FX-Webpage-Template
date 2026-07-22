@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-21 (SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-22 (WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
 
@@ -13,12 +13,6 @@ Last reconciled: 2026-07-21 (SHAREHUB-ROW-ANATOMY-1 graduated to the archive —
 From the impeccable critique of `attention-modal-switcher-gallery` (2026-07-21). The switcher's control bar (`components/admin/dev/SwitcherControls.tsx`, `fixed top-0 z-60`) sits above the real modal (`z-50`) by design (spec §3.4, so it escapes the inert root), and on desktop covers the modal's top ~90px; on a 390px viewport the wrapped bar covers more. What it covers is the modal's CONSTANT fake-show header ("Gallery Preview Show" title + subline) — the modal's close X (top-right) and all scenario-specific attention content stay fully visible and operable (e2e-verified: `tests/e2e/attention-modal-gallery.spec.ts` operability + close tests). Deferred: this is a dev-only instrument (`app/admin/dev/`, build-gated), the obscured content carries no scenario information, and the impeccable tier is P2 (the dual-gate mandates P0/P1 only).
 
 **Un-defer trigger:** if the gallery gains a per-scenario modal header (non-constant title), or a real operator reports losing the modal's close affordance — then offset the modal below the bar or make the bar a single collapsible row.
-
-### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes
-
-Impeccable critique note (2026-07-20): the `?` popover (align="right", opens below the trigger) can cover the inline guidance while open. Acceptable tooltip behavior — spec `2026-07-20-show-alert-compact` ratified the overlap posture explicitly. Same critique, cosmetic P3s folded here: row 24's double-semicolon chain; "as-is" hyphen wrap at 400px.
-
-**Un-defer trigger:** user reports the popover hiding the guidance they were reading.
 
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
