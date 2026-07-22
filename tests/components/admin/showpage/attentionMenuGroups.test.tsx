@@ -130,9 +130,32 @@ describe("needs-a-look group", () => {
   });
 });
 
+describe("group headers (impeccable critique P1: no empty-section eyebrow)", () => {
+  it("actionable-empty open: 'Needs your confirmation' header ABSENT, panel labeled by its real first group", () => {
+    renderMenu([
+      needsLook("h1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+    ]);
+    expect(screen.queryByText("Needs your confirmation")).toBeNull();
+    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
+      "aria-label",
+      "Needs a look",
+    );
+  });
+
+  it("actionable present: confirmation header renders and labels the panel", () => {
+    renderMenu([item("h2", "PARSE_ERROR", { actionable: true })]);
+    expect(screen.getByText("Needs your confirmation")).toBeInTheDocument();
+    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
+      "aria-label",
+      "Needs your confirmation",
+    );
+  });
+});
+
 describe("monitoring group", () => {
-  it("is one summary row; individual titles NOT rendered", () => {
+  it("is one summary row under a 'Monitoring' subheading (spec §3.4.3); individual titles NOT rendered", () => {
     renderMenu([selfHeal("s1", "Syncing stalled"), selfHeal("s2", "Drive fetch failed")]);
+    expect(screen.getByText("Monitoring")).toBeInTheDocument();
     expect(screen.getByText(/2 clearing on their own, no action needed/)).toBeInTheDocument();
     expect(screen.queryByText("Syncing stalled")).toBeNull();
     expect(screen.queryByText("Drive fetch failed")).toBeNull();

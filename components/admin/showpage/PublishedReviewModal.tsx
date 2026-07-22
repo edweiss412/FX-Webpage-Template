@@ -736,7 +736,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       <span aria-hidden="true" className="opacity-50">
                         ·
                       </span>
-                      <span className="font-medium text-warning-text/70">
+                      {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
+                          light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
+                          light, higher dark. Impeccable critique P1, 2026-07-22. */}
+                      <span className="font-medium text-warning-text/80">
                         {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
                       </span>
                       {/* Inherited sr-only expansion (#537 mechanism): visible terse,

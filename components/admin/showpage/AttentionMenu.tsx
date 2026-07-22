@@ -95,22 +95,28 @@ function AttentionMenuPanel({
   // silently dark. Only explicit self_heal items collapse to the summary row.
   const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
   const selfHealCount = items.filter((i) => i.clearingKind === "self_heal").length;
+  // A needs-look-only open (interactive pill without actionable rows) must not
+  // render an empty "Needs your confirmation" section; the panel takes its
+  // accessible name from the first group actually present.
+  const hasActionable = actionable.length > 0;
 
   return (
     <div
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
       role="group"
-      aria-label="Needs your confirmation"
+      aria-label={hasActionable ? "Needs your confirmation" : "Needs a look"}
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      <div className="border-b border-border px-4 pt-3 pb-2">
-        <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-          Needs your confirmation
-        </span>
-      </div>
+      {hasActionable ? (
+        <div className="border-b border-border px-4 pt-3 pb-2">
+          <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+            Needs your confirmation
+          </span>
+        </div>
+      ) : null}
       <div className="max-h-96 overflow-y-auto">
         {actionable.map((item) => {
           const tone = TONE_DOT[item.tone];
@@ -148,8 +154,12 @@ function AttentionMenuPanel({
         /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
            descendant is the action <a> (when the action resolved). No row-level
            onNavigate, no nested popover (the menu is itself a floating layer). */
-        <div className="border-t border-border">
-          <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+        <div className={hasActionable ? "border-t border-border" : undefined}>
+          {/* rounded-t when this group leads the panel (no confirmation section
+              above): the sunken header must not bleed past the rounded border. */}
+          <div
+            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
+          >
             <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
               Needs a look
             </span>
@@ -197,16 +207,24 @@ function AttentionMenuPanel({
         </div>
       ) : null}
       {selfHealCount > 0 ? (
-        /* Monitoring group (spec §3.4.3): one summary row, items not enumerated —
-           genuinely self-healing, nothing to act on. Copy is TRUE for this subset. */
-        <div className="flex items-center gap-2 border-t border-border bg-surface-sunken px-4 py-2.5">
-          <span
-            aria-hidden="true"
-            className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-          />
-          <span className="text-xs text-text-subtle">
-            {selfHealCount} clearing on their own, no action needed
-          </span>
+        /* Monitoring group (spec §3.4.3): quiet subheading + one summary row,
+           items not enumerated — genuinely self-healing, nothing to act on.
+           Copy is TRUE for this subset. */
+        <div className="border-t border-border">
+          <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+              Monitoring
+            </span>
+          </div>
+          <div className="flex items-center gap-2 rounded-b-md bg-surface-sunken px-4 pb-2.5">
+            <span
+              aria-hidden="true"
+              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+            />
+            <span className="text-xs text-text-subtle">
+              {selfHealCount} clearing on their own, no action needed
+            </span>
+          </div>
         </div>
       ) : null}
     </div>
