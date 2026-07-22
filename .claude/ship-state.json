@@ -1,8 +1,0 @@
-{
-  "branch": "feat/attention-modal-gallery",
-  "stage": "implementing",
-  "tasksRemaining": "Tasks 1-5,5b DONE. Next: Task 6 AttentionModalSwitcher (client), 7 route rewrite, 8 removal, 9 e2e-green, 10 impeccable+handoff, 11 merge.",
-  "next": "Task 6: components/admin/dev/AttentionModalSwitcher.tsx — index state, closingRef, no-op actions satisfies Pick<PublishedReviewModalProps,ActionKeys>, ReviewModalCloseContext.Provider, ShareTokenProvider, key={current.id}, keydown capture Escape-swallow-when-open, portal SwitcherControls.",
-  "blockedOn": "",
-  "cronJobId": "33c5f0fd"
-}
