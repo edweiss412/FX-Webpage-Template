@@ -82,10 +82,25 @@ first position; gallery is the auxiliary deep link).
 
 ### Guard conditions
 
-- `isDeveloper` null/undefined/false → whole row renders `null` (existing
-  early return; unchanged).
+The component has exactly two props, both optional
+(`components/admin/settings/DevToolsRow.tsx:15-29`): `icon?: ReactNode` and
+`isDeveloper?: boolean`. Neither is added, removed, or retyped by this change.
+
+- `isDeveloper?: boolean` — any non-`true` value (undefined/absent, `null`,
+  `false`, or any other falsy value an untyped caller could pass — `0`, `NaN`,
+  `""`) fails the `!isDeveloper` early return and the whole row renders
+  `null` (existing behavior, `DevToolsRow.tsx:30`; unchanged). Truthy
+  non-boolean values render the row — accepted, unchanged, and unreachable
+  from the sole typed caller (`app/admin/settings/page.tsx:221` passes the
+  `boolean` result of `isCurrentUserDeveloper()`).
+- `icon?: ReactNode` — absent/`null`/falsy → the leading icon `<span>` is
+  omitted entirely (existing ternary, `DevToolsRow.tsx:37-41`; unchanged).
+  Any truthy ReactNode renders inside the icon span. The new link renders
+  identically with or without `icon`; no test change needed for it beyond the
+  existing suites, which already exercise the no-icon path (they render
+  `<DevToolsRow>` without `icon`).
 - `DEV_PANEL_PRESENT` false → `null` (unchanged).
-- No other props; no data dependencies; links are static hrefs.
+- No data dependencies; both links are static hrefs.
 
 ### Dimensional invariants / transition inventory
 
