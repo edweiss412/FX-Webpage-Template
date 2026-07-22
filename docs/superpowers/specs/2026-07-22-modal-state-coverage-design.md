@@ -1,7 +1,7 @@
 # Modal State Coverage — Design Spec
 
 Date: 2026-07-22
-Status: Draft for adversarial review
+Status: APPROVED (Codex adversarial review R12, 2026-07-22; rounds 1-11 BLOCKING with 63 findings repaired — see §8)
 Predecessors: `docs/superpowers/specs/2026-07-22-attention-gallery-gap-fill-design.md` (gap-fill, PR #552), `docs/superpowers/specs/2026-07-21-attention-modal-switcher-gallery-design.md` (switcher), `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md` (scenario catalog)
 
 ## 1. Goal
@@ -328,6 +328,8 @@ None. No new visual states or animations are introduced; every state this featur
 - Not applicable: Supabase call-boundary registry (no new Supabase calls — `shapeChangeFeed` is pure; `readShowChangeFeed`'s calls are unchanged and already registered), advisory locks (no mutation paths), mutation-surface observability (no new mutation surfaces), §12.4 catalog (no new codes).
 
 ## 8. Review record
+
+**R12 (Codex via codex-guard, 2026-07-22): APPROVE.**
 
 **R11 (Codex via codex-guard, 2026-07-22): BLOCKING, 4 findings — all repaired.** F1: `buildScenarioFeed` contract made deterministic (null exactly when no holds and no changeLog; `feedNull` handled only by `buildScenarioModalData`). F2: `scenarioGroup` also mirrors the modal's unavailable-anchor redirect (fixes `T2_ANCHOR_ABSENT` mislabeled `rooms`). F3: `volumes.agenda` × `volumes.agendaLinks` (and `empty:["agenda"]` × either) rejected as contradictory. F4: deep-link param corrected to `alert_id`.
 
