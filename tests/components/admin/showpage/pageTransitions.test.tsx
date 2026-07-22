@@ -130,7 +130,11 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // sites are instant text/segment swaps that follow the derived counts — no
   // AnimatePresence, no enter/exit (spec §8 declares every pill pair instant).
   // Verified by RUNNING the scanner over the source, not by reasoning.
-  "components/admin/showpage/PublishedReviewModal.tsx": 8,
+  // 8 → 11 (whole-diff review repairs, 2026-07-22): three new instant sr-only
+  // cap conditionals — exact-count expansions past 99+ on the review segment,
+  // the composite monitoring segment, and the monitoring-only pill. All are
+  // text swaps that follow derived counts; no animation.
+  "components/admin/showpage/PublishedReviewModal.tsx": 11,
   // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
   // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
   // external arrow; monitoring summary; group wrappers). Every site is an

@@ -264,7 +264,9 @@ describe("resolveAlertActions (spec 2026-07-18 §4.1 — ROLE_FLAGS_NOTICE speci
 });
 
 // --- needs-a-look action links (spec 2026-07-21-attention-needs-attention-split §4, §11.3) ---
-// Table-driven over ALL 11 linked codes; hrefs derived from fixture ids, never constants.
+// Table-driven over ALL 10 linked codes (9 new + pre-existing RESYNC_SHRINK_HELD;
+// ASSET_RECOVERY_BYTES_EXCEEDED is context-only, asserted action-less below);
+// hrefs derived from fixture ids, never constants.
 describe("needs-a-look action links (attention split §4)", () => {
   const SHEET_CODES = [
     "SHEET_UNAVAILABLE",

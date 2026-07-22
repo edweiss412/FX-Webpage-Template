@@ -173,4 +173,33 @@ describe("monitoring group", () => {
     renderMenu([selfHeal("s3", "Syncing stalled")]);
     expect(screen.queryByText(/more clearing on their own/)).toBeNull();
   });
+
+  it("an actionable item wrongly tagged self_heal is NOT counted as monitoring (§3.3 guard)", () => {
+    renderMenu([item("rogue", "PARSE_ERROR", { actionable: true, clearingKind: "self_heal" })]);
+    // renders as an actionable row; no monitoring summary appears for it
+    expect(screen.getByTestId("attention-menu-row-alert:rogue")).toBeInTheDocument();
+    expect(screen.queryByText(/clearing on their own/)).toBeNull();
+  });
+});
+
+describe("scroll boundary (whole-diff review 2026-07-22)", () => {
+  it("needs-look and monitoring groups live INSIDE the max-h scroll container", () => {
+    // 12 needs-look rows are producible (every needs-look code at once); links
+    // below the fold must stay reachable, so the scroll boundary wraps ALL
+    // groups, not just the actionable rows.
+    renderMenu([
+      item("a1", "PARSE_ERROR", { actionable: true }),
+      needsLook("nl1", "SHEET_UNAVAILABLE", {
+        label: "Open in Sheet",
+        href: SHEET,
+        external: true,
+      }),
+      selfHeal("sh1", "Syncing stalled"),
+    ]);
+    const scroller = document.querySelector('[class*="max-h-96"]');
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(screen.getByTestId("attention-menu-row-alert:a1"))).toBe(true);
+    expect(scroller!.contains(screen.getByTestId("attention-needslook-row-alert:nl1"))).toBe(true);
+    expect(scroller!.contains(screen.getByText(/1 clearing on their own/))).toBe(true);
+  });
 });

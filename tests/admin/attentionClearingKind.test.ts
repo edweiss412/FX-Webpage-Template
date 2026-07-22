@@ -35,6 +35,36 @@ describe("clearingKind bucketing", () => {
     expect(byCode.get("SHEET_UNAVAILABLE")?.clearingKind).toBe("needs_look");
   });
 
+  it("threads driveFileId end-to-end: the derived item's action href carries it (integration)", () => {
+    // Pins the full chain deriveAttentionItems → toAlertItem →
+    // resolveAlertAction — the resolver unit tests alone stay green if any
+    // link regresses (whole-diff review 2026-07-22 P2).
+    const [item] = deriveAttentionItems({
+      alerts: [alert({ id: "n9", code: "SHEET_UNAVAILABLE" })],
+      feed: null,
+      slug: "demo",
+      driveFileId: "FILE123",
+    });
+    if (item?.kind !== "alert") throw new Error("expected an alert item");
+    expect(item.alert.action).toEqual({
+      label: "Open in Sheet",
+      href: "https://docs.google.com/spreadsheets/d/FILE123/edit#gid=0",
+      external: true,
+    });
+  });
+
+  it("gallery path (driveFileId omitted, empty context): fail-visible needs_look row with NO action", () => {
+    const [item] = deriveAttentionItems({
+      alerts: [alert({ id: "n10", code: "SHEET_UNAVAILABLE" })],
+      feed: null,
+      slug: "demo",
+      driveFileId: null,
+    });
+    if (item?.kind !== "alert") throw new Error("expected an alert item");
+    expect(item.clearingKind).toBe("needs_look");
+    expect(item.alert.action).toBeNull();
+  });
+
   it("does not set clearingKind on an actionable alert", () => {
     const [it0] = deriveAttentionItems({
       alerts: [alert({ id: "a3", code: "AMBIGUOUS_EMAIL_BINDING", identityText: "Crew" })],

@@ -160,13 +160,14 @@ for (const { a, n, x } of cells) {
     const state = await page.evaluate(() => ({
       staleExpanded: document.querySelector('[aria-expanded="true"]') !== null,
       activeIsBody: document.activeElement === document.body,
-      activeInDialog:
-        document.activeElement?.closest?.('[role="dialog"]') != null ||
-        document.activeElement?.getAttribute?.("role") === "dialog",
+      // the rescue contract targets the dialog ROOT itself (tabindex ensured,
+      // then focus()) — a descendant check would also pass when the rescue
+      // never ran because focus happened to start inside the subtree.
+      activeIsDialogRoot: document.activeElement?.getAttribute?.("role") === "dialog",
     }));
     expect(state.staleExpanded, "stale aria-expanded").toBe(false);
     expect(state.activeIsBody, "focus dropped to <body>").toBe(false);
-    expect(state.activeInDialog, "focus not inside the dialog root").toBe(true);
+    expect(state.activeIsDialogRoot, "focus not on the dialog root").toBe(true);
   });
 }
 

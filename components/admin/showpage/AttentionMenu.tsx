@@ -94,7 +94,9 @@ function AttentionMenuPanel({
   // a non-actionable item without clearingKind renders as needs-a-look, never
   // silently dark. Only explicit self_heal items collapse to the summary row.
   const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
-  const selfHealCount = items.filter((i) => i.clearingKind === "self_heal").length;
+  // `!i.actionable` guard (spec §3.3): a mistagged actionable item renders as an
+  // actionable row only — never double-counted into the monitoring summary.
+  const selfHealCount = items.filter((i) => !i.actionable && i.clearingKind === "self_heal").length;
   // A needs-look-only open (interactive pill without actionable rows) must not
   // render an empty "Needs your confirmation" section; the panel takes its
   // accessible name from the first group actually present.
@@ -149,87 +151,92 @@ function AttentionMenuPanel({
             </button>
           );
         })}
-      </div>
-      {needsLook.length > 0 ? (
-        /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
+        {/* The scroll boundary wraps ALL groups (whole-diff review 2026-07-22):
+            12 needs-look rows are producible; links below the fold must scroll
+            into reach, not extend past the viewport. */}
+        {needsLook.length > 0 ? (
+          /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
            descendant is the action <a> (when the action resolved). No row-level
            onNavigate, no nested popover (the menu is itself a floating layer). */
-        <div className={hasActionable ? "border-t border-border" : undefined}>
-          {/* rounded-t when this group leads the panel (no confirmation section
+          <div className={hasActionable ? "border-t border-border" : undefined}>
+            {/* rounded-t when this group leads the panel (no confirmation section
               above): the sunken header must not bleed past the rounded border. */}
-          <div
-            className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
-          >
-            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-              Needs a look
-            </span>
-          </div>
-          {needsLook.map((item) => {
-            const code = item.kind === "alert" ? item.alert.code : null;
-            const hint =
-              code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
-            const action = item.kind === "alert" ? item.alert.action : null;
-            return (
-              <div
-                key={item.id}
-                data-testid={`attention-needslook-row-${item.id}`}
-                className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
-              >
-                <span
-                  aria-hidden="true"
-                  className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
-                />
-                {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
+            <div
+              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
+            >
+              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Needs a look
+              </span>
+            </div>
+            {needsLook.map((item) => {
+              const code = item.kind === "alert" ? item.alert.code : null;
+              const hint =
+                code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+              const action = item.kind === "alert" ? item.alert.action : null;
+              return (
+                <div
+                  key={item.id}
+                  data-testid={`attention-needslook-row-${item.id}`}
+                  className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
+                  />
+                  {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
                     the actionable rows use for the notice tone. */}
-                <span className="sr-only">{TONE_DOT.notice.srText}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-text-strong">
-                    {item.menuTitle}
-                  </span>
-                  {hint ? (
-                    <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
-                  ) : null}
-                  {action ? (
-                    /* Menu-close on activation (spec §3.4): a same-route hash link
+                  <span className="sr-only">{TONE_DOT.notice.srText}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-text-strong">
+                      {item.menuTitle}
+                    </span>
+                    {hint ? (
+                      <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
+                    ) : null}
+                    {action ? (
+                      /* Menu-close on activation (spec §3.4): a same-route hash link
                        activated inside the open dropdown would scroll its target
                        behind the menu; external links close too, for consistency. */
-                    <a
-                      href={action.href}
-                      onClick={() => onClose()}
-                      {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                      className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
-                    >
-                      {action.label}
-                      {action.external ? <span aria-hidden="true"> ↗</span> : null}
-                    </a>
-                  ) : null}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-      {selfHealCount > 0 ? (
-        /* Monitoring group (spec §3.4.3): quiet subheading + one summary row,
+                      <a
+                        href={action.href}
+                        onClick={() => onClose()}
+                        {...(action.external
+                          ? { target: "_blank", rel: "noopener noreferrer" }
+                          : {})}
+                        className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
+                      >
+                        {action.label}
+                        {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                      </a>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        {selfHealCount > 0 ? (
+          /* Monitoring group (spec §3.4.3): quiet subheading + one summary row,
            items not enumerated — genuinely self-healing, nothing to act on.
            Copy is TRUE for this subset. */
-        <div className="border-t border-border">
-          <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
-            <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-              Monitoring
-            </span>
+          <div className="border-t border-border">
+            <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Monitoring
+              </span>
+            </div>
+            <div className="flex items-center gap-2 rounded-b-md bg-surface-sunken px-4 pb-2.5">
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+              />
+              <span className="text-xs text-text-subtle">
+                {selfHealCount} clearing on their own, no action needed
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 rounded-b-md bg-surface-sunken px-4 pb-2.5">
-            <span
-              aria-hidden="true"
-              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-            />
-            <span className="text-xs text-text-subtle">
-              {selfHealCount} clearing on their own, no action needed
-            </span>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -89,13 +89,49 @@ describe("menu-open → non-interactive reconciliation (§11.5a, generated produ
         }),
       );
 
-      // §6 outcome contract — the close runs in a rAF callback (lint contract
-      // forbids sync setState in effects), so await the frame.
+      // §6 outcome contract — the unmount is same-render (derived open state +
+      // render-phase flag reconciliation); waitFor also covers the post-commit
+      // focus-rescue effect.
       await waitFor(() => {
         expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
       });
       expect(document.querySelector('[aria-expanded="true"]')).toBeNull();
-      expect(document.activeElement, "focus dropped to <body>").not.toBe(document.body);
+      // The rescue contract targets the dialog ROOT specifically (tabindex is
+      // ensured, then focus()); "any dialog descendant" would also pass a
+      // rescue that never ran when focus started inside the subtree.
+      expect(document.activeElement, "focus not on the dialog root").toBe(
+        document.querySelector('[role="dialog"]'),
+      );
     });
   }
+
+  it("rebound: interactive flips false -> true before the frame; the close still completes", async () => {
+    // Whole-diff review 2026-07-22: with a deferred (rAF) flag cleanup, a
+    // 1-frame interactivity rebound cancelled the pending close and the stale
+    // menuOpen=true remounted the menu (worse: re-armed §5.2 auto-open).
+    // Render-phase reconciliation closes the flag in the SAME render.
+    const { rerender } = renderPublishedModal([], { attentionItems: items(1, 0, 1) });
+    const pill = screen.getByTestId("published-show-review-alert-pill");
+    fireEvent.click(pill);
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+
+    // non-interactive blip... (menu unmounts, close scheduled)
+    rerender(publishedModalElement([], { attentionItems: items(0, 0, 1) }));
+    // ...and the rebound BEFORE any frame elapses
+    rerender(publishedModalElement([], { attentionItems: items(1, 0, 1) }));
+
+    // the render-phase reconciliation closed the flag SYNCHRONOUSLY on the
+    // blip render — the rebound render finds menuOpen already false, so
+    // there is nothing to resurrect and no auto-open re-fire (one-shot was
+    // consumed while the menu was open).
+    expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
+    expect(
+      screen.getByTestId("published-show-review-alert-pill").getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
+
+    // and a REAL user reopen still works afterwards
+    fireEvent.click(screen.getByTestId("published-show-review-alert-pill"));
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+  });
 });
