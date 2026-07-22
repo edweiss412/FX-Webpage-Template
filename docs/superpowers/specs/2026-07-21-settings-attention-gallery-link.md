@@ -117,9 +117,15 @@ with the row's existing wrap behavior.
      one-link drift fails. Separately assert the shared class string contains
      `min-h-tap-min` (tap-target claim) and `focus-visible:ring-2`
      (focus-ring claim), so parity cannot be satisfied by both links losing
-     the classes together. Assert the links' common parent element has
-     `flex-wrap` in its class list (narrow-viewport wrap claim). jsdom is
-     sufficient: these are class-attribute assertions, not computed-layout
+     the classes together. **Action-group wrapper (R2 F1):** assert both links
+     share the same direct parent (`open.parentElement === gallery.parentElement`),
+     that this parent is NOT the row root
+     (`parent !== getByTestId("admin-dev-tools-row")` — the root already has
+     `flex-wrap`, so a root-level assertion would be vacuous), and that the
+     parent's class token list contains ALL of `flex`, `flex-wrap`,
+     `items-center`, and `gap-2` (the §3 wrapper spec; `flex-wrap` alone does
+     not enable wrapping without `flex`). jsdom is sufficient: these are
+     class-attribute and DOM-structure assertions, not computed-layout
      assertions, and §3 declares no dimensional invariants.
    - **DOM order (R1 F2):** assert
      `open.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING`
