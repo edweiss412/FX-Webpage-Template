@@ -49,6 +49,23 @@ const LOOP_SENTENCE =
   "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
 
 /**
+ * Popover bodies are PORTALED out of their card subtree
+ * (hoverhelp-smart-position §4.1) but remain logically owned by it via the
+ * root wrapper's aria-owns. Scoped text assertions therefore concatenate the
+ * container's text with the text of every owned body — keeping the per-list
+ * scoping honest (a document-wide scan would be vacuous).
+ */
+function textWithOwnedBodies(container: HTMLElement): string {
+  let text = container.textContent ?? "";
+  for (const owner of container.querySelectorAll("[aria-owns]")) {
+    const id = owner.getAttribute("aria-owns");
+    const body = id ? document.getElementById(id) : null;
+    if (body) text += body.textContent ?? "";
+  }
+  return text;
+}
+
+/**
  * A warning ANCHORED TO A SHEET CELL. The follow-up sentence says "Edit the
  * cell", so `PerShowActionableWarnings` appends it only when a cell exists
  * (whole-diff review finding 3) — a cell-less fixture would make every
@@ -294,8 +311,8 @@ describe("the ignored list makes no promise about clearing", () => {
     const ignored_list = screen.getByTestId("section-ignored-warnings-warnings");
     // Scoped per list: a document-wide scan would find the active copy and
     // report the ignored list clean no matter what it renders.
-    expect(within(active_list).getByText(LOOP_SENTENCE, { exact: false })).toBeTruthy();
-    expect(ignored_list.textContent ?? "").not.toContain(LOOP_SENTENCE);
+    expect(textWithOwnedBodies(active_list)).toContain(LOOP_SENTENCE);
+    expect(textWithOwnedBodies(ignored_list)).not.toContain(LOOP_SENTENCE);
   });
 
   it("and no OTHER list in the factory's output carries the sentence", () => {
@@ -331,7 +348,7 @@ describe("the ignored list makes no promise about clearing", () => {
       const node = buildSectionWarningExtras({ bySection })(id, data);
       if (node === null) continue;
       const { container, unmount } = render(<>{node}</>);
-      occurrences += (container.textContent ?? "").split(LOOP_SENTENCE).length - 1;
+      occurrences += textWithOwnedBodies(container).split(LOOP_SENTENCE).length - 1;
       unmount();
     }
     expect(occurrences, "the sentence renders exactly once across every section").toBe(1);

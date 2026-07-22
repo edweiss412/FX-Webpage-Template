@@ -34,24 +34,62 @@ const FOCUSABLE_SELECTOR = [
 
 function focusableDescendants(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
+    // tabIndex >= 0 mirrors native sequential order: `a[href]` (etc.) with an
+    // explicit tabindex="-1" is click/programmatically focusable but NOT
+    // Tab-reachable, so the trap must not treat it as a boundary element
+    // (e.g. HoverHelp's learn-more link while its popover is closed or
+    // collision-hidden - visibility:hidden keeps offsetParent non-null).
+    (el) => (el.offsetParent !== null && el.tabIndex >= 0) || el === document.activeElement,
   );
 }
 
 export function useDialogFocus(
   containerRef: RefObject<HTMLElement | null>,
   initialFocusRef?: RefObject<HTMLElement | null>,
+  /**
+   * Re-bind signal for callers whose container DOM NODE is recreated during
+   * the dialog's lifetime. ReviewModalShell's `mounted` flip moves the tree
+   * into a `createPortal(document.body)` — React recreates the host nodes, so
+   * the keydown trap attached to the first panel node is silently lost (the
+   * cold-load `/admin?show=` path; masked in production only because the
+   * inert background plus the modal sitting at the end of `document.body`
+   * makes native tab-wrap approximate the trap). Pass the value that flips
+   * when the container is recreated; omit everywhere else — the effect then
+   * runs once on mount exactly as before.
+   */
+  reattachKey?: unknown,
 ): void {
+  // Restore-to-trigger is a MOUNT-LIFETIME concern, split from the (possibly
+  // re-running) attach effect below: a reattach cleanup must NOT yank focus
+  // back to the trigger mid-dialog, and the trigger snapshot must be the one
+  // taken before the dialog FIRST opened, not whatever was focused at the
+  // moment the container node was recreated.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    return () => {
+      // Restore focus to the trigger. If it's no longer reachable
+      // (removed during the dialog's lifetime), the browser falls
+      // through to document.body.
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-
     // Set initial focus. Prefer the explicit initial-focus ref (usually
     // the close button); fall back to the first focusable descendant.
-    const initial = initialFocusRef?.current ?? focusableDescendants(container)[0] ?? container;
-    initial.focus();
+    // Guarded on re-attach: recreating the container drops focus to <body>,
+    // so re-applying is correct — but a user's own focus already inside the
+    // NEW container is never stolen.
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !container.contains(active)) {
+      const initial = initialFocusRef?.current ?? focusableDescendants(container)[0] ?? container;
+      initial.focus();
+    }
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Tab") return;
@@ -75,15 +113,11 @@ export function useDialogFocus(
     container.addEventListener("keydown", onKeyDown);
     return () => {
       container.removeEventListener("keydown", onKeyDown);
-      // Restore focus to the trigger. If it's no longer reachable
-      // (removed during the dialog's lifetime), the browser falls
-      // through to document.body.
-      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
-        previouslyFocused.focus();
-      }
     };
-    // The hook intentionally runs once on mount + cleans up on unmount.
-    // Re-running on ref change would re-grab focus mid-dialog.
+    // Runs once on mount, plus once per reattachKey change (container node
+    // recreated — see the parameter doc). Re-running on ref IDENTITY is still
+    // deliberately avoided: refs don't trigger renders, and the guarded
+    // initial-focus above makes any extra run a no-op for focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reattachKey]);
 }

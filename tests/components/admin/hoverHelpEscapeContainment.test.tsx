@@ -67,6 +67,33 @@ function Harness({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Same shell topology, popover carries a Learn-more link (portal-origin Escape case). */
+function HarnessWithLearnMore({ onClose }: { onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  return (
+    <ReviewModalShell
+      open
+      onClose={onClose}
+      labelledBy="harness-heading"
+      dataAttrPrefix="review-modal"
+      testIdBase="harness"
+      initialFocusRef={closeRef}
+      header={
+        <h2 id="harness-heading">
+          Harness
+          <button type="button" ref={closeRef}>
+            Close
+          </button>
+        </h2>
+      }
+    >
+      <HoverHelp label="What does this mean?" testId="harness-help" learnMore={{ href: "/help/x" }}>
+        Body copy for the popover.
+      </HoverHelp>
+    </ReviewModalShell>
+  );
+}
+
 describe("HoverHelp Escape containment inside ReviewModalShell (§3.2)", () => {
   test("Escape from an OPEN popover closes the popover and NOT the modal", async () => {
     const onClose = vi.fn();
@@ -105,5 +132,91 @@ describe("HoverHelp Escape containment inside ReviewModalShell (§3.2)", () => {
 
     // Regression guard: containment must not become a blanket Escape swallow.
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  // ---- Portal topology pins (spec 2026-07-22-hoverhelp-smart-position §4.1/§6 T1) ----
+
+  test("body is a DESCENDANT of the dialog panel when the host context is provided (spec §4.1)", async () => {
+    render(<Harness onClose={() => {}} />);
+    const body = await screen.findByTestId("harness-help-body");
+    const panel = document.querySelector('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel!.contains(body)).toBe(true);
+  });
+
+  test("provider covers the WHOLE panel: a footer-slot HoverHelp portals into the panel (codex R1 F3)", async () => {
+    function FooterHarness() {
+      const closeRef = useRef<HTMLButtonElement | null>(null);
+      return (
+        <ReviewModalShell
+          open
+          onClose={() => {}}
+          labelledBy="fh-heading"
+          dataAttrPrefix="review-modal"
+          testIdBase="fharness"
+          initialFocusRef={closeRef}
+          header={
+            <h2 id="fh-heading">
+              Harness
+              <button type="button" ref={closeRef}>
+                Close
+              </button>
+            </h2>
+          }
+          footer={
+            <HoverHelp label="Footer help" testId="footer-help">
+              Footer popover body.
+            </HoverHelp>
+          }
+        >
+          <p>content</p>
+        </ReviewModalShell>
+      );
+    }
+    render(<FooterHarness />);
+    const body = await screen.findByTestId("footer-help-body");
+    const panel = document.querySelector('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel!.contains(body)).toBe(true); // NOT document.body host
+  });
+
+  test("root wrapper aria-owns re-adopts the portaled body in the a11y tree (spec §4.4)", async () => {
+    render(
+      <HoverHelp label="Help: owns" testId="owns-help" rootTestId="owns-root">
+        <p>owned body</p>
+      </HoverHelp>,
+    );
+    const body = await screen.findByTestId("owns-help-body");
+    expect(screen.getByTestId("owns-root")).toHaveAttribute("aria-owns", body.id);
+  });
+
+  test("body portals to document.body when NO host context is provided", async () => {
+    render(
+      <HoverHelp label="Help: solo" testId="solo-help">
+        <p>solo body</p>
+      </HoverHelp>,
+    );
+    const body = await screen.findByTestId("solo-help-body");
+    expect(body.parentElement).toBe(document.body);
+  });
+
+  test("Escape ORIGINATING inside the portaled body still contains (R1 F5)", async () => {
+    const onClose = vi.fn();
+    render(<HarnessWithLearnMore onClose={onClose} />);
+    const trigger = screen.getByTestId("harness-help-trigger");
+    fireEvent.click(trigger);
+    // jsdom's zero rects put the popover in the anchor-gone hidden state
+    // (visibility:hidden), which empties computed accessible names — a
+    // byRole+name query cannot match here (geometry is real-browser scope).
+    // The test's subject is Escape ORIGIN containment, so a body-scoped
+    // element query is the right tool.
+    const body = await screen.findByTestId("harness-help-body");
+    const link = body.querySelector("a");
+    if (!link) throw new Error("learn-more link missing from popover body");
+    (link as HTMLElement).focus();
+    fireEvent.keyDown(link, { key: "Escape" });
+    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

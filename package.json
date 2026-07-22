@@ -55,7 +55,8 @@
     "verify-resync-scheduletimes": "tsx scripts/verify-resync-scheduletimes.ts",
     "worktree:link-env": "bash scripts/worktree-link-env.sh",
     "preflight": "node scripts/preflight-env.mjs",
-    "db:reset-pool": "node scripts/db-reset-pool.mjs"
+    "db:reset-pool": "node scripts/db-reset-pool.mjs",
+    "test:e2e:hoverhelp-geometry": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

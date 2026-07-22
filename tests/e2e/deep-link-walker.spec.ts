@@ -207,6 +207,13 @@ async function assertTarget(page: Page, root: ReturnType<Page["getByTestId"]>, r
       } catch {
         await hoverTrigger.click();
       }
+      // Portaled body (hoverhelp-smart-position §4.1): the popover is no
+      // longer a DOM descendant of the affordance root — resolve it via the
+      // root wrapper's aria-owns and search the Learn-more link THERE.
+      const ownsId = await root.getAttribute("aria-owns");
+      if (ownsId) {
+        scope = page.locator(`[id=${JSON.stringify(ownsId)}]`);
+      }
     }
 
     const summary = root.locator("summary").first();

@@ -2,6 +2,14 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## HoverHelp smart position (2026-07-22)
+
+### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes — ✅ RESOLVED
+
+Impeccable critique note (2026-07-20): the `?` popover (align="right", opens below the trigger) could cover the inline guidance while open; spec `2026-07-20-show-alert-compact` ratified the overlap posture at the time as acceptable tooltip behavior. Resolved by `feat/hoverhelp-smart-position` (spec `docs/superpowers/specs/2026-07-22-hoverhelp-smart-position.md`): the shared `HoverHelp` popover now portals (panel host inside `ReviewModalShell`, `document.body` elsewhere) with collision-aware placement (`lib/popover/position.ts` — width-first shrink, side flip on insufficient space, viewport clamp), so the body flips above the trigger instead of sitting on the guidance band when space below is short. Pinned by the geometry suite's `overlap` kill-shot case (T5, `tests/e2e/hoverhelp-geometry.spec.ts`) with flip-forcing content and non-vacuity guards.
+
+The two cosmetic P3s folded into the original entry (row 24's double-semicolon chain; "as-is" hyphen wrap at 400px) were accepted-as-is cosmetics, not placement defects — they remain accepted and are not re-opened by this resolution.
+
 ## Attention gallery switcher bar (2026-07-22)
 
 ### ATTN-GALLERY-CONTROLBAR-OVERLAP-1 — [P2] switcher control bar overlapped the modal's constant header — ✅ RESOLVED

@@ -94,6 +94,16 @@ afterEach(() => {
   cleanup();
 });
 
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("Settings header (Task 4.2)", () => {
   it("renders AdminPageHeader with title 'Settings' + new sub copy", async () => {
     await renderSettings();
@@ -138,7 +148,7 @@ describe("Settings header (Task 4.2)", () => {
   it("Preferences header help carries matrix root testid + settings#preferences link (row 14)", async () => {
     await renderSettings();
     const root = screen.getByTestId("help-affordance--settings-preferences--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/settings#preferences",
     );

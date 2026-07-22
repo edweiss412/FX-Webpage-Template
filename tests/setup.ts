@@ -67,6 +67,20 @@ vi.mock("next/cache", () => ({
 // that assert a specific preference still override it (plain assignment creates
 // a configurable, writable property). Guarded on `window` so node-environment
 // test files (the suite default per vitest.config) are untouched.
+// jsdom also lacks ResizeObserver. HoverHelp's reposition lifecycle observes
+// its trigger/body/host while open (hoverhelp-smart-position §4.3), so any
+// jsdom suite that opens a popover would throw without this no-op default.
+// Per-file tests that need to SPY on observation (hoverHelpLifecycle) stub
+// their own class via vi.stubGlobal, which overrides this default.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class NoopResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = NoopResizeObserver;
+}
+
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
   window.matchMedia = (query: string): MediaQueryList =>
     ({

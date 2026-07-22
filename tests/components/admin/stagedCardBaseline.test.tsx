@@ -56,6 +56,20 @@ describe("staged warning-card markup baseline", () => {
 
     // One snapshot per card, in document order.
     expect(cards.map((el) => el.outerHTML)).toMatchSnapshot();
+
+    // The popover BODIES portaled out of the cards (hoverhelp-smart-position)
+    // - resolve each via its card's aria-owns and snapshot them too, so the
+    // baseline keeps covering role/content/classes/ids of the help popovers
+    // it covered when they were inline descendants (codex R2 F6).
+    const ownedBodies = cards.map((card) => {
+      const ownsId = card.querySelector("[aria-owns]")?.getAttribute("aria-owns");
+      if (!ownsId) throw new Error("card missing aria-owns popover reference");
+      const body = document.getElementById(ownsId);
+      if (!body) throw new Error(`aria-owns target ${ownsId} not in document`);
+      return body.outerHTML;
+    });
+    expect(ownedBodies.length).toBe(MAPPED_WARNINGS.length); // non-vacuity
+    expect(ownedBodies).toMatchSnapshot();
   });
 });
 

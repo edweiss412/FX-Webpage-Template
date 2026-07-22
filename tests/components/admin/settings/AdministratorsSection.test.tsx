@@ -60,6 +60,16 @@ function ok(rows: AdminEmailRow[]): EmbeddedAdminEmailsResult {
 
 afterEach(() => cleanup());
 
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("AdministratorsSection (Task 6.2)", () => {
   it("renders active list + revoked disclosure; add form hidden until 'Add admin' pressed (M12.3 item 12d)", () => {
     const rows = [
@@ -188,7 +198,7 @@ describe("AdministratorsSection (Task 6.2)", () => {
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
     );
     const root = screen.getByTestId("help-affordance--settings-administrators--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/settings#administrators",
     );

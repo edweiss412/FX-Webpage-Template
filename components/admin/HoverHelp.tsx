@@ -44,14 +44,39 @@
  * counts, and the Drive-health badge. Pass align="right" near a right edge.
  */
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type Context,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
+import {
+  VIEWPORT_INSET,
+  computePopoverPlacement,
+  insetRect,
+  intersectRects,
+  type Rect,
+} from "@/lib/popover/position";
 import type { ReactNode } from "react";
+
+/**
+ * Positioning host for the portaled popover body (spec
+ * 2026-07-22-hoverhelp-smart-position §4.1). ReviewModalShell is the ONE
+ * provider site — every HoverHelp-bearing dialog composes it — and supplies
+ * its panelRef so the body stays a descendant of the `role="dialog"` element
+ * (focus-trap enumeration, aria-modal subtree, dismiss-time inert all hold
+ * with zero trap changes). Without a provider the body portals to
+ * document.body, escaping clipping ancestors on non-modal pages.
+ */
+export const PopoverHostContext: Context<RefObject<HTMLElement | null> | null> =
+  createContext<RefObject<HTMLElement | null> | null>(null);
 
 const CLOSE_DELAY_MS = 120;
 
@@ -60,7 +85,7 @@ export function HoverHelp({
   children,
   trigger,
   align = "left",
-  placement = "bottom",
+  placement: placementProp = "bottom",
   testId = "hover-help",
   rootTestId,
   learnMore,
@@ -103,9 +128,24 @@ export function HoverHelp({
   learnMore?: { href: string };
 }) {
   const [open, setOpen] = useState(false);
+  // Mounted gate (ReviewModalShell.tsx:710 pattern): the portal target does
+  // not exist during SSR/first client render; server and first client render
+  // stay identical (no body), the portal mounts in the effect and then lives
+  // for the component's lifetime — open/close only toggles display.
+  const hostRef = useContext(PopoverHostContext);
+  const [mounted, setMounted] = useState(false);
+  // NOT useHasMounted: that reports true from the FIRST client commit, when a
+  // provider's panelRef.current is still null - the portal would fall back to
+  // document.body and never re-parent. The effect-flip guarantees one render
+  // AFTER refs populate, so the panel host is read when it exists.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render; see above
+  useEffect(() => setMounted(true), []);
   const bodyId = useId();
   const descId = useId();
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<number | null>(null);
 
   const clearCloseTimer = () => {
     if (closeTimer.current !== null) {
@@ -117,20 +157,183 @@ export function HoverHelp({
     clearCloseTimer();
     setOpen(true);
   };
+  /** Focus INSIDE the body keeps the popover open (spec §4.5 "focus arriving
+   * in the body by ANY route keeps the popover open") - so a hover-close is
+   * neither scheduled nor fired while the learn-more link (or anything else
+   * in the body) holds focus. Checked at schedule time AND at timer fire
+   * (focus can arrive during the 120ms window). */
+  const focusInsideBody = () => {
+    const b = bodyRef.current;
+    return !!(
+      b &&
+      document.activeElement instanceof HTMLElement &&
+      b.contains(document.activeElement)
+    );
+  };
   const scheduleClose = () => {
     clearCloseTimer();
-    closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
+    if (focusInsideBody()) return;
+    closeTimer.current = setTimeout(() => {
+      if (focusInsideBody()) return;
+      setOpen(false);
+    }, CLOSE_DELAY_MS);
+  };
+  /** Dismissal close (Escape, etc.): never strand focus on a node about to
+   * display:none - if the body held focus, hand it back to the trigger. */
+  const closeAndRestoreFocus = () => {
+    clearCloseTimer();
+    if (focusInsideBody()) triggerRef.current?.focus({ preventScroll: true });
+    setOpen(false);
   };
   useEffect(() => clearCloseTimer, []);
+
+  /**
+   * Measure + apply (spec 2026-07-22-hoverhelp-smart-position §4.2 shell
+   * steps a-d). Runs only while open. All algebra lives in the pure core
+   * (lib/popover/position.ts); this shell only gathers rects and applies
+   * the result as inline styles in the HOST's coordinate space.
+   */
+  const toRect = (r: DOMRect): Rect => ({
+    left: r.left,
+    top: r.top,
+    width: r.width,
+    height: r.height,
+    right: r.right,
+    bottom: r.bottom,
+  });
+  const measureAndApply = () => {
+    const trigger = triggerRef.current;
+    const body = bodyRef.current;
+    if (!trigger || !body) return;
+    const host = hostRef?.current ?? document.body;
+    // (a) clear previous inline constraints so measurement is natural
+    body.style.maxHeight = "";
+    body.style.maxWidth = "";
+    const viewportRect: Rect = {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+    // Body-host bounds degenerate to the viewport (spec §4.2): the body
+    // element's own CONTENT box is irrelevant to where a viewport-anchored
+    // popover may go (an all-absolute page gives document.body a zero-height
+    // rect, which would wrongly collapse the bounds).
+    const hostRect = host === document.body ? viewportRect : toRect(host.getBoundingClientRect());
+    const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
+    const naturalRect = body.getBoundingClientRect();
+    const placement = computePopoverPlacement({
+      trigger: toRect(trigger.getBoundingClientRect()),
+      naturalSize: { width: naturalRect.width, height: naturalRect.height },
+      wrappedHeightAt: (w) => {
+        body.style.maxWidth = `${w}px`;
+        const h = body.getBoundingClientRect().height; // border-box, caps active
+        body.style.maxWidth = "";
+        return h;
+      },
+      bounds,
+      preferredSide: placementProp,
+      align,
+    });
+    if (placement.kind === "hidden") {
+      // Never strand keyboard focus on an invisible node (WCAG 2.4.7): if the
+      // user had tabbed into the body (learn-more link) and scrolling took the
+      // anchor out of bounds, close and hand focus back to the trigger instead
+      // of hiding around them.
+      if (document.activeElement instanceof HTMLElement && body.contains(document.activeElement)) {
+        clearCloseTimer();
+        setOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
+        return;
+      }
+      body.style.visibility = "hidden";
+      body.dataset["popoverHidden"] = "true";
+      delete body.dataset["popoverSide"]; // no stale side while hidden
+      linkRef.current?.setAttribute("tabindex", "-1"); // invisible ≠ tabbable
+      return;
+    }
+    body.style.visibility = "";
+    delete body.dataset["popoverHidden"];
+    if (open) linkRef.current?.setAttribute("tabindex", "0"); // visible again
+    body.dataset["popoverSide"] = placement.side;
+    // (d) convert viewport point to host offsets (spec §4.2 host formulas)
+    const isBodyHostEl = host === document.body;
+    const left = isBodyHostEl
+      ? placement.viewport.x + window.scrollX
+      : placement.viewport.x - hostRect.left - host.clientLeft + host.scrollLeft;
+    const top = isBodyHostEl
+      ? placement.viewport.y + window.scrollY
+      : placement.viewport.y - hostRect.top - host.clientTop + host.scrollTop;
+    body.style.left = `${left}px`;
+    body.style.top = `${top}px`;
+    if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+  };
+
+  /** Coalescer: no-op while closed or when a frame is already pending (§4.3). */
+  const schedule = () => {
+    if (!open || frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null; // cleared BEFORE running so later events can schedule anew
+      measureAndApply();
+    });
+  };
+
+  // (a) open -> synchronous pre-paint measurement (NOT via schedule()); the
+  // deps re-run the effect when the placement props or portal availability
+  // change while open, so no stale capture survives (plan R2 F3).
+  useLayoutEffect(() => {
+    if (!open || !mounted) return;
+    measureAndApply();
+    const host = hostRef?.current ?? document.body;
+    const trigger = triggerRef.current;
+    const body = bodyRef.current;
+    window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
+    window.addEventListener("resize", schedule); // (c)
+    const ro = new ResizeObserver(schedule); // (d): trigger + body + host
+    if (trigger) ro.observe(trigger);
+    if (body) ro.observe(body);
+    ro.observe(host);
+    return () => {
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      if (trigger) ro.unobserve(trigger);
+      if (body) ro.unobserve(body);
+      ro.unobserve(host);
+      ro.disconnect();
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      // attribute lifecycle (§4.6): a closed body never claims a side
+      if (body) {
+        delete body.dataset["popoverSide"];
+        delete body.dataset["popoverHidden"];
+        body.style.visibility = "";
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mounted, placementProp, align]);
 
   // Escape dismisses whenever open (hover OR click) — 1.4.13 Dismissible.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        clearCloseTimer();
-        setOpen(false);
+      if (e.key !== "Escape") return;
+      // Inline closeAndRestoreFocus (refs + stable setters only, so the
+      // [open]-dep closure can never be stale; keeps exhaustive-deps clean).
+      clearCloseTimer();
+      const b = bodyRef.current;
+      if (
+        b &&
+        document.activeElement instanceof HTMLElement &&
+        b.contains(document.activeElement)
+      ) {
+        triggerRef.current?.focus({ preventScroll: true });
       }
+      setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -157,9 +360,43 @@ export function HoverHelp({
     if (!open || e.key !== "Escape") return;
     e.preventDefault();
     e.stopPropagation();
-    clearCloseTimer();
-    setOpen(false);
+    closeAndRestoreFocus();
   };
+
+  /**
+   * Body-host Tab bridge (spec §4.5). Active ONLY when no host provider
+   * exists (hostRef === null means body host by contract; a provider whose
+   * current is transiently null is a DIALOG whose trap owns Tab once its
+   * panel mounts) AND the popover is open AND a learnMore link exists.
+   * Restores the shipped "link is reachable via Tab" adjacency that the
+   * portal-to-document-end would otherwise break. Declared double-visit:
+   * forward Tab from the link closes the popover and returns to the trigger.
+   */
+  const linkRef = useRef<HTMLAnchorElement | null>(null);
+  const bridgeActive = () => hostRef === null && open && learnMore !== undefined;
+
+  const onTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Tab" || e.shiftKey || !bridgeActive()) return;
+    e.preventDefault();
+    clearCloseTimer(); // a pending hover-close must not hide the newly focused link
+    linkRef.current?.focus();
+  };
+
+  const onBodyKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || hostRef !== null || !learnMore) return;
+    if (document.activeElement !== linkRef.current) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      triggerRef.current?.focus(); // popover stays open
+    } else {
+      clearCloseTimer();
+      setOpen(false); // declared double-visit semantics (§4.5)
+      triggerRef.current?.focus();
+    }
+  };
+
+  /** Focus arriving in the body by ANY route keeps the popover open (§4.5). */
+  const onBodyFocus = () => clearCloseTimer();
 
   // Hover is MOUSE-ONLY: a synthetic-mouse tap on a touch device fires pointer
   // events with pointerType="touch"/"pen" — ignore those so the click toggle is
@@ -184,6 +421,7 @@ export function HoverHelp({
       clearCloseTimer();
       setOpen((o) => !o);
     },
+    onKeyDown: onTriggerKeyDown,
   };
 
   return (
@@ -193,6 +431,7 @@ export function HoverHelp({
     <div
       className="relative inline-flex"
       data-testid={rootTestId}
+      aria-owns={bodyId}
       onPointerEnter={onMouseEnter}
       onPointerLeave={onMouseLeave}
       onKeyDown={onRootKeyDown}
@@ -206,6 +445,7 @@ export function HoverHelp({
       {trigger ? (
         <button
           {...triggerProps}
+          ref={triggerRef}
           className={
             compactTrigger
               ? "group relative grid size-[22px] shrink-0 cursor-help place-items-center rounded-pill before:absolute before:inset-[-11px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-0"
@@ -217,6 +457,7 @@ export function HoverHelp({
       ) : (
         <button
           {...triggerProps}
+          ref={triggerRef}
           className="relative grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-border bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:border-border-strong hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
         >
           <span aria-hidden="true">?</span>
@@ -239,39 +480,58 @@ export function HoverHelp({
           (Tailwind v4 / CSS `transition-behavior: allow-discrete` +
           `@starting-style`); where unsupported the popover simply appears
           instantly, which is the correct degradation for a help tooltip. */}
-      <div
-        id={bodyId}
-        role={learnMore ? undefined : "tooltip"}
-        data-testid={`${testId}-body`}
-        onPointerEnter={openNow}
-        onPointerLeave={scheduleClose}
-        className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
-          placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
-        } ${
-          open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
-        } ${align === "right" ? "right-0" : "left-0"}`}
-      >
-        <div id={descId}>{children}</div>
-        {learnMore ? (
-          // M12.12 follow-up: aria-label keeps the decorative "→" out of the
-          // accessible name. An aria-hidden <span> around the glyph was tried
-          // first but splitting the text run shifts text-decoration paint
-          // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
-          // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
-          // the trigger label ("Help: Active shows" → "Learn more about
-          // active shows") — the HelpAffordance "Learn more: <title>" pattern.
-          <a
-            href={learnMore.href}
-            aria-label={`Learn more about ${(() => {
-              const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
-              return topic.charAt(0).toLowerCase() + topic.slice(1);
-            })()}`}
-            className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
-          >
-            Learn more →
-          </a>
-        ) : null}
-      </div>
+      {mounted
+        ? createPortal(
+            <div
+              id={bodyId}
+              ref={bodyRef}
+              role={learnMore ? undefined : "tooltip"}
+              data-testid={`${testId}-body`}
+              onPointerEnter={openNow}
+              onPointerLeave={scheduleClose}
+              onKeyDown={onBodyKeyDown}
+              onFocus={onBodyFocus}
+              className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
+                open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
+              }`}
+            >
+              <div id={descId}>{children}</div>
+              {learnMore ? (
+                // M12.12 follow-up: aria-label keeps the decorative "→" out of the
+                // accessible name. An aria-hidden <span> around the glyph was tried
+                // first but splitting the text run shifts text-decoration paint
+                // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
+                // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
+                // the trigger label ("Help: Active shows" → "Learn more about
+                // active shows") — the HelpAffordance "Learn more: <title>" pattern.
+                <a
+                  ref={linkRef}
+                  href={learnMore.href}
+                  // Out of tab order whenever the popover is not interactively
+                  // open: while CLOSED (incl. the discrete-display exit interval,
+                  // where the node is still rendered for ~duration-fast) and
+                  // while collision-HIDDEN (visibility:hidden keeps offsetParent
+                  // non-null, so a trap enumerating by offsetParent would treat
+                  // the invisible link as its last focusable). Paired with the
+                  // tabIndex>=0 filter in lib/a11y/dialogFocus.ts.
+                  tabIndex={open ? 0 : -1}
+                  aria-label={`Learn more about ${(() => {
+                    const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
+                    return topic.charAt(0).toLowerCase() + topic.slice(1);
+                  })()}`}
+                  className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+                >
+                  Learn more →
+                </a>
+              ) : null}
+            </div>,
+            // Portal CONTAINER choice, not render data: only read once `mounted`
+            // is true (post-first-commit, provider's panelRef is populated); same
+            // escape PageTransition.tsx:62 uses.
+            // eslint-disable-next-line react-hooks/refs -- see above
+            hostRef?.current ?? document.body,
+          )
+        : null}
     </div>
   );
 }

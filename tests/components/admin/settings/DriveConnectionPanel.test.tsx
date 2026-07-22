@@ -70,6 +70,16 @@ function warnHealth(
   };
 }
 
+/** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
+ * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
+function ownedBody(root: HTMLElement): HTMLElement {
+  const id = root.getAttribute("aria-owns");
+  if (!id) throw new Error("affordance root missing aria-owns");
+  const body = document.getElementById(id);
+  if (!body) throw new Error("aria-owns target not in document");
+  return body;
+}
+
 describe("DriveConnectionPanel", () => {
   it("positive → 'Connected · N shows syncing · last read {rel}' + Healthy pill", () => {
     const health: DriveConnectionHealth = {
@@ -384,7 +394,7 @@ describe("DriveConnectionPanel", () => {
     };
     render(<DriveConnectionPanel health={health} now={NOW} />);
     const root = screen.getByTestId("help-affordance--settings-drive-connection--tooltip");
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/settings#drive-connection",
     );
@@ -405,7 +415,7 @@ describe("DriveConnectionPanel", () => {
     const root = screen.getByTestId("help-affordance--settings-drive-health-badge--tooltip");
     // The badge itself is the trigger inside the affordance root.
     expect(within(root).getByTestId("drive-connection-health-badge")).toBeInTheDocument();
-    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+    expect(within(ownedBody(root)).getByRole("link", { hidden: true })).toHaveAttribute(
       "href",
       "/help/admin/settings#drive-health",
     );
