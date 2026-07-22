@@ -237,7 +237,7 @@ Add the spec §3.6 roster verbatim: 3 changes-class (`t2-changelog-history` 11-r
 
 ### Task 8: Gates
 
-- [ ] `/impeccable critique` + `/impeccable audit` on the affected diff (invariant 8; the two UI files from Task 5 + any copy), with the canonical v3 setup: the impeccable context load via the LOADED SKILL's base directory (`node <skill-base-dir>/scripts/context.mjs` — the `.claude/skills/...` relative path does not exist in this worktree; the skill announces its base dir when invoked), reading PRODUCT.md + DESIGN.md then register reference read (the skill's product register reference — admin tool register). P0/P1 fixed or DEFERRED.md. Findings + dispositions recorded in this plan's Review record (no milestone handoff doc exists; the plan is the §12-equivalent).
+- [ ] `/impeccable critique` + `/impeccable audit` on the affected diff (invariant 8; the two UI files from Task 5 + any copy), with the canonical v3 setup: the impeccable context load via the LOADED SKILL's base directory (`node <skill-base-dir>/scripts/context.mjs` — a dot-claude-relative skills path does not exist in this worktree; the skill announces its base dir when invoked), reading PRODUCT.md + DESIGN.md then register reference read (the skill's product register reference — admin tool register). P0/P1 fixed or DEFERRED.md. Findings + dispositions recorded in this plan's Review record (no milestone handoff doc exists; the plan is the §12-equivalent).
 - [ ] Full local: `pnpm test`, `pnpm tsc --noEmit`, `pnpm lint`, `pnpm format:check`, full e2e (quiet box).
 - [ ] Commit the gate record ALWAYS (`docs(plan): impeccable gate record` — the findings/dispositions edit to this plan is a tracked-file mutation even on a clean run), plus any gate fixes per type (`fix(admin): …`).
 
