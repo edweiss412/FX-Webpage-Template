@@ -26,6 +26,8 @@ import {
 import { scenarioById } from "@/lib/dev/attentionScenarios/index";
 import { T3_FULL_SPLIT } from "@/lib/dev/attentionScenarios/tier3";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { autoResolveNote } from "@/lib/adminAlerts/audience";
+import { messageFor, type MessageCode } from "@/lib/messages/lookup";
 
 beforeEach(installModalDomStubs);
 afterEach(() => {
@@ -55,7 +57,7 @@ describe("t3-full-attention-split renders the full taught state", () => {
     expect(pill.tagName).toBe("BUTTON");
   });
 
-  it("menu: all three groups with headers, links, and the monitoring summary", () => {
+  it("menu: all three groups with headers, links, and enumerated monitoring rows", () => {
     mountScenario();
     const pill = screen.getByTestId("published-show-review-alert-pill");
     // §5.2 auto-open may have opened the menu already (actionable > 0); only
@@ -90,34 +92,36 @@ describe("t3-full-attention-split renders the full taught state", () => {
     // the two self-heal items must NOT get needs-look rows
     expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(2);
 
-    // monitoring group, scoped WITHOUT structural assumptions (whole-diff R2:
-    // closest/parentElement depends on incidental nesting). Conclusive form:
-    // (a) "Monitoring" is the LAST group heading in document order, (b) the
-    // summary FOLLOWS it, and (c) the summary is inside no other group's row —
-    // together the summary can only live in the Monitoring section.
+    // monitoring group: "Monitoring" is the LAST group heading in document
+    // order, and the rows are scoped to the group wrapper's own testid.
     const monHeading = within(menu).getByText("Monitoring");
-    const summary = within(menu).getByText("2 clearing on their own, no action needed");
     const follows = (a: Node, b: Node) =>
       (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(follows(within(menu).getByText("Needs your confirmation"), monHeading)).toBe(true);
     expect(follows(within(menu).getByText("Needs a look"), monHeading)).toBe(true);
-    expect(follows(monHeading, summary)).toBe(true);
-    for (const row of menu.querySelectorAll(
-      '[data-testid^="attention-menu-row-"], [data-testid^="attention-needslook-row-"]',
-    )) {
-      expect(row.contains(summary)).toBe(false);
+    // monitoring-badge-expand §3.2: the summary is retired; the group
+    // enumerates one row per self-heal item. Expected titles resolved
+    // INDEPENDENTLY of the rendered props via the message catalog (the
+    // scenario/fixture menuTitle feeds the render and would be tautological).
+    expect(within(menu).queryByText(/clearing on their own, no action needed/)).toBeNull();
+    const group = within(menu).getByTestId("attention-monitoring-group");
+    expect(group.contains(monHeading)).toBe(true);
+    const scenario = scenarioById(T3_FULL_SPLIT);
+    if (!scenario) throw new Error("composite missing from catalog");
+    const selfHealCodes = deriveScenarioAttention(scenario)
+      .filter((i) => i.clearingKind === "self_heal")
+      .map((i) => (i.kind === "alert" ? i.alert.code : "__none__"));
+    expect(selfHealCodes).toHaveLength(2);
+    const rows = within(group).getAllByTestId(/attention-monitoring-row-/);
+    expect(rows).toHaveLength(2);
+    for (const [idx, code] of selfHealCodes.entries()) {
+      const row = rows[idx]!;
+      expect(within(row).getByText(messageFor(code as MessageCode).title!)).toBeInTheDocument();
+      expect(within(row).getByText(autoResolveNote(code))).toBeInTheDocument();
     }
-    // Membership proof (whole-diff R3): the NEAREST COMMON ANCESTOR of the
-    // summary and the Monitoring heading must contain NO other group's
-    // heading. In-group placement makes the NCA the group wrapper (other
-    // headings absent); ANY misplacement — another group, a footer after all
-    // groups — widens the NCA to a container that also holds the other
-    // headings, and the assertion fails. No structural nesting assumed beyond
-    // groups being disjoint subtrees, which is what "grouped" means.
-    let scope: HTMLElement = summary.parentElement as HTMLElement;
-    while (!scope.contains(monHeading)) scope = scope.parentElement as HTMLElement;
-    expect(scope).not.toBe(menu); // a PROPER subtree, never the whole panel
-    expect(within(scope).queryByText("Needs your confirmation")).toBeNull();
-    expect(within(scope).queryByText("Needs a look")).toBeNull();
+    // Membership proof: monitoring rows live in the Monitoring group ONLY —
+    // no other group's heading inside the group wrapper.
+    expect(within(group).queryByText("Needs your confirmation")).toBeNull();
+    expect(within(group).queryByText("Needs a look")).toBeNull();
   });
 });
