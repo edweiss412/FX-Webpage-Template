@@ -1,9 +1,9 @@
 /**
- * lib/popover/position.ts — pure placement algebra for the HoverHelp popover
+ * lib/popover/position.ts - pure placement algebra for the HoverHelp popover
  * (spec docs/superpowers/specs/2026-07-22-hoverhelp-smart-position.md §4.2).
  *
  * ALL placement math lives here (structural defense: two adversarial rounds
- * found ordering/state defects in prose math — the ordering below is pinned
+ * found ordering/state defects in prose math - the ordering below is pinned
  * by tests/lib/popover/position.test.ts and cannot drift per-call-site).
  * The component shell only measures rects and applies the returned values.
  * Pattern precedent: lib/layout/fitWithinClip.ts.
@@ -75,7 +75,7 @@ const finiteRect = (r: Rect): boolean =>
   Number.isFinite(r.right) &&
   Number.isFinite(r.bottom);
 
-/** Positive-area overlap — touching edges do NOT count (spec §4.2 step 1). */
+/** Positive-area overlap - touching edges do NOT count (spec §4.2 step 1). */
 const overlapsPositively = (a: Rect, b: Rect): boolean => {
   const i = intersectRects(a, b);
   return i.width > 0 && i.height > 0;

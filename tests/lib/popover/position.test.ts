@@ -31,7 +31,7 @@ function input(over: Partial<PopoverPlacementInput> = {}): PopoverPlacementInput
   };
 }
 
-describe("numeric pins (spec §4.2 constants — independent of geometry uses)", () => {
+describe("numeric pins (spec §4.2 constants - independent of geometry uses)", () => {
   it("GAP === 6", () => expect(GAP).toBe(6));
   it("VIEWPORT_INSET === 8", () => expect(VIEWPORT_INSET).toBe(8));
 });
