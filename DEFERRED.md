@@ -8,6 +8,12 @@ Last reconciled: 2026-07-19 (MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-moda
 
 ---
 
+### ATTN-GALLERY-CONTROLBAR-OVERLAP-1 — [P2] switcher control bar overlaps the modal's constant header
+
+From the impeccable critique of `attention-modal-switcher-gallery` (2026-07-21). The switcher's control bar (`components/admin/dev/SwitcherControls.tsx`, `fixed top-0 z-60`) sits above the real modal (`z-50`) by design (spec §3.4, so it escapes the inert root), and on desktop covers the modal's top ~90px; on a 390px viewport the wrapped bar covers more. What it covers is the modal's CONSTANT fake-show header ("Gallery Preview Show" title + subline) — the modal's close X (top-right) and all scenario-specific attention content stay fully visible and operable (e2e-verified: `tests/e2e/attention-modal-gallery.spec.ts` operability + close tests). Deferred: this is a dev-only instrument (`app/admin/dev/`, build-gated), the obscured content carries no scenario information, and the impeccable tier is P2 (the dual-gate mandates P0/P1 only).
+
+**Un-defer trigger:** if the gallery gains a per-scenario modal header (non-constant title), or a real operator reports losing the modal's close affordance — then offset the modal below the bar or make the bar a single collapsible row.
+
 ### WARNCARD-GUIDANCE-LENGTH-1 — [P2] two guidance rows read as paragraphs, not at-a-glance lines
 
 From the impeccable critique of `warning-card-copy-restore` (2026-07-20). Spec §4.2 rows 7 (CREW_COLUMN_POSITIONAL_FALLBACK, 241 ch) and 33 (PULL_SHEET_OVERRIDE_CONTENT_CHANGED, 245 ch) render ~5-6 lines at 320px; the median row (~175 ch) reads as intended. Cap is 300 so the meta-test passes; copy tightening, not a defect. Deferred because the copy table is the ratified §4.2 canonical (frozen fixture + §12.4 lockstep) and the impeccable tier is P2 (dual-gate mandates P0/P1 only).
