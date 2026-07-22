@@ -40,6 +40,10 @@ describe("warningsPanelStatusSentence (spec §3.2)", () => {
     expect(warningsPanelStatusSentence(0, 0, 2.2)).toBe(
       "2 warnings need a look in their own sections.",
     );
+    expect(warningsPanelStatusSentence(0, -3, 0)).toBe("Nothing needs a look on this sheet.");
+    expect(warningsPanelStatusSentence(0, 0, Number.POSITIVE_INFINITY)).toBe(
+      "Nothing needs a look on this sheet.",
+    );
   });
 
   it("single-bucket changes always change the text (production ignore transitions)", () => {

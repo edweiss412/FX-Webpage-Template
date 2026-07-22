@@ -196,6 +196,7 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
       )
       .toBe("ready");
     const rects: R[] = await measure();
+    expect(rects.length, "all three buttons measurable at assert time").toBe(3);
     for (const r of rects) {
       expect(r.right - r.left).toBeGreaterThanOrEqual(44);
       expect(r.bottom - r.top).toBeGreaterThanOrEqual(44);

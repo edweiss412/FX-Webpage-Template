@@ -69,7 +69,7 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         message: `unknown hotel field ${n}`,
         rawSnippet: `Hotel | h-${n}`,
         blockRef: { kind: "hotels", name: `hotel-${n}` },
-      }) as ParseWarning,
+      }) satisfies ParseWarning,
   },
   Transport: {
     id: "transport",

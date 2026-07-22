@@ -71,14 +71,12 @@ function renderWarningsBreakdownWithChrome(chromeExtras: Partial<Step3SectionChr
 }
 
 describe("pointer sentence render (spec §8.6)", () => {
-  function renderElsewhere(labels: string[], opts: { totalSections?: number } = {}) {
-    const props = buildPublishedSurfaceProps({
-      listed: 0,
-      here: 0,
-      elsewhereSections: labels,
-      ...(opts.totalSections !== undefined ? { elsewhereTotalSections: opts.totalSections } : {}),
-    });
-    render(<ShowReviewSurface {...props} />);
+  function renderElsewhere(labels: string[]) {
+    render(
+      <ShowReviewSurface
+        {...buildPublishedSurfaceProps({ listed: 0, here: 0, elsewhereSections: labels })}
+      />,
+    );
   }
 
   function sentence(): string {

@@ -46,6 +46,9 @@ describe("extras seam (spec §3.3)", () => {
       />,
     );
     expect(extrasClass("warnings")).toBe(SEAM_CLASSES);
+    // ...and the panel CARD is genuinely present (the §8.4 claim is card AND
+    // seam): the parse-notes banner block renders inside the card body only.
+    expect(screen.getByTestId("parse-attention-notes")).toBeTruthy();
   });
 
   it("mixed here+elsewhere: warnings seamless while crew keeps its seam in the same render", () => {
