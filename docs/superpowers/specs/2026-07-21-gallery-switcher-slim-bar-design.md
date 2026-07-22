@@ -26,16 +26,20 @@ target viewports. The modal and shell are untouched.
   `ReviewModalShell` positioning (`components/admin/review/ReviewModalShell.tsx:582`)
   for a dev-only instrument and shrinks usable modal height. Do not propose modal or
   shell edits.
-- **Expanded panel MAY transiently overlap the modal header.** Opening the disclosure
-  grows the bar downward over the header. Ratified: it is user-invoked, dismissible,
-  and shows constant metadata, exactly the class of content it covers. The
-  non-overlap invariant binds the COLLAPSED (default) state only.
+- **Expanded panel MAY transiently overlap the modal** (header, and — within its
+  `max-h-[40vh]` cap — body content below it; at 390px full-bar width this can
+  include the close X). Opening the disclosure grows the bar downward. Ratified: it
+  is user-invoked, dismissible with one tap on the same toggle, and z-60 above the
+  modal by design (parent spec §3.4); the collapse affordance itself is never
+  covered (it lives in the always-visible control row). The non-overlap invariant
+  binds the COLLAPSED (default) state only.
 - **Dev-instrument carve-outs stand.** The parent spec's a11y carve-out (bar outside
   the `aria-modal` tree, arrow-key navigation) and raw-codes carve-out
   (`data-codes` attribute, no visible codes — invariant 5) are unchanged
   (parent spec §1.1/§3.4).
 - **Height cap amendment: ≤56px becomes ≤64px collapsed.** The [R1-12] cap of 56px
-  was never achievable with 44px tap targets + `py-2` (8+44+8+2px border = 62px) and
+  was never achievable with 44px tap targets + `py-2` (8+44+8+1px bottom border =
+  61px, `border border-t-0`) and
   the shipped bar never met it. The amended invariant: collapsed height ≤64px
   (exclusive of safe-area inset, §2.1.1); expanded state is transient and bounded
   only by the panel's own `max-h-[40vh]` cap (§2.3).
@@ -69,13 +73,21 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
   pins 3 structural + a cut count derived from `DOUG_EXCLUDED_CODES`
   (`tests/e2e/attention-modal-gallery.spec.ts:335`, `lib/dev/attentionScenarios/tier2.ts:73`)
   and the rendered total is ≤ the catalog size (currently 41) — so the fixed-width
-  sum cannot grow past the budget. Below 390px the bar clips at the viewport edge
-  (dev instrument; no supported sub-390 viewport).
+  sum cannot grow past the budget. These are facts about the catalog, not a
+  component-boundary clamp (§3 guard rows tolerate degenerate numbers): the
+  ENFORCEMENT is the e2e geometry test (§5), which renders the real catalog and
+  fails on `bar.height > 64` or row overflow if the catalog ever grows the counts
+  past the budget. No runtime clamp is added (dev instrument; a wrong number
+  visible in the bar is a feature, not a fault to mask). Below 390px the bar clips
+  at the viewport edge (dev instrument; no supported sub-390 viewport).
 
 ### 2.1.1 Safe-area handling
 
-The bar container adds `pt-[env(safe-area-inset-top)]` on top of its `py-2` (or the
-equivalent `style` fallback). The ≤64px collapsed cap in §2.4/§2.5 is defined
+The bar container's `py-2` is split into `pb-2` plus
+`pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` — a single top-padding
+declaration that is ADDITIVE (8px + inset), never two competing `padding-top`
+assignments (Tailwind emits one `padding-top`, so `py-2 pt-[...]` cascade-ordering
+is avoided by construction). The ≤64px collapsed cap in §2.4/§2.5 is defined
 EXCLUSIVE of that inset: collapsed height ≤ 64px + `env(safe-area-inset-top)`. Both
 e2e viewports (Chromium 1280×800 and 390×844) report a 0px inset, so the e2e's
 numeric assertion of ≤64px is exact there; a notched device adds only the inset the
@@ -126,8 +138,9 @@ header (`data-testid="published-show-review-header"`,
 (they are the only stable testids; the rest of the list is satisfied a fortiori —
 every protected surface sits at or below the modal panel's top edge, and the e2e
 asserts the collapsed bar clears the panel's topmost box, the header). The ratified
-expanded-state exception (§1.1) permits header overlap ONLY; the expanded panel is
-capped (§2.3) and top-centered, so it cannot reach the nav rail (left) or footer. Geometry headroom: the panel is `max-h-[85vh]` mobile /
+expanded-state exception (§1.1) permits modal overlap within the panel's 40vh cap;
+the panel is top-centered, so it cannot reach the nav rail (left) or the footer
+(bottom, below the 64px + 40vh maximum extent at both e2e viewports). Geometry headroom: the panel is `max-h-[85vh]` mobile /
 `sm:max-h-[80vh]` desktop (`ReviewModalShell.tsx:618`), so the scrim band above the
 panel is ≥120px at 390×844 (bottom sheet) and ≥80px at 1280×800 (centered), vs the
 ≤64px collapsed bar.
@@ -141,7 +154,7 @@ not stretch-based, and each is guaranteed by an explicit class:
 
 | Relationship | Guarantee |
 | --- | --- |
-| Collapsed bar height ≤64px | Single row: `flex-nowrap` on the row (no second line possible) + `min-h-tap-min` (44px) buttons + container `py-2` (16px) + 2px border. |
+| Collapsed bar height ≤64px | Single row (`flex-nowrap` — no second line possible); row content is single-line text in 44px-MINIMUM (`min-h-tap-min`) content-sized buttons that render at 44px (one text line ≈17px + padding never exceeds the minimum), + 8px `pb-2` + 8px base of the split top padding (§2.1.1) + 1px bottom border (`border border-t-0`) ≈ 62px observed. The ≤64px UPPER bound is enforced by the e2e assertion (§5), not by any max-height class. |
 | Row children never push the bar wider than the viewport | Every non-label child `shrink-0`; label `min-w-0 truncate` absorbs all deficit. |
 | Bar never intersects modal header/close/footer (collapsed) | `fixed top-0` bar ≤64px vs scrim band ≥80px above the panel (§2.4 math); pinned by the real-browser `getBoundingClientRect`/`boundingBox` e2e (§5), not jsdom. |
 
@@ -196,17 +209,26 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     read `boundingBox()` of the collapsed bar and of the modal header, close, and
     footer testids; assert (a) no intersection of the bar box with each modal box,
     (b) `bar.height <= 64` (both e2e viewports report a 0px safe-area inset, §2.1.1,
-    so the numeric bound is exact), and (c) horizontal containment:
-    `bar.x >= 0 && bar.x + bar.width <= viewport.width`. (b) is what makes (a)
+    so the numeric bound is exact), and (c) no horizontal content overflow:
+    `bar.scrollWidth <= bar.clientWidth` (via `locator.evaluate`) — the `inset-x-0`
+    bar box is always inside the viewport, so a bounding-box check would be
+    tautological; scrollWidth vs clientWidth is what actually detects non-shrinking
+    children escaping the row. (b) is what makes (a)
     non-vacuous — a wrapped 80px bar fails (b) even if the modal happens to sit
     lower — and (b)+(c) together pin non-wrapping and no-overflow, the real-layout
     facts jsdom cannot see. Anti-tautology: boxes come
     from the real modal testids, not from any gallery-authored wrapper; the bar box
     from `attention-switcher-controls` (`tests/e2e/attention-modal-gallery.spec.ts:66`).
-  - Persistence rides the same test: open the panel, press ArrowRight (scenario
-    remount), assert the panel is still open (`aria-expanded="true"`); then close
-    the modal via its X, click "Reopen", and assert the panel state survived — the
-    bar is outside the keyed modal subtree (parent spec §3.3), and this pins it.
+  - Persistence rides the same test, at 1280×800 ONLY: open the panel, press
+    ArrowRight (scenario remount), assert the panel is still open
+    (`aria-expanded="true"`); then close the modal via its X, click "Reopen", and
+    assert the panel state survived — the bar is outside the keyed modal subtree
+    (parent spec §3.3), and this pins it. Desktop-only because at 1280 the expanded
+    panel (max-w-3xl, right edge ≈1024px) cannot cover the modal's close X (modal
+    max-w-5xl, X near ≈1100px, `ReviewModalShell.tsx:618`), so the X stays
+    clickable while expanded; at 390px the ratified overlap (§1.1) can cover the X,
+    which is why the mobile viewport runs only the collapsed-state geometry
+    assertions.
   - Footnote test (`tests/e2e/attention-modal-gallery.spec.ts:332`) updated: assert
     footnote copy hidden by default, click the toggle, then keep the existing
     structural-label + cut-count assertions (they derive from catalog exports
