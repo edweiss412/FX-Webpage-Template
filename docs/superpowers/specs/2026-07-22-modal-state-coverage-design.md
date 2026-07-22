@@ -117,10 +117,10 @@ export type ScenarioFixture = {
     diagramImages?: number; // embedded images in the diagrams anchor; >12 → "+N more"
     packlist?: { cases: number; itemsPerCase: number }; // PullSheetCase[] rows generated into snapshot pull_sheet; cases > PACK_LIST_CASES_CAP (12) → "+N more cases", itemsPerCase > PACK_LIST_ITEMS_CAP (8) → per-case "Show all" disclosure; shape verified against the adapter's PullSheetCase at plan time
     agenda?: "overflow"; // base agenda link gains an `extracted` payload overflowing the preview caps (droppedSessions/Days/Tracks all > 0); see roster row t2-agenda-overflow
-    agendaLinks?: number; // N agenda links; > 6 crosses AGENDA_MAX_PDFS_PER_SHEET; > 1 shows per-link badges
+    agendaLinks?: number; // N agenda links whose generated labels follow the badge grammar ("AGENDA <n> - <suffix>", lib/agenda/agendaLabel.ts:4-12 - the base "Show agenda" label yields a null badge, so generated links MUST use grammar-conforming labels); > 6 crosses AGENDA_MAX_PDFS_PER_SHEET; > 1 visible link enables badges
     hotelGuests?: number; // names on hotel 1; > 5 crosses the avatar-stack cap
   };
-  alertFlash?: boolean; // true → data.alertId = the scenario's first alert synthetic id (the ?alert= one-shot flash state); requires at least one alert (validation error otherwise)
+  alertFlash?: boolean; // true → data.alertId = the synthetic id of the first alert whose DERIVED item survives the modal cut (probed via deriveScenarioAttention, not the raw list - a PICKER_EPOCH_RESET or DOUG_EXCLUDED first row would otherwise target a filtered item and hit the no-match fallback); validation requires at least one surviving derived alert item (§4)
 };
 ```
 
@@ -225,7 +225,7 @@ The 99+ pill cap is DESCOPED: `validateScenario` rejects duplicate alert codes b
 | `t2-minimal-header` | slug-fallback title, "Dates not detected", no client subline | `fixture: { titleAbsent, datesAbsent, clientAbsent }`; `landing: "overview"` |
 | `t2-nothing-parsed` | every "No X parsed." empty state at once | `fixture: { empty: [all 8], datesAbsent: true }`; `landing: "mixed"` |
 | `t2-overflow-volumes` | "+N more" people/rooms/hotels + schedule overflow | `fixture: { volumes: { crew: 31, rooms: 21, hotels: 13, schedule: "overflow" } }`; `landing: "mixed"` |
-| `t2-roster-over-cap` | the over-500 roster posture: crew section still displays all rows, but `previewRoster` and `crewEmails` are blanked so crew-row action menus are suppressed | `fixture: { volumes: { crew: 501 } }` (no `share` — guarded); `landing: "crew"` |
+| `t2-roster-over-cap` | the over-500 roster posture: crew section renders its usual capped 30 rows + "+471 more people", while `previewRoster` and `crewEmails` are blanked so crew-row action menus are suppressed | `fixture: { volumes: { crew: 501 } }` (no `share` — guarded); `landing: "crew"` |
 | `t2-alert-deep-link` | the `?alert=` one-shot state: menu auto-open suppressed, banner scroll + flash targeting the matching alert (`components/admin/showpage/PublishedReviewModal.tsx:421-456`) | 1 actionable alert + `fixture: { alertFlash: true }` → `data.alertId` set to that alert's synthetic id (every other scenario keeps `alertId: null`); `landing` unset (real section) |
 | `t2-multi-agenda` | multi-agenda badges (>1 visible link) and the six-PDF cap (7 links → 6 visible, `AGENDA_MAX_PDFS_PER_SHEET` at `lib/agenda/constants.ts:24`) | `fixture: { volumes: { agendaLinks: 7 } }`; `landing: "mixed"` |
 | `t2-hotel-guest-stack` | the five-avatar guest-stack cap on a hotel card (`components/admin/wizard/step3ReviewSections.tsx:2444-2458`) | `fixture: { volumes: { hotelGuests: 7 } }` — 7 names on hotel 1 → 5 avatars + overflow; `landing: "mixed"` |
@@ -272,6 +272,7 @@ Materialize (`lib/dev/materialize/`) is untouched. All new fields are tier-2-onl
 | `checkedAbsent: true` + explicit `lastSyncStatus` other than `"ok"` (null, non-ok buckets, unknown strings) | Validation error (`lastCheckedAt` is consulted only for the ok bucket, `components/admin/showpage/StatusStrip.tsx:124-135`) |
 | `empty` contains `"agenda"` + `volumes.agenda` | Validation error (contradictory) |
 | `share.linkActive` + (`published: false` or `archived: true`) | Validation error (`linkActive` requires published && !archived, `components/admin/showpage/ShareHub.tsx:215`) |
+| `alertFlash: true` with zero alerts whose derived items survive the modal cut | Validation error (the flash must target a rendered banner; derivation-probed like `pickByDerivedClass`) |
 | `share.crewEmails` negative, non-integer, or > 500 | Validation error (production suppresses crew emails past the 500-row roster cap, `app/admin/show/[slug]/crewLinkMailto.ts:16`; 0 is legal — the zero-email active-link state) |
 | `share.crewEmails >= 1` + `empty` containing `"crew"` | Validation error (emails derive from the snapshot roster; an empty roster cannot carry them). `crewEmails: 0` beside empty crew is LEGAL — the zero-recipient active link |
 | `share.crewEmails` exceeding the effective crew count when `volumes.crew` is ALSO set | Validation error (the roster reshape would silently contradict the declared volume; without `volumes.crew`, applyFixture grows the roster to N email-bearing members) |
@@ -326,6 +327,8 @@ None. No new visual states or animations are introduced; every state this featur
 - Not applicable: Supabase call-boundary registry (no new Supabase calls — `shapeChangeFeed` is pure; `readShowChangeFeed`'s calls are unchanged and already registered), advisory locks (no mutation paths), mutation-surface observability (no new mutation surfaces), §12.4 catalog (no new codes).
 
 ## 8. Review record
+
+**R10 (Codex via codex-guard, 2026-07-22): BLOCKING, 3 findings — all repaired.** F1: `alertFlash` targets the first SURVIVING derived item (derivation-probed) with a §4 guard row. F2: `agendaLinks` labels must follow the badge grammar ("AGENDA <n> - <suffix>"). F3: roster-over-cap wording corrected (capped 30 rows + "+471 more people").
 
 **R9 (Codex via codex-guard, 2026-07-22): BLOCKING, 4 findings — all repaired.** F1: `clientAbsent` maps to storable `client_label: ""` (DDL NOT NULL; adapter `|| null` produces the absent UI state). F2: parity table gains the roster-over-500 `previewRoster` blanking + `t2-roster-over-cap` scenario. F3: `t2-diagram-images` re-documented honestly — the non-materialized gallery's asset loads 410, so tiles show the "Preview unavailable" fallback; the scenario demonstrates grid + overflow + fallback together. F4: three missed states added — `t2-alert-deep-link` (`alertFlash` knob wiring `data.alertId`), `t2-multi-agenda` (`agendaLinks: 7` vs the 6-PDF cap), `t2-hotel-guest-stack` (`hotelGuests: 7` vs the 5-avatar cap).
 
