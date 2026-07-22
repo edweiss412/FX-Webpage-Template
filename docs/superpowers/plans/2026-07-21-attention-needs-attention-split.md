@@ -95,9 +95,15 @@ describe("self-healing vs needs-look classification", () => {
     }
   });
 
-  it("is NOT tautological: a synthetic unclassified code would fail membership", () => {
+  it("is NOT tautological: the exhaustiveness predicate FAILS on neither and on both", () => {
+    // factor the check so we can run it against synthetic set memberships
+    const classifiedOk = (inSelf: boolean, inLook: boolean) => (inSelf ? 1 : 0) + (inLook ? 1 : 0) === 1;
+    expect(classifiedOk(false, false)).toBe(false); // in NEITHER → not ok (a new unclassified code)
+    expect(classifiedOk(true, true)).toBe(false);   // in BOTH → not ok
+    expect(classifiedOk(true, false)).toBe(true);
+    // and a genuinely-absent synthetic code is in neither real set:
     const synthetic = "SYNTHETIC_NEW_AUTO_CODE";
-    expect(SELF_HEALING_CODES.has(synthetic) || NEEDS_LOOK_CODES.has(synthetic)).toBe(false);
+    expect(classifiedOk(SELF_HEALING_CODES.has(synthetic), NEEDS_LOOK_CODES.has(synthetic))).toBe(false);
   });
 
   it("isSelfHealing matches the set", () => {
@@ -112,13 +118,13 @@ describe("self-healing vs needs-look classification", () => {
 - [ ] **Step 3: Write minimal implementation** — append to `lib/adminAlerts/audience.ts`
 
 ```ts
-export const SELF_HEALING_CODES: ReadonlySet<string> = new Set([
+export const SELF_HEALING_CODE_LIST = [
   "DRIVE_FETCH_FAILED",
   "SYNC_STALLED",
   "WATCH_CHANNEL_ORPHANED",
-]);
+] as const;
 
-export const NEEDS_LOOK_CODES = new Set([
+export const NEEDS_LOOK_CODE_LIST = [
   "SHEET_UNAVAILABLE",
   "OPENING_REEL_NOT_VIDEO",
   "OPENING_REEL_PERMISSION_DENIED",
@@ -131,16 +137,21 @@ export const NEEDS_LOOK_CODES = new Set([
   "SHOW_UNPUBLISHED",
   "USE_RAW_DECISION_STALE",
   "ASSET_RECOVERY_BYTES_EXCEEDED",
-] as const);
+] as const;
 
-export type NeedsLookCode = typeof NEEDS_LOOK_CODES extends Set<infer T> ? T : never;
+export type NeedsLookCode = (typeof NEEDS_LOOK_CODE_LIST)[number];
+
+// Sets are typed ReadonlySet<string> so `.has(anyString)` typechecks under strict mode;
+// the literal union for the typed-total hint map comes from NEEDS_LOOK_CODE_LIST, not the Set.
+export const SELF_HEALING_CODES: ReadonlySet<string> = new Set(SELF_HEALING_CODE_LIST);
+export const NEEDS_LOOK_CODES: ReadonlySet<string> = new Set(NEEDS_LOOK_CODE_LIST);
 
 export function isSelfHealing(code: string): boolean {
   return SELF_HEALING_CODES.has(code);
 }
 ```
 
-Note: `NeedsLookCode` derives from the literal set for the typed-total hint map (Task 3). Keep the `as const` on `NEEDS_LOOK_CODES` so the union is literal.
+Note: the `_LIST` tuples (`as const`) carry the literal union (`NeedsLookCode`) for the typed-total hint map (Task 3) and the totality test; the `ReadonlySet<string>` sets carry the runtime membership so `.has(code: string)` typechecks. Two shapes on purpose — do NOT collapse them (a `Set<literal>` rejects `.has(string)` under strict mode; a lone `ReadonlySet<string>` loses the literal union).
 
 - [ ] **Step 4: Run test to verify it passes** — `pnpm vitest run tests/adminAlerts/selfHealingClassification.test.ts` → PASS (all 5).
 
@@ -178,9 +189,12 @@ it("tags clearingKind: self_heal for SYNC_STALLED, needs_look for SHEET_UNAVAILA
     slug: "demo",
     driveFileId: "FILE123",
   });
-  const byCode = Object.fromEntries(items.filter(i => i.kind === "alert").map(i => [i.alert.code, i]));
-  expect(byCode.SYNC_STALLED.clearingKind).toBe("self_heal");
-  expect(byCode.SHEET_UNAVAILABLE.clearingKind).toBe("needs_look");
+  // narrow to the alert variant, and use a Map (no noUncheckedIndexedAccess violation)
+  const byCode = new Map(
+    items.filter((i): i is Extract<typeof i, { kind: "alert" }> => i.kind === "alert").map(i => [i.alert.code, i]),
+  );
+  expect(byCode.get("SYNC_STALLED")?.clearingKind).toBe("self_heal");
+  expect(byCode.get("SHEET_UNAVAILABLE")?.clearingKind).toBe("needs_look");
 });
 
 it("does not set clearingKind on an actionable alert", () => {
@@ -190,7 +204,7 @@ it("does not set clearingKind on an actionable alert", () => {
   });
   const it0 = items.find(i => i.kind === "alert");
   expect(it0?.actionable).toBe(true);
-  expect(it0?.clearingKind).toBeUndefined();
+  expect(it0 && "clearingKind" in it0 ? it0.clearingKind : undefined).toBeUndefined();
 });
 
 it("orders needs_look before self_heal within the clearing tail", () => {
@@ -201,7 +215,9 @@ it("orders needs_look before self_heal within the clearing tail", () => {
     ],
     feed: null, slug: "demo", driveFileId: "F",
   });
-  const codes = items.filter(i => i.kind === "alert").map(i => i.alert.code);
+  const codes = items
+    .filter((i): i is Extract<typeof i, { kind: "alert" }> => i.kind === "alert")
+    .map(i => i.alert.code);
   expect(codes.indexOf("SHEET_UNAVAILABLE")).toBeLessThan(codes.indexOf("SYNC_STALLED"));
 });
 ```
@@ -210,11 +226,13 @@ it("orders needs_look before self_heal within the clearing tail", () => {
 
 - [ ] **Step 3: Write minimal implementation** — `lib/admin/attentionItems.ts`
 
-Add to `AttentionItemBase`:
+(a) Extend the `AlertActionBuilder` opts + `resolveAlertAction` signature in `lib/adminAlerts/alertActions.ts` from `{ slug: string | null }` to `{ slug: string | null; driveFileId: string | null }` NOW (Task 3 fills the builders that use `driveFileId`; existing builders ignore it and still compile). This makes the Task 2 call site below typecheck without depending on Task 3.
+
+(b) Add to `AttentionItemBase`:
 ```ts
   clearingKind?: "self_heal" | "needs_look";
 ```
-Extend the args type and signature:
+(c) Extend the args type and signature:
 ```ts
 export function deriveAttentionItems(args: {
   alerts: AttentionAlertInput[];
@@ -224,20 +242,21 @@ export function deriveAttentionItems(args: {
   excludedCodes?: readonly string[];
 }): AttentionItem[] {
 ```
-Thread `driveFileId` into `toAlertItem(row, args.slug, args.driveFileId)` and, inside `toAlertItem`, after computing `actionable`:
+(d) Thread `driveFileId` into `toAlertItem(row, args.slug, args.driveFileId)`; inside `toAlertItem`, after computing `actionable`, build the field with a CONDITIONAL SPREAD (never assign `clearingKind: undefined` — that violates `exactOptionalPropertyTypes`):
 ```ts
-  const clearingKind = actionable
-    ? undefined
-    : isSelfHealing(row.code) ? "self_heal" as const : "needs_look" as const;
+const clearingKindPatch = actionable
+  ? {}
+  : { clearingKind: (isSelfHealing(row.code) ? "self_heal" : "needs_look") as "self_heal" | "needs_look" };
+// ...spread into the returned object: return { ...base, ...clearingKindPatch, kind: "alert", alert: {...} };
 ```
-Include `clearingKind` in the returned object. Pass `driveFileId` into `resolveAlertAction(row.code, row.context, { slug, driveFileId })` (Task 3 consumes it). Replace the final clearing concat with sub-ordering:
+Pass `driveFileId` into `resolveAlertAction(row.code, row.context, { slug: args.slug, driveFileId: args.driveFileId })`. (e) Replace the final clearing concat with sub-ordering (filter on the base field, then narrow only where needed):
 ```ts
 const clearing = alertItems.filter((i) => !i.actionable);
 const needsLook = clearing.filter((i) => i.clearingKind === "needs_look");
 const selfHeal = clearing.filter((i) => i.clearingKind === "self_heal");
 return [...holdItems, ...actionableAlerts, ...needsLook, ...selfHeal];
 ```
-Import `isSelfHealing` from `@/lib/adminAlerts/audience`.
+Import `isSelfHealing` from `@/lib/adminAlerts/audience`. NOTE for Tasks 4/5: `clearingKind` lives on `AttentionItemBase`, so filtering on it does NOT narrow the `AttentionItem` union to its `alert` variant; any code needing `item.alert` must FIRST narrow with `if (item.kind === "alert")` (or a `isAlertItem` guard).
 
 - [ ] **Step 4: Run test to verify it passes** — `pnpm vitest run tests/admin/attentionItems.test.ts` → PASS (existing + 3 new). Fix any existing call sites in this test file that now need `driveFileId` (add `driveFileId: null`).
 
@@ -289,9 +308,11 @@ describe("needs-a-look action resolution", () => {
     expect(a?.href.match(/#/g)?.length).toBe(1); // no ##overview
   });
 
-  it("RESYNC_SHRINK_HELD keeps its existing #overview registration", () => {
+  it("RESYNC_SHRINK_HELD keeps its exact existing registration", () => {
+    // pre-registered in alertActions.ts (citation pack :109-117): label "Review & re-sync", internal #overview
     const a = resolveAlertAction("RESYNC_SHRINK_HELD", {}, { slug: "demo", driveFileId: "FILE" });
-    expect(a?.href).toContain("#overview");
+    expect(a).toEqual({ label: "Review & re-sync", href: "/admin?show=demo#overview", external: false });
+    // (re-grep the exact committed label at execution; assert whatever the current registration is, exactly)
   });
 
   it("ASSET_RECOVERY_BYTES_EXCEEDED resolves to no action", () => {
@@ -319,13 +340,18 @@ import { describe, it, expect } from "vitest";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 import { NEEDS_LOOK_CODES } from "@/lib/adminAlerts/audience";
 
+import { NEEDS_LOOK_CODE_LIST } from "@/lib/adminAlerts/audience";
+
 describe("needs-look fix hints", () => {
-  it("every needs-look code has a non-empty trimmed hint", () => {
-    for (const code of NEEDS_LOOK_CODES) {
-      const hint = (NEEDS_LOOK_HINTS as Record<string, string>)[code];
-      expect(hint, `${code} missing hint`).toBeTruthy();
+  it("every needs-look code has a non-empty trimmed hint (typed-total; iterate the literal list)", () => {
+    for (const code of NEEDS_LOOK_CODE_LIST) {
+      const hint = NEEDS_LOOK_HINTS[code]; // typed NeedsLookCode index, no cast/guard
       expect(hint.trim().length, `${code} blank hint`).toBeGreaterThan(0);
     }
+  });
+  it("ASSET_RECOVERY_BYTES_EXCEEDED hint states the literal limits", () => {
+    const h = NEEDS_LOOK_HINTS.ASSET_RECOVERY_BYTES_EXCEEDED;
+    for (const lit of ["60", "50MB", "3GB"]) expect(h).toContain(lit);
   });
   it("no em-dash in any hint", () => {
     for (const hint of Object.values(NEEDS_LOOK_HINTS)) expect(hint).not.toContain(String.fromCharCode(0x2014));
@@ -337,8 +363,7 @@ describe("needs-look fix hints", () => {
 
 - [ ] **Step 3: Write minimal implementation**
 
-`lib/adminAlerts/alertActions.ts`:
-- Extend opts type to `{ slug: string | null; driveFileId: string | null }`.
+`lib/adminAlerts/alertActions.ts` (opts type already extended to `{ slug, driveFileId }` in Task 2(a); here add the builders that USE `driveFileId`):
 - Add helper + rewrite `openSheet`:
 ```ts
 const firstNonEmpty = (...xs: (string | null | undefined)[]) =>
@@ -404,40 +429,60 @@ git commit --no-verify -m "$(printf 'feat(admin): action links for needs-a-look 
 - Consumes: `AttentionItem.clearingKind` (Task 2).
 - Produces: `needsLook`, `selfHeal` derivations; composite pill segments.
 
-- [ ] **Step 1: Write the failing test** — full pill presence matrix (spec §11.5), RTL. (See spec §11.5 for the exact 9-row matrix; assert visible text + no leading middot at `(0,4,0)` + monitoring not vanishing at `(3,0,2)`.)
+- [ ] **Step 1: Write the failing test** — the FULL 9-row presence matrix from spec §11.5 (all rows, not a subset), RTL. First create the fixtures `tests/components/admin/showpage/__fixtures__/attentionFixtures.tsx`:
 
 ```tsx
-// tests/components/admin/showpage/publishedPill.test.tsx
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
-import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
-import { makeItems } from "./__fixtures__/attentionFixtures"; // helper: (nA,nNeed,nSelf) -> AttentionItem[]
-
-function pillText(nA: number, nNeed: number, nSelf: number, degraded = false) {
-  render(<PublishedReviewModal {...baseProps({ attentionItems: makeItems(nA, nNeed, nSelf), alertsDegraded: degraded })} />);
-  return screen.getByTestId("published-alert-pill").textContent ?? "";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+// build N alert items of a given clearing kind / actionable; ids unique; derive nothing from pill output.
+export function makeItems(nA: number, nNeed: number, nSelf: number): AttentionItem[] {
+  const mk = (i: number, actionable: boolean, kind?: "needs_look" | "self_heal"): AttentionItem => ({
+    id: `${actionable ? "a" : kind}-${i}`, tone: "notice", sectionId: "overview", crewKey: null,
+    actionable, menuTitle: "t", menuSubtitle: null, ...(kind ? { clearingKind: kind } : {}),
+    kind: "alert", alert: { alertId: `x${i}`, code: "SHEET_UNAVAILABLE", action: null } as any,
+  });
+  return [
+    ...Array.from({ length: nA }, (_, i) => mk(i, true)),
+    ...Array.from({ length: nNeed }, (_, i) => mk(i, false, "needs_look")),
+    ...Array.from({ length: nSelf }, (_, i) => mk(i, false, "self_heal")),
+  ];
 }
-
-it("(3,4,2) shows all three, review+monitoring not hidden", () => {
-  expect(pillText(3,4,2)).toMatch(/3 to confirm.*4 to review.*2 monitoring/s);
-});
-it("(3,0,2) monitoring does not vanish beside actionable", () => {
-  expect(pillText(3,0,2)).toMatch(/3 to confirm.*2 monitoring/s);
-});
-it("(0,4,0) no leading middot", () => {
-  const t = pillText(0,4,0).trim();
-  expect(t.startsWith("·")).toBe(false);
-  expect(t).toMatch(/4 to review/);
-});
-it("(0,0,1) monitoring-only is non-interactive (no button)", () => {
-  render(<PublishedReviewModal {...baseProps({ attentionItems: makeItems(0,0,1) })} />);
-  expect(screen.queryByRole("button", { name: /monitoring/i })).toBeNull();
-});
-it("(0,0,0) In sync", () => { expect(pillText(0,0,0)).toMatch(/In sync/); });
-it("degraded → Alerts unavailable", () => { expect(pillText(0,0,0,true)).toMatch(/Alerts unavailable/); });
+export function baseProps(over: Partial<React.ComponentProps<typeof import("@/components/admin/showpage/PublishedReviewModal").PublishedReviewModal>>) {
+  return { /* minimal required PublishedReviewModal props */ slug: "demo", driveFileId: "FILE", attentionItems: [], alertsDegraded: false, ...over } as any;
+}
 ```
 
-(`baseProps`/`makeItems` fixtures created in the same step under `__fixtures__/attentionFixtures.tsx`; derive counts from the fixture, not hardcoded pill output.)
+Then the matrix (assert BOTH visible text AND accessible name via `getByRole`, so dropping the inherited sr-only tail fails):
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
+import { makeItems, baseProps } from "./__fixtures__/attentionFixtures";
+
+function pill(nA: number, nNeed: number, nSelf: number, degraded = false) {
+  render(<PublishedReviewModal {...baseProps({ attentionItems: makeItems(nA, nNeed, nSelf), alertsDegraded: degraded })} />);
+  return screen.getByTestId("published-alert-pill");
+}
+// full spec §11.5 matrix — all 9 rows:
+it("(3,4,2)", () => { const p = pill(3,4,2); expect(p.textContent).toMatch(/3 to confirm.*4 to review.*2 monitoring/s); });
+it("(3,0,0)", () => { expect(pill(3,0,0).textContent).toMatch(/3 to confirm/); });
+it("(3,4,0)", () => { expect(pill(3,4,0).textContent).toMatch(/3 to confirm.*4 to review/s); });
+it("(3,0,2) monitoring not vanishing", () => { expect(pill(3,0,2).textContent).toMatch(/3 to confirm.*2 monitoring/s); });
+it("(0,4,0) no leading middot", () => { const t = (pill(0,4,0).textContent ?? "").trim(); expect(t.startsWith("·")).toBe(false); expect(t).toMatch(/4 to review/); });
+it("(0,4,2)", () => { const t = (pill(0,4,2).textContent ?? "").trim(); expect(t.startsWith("·")).toBe(false); expect(t).toMatch(/4 to review.*2 monitoring/s); });
+it("(0,0,1) monitoring-only NON-interactive", () => { render(<PublishedReviewModal {...baseProps({ attentionItems: makeItems(0,0,1) })} />); expect(screen.queryByRole("button", { name: /monitoring/i })).toBeNull(); });
+it("(0,0,0) In sync", () => { expect(pill(0,0,0).textContent).toMatch(/In sync/); });
+it("degraded → Alerts unavailable", () => { expect(pill(0,0,0,true).textContent).toMatch(/Alerts unavailable/); });
+// accessible name carries the sr-only expansion (inherited from #537) for terse segments:
+it("accessible name spells out review + monitoring", () => {
+  const p = pill(0,4,2);
+  expect(p).toHaveAccessibleName(/to review/i);
+  expect(p).toHaveAccessibleName(/monitoring/i);
+});
+```
+
+Counts are derived from the fixture inputs, never hardcoded from pill output.
+
+- [ ] **Step 1b: Reconcile the inherited `clearingPillLabel` test (from #537, now on the base).** Grep for it (`git grep -l clearingPillLabel`) and UPDATE it in THIS task to match the new segments (`to confirm · to review · monitoring`) — do not leave it red across commits. Carry #537's sr-only accessible-name mechanism into each terse segment (a visible short label + an sr-only expansion where the visible text is terse), preserving its leading-space trick (`feedback: sr-only leading space trimmed in accessible-name`).
 
 - [ ] **Step 2: Run test to verify it fails** — `pnpm vitest run tests/components/admin/showpage/publishedPill.test.tsx` → FAIL.
 
@@ -491,15 +536,38 @@ it("null-action needs-look row shows hint, no link", () => {
   expect(screen.getByText(/Trim the gallery/)).toBeInTheDocument();
   expect(screen.queryByRole("link")).toBeNull();
 });
-it("monitoring group is one summary row, not enumerated", () => {
-  render(<AttentionMenu {...menuProps([selfHealItem("SYNC_STALLED"), selfHealItem("DRIVE_FETCH_FAILED")])} />);
+it("monitoring group is one summary row — individual titles NOT rendered", () => {
+  render(<AttentionMenu {...menuProps([selfHealItem("SYNC_STALLED", "Syncing stalled"), selfHealItem("DRIVE_FETCH_FAILED", "Drive fetch failed")])} />);
   expect(screen.getByText(/2 clearing on their own, no action needed/)).toBeInTheDocument();
+  expect(screen.queryByText("Syncing stalled")).toBeNull();  // not enumerated
+  expect(screen.queryByText("Drive fetch failed")).toBeNull();
+});
+it("a needs-look ROW has no interactive descendant besides its anchor", () => {
+  render(<AttentionMenu {...menuProps([needsLookItem("SHEET_UNAVAILABLE", { href: SHEET, external: true })])} />);
+  const row = screen.getByTestId(/attention-needslook-row/);
+  // clone-and-strip: within the row, the only role=link/button is the single anchor
+  expect(within(row).getAllByRole("link")).toHaveLength(1);
+  expect(within(row).queryAllByRole("button")).toHaveLength(0);
+});
+it("internal anchor carries neither target nor rel", () => {
+  render(<AttentionMenu {...menuProps([needsLookItem("SHOW_UNPUBLISHED", { href: "/admin?show=x#overview", external: false })])} />);
+  const a = screen.getByRole("link", { name: /Go to Overview/ });
+  expect(a).not.toHaveAttribute("target");
+  expect(a).not.toHaveAttribute("rel");
+});
+it("boundary: a needs-look item whose action FAILED to resolve renders hint, no link (through the menu)", () => {
+  // SHEET_UNAVAILABLE with a null action (both ids absent) — not the intentionally-actionless asset code
+  render(<AttentionMenu {...menuProps([needsLookItem("SHEET_UNAVAILABLE", null)])} />);
+  expect(screen.getByText(/Re-share the sheet/)).toBeInTheDocument();
+  expect(screen.queryByRole("link")).toBeNull();
 });
 ```
 
+Anti-tautology: when scanning for a monitoring title, the fixtures give self-heal items distinct visible titles so "not rendered" is a real assertion, not vacuous. `within(row)` scopes the interactive-descendant check to the row, not the whole menu.
+
 - [ ] **Step 2: Run test to verify it fails** — FAIL.
 
-- [ ] **Step 3: Write minimal implementation** — in `AttentionMenu.tsx`: after the actionable rows, render (a) a "Needs a look" subheading + one read-only row per `needs_look` item: dot, `menuTitle`, `NEEDS_LOOK_HINTS[code]` hint line, and — if `item.alert.action` — an `<a>` (label from action; external → `target="_blank" rel="noopener noreferrer"` + "↗") with `onClick={() => onClose()}`; (b) a "Monitoring" subheading + one summary row "{selfHealCount} clearing on their own, no action needed". Retire the old footer (141-151). Reuse the anchor pattern from `AttentionBanner.tsx:160-174`.
+- [ ] **Step 3: Write minimal implementation** — in `AttentionMenu.tsx`: after the actionable rows, render (a) a "Needs a look" subheading + one read-only row (`data-testid="attention-needslook-row-{id}"`) per `needs_look` item. STRICT-TS notes: the item must first be narrowed with `if (item.kind !== "alert") continue;` (or filtered by a type guard) before reading `item.alert.action` (`clearingKind` is on the base type and does not narrow — see Task 2 note). The hint lookup must guard the key: `NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : ""` (indexing `NEEDS_LOOK_HINTS` with a raw alert-code `string` is a strict-mode error without the `NeedsLookCode` narrowing). Render: dot, `menuTitle`, the hint line, and — if `item.alert.action` is non-null — an `<a>` (label from action; external → `target="_blank" rel="noopener noreferrer"` + "↗"; internal → no target/rel) with `onClick={() => onClose()}`. (b) a "Monitoring" subheading + one summary row "{selfHealCount} clearing on their own, no action needed" (no per-item titles). Retire the old footer (141-148). Reuse the anchor pattern from `AttentionBanner.tsx:160-174`.
 
 - [ ] **Step 4: Run test to verify it passes** — PASS.
 
@@ -515,32 +583,51 @@ it("monitoring group is one summary row, not enumerated", () => {
 - Create: `tests/e2e/attention-pill-focus.spec.ts` (real-browser)
 - Modify: `PublishedReviewModal.tsx` (add the close-effect)
 
-**Interfaces:** Consumes `interactive` (Task 4).
+**Interfaces:** Consumes `interactive` (Task 4), the rendered menu (Task 5). Ordering: AFTER Tasks 4 and 5 (the probe needs a real composite pill + rendered menu to drive). The probe is written FIRST (red), then the close-effect is implemented and the MECHANISM is chosen by observation — the probe is the authority (spec §6a), not this prose.
 
-- [ ] **Step 1: Write the failing probe test** — real-browser (Playwright), the GENERATED 3×3 = 9-cell product (spec §6a/§11.5a). Do NOT hand-list cells:
+**Probe harness driver (concrete — required, not pseudocode).** The published modal renders from `attentionItems` supplied by its parent. Build `tests/e2e/__fixtures__/pillFocusHarness.tsx`: a client page that mounts `PublishedReviewModal` with a `window.__setItems(actionable, needsLook, selfHeal, degraded)` hook (wired to React state) so the test drives live transitions from the browser. Register it as a dev-only e2e route (mirror the existing published-modal e2e harness boot; do NOT use the real data path). The mechanism under test is toggled by an env/query flag the harness reads: `focusMode = useEffect | useLayoutEffect`, `restore = active | suppressed` (4 combinations) — so the probe MEASURES all four, per spec §6a.
+
+- [ ] **Step 1: Write the failing probe test** — `tests/e2e/attention-pill-focus.spec.ts`, real-browser (Playwright), GENERATED 3×3 = 9-cell product. Do NOT hand-list cells. Each cell OPENS the menu, MOVES FOCUS INTO the menu (Tab/click a menu row), then drives to the non-interactive exit and asserts the outcome:
 
 ```ts
 const ENTRY: Array<[number, number]> = [[1,0],[0,1],[1,1]];
 const EXIT = [{ selfHeal: 1, label: "B" }, { degraded: true, label: "C" }, { selfHeal: 0, label: "D" }];
-const cells = ENTRY.flatMap(e => EXIT.map(x => ({ e, x })));
+const cells = ENTRY.flatMap(([a, n]) => EXIT.map((x) => ({ a, n, x })));
 test("exactly 9 transition cells", () => { expect(cells.length).toBe(9); });
-for (const { e, x } of cells) {
-  test(`menu open ${JSON.stringify(e)} -> ${x.label}: menu closes, focus on dialog root, not body`, async ({ page }) => {
-    // boot published modal, open menu at entry state e, drive to non-interactive x,
-    // assert: menuOpen false, no aria-expanded=true, activeElement === dialog root (not body)
+for (const { a, n, x } of cells) {
+  test(`open [${a},${n}] -> ${x.label}: menu closed, focus on dialog root`, async ({ page }) => {
+    await page.goto("/e2e/pill-focus"); // harness route
+    await page.waitForFunction(() => (window as any).__hydrated === true); // hydration gate, not networkidle
+    await page.evaluate(([a, n]) => (window as any).__setItems(a, n, 1, false), [a, n]);
+    await page.getByTestId("published-alert-pill").click();      // open menu
+    await page.getByRole("menu").getByRole("link").first().focus(); // focus INTO the menu (or first focusable)
+    // drive to non-interactive exit:
+    await page.evaluate(([x]) => (window as any).__setItems(0, 0, x.selfHeal ?? 0, !!x.degraded), [x]);
+    const state = await page.evaluate(() => ({
+      open: (window as any).__menuOpen,
+      activeIsDialog: document.activeElement?.getAttribute("role") === "dialog"
+        || document.activeElement?.closest('[role="dialog"]') != null,
+      activeIsBody: document.activeElement === document.body,
+      staleExpanded: !!document.querySelector('[aria-expanded="true"]'),
+    }));
+    expect(state.open).toBe(false);
+    expect(state.activeIsBody).toBe(false);
+    expect(state.activeIsDialog).toBe(true);
+    expect(state.staleExpanded).toBe(false);
   });
 }
 ```
 
-Harness-readiness (spec §11.9): boot the existing published-modal e2e app (prod build, the configured port), await row hydration (`waitForRowHydration`-class gate, never `networkidle` alone), and make the live-data driver detach-safe (no `locator.evaluate` on a node that unmounts mid-transition).
+Harness-readiness (spec §11.9): the harness route boots the dev server (or prod build) on the configured port; the test awaits the `__hydrated` gate (never `networkidle` alone); the driver mutates React state via `__setItems` (no `locator.evaluate` on a node that unmounts mid-transition — detach-safe).
 
-- [ ] **Step 2: Run to verify it fails** — `pnpm test:e2e attention-pill-focus` → FAIL (menu orphaned / focus on body).
+- [ ] **Step 2: Run to verify it fails** — `pnpm test:e2e attention-pill-focus` → FAIL (menu orphaned / focus on body under the default mechanism).
 
-- [ ] **Step 3: Implement the close-effect** — in `PublishedReviewModal.tsx`, add an effect keyed on `interactive`; when it goes false while `menuOpen`, `setMenuOpen(false)` and move focus to the dialog root ref. Try `useLayoutEffect` first; if the probe shows a body-flash, switch to the alternative in §6a (suppress the menu's own close-focus-restore for this path). The probe IS the authority — iterate mechanism until all 9 cells pass. Key the effect on `interactive`, NEVER on `actionable` alone.
+- [ ] **Step 3: Measure the mechanism matrix, then implement the winner** — run the probe under all four `focusMode × restore` combinations (via the harness flag). Record which combination passes all 9 cells (the observed matrix — spec §6a). Implement THAT combination in `PublishedReviewModal.tsx`: an effect keyed on the composite `interactive` predicate (NEVER `actionable` alone) that, when `interactive` goes false while `menuOpen`, calls `setMenuOpen(false)` and moves focus to the dialog-root ref, using the winning `useEffect`/`useLayoutEffect` + restore-active/suppressed choice. If NO combination passes cleanly, apply the §6a ratified fallback (dialog-root focus via the modal's existing trap, documented single-frame flash). Record the observed matrix + choice in the handoff.
 
-- [ ] **Step 4: Run to verify it passes** — all 9 cells + the count assertion PASS.
+- [ ] **Step 4: Run to verify it passes** — all 9 cells + the count assertion PASS under the chosen mechanism.
 
-- [ ] **Step 5: Commit** — `feat(admin): close attention menu + restore focus when pill goes non-interactive`.
+- [ ] **Step 5: Add the §11.9 navigation e2e** — in the same harness/spec, a test: open the pill menu, assert a needs-a-look sheet row's `<a>` has the exact `href` (`https://docs.google.com/spreadsheets/d/FILE/edit#gid=0`) and `target="_blank"`, then click it and assert the menu closes (`__menuOpen === false`). This covers spec §11.9 (the focus probe does not exercise the sheet-link nav path). Run → PASS.
+- [ ] **Step 6: Commit** — `feat(admin): close attention menu + restore focus when pill goes non-interactive (probe-selected mechanism)`.
 
 ---
 
@@ -548,11 +635,12 @@ Harness-readiness (spec §11.9): boot the existing published-modal e2e app (prod
 
 **Files:** Test: `tests/components/admin/showpage/attentionTransitions.test.tsx` (create).
 
-- [ ] **Step 1: Write the test** — enumerate every conditional render in the pill + menu (the 4 pill states, the two groups, each `<a>`): assert none introduces an `AnimatePresence`/`motion` enter-exit (states are instant per §8), and that group appear/disappear while the menu is open does not throw / leaves the pill segment in lockstep. Assert the compound case 2 is delegated to the Task 6 probe (reference, not re-test).
+This is a STRUCTURAL GUARD task (pins spec §8). Red-first is proven by inject-and-revert.
 
-- [ ] **Step 2-4:** run-fail (if any stray animation exists) → remove it → run-pass.
-
-- [ ] **Step 5: Commit** — `test(admin): transition audit for attention pill + menu (all instant)`.
+- [ ] **Step 1: Write the guard test** — `attentionTransitions.test.tsx`: statically read the pill + menu source (or render + assert no `motion.*`/`AnimatePresence` in the subtree), asserting no enter/exit animation on the 4 pill states / two groups / each `<a>` (instant per §8), and that a group appearing/disappearing while the menu is open does not throw and keeps the pill segment in lockstep. Reference (do not re-test) the Task 6 probe for compound case 2.
+- [ ] **Step 2: Prove it can go red** — temporarily wrap one pill segment in `<AnimatePresence>`; run the guard → it FAILS. Revert the injection.
+- [ ] **Step 3: Run against the real code** → PASS.
+- [ ] **Step 4: Commit** — `test(admin): transition audit guard for attention pill + menu (all instant)`.
 
 ---
 
@@ -560,37 +648,34 @@ Harness-readiness (spec §11.9): boot the existing published-modal e2e app (prod
 
 **Files:** Modify `tests/admin/_metaAttentionItemsTopology.test.ts`, `tests/admin/attentionExclusionSet.test.ts`.
 
-- [ ] **Step 1: Update** — the topology test admits ONE caller (`app/admin/_showReviewModal.tsx`, count 1) after #538; confirm the `driveFileId` arg addition did not add a caller (grep count stays 1). In `attentionExclusionSet.test.ts`, add an assertion that the 15-code RENDERS set (doug-audience auto-resolving) is unchanged by the new `clearingKind` field.
+STRUCTURAL GUARD task (pins invariants on already-built code). Red-first is proven by inject-and-revert, since assertion-only meta-tests have no natural red state.
 
-- [ ] **Step 2: Run** — `pnpm vitest run tests/admin/_metaAttentionItemsTopology.test.ts tests/admin/attentionExclusionSet.test.ts` → PASS.
-
-- [ ] **Step 3: Commit** — `test(admin): pin driveFileId topology + exclusion set unchanged`.
+- [ ] **Step 1: Update assertions** — topology test admits ONE caller (`app/admin/_showReviewModal.tsx`, count 1) after #538; assert the `driveFileId` arg addition did not add a caller (count stays 1). In `attentionExclusionSet.test.ts`, add an assertion that the 15-code RENDERS set (doug-audience auto-resolving) is unchanged by the new `clearingKind` field.
+- [ ] **Step 2: Prove red** — temporarily add a second `deriveAttentionItems` reference in a throwaway source line (or a 16th code to the RENDERS expectation); run → the meta-test FAILS. Revert.
+- [ ] **Step 3: Run against real code** → PASS.
+- [ ] **Step 4: Commit** — `test(admin): pin driveFileId topology (single caller) + exclusion set unchanged`.
 
 ---
 
-### Task 9: Full suite + impeccable dual-gate + gallery preview
+### Task 9: Gallery preview fixtures, THEN full suite + impeccable dual-gate
 
-- [ ] **Step 1: Full local suite** — `pnpm test` (unit), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`. All green. (Env-bound/e2e run separately: `pnpm test:e2e attention-pill-focus`.)
+Gallery FIRST so its diff is covered by the suite and evaluated by impeccable (a gate must not run before the last UI change).
 
-- [ ] **Step 2: impeccable critique** — `/impeccable critique` on the diff (context.mjs load → register read). Fix/deferr P0/P1.
-
-- [ ] **Step 3: impeccable audit** — `/impeccable audit` on the diff. Fix/defer P0/P1; record findings + dispositions in the handoff doc §12.
-
-- [ ] **Step 4: Gallery preview** — the switcher gallery landed (#538) at `app/admin/dev/attention-gallery/` (`buildSwitcherScenarios.ts`, `page.tsx`). Add scenario fixtures for the composite pill + needs-a-look rows (with/without link) + monitoring-only + in-sync via the new `buildSwitcherScenarios` / `partitionScenarios` API (grep the current file for the scenario shape at execution — the API replaced the deleted `buildBlockProps.ts`). This is a preview aid; if the switcher's scenario type does not accommodate the new pill states without a larger change, note it in the handoff and defer rather than expand scope.
-
+- [ ] **Step 1: Gallery preview** — the switcher gallery landed (#538) at `app/admin/dev/attention-gallery/` (`buildSwitcherScenarios.ts`, `page.tsx`). Grep the current scenario shape, then add scenario fixtures for the composite pill + needs-a-look rows (with/without link) + monitoring-only + in-sync via the `buildSwitcherScenarios` / `partitionScenarios` API. If the switcher's scenario type cannot accommodate the new pill states without a larger change, note it in the handoff and defer (do not expand scope). **Commit the gallery change here** (`feat(dev): attention-split scenarios in the modal gallery`) so nothing is left uncommitted.
+- [ ] **Step 2: Full local suite (after ALL code incl. gallery)** — `pnpm test` (unit), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`. All green. (Env-bound/e2e run separately: `pnpm test:e2e attention-pill-focus`.)
+- [ ] **Step 3: impeccable critique** — `/impeccable critique` on the FULL diff (context.mjs load → register read). Fix/defer P0/P1.
+- [ ] **Step 4: impeccable audit** — `/impeccable audit` on the FULL diff. Fix/defer P0/P1; record findings + dispositions in the handoff doc §12.
 - [ ] **Step 5: Commit** — any impeccable fixes as `fix(admin): impeccable P0/P1 (attention split)`.
 
 ---
 
-### Task 10: Rebase onto `unread-callout-dedup`, whole-diff review, ship
+### Task 10: Final sync, whole-diff review, ship
 
-**Precondition:** `fix/unread-callout-dedup` merged to `origin/main` (spec §12). If not yet merged, HALT here (set marker `blockedOn`), keep the nudge armed, resume when it lands.
+**Precondition ALREADY MET:** `fix/unread-callout-dedup` (#537) AND `attention-modal-gallery` (#538) have landed on `origin/main`; this branch is already rebased onto them (the `clearingPillLabel` test reconciliation happened in Task 4 Step 1b, NOT here). This task is the final sync + ship, not the first rebase.
 
-- [ ] **Step 1: Sync + rebase** — `git fetch origin`; `git rebase origin/main`. Resolve conflicts in `PublishedReviewModal.tsx` (its a11y-label work vs our pill) and update/supersede its `clearingPillLabel` test to match the new pill copy (`to confirm · to review · monitoring`), inheriting its accessible-label approach.
-
-- [ ] **Step 2: Re-run full suite + typecheck + lint after rebase** — green (base changed).
-
-- [ ] **Step 3: Whole-diff Codex review** — split tight-scope reviews per surface (spec §... ; per the split-review default). Iterate to APPROVE.
+- [ ] **Step 1: Final sync** — `git fetch origin`; if `origin/main` advanced again since Task 4, `git rebase origin/main` and re-resolve (the `clearingPillLabel` inheritance already handled in Task 4). Verify `git rev-list --right-only --count HEAD...origin/main` == `0` (0 behind).
+- [ ] **Step 2: Re-run full suite + typecheck + lint + format:check + e2e** — all green on the final base.
+- [ ] **Step 3: Whole-diff Codex review** — split tight-scope reviews per surface (per the split-review default for large diffs); inline the file list per brief. Iterate to APPROVE.
 
 - [ ] **Step 4: Push + real CI green** — `git push -u origin feat/attention-needs-attention-split`; watch `gh pr checks` to CLEAN.
 
